@@ -205,6 +205,16 @@ class PipelineConfig:
     # SEPARATE from the caption one on purpose - see
     # library/tools/overlay_mode.py.
     motion_graphics_overlay_geometry: str = "full"
+    # Which graphics engine draws the programmatic pictures
+    # (`graphics_renderer`: remotion|hyperframes). Undeclared means
+    # Remotion, which is today's path exactly - nothing renders
+    # differently unless this names hyperframes. The project wins over
+    # the user's PIPELINE_GRAPHICS_RENDERER, because the look of a
+    # video belongs to the video. See
+    # library/tools/graphics_renderer.py, which is what the steps
+    # read - this field exists so manage_project.py validates and
+    # round-trips the key rather than dropping it.
+    graphics_renderer: str = "remotion"
     # The punched-in TV-frame look, in the {asset, punch_in, power}
     # shape a brand template's `style.tv_frame` uses and taking
     # precedence over it. None means "take the template's", which in
@@ -431,6 +441,12 @@ class ProjectConfig:
                 f"pipeline.motion_graphics_overlay_geometry must be one of "
                 f"{list(GEOMETRIES)}, got "
                 f"{self.pipeline.motion_graphics_overlay_geometry!r}.")
+        from library.tools.graphics_renderer import ENGINES
+        if self.pipeline.graphics_renderer not in ENGINES:
+            errors.append(
+                f"pipeline.graphics_renderer must be one of "
+                f"{list(ENGINES)}, got "
+                f"{self.pipeline.graphics_renderer!r}.")
         if self.pipeline.subtitle_typography is not None:
             from library.tools.subtitle_style import TYPOGRAPHY_KEYS
             declared = self.pipeline.subtitle_typography
@@ -531,6 +547,9 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         motion_graphics_overlay_geometry=(
             pipeline_data.get("motion_graphics_overlay_geometry", "full")
             or "full"),
+        graphics_renderer=(
+            pipeline_data.get("graphics_renderer", "remotion")
+            or "remotion"),
         tv_frame=pipeline_data.get("tv_frame"),
         creative_brief=pipeline_data.get("creative_brief", ""),
         attach_creative_brief=pipeline_data.get("attach_creative_brief"),
@@ -647,6 +666,11 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if config.pipeline.motion_graphics_overlay_geometry == "full"
                else {"motion_graphics_overlay_geometry":
                      config.pipeline.motion_graphics_overlay_geometry}),
+            # Only when non-default: `remotion` in every project.yaml
+            # would read as a decision nobody made.
+            **({} if config.pipeline.graphics_renderer == "remotion"
+               else {"graphics_renderer":
+                     config.pipeline.graphics_renderer}),
             "creative_brief": config.pipeline.creative_brief,
             # Omitted when undeclared: an explicit null in every
             # project.yaml reads as a decision nobody made, and the

@@ -147,7 +147,8 @@ def bookend_props(bookend: dict, fps: int, width: int, height: int) -> dict:
 
 
 def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
-                   *, width: int, height: int) -> dict:
+                   *, width: int, height: int,
+                   project_folder: str = "") -> dict:
     """Render one composition-mode bookend to the path the spine named.
 
     `width`/`height` are the DECLARED delivery frame and have no default:
@@ -158,14 +159,19 @@ def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
     An ENGINE composition - one registered in the committed
     ``remotion-subtitles/src/Root.tsx`` - goes through the shared batch
     renderer (``library/tools/remotion_batch.py``): one bundle for the
-    batch instead of one bundle-and-launch per card.
+    batch instead of one bundle-and-launch per card. Where the
+    HyperFrames engine is selected (the project wins over the user -
+    ``library/tools/graphics_renderer.py``) and the composition HAS a
+    HyperFrames form, it draws through that instead, stated in the
+    output.
 
     A PROJECT composition - a ``.tsx`` the project owns, staged into a
     generated entry point that registers just that one composition -
-    stays on ``npx remotion render``, deliberately.  The batch bundles
-    the committed entry point (``src/index.ts``); a staged composition
-    lives behind a different bundle root, so it cannot join a batch
-    without a protocol the batch does not have.  That is the
+    stays on ``npx remotion render``, deliberately, on EITHER engine.
+    The batch bundles the committed entry point (``src/index.ts``); a
+    staged composition lives behind a different bundle root, so it
+    cannot join a batch without a protocol the batch does not have -
+    and it has no HyperFrames form at all. That is the
     different-composition-root case: a single render that legitimately
     stays on the CLI, stated rather than silently left.
     """
@@ -185,7 +191,10 @@ def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
 
     if bookend.get("source_path"):
         _render_one_cli(bookend, composition, remotion_dir, out_path,
-                        props_path)
+                        props_path, project_folder=project_folder)
+    elif _hyperframes_draws(composition, project_folder):
+        _render_engine_hyperframes(bookend, composition, remotion_dir,
+                                   out_path, props, project_folder)
     else:
         _render_engine_batch([(bookend, props, out_path)], remotion_dir)
 
@@ -198,12 +207,72 @@ def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
     }
 
 
+def _hyperframes_draws(composition: str, project_folder: str) -> bool:
+    """True when the selected engine draws this composition via HyperFrames.
+
+    Two gates: the engine is selected, AND the composition has a
+    HyperFrames form. Either one failing means Remotion draws - the
+    first failing is today's path unchanged, the second (MotionGraphics
+    until its port lands) is the stated fallback, never a silent one.
+    """
+    from library.tools import graphics_renderer as _engines
+    from library.tools import hyperframes_render as _hf
+    if not _engines.is_hyperframes(project_folder or None):
+        return False
+    return _hf.hyperframes_template(composition) is not None
+
+
+def _render_engine_hyperframes(bookend: dict, composition: str,
+                               remotion_dir: str, out_path: str,
+                               props: dict, project_folder: str) -> None:
+    """Render one engine-composition bookend through HyperFrames.
+
+    Raises :class:`BookendRenderError` naming the slot, the way the CLI
+    path always has: a missing card is a hole in the picture, never a
+    warning.
+    """
+    import sys as _sys
+
+    from library.tools import graphics_renderer as _engines
+    from library.tools import hyperframes_render as _hf
+    print(f"    engine: HyperFrames for '{bookend['slot']}' "
+          f"({composition} has a HyperFrames form; selected by "
+          f"{_engines.USER_SETTING_KEY} or the project's "
+          f"pipeline.graphics_renderer)", file=_sys.stderr)
+    try:
+        _hf.render_one_card(
+            composition, props, out_path,
+            os.path.dirname(os.path.abspath(out_path)),
+            project_folder or "",
+            os.path.dirname(os.path.abspath(remotion_dir)))
+    except (_hf.HyperFramesUnavailable,
+            _hf.HyperFramesRenderError) as exc:
+        raise BookendRenderError(
+            f"bookend '{bookend['slot']}' ({composition}) HyperFrames "
+            f"render failed: {exc}") from exc
+    if not os.path.exists(out_path):
+        raise BookendRenderError(
+            f"bookend '{bookend['slot']}' ({composition}) reported "
+            f"success but wrote no file at {out_path}")
+
+
 def _render_one_cli(bookend: dict, composition: str, remotion_dir: str,
-                    out_path: str, props_path: str) -> None:
+                    out_path: str, props_path: str,
+                    project_folder: str = "") -> None:
     """One ``npx remotion render`` of a project-owned staged composition.
 
     This is the deliberate CLI remainder: see :func:`render_bookend`.
+    On the HyperFrames engine this is also the stated fallback - a
+    project-owned ``.tsx`` has no HyperFrames form, so it draws through
+    Remotion BY NAME rather than approximately or not at all.
     """
+    from library.tools import graphics_renderer as _engines
+    if _engines.is_hyperframes(project_folder or None):
+        print(f"    engine: Remotion for '{bookend['slot']}' "
+              f"({composition} is a project-owned .tsx with no "
+              f"HyperFrames form; selected engine is HyperFrames, "
+              f"so this card falls back BY NAME, not silently)",
+              file=sys.stderr)
     command = ["npx", "remotion", "render"]
     command.append(stage_project_composition(
         bookend["source_path"], composition, remotion_dir))
@@ -283,7 +352,8 @@ def _render_engine_batch(pending: list, remotion_dir: str) -> None:
 
 def render_declared_bookends(structure: list, remotion_dir: str,
                              fps: int = 30, *, width: int,
-                             height: int, stream=sys.stderr) -> list:
+                             height: int, stream=sys.stderr,
+                             project_folder: str = "") -> list:
     """Produce every bookend the spine declares, and check the rest exist.
 
     Raises :class:`BookendRenderError` rather than warning: a missing card
@@ -323,7 +393,8 @@ def render_declared_bookends(structure: list, remotion_dir: str,
               f"({bookend['duration_seconds']}s)", file=stream)
         if bookend.get("source_path"):
             record = render_bookend(bookend, remotion_dir, fps,
-                                    width=width, height=height)
+                                    width=width, height=height,
+                                    project_folder=project_folder)
             print(f"    OK: {record['asset_path']} ({record['bytes']} bytes)",
                   file=stream)
             project_results[bookend["slot"]] = record
@@ -345,7 +416,22 @@ def render_declared_bookends(structure: list, remotion_dir: str,
         order.append(bookend["slot"])
 
     if engine_pending:
-        _render_engine_batch(engine_pending, remotion_dir)
+        # Engine compositions WITH a HyperFrames form draw through it
+        # under that selection, one card at a time; everything else
+        # batches through Remotion exactly as before. A composition
+        # the selection cannot draw is not skipped - it joins the
+        # batch, so the fallback is placement, never absence.
+        hf_pending, batch_pending = [], []
+        for triple in engine_pending:
+            (hf_pending if _hyperframes_draws(
+                triple[0]["composition"], project_folder)
+             else batch_pending).append(triple)
+        for bookend, props, out_path in hf_pending:
+            _render_engine_hyperframes(bookend, bookend["composition"],
+                                       remotion_dir, out_path, props,
+                                       project_folder)
+        if batch_pending:
+            _render_engine_batch(batch_pending, remotion_dir)
         for bookend, _, out_path in engine_pending:
             meta = engine_props[bookend["slot"]]
             print(f"    OK: {out_path} ({os.path.getsize(out_path)} bytes)",

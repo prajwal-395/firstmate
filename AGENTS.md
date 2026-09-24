@@ -610,16 +610,16 @@ Detail: `library/tools/music_measurement.py`. [why](docs/RULE_EVIDENCE.md#what-s
 **Anything added to `library/presets/` from an outside source needs its licence recorded here before it lands.**
 
 **A PowerGrade lands only with its provenance recorded here.**
-Captain's ruling 2026-09-10 over the withdrawn no-drx rule: `The Grade Free_1.13.1.drx` (captain-supplied, Zay's free grade) is authorised; no file ships in this repo. `library/tools/color_page_grade.py`; `tests/test_color_page_grade.py`. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
+Captain's ruling 2026-09-10: `The Grade Free_1.13.1.drx` (captain-supplied, Zay's free grade) is authorised; no file ships in this repo. `library/tools/color_page_grade.py`; `tests/test_color_page_grade.py`. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
 
-**One third-party asset does ship, with its licence.**
-Montserrat, as `remotion-subtitles/public/fonts/Montserrat-Variable.ttf` (variable 100-900: every weight `library/tools/subtitle_style.py` can ask for), under **SIL Open Font License 1.1** (`public/fonts/OFL-Montserrat.txt`).
+**Two third-party assets ship, with their licences.**
+Montserrat, as `remotion-subtitles/public/fonts/Montserrat-Variable.ttf` (variable 100-900), under **SIL Open Font License 1.1** (`public/fonts/OFL-Montserrat.txt`). GSAP, as `hyperframes/vendor/gsap.min.js` (3.14.2, pinned), under the **GSAP Standard License** (free; header in the file).
 
 - **Bundle fonts; never import one over HTTP.** [why](docs/RULE_EVIDENCE.md#the-webfont-race)
 - `tests/test_bundled_fonts.py` fails if the font or licence goes missing, a font arrives over HTTP, or a template names one neither bundled nor accepted as system.
 
 **A declared typeface must be one that really draws the glyphs.**
-One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system font, or carried by the project as a `font_file` staged out of `<project>/brand_assets/` by `prep_remotion`.
+One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system font, or carried by the project as a `font_file`.
 
 ## 12. The look
 

@@ -1,0 +1,105 @@
+<!doctype html>
+<!--
+  TimedTextOverlay - HyperFrames port of remotion-subtitles/src/compositions/TimedTextOverlay.
+
+  One absolutely-positioned moment per declaration, each windowed by the
+  engine's own .clip (data-start/data-duration): a moment outside its
+  span draws nothing, the way the Remotion side returns null there. The
+  box is sized to its content (width max-content, capped at twice the
+  nearer safe edge) and centred on its anchor - the same wrapping the
+  Remotion side draws, so a moment breaks onto two lines on the same
+  frame there. The fade ramps are the only tweens, linear like the
+  hand-written momentOpacity they mirror (fadeIn over the first
+  fadeInFrames, fadeOut over the last fadeOutFrames, clamped to fit).
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=__REN_WIDTH__, height=__REN_HEIGHT__" />
+    <script src="./gsap.min.js"></script>
+    <style>
+      <!--__REN_HEAD_EXTRA__-->
+      @font-face {
+        font-family: "Montserrat";
+        src: url("./Montserrat-Variable.ttf") format("truetype");
+        font-weight: 100 900;
+        font-style: normal;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: __REN_WIDTH__px; height: __REN_HEIGHT__px;
+        overflow: hidden; background: transparent;
+      }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; }
+      .moment {
+        position: absolute; transform: translate(-50%, -50%);
+        width: max-content; white-space: pre-line;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="__REN_DURATION__"
+      data-width="__REN_WIDTH__"
+      data-height="__REN_HEIGHT__"
+      data-fps="__REN_FPS__"
+    ></div>
+    <script>
+      //__REN_PROPS__
+      (function () {
+        var P = window.__REN_PROPS || {};
+        var FPS = Number(P.fps) || 30;
+        var W = Number(P.width) || 1080;
+        var H = Number(P.height) || 1920;
+        var moments = P.moments || [];
+        var fontFamily = P.fontFamily || "Helvetica";
+        var safe = P.safeArea;
+        if (!safe)
+          throw new Error("TimedTextOverlay HF props carry no safeArea.");
+
+        var root = document.getElementById("root");
+        var tl = gsap.timeline({ paused: true });
+
+        moments.forEach(function (m) {
+          var dur = Number(m.durationFrames) || 0;
+          if (dur <= 0) return;
+          var el = document.createElement("div");
+          el.className = "moment clip";
+          el.setAttribute("data-start", (Number(m.startFrame) / FPS).toFixed(6));
+          el.setAttribute("data-duration", (dur / FPS).toFixed(6));
+          el.textContent = m.text;
+          el.style.left = (Number(m.x) * W) + "px";
+          el.style.top = (Number(m.y) * H) + "px";
+          el.style.fontFamily = fontFamily;
+          el.style.fontSize = Number(m.fontSize) + "px";
+          el.style.fontWeight = (m.fontWeight === undefined || m.fontWeight === null)
+            ? 400 : Number(m.fontWeight);
+          el.style.color = m.color;
+          el.style.textAlign = m.textAlign || "center";
+          el.style.textShadow = m.textShadow || "0px 4px 12px rgba(0,0,0,0.6)";
+          el.style.maxWidth = Math.max(0, 2 * Math.min(
+            Number(m.x) * W - safe.left,
+            W - safe.right - Number(m.x) * W)) + "px";
+          root.appendChild(el);
+
+          // The ramps, clamped to fit exactly like momentOpacity.
+          var fadeIn = Math.max(0, Math.min(Number(m.fadeInFrames) || 0, dur));
+          var fadeOut = Math.max(0, Math.min(Number(m.fadeOutFrames) || 0, dur - fadeIn));
+          var t0 = Number(m.startFrame) / FPS;
+          if (fadeIn > 0)
+            tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: fadeIn / FPS, ease: "none" }, t0);
+          if (fadeOut > 0)
+            tl.to(el, { opacity: 0, duration: fadeOut / FPS, ease: "none" },
+              t0 + (dur - fadeOut) / FPS);
+        });
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>

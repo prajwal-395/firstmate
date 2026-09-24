@@ -293,6 +293,60 @@ def node_checks() -> list:
     return checks
 
 
+def graphics_engine_checks() -> list:
+    """Which graphics engines can draw: Remotion, HyperFrames, and the pick.
+
+    Remotion stays the default engine, so its absence is a FAIL -
+    nothing renders without it. HyperFrames is the opt-in second
+    engine (`PIPELINE_GRAPHICS_RENDERER=hyperframes` in
+    `~/.config/ren/config.env`, or `pipeline.graphics_renderer` in a
+    project's `project.yaml`); its absence is reported, never a FAIL,
+    because no run needs it unless it is selected. The check itself is
+    read-only: `npx --no-install` answers only when the pinned release
+    is already resolvable, so asking never downloads anything.
+    """
+    from library.tools import graphics_renderer as engines
+    from library.tools import hyperframes_render as hf
+    checks = []
+    try:
+        from library.tools import shared_environment
+        remotion_ok = shared_environment.dependencies_present(
+            shared_environment.remotion_dir(REPO_ROOT))
+    except Exception:
+        remotion_ok = False
+    checks.append(Check(
+        "graphics Remotion", remotion_ok,
+        "the default engine (selected when nothing else is)"
+        if remotion_ok else "the default engine is not installed",
+        "" if remotion_ok else
+        f"bash {shared_environment.INSTALL_SCRIPT}"))
+    try:
+        usable, detail = hf.hyperframes_available()
+    except Exception as exc:  # noqa: BLE001 - doctor must finish
+        usable, detail = False, f"the check itself failed: {exc}"
+    checks.append(Check(
+        "graphics HyperFrames", True,
+        detail if usable else f"not installed - opt-in only ({detail})"))
+    try:
+        selected = engines.resolve_engine()
+        where = "default"
+        if engines.project_engine():
+            where = "project"
+        elif engines.user_engine():
+            where = "user setting"
+        checks.append(Check(
+            "graphics selected", True,
+            f"{selected} (from {where}; "
+            f"{engines.USER_SETTING_KEY} or pipeline.graphics_renderer)"))
+    except Exception as exc:  # noqa: BLE001 - doctor must finish
+        checks.append(Check(
+            "graphics selected", False,
+            f"the selection cannot be read: {exc}",
+            "fix the value named by the error; valid engines are "
+            f"{list(engines.ENGINES)}"))
+    return checks
+
+
 # ── Models ───────────────────────────────────────────────────────────
 
 def hf_hub_cache() -> Path:
@@ -487,6 +541,7 @@ def run_checks(probe=None) -> list:
     checks += _guarded("Python 3.12 venv", python_checks)
     checks += _guarded("ffmpeg", ffmpeg_check)
     checks += _guarded("Node.js", node_checks)
+    checks += _guarded("graphics engines", graphics_engine_checks)
     checks += _guarded("models", model_checks)
     checks += _guarded("configuration", config_checks)
     checks += _guarded("chat harness", harness_check)

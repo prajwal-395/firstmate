@@ -1,0 +1,175 @@
+<!doctype html>
+<!--
+  SubtitleOverlay - HyperFrames port of remotion-subtitles/src/compositions/SubtitleOverlay.
+
+  One absolutely-positioned card per subtitle block, each windowed by the
+  engine's own .clip (data-start/data-duration), so visibility is the
+  framework's seek-exact mechanism rather than a tween: only the block
+  whose window owns the frame is laid out, the way the Remotion side
+  returns null for every other block. Absolute because an opacity-hidden
+  block would still occupy flow layout and push the visible one.
+
+  Inside a block: the words the props carry, each an inline-block with
+  the 0.24em trailing margin, the 8-direction outline plus drop shadow,
+  the fitScale shrink, and the 1.14em emphasis size - all static CSS off
+  the same numbers. The accent sweep and the 0.95-to-1 entry scale are
+  the only tweens, stepped 1ms early: a frame captured at exactly the
+  word's start must already read the accent.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=__REN_WIDTH__, height=__REN_HEIGHT__" />
+    <script src="./gsap.min.js"></script>
+    <style>
+      <!--__REN_HEAD_EXTRA__-->
+      @font-face {
+        font-family: "Montserrat";
+        src: url("./Montserrat-Variable.ttf") format("truetype");
+        font-weight: 100 900;
+        font-style: normal;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: __REN_WIDTH__px; height: __REN_HEIGHT__px;
+        overflow: hidden; background: transparent;
+      }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; }
+      .card {
+        position: absolute; left: 0; width: 100%;
+        display: flex; justify-content: center; align-items: center;
+      }
+      .box {
+        display: flex; flex-wrap: wrap; justify-content: center;
+        align-items: center; text-align: center; line-height: 1.2;
+        box-sizing: border-box;
+      }
+      .word {
+        display: inline-block; margin-right: 0.24em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="__REN_DURATION__"
+      data-width="__REN_WIDTH__"
+      data-height="__REN_HEIGHT__"
+      data-fps="__REN_FPS__"
+    ></div>
+    <script>
+      //__REN_PROPS__
+      (function () {
+        var P = window.__REN_PROPS || {};
+        var FPS = Number(P.fps) || 30;
+        var subs = P.subtitles || [];
+        var style = P.style || {};
+        var H = Number(P.height) || 1920;
+
+        var fontFam = style.fontFamily || "Montserrat";
+        var baseSize = (style.fontSize === undefined || style.fontSize === null)
+          ? 58 : Number(style.fontSize);
+        var outlineCol = style.outlineColor || "#000000";
+        var outlineW = Number(style.outlineWidth || 4);
+        var fWeight = style.fontWeight || 800;
+        var pos = style.position || "bottom";
+        var safe = style.safeArea;
+        var maxW = style.captionMaxWidth;
+        if (!safe || !maxW)
+          throw new Error("SubtitleOverlay HF props carry no safeArea/captionMaxWidth.");
+        var fontCol = style.fontColor || "#FFFFFF";
+        var accentCol = style.accentColor || "#FBF0B8";
+        var EPS = 0.001;
+
+        var shadow = "-" + outlineW + "px -" + outlineW + "px 0 " + outlineCol
+          + ", 0 -" + outlineW + "px 0 " + outlineCol
+          + ", " + outlineW + "px -" + outlineW + "px 0 " + outlineCol
+          + ", " + outlineW + "px 0 0 " + outlineCol
+          + ", " + outlineW + "px " + outlineW + "px 0 " + outlineCol
+          + ", 0 " + outlineW + "px 0 " + outlineCol
+          + ", -" + outlineW + "px " + outlineW + "px 0 " + outlineCol
+          + ", -" + outlineW + "px 0 0 " + outlineCol
+          + ", 0 10px 20px rgba(0,0,0,0.8)";
+
+        function normalise(w) {
+          return String(w).toLowerCase().replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
+        }
+        function isEmphasis(w, list) {
+          if (!list || !list.length) return false;
+          var t = normalise(w);
+          if (!t) return false;
+          return list.some(function (e) { return normalise(e) === t; });
+        }
+
+        var root = document.getElementById("root");
+        var tl = gsap.timeline({ paused: true });
+
+        subs.forEach(function (sub) {
+          var card = document.createElement("div");
+          card.className = "card clip";
+          card.setAttribute("data-start", (sub.startFrame / FPS).toFixed(6));
+          card.setAttribute("data-duration",
+            (Math.max(1, sub.endFrame - sub.startFrame) / FPS).toFixed(6));
+          if (pos === "top") { card.style.top = safe.top + "px"; }
+          else if (pos === "center") {
+            card.style.top = "50%"; card.style.transform = "translateY(-50%)";
+          } else { card.style.bottom = safe.bottom + "px"; }
+
+          var box = document.createElement("div");
+          box.className = "box";
+          box.style.fontFamily = fontFam;
+          box.style.fontWeight = fWeight;
+          box.style.textShadow = shadow;
+          box.style.maxWidth = maxW + "px";
+          box.style.padding = "24px " + outlineW + "px";
+          var px = (sub.fitScale && sub.fitScale < 1)
+            ? Math.round(baseSize * sub.fitScale) : baseSize;
+          box.style.fontSize = px + "px";
+
+          var words = (sub.words && sub.words.length) ? sub.words : null;
+          if (words) {
+            words.forEach(function (w) {
+              var span = document.createElement("span");
+              span.className = "word";
+              span.textContent = w.word;
+              var emph = isEmphasis(w.word, sub.emphasisWords);
+              span.style.fontSize = (emph ? 1.14 : 1) + "em";
+              span.style.color = fontCol;
+              span.style.transform = "scale(0.95)";
+              box.appendChild(span);
+              // Word times are composition-global frames, the same clock
+              // the block window is on.
+              var ws = (w.startFrame) / FPS, we = (w.endFrame) / FPS;
+              if (we > ws) {
+                // The accent sweep: stepped on at the word's start, off
+                // at its end. 1ms early, 1ms long.
+                tl.to(span, { color: accentCol, duration: EPS }, Math.max(0, ws - EPS));
+                tl.to(span, { color: fontCol, duration: EPS }, Math.max(0, we - EPS));
+                // The entry scale grows INTO place from 0.95 over the
+                // first 4 frames, easing out, never exceeding 1.
+                tl.fromTo(span, { scale: 0.95 },
+                  { scale: 1, duration: 4 / FPS, ease: "power1.out" }, ws);
+              } else {
+                // A zero-width highlight window can never sweep, but the
+                // word is still spoken and still drawn - the same refusal
+                // to delete it the Remotion side carries. 0.95 until its
+                // end frame, 1 after, stepped like the sweep.
+                tl.to(span, { scale: 1, duration: EPS }, Math.max(0, we - EPS));
+              }
+            });
+          } else {
+            box.textContent = sub.text;
+          }
+          card.appendChild(box);
+          root.appendChild(card);
+        });
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>

@@ -2159,7 +2159,8 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
 def render_reel_cards(cards: Sequence[PlannedCard],
                       remotion_dir: str,
                       output_dir: str,
-                      stream=sys.stderr) -> list[PlannedCard]:
+                      stream=sys.stderr,
+                      project_folder: str = "") -> list[PlannedCard]:
     """Render every planned card to an OPAQUE file, and say where each is.
 
     Returns the SAME cards with :attr:`PlannedCard.rendered_path` filled
@@ -2176,7 +2177,11 @@ def render_reel_cards(cards: Sequence[PlannedCard],
     One batch, not one process per card: every card goes through the
     shared renderer (``library/tools/remotion_batch.py``), which bundles
     once and draws every card through one browser, instead of paying a
-    bundle-and-launch per card.
+    bundle-and-launch per card. Where the HyperFrames engine is
+    selected (the project wins over the user), each card draws through
+    its HyperFrames form instead - flattened over its own declared
+    ground, because the engine composites and never grounds - stated
+    per card in the output.
 
     A failed render RAISES.  Nothing downstream would notice a missing
     card: the reel would simply start on speech, which is what every reel
@@ -2193,6 +2198,15 @@ def render_reel_cards(cards: Sequence[PlannedCard],
     if not to_render:
         return list(cards)
     os.makedirs(output_dir, exist_ok=True)
+    from library.tools import graphics_renderer as _engines
+    if _engines.is_hyperframes(project_folder or None):
+        print(f"    engine: HyperFrames for {len(to_render)} full-frame "
+              f"card(s) (selected by {_engines.USER_SETTING_KEY} or the "
+              f"project's pipeline.graphics_renderer; {FULL_FRAME_COMPOSITION} "
+              f"has a HyperFrames form)", file=stream)
+        return _render_reel_cards_hyperframes(
+            to_render, cards, remotion_dir, output_dir, stream,
+            project_folder or "")
     jobs: list[RenderJob] = []
     for card in to_render:
         out_path = os.path.join(output_dir, f"{card.render_name}.mov")
@@ -2242,6 +2256,56 @@ def render_reel_cards(cards: Sequence[PlannedCard],
     # In PLAY order, with the project's own clips where they were: the
     # placer walks this list and a card missing from it is a card the
     # timeline never gets.
+    return [drawn.get(id(card), card) for card in cards]
+
+
+def _render_reel_cards_hyperframes(to_render: Sequence[PlannedCard],
+                                   cards: Sequence[PlannedCard],
+                                   remotion_dir: str,
+                                   output_dir: str,
+                                   stream,
+                                   project_folder: str) -> list[PlannedCard]:
+    """Draw every planned card through its HyperFrames form, opaque.
+
+    One card at a time - HyperFrames has no shared-bundle batch to
+    amortise, and the engine's own run is seconds per card. A failed
+    card raises :class:`FullFrameRenderError` naming it, the way the
+    batch path always has: a missing card is a hole in the reel, never
+    a warning.
+    """
+    from library.tools import hyperframes_render as _hf
+
+    drawn: dict[int, PlannedCard] = {}
+    for card in to_render:
+        out_path = os.path.join(output_dir, f"{card.render_name}.mov")
+        props_path = os.path.join(output_dir, f"{card.render_name}_props.json")
+        with open(props_path, "w", encoding="utf-8") as handle:
+            json.dump(card.props, handle, indent=2, sort_keys=True)
+        fps = float(card.props.get("fps") or 1.0)
+        print(f"    [{card.index}] {card.render_name}: {card.placement}, "
+              f"{card.duration_frames}f, reel:{card.reel_start(fps):.2f}-"
+              f"{card.reel_end(fps):.2f}s "
+              f"(frames {card.reel_start_frame}..{card.reel_end_frame})",
+              file=stream)
+        try:
+            _hf.render_one_card(
+                FULL_FRAME_COMPOSITION, card.props, out_path, output_dir,
+                project_folder,
+                os.path.dirname(os.path.abspath(remotion_dir)))
+        except (_hf.HyperFramesUnavailable,
+                _hf.HyperFramesRenderError) as exc:
+            raise FullFrameRenderError(
+                f"render of {card.render_name} "
+                f"({FULL_FRAME_COMPOSITION}) through HyperFrames failed: "
+                f"{exc}") from exc
+        if not os.path.isfile(out_path) or os.path.getsize(out_path) == 0:
+            raise FullFrameRenderError(
+                f"render reported success but {out_path} is missing "
+                f"or empty")
+        drawn[id(card)] = replace(card, rendered_path=out_path)
+        print(f"      OK: {out_path} "
+              f"({os.path.getsize(out_path)} bytes)",
+              file=stream)
     return [drawn.get(id(card), card) for card in cards]
 
 

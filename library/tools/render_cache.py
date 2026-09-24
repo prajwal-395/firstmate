@@ -109,7 +109,35 @@ def renderer_fingerprint(remotion_dir: str) -> str:
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
 
 
-def content_key(digest: str, remotion_dir: str, carriage: str) -> str:
+def hyperframes_fingerprint(hyperframes_dir: str) -> str:
+    """The identity of the HyperFrames templates and vendor that draw.
+
+    The same promise as `renderer_fingerprint`, for the second engine:
+    props do not capture the HTML templates or the vendored GSAP build,
+    so a template edit must mismatch every recorded key and re-render
+    rather than serve pixels the old template drew. `""` never matches,
+    for the same reason. Tracked inputs only - the staged per-card
+    project (props baked in) is build output, and the brand files beside
+    it belong to the project rather than to the renderer.
+    """
+    root = Path(hyperframes_dir)
+    parts = []
+    for pattern in ("compositions/*.html", "vendor/*"):
+        for path in sorted(root.glob(pattern)):
+            if not path.is_file():
+                continue
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                return ""
+            parts.append(f"{path.relative_to(root)}={digest}")
+    if not parts:
+        return ""
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
+def content_key(digest: str, renderer_dir: str, carriage: str,
+                engine: str = "remotion") -> str:
     """The three things that have to match for a skip to be safe, or `""`.
 
     Empty means "cannot be established", and every comparison against
@@ -123,8 +151,18 @@ def content_key(digest: str, remotion_dir: str, carriage: str) -> str:
     clip with no transform at all - the caption centred in the frame
     instead of in its band. A key that did not name the carriage would
     let exactly that through as a hit.
+
+    `engine` names which renderer drew (`graphics_renderer`): a
+    Remotion artefact reused under HyperFrames selection (or the
+    reverse) would serve pixels the selected engine never drew, so the
+    fingerprint half is read off the selected engine's own tree -
+    `renderer_dir` is that engine's directory. Unset means Remotion,
+    which is every caller written before the second engine existed.
     """
-    fingerprint = renderer_fingerprint(remotion_dir)
+    if engine == "hyperframes":
+        fingerprint = hyperframes_fingerprint(renderer_dir)
+    else:
+        fingerprint = renderer_fingerprint(renderer_dir)
     if not fingerprint or not digest:
         return ""
     return f"{digest}+{fingerprint}+{carriage}"

@@ -19,6 +19,7 @@ SETTINGS = (
     ("PIPELINE_SFX_LIBRARY", "sound-effect library (audio files + profiles/)"),
     ("PIPELINE_MUSIC_LIBRARY", "music library"),
     ("PIPELINE_REMOTION_COMPOSITIONS", "project-owned Remotion compositions"),
+    ("PIPELINE_GRAPHICS_RENDERER", "graphics engine: remotion (default) or hyperframes"),
     ("REN_RETENTION", "lean (purge after sign-off) or keep; default lean"),
     ("HF_TOKEN", "HuggingFace token, for gated model downloads"),
     ("GEMMA_SERVER_URL", "resident vision-model server (optional)"),
@@ -47,6 +48,12 @@ STARTER = """\
 # plans a purge of superseded renders, quarantine, scratch and stale
 # journals; `keep` retains them all.
 # REN_RETENTION=lean
+
+# Which graphics engine draws the programmatic pictures: `remotion`
+# (the default - unset means Remotion, so nothing changes unless this
+# names hyperframes) or `hyperframes` (the fully open-source second
+# renderer). A project's own pipeline.graphics_renderer wins over this.
+# PIPELINE_GRAPHICS_RENDERER=remotion
 
 # HuggingFace token, for gated model downloads.
 # HF_TOKEN=

@@ -113,6 +113,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # parsing validates against, so a fix here changes what the scan
         # accepts.
         "library/tools/overlay_mode.py",
+        # Imported by project_config: the graphics_renderer vocabulary
+        # the scan's declaration parsing validates against (same chain
+        # as the overlay_mode row above).
+        "library/tools/graphics_renderer.py",
     ),
     "step_1_02_catalog_footage": (
         # Read by step.py for the source block's declared program stream
@@ -127,6 +131,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # subtitle_overlay_container vocabularies declaration parsing
         # validates against (same chain as the scan row above).
         "library/tools/overlay_mode.py",
+        # Imported by project_config: the graphics_renderer vocabulary
+        # declaration parsing validates against (same chain as the
+        # overlay_mode row above).
+        "library/tools/graphics_renderer.py",
     ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).
@@ -154,6 +162,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # subtitle_overlay_container vocabularies the declaration
         # parsing validates against (same chain as the scan entry).
         "library/tools/overlay_mode.py",
+        # Imported by project_config: the graphics_renderer vocabulary
+        # the declaration parsing validates against (same chain as the
+        # overlay_mode entry above).
+        "library/tools/graphics_renderer.py",
         # Face measurement feeding the per-clip index.
         "library/tools/subject_framing.py",
         # Span extraction feeding region re-measurement.

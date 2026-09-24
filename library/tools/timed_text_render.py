@@ -99,7 +99,8 @@ def render_timed_text_segments(
               f"tl:{segment['timeline_start']:.2f}-"
               f"{segment['timeline_end']:.2f}s", file=stream)
 
-        _render_one(name, out_path, props_path, remotion_dir, stream=stream)
+        _render_one(name, out_path, props_path, remotion_dir,
+                    project_folder=project_folder or "", stream=stream)
 
         rendered.append({
             "overlay_path": out_path,
@@ -117,8 +118,23 @@ def render_timed_text_segments(
 
 
 def _render_one(name: str, out_path: str, props_path: str,
-                remotion_dir: str, *, stream=sys.stderr) -> None:
-    """One `npx remotion render` of TimedTextOverlay, judged by its result."""
+                remotion_dir: str, *, project_folder: str = "",
+                stream=sys.stderr) -> None:
+    """One render of TimedTextOverlay, judged by its result.
+
+    Through HyperFrames where that engine is selected (the project
+    wins over the user - `library/tools/graphics_renderer.py`), which
+    stages the comp beside vendored GSAP and the brand files, renders
+    the PNG sequence, premultiplies into the overlay carriage and
+    stitches `qtrle` itself; through `npx remotion render` otherwise,
+    with the carriage transcode below.
+    """
+    from library.tools import graphics_renderer as _engines
+    if _engines.is_hyperframes(project_folder or None):
+        _render_one_hyperframes(
+            name, out_path, props_path, remotion_dir,
+            project_folder=project_folder or "", stream=stream)
+        return
     command = [
         "npx", "remotion", "render",
         TIMED_TEXT_COMPOSITION, out_path,
@@ -175,3 +191,49 @@ def _render_one(name: str, out_path: str, props_path: str,
         print(f"      carried as {OVERLAY_VIDEO_CODEC}: "
               f"{carried['before']:,} -> {carried['after']:,} bytes",
               file=stream)
+
+
+def _render_one_hyperframes(name: str, out_path: str, props_path: str,
+                            remotion_dir: str, *,
+                            project_folder: str = "",
+                            stream=sys.stderr) -> None:
+    """One HyperFrames render of TimedTextOverlay, judged by its result.
+
+    The composition HAS a HyperFrames form (unlike MotionGraphics and
+    project-owned staged compositions, which stay on Remotion, stated).
+    Reads the props file the caller already wrote, draws through
+    `hyperframes_render.render_one_card` - which premultiplies and
+    stitches the carriage codec itself, so there is no transcode below
+    - and raises exactly like the Remotion path: a missing overlay
+    leaves the picture underneath intact, so a warning would ship an
+    episode silently without the text the template declared.
+    """
+    import json as _json
+    import os as _os
+
+    from library.tools import hyperframes_render as _hf
+    try:
+        with open(props_path, encoding="utf-8") as handle:
+            props = _json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise TimedTextRenderError(
+            f"timed text segment '{name}' carries no readable props at "
+            f"{props_path}: {exc}") from exc
+    print(f"      engine: HyperFrames "
+          f"(selected by graphics_renderer; {TIMED_TEXT_COMPOSITION} "
+          f"has a HyperFrames form)", file=stream)
+    try:
+        _hf.render_one_card(
+            TIMED_TEXT_COMPOSITION, props, out_path,
+            _os.path.dirname(_os.path.abspath(out_path)),
+            project_folder,
+            _os.path.dirname(_os.path.abspath(remotion_dir)))
+    except (_hf.HyperFramesUnavailable,
+            _hf.HyperFramesRenderError) as exc:
+        raise TimedTextRenderError(
+            f"timed text segment '{name}' HyperFrames render failed: "
+            f"{exc}") from exc
+    if not _os.path.isfile(out_path):
+        raise TimedTextRenderError(
+            f"timed text segment '{name}' reported success but wrote no "
+            f"file at {out_path}")

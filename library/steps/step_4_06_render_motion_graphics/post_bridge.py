@@ -147,6 +147,11 @@ def _render_motion_graphics_file(props_path: str, dest_path: str,
     One spelling, because a tight graphic may render twice: once to
     its own union canvas, and again full canvas where the pad onto the
     delivery frame could not be proved.
+
+    ALWAYS Remotion, on either engine: MotionGraphics (2,351 lines)
+    has no HyperFrames form yet - the port is a later PR, stated in
+    the run output where it is selected rather than drawn
+    approximately. See `library/tools/hyperframes_render.py`.
     """
     try:
         result = subprocess.run(
@@ -613,6 +618,12 @@ def render_one_segment(planned: dict, out_dir: str,
           f"{planned['total_frames']}f, "
           f"tl:{planned['timeline_start']:.2f}-"
           f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
+    from library.tools import graphics_renderer as _engines
+    if _engines.is_hyperframes(project_folder or None):
+        print(f"    engine: Remotion for {placement_label} "
+              f"(MotionGraphics has no HyperFrames form yet; selected "
+              f"engine is HyperFrames, so this segment falls back BY "
+              f"NAME, not silently)", file=sys.stderr)
 
     if not _render_motion_graphics_file(props_path, render_path,
                                         remotion, placement_label):
@@ -744,7 +755,8 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
         from library.tools.bookend_render import render_declared_bookends
         bookends_rendered = render_declared_bookends(
             audio_spine.get("structure", []), REMOTION_DIR,
-            fps=fps, width=width, height=height)
+            fps=fps, width=width, height=height,
+            project_folder=project_folder)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         raise MotionGraphicsRenderRefused({

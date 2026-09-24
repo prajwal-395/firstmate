@@ -1,0 +1,379 @@
+<!doctype html>
+<!--
+  FullFrameCard - HyperFrames port of remotion-subtitles/src/compositions/FullFrameCard.
+
+  The PLAN owns the look (ground, runs, character); this file owns what the
+  named characters LOOK like, with the same numbers as the Remotion side:
+  RAMP_FRAMES, TYPE_SIZE/TYPE_WEIGHT, RUN_GAP_PX, lineHeight 1.18, the
+  blur 8px + 12px drift, draw 0.85/4px, slide 40px, scale 0.7, flip
+  perspective 900. A character that means something else here than there
+  is two drawings of one name, which is what the shared helpers on the
+  Remotion side exist to prevent.
+
+  Declarative tweens only: GSAP seek() suppresses callbacks, so nothing
+  draws in an onUpdate. Visibility windows are the engine's own .clip
+  elements; everything inside one is a tween on the one paused timeline.
+  Step-tweens (accent colour, cursor blink) are positioned 1ms EARLY with
+  a 1ms duration: a frame captured at exactly the step time must already
+  read the new value.
+
+  The page is forced transparent (the engine composites, never grounds),
+  so there is no ground div: the adapter flattens these frames over the
+  card's own declared background (hyperframes_render.flatten_frames).
+  Baking the ground here would paint pixels the adapter paints anyway.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=__REN_WIDTH__, height=__REN_HEIGHT__" />
+    <script src="./gsap.min.js"></script>
+    <style>
+      <!--__REN_HEAD_EXTRA__-->
+      @font-face {
+        font-family: "Montserrat";
+        src: url("./Montserrat-Variable.ttf") format("truetype");
+        font-weight: 100 900;
+        font-style: normal;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: __REN_WIDTH__px; height: __REN_HEIGHT__px;
+        overflow: hidden; background: transparent;
+      }
+      #root {
+        position: relative; width: 100%; height: 100%;
+        overflow: hidden;
+      }
+      #stack {
+        position: absolute; display: flex; flex-direction: column;
+        align-items: center; overflow-wrap: break-word;
+      }
+      #motion {
+        width: 100%; display: flex; flex-direction: column;
+        align-items: center;
+      }
+      .run {
+        width: 100%; text-align: center; overflow-wrap: break-word;
+        line-height: 1.18;
+      }
+      .type-layer {
+        position: absolute; inset: 0; width: 100%;
+        display: flex; flex-direction: column; align-items: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="__REN_DURATION__"
+      data-width="__REN_WIDTH__"
+      data-height="__REN_HEIGHT__"
+      data-fps="__REN_FPS__"
+    >
+      <div id="stack"><div id="motion"></div></div>
+    </div>
+    <script>
+      //__REN_PROPS__
+      (function () {
+        var P = window.__REN_PROPS || {};
+        var FPS = Number(P.fps) || 30;
+        var D = Number(P.durationInFrames) || 1;
+        var T = D / FPS;
+        var W = Number(P.width) || 1080;
+        var H = Number(P.height) || 1920;
+        var safe = P.safeArea;
+        if (!safe) throw new Error("FullFrameCard HF props carry no safeArea.");
+        var runs = P.runs || [];
+        var entrance = P.entrance || "cut";
+        var exit = P.exit || "cut";
+        var fontFamily = P.fontFamily || "Montserrat";
+        var hold = Number(P.holdFrames) || 0;
+
+        var RAMP = { cut: 0, fade: 8, slide: 8, scale: 8, mask: 8, draw: 12,
+                     blur: 10, typewriter: 20, glitch: 10, flip: 12 };
+        var TYPE_SIZE = { display: 56, supporting: 36, micro: 24 };
+        var TYPE_WEIGHT = { display: 900, supporting: 700, micro: 600 };
+        var inF = RAMP[entrance] || 0;
+        var outF = RAMP[exit] || 0;
+        var T_IN = inF / FPS, T_OUT = outF / FPS;
+        // A held card quantises the whole clock: every tween steps on the
+        // same grid, the way heldFrame steps every reader at once.
+        var holdEase = hold > 1 ? "steps(" + Math.ceil(D / hold) + ")" : "none";
+        var EPS = 0.001;
+
+        function sizeOf(run) {
+          return run.font_size || TYPE_SIZE[run.type_role] || TYPE_SIZE.supporting;
+        }
+        function weightOf(run) {
+          return TYPE_WEIGHT[run.type_role] || TYPE_WEIGHT.supporting;
+        }
+
+        var stack = document.getElementById("stack");
+        // Layout (the y -50% shift included) lives on #stack; every
+        // tween targets #motion, because a GSAP transform would
+        // otherwise overwrite that shift the first frame it renders.
+        var motion = document.getElementById("motion");
+        stack.style.fontFamily = fontFamily;
+        motion.style.gap = "20px";
+        stack.style.left = safe.left + "px";
+        stack.style.width = (W - safe.left - safe.right) + "px";
+        if (P.y === undefined || P.y === null) {
+          stack.style.top = safe.top + "px";
+          stack.style.height = (H - safe.top - safe.bottom) + "px";
+          stack.style.justifyContent = "center";
+        } else {
+          stack.style.top = "0px";
+          stack.style.height = H + "px";
+          stack.style.justifyContent = "flex-start";
+          stack.style.paddingTop = Math.max(0, H * Number(P.y)) + "px";
+          stack.style.transform = "translateY(-50%)";
+        }
+
+        if (P.image) {
+          var img = document.createElement("img");
+          img.src = P.image; img.alt = "";
+          img.style.display = "block"; img.style.maxWidth = "100%";
+          img.style.height = "auto"; img.style.objectFit = "contain";
+          if (P.imageWidth !== undefined && P.imageWidth !== null)
+            img.style.width = Math.round(Number(P.imageWidth)) + "px";
+          motion.appendChild(img);
+        }
+
+        var WORD_CUED = ["typewriter", "mask", "draw"];
+        var cues = (P.wordCues && P.wordCues.length && WORD_CUED.indexOf(entrance) >= 0)
+          ? P.wordCues.slice().sort(function (a, b) { return a.start - b.start; })
+          : null;
+
+        function runLengths() { return runs.map(function (r) { return r.text.length; }); }
+        function typeSplit(lengths, progress) {
+          var total = lengths.reduce(function (s, n) { return s + n; }, 0);
+          var remaining = Math.round(total * Math.min(1, Math.max(0, progress)));
+          var shown = [], cursor = -1;
+          for (var i = 0; i < lengths.length; i += 1) {
+            var take = Math.min(lengths[i], Math.max(0, remaining));
+            shown.push(take); remaining -= take;
+            if (cursor === -1 && progress < 1 && take < lengths[i]) cursor = i;
+          }
+          return { shown: shown, cursorRun: cursor };
+        }
+        function typeProgress(localF) {
+          if (entrance !== "typewriter") return 1;
+          if (inF <= 0) return 1;
+          return Math.min(1, Math.max(0, localF / inF));
+        }
+        function typeShown(frame) {
+          var out = exit === "typewriter" ? outF : 0;
+          if (out > 0 && D - frame < out)
+            return Math.min(1, Math.max(0, (D - frame) / out));
+          return typeProgress(frame);
+        }
+        function cuedChars(frame) {
+          var total = runLengths().reduce(function (s, n) { return s + n; }, 0);
+          if (!cues || !cues.length || total <= 0) return 0;
+          var t = frame / FPS, shown = 0;
+          cues.forEach(function (c) {
+            var lead = c.lead || 0;
+            if (t >= c.start - lead) shown = Math.min(c.chars, total);
+          });
+          return Math.max(0, shown);
+        }
+
+        var tl = gsap.timeline({ paused: true });
+
+        if (!cues && entrance !== "typewriter") {
+          // Block-level drawing: one div per run, whole text present.
+          runs.forEach(function (run) {
+            var div = document.createElement("div");
+            div.className = "run";
+            div.textContent = run.text;
+            div.style.color = run.colour;
+            div.style.fontSize = sizeOf(run) + "px";
+            div.style.fontWeight = weightOf(run);
+            motion.appendChild(div);
+          });
+        } else if (entrance === "typewriter") {
+          // A reveal, not a transform: one layer per distinct shown-word
+          // count, each windowed to the frames that draw it. Grouped at
+          // build time off the same progress the Remotion side reads, so
+          // the reveal steps on the same frames there.
+          var lengths = runLengths();
+          var total = lengths.reduce(function (s, n) { return s + n; }, 0);
+          var states = [];
+          var lastKey = null;
+          for (var f = 0; f < D; f += 1) {
+            var hf = hold > 1 ? Math.floor(f / hold) * hold : f;
+            var prog = cues ? cuedChars(hf) / Math.max(1, total) : typeShown(hf);
+            var sp = typeSplit(lengths, prog);
+            var key = sp.shown.join(",") + "|" + (prog < 1 ? sp.cursorRun : -1)
+              + "|" + (Math.floor(prog * 30) % 2 === 0 ? 1 : 0);
+            if (key !== lastKey) { states.push({ f0: f, sp: sp, prog: prog }); lastKey = key; }
+          }
+          states.forEach(function (st, i) {
+            var f1 = (i + 1 < states.length) ? states[i + 1].f0 : D;
+            var layer = document.createElement("div");
+            layer.className = "type-layer clip";
+            layer.setAttribute("data-start", (st.f0 / FPS).toFixed(6));
+            layer.setAttribute("data-duration", ((f1 - st.f0) / FPS).toFixed(6));
+            layer.style.gap = "20px";
+            runs.forEach(function (run, ri) {
+              var vis = (run.text || "").slice(0, st.sp.shown[ri]);
+              var div = document.createElement("div");
+              div.className = "run";
+              div.style.color = run.colour;
+              div.style.fontSize = sizeOf(run) + "px";
+              div.style.fontWeight = weightOf(run);
+              div.textContent = vis;
+              if (st.sp.cursorRun === ri) {
+                var cur = document.createElement("span");
+                cur.textContent = "|";
+                cur.style.opacity = (Math.floor(st.prog * 30) % 2 === 0) ? "1" : "0";
+                div.appendChild(cur);
+              }
+              if (vis.length || st.sp.cursorRun === ri) layer.appendChild(div);
+            });
+            motion.appendChild(layer);
+          });
+        } else {
+          // Cued mask/draw: one resolving word per cue, each on its own
+          // speech window with the reference ease-out shape.
+          var joined = runs.map(function (r) { return r.text; }).join("");
+          var words = [], m, re = /\S+/g;
+          while ((m = re.exec(joined)) !== null) words.push({ text: m[0], at: m.index });
+          var ordered = cues.slice().sort(function (a, b) { return a.start - b.start; });
+          var wrap = document.createElement("div");
+          wrap.className = "run";
+          var firstRun = runs[0] || { colour: "#FFFFFF", type_role: "supporting" };
+          wrap.style.color = firstRun.colour;
+          wrap.style.fontSize = sizeOf(firstRun) + "px";
+          wrap.style.fontWeight = weightOf(firstRun);
+          var ok = words.length === ordered.length;
+          if (ok) {
+            words.forEach(function (w, i) {
+              if (w.text.toLowerCase() !== String(ordered[i].word).toLowerCase()) ok = false;
+            });
+          }
+          if (!ok) {
+            // The plan's refusal did not run: the block-level wipe, the
+            // same fallback the Remotion side draws on a cue mismatch.
+            var fb = typeSplit(runLengths(), 1);
+            runs.forEach(function (run, ri) {
+              var div = document.createElement("div");
+              div.className = "run";
+              div.textContent = (run.text || "").slice(0, fb.shown[ri]);
+              div.style.color = run.colour;
+              div.style.fontSize = sizeOf(run) + "px";
+              div.style.fontWeight = weightOf(run);
+              motion.appendChild(div);
+            });
+          } else {
+            var texts = runs.map(function (r) { return r.text; });
+            words.forEach(function (w, i) {
+              var at = w.at, acc = 0, runIndex = texts.length - 1;
+              for (var q = 0; q < texts.length; q += 1) {
+                acc += texts[q].length;
+                if (at < acc) { runIndex = q; break; }
+              }
+              var run = runs[runIndex] || firstRun;
+              if (i > 0) wrap.appendChild(document.createTextNode(" "));
+              var cue = ordered[i], lead = cue.lead || 0;
+              var t0 = Math.max(0, (cue.start - lead)), t1 = Math.max(t0, (cue.end - lead));
+              var span = document.createElement("span");
+              span.style.display = "inline-block";
+              span.style.verticalAlign = "bottom";
+              span.style.color = run.colour;
+              span.style.fontSize = sizeOf(run) + "px";
+              span.style.fontWeight = weightOf(run);
+              if (entrance === "draw") {
+                span.style.opacity = "0";
+                tl.fromTo(span, { scale: 0.85, filter: "blur(4px)", opacity: 0 },
+                  { scale: 1, filter: "blur(0px)", opacity: 1,
+                    duration: Math.max(EPS, t1 - t0), ease: "power2.out" }, t0);
+              } else {
+                var mask = document.createElement("span");
+                mask.style.display = "inline-block";
+                mask.style.overflow = "hidden";
+                mask.style.verticalAlign = "bottom";
+                mask.style.paddingBottom = "0.18em";
+                mask.style.marginBottom = "-0.18em";
+                var inner = document.createElement("span");
+                inner.style.display = "inline-block";
+                inner.textContent = w.text;
+                inner.style.transform = "translateY(120%)";
+                // The rise, paced by the word's own led window with the
+                // reference ease-out shape. fromTo states both ends, so
+                // the seek lands on values, never on a callback.
+                tl.fromTo(inner, { yPercent: 120 }, { yPercent: 0,
+                  duration: Math.max(EPS, t1 - t0), ease: "power2.out" }, t0);
+                mask.appendChild(inner);
+                span.appendChild(mask);
+              }
+              // The current word draws in the declared emphasis colour;
+              // every other word keeps its run's. Stepped 1ms early.
+              if (P.emphasisColour) {
+                (function (el, base, c0, c1) {
+                  tl.to(el, { color: P.emphasisColour, duration: EPS }, Math.max(0, c0 - EPS));
+                  tl.to(el, { color: base, duration: EPS }, Math.max(0, c1 - EPS));
+                })(entrance === "draw" ? span : span, run.colour, cue.start, cue.end);
+              }
+              wrap.appendChild(span);
+            });
+            motion.appendChild(wrap);
+          }
+        }
+
+        // Opacity: the entrance ramp up, the exit ramp down. Linear, the
+        // way interpolate reads without an easing.
+        if (inF > 0)
+          tl.fromTo(motion, { opacity: 0 }, { opacity: 1, duration: T_IN, ease: holdEase }, 0);
+        if (outF > 0)
+          tl.to(motion, { opacity: 0, duration: T_OUT, ease: holdEase }, Math.max(0, T - T_OUT));
+
+        // Entrance character.
+        if (inF > 0 && T_IN > 0) {
+          var e = { duration: T_IN, ease: holdEase };
+          if (entrance === "slide") tl.fromTo(motion, { y: 40 }, Object.assign({ y: 0 }, e), 0);
+          else if (entrance === "scale") tl.fromTo(motion, { scale: 0.7 }, Object.assign({ scale: 1 }, e), 0);
+          else if (entrance === "mask")
+            tl.fromTo(motion, { clipPath: "inset(0 100% 0 0)" }, Object.assign({ clipPath: "inset(0 0% 0 0)" }, e), 0);
+          else if (entrance === "draw")
+            tl.fromTo(motion, { scale: 0.85, filter: "blur(4px)" }, Object.assign({ scale: 1, filter: "blur(0px)" }, e), 0);
+          else if (entrance === "blur")
+            tl.fromTo(motion, { filter: "blur(8px)", y: 12 }, Object.assign({ filter: "blur(0px)", y: 0 }, e), 0);
+          else if (entrance === "flip")
+            tl.fromTo(motion, { rotationY: 90, transformPerspective: 900 }, Object.assign({ rotationY: 0 }, e), 0);
+          else if (entrance === "glitch") {
+            tl.fromTo(motion, { x: 0 }, { x: 6, duration: T_IN / 4, ease: holdEase }, 0);
+            tl.to(motion, { x: -4, duration: T_IN / 4, ease: holdEase }, T_IN / 4);
+            tl.to(motion, { x: 2, duration: T_IN / 4, ease: holdEase }, T_IN / 2);
+            tl.to(motion, { x: 0, duration: T_IN / 4, ease: holdEase }, (3 * T_IN) / 4);
+            tl.fromTo(motion,
+              { filter: "drop-shadow(6px 0 rgba(255,0,0,0.7)) drop-shadow(-6px 0 rgba(0,255,255,0.7)) drop-shadow(0 3px rgba(0,255,0,0.5))" },
+              Object.assign({ filter: "drop-shadow(0px 0 rgba(255,0,0,0)) drop-shadow(0px 0 rgba(0,255,255,0)) drop-shadow(0 0px rgba(0,255,0,0))" }, e), 0);
+          }
+        }
+        // Exit character, spread last so it wins where they overlap.
+        if (outF > 0 && T_OUT > 0) {
+          var t1x = Math.max(0, T - T_OUT);
+          var x = { duration: T_OUT, ease: holdEase };
+          if (exit === "slide") tl.to(motion, Object.assign({ y: -40 }, x), t1x);
+          else if (exit === "scale") tl.to(motion, Object.assign({ scale: 0.7 }, x), t1x);
+          else if (exit === "mask") tl.to(motion, Object.assign({ clipPath: "inset(0 0 0 100%)" }, x), t1x);
+          else if (exit === "draw") tl.to(motion, Object.assign({ scale: 0.85, filter: "blur(4px)" }, x), t1x);
+          else if (exit === "blur") tl.to(motion, Object.assign({ filter: "blur(8px)", y: -12 }, x), t1x);
+          else if (exit === "flip") tl.to(motion, Object.assign({ rotationY: -90, transformPerspective: 900 }, x), t1x);
+          else if (exit === "glitch") {
+            tl.to(motion, { x: 5, duration: T_OUT / 3, ease: holdEase }, t1x);
+            tl.to(motion, { x: -3, duration: T_OUT / 3, ease: holdEase }, t1x + T_OUT / 3);
+            tl.to(motion, { x: 0, duration: T_OUT / 3, ease: holdEase }, t1x + (2 * T_OUT) / 3);
+          }
+        }
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>

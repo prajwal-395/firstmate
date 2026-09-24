@@ -10906,7 +10906,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 cards = render_reel_cards(
                     cards,
                     str(REMOTION_DIR),
-                    card_render_dir(project_folder))
+                    card_render_dir(project_folder),
+                    project_folder=project_folder)
             lead = lead_frames(cards, 24000 / 1001) / (24000 / 1001)
 
             # Was: computed by the standalone captioner and then passed as
@@ -12928,7 +12929,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
     if cards:
         from library.tools.full_frame_element import render_reel_cards
         cards = render_reel_cards(cards, str(REMOTION_DIR),
-                                 card_render_dir(project_folder))
+                                 card_render_dir(project_folder),
+                                 project_folder=project_folder)
     lead = lead_frames(cards, fps) / fps
     base_placements = placements(ranges, master_clips, fps,
                                  lead_frames=lead_frames(cards, fps))

@@ -54,6 +54,7 @@ See AGENTS.md 3.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -113,6 +114,7 @@ from library.tools.caption_swap import (
 )
 from library.tools.reel_proposal import refuse_rejected_reel_timeline
 from library.tools import shared_environment as _node_env
+from library.tools import graphics_renderer as _engines
 
 # Where the Remotion project lives.  READ from `shared_environment`, never
 # rebuilt from `__file__`: that module is the one answer, and a step that
@@ -255,7 +257,8 @@ def renderer_fingerprint(remotion_dir: str) -> str:
 
 
 def _reuse_key(props: dict, remotion_dir: str,
-               geometry: str = "full", container: str = "video") -> str:
+               geometry: str = "full", container: str = "video",
+               engine: str = "remotion") -> str:
     """The three things that have to match for a skip to be safe, or `""`.
 
     The drawing digest (never placement: no timeline, no block
@@ -271,9 +274,20 @@ def _reuse_key(props: dict, remotion_dir: str,
     under today's rule would place a full-frame clip AND transform it
     off the frame. A key that did not name the carriage would let
     exactly that through as a hit.
+
+    `engine` is the selected graphics engine
+    (`library/tools/graphics_renderer.py`): the fingerprint half is
+    read off that engine's own tree, so switching engines re-renders
+    rather than serving the other engine's pixels as a hit. Unset
+    means Remotion - the filename stem (which digests drawing only)
+    is shared, so a switch re-renders over the same name instead of
+    orphaning a file no key can recompute.
     """
+    from library.tools import hyperframes_render as _hf
+    renderer_dir = remotion_dir if engine == "remotion" else str(
+        _hf.hyperframes_dir(os.path.dirname(os.path.abspath(remotion_dir))))
     return _content_key(_drawing_digest(props, geometry, container),
-                        remotion_dir, OVERLAY_CARRIAGE)
+                        renderer_dir, OVERLAY_CARRIAGE, engine=engine)
 
 
 def _tally(segments) -> dict:
@@ -457,6 +471,74 @@ class PersistentCaptionRenderer:
         return False        # never swallow the exception that got us here
 
 
+class HyperFramesCaptionRenderer:
+    """The HyperFrames renderer behind the same two-method seam.
+
+    `SubprocessRenderer` draws through `npx remotion render`;
+    `PersistentCaptionRenderer` through one bundled browser; this one
+    through `library/tools/hyperframes_render.py` - one staged HTML
+    project per card, rendered to a PNG sequence, premultiplied into
+    the overlay carriage (or stitched to `qtrle` for video carrying).
+    Selection, provenance and reporting cannot tell which renderer drew
+    the card: the contract is `render` / `close` and nothing else.
+
+    Unlike the bundle-once renderer this holds no process between
+    cards, so construction starts nothing and `close()` is a no-op -
+    and unlike it, a frame sequence IS drawable: the engine's native
+    output is frames, so `sequence=True` renders straight into the
+    card's own directory rather than refusing.
+    """
+
+    def __init__(self, project_folder: str = "",
+                 remotion_dir: str = None):
+        # The HyperFrames tree is resolved from the repo root the
+        # Remotion dir already names, so an overridden remotion_dir
+        # (tests, alternate checkouts) still stages against itself.
+        self.project_folder = project_folder or ""
+        self.repo_root = os.path.dirname(os.path.abspath(remotion_dir)) \
+            if remotion_dir else None
+
+    @property
+    def sequence_pattern(self) -> str:
+        from library.tools import hyperframes_render as _hf
+        return _hf.SEQUENCE_PATTERN
+
+    def render(self, props_path: str, overlay_path: str,
+               sequence: bool = False):
+        """Draw one card, as video or as a PNG sequence. `(ok, error)`."""
+        from library.tools import hyperframes_render as _hf
+        try:
+            with open(props_path, encoding="utf-8") as handle:
+                props = json.load(handle)
+        except (OSError, ValueError) as exc:
+            return False, f"cannot read props {props_path}: {exc}"
+        work_dir = os.path.dirname(os.path.abspath(overlay_path))
+        try:
+            if sequence:
+                staging = os.path.join(
+                    work_dir, f"hf_{Path(overlay_path).name}")
+                _hf.stage_card_project(
+                    "SubtitleOverlay", props, staging,
+                    self.project_folder, self.repo_root)
+                try:
+                    frames = _hf.render_png_sequence(
+                        staging, overlay_path, float(props.get("fps") or 30.0))
+                    _hf.premultiply_frames(frames)
+                finally:
+                    shutil.rmtree(staging, ignore_errors=True)
+            else:
+                _hf.render_one_card(
+                    "SubtitleOverlay", props, overlay_path, work_dir,
+                    self.project_folder, self.repo_root)
+        except (_hf.HyperFramesUnavailable,
+                _hf.HyperFramesRenderError) as exc:
+            return False, str(exc)
+        return True, ""
+
+    def close(self):
+        """Nothing to release - staging is removed per card."""
+
+
 # ── The unit-level default: one shared bundle-once renderer ──
 #
 # `render_subtitle_overlays` builds ONE engine for the whole pass, but
@@ -567,14 +649,31 @@ class _SharedPersistentEngine:
             self._engine = None
 
 
-def _default_unit_engine(remotion_dir: str, container: str):
+def _default_unit_engine(remotion_dir: str, container: str,
+                         project_folder: str = ""):
     """The renderer a unit-level render uses when the caller passed none.
 
     Video shares ONE bundle-once renderer per process per remotion dir,
     announced once on stderr so a later log can say which path a session
     took - the record the 2026-09-11 session never left. An explicit
     `renderer` still wins over this, everywhere.
+
+    Where the HyperFrames engine is selected
+    (`library/tools/graphics_renderer.py` - the project wins over the
+    user), the default is the HyperFrames caption renderer instead: it
+    holds no process between cards, and unlike the bundle-once renderer
+    it draws frame sequences natively, so the `frames` carrying takes
+    the same path rather than the per-card subprocess one.
     """
+    if _engines.is_hyperframes(project_folder or None):
+        _note_once(
+            "hyperframes-caption",
+            "caption renderer: HyperFrames "
+            f"(selected by {_engines.USER_SETTING_KEY} or the project's "
+            "pipeline.graphics_renderer); each card stages its own HTML "
+            "project beside vendored GSAP and the brand files.")
+        return HyperFramesCaptionRenderer(project_folder or "",
+                                          remotion_dir=remotion_dir)
     if container == "frames":
         # The bundle-once renderer stitches video and cannot draw a frame
         # sequence; a sequence reported as drawn would be success reported
@@ -790,6 +889,11 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     """
     refuse_rejected_reel_timeline(timeline_label, project_folder)
     remotion_dir = remotion_dir or REMOTION_DIR
+    # The engine that draws: the project wins over the user, both lose
+    # to nothing (Remotion, today's path). Read once - the reuse key,
+    # the renderer default and the recorded pattern all answer from it,
+    # so three readings cannot disagree about one selection.
+    engine_name = _engines.resolve_engine(project_folder or None)
 
     geometry = overlay_geometry or resolve_overlay_geometry(
         project_folder or None)
@@ -898,9 +1002,18 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     def _frames_record() -> dict:
         if not is_frames:
             return None
+        # The pattern is the DRAWING engine's own vocabulary: Remotion's
+        # `[frame]` token against a Remotion directory, HyperFrames'
+        # `%06d` against a HyperFrames one. Recording one for the other
+        # would send a reader formatting names no file carries.
+        if engine_name == _engines.ENGINE_HYPERFRAMES:
+            from library.tools import hyperframes_render as _hf
+            pattern = _hf.SEQUENCE_PATTERN
+        else:
+            pattern = FRAME_PATTERN
         return {
             "dir": overlay_path,
-            "pattern": FRAME_PATTERN,
+            "pattern": pattern,
             "count": total_frames,
         }
 
@@ -977,7 +1090,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # WHAT THE ARTEFACT IS, the carriage.  See `_reuse_key`: an
     # artefact from a previous carriage re-renders rather than
     # serving stale pixels under a new one.
-    key = _reuse_key(props, remotion_dir, geometry, container)
+    key = _reuse_key(props, remotion_dir, geometry, container, engine_name)
 
     def _content_paths(geometry_name: str) -> tuple:
         """The content-keyed stem and paths for one carrying.
@@ -1100,7 +1213,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             render_props = props
             (segment_name, overlay_path, props_path,
              key_path) = _content_paths(geometry)
-            key = _reuse_key(props, remotion_dir, geometry, container)
+            key = _reuse_key(props, remotion_dir, geometry, container, engine_name)
         except ValueError as exc:
             return entry(FAILED, failure=str(exc)[:500].strip()
                          or "subtitle props carry no geometry")
@@ -1113,7 +1226,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             tight_fallback = "no subtitles to bound - full canvas"
             (segment_name, overlay_path, props_path,
              key_path) = _content_paths(geometry)
-            key = _reuse_key(props, remotion_dir, geometry, container)
+            key = _reuse_key(props, remotion_dir, geometry, container, engine_name)
             print(f"  {progress} no subtitles to bound - full canvas",
                   file=sys.stderr)
         elif tight is not None:
@@ -1139,7 +1252,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # Every path renders here, exactly once per carrying: full
     # geometry, the draws-nothing fallback, and tight - whose constant
     # canvas is drawn natively, never cropped from a probe.
-    engine = renderer or _default_unit_engine(remotion_dir, container)
+    engine = renderer or _default_unit_engine(remotion_dir, container, project_folder)
     # An adopted name shares its inode with another stem's file: the
     # render must write a fresh one, never through the link.
     _detach_link(overlay_path)
@@ -1220,7 +1333,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             render_props = props
             (segment_name, overlay_path, props_path,
              key_path) = _content_paths(geometry)
-            key = _reuse_key(props, remotion_dir, geometry, container)
+            key = _reuse_key(props, remotion_dir, geometry, container, engine_name)
             with open(props_path, "w") as handle:
                 json.dump(render_props, handle, indent=2)
             _detach_link(overlay_path)
@@ -1396,6 +1509,10 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     the reason, which is what the step has always done.
     """
     remotion_dir = remotion_dir or REMOTION_DIR
+    # The engine that draws, read once for the whole pass: the reuse
+    # keys below, the renderer default and the recorded pattern all
+    # answer from it, so three readings cannot disagree.
+    engine_name = _engines.resolve_engine(project_folder or None)
 
     if renderer_kind not in CAPTION_RENDERERS:
         raise ValueError(
@@ -1423,16 +1540,31 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     # The persistent renderer stitches video through one bundle; a PNG
     # sequence is a carrying it cannot draw. Refuse BEFORE anything
     # renders rather than failing card by card, or - worse - reporting
-    # a sequence as drawn that was never drawn.
+    # a sequence as drawn that was never drawn. HyperFrames draws
+    # frames natively, so the selected engine exempts this refusal.
     if renderer is None and renderer_kind == "persistent" \
-            and container == "frames":
+            and container == "frames" \
+            and engine_name != _engines.ENGINE_HYPERFRAMES:
         raise ValueError(
             "renderer_kind='persistent' cannot render a 'frames' "
             "container: the persistent renderer stitches video and "
             "refuses sequences. Pass renderer_kind='subprocess' "
             "explicitly for frame sequences.")
 
-    if not os.path.isdir(remotion_dir):
+    if engine_name == _engines.ENGINE_HYPERFRAMES and renderer is None:
+        from library.tools import hyperframes_render as _hf
+        if not _hf.template_path("SubtitleOverlay").is_file():
+            print("ERROR: HyperFrames template missing at "
+                  f"{_hf.template_path('SubtitleOverlay')}",
+                  file=sys.stderr)
+            raise SubtitleRenderRefused({
+                "subtitle_overlay": {
+                    "available": False,
+                    "error": "HyperFrames SubtitleOverlay template not found "
+                             "in hyperframes/compositions/"
+                }
+            })
+    elif not os.path.isdir(remotion_dir):
         print(f"ERROR: Remotion project not found at {remotion_dir}",
               file=sys.stderr)
         raise SubtitleRenderRefused({
@@ -1446,16 +1578,24 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     # public/brand/ directory so staticFile("brand/...") resolves at render
     # time.  There is no composition staging or Root.tsx generation -
     # compositions live in src/compositions/ and Root.tsx is committed.
-    try:
-        sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
-        from tools.remotion_brand_linker import prep_remotion
-        prep_result = prep_remotion(project_folder=project_folder)
-        brand_info = prep_result.get("brand", {})
-        if brand_info.get("linked"):
-            print(f"  Linked {brand_info['count']} brand assets from {brand_info['source']}",
-                  file=sys.stderr)
-    except ImportError:
-        pass
+    # HyperFrames stages its brand files per card beside the comp
+    # (`hyperframes_render.stage_card_project`), so there is nothing to
+    # link here - and linking Remotion's public dir on a HyperFrames run
+    # would stage files no render reads.
+    if not (engine_name == _engines.ENGINE_HYPERFRAMES and renderer is None):
+        try:
+            sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
+            from tools.remotion_brand_linker import prep_remotion
+            prep_result = prep_remotion(project_folder=project_folder)
+            brand_info = prep_result.get("brand", {})
+            if brand_info.get("linked"):
+                print(f"  Linked {brand_info['count']} brand assets from {brand_info['source']}",
+                      file=sys.stderr)
+        except ImportError:
+            pass
+    else:
+        print("  brand assets stage per card beside the HyperFrames comp",
+              file=sys.stderr)
 
     # Output directory.
     #
@@ -1568,7 +1708,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
         digest = _drawing_digest(props, geometry, container)
         named.append((
             segment_identifier(binding, digest),
-            _reuse_key(props, remotion_dir, geometry, container),
+            _reuse_key(props, remotion_dir, geometry, container, engine_name),
         ))
     assert_no_content_collision(named)
 
@@ -1597,6 +1737,18 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     if renderer is not None:
         engine = renderer
         owns_engine = False
+    elif _engines.is_hyperframes(project_folder or None):
+        # The selected graphics engine draws, whatever renderer_kind
+        # says: the engine is the project's (or the user's) word, and
+        # a kind naming a Remotion mechanism beside it is the stale
+        # default, not a second vote. Stated on stderr, like every
+        # other renderer choice this pass makes.
+        print("caption renderer: HyperFrames "
+              f"(selected by {_engines.USER_SETTING_KEY} or the project's "
+              "pipeline.graphics_renderer)", file=sys.stderr)
+        engine = HyperFramesCaptionRenderer(project_folder or "",
+                                            remotion_dir=remotion_dir)
+        owns_engine = True
     elif renderer_kind == "persistent":
         engine = PersistentCaptionRenderer(remotion_dir)
         owns_engine = True
@@ -2031,7 +2183,18 @@ def rerender_and_swap(project_folder: str, pairs: list,
                       "by hand"),
         }
 
-    engine = batch_caption_engine(remotion_dir)
+    # ONE batch engine for the render half. Which engine is the
+    # selection's word, not the batch helper's: under HyperFrames the
+    # cards draw through the HyperFrames caption renderer instead of
+    # the bundle-once Remotion one.
+    if _engines.is_hyperframes(project_folder or None):
+        print("caption renderer: HyperFrames "
+              f"(selected by {_engines.USER_SETTING_KEY} or the project's "
+              "pipeline.graphics_renderer)", file=sys.stderr)
+        engine = HyperFramesCaptionRenderer(
+            project_folder, remotion_dir=remotion_dir)
+    else:
+        engine = batch_caption_engine(remotion_dir)
     rendered, reused, already = 0, 0, []
     failures, mapping = [], {}
     try:
