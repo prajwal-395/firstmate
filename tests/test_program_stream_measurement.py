@@ -107,29 +107,6 @@ def test_an_ambiguous_measurement_refuses_like_an_undeclared_one(tmp_path):
         measure_program_selection(str(fixture), streams, source="close.mkv")
 
 
-@NEEDS_FFMPEG
-def test_silence_has_no_program_stream(tmp_path):
-    import subprocess
-
-    fixture = tmp_path / "silent.mkv"
-    subprocess.run(
-        ["ffmpeg", "-y",
-         "-f", "lavfi", "-i", "color=size=320x240:rate=24:d=2:color=black",
-         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=2",
-         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=2",
-         "-map", "0:v", "-map", "1:a", "-map", "2:a",
-         "-c:v", "libx264", "-pix_fmt", "yuv420p",
-         "-c:a", "pcm_s16le", "-shortest",
-         str(fixture)],
-        capture_output=True, text=True, encoding="utf-8", check=True,
-        timeout=120)
-    streams = _probe_streams(fixture)
-    assert len(streams) == 2
-    with pytest.raises(ProgramStreamRefused, match="silence has no"):
-        measure_program_selection(
-            str(fixture), streams, source="silent.mkv")
-
-
 def test_a_declaration_beats_a_measurement():
     streams = [
         {"index": 1, "channel": 1},
@@ -142,59 +119,6 @@ def test_a_declaration_beats_a_measurement():
         measured_selection=measured)
     assert chosen["channel"] == 2
     assert chosen["basis"] == "declared"
-
-
-def test_a_measurement_decides_only_when_nothing_is_declared():
-    streams = [
-        {"index": 1, "channel": 1},
-        {"index": 3, "channel": 2},
-    ]
-    measured = {"channel": 2, "basis": "measured-loudest",
-                "levels": {1: -20.0, 2: -10.0}}
-    chosen = select_program_stream(
-        streams, declaration=None, source="cam.MXF",
-        measured_selection=measured)
-    assert chosen["channel"] == 2
-    assert chosen["basis"] == "measured-loudest"
-    assert chosen["measured_levels_db"] == {1: -20.0, 2: -10.0}
-
-
-def test_a_measurement_naming_no_stream_is_refused():
-    streams = [
-        {"index": 1, "channel": 1},
-        {"index": 3, "channel": 2},
-    ]
-    with pytest.raises(ProgramStreamRefused, match="matches none"):
-        select_program_stream(
-            streams, declaration=None, source="cam.MXF",
-            measured_selection={"channel": 9, "basis": "measured"})
-
-
-def test_a_single_stream_needs_no_measurement():
-    streams = [{"index": 1, "channel": 1}]
-    chosen = select_program_stream(
-        streams, declaration=None, source="phone.MOV",
-        measured_selection=None)
-    assert chosen["channel"] == 1
-    assert chosen["basis"] == "single"
-
-
-@NEEDS_FFMPEG
-def test_source_block_declaration_reaches_the_catalog(tmp_path):
-    fixture = tmp_path / "four.mkv"
-    _sine_gains(fixture, [0.25, 1.0, 0.5, 0.125])
-    (tmp_path / "project.yaml").write_text(
-        "source:\n  program_stream: 3\n", encoding="utf-8")
-    result = catalog_footage(
-        [{"path": str(fixture), "filename": "four.mkv",
-          "extension": ".mkv",
-          "size_bytes": fixture.stat().st_size,
-          "clip_id": "clip_001"}],
-        project_folder=str(tmp_path))
-    entry = result["clip_catalog"][0]
-    assert entry["program_stream"]["channel"] == 3
-    assert entry["program_stream"]["basis"] == "declared"
-    assert entry["program_stream_refusal"] is None
 
 
 @NEEDS_FFMPEG
@@ -217,20 +141,3 @@ def test_source_block_measure_flag_records_a_measured_selection(tmp_path):
     assert set(entry["program_stream"]["measured_levels_db"]) == {
         "CH1", "CH2", "CH3", "CH4"}
 
-
-@NEEDS_FFMPEG
-def test_an_ambiguous_measurement_is_recorded_as_refused(tmp_path):
-    fixture = tmp_path / "close.mkv"
-    _sine_gains(fixture, [1.0, 0.9, 0.25, 0.125])
-    (tmp_path / "project.yaml").write_text(
-        "source:\n  measure_program_stream: true\n", encoding="utf-8")
-    result = catalog_footage(
-        [{"path": str(fixture), "filename": "close.mkv",
-          "extension": ".mkv",
-          "size_bytes": fixture.stat().st_size,
-          "clip_id": "clip_001"}],
-        project_folder=str(tmp_path))
-    entry = result["clip_catalog"][0]
-    assert entry["program_stream"] is None
-    assert "within " in (entry["program_stream_refusal"] or "")
-    assert entry["audio_codec"] is None

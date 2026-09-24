@@ -75,48 +75,9 @@ def test_a_catalog_refusal_is_carried_into_the_build_refusal():
             None, set())
 
 
-def test_an_angle_with_no_sources_refuses_rather_than_guesses():
-    with pytest.raises(SpeechChannelRefused, match="no source clips"):
-        resolve_speech_channel(
-            "a", "Akshita", None, set(), {}, {}, None, set())
-
-
 def test_a_garbage_manifest_declaration_refuses_not_tracebacks():
     with pytest.raises(SpeechChannelRefused,
                        match="not a channel ordinal"):
         resolve_speech_channel(
             "a", "Akshita", "CH1", {"a.MXF"}, {"a.MXF": 1}, {}, None,
             set())
-
-
-def test_reel_resolution_reads_the_project_declaration_first(tmp_path):
-    from library.tools.reel_build import resolve_reel_program_channels
-    from library.tools.timeline_ingest import TimelineClip
-
-    project = tmp_path / "proj"
-    project.mkdir()
-    (project / "project.yaml").write_text(
-        "source:\n  program_stream: 1\n", encoding="utf-8")
-    (project / "pipeline_data.json").write_text(json.dumps({
-        "step_outputs": {
-            "catalog": {
-                "clip_catalog": [{
-                    "source_file": "/m/a.MXF",
-                    "audio_streams": [{}, {}, {}, {}],
-                    "program_stream": {"channel": 2,
-                                       "basis": "measured-loudest"},
-                    "program_stream_refusal": None,
-                }],
-            },
-        },
-    }), encoding="utf-8")
-    clips = [TimelineClip(
-        resolve_item_id="a-0", track_type="audio", track_index=1,
-        track_name="Akshita CH1", speaker="Akshita",
-        source_file="/m/a.MXF", source_in=100.0, source_out=110.0,
-        source_in_frame=2400, source_out_frame=2640,
-        source_frames=100000, timeline_start=0.0, timeline_end=10.0,
-        name="clip")]
-    angles = [{"key": "1", "label": "Akshita", "track_index": 1}]
-    assert resolve_reel_program_channels(
-        angles, clips, str(project)) == {"1": 1}

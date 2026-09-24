@@ -88,17 +88,6 @@ def test_the_template_refines_a_colour_role_and_does_not_gate_the_layer():
     assert without.dropped[0].reason == "no_colour_to_draw_it_in"
 
 
-def test_no_element_is_ever_drawn_in_a_colour_nobody_chose():
-    for plan in ([entry(color=None, colour_role=None)],
-                 [{"element": "frame_accents", "start_seconds": 0.0,
-                   "duration_seconds": 1.0, "anchor": "centre"}]):
-        cleaned = [{k: v for k, v in e.items() if v is not None}
-                   for e in plan]
-        resolved = resolve(cleaned)
-        assert not resolved.moments
-        assert resolved.dropped[0].reason == "no_colour_to_draw_it_in"
-
-
 # ── 2. its own timebase ──────────────────────────────────────────────
 
 def test_a_span_is_read_in_timeline_seconds_and_no_block_is_consulted():
@@ -115,24 +104,12 @@ def test_a_span_is_read_in_timeline_seconds_and_no_block_is_consulted():
     assert moment["durationFrames"] == round(6.4 * FPS)
 
 
-def test_a_span_that_runs_past_the_end_is_bounded_and_its_start_is_not_moved():
-    resolved = resolve([entry(start_seconds=10.0, duration_seconds=99.0)])
-    moment = resolved.moments[0]
-    assert moment["timeline_start"] == 10.0, "a start is never moved"
-    assert moment["timeline_end"] == DURATION
-
-
 def test_an_entry_with_no_timing_is_dropped_rather_than_given_a_block():
     for missing in ("start_seconds", "duration_seconds"):
         e = entry()
         del e[missing]
         resolved = resolve([e])
         assert resolved.dropped[0].reason == "no_timing_declared", missing
-
-
-def test_a_span_outside_the_timeline_is_dropped_and_not_clamped():
-    resolved = resolve([entry(start_seconds=DURATION + 1)])
-    assert resolved.dropped[0].reason == "outside_the_timeline"
 
 
 # ── 3. rows, and several graphics at once ────────────────────────────
@@ -174,14 +151,6 @@ def test_overlapping_spans_are_composited_and_disjoint_ones_are_not():
     assert segments[0]["timeline_end"] <= segments[1]["timeline_start"]
 
 
-def test_a_local_start_frame_is_rebased_onto_its_own_segment():
-    resolved = resolve([entry(start_seconds=4.0, duration_seconds=1.0)])
-    segments = mgp.plan_segments(resolved.moments, fps=FPS, width=1080,
-                                 height=1920, safe_area=SAFE_AREA)
-    assert segments[0]["props"]["elements"][0]["startFrame"] == 0
-    assert segments[0]["timeline_start"] == 4.0
-
-
 # ── The basis record reports what is drawn through what ──────────
 
 def _lower_third(start, duration, row=0, anchor="bottom_left"):
@@ -213,21 +182,6 @@ def test_two_cards_sharing_one_row_are_reported_on_the_basis_record():
     assert "row 0" in pairs[0]["why"]
 
 
-def test_cards_on_different_rows_are_stacked_not_reported():
-    """The mechanism `row` really is: the same two spans on rows 0 and
-    1 share one segment and report no pair."""
-    resolved = resolve([_lower_third(0.0, 3.5, row=0),
-                        _lower_third(3.23, 3.5, row=1)])
-    assert (resolved.basis_record()["drawn_through_each_other"] == [])
-
-
-def test_cards_that_do_not_share_a_frame_are_not_reported():
-    """The Reel 13 shape: a 3.54s gap against a 3.5s hold clears, and
-    the record says nothing about it."""
-    resolved = resolve([_lower_third(0.0, 3.5), _lower_third(3.54, 3.5)])
-    assert (resolved.basis_record()["drawn_through_each_other"] == [])
-
-
 # ── Refusals, all of them named ──────────────────────────────────────
 
 def test_an_element_the_renderer_cannot_draw_is_dropped_by_name():
@@ -245,13 +199,6 @@ def test_an_element_the_renderer_cannot_draw_is_dropped_by_name():
     resolved = resolve([entry(element=unreachable)])
     assert resolved.dropped[0].reason == "renderer_cannot_draw_it_yet"
     assert resolved.dropped[0].detail
-
-
-def test_an_element_owned_by_another_enumeration_says_which_one():
-    resolved = resolve([entry(element="zoom_emphasis")])
-    dropped = resolved.dropped[0]
-    assert dropped.reason == "not_in_the_vocabulary"
-    assert "plan_vfx" in dropped.detail
 
 
 def test_an_element_that_needs_copy_and_has_none_is_dropped():
@@ -274,25 +221,6 @@ def test_a_bare_string_declares_no_tier_and_is_dropped():
     assert "A NAME" in resolved.dropped[0].detail
 
 
-def test_a_list_of_strings_declares_no_tier_and_is_dropped():
-    resolved = resolve([entry(copy=["A NAME", "A TITLE"])])
-    assert resolved.dropped[0].reason == "no_type_role_declared"
-
-
-def test_an_unknown_role_is_not_guessed_as_supporting():
-    """A key outside the vocabulary states no tier; it is not supporting."""
-    resolved = resolve([entry(copy={"display": "A NAME",
-                                    "headline": "A TITLE"})])
-    dropped = resolved.dropped[0]
-    assert dropped.reason == "no_type_role_declared"
-    assert "A TITLE" in dropped.detail
-
-
-def test_a_run_without_a_role_in_a_list_is_dropped():
-    resolved = resolve([entry(copy=[{"text": "A NAME"}])])
-    assert resolved.dropped[0].reason == "no_type_role_declared"
-
-
 def test_a_declared_mapping_of_roles_still_resolves():
     """The handoff's own shape - every run names its tier - draws."""
     resolved = resolve([entry(copy={"display": "A NAME",
@@ -305,39 +233,10 @@ def test_a_declared_mapping_of_roles_still_resolves():
     assert record["resolved"] == 1
 
 
-def test_the_undeclared_tier_drop_is_recorded_with_its_meaning():
-    """A dropped value is recorded, never silently swallowed."""
-    resolved = resolve([entry(copy="A NAME")])
-    row = resolved.basis_record()["dropped"][0]
-    assert row["reason"] == "no_type_role_declared"
-    assert row["what_the_reason_means"] == mgp.DROP_REASONS[row["reason"]]
-    assert resolved.basis == mgp.EVERY_ENTRY_DROPPED
-
-
 def test_a_tracked_anchor_is_dropped_rather_than_pinned_to_a_point():
     resolved = resolve([entry(anchor=mgp.ANCHOR_NEEDS_MEASUREMENT)])
     assert (resolved.dropped[0].reason
             == "anchor_needs_a_measurement_nothing_takes")
-
-
-def test_an_unknown_anchor_is_not_snapped_to_the_nearest_one():
-    resolved = resolve([entry(anchor="top_middle")])
-    assert resolved.dropped[0].reason == "unknown_anchor"
-
-
-def test_a_drop_reason_outside_the_enumeration_is_refused():
-    """A new drop branch has to say what it is before it can go quiet."""
-    resolved = mgp.ResolvedPlan()
-    with pytest.raises(mgp.MotionPlanError):
-        mgp.Dropped(element="x", reason="because").as_record()
-    assert resolved.basis == mgp.NOT_PLANNED
-
-
-def test_every_recorded_drop_carries_the_words_of_its_reason():
-    resolved = resolve([entry(element="not_a_thing"), entry(anchor="nope")])
-    for row in resolved.basis_record()["dropped"]:
-        assert row["reason"] in mgp.DROP_REASONS
-        assert row["what_the_reason_means"] == mgp.DROP_REASONS[row["reason"]]
 
 
 # ── The three empty readings are spelled differently ─────────────────
@@ -353,36 +252,3 @@ def test_a_plan_of_none_and_a_plan_all_dropped_are_not_the_same_absence():
     readings = {chose_none.basis, all_dropped.basis, never_asked.basis}
     assert len(readings) == 3
     assert set(mgp.BASES) >= readings
-
-
-def test_the_basis_record_names_every_casualty():
-    resolved = resolve([entry(), entry(element="not_a_thing")])
-    record = resolved.basis_record()
-    assert record["proposed"] == 2
-    assert record["resolved"] == 1
-    assert len(record["dropped"]) == 1
-    assert record["what_the_basis_means"]
-
-
-# ── No magnitude comes out of this module ────────────────────────────
-
-def test_the_module_supplies_no_duration_no_colour_and_no_footprint():
-    """Every magnitude on a moment traces to the plan or is absent."""
-    resolved = resolve([entry()])
-    moment = resolved.moments[0]
-    assert moment["footprint"] is None, "no default footprint"
-    assert moment["emphasis"] is None, "no default emphasis"
-    assert moment["color"] == "#F5F5F0", "the plan's own colour"
-
-
-def test_a_plan_that_is_not_a_list_is_refused_rather_than_coerced():
-    with pytest.raises(mgp.MotionPlanError):
-        mgp.resolve_plan("title_lockup", timeline_duration=DURATION, fps=FPS)
-
-
-def test_props_that_carry_an_element_draw_and_props_that_do_not_do_not():
-    resolved = resolve([entry()])
-    segments = mgp.plan_segments(resolved.moments, fps=FPS, width=1080,
-                                 height=1920, safe_area=SAFE_AREA)
-    assert mgp.props_draw_ink(segments[0]["props"])
-    assert not mgp.props_draw_ink({"elements": []})

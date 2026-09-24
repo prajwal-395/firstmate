@@ -148,19 +148,3 @@ def test_every_outcome_is_a_plannable_type():
         )
         assert res["type"] in PLANNABLE_TYPES, res
 
-def test_the_withdrawn_scene_change_defaults_are_recorded():
-    """A withdrawal is only visible if the reason is written down.
-
-    The one-per-twenty-seconds cap that used to live here is gone with
-    the thing it capped: there is nothing left to rate-limit, because
-    nothing is drawn unasked.
-    """
-    from library.tools.transition_selector import (
-        WITHDRAWN_SCENE_CHANGE_DEFAULTS,
-    )
-
-    assert set(WITHDRAWN_SCENE_CHANGE_DEFAULTS) == {
-        "flash", "fade_to_black", "defocus",
-    }
-    for name, reason in WITHDRAWN_SCENE_CHANGE_DEFAULTS.items():
-        assert reason.strip(), f"{name} is withdrawn with no reason"

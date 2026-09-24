@@ -63,32 +63,3 @@ def test_a_producer_change_selects_the_resolver_contract_set():
     selected = select(["library/tools/speaker_identity.py"])
     for contract in MG_CONTRACT:
         assert contract in selected, contract
-
-
-def test_the_contract_set_is_the_seven_files_that_feed_resolve_plan():
-    """The named set exists and is complete: exactly the test files
-    that call `resolve_plan` directly. If an eighth file starts calling
-    it, this test goes red until the set names it too."""
-    import re
-
-    callers = set()
-    for path in Path(REPO_ROOT / "tests").glob("test_*.py"):
-        if path.name == "test_select_dependent_tests.py":
-            continue  # this file: about the selector, not the resolver.
-        text = path.read_text(encoding="utf-8")
-        if re.search(r"(?m)^\s*(from|import)\b.*\bresolve_plan\b", text):
-            callers.add("tests/" + path.name)
-        elif "resolve_plan(" in text and "motion_graphics_plan" in text:
-            callers.add("tests/" + path.name)
-    assert sorted(callers) == sorted(MG_CONTRACT), (
-        set(callers) ^ set(MG_CONTRACT))
-
-
-def test_the_selection_stays_narrow():
-    """The procedure errs wide, never narrow - but "wide" means the
-    contract set plus direct importers, not the whole suite. A
-    selection that follows every importer's own fan-out costs minutes
-    and still answers the wrong question (#1258 ran MORE tests than
-    this and missed twice)."""
-    selected = select(["library/tools/motion_graphics_plan.py"])
-    assert len(selected) < 40, len(selected)

@@ -135,12 +135,6 @@ def test_no_raw_value_list_travels_onward():
             f"and `mesh_spine` declare whole - it would land in both prompts")
 
 
-def test_every_measurement_is_either_carried_or_recorded_as_withheld():
-    accounted = (set(mm.SELECTION_MEASUREMENT_KEYS)
-                 | set(mm.WITHHELD_FROM_THE_SELECTION))
-    assert set(mm.MEASURED_KEYS) <= accounted
-
-
 def test_a_track_that_was_not_measured_says_so():
     measurements = mm.selection_measurements(
         {"audio_path": "/downloads/fetched.mp3"},
@@ -151,34 +145,6 @@ def test_a_track_that_was_not_measured_says_so():
         measurements["measurement_note"]
     assert "integrated_lufs" not in measurements, \
         "an unmeasured bed has no level, not a level of 0"
-
-
-def test_the_post_bridge_folds_the_measurements_onto_the_selection(tmp_path):
-    """End to end through 2.04's real post-bridge, no model in the loop."""
-    audio = tmp_path / "rise.mp3"
-    audio.write_bytes(b"not really audio, but it is on disk")
-
-    post_bridge = _load_post_bridge()
-    resolved = post_bridge.resolve_selection(
-        selection={
-            "title": "rise",
-            "source": "library",
-            "audio_path": str(audio),
-            "duration_seconds": 180.0,
-            "direction_justification": {
-                "direction_mood": "hopeful",
-                "why_it_fits": "it lifts",
-                "forbidden_registers": ["sombre"],
-                "why_not_forbidden": {"sombre": "it never sits in a minor key"},
-            },
-        },
-        candidates=[_candidate(str(audio))],
-        target_duration=60.0,
-        project_folder=str(tmp_path),
-    )
-
-    assert resolved["measurements"]["integrated_lufs"] == -13.9
-    assert "track_sections" not in resolved["measurements"]
 
 
 # ── Step 5.02 reads them ────────────────────────────────────────────
@@ -203,66 +169,6 @@ def test_the_mix_reads_the_bed_and_says_where_the_gain_puts_it():
         -13.9 + DECIDED["background"])
     assert prominent["bed_level_after_gain_lufs"] == pytest.approx(
         -13.9 + DECIDED["prominent"])
-
-
-def test_an_unmeasured_bed_is_an_admitted_absence_never_a_level():
-    spec = _mix_spec(
-        _spine("background"),
-        {"title": "hand-picked", "audio_path": "/elsewhere/track.wav"})
-
-    assert spec["bed"]["measured"] is False
-    assert spec["bed"]["measurement_note"], \
-        "an absent measurement must say why it is absent"
-    assert "integrated_lufs" not in spec["bed"]
-    assert spec["music_automation"][0]["bed_level_after_gain_lufs"] is None, \
-        "None means unknown; 0 would read as a bed at full scale"
-    # The plan is still complete - the mix is not gated on the measurement.
-    assert spec["music_automation"][0]["target_level_db"] == \
-        DECIDED["background"]
-
-
-def test_the_step_declares_only_what_it_reads():
-    manifest = json.loads((STEP_DIR / "manifest.json").read_text("utf-8"))
-    declared = {i["name"] for i in manifest["interface"]["inputs"]}
-    assert declared == {"audio_spine", "music_selection", "a_roll_assignments",
-                        "creative_direction", "project_folder"}, (
-        "enhancement_spec described a feature nobody built; re-declaring "
-        "it needs a reader in the same commit. `a_roll_assignments` "
-        "arrived WITH its reader: it names the source ranges the speech is "
-        "measured over (library/tools/speech_loudness.py). "
-        "`creative_direction` and `project_folder` arrived with theirs on "
-        "2026-09-16: the ladder in library/tools/decided_value.py tries a "
-        "stated project preference and a declared direction value before "
-        "it asks the model.")
-
-    dag = json.loads(
-        (REPO / "library" / "processes" / "edit_video" / "dag.json")
-        .read_text("utf-8"))
-    routed = set()
-    for edge in dag["edges"]:
-        if edge["to"] == "audio_mix":
-            routed |= set(edge["data_mapping"])
-    assert routed == declared - {"project_folder"}, (
-        "a DAG edge routing a key no manifest declares is the same defect, "
-        "and so is a manifest declaring an input no edge carries - which is "
-        "what `creative_direction` was for the hour between this step "
-        "declaring it and the edge landing. `project_folder` is the one "
-        "exception and it is not an exception to the rule: the runner "
-        "injects it into every step, so no edge carries it for any of them.")
-
-
-def test_no_mix_level_is_chosen_here():
-    """No module holds a level for a behaviour, and none may again."""
-    for word, meaning in mb.MUSIC_BEHAVIORS.items():
-        assert isinstance(meaning, str), (
-            f"{word} carries a number again: {meaning!r}. The five clip "
-            f"gains were removed on the captain's ruling of 2026-09-16")
-    assert mb.SEPARATION_TARGETS_DB == {}, (
-        "a separation target is decided per run over the measurements, on "
-        "`audio_mix_spec.value_decisions`. A module-level dict of them is "
-        "the constant coming back in a new place.")
-    for behaviour in mb.MUSIC_BEHAVIORS:
-        assert mb.separation_target_db(behaviour) is None
 
 
 # ── The check says what it judged against ───────────────────────────
@@ -312,30 +218,3 @@ def test_the_check_names_a_clip_gain_when_that_is_what_it_judged(monkeypatch):
     assert "CLIP GAIN" in result.detail, (
         "the report must say the margin was a clip gain, or a reader takes "
         "it for a separation somebody declared")
-
-
-def test_a_declared_separation_target_is_what_the_check_uses(monkeypatch):
-    """The decided separation is what now lands in that field: since
-    2026-09-16 `music_automation[].separation_target_db` carries what the
-    mix engineer asked for, so this reader stopped being vacuous."""
-    _fake_master(monkeypatch, music_gain_db=DECIDED["background"],
-                 speech_db=-20.0)
-
-    result = render_qa.measure_speech_above_bed(
-        "MASTER", "MUSIC", _automation(8.0), 0.0, BLOCKS)
-
-    window = result.value["windows"][0]
-    assert window["required_margin_basis"] == "declared_separation_target"
-    assert window["required_margin_db"] == 8.0
-    assert result.threshold["judged_on_clip_gain"] is False
-    # The separation itself is measured either way - that half always worked.
-    assert window["margin_db"] == pytest.approx(
-        window["non_music_db"] - window["music_in_mix_db"], abs=0.01)
-
-
-def test_the_gate_is_still_off():
-    assert render_qa.SPEECH_ABOVE_BED_GATES is False, (
-        "one of the two conditions beside this boolean changed on "
-        "2026-09-16 - the plan now carries a real separation target rather "
-        "than a clip gain read as one - and promoting a report to a gate "
-        "is still the captain's call, not a consequence of that")

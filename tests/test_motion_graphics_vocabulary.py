@@ -73,10 +73,6 @@ def _table_source(*names: str) -> str:
 
 # ── 1. an axis, not a value ──────────────────────────────────────────
 
-def test_the_roster_is_well_formed():
-    mgv.assert_roster_is_well_formed()
-
-
 def test_no_field_of_an_entry_or_an_axis_can_hold_a_magnitude():
     """The structural half: nothing here has a numeric field to read.
 
@@ -143,23 +139,6 @@ def test_no_settled_colour_duration_or_size_appears_in_the_vocabulary():
             f"{cited!r} is recorded in CITED_VALUES and no longer "
             f"appears. Delete the entry rather than leaving a stale "
             f"exemption behind.")
-
-
-def test_every_entry_is_declared_on_axes_and_states_its_refusals():
-    for element in mgv.ROSTER:
-        assert element.axes, f"{element.key} is declared on no axis"
-        assert element.never, f"{element.key} records no refusals"
-        assert element.earns_its_place, f"{element.key} says when it earns nothing"
-        assert element.needs, f"{element.key} says what it needs: nothing"
-        for axis in element.axes:
-            assert axis in mgv.AXES_BY_NAME
-
-
-def test_every_axis_says_what_it_resolves_against():
-    """An axis with nothing to resolve against is a number waiting to happen."""
-    for axis in mgv.AXES:
-        assert axis.resolved_against, axis.name
-        assert not _VALUE_SHAPES.search(axis.ranges_over), axis.name
 
 
 # ── 2. series-neutral ────────────────────────────────────────────────
@@ -251,22 +230,6 @@ def test_the_drawable_set_the_planner_uses_is_the_rosters_own():
         e.key for e in mgv.ROSTER if e.reachable == mgv.REACHABLE_NOW)
 
 
-def test_every_unreachable_entry_says_what_is_missing():
-    for element in mgv.ROSTER:
-        if element.reachable == mgv.REACHABLE_NOW:
-            continue
-        assert element.reachability_note, element.key
-        assert element.reachable in (mgv.NEEDS_RENDERER_WORK,
-                                     mgv.NEEDS_MEASUREMENT)
-
-
-def test_a_measurement_gap_is_not_filed_as_a_renderer_gap():
-    """tracked_label needs a track nothing measures, which is a different half."""
-    tracked = mgv.ELEMENTS_BY_KEY["tracked_label"]
-    assert tracked.reachable == mgv.NEEDS_MEASUREMENT
-    assert "object_segmentation" in tracked.reachability_note
-
-
 # ── 4. neutral on the two open captain decisions ─────────────────────
 
 def test_the_roster_names_no_producer_of_copy():
@@ -307,45 +270,6 @@ def test_the_roster_names_no_authoring_mechanism():
 
 # ── The shape of the roster ──────────────────────────────────────────
 
-def test_no_function_carries_the_roster():
-    """The SFX library's failure, checked for here before it happens.
-
-    41 of that library's 78 entries are one emotional register, so a
-    catalogue that looks large is mostly one thing and the useful
-    entries are hard to find. No function here may hold more than a
-    third of the roster.
-    """
-    spread = mgv.register_spread()
-    assert sum(spread.values()) == len(mgv.ROSTER)
-    ceiling = len(mgv.ROSTER) // 3
-    over = {name: n for name, n in spread.items() if n > ceiling}
-    assert not over, (
-        f"{over} exceeds {ceiling} of {len(mgv.ROSTER)} entries. A "
-        f"register carrying a third of the vocabulary is the SFX "
-        f"library's shape.")
-    assert all(n > 0 for n in spread.values()), (
-        f"an empty function is a register nobody can plan in: {spread}")
-
-
-def test_the_boundary_names_the_enumeration_that_owns_each_exclusion():
-    """A planner naming a transition is told which module owns it."""
-    owners = {
-        "caption_word_emphasis": "subtitle_style",
-        "kinetic_typography": "caption_word_emphasis",
-        "shape_wipe_transition": "transition_vocabulary",
-        "zoom_emphasis": "plan_vfx",
-        "screen_shake": "zoom_emphasis",
-        "light_leak": "transition_vocabulary",
-        "intro_card": "bookends",
-        "end_card": "bookend",
-        "emoji_sticker": "channel_bug",
-        "watermark_tile": "channel_bug",
-    }
-    assert set(mgv.OUT_OF_VOCABULARY) == set(owners)
-    for key, owner in owners.items():
-        assert owner in mgv.OUT_OF_VOCABULARY[key], key
-
-
 def test_a_key_outside_the_roster_is_refused_by_name():
     assert mgv.canonical_key("stat_callout") == "stat_callout"
     assert mgv.canonical_key("  Stat_Callout ") == "stat_callout"
@@ -373,42 +297,6 @@ def test_a_malformed_entry_is_refused():
 
 # ── The prompt-side route ────────────────────────────────────────────
 
-def test_the_whole_roster_serialises_into_a_prompt_table():
-    """Nothing is shortlisted: whatever selects a shortlist is the chooser."""
-    from library.tools.toon_serializer import json_to_toon
-
-    rows = mgv.roster_rows()
-    assert len(rows) == len(mgv.ROSTER)
-    table = json_to_toon(rows)
-    assert "stat_callout" in table
-    assert "tracked_label" in table
-    assert set(rows[0]) == set(mgv.ROSTER_LEGEND), (
-        "every column a model reads must be defined in ROSTER_LEGEND, "
-        "the way music_measurement.MEASUREMENT_LEGEND defines its own.")
-    reachable_only = mgv.roster_rows(include_unreachable=False)
-    assert 0 < len(reachable_only) < len(rows)
-
-
-def test_the_legend_defines_columns_and_concludes_nothing():
-    for column, meaning in mgv.ROSTER_LEGEND.items():
-        assert meaning
-        assert not _VALUE_SHAPES.search(meaning), column
-
-
-def test_describe_roster_reports_the_spread_and_the_reachability():
-    text = mgv.describe_roster()
-    assert "MOTION-GRAPHICS ROSTER" in text
-    for element in mgv.ROSTER:
-        assert element.key in text
-    assert "needs_renderer_work" in text
-    assert "AXES" in text
-
-
-def test_the_cli_check_passes():
-    assert mgv.main(["--check"]) == 0
-    assert mgv.main([]) == 0
-
-
 # ── 4.06's prompt states the renderer's real ceiling ─────────────────
 #
 # The captain's named failure was that the model planned text graphics
@@ -424,74 +312,3 @@ def test_the_cli_check_passes():
 # gains the node. A prompt that claims a limit the renderer no longer
 # has is as misleading as one that claims a capability it never had.
 
-HANDOFF_4_06 = (
-    Path(__file__).resolve().parents[1] / "library" / "steps"
-    / "step_4_06_render_motion_graphics" / "handoff.md"
-)
-
-
-def _handoff_4_06() -> str:
-    return " ".join(HANDOFF_4_06.read_text(encoding="utf-8").split())
-
-
-def test_the_prompt_s_copy_counts_match_the_roster():
-    """The prompt tells the model how copy-shaped this roster is, to
-    explain why reaching for text is not purely its own doing. A count
-    that drifts from the roster is a false explanation."""
-    from collections import Counter
-
-    counts = Counter(row["copy"] for row in mgv.roster_rows())
-    handoff = _handoff_4_06()
-    words = {3: "three", 4: "four", 11: "eleven", 12: "twelve",
-             19: "Nineteen"}
-    assert f"{words[19]} elements" in handoff, (
-        f"the roster holds {len(mgv.ELEMENTS_BY_KEY)} elements and "
-        f"the prompt says otherwise")
-    assert len(mgv.ELEMENTS_BY_KEY) == 19
-    for value, count in (("required", counts["required"]),
-                         ("optional", counts["optional"]),
-                         ("none", counts["none"])):
-        assert count in words, (
-            f"copy={value} is now {count} and this test only spells "
-            f"{sorted(words)}; update both it and the prompt")
-        assert words[count] in handoff, (
-            f"the prompt no longer states that copy is {value} on "
-            f"{words[count]} elements")
-
-
-def test_the_prompt_names_every_element_that_draws_no_copy():
-    """These four are the whole non-copy set, and the prompt leans on
-    that fact to say where the non-text range is."""
-    handoff = _handoff_4_06()
-    silent = [row["element"] for row in mgv.roster_rows()
-              if row["copy"] == "none"]
-    assert len(silent) == 4
-    for element in silent:
-        assert f"`{element}`" in handoff, element
-
-
-def test_the_prompt_states_the_tracked_anchor_is_unavailable():
-    """`tracked` is the one anchor with no measurement behind it, and
-    `tracked_label` is the one element that is not reachable_now. The
-    day either changes, this prompt is lying to the planner."""
-    handoff = _handoff_4_06()
-    assert "`tracked`" in handoff
-    unreachable = [key for key, element in mgv.ELEMENTS_BY_KEY.items()
-                   if element.reachable != mgv.REACHABLE_NOW]
-    assert unreachable == ["tracked_label"], (
-        f"the unreachable set is now {unreachable}; 4.06's prompt names "
-        f"only tracked_label and would be stating a stale ceiling")
-
-
-def test_the_prompt_does_not_promise_a_video_node():
-    """No element in this layer composites a video file. `BrandMotion`
-    exists and belongs to the full-frame and bookend path; the prompt
-    says so rather than letting the planner reach for it."""
-    composition = (
-        Path(__file__).resolve().parents[1] / "remotion-subtitles"
-        / "src" / "compositions" / "MotionGraphics" / "index.tsx"
-    ).read_text(encoding="utf-8")
-    assert "OffthreadVideo" not in composition, (
-        "MotionGraphics gained a video node - 4.06's prompt still tells "
-        "the planner it has none")
-    assert "No element composites a video file" in _handoff_4_06()

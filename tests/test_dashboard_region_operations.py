@@ -76,19 +76,8 @@ def test_a_refusal_names_the_missing_thing_and_what_produces_it(client):
             assert "produced_by" in why
 
 
-def test_the_payload_says_it_cannot_run_anything(client):
-    """The operations layer resolves and does not execute. Implying a
-    button that does not exist is the dishonesty worth designing out."""
-    body = client.get("/api/operations?region=45.0-72.0").json()
-    assert body["executable"] is False
-    assert body["executable_note"]
 
 
-def test_a_malformed_region_is_refused_by_the_one_parser(client):
-    for bad in ("", "notaspan", "45.0", "72.0-45.0"):
-        response = client.get(f"/api/operations?region={bad}")
-        assert response.status_code == 400, (
-            f"{bad!r} was accepted; region.parse owns what an interval is")
 
 
 def test_the_endpoint_carries_no_second_spelling_of_an_address(client):

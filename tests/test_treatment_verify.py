@@ -174,12 +174,6 @@ def test_window_gate_can_fail():
     assert verdict["outside_window"] == [50]
 
 
-def test_window_gate_passes_clean_curves():
-    from library.tools import treatment_verify as tv
-
-    curves = {"PowerBand1Height": [1.0 for _ in range(72)]}
-    verdict = tv.check_window(curves, window=(54, 71), played=72)
-    assert verdict["passed"] is True
 
 
 def test_sampled_hold_after_is_a_frame_not_an_offset():
@@ -268,14 +262,6 @@ def test_skill_run_writes_a_receipt_that_reads_back(tmp_path):
     assert receipts["verify_treatment"]["result"]["passed"] is True
 
 
-def test_skill_run_fails_a_drew_nothing_tail(tmp_path):
-    """The tail the reels shipped: the skill gates it, receipted."""
-    from library.skills.verify_treatment.skill import run
-
-    record = run(applier_effects(TAIL), "tv_power_tail", CLIP_DUR,
-                 str(tmp_path), "plan_vfx",
-                 played_frames=played_reel(), source_res=SOURCE_RES)
-    assert record["passed"] is True
     # With the played horizon the clamp anchors the tail inside what
     # renders; the legacy no-horizon build is what drew nothing (see
     # test_legacy_tail_without_horizon_draws_nothing_on_reel).

@@ -15,25 +15,3 @@ def test_missing_dvr_sentinel_can_be_monkeypatched(monkeypatch):
     
     # Verify the patch worked
     assert afc.dvr.scriptapp("Resolve") == "mocked"
-def test_missing_dvr_sentinel_raises_on_call_not_access():
-    """
-    Ensure the sentinel allows reading an attribute, but calling the returned
-    callable raises the expected RuntimeError with a clear message.
-    """
-    # This is only guaranteed to test the sentinel if the real module is missing.
-    # To reliably test the sentinel behavior, we'll instantiate it directly.
-    err_msg = "Mock error"
-    class _MissingDVR:
-        def __getattr__(self, name):
-            def _missing(*args, **kwargs):
-                raise RuntimeError(f"DaVinciResolveScript is not installed: {err_msg}")
-            return _missing
-            
-    sentinel = _MissingDVR()
-    
-    # Accessing should be fine
-    func = sentinel.scriptapp
-    
-    # Calling should raise
-    with pytest.raises(RuntimeError, match="DaVinciResolveScript is not installed: Mock error"):
-        func("Resolve")

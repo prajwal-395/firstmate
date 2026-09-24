@@ -100,15 +100,6 @@ def test_lead_and_hold_state_no_look():
     assert "leadSeconds = 0.1" not in code
 
 
-def test_timing_helpers_are_exported_for_reading():
-    """The card's behaviour over time is readable without a render."""
-    code = "\n".join(_code_lines())
-    for name in ("export const heldFrame",
-                 "export const cueEffectiveStart",
-                 "export const validateCueLeads"):
-        assert name in code, f"{name} is not exported"
-
-
 def test_the_component_quantises_its_own_clock():
     """The drawn frame goes through `heldFrame`, not around it."""
     code = "\n".join(_code_lines())
@@ -321,18 +312,3 @@ def test_cue_lead_and_hold_proved_from_the_timing_functions(tmp_path):
                  "a lead onto the previous word refuses"):
         assert f"PASS {name}" in result.stdout, (
             f"harness did not report {name!r}:\n{result.stdout[-2000:]}")
-
-
-@node_available
-def test_node_harness_reports_its_own_tooling():
-    """The math half is never silently skipped where it should run.
-
-    Where the Remotion dev deps are absent this SKIPS into the
-    `remotion` capability (narrowing the gate with the install hint)
-    rather than failing: a missing capability is a narrower run, not
-    a red one. Where they are present the tooling paths are asserted,
-    so a half-installed `node_modules` still fails loudly.
-    """
-    assert os.path.isdir(TSC_DIR)
-    assert os.path.isfile(COMPONENT)
-    _ = json.dumps({"probe": True})

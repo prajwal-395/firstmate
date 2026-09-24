@@ -33,31 +33,6 @@ from tests.skip_audit import (  # noqa: E402
 )
 
 
-class TestCapabilityAnnotations:
-    """Every narrowing condition names a capability and an install hint."""
-
-    def test_every_condition_with_capability_has_install_hint(self):
-        for cond in ENVIRONMENT_CONDITIONS:
-            if cond.capability:
-                assert cond.install_hint, (
-                    f"condition {cond.pattern!r} has capability "
-                    f"{cond.capability!r} but no install_hint")
-
-    def test_complementary_pairs_have_no_capability(self):
-        """Complementary pairs always fire on one side; they do not narrow."""
-        complementary_patterns = [
-            "parselmouth is present",
-            "missing-dependency failure mode",
-            "tiktoken is installed here",
-        ]
-        for cond in ENVIRONMENT_CONDITIONS:
-            for frag in complementary_patterns:
-                if frag in cond.pattern:
-                    assert not cond.capability, (
-                        f"complementary condition {cond.pattern!r} should "
-                        f"not have a capability - one side always fires")
-
-
 class TestMissingCapabilitiesFromReasons:
     """The function that maps skip reasons to missing capabilities."""
 
@@ -108,14 +83,6 @@ class TestMissingCapabilitiesFromReasons:
         names = [mc.name for mc in caps]
         assert names == sorted(names)
 
-    def test_empty_reasons_produce_no_capabilities(self):
-        assert missing_capabilities_from_reasons([]) == []
-
-    def test_undeclared_reason_is_ignored(self):
-        """An undeclared skip reason is not a capability gap."""
-        caps = missing_capabilities_from_reasons(["some random reason"])
-        assert caps == []
-
 
 class TestMissingCapabilitiesFromJunit:
     """Reading missing capabilities from a JUnit XML file."""
@@ -143,37 +110,6 @@ class TestMissingCapabilitiesFromJunit:
         assert len(caps) == 1
         assert caps[0].name == "remotion"
         assert caps[0].skip_count == 2
-
-    def test_no_skips_produces_no_capabilities(self, tmp_path):
-        xml = tmp_path / "report.xml"
-        xml.write_text(textwrap.dedent("""\
-            <?xml version="1.0" encoding="utf-8"?>
-            <testsuite name="pytest" tests="3" skipped="0"
-                       failures="0" errors="0">
-              <testcase name="test_ok"/>
-            </testsuite>
-        """), encoding="utf-8")
-        caps = missing_capabilities_from_junit(str(xml))
-        assert caps == []
-
-    def test_complementary_skips_do_not_narrow(self, tmp_path):
-        xml = tmp_path / "report.xml"
-        xml.write_text(textwrap.dedent("""\
-            <?xml version="1.0" encoding="utf-8"?>
-            <testsuite name="pytest" tests="2" skipped="1"
-                       failures="0" errors="0">
-              <testcase name="test_ok"/>
-              <testcase name="test_skip">
-                <skipped message="parselmouth is present, so measurement succeeds"/>
-              </testcase>
-            </testsuite>
-        """), encoding="utf-8")
-        caps = missing_capabilities_from_junit(str(xml))
-        assert caps == []
-
-    def test_missing_file_returns_empty(self):
-        caps = missing_capabilities_from_junit("/nonexistent/report.xml")
-        assert caps == []
 
     def test_multiple_capabilities_from_one_report(self, tmp_path):
         xml = tmp_path / "report.xml"

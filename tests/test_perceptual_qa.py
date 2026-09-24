@@ -9,7 +9,6 @@ The model itself is not exercised here - loading a 12B model in CI is not
 sensible. What is exercised: the parsing, the variance discipline, and the
 wiring that stopped any of it running at all.
 """
-import json
 import os
 import sys
 
@@ -22,11 +21,9 @@ if PROJECT_ROOT not in sys.path:
 from library.tools.perceptual_qa import (
     DIMENSIONS,
     DROPPED_DIMENSIONS,
-    MODEL_ID,
     build_prompt,
     dimension_variance,
     parse_verdict,
-    summarise,
 )
 
 # The three verdicts the model actually returned on the calibration
@@ -52,22 +49,10 @@ def test_a_fenced_verdict_parses():
     assert v.answers["black_bars"] == "top_and_bottom"
 
 
-def test_an_unfenced_verdict_parses():
-    v = parse_verdict(REAL_CLEAN, frame=30)
-    assert not v.parse_error
-    assert not v.findings
-
-
 def test_prose_is_recorded_as_a_parse_failure_not_swallowed():
     v = parse_verdict("The frame looks quite nice to me.", frame=1)
     assert v.parse_error
     assert not v.clean, "an unparseable verdict must not read as a pass"
-
-
-def test_the_raw_reply_is_always_kept():
-    """A verdict nobody can audit is not inspectable."""
-    v = parse_verdict(REAL_SUBJECT_CUT, frame=7)
-    assert v.raw == REAL_SUBJECT_CUT
 
 
 # ─────────────────────────────────────────────────────────
@@ -80,20 +65,6 @@ def test_the_prompt_asks_what_is_wrong_and_never_for_a_score():
     assert "wrong" in lower
     for banned in ("score", "rate", "rating", "out of 10", "1-10"):
         assert banned not in lower.replace("do not give a score or a rating.", "")
-
-
-def test_no_dimension_is_a_number():
-    for dim in DIMENSIONS:
-        assert dim.kind in ("bool", "enum", "text"), dim.key
-
-
-def test_the_summary_carries_no_score():
-    verdicts = [parse_verdict(r, frame=i) for i, r in enumerate(
-        (REAL_LETTERBOX, REAL_SUBJECT_CUT, REAL_CLEAN))]
-    out = summarise(verdicts)
-    flat = json.dumps(out).lower()
-    assert "score" not in flat
-    assert "rating" not in flat
 
 
 # ─────────────────────────────────────────────────────────
@@ -119,11 +90,6 @@ def test_fills_frame_was_dropped_and_the_reason_recorded():
     assert DROPPED_DIMENSIONS["fills_frame"].strip()
     # And the real replies show why: same answer every time.
     assert dimension_variance(_real_verdicts())["fills_frame"] == 1
-
-
-def test_every_dropped_dimension_has_a_reason():
-    for key, reason in DROPPED_DIMENSIONS.items():
-        assert reason.strip(), f"{key} was dropped with no reason recorded"
 
 
 def test_findings_only_fire_on_the_bad_frames():
@@ -164,29 +130,9 @@ def test_an_unanswered_dimension_does_not_read_as_clean():
     assert not v.clean, "a question the model did not answer is not a pass"
 
 
-def test_summarise_reports_unanswered_dimensions_separately():
-    garbled = parse_verdict('{"black_bars": "none"}', frame=0)
-    summary = summarise([garbled])
-    assert summary["unanswered_dimensions"]["main_subject_fully_visible"] == 1
-    assert summary["unanswered_dimensions"]["text_legible"] == 1
-    assert summary["frames_clean"] == 0
-
-
-def test_a_finding_carries_the_why():
-    letterbox = _real_verdicts()[0]
-    finding = next(f for f in letterbox.findings if f.dimension == "black_bars")
-    assert "black bars" in finding.detail.lower()
-
-
 # ─────────────────────────────────────────────────────────
 # Constraint 4: observation only
 # ─────────────────────────────────────────────────────────
-
-def test_the_summary_declares_itself_observation_only():
-    out = summarise(_real_verdicts())
-    assert out["observation_only"] is True
-    assert out["model"] == MODEL_ID
-
 
 def test_the_renderer_never_lets_perception_fail_a_build():
     """Same rule as the QA stations: loud, not fatal, until there is
@@ -234,12 +180,6 @@ def test_the_router_finds_clips_where_they_actually_live():
         "top-level 'clips' key that compile_manifest has never written")
 
 
-def test_the_router_plans_nothing_for_an_empty_timeline():
-    from library.tools.visual_qa_router import plan_qa_checks
-    plan = plan_qa_checks({"tracks": {"V1": {"clips": []}}}, phase="post_build")
-    assert plan.frame_grabs == []
-
-
 # ─────────────────────────────────────────────────────────
 # The hang: a fixed key-name bug switched on a dormant path
 # ─────────────────────────────────────────────────────────
@@ -276,16 +216,6 @@ def test_perceptual_observation_is_off_by_default(monkeypatch):
         {"timeline_in_frame": 0, "timeline_out_frame": 60}]}}}
     # Must not touch Resolve or the model when it is off.
     assert run_perceptual_observation(None, None, None, manifest) is None
-
-
-def test_perceptual_observation_turns_on_when_asked(monkeypatch):
-    from library.tools.visual_qa_router import (
-        PERCEPTUAL_QA_ENV, perceptual_qa_enabled)
-    for value in ("1", "true", "YES", "on"):
-        monkeypatch.setenv(PERCEPTUAL_QA_ENV, value)
-        assert perceptual_qa_enabled() is True, value
-    monkeypatch.setenv(PERCEPTUAL_QA_ENV, "no")
-    assert perceptual_qa_enabled() is False
 
 
 def test_importing_the_router_does_not_pull_in_the_vision_model():

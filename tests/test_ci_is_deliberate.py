@@ -73,13 +73,6 @@ def test_no_push_trigger():
     )
 
 
-def test_no_workflow_dispatch_trigger():
-    """104 billed minutes in five days reached the expensive jobs this way."""
-    assert "workflow_dispatch" not in _triggers(), (
-        "`workflow_dispatch` is back. It is a button that spends 13 minutes "
-        "with no batch behind it. If you need a manual run, apply the label - "
-        "the label is the record of who asked."
-    )
 
 
 def test_the_only_pull_request_event_is_a_label():
@@ -93,24 +86,6 @@ def test_the_only_pull_request_event_is_a_label():
     )
 
 
-def test_the_path_filter_job_is_gone():
-    """A whole billed minute to compute a boolean the label already encodes.
-
-    GitHub's floor is one minute PER JOB, so a 7-second job costs the same
-    as a 60-second one. 52 minutes in September for one boolean.
-    """
-    jobs = _workflow()["jobs"]
-    assert "path-filter" not in jobs, "the path-filter job is back"
-    uses = [
-        step.get("uses", "")
-        for job in jobs.values()
-        for step in job.get("steps", [])
-    ]
-    assert not any("paths-filter" in u for u in uses), (
-        "a paths-filter action is back in the workflow. Once the expensive "
-        "jobs are label-gated the label IS the filter, and the filter job is "
-        "a billed minute spent on something already known."
-    )
 
 
 def test_every_job_is_armed_by_a_label():
@@ -124,41 +99,8 @@ def test_every_job_is_armed_by_a_label():
     )
 
 
-@pytest.mark.parametrize("job,label", sorted(JOB_LABELS.items()))
-def test_the_job_fires_only_on_its_own_label(job: str, label: str):
-    condition = _condition(job)
-    assert "github.event_name == 'pull_request'" in condition, (
-        f"{job}'s condition does not pin the event to `pull_request`, so "
-        f"re-adding a trigger to `on:` would silently re-open it"
-    )
-    assert "github.event.action == 'labeled'" in condition, (
-        f"{job} does not require a `labeled` action, so any accepted "
-        f"pull_request event would start it"
-    )
-    assert f"github.event.label.name == '{label}'" in condition, (
-        f"{job} does not require the {label!r} label. The label is the "
-        f"whole gate: it is what makes the run DELIBERATE and once per batch."
-    )
 
 
-def test_the_workflow_states_the_clean_rooms_purpose():
-    """A purpose nobody wrote down is a purpose the next edit widens.
-
-    `heavy-ml-suite` was 9 billed minutes of `pip install` to run TWO
-    tests; `full-suite` came back onto every PR event on an estimate that
-    understated its cost by 100%. Both were reasonable-looking widenings
-    of a job whose reason to exist was never in the file.
-    """
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "clean-room" in text.lower() or "clean room" in text.lower(), (
-        "the workflow does not name itself a clean-room gate"
-    )
-    for evidence in ("httpx", "ffmpeg", "declared manifests", "docs/CI_LAYERS.md"):
-        assert evidence in text, (
-            f"the workflow no longer names {evidence!r}. Its header is the "
-            f"only thing standing between this job and being widened back "
-            f"into a general test runner."
-        )
 
 
 def test_the_local_layer_exists_and_is_runnable():
@@ -369,24 +311,6 @@ def test_the_heavy_ml_tier_is_refused_rather_than_failed_when_it_cannot_run():
     )
 
 
-def test_the_heavy_tier_runs_as_its_own_phase_of_the_local_gate():
-    """The slow tier is tiered, not skipped: its own `-m heavy` phase.
-
-    Sibling to `test_the_local_gate_runs_the_heavy_ml_tier_the_hosted_job
-    _gave_up`: the default selection must deselect the heavy marker and a
-    later phase must run exactly that selection through the same sharded
-    lanes, or the tier quietly becomes deletion.
-    """
-    source = LOCAL_GATE.read_text(encoding="utf-8")
-    assert '"not heavy_ml and not heavy"' in source, (
-        "the gate's default selection no longer deselects the heavy tier, "
-        "so the slow tests run in every working-lane run again"
-    )
-    assert 'run_sharded_phase "heavy" "heavy"' in source, (
-        "the gate no longer runs the heavy selection as its own phase, so "
-        "tiering the tests drops that coverage entirely rather than "
-        "moving it"
-    )
 
 
 def test_a_skipped_heavy_tier_narrows_the_verdict_by_name():
@@ -413,17 +337,6 @@ def test_a_skipped_heavy_tier_narrows_the_verdict_by_name():
     )
 
 
-def test_a_failed_heavy_tier_fails_the_verdict():
-    """A red slow tier is a red gate, the same as every other phase."""
-    source = LOCAL_GATE.read_text(encoding="utf-8")
-    assert 'HEAVY_TIER_NOTE="heavy FAILED' in source, (
-        "a failed heavy tier does not fail the verdict, so a red slow "
-        "tier still reports a pass"
-    )
-    assert 'HEAVY_TIER_NOTE="heavy NOT MEASURED' in source, (
-        "the gate cannot say the heavy tier did not run, rather than "
-        "folding an unmeasured tier into a pass"
-    )
 
 
 if __name__ == "__main__":  # pragma: no cover

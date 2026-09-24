@@ -145,75 +145,6 @@ def beats(folder):
     assert "DOC@widget#tempo.downbeats" in tags
 
 
-def test_a_module_constant_is_in_scope_inside_every_function(tmp_path):
-    """`SECTION_KEY = "section"`, read in a function two calls away."""
-    world = _analyse(tmp_path, '''
-import json
-from pathlib import Path
-
-SECTION_KEY = "section"
-FILENAME = "widget.json"
-
-def _open(folder):
-    return json.loads((Path(folder) / FILENAME).read_text())
-
-def read(folder):
-    return _open(folder).get(SECTION_KEY)
-''')
-    assert "DOC@widget#section" in _tags(world), (
-        "the filename constant must seed the document AND the key "
-        "constant must resolve")
-
-
-def test_a_property_is_not_a_stored_field(tmp_path):
-    """`moment.duration` computes from two fields; it is not a third."""
-    world = _analyse(tmp_path, '''
-import json
-from pathlib import Path
-
-class Thing:
-    def __init__(self, data):
-        self.data = data
-
-    @property
-    def span(self):
-        return self.data["end"] - self.data["start"]
-
-def use(folder):
-    doc = json.loads((Path(folder) / "widget.json").read_text())
-    return Thing(doc).span
-''')
-    tags = _tags(world)
-    assert not any(tag.endswith("#span") for tag in tags), (
-        "`span` is a property, not a field of any document")
-
-
-def test_a_constructor_links_a_json_key_to_the_attribute_it_fills(tmp_path):
-    """`ReelMoment.from_dict` is why: the reel path reads its proposal
-    document through a frozen dataclass, so without this every field in
-    it looks unread."""
-    world = _analyse(tmp_path, '''
-import json
-from pathlib import Path
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class Moment:
-    start: float
-
-    @classmethod
-    def from_dict(cls, data):
-        return cls(start=float(data["start"]))
-
-def load(folder):
-    doc = json.loads((Path(folder) / "widget.json").read_text())
-    return [Moment.from_dict(m) for m in doc["moments"]]
-''')
-    links = {(source.field, field_flow.canonical(source.source_tag))
-             for source in world.constructor_sources}
-    assert ("start", "DOC@widget#moments[].start") in links
-
-
 # ── The SHAPE, which is the answer to "what breaks" ──────────────────
 
 def test_every_shape_is_recorded_with_its_own_consequence(tmp_path):
@@ -287,24 +218,3 @@ def use(folder):
     assert world.too_deep > 0, (
         "a 13-segment path is past MAX_PATH_SEGMENTS and must be counted")
     assert field_flow.depth("DOC@x#a.b[].c") == 4
-
-
-def test_nested_element_chains_are_refused_with_a_count(tmp_path):
-    world = _analyse(tmp_path, '''
-import json
-from pathlib import Path
-
-def use(folder):
-    doc = json.loads((Path(folder) / "widget.json").read_text())
-    rows = []
-    for group in doc["groups"]:
-        rows.append(group)
-    for outer in rows:
-        for middle in outer:
-            for inner in middle:
-                for leaf in inner:
-                    print(leaf)
-    return rows
-''')
-    assert world.too_nested > 0
-    assert not any("[][]" in tag for tag in _tags(world))

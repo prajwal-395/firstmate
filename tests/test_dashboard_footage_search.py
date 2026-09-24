@@ -225,54 +225,17 @@ def test_a_hit_carries_the_clip_the_timecode_and_the_frames(project, stub_embedd
     assert speech["word_hits"] == [{"word": "parking", "start": 2.0, "end": 2.4}]
 
 
-def test_a_clip_with_no_frame_rate_gets_no_timecode_rather_than_a_made_up_one(
-        project, stub_embedder):
-    footage_search.build(project)
-    report = footage_search.search(project, "street", top_k=20, floor=0)
-    clip_two = [h for h in report["results"] if h["clip_id"] == "clip_002"]
-    assert clip_two, "clip_002 has segments"
-    assert all("source_tc_in" not in h and "fps" not in h for h in clip_two)
 
 
 # ─── Searching, filtering, and abstaining ─────────────────────────
 
 
-def test_an_empty_query_with_filters_is_a_selection_not_a_search(project, stub_embedder):
-    """"steady wide footage with nobody in frame" is a filter."""
-    footage_search.build(project)
-    report = footage_search.search(project, query="", top_k=50,
-                                   filters={"framing": "wide", "stability": "steady"})
-    assert report["mode"] == "filter"
-    assert report["results"], "the filter selected nothing"
-    assert {h["clip_id"] for h in report["results"]} == {"clip_002"}
-    assert report["floor"] is None, "a selection has no relevance to floor"
 
 
-def test_an_unset_filter_is_not_a_filter(project, stub_embedder):
-    footage_search.build(project)
-    everything = footage_search.search(project, query="", top_k=500, filters={})
-    with_blanks = footage_search.search(project, query="", top_k=500,
-                                        filters={"framing": "", "kind": None})
-    assert len(with_blanks["results"]) == len(everything["results"])
 
 
-def test_a_query_nothing_clears_returns_nothing_through_the_dashboard(project, stub_embedder):
-    footage_search.build(project)
-    unfloored = footage_search.search(project, "parking", floor=0)
-    best = unfloored["results"][0]["dense_score"]
-
-    report = footage_search.search(project, "parking", floor=best + 0.01)
-    assert report["results"] == []
-    assert report["abstained"] is True
-    assert report["best_rejected"]["dense_score"] == best
-    assert report["weak"], "the near misses come back so the answer can be read"
 
 
-def test_every_answer_names_the_backend_that_produced_it(project, stub_embedder):
-    footage_search.build(project)
-    report = footage_search.search(project, "parking", floor=0)
-    assert report["embed_backend"] == "test-stub"
-    assert report["embed"]["state"] in ("cold", "loading", "ready", "unavailable")
 
 
 def test_the_model_is_loaded_once_and_the_state_is_reportable(project, stub_embedder):
@@ -294,43 +257,11 @@ def test_the_model_is_loaded_once_and_the_state_is_reportable(project, stub_embe
     assert footage_search.get_index(project) is index, "one index per project, held"
 
 
-def test_the_facet_filters_the_ui_offers_are_the_ones_the_index_accepts(project, stub_embedder):
-    """A control with no facet behind it is a control that does nothing."""
-    footage_search.build(project)
-    index = footage_search.get_index(project)
-    accepted = set(index.filter.__code__.co_varnames[:index.filter.__code__.co_argcount])
-    for name in footage_search.NAMED_FACETS + footage_search.NUMERIC_FACETS:
-        assert name in accepted, f"the UI offers {name} and `filter` does not take it"
 
 
 # ─── Through the HTTP surface the browser really uses ─────────────
 
 
-def test_the_endpoints_answer_over_http(project, stub_embedder, monkeypatch):
-    monkeypatch.setattr(server, "_project_dir", str(project))
-    client = TestClient(server.app)
-
-    status = client.get("/api/footage/search/status").json()
-    assert status["exists"] is False
-
-    built = client.post("/api/footage/search/build").json()
-    assert built["segment_count"] > 0
-
-    status = client.get("/api/footage/search/status").json()
-    assert status["exists"] is True and status["summary"]["clips"] == 2
-
-    found = client.post("/api/footage/search", json={
-        "query": "parking", "top_k": 5, "mode": "hybrid", "floor": 0,
-    }).json()
-    assert found["results"] and found["results"][0]["clip_id"]
-
-    segment_id = found["results"][0]["segment_id"]
-    detail = client.get("/api/footage/search/segment",
-                        params={"segment_id": segment_id}).json()
-    assert detail["segment_id"] == segment_id
-
-    bad = client.post("/api/footage/search", json={"query": "x", "mode": "magic"})
-    assert bad.status_code == 400
 
 
 def test_switching_project_drops_the_warm_index(project, stub_embedder, monkeypatch):

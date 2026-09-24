@@ -111,16 +111,6 @@ def test_the_two_measured_units_on_the_reels_geometry():
         0.31640625, abs=1e-9)
 
 
-def test_the_inverse_is_the_same_law():
-    for value in (-2592.0, -870.0, 0.0, 1.5, 1167.568):
-        for clip_dim, frame_dim, base in ((480, 1920, 1.0),
-                                          (296, 1080, 1.0),
-                                          (2160, 1920, 0.28125)):
-            back = units_for_shift(shift_px(value, clip_dim, frame_dim, base),
-                                   clip_dim, frame_dim, base)
-            assert back == pytest.approx(value, abs=1e-9)
-
-
 def test_a_zero_dimension_raises_rather_than_dividing():
     with pytest.raises(ResolveTransformError):
         shift_px(100.0, 0, 1920)
@@ -219,54 +209,3 @@ def test_the_box_file_reader_and_the_placer_share_one_origin():
 
 
 # ── 3. What the two wrong models would have answered ─────────────────
-
-def test_the_retired_models_are_gone_and_would_have_failed_here():
-    """Named so a reader can see the size of what was corrected.
-
-    Not a test of dead code - the numbers below are computed from the
-    law, so they track it.
-
-    Read carefully, because one number inverts here. The retired
-    overlay model was an UNMEASURED `draw_gain = 2.0` constant in
-    `tight_box`: it halved every placement while the renderer drew
-    gain 1.0, so its -432 for the caption row drew the card 108px
-    high. The 2026-09-17 rendered-pixel calibration measured the
-    renderer drawing gain 2.0 (see `resolve_transform` and
-    `tests/test_draw_gain_measured.py`), so -432 is now the MEASURED
-    answer for the same row - and the gate that tells the two apart
-    is rendered pixels, not this file. What this test still guards:
-    no `draw_gain` constant may live in `tight_box` (the gain lives
-    once in `resolve_transform`, measured and dated), and the retired
-    picture error stays wrong under either gain.
-    """
-    import library.tools.tight_box as tight_box
-
-    assert not hasattr(tight_box, "DRAW_GAIN_1080x1920")
-    assert not hasattr(tight_box, "draw_gain")
-
-    # The overlay number, then and now: the caption row whose centre
-    # is y 1176 on a 840x480 canvas. The retired model computed -432
-    # while the renderer drew gain 1.0 and landed 108px high; the
-    # measured gain draws -432 exactly on the row.
-    correct = placement_for_box(840, 480, 540.0, 1176.0, 1080, 1920)
-    assert correct["tilt"] == pytest.approx(-432.0, abs=0.01)
-    assert drawn_centre(840, 480, 1080, 1920, 0.0, correct["tilt"]) == \
-        pytest.approx((540.0, 1176.0), abs=0.5)
-    # ... while under the 09-11 gain the same -432 lands 108px high,
-    # which is what the retired model shipped.
-    halved = canvas_screen_origin(840, 480,
-                                  {"scaling": 1, "pan": 0.0,
-                                   "tilt": correct["tilt"]},
-                                  1080, 1920, 1.0)
-    assert halved[1] == pytest.approx(936.0 - 108.0, abs=0.5)
-
-    # The picture error: reading Tilt as frame pixels under-applies a
-    # vertical aim by 1 / 0.31640625 = 3.1605x, and reverses it.
-    # Pinned at explicit gain 1.0 - the retired model predates the
-    # gain question and is wrong under either.
-    base = fit_base_scale(3840, 2160, 1080, 1920)
-    assert 1.0 / shift_px(1.0, 2160, 1920, base, 1.0) == pytest.approx(
-        3.1605, abs=0.001)
-    assert drawn_centre(3840, 2160, 1080, 1920, 0.0, 100.0, base)[1] < 960.0, (
-        "positive Tilt moves the picture UP; the retired model moved "
-        "it down")

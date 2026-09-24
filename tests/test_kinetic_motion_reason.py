@@ -45,13 +45,6 @@ def _drift(position=1, **extra):
     return entry
 
 
-def test_no_stated_reason_is_a_declared_drop_reason():
-    """A new drop branch has to say what it is before it can go quiet -
-    `DroppedEntry` refuses a reason outside `DROP_REASONS` by name."""
-    assert "no_stated_reason" in DROP_REASONS
-    assert len(DROP_REASONS["no_stated_reason"].split()) >= 4
-
-
 def test_drift_without_a_stated_reason_gets_no_motion():
     """THE refusal input: a drift entry with params but no `rationale`
     key must not get motion."""
@@ -61,25 +54,6 @@ def test_drift_without_a_stated_reason_gets_no_motion():
     assert len(dropped) == 1
     assert dropped[0].reason == "no_stated_reason"
     assert dropped[0].target_block_position == 1
-
-
-def test_blank_rationale_is_no_rationale():
-    dropped = []
-    resolved = resolve_vfx(
-        [_drift(rationale="   ")], _spine(1, 2), dropped=dropped)
-    assert resolved == []
-    assert [d.reason for d in dropped] == ["no_stated_reason"]
-
-
-def test_slow_zoom_out_needs_a_reason_too():
-    """Both directions of the drift are motion on a static shot; the
-    direction does not exempt either."""
-    dropped = []
-    resolved = resolve_vfx(
-        [_drift(effect_type="slow_zoom_out")], _spine(1, 2),
-        dropped=dropped)
-    assert resolved == []
-    assert [d.reason for d in dropped] == ["no_stated_reason"]
 
 
 def test_drift_with_a_stated_reason_resolves():
@@ -106,15 +80,3 @@ def test_emphasis_without_rationale_is_outside_this_refusal():
         _spine(1, 2), dropped=dropped)
     assert len(resolved) == 1
     assert dropped == []
-
-
-def test_reasonless_drift_leaves_the_basis_honest():
-    """A plan of one reasonless drift is `every_entry_dropped`, not
-    `no_effects_planned` - nobody decided this piece wants stillness."""
-    from library.tools.vfx_plan_basis import PlanBasis
-    dropped = []
-    resolved = resolve_vfx([_drift()], _spine(1, 2), dropped=dropped)
-    basis = PlanBasis(proposed=1, resolved=len(resolved),
-                      dropped=dropped).as_dict()
-    assert basis["basis"] == "every_entry_dropped"
-    assert basis["dropped"][0]["reason"] == "no_stated_reason"

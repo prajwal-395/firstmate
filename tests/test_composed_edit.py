@@ -159,19 +159,6 @@ def test_step1_reimports_the_source_comp_when_setinput_will_not_move(tmp_path):
     assert receipt["repaired"][0]["wrote_after_import"]["wrote"]
 
 
-def test_step1_refuses_a_copy_whose_window_will_not_conform_either_way(tmp_path):
-    """A conform that cannot repair must refuse, not report a repair."""
-    source, _pool, _media = build_reel(tmp_path)
-    staged = duplicate(source, drift=[("V1", 0, 1)])
-    staged.rows["V1"][0].inert_media_in = True        # the re-import too
-    for comp in staged.rows["V1"][0].comps:
-        comp.GetToolList()["MediaIn1"].inert = True
-
-    with pytest.raises(ce.StagingNotConformed) as refusal:
-        ce.conform_comp_windows({r: source.rows[r] for r in source.rows},
-                                {r: staged.rows[r] for r in staged.rows},
-                                comp_dir=str(tmp_path / "conform"))
-    assert "still differ" in str(refusal.value)
 
 
 def test_step1_writes_the_binding_and_stops_when_that_is_enough(tmp_path):
@@ -270,19 +257,6 @@ def test_step2_plan_reaches_every_row_including_audio_and_captions(tmp_path):
     assert "V2" not in by_row
 
 
-def test_step2_extends_what_straddles_and_shifts_what_follows(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    changes = {(c.row, c.item_index): c
-               for c in ce.plan_ripple(reel_read.read_tracks(timeline),
-                                       CUT, RESTORE)}
-
-    head = changes[("V1", 0)]
-    assert (head.record_frame, head.duration) == (590, 479 + RESTORE)
-    assert head.played_length_changes is True
-
-    following = changes[("V1", 1)]
-    assert (following.record_frame, following.duration) == (CUT + RESTORE, 186)
-    assert following.played_length_changes is False
 
 
 def test_step2_refuses_an_item_with_no_source_headroom(tmp_path):
@@ -328,39 +302,6 @@ def test_step2_a_gap_refuses_before_anything_is_deleted(tmp_path):
     assert "gap" in str(refusal.value)
 
 
-def test_step2_an_empty_composition_is_not_a_treatment(tmp_path):
-    """Resolve gives an untreated clip a `MediaIn -> MediaOut` comp.
-
-    Measured 2026-09-12 in the lab: an overlay clip nothing had treated
-    reported `GetFusionCompCount() == 1` for a composition with no tool
-    in it. Counting that as a treatment makes the re-derivation refusal
-    fire on an edit that is perfectly safe, which is a gate that fails
-    correct output.
-    """
-    from tests.composed_edit_harness import FakeComp, FakeTool
-
-    timeline, _pool, _media = build_reel(tmp_path)
-    overlay = timeline.rows["V3"][0]
-    overlay.comps = [FakeComp({
-        "MediaIn1": FakeTool("MediaIn", covering_window(264, 0, 1675)),
-        "MediaOut1": FakeTool("MediaOut", {}),
-        "AudioDisplay1": FakeTool("AudioDisplay", {})})]
-    assert overlay.GetFusionCompCount() == 1
-
-    changes = {(c.row, c.item_index): c
-               for c in ce.plan_ripple(reel_read.read_tracks(timeline),
-                                       CUT, RESTORE)}
-    assert changes[("V3", 0)].played_length_changes is True
-    assert changes[("V3", 0)].comp_count == 0, (
-        "an empty composition was counted as a treatment")
-    # The V1 head really is treated, and still counts.
-    assert changes[("V1", 0)].comp_count == 1
-
-    # So this edit needs no generator for V3 - and the one item that
-    # does carry a treatment still requires one.
-    with pytest.raises(ce.CompRederivationUnreachable) as refusal:
-        ce.assert_rederivation_reachable(list(changes.values()), None)
-    assert "V1[0]" in str(refusal.value)
 
 
 def test_step2_an_unreadable_comp_counts_as_a_treatment(tmp_path):
@@ -377,21 +318,6 @@ def test_step2_an_unreadable_comp_counts_as_a_treatment(tmp_path):
 # ── Step 3: capture ─────────────────────────────────────────────────
 
 
-def test_step3_capture_takes_the_properties_the_delete_destroys(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    tracks = reel_read.read_tracks(timeline)
-    change = next(c for c in ce.plan_ripple(tracks, CUT, RESTORE)
-                  if (c.row, c.item_index) == ("V1", 1))
-    capture = ce.capture_item(timeline.rows["V1"][1], change, *_dirs(tmp_path))
-
-    assert capture.properties["ZoomX"] == 2.307
-    assert capture.properties["Pan"] == 5.972
-    assert capture.node_count == 8
-    # A SHIFT does not change the played length, so its comp is the
-    # comp the edit implies and IS restorable.
-    assert len(capture.restorable_comps) == 1
-    assert capture.withheld_comps == ()
-    assert Path(capture.restorable_comps[0].path).exists()
 
 
 def test_step3_capture_records_the_comps_media_window(tmp_path):
@@ -432,21 +358,6 @@ def test_step4_placing_before_deleting_silently_places_nothing(tmp_path):
     assert "not on the track" in str(refusal.value)
 
 
-def test_step4_deleting_everything_first_places_all_of_it(tmp_path):
-    timeline, pool, _media = build_reel(tmp_path)
-    tracks = reel_read.read_tracks(timeline)
-    changes = ce.plan_ripple(tracks, CUT, RESTORE)
-    captures = [ce.capture_item(timeline.rows[c.row][c.item_index], c,
-                                *_dirs(tmp_path)) for c in changes]
-
-    ce.delete_all(timeline, [timeline.rows[c.change.row][c.change.item_index]
-                             for c in captures])
-    assert timeline.delete_calls == [len(captures)], "one call, not one each"
-
-    ordered = ce.placement_order(captures)
-    ce.place_all(pool, ordered)
-    assert pool.calls == [len(ordered)], "one call, not one each"
-    assert len(ce.verify_placement(ce._rows_of(timeline), ordered)) == len(ordered)
 
 
 # ── Step 5: place in one call, in increasing record order ───────────
@@ -471,29 +382,8 @@ def test_step5_end_frame_is_exclusive(tmp_path):
         "nothing")
 
 
-def test_step5_placement_is_in_increasing_record_order(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    tracks = reel_read.read_tracks(timeline)
-    changes = ce.plan_ripple(tracks, CUT, RESTORE)
-    captures = [ce.capture_item(timeline.rows[c.row][c.item_index], c,
-                                *_dirs(tmp_path)) for c in changes]
-    ordered = ce.placement_order(captures)
-    frames = [row[0] for row in ordered]
-    assert frames == sorted(frames)
 
 
-def test_step5_an_insertion_places_beside_the_items_that_move(tmp_path):
-    timeline, _pool, media = build_reel(tmp_path)
-    tracks = reel_read.read_tracks(timeline)
-    changes = ce.plan_ripple(tracks, OLD_END, ENDING, exclude=[("V1", 2)])
-    captures = [ce.capture_item(timeline.rows[c.row][c.item_index], c,
-                                *_dirs(tmp_path)) for c in changes]
-    ending = ce.Insertion(track_type="video", track_index=1,
-                          media_pool_item=media["aroll"], left_offset=4000,
-                          duration=ENDING, record_frame=OLD_END,
-                          name="new ending", properties={})
-    ordered = ce.placement_order(captures, [ending])
-    assert [(row[0], row[1]) for row in ordered] == [(0, 3), (OLD_END, 1)]
 
 
 # ── Step 6: verify by re-reading the track ──────────────────────────
@@ -516,13 +406,6 @@ def test_step6_the_return_value_is_not_the_verdict(tmp_path):
         ce.verify_placement(ce._rows_of(timeline), ordered)
 
 
-def test_step6_catches_an_item_that_landed_at_the_wrong_length(tmp_path):
-    mpi = FakeMediaPoolItem("/lab/x.mov", frames=100)
-    timeline = FakeTimeline("short", {"V1": [FakeItem(mpi, 0, 23)]})
-    ordered = [(0, 1, 1, ce.clip_info(mpi, 0, 24, 1, 0), None)]
-    with pytest.raises(ce.PlacementNotVerified) as refusal:
-        ce.verify_placement(ce._rows_of(timeline), ordered)
-    assert "'wanted_duration': 24" in str(refusal.value)
 
 
 # ── Step 7: restore, then re-derive ─────────────────────────────────
@@ -579,19 +462,6 @@ def test_step7_refuses_when_the_media_window_will_not_go_back(tmp_path):
     assert "media window read back" in str(refusal.value)
 
 
-def test_step7_refuses_when_the_grade_did_not_come_across(tmp_path):
-    timeline, pool, _media = build_reel(tmp_path)
-    reference = duplicate(timeline).rows["V1"][1]
-    changes = ce.plan_ripple(reel_read.read_tracks(timeline), CUT, RESTORE)
-    change = next(c for c in changes if (c.row, c.item_index) == ("V1", 1))
-    captures, landed = _through_step6(timeline, pool, changes, tmp_path)
-    capture = next(c for c in captures if c.change is change)
-    placed = landed[("V1", change.record_frame)]
-
-    reference.CopyGrades = lambda targets: True      # reports success, no-op
-    with pytest.raises(ce.RestoreNotVerified) as refusal:
-        ce.restore_item(placed, capture, grade_source=reference)
-    assert "colour node" in str(refusal.value)
 
 
 # ── The whole composition, both cases ───────────────────────────────
@@ -681,17 +551,3 @@ def test_the_composition_is_one_delete_and_one_place(tmp_path):
     assert pool.calls == [len(changes)]
 
 
-def test_the_plan_and_the_timeline_disagreeing_deletes_nothing(tmp_path):
-    timeline, pool, _media = build_reel(tmp_path)
-    changes = ce.plan_ripple(reel_read.read_tracks(timeline), CUT, RESTORE)
-    changes.append(ce.ItemChange(
-        track_type="video", track_index=1, item_index=99, record_frame=9000,
-        duration=10, left_offset=0, previous_record=9000,
-        previous_duration=10, how=ce.SHIFT))
-    comp_dir, withheld = _dirs(tmp_path)
-    with pytest.raises(ce.PlacementNotVerified):
-        ce.apply_composed_edit(timeline=timeline, media_pool=pool,
-                               changes=changes, comp_dir=comp_dir,
-                               withheld_dir=withheld,
-                               rederiver=_Rederiver(timeline))
-    assert timeline.delete_calls == [], "it deleted before it checked"

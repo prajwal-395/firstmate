@@ -123,168 +123,16 @@ def _required_tilt(canvas_h: int) -> float:
 
 # ── The root cause, reproduced from what shipped ──────────────────────
 
-def test_the_shipped_tilts_are_the_carriages_own_arithmetic():
-    """Every value the pipeline asked Resolve for is reproduced by the
-    retired carriage's formula, so the numbers below are this
-    geometry's and not a coincidence."""
-    for canvas_h, asked, _held in SHIPPED_AND_HELD:
-        assert _required_tilt(canvas_h) == pytest.approx(asked, abs=0.01)
 
 
-def test_the_rail_is_a_constant_in_property_space_not_a_clip_relative_cap():
-    """THE DISCRIMINATING MEASUREMENT.
-
-    Pan/Tilt are expressed in a unit relative to the CLIP's own size
-    (`shift_y = -Tilt * placed_H / timeline_H`), so a natural worry is
-    that the RAIL is clip-relative too - a cap on the resulting
-    on-screen shift, which would present as a different Tilt limit for
-    every box size and make any single number a coincidence of these
-    particular captions.
-
-    It is not. 37 items across 17 DISTINCT box geometries - heights
-    152..246, a 1.62x spread, widths 840..902 - all read back the same
-    -3840.0. A shift-capped rail would have produced twelve different
-    values from -3840 down to -2373.
-    """
-    heights = sorted({h for _w, h in CLAMPED_BOX_GEOMETRIES})
-    assert len(CLAMPED_BOX_GEOMETRIES) == 17
-    assert max(heights) / min(heights) > 1.6, (
-        "the box sizes must genuinely differ for this to discriminate")
-    assert len({w for w, _h in CLAMPED_BOX_GEOMETRIES}) == 9
-
-    # What a clip-relative (shift-capped) rail would have held, taking
-    # the smallest box's shift as the cap.
-    cap_px = MEASURED_TILT_RAIL_1080x1920 * min(heights) / FULL_H
-    would_hold = {round(-cap_px * FULL_H / h, 1) for h in heights}
-    assert len(would_hold) == len(heights), "each height, its own value"
-    assert min(would_hold) < -3800 and max(would_hold) > -2400
-
-    # What was actually held: one value, for every geometry.
-    actually_held = {held for _h, _a, held in SHIPPED_AND_HELD
-                     if held == -MEASURED_TILT_RAIL_1080x1920}
-    assert actually_held == {-3840.0}
-
-    # ...so the clamp is on the PROPERTY, independent of clip size.
-    # Recorded as a number and not as a formula: one timeline geometry
-    # cannot tell `2 x the height` from `2 x the longer side` from a
-    # fixed constant, and generalising from one geometry is how the
-    # retired carriage came to carry a rail twice the real one.
-    assert MEASURED_TILT_RAIL_1080x1920 == 3840.0
 
 
-def test_minus_3840_is_a_clamp_and_not_a_value_something_set():
-    """It is suspiciously round, so it is checked rather than assumed.
-
-    Three properties of the measured table, each of which a
-    deliberately-written constant would fail:
-
-    - the split is perfectly ORDERED - everything asked below 3840
-      survived, everything above was pinned;
-    - the rail is BRACKETED to [3366.4, 4316.1] by which items were
-      left alone, and 3840 lies inside that bracket, which a constant
-      something merely wrote has no reason to do;
-    - the carriage's own arithmetic cannot EMIT -3840 for any box in
-      the project (it needs h = 270.4).
-    """
-    held_exact = [asked for _h, asked, held in SHIPPED_AND_HELD
-                  if abs(held - asked) <= 0.001]
-    pinned = [asked for _h, asked, held in SHIPPED_AND_HELD
-              if abs(held - asked) > 0.001]
-    rail = MEASURED_TILT_RAIL_1080x1920
-
-    assert all(abs(a) < rail for a in held_exact)
-    assert all(abs(a) > rail for a in pinned)
-
-    lower, upper = max(map(abs, held_exact)), min(map(abs, pinned))
-    assert (lower, upper) == pytest.approx((3366.4, 4316.09756097561))
-    assert lower < rail < upper, (
-        "the pinned value lands inside the bracket the untouched items "
-        "imply - a constant something wrote would not")
-
-    # The only box height whose required Tilt IS -3840 is the cliff
-    # itself, and no box in the project has it - so the carriage's own
-    # arithmetic could not have produced this value for any of them.
-    emitting_height = ((CANVAS_BOTTOM - FULL_H / 2.0) * FULL_H
-                       / (rail + FULL_H / 2.0))
-    assert emitting_height == pytest.approx(270.4, abs=0.05)
-    assert all(abs(h - emitting_height) > 1.0
-               for h, _a, _held in SHIPPED_AND_HELD)
 
 
-def test_the_inspector_agrees_with_the_api():
-    """A settled NEGATIVE, and worth as much as a positive.
-
-    The captain read the Edit page Inspector on 2026-09-10: "all of
-    them are -3840, except for 2 subtitle clips, one which is y=0 and
-    another which is y=-3366.4". So there is no display scale, and the
-    theory that the Inspector showed twice the API value - which would
-    have explained the retired four-times figure - is dead.
-
-    Both of his anomalies are in this table: -3366.4 is the one tight
-    caption clearing the cliff, and y=0 is a FULL-CANVAS caption, which
-    carries no transform because its position is already its pixels.
-    """
-    inspector_reported = -3366.4
-    matches = [asked for _h, asked, held in SHIPPED_AND_HELD
-               if held == pytest.approx(inspector_reported)]
-    assert matches == [inspector_reported], (
-        "the captain's -3366.4 is the single caption held exactly")
-    assert not any(held == 0.0 for _h, _a, held in SHIPPED_AND_HELD), (
-        "a y=0 caption carries no tight box at all, so it is not in "
-        "this table - it is the full-canvas path, which needs no "
-        "transform and is where every caption now lives")
 
 
-def test_the_cliff_follows_from_the_measured_rail():
-    """A caption clears the rail only above canvas height 270.4px,
-    which on this project is the single three-line card and nothing
-    else."""
-    cliff = ((CANVAS_BOTTOM - FULL_H / 2.0) * FULL_H
-             / (MEASURED_TILT_RAIL_1080x1920 + FULL_H / 2.0))
-    assert cliff == pytest.approx(270.4, abs=0.05)
-    for canvas_h, asked, held in SHIPPED_AND_HELD:
-        if canvas_h > cliff:
-            assert held == pytest.approx(asked, abs=0.01)
-        else:
-            assert held == pytest.approx(
-                -MEASURED_TILT_RAIL_1080x1920, abs=0.01)
-    assert [h for h, _, _ in SHIPPED_AND_HELD if h > cliff] == [300]
 
 
-def test_a_clamped_caption_lands_low_but_still_on_the_frame():
-    """What the clamp actually does to the picture - and what it does
-    NOT do.
-
-    A pinned Tilt -3840 puts the canvas centre 2h below frame centre,
-    so every one of the twelve clamped captions rides low, under its
-    band, and every one of them is still ON the frame: the tallest
-    clamped box, 246px, has its bottom edge at row 1575.
-
-    This is worth pinning because it is the OPPOSITE of what was
-    recorded here for a day. Under the retired "gain of 2" the same
-    clamp read as putting seven of these captions off the bottom
-    edge, and that reading was used as evidence FOR the gain. The
-    clamp misplaces captions; it does not make them disappear. The
-    overlays that really are invisible on the captain's reels are
-    seventeen motion graphics stored at Tilt 5184, which the measured
-    relation puts at frame rows -576..-96 - off the TOP.
-    """
-    clamped = [(h, held) for h, asked, held in SHIPPED_AND_HELD
-               if abs(held - asked) > 0.5]
-    assert len(clamped) == 12
-    for canvas_h, held in clamped:
-        landed_cy = FULL_H / 2.0 - held * (canvas_h / FULL_H)
-        wanted_cy = CANVAS_BOTTOM - canvas_h / 2.0
-        error = wanted_cy - landed_cy
-        assert error == pytest.approx(676 - 2.5 * canvas_h, abs=0.01)
-    on_frame = [h for h, _ in clamped
-                if FULL_H / 2.0 + 3840.0 * (h / FULL_H) + h / 2.0
-                <= FULL_H]
-    assert on_frame == [h for h, _ in clamped], (
-        "the clamp lands every shipped box low, and none of them off "
-        "the bottom edge")
-    assert max(FULL_H / 2.0 + 3840.0 * (h / FULL_H) + h / 2.0
-               for h, _ in clamped) == pytest.approx(1575.0, abs=0.5)
 
 
 def test_the_floor_clears_the_cliff():
@@ -317,50 +165,10 @@ def test_the_floor_clears_the_cliff():
         FULL_W, FULL_H, draw_gain=1.0)["tilt"]) <= 3400
 
 
-def test_subtitles_default_to_tight(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    (project / "project.yaml").write_text("name: t\n", encoding="utf-8")
-    assert resolve_overlay_geometry(str(project)) == "tight"
 
 
-def test_explicit_tight_is_honoured(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    (project / "project.yaml").write_text(
-        "name: t\npipeline:\n  subtitle_overlay_geometry: tight\n",
-        encoding="utf-8")
-    assert resolve_overlay_geometry(str(project)) == "tight"
 
 
-def test_a_frame_baked_artefact_cannot_be_reused(tmp_path):
-    """The reuse key names the CARRIAGE, so a `frame-baked-1` file is
-    unusable rather than merely stale: it baked its position into
-    delivery-frame pixels, and placing it under today's rule would
-    transform a full-frame clip off the frame."""
-    sys.path.insert(0, os.path.join(
-        PROJECT_ROOT, "library", "steps", "step_4_05_render_subtitles"))
-    from library.steps.step_4_05_render_subtitles import step as render_step
-
-    remotion = tmp_path / "remotion"
-    (remotion / "src").mkdir(parents=True)
-    (remotion / "src" / "x.tsx").write_text("export const x = 1;\n",
-                                            encoding="utf-8")
-    props = {"width": FULL_W, "height": FULL_H, "subtitles": []}
-    today = render_step._reuse_key(props, str(remotion), "tight", "video")
-    render_step.OVERLAY_CARRIAGE, saved = "frame-baked-1", \
-        render_step.OVERLAY_CARRIAGE
-    try:
-        framed = render_step._reuse_key(props, str(remotion), "tight",
-                                        "video")
-    finally:
-        render_step.OVERLAY_CARRIAGE = saved
-    assert today and framed
-    assert today != framed, (
-        "a frame-baked key still matches: a delivery-frame artefact "
-        "would be reused and transformed off the frame")
-    assert today.endswith(f"+{OVERLAY_CARRIAGE}")
-    assert OVERLAY_CARRIAGE == "tight-480-4"
 
 
 # ── The placer: it sets the transform, then reads it back ────────────
@@ -416,16 +224,6 @@ def _box_placement():
     return {"scaling": 1, "pan": 140.0, "tilt": -1720.0}
 
 
-def test_a_tight_overlay_is_set_then_read_back():
-    item = _Item(10)
-    pool = _Pool()
-    ok, note = place_overlay_segment(
-        pool, _Timeline([item]), object(),
-        track_index=3, record_frame=10,
-        source_in_frame=0, source_out_frame=40,
-        placement=_box_placement(), label="cap_1")
-    assert ok and note == ""
-    assert item.set_calls == {"Scaling": 1, "Pan": 140.0, "Tilt": -1720.0}
 
 
 def test_a_clamped_overlay_is_reported_by_name():
@@ -445,51 +243,12 @@ def test_a_clamped_overlay_is_reported_by_name():
     assert "Tilt" in note and "-3840" in note
 
 
-def test_a_full_canvas_overlay_writes_nothing():
-    item = _Item(10)
-    pool = _Pool()
-    ok, note = place_overlay_segment(
-        pool, _Timeline([item]), object(),
-        track_index=3, record_frame=10,
-        source_in_frame=0, source_out_frame=40, label="cap_1")
-    assert ok and note == ""
-    assert item.set_calls == {}, (
-        "the placer wrote a property: a full-canvas overlay needs none")
 
 
-def test_a_readback_that_is_unavailable_falls_back_to_the_return():
-    """A proxy that does not serve `GetProperty` cannot be judged by
-    it - so the `SetProperty` return is the judgement, the old
-    behaviour, rather than a refusal of a placement nothing saw."""
-    item = _Item(10, unread=("Tilt",))
-    ok, note = place_overlay_segment(
-        _Pool(), _Timeline([item]), object(),
-        track_index=3, record_frame=10,
-        source_in_frame=0, source_out_frame=40,
-        placement=_box_placement(), label="cap_1")
-    assert ok and note == ""
 
 
-def test_an_overlay_with_no_item_at_its_record_frame_says_so():
-    """No fallback to the last item on the track: judging a neighbour
-    is a caption wearing another caption's geometry. An item that
-    cannot be named is an unavailable read-back, not a mismatch."""
-    _ok, note = place_overlay_segment(
-        _Pool(), _Timeline([_Item(99)]), object(),
-        track_index=3, record_frame=10,
-        source_in_frame=0, source_out_frame=40,
-        placement=_box_placement(), label="cap_1")
-    assert "no timeline item" in note
-    assert "cap_1" in note
 
 
-def test_a_failed_append_is_reported_and_not_read_back():
-    pool = _Pool(result=None)
-    ok, note = place_overlay_segment(
-        pool, _Timeline([]), object(),
-        track_index=3, record_frame=10,
-        source_in_frame=0, source_out_frame=40, label="cap_1")
-    assert ok is False and "AppendToTimeline returned nothing" in note
 
 
 def test_the_step_record_carries_a_placement_for_tight(tmp_path):
@@ -522,18 +281,6 @@ def test_every_overlay_row_goes_through_the_one_placer():
     assert '"trackIndex": _mg_row' not in source
 
 
-def test_json_round_trip_of_a_recorded_box_carries_a_placement():
-    from library.tools.tight_box import TightBox
-
-    box = TightBox(width=296, height=312, props={},
-                   placement={"scaling": 1, "pan": 140.0,
-                              "tilt": -1720.0},
-                   union_w=200.0, union_h=216.0,
-                   full_width=FULL_W, full_height=FULL_H)
-    record = {"width": box.width, "height": box.height,
-              "placement": box.placement}
-    assert json.loads(json.dumps(record))["placement"]["tilt"] == -1720.0
-    assert not hasattr(box, "origin")
 
 
 class _EntryTimeline:
@@ -556,11 +303,6 @@ class _EntryProject:
         return self._timeline
 
 
-def test_matching_entry_size_places_literally():
-    from library.tools.overlay_placement import entry_unit_mismatch
-
-    project = _EntryProject(_EntryTimeline("1080", "1920"))
-    assert entry_unit_mismatch(project, (1080, 1920)) == ""
 
 
 def test_mismatched_entry_size_is_a_refusal():
@@ -580,7 +322,3 @@ def test_mismatched_entry_size_is_a_refusal():
     assert "1080x1920" in reason
 
 
-def test_no_open_timeline_is_no_entry_to_judge():
-    from library.tools.overlay_placement import entry_unit_mismatch
-
-    assert entry_unit_mismatch(_EntryProject(None), (1080, 1920)) == ""

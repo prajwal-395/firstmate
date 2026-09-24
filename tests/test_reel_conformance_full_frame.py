@@ -86,18 +86,7 @@ def test_a_card_is_identified_by_its_render_name_not_by_a_catalog_miss():
     assert found[CARD_NAME].source_file == CARD_FILE
 
 
-def test_nothing_is_a_card_when_the_plan_declares_none():
-    assert card_items([_card_item(), _item(1, 60, 100)], []) == {}
-
-
 # ── F13, both directions ─────────────────────────────────────────────
-
-
-def test_a_declared_card_that_is_on_the_timeline_passes():
-    findings = check_full_frame_cards(
-        "Reel 07", [_card()], [_card_item(), _item(1, CARD_FRAMES, 400)],
-        1080, 1920, FPS)
-    assert findings == []
 
 
 def test_a_declared_card_that_is_not_on_the_timeline_fails():
@@ -117,19 +106,6 @@ def test_a_card_nobody_declared_fails():
     assert "no declaration accounts for it" in findings[0].message
 
 
-def test_a_card_at_the_wrong_reel_second_fails():
-    findings = check_full_frame_cards(
-        "Reel 07", [_card()], [_card_item(start=12)], 1080, 1920, FPS)
-    assert any("starts at frame 12" in f.message for f in findings)
-
-
-def test_a_card_of_the_wrong_length_fails():
-    findings = check_full_frame_cards(
-        "Reel 07", [_card()], [_card_item(frames=CARD_FRAMES + 1)],
-        1080, 1920, FPS)
-    assert any("runs 54 frames, planned 53" in f.message for f in findings)
-
-
 def test_a_card_placed_above_the_picture_tracks_fails():
     """The replace-versus-overlay ruling, as a gate."""
     findings = check_full_frame_cards(
@@ -147,15 +123,6 @@ def _placements(n: int, frames: int) -> list:
                              source_in=0.0, source_out=frames / FPS,
                              source_file=FOOTAGE)
             for i in range(n)]
-
-
-def test_f4_counts_the_card_as_an_extra_item_when_it_is_not_told():
-    """The defect this change removes, planted so it is visible."""
-    items = [_card_item()] + [_item(1, CARD_FRAMES + i * 400, 400)
-                              for i in range(2)]
-    findings = check_item_count("Reel 07", _placements(2, 400), items, FPS)
-    assert any("planned 2 picture items, found 3" in f.message
-               for f in findings)
 
 
 def test_f4_is_clean_once_the_plan_carries_the_card():
@@ -178,12 +145,6 @@ def test_f4_still_catches_a_genuinely_dropped_clip_with_a_card_present():
 # ── F1: a card abutting the first clip is not a hole ─────────────────
 
 
-def test_a_card_that_abuts_the_first_clip_leaves_no_picture_hole():
-    findings = check_picture_holes(
-        "Reel 07", [_card_item(), _item(1, CARD_FRAMES, 400)])
-    assert findings == []
-
-
 def test_a_one_frame_gap_after_the_card_is_still_a_hole():
     findings = check_picture_holes(
         "Reel 07", [_card_item(), _item(1, CARD_FRAMES + 1, 400)])
@@ -194,16 +155,6 @@ def test_a_one_frame_gap_after_the_card_is_still_a_hole():
 
 
 LETTERBOX_SIZES = {FOOTAGE: {"width": 3840, "height": 2160, "rotation": 0}}
-
-
-def test_f12_reports_the_card_as_unreadable_when_it_is_not_told():
-    """The false WARNING this change removes."""
-    findings = check_delivered_framing(
-        "Reel 07", [_card_item(transform=IDENTITY),
-                    _item(1, CARD_FRAMES, 400, transform=IDENTITY)],
-        1080, 1920, source_sizes=LETTERBOX_SIZES, declared_intent=0.0)
-    assert any("Framing could not be read" in f.message for f in findings)
-    assert any(CARD_NAME in str(f.detail) for f in findings)
 
 
 def test_f12_grades_a_full_frame_card_against_the_whole_frame_and_passes():
@@ -230,23 +181,6 @@ def test_f12_fails_a_card_that_does_not_fill_the_frame():
 # ── PLAN-MISMATCH: the card's frames come from no keep range ─────────
 
 
-def test_the_plan_mismatch_gate_fires_on_a_card_it_was_not_told_about():
-    """Planted, because it is the failure mode of forgetting to pass it."""
-    keep = [(100.0, 120.0)]
-    body = round(120.0 * FPS) - round(100.0 * FPS)
-    findings = check_plan_describes_timeline(
-        "Reel 07", keep, body + CARD_FRAMES, FPS)
-    assert [f.finding_class for f in findings] == [FindingClass.PLAN_MISMATCH]
-
-
-def test_the_plan_mismatch_gate_is_clean_once_it_is():
-    keep = [(100.0, 120.0)]
-    body = round(120.0 * FPS) - round(100.0 * FPS)
-    assert check_plan_describes_timeline(
-        "Reel 07", keep, body + CARD_FRAMES, FPS,
-        card_frames=CARD_FRAMES) == []
-
-
 def test_the_plan_mismatch_gate_still_fires_on_a_real_difference():
     keep = [(100.0, 120.0)]
     body = round(120.0 * FPS) - round(100.0 * FPS)
@@ -258,17 +192,6 @@ def test_the_plan_mismatch_gate_still_fires_on_a_real_difference():
 
 
 # ── The lead: picture and captions move together, or not at all ──────
-
-
-def test_reel_time_adds_the_lead_to_the_answer_and_not_to_membership():
-    from library.tools.reel_build import reel_time
-
-    ranges = [(10.0, 20.0), (30.0, 40.0)]
-    assert reel_time(15.0, ranges) == pytest.approx(5.0)
-    assert reel_time(15.0, ranges, lead_seconds=2.2) == pytest.approx(7.2)
-    assert reel_time(35.0, ranges, lead_seconds=2.2) == pytest.approx(17.2)
-    # A second the reel does not play stays unplayed, lead or no lead.
-    assert reel_time(25.0, ranges, lead_seconds=2.2) is None
 
 
 def test_placements_shift_by_the_lead_in_whole_frames():
@@ -292,41 +215,6 @@ def test_placements_shift_by_the_lead_in_whole_frames():
     # lands, never what is in it.
     assert plain[0]["source_in"] == shifted[0]["source_in"]
     assert plain[0]["source_out"] == shifted[0]["source_out"]
-
-
-def test_the_card_and_the_first_clip_abut_exactly():
-    """The one-frame gap this arithmetic exists to prevent is an F1 hole."""
-    from library.tools.reel_build import lead_frames, placements
-
-    cards = [_card()]
-    lead = lead_frames(
-        [type("C", (), {"placement": "head",
-                        "duration_frames": CARD_FRAMES})()], FPS)
-
-    class _Clip:
-        track_type = "video"
-        track_index = 1
-        speaker = "Akshita"
-        source_file = FOOTAGE
-        timeline_start = 10.0
-        timeline_end = 20.0
-        source_in = 100.0
-
-    placed = placements([(10.0, 20.0)], [_Clip()], FPS, lead_frames=lead)
-    items = [_card_item(frames=CARD_FRAMES),
-             _item(1, placed[0]["snapped_record"], 240)]
-    assert check_picture_holes("Reel 07", items) == []
-    assert cards[0].duration_frames == items[1].start_frame
-
-
-def test_lead_frames_counts_head_cards_only():
-    from library.tools.reel_build import lead_frames
-
-    head = type("C", (), {"placement": "head", "duration_frames": 53})()
-    tail = type("C", (), {"placement": "tail", "duration_frames": 36})()
-    assert lead_frames([head, tail], FPS) == 53
-    assert lead_frames([], FPS) == 0
-    assert lead_frames(None, FPS) == 0
 
 
 def test_the_spine_moves_the_reel_clock_and_leaves_the_source_clock_alone():

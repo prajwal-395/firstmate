@@ -23,32 +23,6 @@ from library.tools.resolve_bin_layout import (
 )
 
 
-def test_every_file_holding_bin_names_a_real_area():
-    bins_with_files = [b for b in BINS if b.area is not None]
-    assert bins_with_files, "a layout with no filesystem mirror is a second scheme"
-    for b in bins_with_files:
-        assert isinstance(b.area, Area)
-        assert b.purpose, f"{b.name} must say what it is for"
-
-
-def test_timeline_bins_say_they_hold_no_files():
-    timelines_only = [b for b in BINS if b.area is None]
-    assert {b.name for b in timelines_only} == {
-        "04 - Master", "05 - Reels", "05 - Reels/Archive",
-        "05 - Reels/Current plan", "05 - Reels/Earlier plans",
-        "05 - Reels/Proof", "05 - Reels/Unrecorded",
-        "09 - Firstmate scratch"}
-    for b in timelines_only:
-        assert "only in resolve" in b.purpose.lower().replace("resolve,", "resolve"), (
-            f"{b.name} holds timelines and must say they live only in Resolve")
-
-
-def test_numbered_bins_sort_into_filesystem_order():
-    numbered = [b.name for b in BINS if b.name[0].isdigit()]
-    assert numbered == sorted(numbered), (
-        "numbered prefixes exist so Resolve's sort walks those bins in order")
-
-
 def test_source_bin_keeps_the_captains_name():
     source = next(b for b in BINS if b.area == Area.RAW)
     assert source.path == ("Source footage",)

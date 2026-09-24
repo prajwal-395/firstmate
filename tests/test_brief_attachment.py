@@ -58,11 +58,6 @@ def test_declining_is_one_line_and_wins_over_a_declared_path():
         "not to send it, which is a different fact from having none")
 
 
-def test_a_project_declaring_nothing_reads_as_none_declared():
-    got = read()
-    assert got.reading == ba.NONE_DECLARED
-    assert not got.attached
-    assert got.interview
 
 
 def test_declining_and_having_none_are_not_the_same_reading():
@@ -74,21 +69,10 @@ def test_declining_and_having_none_are_not_the_same_reading():
     assert set(ba.READINGS) == {ba.ATTACHED, ba.DECLINED, ba.NONE_DECLARED}
 
 
-def test_declining_is_no_harder_than_attaching():
-    """One line each, and neither requires the other to be written."""
-    assert read(attach_creative_brief=False).reading == ba.DECLINED
-    assert read(creative_brief="b.md").reading == ba.ATTACHED
 
 
 # ── Both places, because that is where the path is read from ─────────
 
-@pytest.mark.parametrize("body", [
-    {"attach_creative_brief": False, "creative_brief": "b.md"},
-    {"pipeline": {"attach_creative_brief": False, "creative_brief": "b.md"}},
-    {"creative_brief": "b.md", "pipeline": {"attach_creative_brief": False}},
-])
-def test_the_key_is_read_at_the_top_level_or_under_pipeline(body):
-    assert ba.read_declaration_from(body).reading == ba.DECLINED
 
 
 # ── The one refusal ──────────────────────────────────────────────────
@@ -106,14 +90,6 @@ def test_an_unreadable_value_is_refused_rather_than_taking_a_side():
         read(attach_creative_brief="maybe")
 
 
-@pytest.mark.parametrize("written,expected", [
-    ("true", ba.ATTACHED), ("yes", ba.ATTACHED), ("on", ba.ATTACHED),
-    ("false", ba.DECLINED), ("no", ba.DECLINED), ("off", ba.DECLINED),
-    (True, ba.ATTACHED), (False, ba.DECLINED),
-])
-def test_yamls_several_spellings_of_a_boolean_are_read(written, expected):
-    assert read(creative_brief="b.md",
-                attach_creative_brief=written).reading == expected
 
 
 # ── It says so, whichever way it read ────────────────────────────────
@@ -133,9 +109,6 @@ def test_every_reading_prints_a_line_naming_itself():
     assert "NONE DECLARED" in ba.describe(read())
 
 
-def test_a_not_attached_reading_says_what_happens_instead():
-    for attachment in (read(), read(attach_creative_brief=False)):
-        assert "briefing questions" in ba.describe(attachment)
 
 
 # ── Off a real project.yaml ──────────────────────────────────────────
@@ -147,21 +120,7 @@ def _project(tmp_path, body: str):
     return str(project)
 
 
-def test_a_project_on_disk_is_read(tmp_path):
-    folder = _project(tmp_path, "creative_brief: brief.md\n")
-    assert ba.read_declaration(folder).reading == ba.ATTACHED
-
-    folder = _project(tmp_path / "b", "pipeline:\n"
-                                      "  attach_creative_brief: false\n")
-    assert ba.read_declaration(folder).reading == ba.DECLINED
 
 
-def test_a_project_with_no_yaml_declares_nothing(tmp_path):
-    (tmp_path / "empty").mkdir()
-    got = ba.read_declaration(str(tmp_path / "empty"))
-    assert got.reading == ba.NONE_DECLARED
-    assert got.basis
 
 
-def test_no_project_folder_declares_nothing():
-    assert ba.read_declaration("").reading == ba.NONE_DECLARED

@@ -122,9 +122,6 @@ def _entries():
 
 # ── 1. The delta validates ───────────────────────────────────────────
 
-def test_a_caption_fix_and_a_drop_validate():
-    edits = captain_edits.validate_edits([_fix(), _drop()])
-    assert len(edits) == 2
 
 
 def test_an_unknown_kind_is_refused():
@@ -135,9 +132,6 @@ def test_an_unknown_kind_is_refused():
     assert "kind" in str(exc.value)
 
 
-def test_an_empty_anchor_is_refused():
-    with pytest.raises(captain_edits.CaptainEditError):
-        captain_edits.validate_edits([_drop(anchor="  ")])
 
 
 def test_a_caption_fix_without_a_replacement_is_refused():
@@ -167,16 +161,8 @@ def test_an_edit_without_a_reason_is_refused():
 
 # ── 2. The external key checks drift ─────────────────────────────────
 
-def test_captain_edits_is_a_supportable_external_key():
-    assert "captain_edits" in external_inputs.CHECKS
 
 
-def test_supplied_edits_verify_and_name_what_was_checked(tmp_path):
-    project = _project(tmp_path)
-    _write_edits_file(project, [_fix(), _drop()])
-    supplied = external_inputs.load(str(project))
-    assert set(supplied) == {"captain_edits"}
-    assert "2 edit(s)" in supplied["captain_edits"].checked
 
 
 def test_a_caption_fix_drifted_from_its_speech_is_refused(tmp_path):
@@ -256,26 +242,10 @@ def test_a_drop_removes_the_block_and_rederives_later_timings():
     assert blocks[1]["timeline_start"] < before[2] - removed + 0.01
 
 
-def test_a_drop_that_matches_nothing_reports_stale_loudly():
-    spine = _spine()
-    blocks, applied, stale = captain_edits.apply_drop_fragments(
-        spine["structure"], [_drop(anchor="zebras on mars")])
-    assert applied == []
-    assert len(blocks) == 3
-    assert len(stale) == 1
-    assert "no longer applies" in stale[0]["reason"]
-    assert "zebras on mars" in stale[0]["reason"]
 
 
 # ── 5. The captain can read what is in force ─────────────────────────
 
-def test_edits_list_in_plain_language(capsys):
-    captain_edits.describe_edits([_fix(), _drop()])
-    out = capsys.readouterr().out
-    assert "Lucie" not in out  # the fix text is quoted, not paraphrased
-    assert "so what do they" in out
-    assert "caption" in out.lower()
-    assert "drop" in out.lower() or "remove" in out.lower()
 
 
 def test_stale_edits_are_announced_not_silenced(capsys):

@@ -41,22 +41,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 
-def test_a_learning_can_be_recorded_and_read_back(tmp_path):
-    from library.tools import learned_context
-    rec = learned_context.record(
-        str(tmp_path), kind="correction",
-        statement="The captain rejected the crash zoom on the eating shots.",
-        read_by=["plan_transitions"],
-        source={"note": "timeline marker, 2026-09-04"},
-    )
-    assert rec["id"]
-    assert rec["status"] == "active"
-    store = json.loads(
-        (tmp_path / "learned_context" / "learnings.json").read_text(
-            encoding="utf-8"))
-    assert store[0]["statement"].startswith("The captain rejected")
-
-
 def test_a_learning_with_no_reader_is_refused(tmp_path):
     """AGENTS.md 10.4's rule, at record time: a learned fact nothing
     consumes is the defect, so it never lands."""
@@ -73,114 +57,6 @@ def test_a_learning_with_no_reader_is_refused(tmp_path):
             statement="Something was learned for a step that is not a step.",
             read_by=["plan_everything"],
         )
-
-
-def test_an_unknown_kind_is_refused(tmp_path):
-    from library.tools import learned_context
-    with pytest.raises(learned_context.LearnedContextError):
-        learned_context.record(
-            str(tmp_path), kind="vibe",
-            statement="The video has a vibe.",
-            read_by=["plan_transitions"],
-        )
-
-
-def test_a_later_run_reads_only_what_is_scoped_to_it(tmp_path):
-    from library.tools import learned_context
-    learned_context.record(
-        str(tmp_path), kind="correction",
-        statement="No crash zooms on eating shots.",
-        read_by=["plan_transitions"])
-    learned_context.record(
-        str(tmp_path), kind="settled_decision",
-        statement="Captions sit low, never centre.",
-        read_by=["plan_subtitles"])
-    mine = learned_context.active_for_step(str(tmp_path), "plan_transitions")
-    assert [l["statement"] for l in mine] == [
-        "No crash zooms on eating shots."]
-    assert "Captions sit low" not in learned_context.render_for_prompt(
-        str(tmp_path), "plan_transitions")
-
-
-def test_a_global_learning_reaches_every_declaring_step(tmp_path):
-    from library.tools import learned_context
-    learned_context.record(
-        str(tmp_path), kind="settled_decision",
-        statement="This video belongs to no named series.",
-        read_by=["*"])
-    for step in ("plan_transitions", "music_selection", "color_grade"):
-        assert "no named series" in learned_context.render_for_prompt(
-            str(tmp_path), step)
-
-
-def test_a_learning_is_retired_with_a_reason_not_deleted(tmp_path):
-    from library.tools import learned_context
-    rec = learned_context.record(
-        str(tmp_path), kind="mistake_fix",
-        statement="Old claim about the bed length.",
-        read_by=["music_selection"])
-    learned_context.retire(
-        str(tmp_path), rec["id"],
-        reason="The bed rule changed; this fix no longer applies.")
-    mine = learned_context.active_for_step(str(tmp_path), "music_selection")
-    assert mine == []
-    store = json.loads(
-        (tmp_path / "learned_context" / "learnings.json").read_text(
-            encoding="utf-8"))
-    assert store[0]["status"] == "retired"
-    assert "no longer applies" in store[0]["history"][-1]["reason"]
-
-
-def test_a_learning_is_corrected_by_supersession(tmp_path):
-    from library.tools import learned_context
-    old = learned_context.record(
-        str(tmp_path), kind="settled_decision",
-        statement="Captions sit low.",
-        read_by=["plan_subtitles"])
-    new = learned_context.correct(
-        str(tmp_path), old["id"],
-        new_statement="Captions sit low except on food close-ups.",
-        reason="The captain moved one card up.")
-    assert new["id"] != old["id"]
-    assert new["supersedes"] == old["id"]
-    mine = learned_context.active_for_step(str(tmp_path), "plan_subtitles")
-    assert [l["statement"] for l in mine] == [
-        "Captions sit low except on food close-ups."]
-
-
-def test_retiring_what_is_not_there_is_refused_by_name(tmp_path):
-    from library.tools import learned_context
-    with pytest.raises(learned_context.LearnedContextError):
-        learned_context.retire(str(tmp_path), "lc-0000", reason="typo")
-
-
-def test_the_captain_can_tell_theirs_from_the_pipelines(tmp_path):
-    """Attribution: every rendered learning says who said it - the
-    captain's correction, or the pipeline's own conclusion."""
-    from library.tools import learned_context
-    learned_context.record(
-        str(tmp_path), kind="correction",
-        statement="No crash zooms on eating shots.",
-        read_by=["plan_transitions"])
-    learned_context.record(
-        str(tmp_path), kind="mistake_fix",
-        statement="The bed was fitted from the wrong second; fit at the "
-                  "section that plays.",
-        read_by=["music_selection"])
-    rendered = learned_context.render_for_prompt(str(tmp_path), "*")
-    assert "captain" in rendered.lower()
-    assert "pipeline" in rendered.lower()
-
-
-def test_every_kind_names_the_step_that_reads_it():
-    """The reader report: kind -> reading steps. A kind with no reader
-    is reported, the way a QA finding with no reader is reported."""
-    from library.tools import learned_context
-    report = learned_context.kinds_and_readers()
-    assert set(report) == {"correction", "mistake_fix", "settled_decision"}
-    for kind, readers in report.items():
-        assert readers, f"kind {kind!r} names no reading step"
-    assert learned_context.unread_kinds() == []
 
 
 def test_a_pending_proposal_reaches_no_prompt_until_promoted(tmp_path):

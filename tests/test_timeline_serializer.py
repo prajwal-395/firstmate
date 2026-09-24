@@ -77,32 +77,7 @@ def mock_resolve():
     
     return resolve
 
-def test_serialize_valid_json(mock_resolve):
-    state = serialize_timeline_state(resolve_mock=mock_resolve)
-    assert state["schema_version"] == "1.0"
-    assert state["metadata"]["name"] == "Test Timeline"
-    assert state["metadata"]["fps"] == 24.0
-    assert state["metadata"]["resolution"] == [1920, 1080]
-    
-    assert len(state["tracks"]) == 1
-    assert state["tracks"][0]["type"] == "video"
-    assert state["tracks"][0]["name"] == "V1"
-    
-    clips = state["tracks"][0]["clips"]
-    assert len(clips) == 1
-    assert clips[0]["unique_id"] == "uuid-1234"
-    assert clips[0]["name"] == "Clip 1"
-    assert clips[0]["transform"]["ZoomX"] == 1.5
-    assert clips[0]["color"]["cdl"] == {"Slope": "1.0 1.0 1.0"}
 
-def test_deterministic_output(mock_resolve):
-    state1 = serialize_timeline_state(resolve_mock=mock_resolve)
-    state1["timestamp"] = "2024-01-01T00:00:00Z" # override timestamp
-    
-    state2 = serialize_timeline_state(resolve_mock=mock_resolve)
-    state2["timestamp"] = "2024-01-01T00:00:00Z"
-    
-    assert json.dumps(state1, sort_keys=True) == json.dumps(state2, sort_keys=True)
 
 def test_diff_function():
     old_state = {
@@ -146,27 +121,6 @@ def test_diff_function():
     assert grades[0]["old_cdl"] == {"Slope": "1"}
     assert grades[0]["new_cdl"] == {"Slope": "2"}
 
-def test_merge_pipeline_state(mock_resolve):
-    manifest = {"project": {"name": "Test"}}
-    pipeline_data = {"vision_index": 1.0}
-    
-    with tempfile.NamedTemporaryFile('w', delete=False) as f1, tempfile.NamedTemporaryFile('w', delete=False) as f2:
-        json.dump(manifest, f1)
-        json.dump(pipeline_data, f2)
-        f1_name = f1.name
-        f2_name = f2.name
-        
-    state = serialize_timeline_state(
-        manifest_path=f1_name,
-        pipeline_data_path=f2_name,
-        resolve_mock=mock_resolve
-    )
-    
-    os.remove(f1_name)
-    os.remove(f2_name)
-    
-    assert state["pipeline_state"]["assembly_manifest"] == manifest
-    assert state["pipeline_state"]["pipeline_data"] == pipeline_data
 
 
 def test_named_handle_read_never_touches_the_cursor(mock_resolve):

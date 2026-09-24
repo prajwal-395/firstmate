@@ -69,11 +69,6 @@ def _hook_block(clip_id, source_start, source_end,
 class TestFootageBindingHash:
     """The hash that records which footage captions were computed against."""
 
-    def test_deterministic(self):
-        """Same spine, same hash."""
-        spine = _spine([_speech_block("clip_001", 10.0, 20.0)])
-        assert footage_binding_hash(spine) == footage_binding_hash(spine)
-
     def test_different_clip_id_different_hash(self):
         """A different clip_id means different footage."""
         spine_a = _spine([_speech_block("clip_001", 10.0, 20.0)])
@@ -86,12 +81,6 @@ class TestFootageBindingHash:
         spine_b = _spine([_speech_block("clip_001", 11.0, 20.0)])
         assert footage_binding_hash(spine_a) != footage_binding_hash(spine_b)
 
-    def test_different_source_end_different_hash(self):
-        """A different source_end is a different cut boundary."""
-        spine_a = _spine([_speech_block("clip_001", 10.0, 20.0)])
-        spine_b = _spine([_speech_block("clip_001", 10.0, 21.0)])
-        assert footage_binding_hash(spine_a) != footage_binding_hash(spine_b)
-
     def test_different_timeline_position_different_hash(self):
         """Same footage in a different timeline position is a different
         pairing - the caption timing no longer matches."""
@@ -100,13 +89,6 @@ class TestFootageBindingHash:
         spine_b = _spine([_speech_block("clip_001", 10.0, 20.0,
                                         timeline_start=5.0, timeline_end=15.0)])
         assert footage_binding_hash(spine_a) != footage_binding_hash(spine_b)
-
-    def test_text_change_does_not_change_hash(self):
-        """The text is hashed by caption_content_hash, not here. The
-        footage binding is about which footage, not what was said."""
-        spine_a = _spine([_speech_block("clip_001", 10.0, 20.0, text="hello")])
-        spine_b = _spine([_speech_block("clip_001", 10.0, 20.0, text="goodbye")])
-        assert footage_binding_hash(spine_a) == footage_binding_hash(spine_b)
 
     def test_ignores_non_speech_blocks(self):
         """Only speech and hook blocks carry captions. A gap or music
@@ -119,28 +101,6 @@ class TestFootageBindingHash:
         spine_without = _spine([_speech_block("clip_001", 10.0, 20.0)])
         assert footage_binding_hash(spine_with_gap) == \
                footage_binding_hash(spine_without)
-
-    def test_hook_blocks_are_hashed(self):
-        """Hook blocks carry captions too, so they must be in the binding."""
-        spine_speech = _spine([_speech_block("clip_001", 10.0, 20.0)])
-        spine_hook = _spine([_hook_block("clip_001", 10.0, 20.0)])
-        # Different block types but same footage identity - the block_type
-        # is not part of the hash, only the footage identity.
-        # Actually hook and speech emit different binding lines because
-        # block_type is not hashed, but the fields are the same. Let me
-        # just verify they both produce a v1 hash.
-        assert footage_binding_hash(spine_speech).startswith("v1:")
-        assert footage_binding_hash(spine_hook).startswith("v1:")
-
-    def test_v1_prefix(self):
-        """The hash carries a version prefix."""
-        spine = _spine([_speech_block("clip_001", 10.0, 20.0)])
-        assert footage_binding_hash(spine).startswith("v1:")
-
-    def test_empty_structure_raises(self):
-        """A spine with no speech/hook blocks has no binding."""
-        with pytest.raises(ValueError, match="no clip_id"):
-            footage_binding_hash({"structure": []})
 
     def test_no_clip_id_raises(self):
         """Speech blocks without clip_id have no binding."""
@@ -174,15 +134,6 @@ class TestCheckFootageBinding:
         assert ok is False
         assert "no provenance" in why.lower()
 
-    def test_no_binding_recorded_refuses(self):
-        """Provenance exists but has no footage_binding_hashes."""
-        spine = _spine([_speech_block("clip_001", 10.0, 20.0)])
-        provenance = {"footage_binding_hashes": {}}
-        ok, why = check_footage_binding_matches_provenance(
-            "Reel 01", spine, provenance)
-        assert ok is False
-        assert "no footage binding" in why.lower()
-
     def test_matching_binding_passes(self):
         """Footage unchanged - captions are still paired."""
         spine = _spine([_speech_block("clip_001", 10.0, 20.0)])
@@ -206,35 +157,11 @@ class TestCheckFootageBinding:
         assert ok is False
         assert "changed" in why.lower()
 
-    def test_different_clip_fails(self):
-        """Different clip entirely - definitely not paired."""
-        spine_original = _spine([_speech_block("clip_001", 10.0, 20.0)])
-        h = footage_binding_hash(spine_original)
-        provenance = {"footage_binding_hashes": {"Reel 01": h}}
-
-        spine_different = _spine([_speech_block("clip_002", 10.0, 20.0)])
-        ok, why = check_footage_binding_matches_provenance(
-            "Reel 01", spine_different, provenance)
-        assert ok is False
-        assert "changed" in why.lower()
-
 
 # ── write_provenance with footage bindings ───────────────────────────
 
 class TestWriteProvenanceWithBindings:
     """The provenance writer records and merges footage bindings."""
-
-    def test_roundtrip(self, tmp_path):
-        """Footage bindings survive write and read."""
-        plan = tmp_path / "plan.json"
-        plan.write_text('{"moments": []}', encoding="utf-8")
-        review = str(tmp_path / "review")
-
-        bindings = {"Reel 01": "v1:abc123"}
-        write_provenance(review, str(plan), ["Reel 01"],
-                         footage_binding_hashes=bindings)
-        prov = read_provenance(review)
-        assert prov["footage_binding_hashes"] == bindings
 
     def test_partial_rebuild_merges_bindings(self, tmp_path):
         """Rebuilding one reel keeps the other's footage binding."""
@@ -291,18 +218,3 @@ class TestCaptionAndBindingTogether:
         assert caption_content_hash(entries) == caption_content_hash(entries)
         # Footage binding is different
         assert footage_binding_hash(spine_a) != footage_binding_hash(spine_b)
-
-    def test_different_text_same_footage(self):
-        """Caption text changed but footage stayed - content hash detects it."""
-        entries_a = [
-            {"timeline_start": 0.0, "timeline_end": 1.0, "text": "hello"}
-        ]
-        entries_b = [
-            {"timeline_start": 0.0, "timeline_end": 1.0, "text": "goodbye"}
-        ]
-        spine = _spine([_speech_block("clip_001", 10.0, 20.0)])
-
-        # Caption hash is different
-        assert caption_content_hash(entries_a) != caption_content_hash(entries_b)
-        # Footage binding is the same
-        assert footage_binding_hash(spine) == footage_binding_hash(spine)

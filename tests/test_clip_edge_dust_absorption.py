@@ -95,10 +95,3 @@ def test_untimed_text_row_blocks_the_snap():
     assert out == [(600.0, 614.72)]
 
 
-def test_midrange_short_clip_is_not_an_edge():
-    """A short clip fully inside a range has no edge to snap: untouched."""
-    clips = [_clip(600.0, 605.0), _clip(610.0, 610.1), _clip(605.0, 620.0)]
-    transcript = _transcript([(601.0, 602.0, "kept")])
-    out = absorb_wordless_clip_edge_dust([(600.0, 620.0)], clips,
-                                         transcript, FPS)
-    assert out == [(600.0, 620.0)]

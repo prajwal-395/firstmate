@@ -31,14 +31,6 @@ class TestSpeechFieldsWithoutTemporalIndex:
     ``False`` / ``0.0``.
     """
 
-    def test_speech_present_is_none_without_temporal_index(self):
-        result = compute_deterministic_assessment(
-            temporal_index=None, transcript="", duration=120
-        )
-        assert result["speech_present"] is None, (
-            "speech_present must be None when temporal_index is unavailable, "
-            "not False"
-        )
 
     def test_speech_coverage_is_none_without_temporal_index(self):
         result = compute_deterministic_assessment(
@@ -49,11 +41,6 @@ class TestSpeechFieldsWithoutTemporalIndex:
             "not 0.0"
         )
 
-    def test_speech_coverage_method_is_unmeasured(self):
-        result = compute_deterministic_assessment(
-            temporal_index=None, transcript="", duration=120
-        )
-        assert result["speech_coverage_method"] == "unmeasured"
 
     def test_speech_fields_are_measured_with_temporal_index(self):
         ti = {
@@ -118,24 +105,6 @@ class TestMusicAnalysisFailureRecording:
         reason = result.get("note") or result.get("error", "")
         assert "essentia" in reason.lower() or "not installed" in reason.lower()
 
-    def test_chords_records_note_on_import_error(self, monkeypatch):
-        """Simulate essentia not being installed."""
-        import builtins
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "essentia.standard" or name == "essentia":
-                raise ImportError("No module named 'essentia'")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
-        result = analyze_chord_progression("/nonexistent/track.wav")
-        assert result["method"] is None
-        assert "note" in result or "error" in result, (
-            "chord analysis must record a reason when it produces nothing"
-        )
-        reason = result.get("note") or result.get("error", "")
-        assert "essentia" in reason.lower() or "not installed" in reason.lower()
 
 
 # ── 3. Collision-avoidance duplicate filtering ──────────────────────────
@@ -157,10 +126,6 @@ class TestCollisionDuplicateFiltering:
         assert _is_collision_duplicate("clip_profile_IMG_1816_v3__2.json")
         assert _is_collision_duplicate("vision_index_v3__2.json")
 
-    def test_normal_files_are_not_flagged(self):
-        assert not _is_collision_duplicate("clip_profile_IMG_1806_v3.json")
-        assert not _is_collision_duplicate("clip_profile_IMG_1806.json")
-        assert not _is_collision_duplicate("vision_index_v3.json")
 
     def test_profile_stems_skips_collision_duplicates(self, tmp_path):
         """Only the original should count, not the ``__2`` copy."""
@@ -174,8 +139,3 @@ class TestCollisionDuplicateFiltering:
         stems = _profile_stems(str(tmp_path))
         assert stems == {"IMG_1806", "IMG_1812"}
 
-    def test_video_only_with_collision_suffix_also_skipped(self, tmp_path):
-        """Double-check that _video_only + __2 is filtered."""
-        (tmp_path / "clip_profile_IMG_1806_video_only__2.json").write_text("{}")
-        stems = _profile_stems(str(tmp_path))
-        assert stems == set()

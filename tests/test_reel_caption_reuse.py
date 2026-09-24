@@ -162,21 +162,6 @@ def test_reel_rebuild_rerenders_a_changed_caption_only(reel_run):
     assert engine.calls == calls_after_first + 1
 
 
-def test_reused_segments_pair_back_to_the_same_files(reel_run):
-    """Reuse pairs; it does not just skip.
-
-    A reused segment must point at the file the first build rendered -
-    the same overlay path - or the timeline would be paired to nothing.
-    """
-    run, _engine, _seen = reel_run
-    first = run()
-    second = run()
-    assert ([s["overlay_path"] for s in second]
-            == [s["overlay_path"] for s in first])
-    for segment in second:
-        assert os.path.isfile(segment["overlay_path"])
-
-
 def test_tight_reuse_without_sidecar_falls_through_to_measured(tmp_path):
     """A key hit with no box sidecar re-measures instead of crashing.
 

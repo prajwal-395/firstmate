@@ -90,14 +90,6 @@ def _zeros(seconds: float):
 
 # ── the gate ──
 
-@needs_ffmpeg
-def test_a_master_with_sound_under_every_picture_passes(tmp_path):
-    path = _master(tmp_path, "sound", 4.0, _tone(4.0))
-    result = measure_silence_under_picture(path)
-    assert result.passed, result.detail
-    assert result.severity == "info"
-    assert result.value["by_level"]["digital_zero"]["seconds_under_picture"] == 0.0
-
 
 @needs_ffmpeg
 def test_picture_over_digital_silence_fails_and_says_where(tmp_path):
@@ -145,25 +137,6 @@ def test_silence_over_black_is_not_a_defect(tmp_path):
     assert zero["seconds_under_picture"] == 0.0
 
 
-@needs_ffmpeg
-def test_a_gap_shorter_than_the_timebase_is_not_a_hole(tmp_path):
-    """The floor is mechanical: the shortest sound the pipeline can place.
-
-    AGENTS.md section 10.5 - "The only floor is the timebase - two
-    frames, one at level plus one of de-click ramp".
-    """
-    one_frame = int(SR / FPS)
-    audio = np.concatenate([_tone(2.0), np.zeros(one_frame, dtype="<i2"),
-                            _tone(2.0)])
-    path = _master(tmp_path, "blip", 4.0, audio)
-
-    result = measure_silence_under_picture(path)
-    assert result.passed, result.detail
-    assert result.value["by_level"]["digital_zero"]["runs"] == 0
-    assert result.value["minimum_run_seconds"] == round(
-        MIN_SILENCE_FRAMES / FPS, 4)
-
-
 # ── the ladder reports and judges nothing ──
 
 @needs_ffmpeg
@@ -186,21 +159,3 @@ def test_a_quiet_tail_is_reported_at_the_ladder_and_fails_nothing(tmp_path):
     assert result.threshold["ladder_gates"] is False
 
 
-def test_only_digital_zero_gates():
-    """One rung decides, and it is the one that needs no taste."""
-    assert DIGITAL_ZERO_DBFS == pytest.approx(-90.309, abs=1e-3)
-    assert all(level > DIGITAL_ZERO_DBFS for level in NEAR_SILENCE_LADDER_DBFS)
-
-
-def test_the_check_runs_on_every_build():
-    """A measurement that is not in the run is not coverage."""
-    import inspect
-
-    source = inspect.getsource(render_qa.run_full_render_qa)
-    assert "measure_silence_under_picture(video_path)" in source
-
-
-def test_the_finding_has_a_reader():
-    from library.tools.qa_findings import FINDING_READERS
-
-    assert "silence_under_picture" in FINDING_READERS

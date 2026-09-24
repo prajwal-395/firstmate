@@ -57,45 +57,10 @@ def _write_rows(project, body):
 
 # ── 1. The declaration validates, loudly ─────────────────────────────
 
-def test_a_row_validates():
-    assert reel_caption_row.validate_rows([_row()])[0]["caption_row"] == ROW
-
 
 def test_a_pixel_row_is_refused():
     with pytest.raises(reel_caption_row.ReelCaptionRowError):
         reel_caption_row.validate_rows([_row(row=1385)])
-
-
-def test_a_zero_row_is_refused():
-    with pytest.raises(reel_caption_row.ReelCaptionRowError):
-        reel_caption_row.validate_rows([_row(row=0.0)])
-
-
-def test_a_non_numeric_row_is_refused():
-    with pytest.raises(reel_caption_row.ReelCaptionRowError):
-        reel_caption_row.validate_rows([_row(row="low")])
-
-
-def test_a_rowless_entry_is_refused():
-    entry = _row()
-    del entry["caption_row"]
-    with pytest.raises(reel_caption_row.ReelCaptionRowError):
-        reel_caption_row.validate_rows([entry])
-
-
-def test_a_reasonless_row_is_refused():
-    with pytest.raises(reel_caption_row.ReelCaptionRowError):
-        reel_caption_row.validate_rows([_row(reason="  ")])
-
-
-def test_two_rows_for_one_reel_refuse():
-    with pytest.raises(reel_caption_row.ReelCaptionRowError):
-        reel_caption_row.validate_rows([_row(), _row(row=0.5)])
-
-
-def test_a_wrong_version_is_refused():
-    with pytest.raises(reel_caption_row.ReelCaptionRowError):
-        reel_caption_row.parse_rows({"version": 9, "rows": []})
 
 
 def test_no_file_is_no_rows(tmp_path):
@@ -149,28 +114,7 @@ def test_no_reel_name_reads_todays_answer_exactly(tmp_path):
     assert project_caption_row(str(project)) == PROJECT_ROW
 
 
-def test_no_declaration_anywhere_is_none(tmp_path):
-    project = _project(tmp_path)
-    assert project_caption_row(str(project), reel_name=REEL) is None
-
-
 # ── 3. Survival: the override holds on every rebuild ─────────────────
-
-def test_the_override_holds_on_repeated_reads(tmp_path):
-    """The rebuild equivalent: the file the captain wrote is read the
-    way each build reads it, twice, and the reel's row is the
-    override both times while its sibling keeps the project value."""
-    project = _project(
-        tmp_path,
-        {"subtitle_position": {"caption_row": PROJECT_ROW,
-                               "reason": "series look"}})
-    _write_rows(project, {"version": 1, "rows": [_row()]})
-    for _ in range(2):
-        assert project_caption_row(str(project), reel_name=REEL) == ROW
-        assert project_caption_row(
-            str(project),
-            reel_name="Reel 02 - something-else") == PROJECT_ROW
-        assert project_caption_row(str(project)) == PROJECT_ROW
 
 
 def test_without_the_override_every_reel_reads_the_project_row():

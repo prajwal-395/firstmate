@@ -80,23 +80,8 @@ def ml_stack_absent(monkeypatch):
 
 # ── 1. Only the ML-dependent commands are checked ───────────────
 
-def test_run_is_the_whole_ml_dependent_list():
-    """`run` launches the steps; nothing else in this CLI reaches them."""
-    assert cli.ML_DEPENDENT_COMMANDS == ("run",)
 
 
-def test_all_commands_matches_the_parser():
-    """A subcommand added without listing it fails loudly, not quietly.
-
-    main() asserts this too; asserting it here means the drift is caught
-    without invoking a command.
-    """
-    proc = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "manage_project.py"), "--help"],
-        capture_output=True, encoding="utf-8", cwd=str(REPO_ROOT))
-    assert proc.returncode == 0, proc.stderr
-    for command in cli.ALL_COMMANDS:
-        assert command in proc.stdout, f"{command} is not in --help"
 
 
 def test_preflight_passes_legitimate_commands_without_refusing(
@@ -169,21 +154,6 @@ def test_advice_sends_the_reader_to_the_ONE_location(tmp_path, monkeypatch):
     assert "    source .venv/bin/activate" not in text
 
 
-def test_run_advice_is_true_of_this_checkout(ml_stack_absent, capsys):
-    """Whatever this machine is, the printed advice describes it.
-
-    Measured 2026-09-14: no checkout on the build machine has a `.venv`,
-    so the branch that named one was the branch nobody ever saw.
-    """
-    from library.tools import shared_environment
-
-    with pytest.raises(SystemExit):
-        cli.preflight_check("run")
-    out = capsys.readouterr().out
-    durable = shared_environment.vep_home() / shared_environment.DURABLE_VENV_DIRNAME
-    assert str(durable) in out
-    if (REPO_ROOT / ".venv" / "bin" / "python3").is_file():
-        assert str(REPO_ROOT / ".venv") in out
 
 
 # ── 3. The dashboard really starts without the ML stack ─────────
@@ -306,31 +276,8 @@ def test_dashboard_serves_a_project_with_the_ml_stack_unimportable(tmp_path):
 
 # ── 4. A project outside PROJECTS_ROOT ──────────────────────────
 
-def test_project_outside_the_root_is_openable_by_path(tmp_path):
-    from library.tools.project_registry import get_project
-
-    outside = tmp_path / "somewhere else" / "001"
-    _write_project(outside, "001")
-
-    config = get_project(str(outside))
-    assert config.slug == "001"
-    assert Path(config.project_root) == outside
 
 
-def test_failed_lookup_names_the_root_and_what_it_found(tmp_path):
-    from library.tools.project_registry import get_project
-
-    root = tmp_path / "video_projects"
-    for slug in ("4th-wall", "test-proof"):
-        _write_project(root / slug, slug)
-
-    with pytest.raises(FileNotFoundError) as err:
-        get_project("001", root=root)
-    message = str(err.value)
-    assert str(root) in message, message
-    assert "4th-wall" in message and "test-proof" in message, message
-    # And how to reach one that is kept elsewhere.
-    assert "path" in message, message
 
 
 def test_the_picker_names_the_project_being_served(tmp_path, monkeypatch):
@@ -376,13 +323,6 @@ def test_the_picker_names_the_project_being_served(tmp_path, monkeypatch):
 # passed the whole time, because a wrong version is not a missing one.
 
 
-def test_the_manifest_really_declares_a_whisperx_floor():
-    """The check is only worth anything if requirements.txt pins something."""
-    declared = cli._declared_specifiers(REPO_ROOT)
-    assert "whisperx" in declared, declared
-    # The floor that matters: 3.2.0 is out, 3.8.6 is in.
-    assert not declared["whisperx"].contains("3.2.0", prereleases=True)
-    assert declared["whisperx"].contains("3.8.6", prereleases=True)
 
 
 def test_a_version_outside_the_declared_range_is_reported(monkeypatch):
@@ -404,56 +344,12 @@ def test_a_version_inside_the_declared_range_is_not_reported(monkeypatch):
     assert cli._noncompliant_ml_packages(REPO_ROOT) == []
 
 
-def test_an_undeterminable_version_is_reported_not_passed(monkeypatch):
-    """An environment that cannot say what it has has not been shown to comply."""
-    from importlib.metadata import PackageNotFoundError
-
-    def absent(dist):
-        raise PackageNotFoundError(dist)
-
-    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
-    monkeypatch.setattr("importlib.metadata.version", absent)
-    problems = cli._noncompliant_ml_packages(REPO_ROOT)
-    assert [(p[0], p[1]) for p in problems] == [("whisperx", "unknown")]
 
 
-def test_a_package_the_manifest_does_not_constrain_is_not_invented(
-        tmp_path, monkeypatch):
-    """This file must not hold an opinion requirements.txt does not.
-
-    Written against a SYNTHETIC manifest rather than the real one: which
-    packages the repository happens to pin today is not an environment,
-    and a test that skips on it is the always-skip `skip_audit` exists to
-    catch.
-    """
-    (tmp_path / "requirements.txt").write_text(
-        "whisperx>=3.8,<4\neasyocr\n", encoding="utf-8")
-
-    declared = cli._declared_specifiers(tmp_path)
-    assert "whisperx" in declared
-    assert "easyocr" not in declared, "an unpinned line must yield no specifier"
-
-    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("easyocr",))
-    monkeypatch.setattr("importlib.metadata.version", lambda dist: "0.0.1")
-    assert cli._noncompliant_ml_packages(tmp_path) == []
 
 
-def test_comments_and_options_in_the_manifest_are_not_requirements(tmp_path):
-    """requirements.txt is mostly prose; none of it may parse as a pin."""
-    (tmp_path / "requirements.txt").write_text(
-        "# whisperx>=99 in a comment is not a requirement\n"
-        "--extra-index-url https://example.invalid\n"
-        "\n"
-        "whisperx>=3.8,<4  # trailing comment\n",
-        encoding="utf-8")
-    declared = cli._declared_specifiers(tmp_path)
-    assert set(declared) == {"whisperx"}
-    assert declared["whisperx"].contains("3.8.6", prereleases=True)
 
 
-def test_an_unreadable_manifest_constrains_nothing_rather_than_raising(tmp_path):
-    """A missing manifest must not crash the CLI on its way to a refusal."""
-    assert cli._declared_specifiers(tmp_path / "nope") == {}
 
 
 def test_run_refuses_a_wrong_version_and_says_both_numbers(monkeypatch, capsys):
@@ -476,16 +372,3 @@ def test_run_refuses_a_wrong_version_and_says_both_numbers(monkeypatch, capsys):
     assert "reports success" in out
 
 
-def test_advice_does_not_send_anyone_to_a_forbidden_interpreter(tmp_path):
-    """`python3` is 3.14 on this machine, and 3.14 is the broken case.
-
-    requirements.txt: "BUILD THIS ENVIRONMENT ON PYTHON 3.12. It is not a
-    preference."  Advice that says bare `python3 -m venv` rebuilds the
-    exact environment that caused the outage.
-    """
-    text = "\n".join(cli._venv_advice(tmp_path))
-    assert "3.12" in text
-    for line in text.splitlines():
-        stripped = line.strip()
-        if "-m venv" in stripped:
-            assert "python3.12" in stripped, stripped

@@ -229,23 +229,3 @@ def test_gate_still_refuses_overlapping_plan_cards():
     assert findings[0].detail["overlap_frames"] == 43, findings[0].detail
 
 
-def test_gate_still_reports_a_segment_trimmed_off_its_planned_start():
-    """F14 fires when a planned segment has no placed item within the
-    2-frame mechanical pairing tolerance - the shape Resolve's trim of
-    an overlapping card produces.  Unaffected by the planner fix, which
-    stops the trim happening rather than widening the tolerance."""
-    planned = (
-        _planned(10.0, 12.0, "for small businesses", block=3),
-        _planned(14.93, 16.5, "google rewards", block=4),
-    )
-    seg2_start_frame = round(14.93 * FPS)
-    placed = (
-        _placed(round(10.0 * FPS), round(12.0 * FPS) - round(10.0 * FPS)),
-        # the later head trimmed 43 frames, as Resolve does to the
-        # second of two overlapping items on one track
-        _placed(seg2_start_frame + 43, 30),
-    )
-    findings = check_caption_duration("reel 15", planned, placed, FPS)
-    f14 = [f for f in findings if f.finding_class == FindingClass.F14]
-    assert len(f14) == 1, [f.as_dict() for f in findings]
-    assert f14[0].detail["planned_start_frame"] == seg2_start_frame

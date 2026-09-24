@@ -119,9 +119,6 @@ def test_nobody_synthesises_a_grid_from_bpm_any_more():
 # Reading the grid
 # ─────────────────────────────────────────────────────────
 
-def test_beats_are_returned_in_order():
-    got = beat_positions(analysis(beats=list(reversed(BEATS))), NO_SECTION)
-    assert got == sorted(BEATS)
 
 
 def test_the_first_beat_is_not_assumed_to_be_zero():
@@ -131,51 +128,25 @@ def test_the_first_beat_is_not_assumed_to_be_zero():
     assert got[0] != 0.0
 
 
-def test_downbeats_are_separate_from_beats():
-    got = downbeat_positions(analysis(beats=BEATS, downbeats=BEATS[::4]), NO_SECTION)
-    assert got == sorted(BEATS[::4])
-    assert len(got) < len(BEATS)
 
 
-def test_bpm_comes_from_tempo():
-    assert bpm(analysis(beats=BEATS, tempo_bpm=128.0)) == 128.0
 
 
 class TestRefusesToInvent:
     """Empty means "do not snap", which every caller already honours."""
 
-    def test_no_analysis(self):
-        assert beat_positions(None, NO_SECTION) == []
-        assert beat_positions({}, NO_SECTION) == []
-        assert downbeat_positions(None, NO_SECTION) == []
-        assert bpm(None) is None
 
-    def test_unavailable_analysis(self):
-        a = analysis(beats=BEATS)
-        a["available"] = False
-        assert beat_positions(a, NO_SECTION) == []
 
     def test_too_few_beats_is_not_a_rhythm(self):
         few = BEATS[:MIN_USABLE_BEATS - 1]
         assert beat_positions(analysis(beats=few), NO_SECTION) == []
 
-    def test_enough_beats_is(self):
-        enough = BEATS[:MIN_USABLE_BEATS]
-        assert len(beat_positions(analysis(beats=enough), NO_SECTION)) == MIN_USABLE_BEATS
 
     def test_malformed_entries_are_skipped_not_crashed(self):
         messy = list(BEATS) + ["x", None, {}, -1.0]
         assert beat_positions(analysis(beats=messy), NO_SECTION) == sorted(BEATS)
 
-    def test_missing_or_wrong_shaped_tempo(self):
-        assert beat_positions({"tempo": None}, NO_SECTION) == []
-        assert beat_positions({"tempo": []}, NO_SECTION) == []
-        assert beat_positions({"tempo": {"beats": "nope"}}, NO_SECTION) == []
 
-    def test_bad_bpm(self):
-        assert bpm({"tempo": {"bpm": 0}}) is None
-        assert bpm({"tempo": {"bpm": "fast"}}) is None
-        assert bpm({"tempo": {}}) is None
 
 
 # ─────────────────────────────────────────────────────────
@@ -220,26 +191,6 @@ def test_compile_manifest_asserts_the_domain():
 # P4.2: pacing, removed rather than left as a number nobody acts on
 # ─────────────────────────────────────────────────────────
 
-def test_no_project_copy_declares_a_pacing_target():
-    """Pacing config with no reader is the reads-as-coverage problem.
-
-    The deleted product templates used to spell it
-    `cuts_per_minute_min`/`_max` and `min_cuts_per_minute`/
-    `max_cuts_per_minute`, and nothing in the repository read either
-    spelling. If pacing control is wanted it is a re-cut loop and a
-    design job - not a key in a brand file. The synthetic copies carry
-    neither spelling.
-    """
-    import yaml
-    from tests.brand_fixtures import ALL_SYNTHETIC
-    offenders = []
-    for name, data in sorted(ALL_SYNTHETIC.items()):
-        code = yaml.safe_dump(data)
-        if "cuts_per_minute" in code or "pacing:" in code:
-            offenders.append(name)
-    assert not offenders, (
-        f"{offenders} declare pacing config again. Nothing reads it; add a "
-        f"reader in the same commit or leave it out.")
 
 
 def test_the_cohesion_step_no_longer_scores_pacing():

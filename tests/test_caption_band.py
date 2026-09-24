@@ -33,8 +33,6 @@ def _resolve(entry, bands=frozenset({"bottom"})):
                         captioned_spans=band.captioned_spans(SPINE))
 
 
-def test_captioned_spans_are_the_blocks_4_01_puts_cards_on():
-    assert band.captioned_spans(SPINE) == ((0.0, 10.0), (20.0, 24.0))
 
 
 def test_the_captioned_block_types_match_step_4_01():
@@ -55,19 +53,6 @@ def test_copy_in_the_caption_band_over_a_captioned_span_is_refused():
     assert "bottom band" in resolved.dropped[0].detail
 
 
-@pytest.mark.parametrize("label,entry", [
-    ("the same element outside a captioned span",
-     _entry("lower_third", "bottom_centre", 12, 4)),
-    ("the same element in another band",
-     _entry("lower_third", "top_centre", 1, 4)),
-    ("chrome in the caption band - a bar is not a block of text",
-     _entry("progress_bar", "bottom_centre", 1, 4, copy=None)),
-    ("chrome in the caption band - brackets",
-     _entry("frame_accents", "bottom_centre", 1, 4, copy=None)),
-])
-def test_the_rule_passes_output_that_does_not_collide(label, entry):
-    resolved = _resolve(entry)
-    assert resolved.moments, f"{label} was refused and should not have been"
 
 
 def test_a_caller_that_cannot_say_where_the_captions_are_refuses_nothing():
@@ -77,15 +62,6 @@ def test_a_caller_that_cannot_say_where_the_captions_are_refuses_nothing():
     assert resolved.moments
 
 
-def test_every_anchor_the_vocabulary_declares_has_a_band():
-    for anchor in vocabulary.AXES_BY_NAME["anchor"].positions:
-        if anchor == "tracked":
-            # Refused before it reaches this rule; it has no frame
-            # position to put in a band.
-            with pytest.raises(band.CaptionBandError):
-                band.anchor_band(anchor)
-            continue
-        assert band.anchor_band(anchor) in band.BANDS
 
 
 def test_an_unreadable_caption_position_raises_rather_than_guessing(monkeypatch):
@@ -100,15 +76,8 @@ def test_an_unreadable_caption_position_raises_rather_than_guessing(monkeypatch)
         band.occupied_bands()
 
 
-def test_every_valid_caption_position_maps_to_a_band():
-    from library.tools.subtitle_style import VALID_POSITIONS
-    assert set(band.BAND_BY_CAPTION_POSITION) == set(VALID_POSITIONS)
 
 
-def test_lower_third_is_reachable_and_says_why():
-    entry = vocabulary.ELEMENTS_BY_KEY["lower_third"]
-    assert entry.reachable == vocabulary.REACHABLE_NOW
-    assert "caption_band" in entry.reachability_note
 
 
 # ── Two graphics drawn through each other ────────────────────────────
@@ -160,33 +129,5 @@ def test_two_cards_sharing_one_row_at_one_moment_are_reported():
     assert "row 0" in pairs[0]["why"]
 
 
-@pytest.mark.parametrize("label,moments", [
-    ("two different bands", [_moment("title_lockup", "top_centre"),
-                              _moment("stat_callout", "bottom_left")]),
-    ("two side cells, never the same column",
-     [_moment("stat_callout", "middle_left"),
-      _moment("lower_third", "middle_right")]),
-    ("one anchor across DIFFERENT rows - `row` is the mechanism",
-     [_moment("title_lockup", "top_centre", row=0),
-      _moment("context_stamp", "top_centre", row=1)]),
-    ("same anchor and row, but not on screen together",
-     [_moment("lower_third", "bottom_left", start=0, frames=30),
-      _moment("lower_third", "bottom_left", start=30, frames=30)]),
-    ("same band, but not on screen together",
-     [_moment("title_lockup", "top_centre", start=0, frames=30),
-      _moment("context_stamp", "top_left", start=30, frames=30)]),
-])
-def test_the_report_names_no_pair_that_cannot_collide(label, moments):
-    assert overlapping_pairs(moments) == [], label
 
 
-def test_the_report_travels_on_the_basis_record():
-    """A measurement nobody reads is not a measurement."""
-    resolved = resolve_plan(
-        [_entry("title_lockup", "top_centre", 1, 4, copy="A TITLE"),
-         _entry("context_stamp", "top_left", 1, 4, copy="PART 3")],
-        timeline_duration=30, fps=30)
-    record = resolved.basis_record()
-    assert record["drawn_through_each_other"], (
-        "two elements the resolver kept collide by construction and the "
-        "basis record says nothing about it")

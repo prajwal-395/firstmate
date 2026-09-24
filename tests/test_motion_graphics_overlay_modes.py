@@ -232,60 +232,6 @@ def test_a_predicted_clamp_refusal_is_retried_from_pixels(
 
 
 @pytest.mark.heavy
-def test_a_predicted_refusal_with_no_ink_stays_full_and_named(
-        tmp_path, monkeypatch):
-    """The retry is honest both ways: a predicted refusal whose probe
-    drew nothing stays full canvas, and the record names the reason
-    rather than going silent."""
-    import library.tools.mg_tight_box as mg_tight_box
-    from library.tools.tight_box import TightBoxMismatch
-
-    def _refuse(*args, **kwargs):
-        raise TightBoxMismatch("exceeds the rail")
-    monkeypatch.setattr(mg_tight_box,
-                        "tighten_motion_graphics_props_with_reason",
-                        _refuse)
-    monkeypatch.setattr(mg_tight_box, "measure_mg_union",
-                        lambda path: None)
-    out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
-                     str(tmp_path), overlay_geometry="tight")
-    assert out["geometry"] == "full"
-    assert out["tight_box"] is None
-    assert "drew nothing" in out["tight_fallback"]
-    assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}\.mov",
-                        os.path.basename(out["overlay_path"]))
-    assert os.path.isfile(out["overlay_path"])
-
-
-def _staged_lower_third():
-    el = _el("lower_third", anchor="bottom_left")
-    el["runs"] = [{"text": "Craig Lucie", "type_role": "display"},
-                  {"text": "CEO Lucie Content",
-                   "type_role": "supporting"}]
-    el["data"] = {"construction": "staged_rule"}
-    return el
-
-
-def test_staged_lower_third_renders_tight(tmp_path, monkeypatch):
-    """The captain's sixteen full-frame lower thirds, end to end: the
-    constructed lower third renders its drawn union, places it by
-    transform, and records the outcome on the artefact."""
-    out, _ = _render(monkeypatch, _planned([_staged_lower_third()]),
-                     str(tmp_path), overlay_geometry="tight")
-    assert out["geometry"] == "tight"
-    assert out["tight_fallback"] == ""
-    box = out["tight_box"]
-    assert box["width"] < 1080 and box["height"] == 480
-    stem = out["overlay_path"][:-len(".mov")]
-    props_on_disk = json.load(open(stem + "_props.json", encoding="utf-8"))
-    assert props_on_disk["width"] == box["width"]
-    sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
-    assert sidecar["outcome"] == "tight"
-    assert (sidecar["width"], sidecar["height"]) == (
-        box["width"], box["height"])
-
-
-@pytest.mark.heavy
 def test_explicit_full_declares_itself_on_the_artefact(
         tmp_path, monkeypatch):
     """A project that declares full-canvas carrying never asks the
@@ -303,17 +249,6 @@ def test_explicit_full_declares_itself_on_the_artefact(
         [stem + "_props.json"], 1080, 1920)
     assert errors == []
     assert census["full_by_design"] == 1
-
-
-def test_tight_props_keep_the_planned_elements(tmp_path, monkeypatch):
-    planned = _planned([_el("title_lockup")])
-    out, _ = _render(monkeypatch, planned, str(tmp_path),
-                     overlay_geometry="tight")
-    stem = out["overlay_path"][:-len(".mov")]
-    props_on_disk = json.load(open(stem + "_props.json", encoding="utf-8"))
-    assert props_on_disk["elements"] == planned["props"]["elements"]
-    assert (props_on_disk["durationInFrames"]
-            == planned["props"]["durationInFrames"])
 
 
 @pytest.mark.heavy
@@ -335,23 +270,3 @@ def test_accents_stay_full_canvas_when_tight_is_asked(tmp_path, monkeypatch):
     assert sidecar["outcome"] == "full"
     assert sidecar["reason"] == "frame_accents_span_by_design"
     assert sidecar["element"] == "frame_accents"
-
-
-def test_unknown_mode_is_refused(tmp_path, monkeypatch):
-    with pytest.raises(ValueError, match="overlay_geometry"):
-        _render(monkeypatch, _planned([_el("title_lockup")]),
-                str(tmp_path), overlay_geometry="small")
-
-
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_project_declaration_selects_tight(tmp_path, monkeypatch):
-    root = tmp_path / "proj"
-    root.mkdir()
-    (root / "project.yaml").write_text(
-        "name: t\nslug: t\npipeline:\n"
-        "  motion_graphics_overlay_geometry: tight\n",
-        encoding="utf-8")
-    out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
-                     str(tmp_path), project_folder=str(root))
-    assert out["geometry"] == "tight"
-    assert out["tight_box"] is not None

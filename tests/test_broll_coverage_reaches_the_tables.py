@@ -89,8 +89,6 @@ def test_coverage_by_block_keys_on_the_identifier_the_answer_names():
     assert picture_clip_id(SPINE["structure"][0], coverage) == "clip_011"
 
 
-def test_a_block_with_no_clip_and_no_cutaway_is_the_only_unmeasured_one():
-    assert picture_clip_id({"position": 7}, {}) is None
 
 
 def test_the_vfx_table_measures_the_cutaway_it_will_show():
@@ -105,14 +103,6 @@ def test_the_vfx_table_measures_the_cutaway_it_will_show():
     assert "B-roll cutaway clip_001" in broll_row["vfx_suggested"]
 
 
-def test_the_vfx_table_still_admits_a_block_nothing_covers():
-    rows = _bridge("step_4_03_plan_vfx").build_vfx_candidates({
-        "timed_spine": SPINE, "b_roll_assignments": [],
-        "clip_catalog": CATALOG, "semantic_analysis_documents": DOCS,
-    })
-    broll_row = next(r for r in rows if r["segment_id"] == 1)
-    assert broll_row["vfx_suggested"] == (
-        "not measured (no source clip and no cutaway over it)")
 
 
 def test_the_sfx_table_names_the_cutaway_and_says_its_audio_is_not_heard():

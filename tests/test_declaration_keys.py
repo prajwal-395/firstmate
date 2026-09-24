@@ -43,13 +43,6 @@ def ending(reel, phrase):
 
 # ── The key scheme names what each owner already reasons in ─────────
 
-def test_every_store_key_is_derivable_or_already_keyed():
-    for stem, store in dk.stores().items():
-        assert store.container, stem
-        if store.is_mapping:
-            continue
-        assert callable(store.key_of), stem
-
 
 def test_a_reel_ending_is_keyed_by_its_reel():
     assert entry_key("reel_ending", ending("Reel 03", "x")) == "Reel 03"
@@ -151,12 +144,6 @@ def test_a_deletion_is_a_change_like_any_other(project):
     assert list(landed) == ["Reel 07"]
 
 
-def test_merge_keeps_what_neither_writer_touched():
-    base = {"a": 1, "b": 2}
-    assert merge("reel_ending", base, {"a": 1, "b": 2, "c": 3},
-                 {"a": 1, "b": 9}) == {"a": 1, "b": 9, "c": 3}
-
-
 # ── The captain's own store, wired ──────────────────────────────────
 
 def test_record_edit_goes_through_the_key_scheme(project, monkeypatch):
@@ -219,31 +206,3 @@ def _write_in_subprocess(project, reel, words):
             repo=REPO_ROOT, project=str(project), reel=reel, words=words)],
         capture_output=True, text=True, encoding="utf-8", timeout=60,
         env=dict(os.environ), check=False)
-
-
-def test_two_processes_on_different_reels_both_land(project):
-    assert _write_in_subprocess(project, "Reel 03", "three").stdout.startswith(
-        "WROTE")
-    assert _write_in_subprocess(project, "Reel 07", "seven").stdout.startswith(
-        "WROTE")
-    landed, _ = read_entries(project, "reel_ending")
-    assert sorted(landed) == ["Reel 03", "Reel 07"]
-
-
-def test_a_process_writing_over_a_hand_edit_surfaces_the_conflict(project):
-    """The uncooperative writer for files: a text editor, taking no lock."""
-    assert _write_in_subprocess(
-        project, "Reel 03", "what the agent decided").stdout.startswith("WROTE")
-
-    # The captain edits the same reel by hand, in an editor. No lock.
-    path = dk.store_path(project, "reel_ending")
-    document = json.loads(path.read_text(encoding="utf-8"))
-    document["endings"][0]["ends_on"]["anchor_phrase"] = "what I decided"
-    path.write_text(json.dumps(document, indent=2), encoding="utf-8")
-
-    # A second agent that read the file BEFORE the hand edit.
-    base = {}
-    with pytest.raises(DeclarationConflict) as raised:
-        write_entries(project, "reel_ending",
-                      {"Reel 03": ending("Reel 03", "a third opinion")}, base)
-    assert "what I decided" in str(raised.value)

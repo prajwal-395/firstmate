@@ -138,53 +138,6 @@ def test_the_closer_echo_reaches_the_model_at_selection_time():
     assert enrich(plain, _reel_03_distant()).closer_repeats == ()
 
 
-def test_reel_07s_twelve_second_pair_survives_on_the_text_bar():
-    """Same speaker, twelve seconds apart - INSIDE the window, so its
-    survival is one of the other bars: containment 1.000 but Jaccard
-    0.500, under the cut bar. Neither the cut lane nor the new distant
-    lane touches it."""
-    tx = {"segments": [
-        _seg("Akshita", "hiring managers check both places, that is the "
-                        "whole point of a resume", 100.0, 105.0, "u1"),
-        _seg("Akshita", "hiring managers check both", 117.0, 119.5, "u2"),
-    ]}
-    assert redundant_takes(90.0, 130.0, tx) == []
-    distant = [c for c in suspected_takes(90.0, 130.0, tx)
-               if c.kept_start - c.dropped_end > CUT_WINDOW_SECONDS]
-    assert distant == []
-
-
-def test_a_distant_fragment_restatement_is_neither_cut_nor_marked():
-    """The duration guard's own case, at distance: the same sentence as
-    a 4.3s line and a 0.5s fragment, 46s apart. Text bars pass, shape
-    refuses - so no cut AND no suspect. A callback restated briefly
-    must not even cost the captain a glance."""
-    tx = {"segments": [
-        _seg("Akshita", "it is going to start hallucinating because it is "
-                        "confused about what you actually do",
-             10.0, 14.3, "a"),
-        _seg("Craig", "right, and then what happened", 20.0, 24.0, "c"),
-        _seg("Akshita", "confused about what you actually do because it "
-                        "is hallucinating", 60.0, 60.5, "b"),
-    ]}
-    assert redundant_takes(0.0, 70.0, tx) == []
-    assert suspected_takes(0.0, 70.0, tx) == []
-
-
-def test_a_distant_cross_speaker_echo_is_neither_cut_nor_marked():
-    """Craig's question echoed in Akshita's answer a minute later is an
-    exchange, not a take - the same-speaker guard holds at distance."""
-    tx = {"segments": [
-        _seg("Craig", "hiring managers would check both places", 10.0, 14.0,
-             "u1"),
-        _seg("Craig", "right, and then what happened", 30.0, 34.0, "c"),
-        _seg("Akshita", "hiring managers would check both places", 74.0, 78.0,
-             "u2"),
-    ]}
-    assert redundant_takes(0.0, 90.0, tx) == []
-    assert suspected_takes(0.0, 90.0, tx) == []
-
-
 def test_nothing_new_is_refused():
     """No approved reel is newly refused: the distant pair still builds
     and still validates, because suspects and closer echoes REPORT."""

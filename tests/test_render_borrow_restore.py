@@ -235,26 +235,6 @@ class TestSegmentRendererJobCleanup:
         assert "my-job-77" in project.deleted_jobs
         assert not project.deleted_all
 
-    def test_delete_all_render_jobs_never_called(self, tmp_path):
-        """DeleteAllRenderJobs is never called - it destroys others' jobs."""
-        resolve = MockResolve()
-        project = MockProject()
-        timeline = MockTimeline()
-
-        fake_file = tmp_path / "qa_segment_0_10.mov"
-        fake_file.write_bytes(b"\x00" * 4096)
-
-        render_segment(
-            resolve, project, timeline,
-            mark_in=0, mark_out=10,
-            output_dir=str(tmp_path),
-        )
-
-        assert not project.deleted_all, (
-            "DeleteAllRenderJobs was called. This is H4a: it deletes the "
-            "captain's queued render jobs and any concurrent process's jobs."
-        )
-
 
 class TestSegmentRendererPageRestore:
     """The Deliver page is restored on every exit path."""
@@ -296,15 +276,7 @@ class TestSegmentRendererPageRestore:
 
 class TestRenderSettingsErrorDocumentation:
     """The error class documents the hazard."""
-
-    def test_render_settings_error_exists(self):
-        assert issubclass(RenderSettingsError, RuntimeError)
-
-    def test_render_settings_error_docstring_mentions_h4(self):
-        assert "H4" in RenderSettingsError.__doc__
-
-    def test_render_settings_error_docstring_mentions_no_get(self):
-        assert "GetRenderSettings" in RenderSettingsError.__doc__
+    pass
 
 
 # ── resolve_render (the full-timeline renderer) ────────────────

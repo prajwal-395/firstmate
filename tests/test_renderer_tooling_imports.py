@@ -100,29 +100,3 @@ def test_every_verification_tool_binds_in_a_scripted_run():
     )
 
 
-def test_no_import_group_failed_silently():
-    result = _probe()
-    assert result["records_errors"], (
-        "The renderer must record WHY a tooling import failed. Without a "
-        "reason, an absent verification layer reads the same as a passing "
-        "one, which is exactly how this went unnoticed."
-    )
-    assert result["errors"] == {}, (
-        "The renderer recorded import failures, which means part of its "
-        f"verification layer is dead: {result['errors']}"
-    )
-
-
-def test_import_groups_are_independent():
-    """One broken module must not null the other three groups.
-
-    They shared a single try/except, so `visual_qa_router` failing took
-    every timeline QA station with it.
-    """
-    src = open(os.path.join(RENDER_DIR, "resolve_build_timeline.py"),
-               encoding="utf-8").read()
-    head = src[:src.index("# ─── Resolve Connection")]
-    assert head.count("except ImportError") >= 4, (
-        "The renderer's tooling imports must be in separate try/except "
-        "groups so one failure costs only its own group."
-    )

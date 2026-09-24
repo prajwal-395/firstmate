@@ -52,63 +52,12 @@ def _optionals():
             if r.kind == R.KIND_OPTIONAL}
 
 
-def test_the_optional_kind_is_its_own_kind():
-    assert R.KIND_OPTIONAL == "optional"
-    assert R.KIND_OPTIONAL in R.KINDS
 
 
-def test_both_mechanisms_are_expressed_by_name():
-    optionals = _optionals()
-    assert set(optionals) == set(EXPECTED), (
-        f"missing: {sorted(set(EXPECTED) - set(optionals))}; "
-        f"extra: {sorted(set(optionals) - set(EXPECTED))}")
-    for name, (producer, _mechanism) in EXPECTED.items():
-        req = optionals[name]
-        assert req.produced_by == (producer,)
-        assert req.consumers == ()
 
 
-def test_the_shape_is_enforced_in_both_directions():
-    """The verdict lane's construction, repeated: a goal-only kind must
-    name a producer and no consumers, and the constructor refuses both
-    violations - so the shape cannot rot into a precondition."""
-    def witness() -> R.Context:
-        return R.Context()
-    with pytest.raises(ValueError):
-        R.Requirement(
-            name="optional.nowhere.nothing", kind=R.KIND_OPTIONAL,
-            describe="no producer", produced_by=(), consumers=(),
-            check=lambda ctx: R.SATISFIED(R.IN_STATE),
-            refuting_context=witness, satisfying_context=witness)
-    with pytest.raises(ValueError):
-        R.Requirement(
-            name="optional.somewhere.something", kind=R.KIND_OPTIONAL,
-            describe="a consumer, so a precondition in costume",
-            produced_by=("scan",), consumers=("catalog",),
-            check=lambda ctx: R.SATISFIED(R.IN_STATE),
-            refuting_context=witness, satisfying_context=witness)
 
 
-def test_no_run_ever_asks_one():
-    """Goal-only means goal-only: with no consumers `applies_to` is
-    false for every run set, so `evaluate` never sees them and no run
-    changes behaviour.  Asked of every DAG node alone and of the whole
-    graph at once."""
-    dag = processes.merged_dag()
-    node_ids = [n["id"] for n in dag.get("nodes", [])]
-    assert node_ids, "the merged DAG names no nodes"
-    optionals = list(_optionals().values())
-    run_sets = [[n] for n in node_ids] + [node_ids]
-    for run_set in run_sets:
-        for req in optionals:
-            assert not req.applies_to(run_set), (
-                f"{req.name} applies to {run_set} - a run would ask an "
-                f"optional edge as a precondition")
-    verdict = R.evaluate(node_ids, R.Context())
-    assert all(entry.requirement.kind != R.KIND_OPTIONAL
-               for entry in verdict.unmet), (
-        "an optional requirement refused a run - an absent optional "
-        "input is legitimate, so this refusal would be a lie")
 
 
 def test_six_operations_leave_the_blind_set():

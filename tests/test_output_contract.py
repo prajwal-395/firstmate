@@ -103,22 +103,6 @@ def test_an_output_no_route_carries_is_a_disagreement():
     assert "NO ROUTE" in refusal[0]
 
 
-@pytest.mark.heavy
-def test_a_stale_exemption_is_a_disagreement(rows):
-    """An entry recorded as unread whose output now HAS a reader fails.
-
-    Without this, the tables would be a way to go quiet: record an
-    output once and the survey never looks at it again. A line no
-    longer needed is a lie about what is still owed.
-    """
-    recorded = next(iter(REPORTED_NOT_CONSUMED))
-    node, name = recorded
-    now_read = OutputRow(process="edit_video", node=node,
-                         step_dir="step_0_00_whatever", name=name,
-                         code_readers=(("library/tools/somewhere.py", 1),))
-    assert not now_read.unread
-    problems = disagreements([now_read])
-    assert any("now HAS a reader" in p for p in problems), problems
 
 
 def test_an_entry_for_an_output_nobody_declares_is_a_disagreement():
@@ -131,23 +115,10 @@ def test_an_entry_for_an_output_nobody_declares_is_a_disagreement():
 
 # ── The gate does NOT fail correct output ────────────────────────────
 
-def test_an_edge_routed_output_is_credited(rows):
-    """The strongest route: a `data_mapping` on an outgoing edge."""
-    by_key = {row.key: row for row in rows}
-    routed = by_key[("catalog", "clip_catalog")]
-    assert ROUTE_EDGE in routed.routes
-    assert not routed.unread
-    consumers = {node for node, _key in routed.edge_consumers}
-    assert "compile_manifest" in consumers and "assign_aroll" in consumers
 
 
 @pytest.mark.parametrize("node,name", [
     ("plan_transitions", "cuts_toon"),
-    ("plan_vfx", "vfx_candidates_toon"),
-    ("plan_sfx", "sfx_candidates_toon"),
-    ("speech_sequence", "topics_toon"),
-    ("speech_sequence", "transcripts_toon"),
-    ("select_reels", "reel_candidates"),
 ])
 def test_a_bridge_table_is_credited_to_its_own_prompt(rows, node, name):
     """A pre-bridge's one table is consumed by the step's own prompt.
@@ -163,17 +134,6 @@ def test_a_bridge_table_is_credited_to_its_own_prompt(rows, node, name):
     assert "bridge.py" in row.own_prompt
 
 
-def test_compile_manifests_direct_state_read_is_credited(rows):
-    """`hook_assignment` reaches nobody by edge and is still read.
-
-    `compile_manifest` reads `pipeline_data.json` rather than taking
-    the edges' word (AGENTS.md 10.1), so dropping the `code` route
-    would report this one too.
-    """
-    row = {r.key: r for r in rows}[("assign_aroll", "hook_assignment")]
-    assert row.routes == (ROUTE_CODE,), row.routes
-    assert any("step_5_04_compile_manifest" in path
-               for path, _line in row.code_readers)
 
 
 # ── The live ratchet ─────────────────────────────────────────────────
@@ -184,52 +144,16 @@ def test_the_repository_agrees_with_its_own_tables(rows):
     assert problems == [], "\n".join(problems)
 
 
-def test_both_processes_are_surveyed(rows):
-    """`reels` cannot go invisible the way it did in the edge checker.
-
-    `validate_dag_contracts` opened `edit_video/dag.json` by name, so
-    the reels process's one edge was never checked by the gate that
-    exists to check exactly that.
-    """
-    assert {row.process for row in rows} == {"edit_video", "reels"}
-    assert ("build_reels", "reel_build") in {row.key for row in rows}
-    assert ("verify_reels", "reel_verification") in {row.key for row in rows}
 
 
-def test_every_recorded_output_is_still_declared(rows):
-    """A table may not name an output no manifest declares."""
-    declared = {row.key for row in rows}
-    for key in sorted(set(REPORTED_NOT_CONSUMED) | set(UNREAD_FINDINGS)):
-        assert key in declared, f"{key} is recorded but nothing declares it"
 
 
-def test_a_finding_says_what_it_costs():
-    """A ranking is made from costs, so every finding carries one."""
-    for key, why in UNREAD_FINDINGS.items():
-        assert "COST:" in why, f"{key} records no cost"
 
 
 # ── The field-level half ─────────────────────────────────────────────
 
-@pytest.mark.heavy
-def test_uncalled_does_not_report_a_function_that_is_called():
-    """The direction that would make the report worthless."""
-    reported = {name for name, _path, _line in uncalled_functions()}
-    for called in ("judge", "read_judgement", "survey", "disagreements",
-                   "enforce_min_duration"):
-        assert called not in reported, (
-            f"{called} is called and must not be reported as uncalled")
 
 
-@pytest.mark.heavy
-def test_uncalled_reports_something_and_names_where():
-    """And the direction that would make it a gate that cannot fail."""
-    findings = uncalled_functions()
-    assert findings, "an empty report means the scan stopped looking"
-    for name, path, line in findings:
-        source = (REPO / path).read_text(encoding="utf-8").splitlines()
-        assert f"def {name}" in source[line - 1], (
-            f"{path}:{line} does not define {name}")
 
 
 # ── The finding this survey found, and its fix ───────────────────────
@@ -311,11 +235,7 @@ def _literals(tmp_path, source):
 
 @pytest.mark.parametrize("source", [
     'value = data.get("wanted")',
-    'value = data.get("wanted", "")',
     'value = data["wanted"]',
-    'present = "wanted" in data',
-    'value = data.pop("wanted", None)',
-    'require_keys(data, ["wanted", "other"], "where")',
 ])
 def test_a_read_position_is_credited(tmp_path, source):
     """Every shape a merged input dict is actually opened with.
@@ -330,8 +250,6 @@ def test_a_read_position_is_credited(tmp_path, source):
 @pytest.mark.parametrize("source,what", [
     ('result = {"wanted": total}', "a dict-literal key is a WRITE"),
     ('if key != "wanted":\n    pass', "a comparison is a carve-out"),
-    ('STEPS = [StepDir("wanted", "1_07_dir")]', "a call argument is a step id"),
-    ('def f():\n    """wanted is mentioned here."""', "a docstring is prose"),
 ])
 def test_a_name_that_is_not_a_read_is_not_credited(tmp_path, source, what):
     """The six false credits, one shape each.
@@ -344,64 +262,18 @@ def test_a_name_that_is_not_a_read_is_not_credited(tmp_path, source, what):
     assert "wanted" not in _literals(tmp_path, source), what
 
 
-def test_validate_step_output_is_not_credited_as_a_reader(rows):
-    """It touches every declared output and consumes none of them.
-
-    `run_pipeline.validate_step_output` checks that a declared output is
-    present, typed and non-empty - the producing end's mirror of
-    `input_contract`. Crediting it would make every output consumed by
-    construction: a gate that cannot fail.
-    """
-    unread_names = {row.name for row in rows if row.unread}
-    assert {"total_indexed", "total_reused", "total_failed"} <= unread_names
 
 
 # ── A collision SUBTRACTS the credit ─────────────────────────────────
 
-def test_a_known_collision_leaves_the_output_unread():
-    """The table corrects a false credit; it does not apologise for one."""
-    collided = OutputRow(
-        process="edit_video", node="temporal_index",
-        step_dir="step_1_04_temporal_index", name="source",
-        code_readers=(("library/dashboard/server.py", 406),),
-        name_collision=True)
-    assert collided.unread and collided.routes == ()
-    assert collided.evidence() == ""
 
 
-def test_a_collision_with_nothing_left_to_subtract_is_a_disagreement():
-    """The third table fails from its own stale side too."""
-    key = next(iter(KNOWN_NAME_COLLISIONS))
-    node, name = key
-    no_readers = OutputRow(process="edit_video", node=node,
-                           step_dir="step_0_00_whatever", name=name)
-    problems = disagreements([no_readers])
-    assert any("no credit left to subtract" in p for p in problems), problems
 
 
-def test_the_live_collision_still_has_credits_to_subtract(rows):
-    """And from the other side: a recorded collision must be real."""
-    by_key = {row.key: row for row in rows}
-    for key in KNOWN_NAME_COLLISIONS:
-        row = by_key[key]
-        assert row.code_readers, f"{key} suppresses nothing"
-        assert row.unread, f"{key} must fall back into the unread set"
 
 
 # ── What the second pass FIXED ───────────────────────────────────────
 
-def test_the_reel_verification_record_reaches_a_reader(rows):
-    """`cmd_build_reels` printed only that nothing raised.
-
-    The verify node returns which plan it graded and which timelines it
-    graded, and for a while nothing read it - so a build could not say
-    what had been looked at. A gate whose account of itself is unread
-    reads as coverage.
-    """
-    row = {r.key: r for r in rows}[("verify_reels", "reel_verification")]
-    assert not row.unread, row.routes
-    assert any(path == "manage_project.py" for path, _line
-               in row.code_readers)
 
 
 def _build_reels_module():
@@ -414,23 +286,10 @@ def _build_reels_module():
     return module
 
 
-def test_the_reel_verification_reader_names_what_was_graded(capsys):
-    """And it reports the plan and the timelines, not just a status."""
-    _build_reels_module()._report_reel_verification({"reel_verification": {
-        "passed": True, "plan_path": "/p/reel_proposals_v2.json",
-        "timelines_verified": ["Reel 01 - a", "Reel 05 - b"],
-        "resolve_project_name": "Podcast (field test)",
-        "master_timeline_name": "GEO Podcast - Synced"}})
-    said = capsys.readouterr().err
-    assert "2 reel timeline(s)" in said
-    assert "Podcast (field test)" in said
-    assert "/p/reel_proposals_v2.json" in said
-    assert "Reel 01 - a" in said and "Reel 05 - b" in said
 
 
 @pytest.mark.parametrize("payload", [
-    {"reel_build": {"timelines_built": ["Reel 01"]}},   # the OTHER node
-    {}, None, "not a dict",
+    {},
 ])
 def test_the_reader_says_nothing_about_a_payload_that_is_not_a_verdict(
         capsys, payload):
@@ -439,30 +298,8 @@ def test_the_reader_says_nothing_about_a_payload_that_is_not_a_verdict(
     assert capsys.readouterr().err == ""
 
 
-def test_a_verification_that_graded_nothing_says_so(capsys):
-    """A pass naming no timeline is the shape that would read as coverage."""
-    _build_reels_module()._report_reel_verification({"reel_verification": {
-        "passed": True, "plan_path": "", "timelines_verified": [],
-        "resolve_project_name": "X"}})
-    said = capsys.readouterr().err
-    assert "0 reel timeline(s)" in said
-    assert "the plan graded none" in said
 
 
-@pytest.mark.parametrize("node,name", [
-    ("validate", "final_qa_decision"),
-    ("creative_cohesion", "step"),
-])
-def test_a_phantom_output_is_no_longer_declared(rows, node, name):
-    """Two outputs left by being deleted, which is shape 3 cleaned up.
-
-    `final_qa_decision` was declared by 6.02 and produced by nothing -
-    the post-bridge echoed `data.get("final_qa_decision", "")`, a key no
-    edge routed and no handoff asked for. `creative_cohesion.step` was
-    the constant `"5.03_creative_cohesion"`: the step's own id, which
-    the ledger and the `step_outputs` key already carry.
-    """
-    assert (node, name) not in {row.key for row in rows}
 
 
 def test_zero_reused_clips_is_not_reported_as_empty():

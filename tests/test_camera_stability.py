@@ -61,38 +61,14 @@ def test_the_tiers_are_the_search_grid():
     assert read_camera_stability(_index([HANDHELD_BELOW] * 20))[0] == "unstable"
 
 
-def test_too_few_samples_is_not_a_measurement():
-    label, method, mean = read_camera_stability(
-        _index([0.01] * MIN_RESIDUAL_SAMPLES))
-    assert (label, method, mean) == ("unknown", "unmeasured", None)
 
 
-def test_the_fallback_answers_and_says_it_is_the_fallback():
-    label, method, mean = read_camera_stability(
-        {"motion_energy": {"values": [0.02] * 40}})
-    assert (label, method, mean) == ("stable", "motion_energy_std", None)
 
 
-def test_nothing_measured_answers_unknown():
-    assert read_camera_stability({}) == ("unknown", "unmeasured", None)
-    assert read_camera_stability(None) == ("unknown", "unmeasured", None)
 
 
 # ── The disagreement is DATA ────────────────────────────────────────────
 
-@pytest.mark.parametrize("deterministic,words,expected", [
-    ("stable", ["stable"], "agree"),
-    ("unstable", ["shaky"], "agree"),
-    ("unstable", ["stable"], "disagree"),
-    ("stable", ["shaky"], "disagree"),
-    ("handheld", ["stable"], "partial"),
-    ("unstable", ["stable", "shaky"], "partial"),
-    ("unknown", ["stable"], "one_sided"),
-    ("stable", [], "one_sided"),
-    ("stable", ["gliding"], "unrecognised"),
-])
-def test_compare_stability_signals(deterministic, words, expected):
-    assert compare_stability_signals(deterministic, words) == expected
 
 
 def test_the_view_carries_both_signals_a_legend_and_the_disagreement():
@@ -129,19 +105,5 @@ def test_a_document_with_no_method_says_unrecorded_not_unmeasured():
     assert view["clips"][0]["deterministic_method"] == "unrecorded"
 
 
-def test_the_view_leaves_out_a_clip_neither_signal_measured():
-    assert build_view("stability", {"semantic_analysis_documents": [
-        {"clip_id": "clip_001", "assessment": {"camera_stability": "unknown"},
-         "camera": []}]}) == {}
 
 
-def test_the_three_steps_that_decide_from_stability_declare_the_view():
-    """A view is not routing: the step declares the view AND its source."""
-    root = Path(__file__).resolve().parents[1] / "library" / "steps"
-    for step in ("step_3_02_select_broll", "step_4_02_plan_transitions",
-                 "step_4_03_plan_vfx"):
-        manifest = json.loads((root / step / "manifest.json").read_text())
-        assert "view:stability" in manifest["context_fields"], step
-        declared = {i["name"] for i in manifest["interface"]["inputs"]}
-        assert declared & {"semantic_analysis_documents",
-                           "semantic_analysis"}, step

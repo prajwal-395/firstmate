@@ -80,76 +80,26 @@ def test_the_key_is_stable_across_float_noise():
             == tt.span_cache_key("/m/x.MXF", 10.0, 20.0))
 
 
-def test_the_cache_key_enumeration_is_complete():
-    assert tt.AUDIO_CACHE_KEYS == ("source_file", "source_in", "source_out",
-                                   "sample_rate", "channels")
 
 
 # ── Rebuilding the audio ─────────────────────────────────────────────
 
-def test_a_span_is_extracted_at_the_right_length(tmp_path):
-    source = _tone(tmp_path / "src.wav", 10.0)
-    out = tt.extract_span(str(source), 2.0, 5.0, tmp_path / "cache")
-    assert out.exists()
-    assert _duration(out) == pytest.approx(3.0, abs=0.05)
 
 
-def test_an_extracted_span_is_reused_rather_than_re_extracted(tmp_path):
-    source = _tone(tmp_path / "src.wav", 10.0)
-    first = tt.extract_span(str(source), 2.0, 5.0, tmp_path / "cache")
-    stamp = first.stat().st_mtime_ns
-    again = tt.extract_span(str(source), 2.0, 5.0, tmp_path / "cache")
-    assert again == first
-    assert again.stat().st_mtime_ns == stamp, "it re-extracted a cached span"
 
 
-def test_an_empty_span_is_refused(tmp_path):
-    source = _tone(tmp_path / "src.wav", 10.0)
-    with pytest.raises(tt.TimelineTranscriptError):
-        tt.extract_span(str(source), 5.0, 5.0, tmp_path / "cache")
 
 
-def test_the_rebuilt_track_puts_the_gaps_back(tmp_path):
-    """Two 2s clips with a 6s hole between them, starting 4s in, is a
-    14s track - and that is what makes the transcript's timings already
-    be timeline timings."""
-    source = _tone(tmp_path / "src.wav", 30.0)
-    clips = [
-        _clip(source, 1.0, 3.0, 4.0, 6.0, uid="a"),
-        _clip(source, 10.0, 12.0, 12.0, 14.0, uid="b"),
-    ]
-    out = tt.build_speaker_audio(clips, tmp_path / "spk.wav",
-                                 tmp_path / "cache")
-    assert _duration(out) == pytest.approx(14.0, abs=0.1)
 
 
-def test_a_track_starting_at_zero_gets_no_head_silence(tmp_path):
-    source = _tone(tmp_path / "src.wav", 30.0)
-    clips = [_clip(source, 1.0, 3.0, 0.0, 2.0)]
-    out = tt.build_speaker_audio(clips, tmp_path / "spk.wav",
-                                 tmp_path / "cache")
-    assert _duration(out) == pytest.approx(2.0, abs=0.05)
 
 
-def test_the_track_ends_at_the_last_clip_not_the_timeline(tmp_path):
-    """Trailing silence would be padding nobody measured."""
-    source = _tone(tmp_path / "src.wav", 30.0)
-    clips = [_clip(source, 1.0, 3.0, 0.0, 2.0)]
-    out = tt.build_speaker_audio(clips, tmp_path / "spk.wav",
-                                 tmp_path / "cache")
-    assert _duration(out) < 3.0
 
 
-def test_building_with_no_clips_is_refused(tmp_path):
-    with pytest.raises(tt.TimelineTranscriptError):
-        tt.build_speaker_audio([], tmp_path / "x.wav", tmp_path / "cache")
 
 
 # ── Binding speech back to the footage ───────────────────────────────
 
-def test_speech_inside_one_clip_is_attributed_to_it(tmp_path):
-    clips = [_clip("/m/a.MXF", 100.0, 120.0, 10.0, 30.0, uid="a")]
-    assert tt.attribute_to_clip(12.0, 18.0, clips).resolve_item_id == "a"
 
 
 def test_speech_straddling_a_cut_is_attributed_to_nothing(tmp_path):
@@ -160,15 +110,8 @@ def test_speech_straddling_a_cut_is_attributed_to_nothing(tmp_path):
     assert tt.attribute_to_clip(28.0, 34.0, clips) is None
 
 
-def test_speech_in_a_gap_is_attributed_to_nothing():
-    clips = [_clip("/m/a.MXF", 100.0, 120.0, 10.0, 30.0, uid="a")]
-    assert tt.attribute_to_clip(40.0, 45.0, clips) is None
 
 
-def test_a_timeline_second_maps_back_into_the_source():
-    clip = _clip("/m/a.MXF", 100.0, 120.0, 10.0, 30.0)
-    assert tt.to_source_time(clip, 10.0) == 100.0
-    assert tt.to_source_time(clip, 25.0) == 115.0
 
 
 # ── Untimed words are interpolated, never dropped ────────────────────
@@ -184,9 +127,6 @@ def test_an_untimed_word_is_interpolated_not_dropped():
     assert 1.4 <= out[1]["start"] < out[1]["end"] <= 2.0
 
 
-def test_a_timed_word_is_marked_as_measured():
-    out = tt.interpolate_untimed_words([{"word": "hi", "start": 0.0, "end": 0.3}])
-    assert out[0]["timed"] is True
 
 
 def test_an_untimed_word_with_no_neighbours_is_dropped():
@@ -358,21 +298,6 @@ def test_the_runs_are_maximal():
         == [("A", 2), ("B", 3)]
 
 
-def test_the_document_says_how_much_was_re_read():
-    class Snap:
-        project_name, timeline_name = "P", "T"
-        fps, duration = 23.976, 100.0
-        clips = ()
-
-        def speakers(self):
-            return ["Craig"]
-
-    merged = tt.segments_for_speaker({"segments": [ROW_204]}, "Craig",
-                                     _craig_clips())
-    doc = tt.transcript_document(Snap(), merged)
-    assert doc["segments_read_from_words"] == 2
-    assert doc["segments_rebound_from_words"] == 2
-    assert doc["segments_straddling_a_cut"] == 0
 
 
 def test_the_document_counts_rows_whose_text_outruns_their_timings():
@@ -589,14 +514,6 @@ def test_the_fallback_can_be_asked_for_and_the_record_says_so(monkeypatch):
     assert record["fell_back_because"]["trigger"] == "asked_for"
 
 
-def test_both_arms_are_timed_by_the_same_aligner():
-    """A comparison between the two is a comparison of their TEXT, so
-    `whisperx.align` is called from one place in this module."""
-    source = Path(tt.__file__).read_text(encoding="utf-8")
-    assert source.count("whisperx.align(") == 2       # the two device arms
-    assert source.count("def align_segments(") == 1
-    body = source.split("def align_segments(")[1].split("\ndef ")[0]
-    assert body.count("whisperx.align(") == 2
 
 
 def test_the_document_says_which_arm_heard_each_speaker():

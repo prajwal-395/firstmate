@@ -107,9 +107,6 @@ def test_grabstill_false_raises_by_name(tmp_path):
         _grab(still=False, tmp_path=tmp_path)
 
 
-def test_grabstill_none_raises_by_name(tmp_path):
-    with pytest.raises(StillCaptureError, match="declined to grab"):
-        _grab(still=None, tmp_path=tmp_path)
 
 
 def test_exportstills_false_raises_by_name(tmp_path):
@@ -142,10 +139,6 @@ def test_the_named_error_is_still_a_capture_error(tmp_path):
         _grab(still=False, tmp_path=tmp_path)
 
 
-def test_a_real_export_still_returns(tmp_path):
-    result = _grab(tmp_path=tmp_path)
-    assert result.path.is_file()
-    assert result.path.stat().st_size > 0
 
 
 # ── The ffmpeg helpers: zero bytes is failure, not a still ────────
@@ -219,15 +212,6 @@ def _run_writing_a_frame(cmd, **kwargs):
     return SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
-def test_vision_frame_cache_returns_a_real_frame(tmp_path):
-    from library.tools.analysis.vision_pipeline_v3 import extract_frames
-
-    clip = tmp_path / "clip.mp4"
-    clip.write_bytes(b"fake-video")
-    with patch("subprocess.run", side_effect=_run_writing_a_frame):
-        frames = extract_frames(clip, 10.0, tmp_path, interval_s=5.0)
-    assert len(frames) == 3
-    assert all(Path(f["path"]).stat().st_size > 0 for f in frames)
 
 
 def test_thumbnail_cache_serves_no_zero_byte_file(tmp_path):

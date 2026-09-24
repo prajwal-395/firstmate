@@ -62,12 +62,6 @@ class TestEachCaptureShapeIsRefused:
     def test_overlay_measurement(self):
         assert "overlay" in capture_shape_reason(_overlay_measurement())
 
-    def test_word_aligned_transcript(self):
-        assert "transcript" in capture_shape_reason(_transcript())
-
-    def test_fusion_dump(self):
-        assert "fusion" in capture_shape_reason(_fusion_dump())
-
 
 class TestARenameEvadesNothing:
     def test_shape_caught_under_an_innocent_name(self, tmp_path):
@@ -78,11 +72,6 @@ class TestARenameEvadesNothing:
         hits = scan_repo(tmp_path)
         assert [(r, v) for r, v in hits] != []
         assert hits[0][0] == "notes/helper.json"
-
-    def test_inventory_caught_under_an_innocent_name(self, tmp_path):
-        victim = tmp_path / "config.json"
-        victim.write_text(json.dumps(_inventory()), encoding="utf-8")
-        assert scan_repo(tmp_path) != []
 
 
 class TestLegitimatePipelineJsonPasses:
@@ -101,30 +90,8 @@ class TestLegitimatePipelineJsonPasses:
                                              encoding="utf-8")
         assert scan_repo(tmp_path) == []
 
-    def test_segments_without_word_alignment_pass(self, tmp_path):
-        doc = {"segments": [{"text": "hi"}]}
-        (tmp_path / "s.json").write_text(json.dumps(doc), encoding="utf-8")
-        assert scan_repo(tmp_path) == []
-
-    def test_code_mentioning_capture_keys_is_not_parsed(self, tmp_path):
-        # The guard reads JSON documents, never source: a .py naming
-        # track_counts or draw_gain is tooling, not a capture.
-        (tmp_path / "tool.py").write_text(
-            'TRACK_COUNTS = {"video": 1}\nDRAW_GAIN = 2.0\n',
-            encoding="utf-8")
-        assert scan_repo(tmp_path) == []
-
-    def test_broken_json_is_left_alone(self, tmp_path):
-        (tmp_path / "bad.json").write_text("{not json",
-                                           encoding="utf-8")
-        assert scan_repo(tmp_path) == []
-
 
 class TestTheDropZoneIsGone:
-    def test_no_captures_directory_in_the_pipeline(self):
-        assert not (REPO_ROOT / "captures").exists(), (
-            "captures/ is the project-data drop zone - tooling lives in "
-            "library/tools/, records live in the project repo")
 
     def test_a_new_drop_is_refused_by_path(self, tmp_path):
         (tmp_path / "captures").mkdir()

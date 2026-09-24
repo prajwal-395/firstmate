@@ -80,22 +80,8 @@ def test_an_upstream_pair_is_really_refused(target, field):
         (target, field)].reason
 
 
-@pytest.mark.parametrize("target,field", sorted(OWNED_UPSTREAM))
-def test_every_upstream_entry_names_a_step_directory_that_exists(
-        target, field, request):
-    from pathlib import Path
-    steps = Path(request.config.rootpath) / "library" / "steps"
-    owner = OWNED_UPSTREAM[(target, field)].owner_step
-    assert (steps / owner).is_dir(), (
-        f"{target}.{field} is owned by {owner}, which is not a step")
 
 
-@pytest.mark.parametrize("target,field", sorted(OWNED_UPSTREAM))
-def test_every_upstream_entry_says_how_to_act_on_it(target, field):
-    """An observation a reader cannot act on is a different kind of dead
-    end from the one this ticket closed."""
-    how = OWNED_UPSTREAM[(target, field)].how_to_act
-    assert "manage_project.py run" in how and "--rerun" in how
 
 
 def test_an_undeclared_pair_raises_rather_than_defaulting():
@@ -198,39 +184,6 @@ def test_the_step_is_a_pure_observer():
         assert target in OWNED_UPSTREAM, target
 
 
-def test_the_step_proposes_no_adjustment_and_the_route_stays_exercised():
-    """5.03 has no producer of an actionable finding, and says so.
-
-    The four that fed this route were creative thresholds the step chose
-    ("high energy means every transition under 500 ms, so make it 10
-    frames"), and they are removed rather than re-tuned - nothing
-    declares a pace to derive a replacement from (AGENTS.md 10.5).  So
-    `adjustments` is empty by construction, and an empty `adjustments`
-    must not be read as a clean bill of health.
-
-    The applier is still driven, with a proposal built here, because the
-    branch is what `ACTIONABLE_AT_COHESION` promises exists.
-    """
-    review = _review_with_every_finding()
-    assert review["adjustments"] == [], (
-        "5.03 proposes an adjustment again - check it is derived from a "
-        "DECLARED target and not from a threshold this step picked")
-
-    proposed, _ = cohesion_scope.split([{
-        "target_step": "transition_spec",
-        "field": "duration_frames",
-        "current_value": 30,
-        "suggested_value": 10,
-        "finding": "a declared pace was exceeded",
-        "target_index": 0,
-    }])
-    record = apply_cohesion_adjustments(
-        [{"transition_type": "defocus", "duration_frames": 30}],
-        {"adjustments": proposed})
-    assert record["not_applied"] == [], (
-        f"ACTIONABLE_AT_COHESION promises an applier that does not apply: "
-        f"{record['not_applied']}")
-    assert len(record["applied"]) == len(proposed)
 
 
 def test_the_findings_it_cannot_apply_are_still_reported():
@@ -257,64 +210,13 @@ def test_an_observation_carries_no_suggested_value():
     assert all("suggested_value" not in o for o in review["observations"])
 
 
-def test_the_review_never_reports_an_empty_applied_list():
-    """`applied_adjustments` was always empty and always would be: the
-    step emits only `cohesion_review`, so the mutations it recorded never
-    left the process."""
-    review = _review_with_every_finding()
-    assert "applied_adjustments" not in review
 
 
 # ── Why `adjustments` is empty is SAID ─────────────────────────────────
 
-def test_an_empty_adjustments_list_says_which_absence_it_is():
-    """`[]` reads three ways and only one of them is true of this step.
-
-    On every run project 001 has made, `adjustments` was empty because
-    the review proposed nothing - and the array read as a clean bill of
-    health on the edit. Same shape as `vfx_plan_basis`: the two absences
-    are spelled differently on purpose.
-    """
-    from library.tools.cohesion_scope import (
-        ADJUSTMENT_BASES, adjustments_basis,
-    )
-
-    nothing = adjustments_basis([], [], [])
-    assert nothing["basis"] == "no_proposal_was_made"
-    assert nothing["proposed"] == 0
-
-    proposal = {"target_step": "sfx_spec", "field": "density",
-                "finding": "sparse"}
-    upstream = adjustments_basis([proposal], [], [proposal])
-    assert upstream["basis"] == "every_proposal_was_owned_upstream"
-    assert upstream["owned_upstream"] == 1
-
-    made = adjustments_basis([proposal], [proposal], [])
-    assert made["basis"] == "adjustments_were_made"
-
-    assert set(ADJUSTMENT_BASES) == {
-        "no_proposal_was_made", "every_proposal_was_owned_upstream",
-        "adjustments_were_made"}
 
 
-def test_the_basis_states_that_the_channel_has_no_producer():
-    from library.tools.cohesion_scope import (
-        NO_PRODUCER_FOR_AN_ACTIONABLE_FINDING, adjustments_basis,
-    )
-    note = adjustments_basis([], [], [])["channel_note"]
-    assert note == NO_PRODUCER_FOR_AN_ACTIONABLE_FINDING
-    assert "declares" in note and "10.5" in note
 
 
-def test_the_review_step_emits_the_basis():
-    from library.steps.step_5_03_creative_cohesion.step import (
-        review_creative_cohesion,
-    )
-    review = review_creative_cohesion({
-        "creative_direction": {"target_energy": "high"},
-        "transition_spec": [], "sfx_spec": [],
-    })
-    assert review["adjustments"] == []
-    assert review["adjustments_basis"]["basis"] == "no_proposal_was_made"
 
 

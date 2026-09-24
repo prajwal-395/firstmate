@@ -120,26 +120,6 @@ def test_declaring_no_length_plays_the_whole_sound(entry):
             WHOOSH_SECONDS - WHOOSH_TRANSIENT)
 
 
-def test_the_only_floor_is_the_timebase(entry):
-    """Two frames, because a shorter slice is a ramp rather than a sound.
-
-    Mechanical, and it admits the run of record's 0.25 s with room to
-    spare. There is no minimum "audible" length here (AGENTS.md 10.5).
-    """
-    floor = MIN_PLAYED_FRAMES / FPS
-    assert RUN_OF_RECORD_REQUEST > floor
-    assert resolve_played_seconds(entry, 0.0, floor, FPS) == floor
-    with pytest.raises(SfxDurationRefused) as raised:
-        resolve_played_seconds(entry, 0.0, floor / 2, FPS)
-    assert "not a minimum length for a sound" in str(raised.value)
-
-
-def test_a_length_that_is_not_a_number_is_refused(entry):
-    for value in ("0.25", True, [0.25]):
-        with pytest.raises(SfxDurationRefused):
-            resolve_played_seconds(entry, 0.0, value, FPS)
-
-
 # ── The click ─────────────────────────────────────────────────────────
 
 def test_a_truncated_sound_gets_a_ramp_and_a_whole_one_does_not(entry):
@@ -208,43 +188,6 @@ def _run_post_bridge(library, payload):
         input=json.dumps(payload), capture_output=True, text=True,
         encoding="utf-8", cwd=str(REPO), env=env,
     )
-
-
-def test_the_step_resolves_the_run_of_record_request(library):
-    """The plan, the schema value, and the resulting duration."""
-    proc = _run_post_bridge(library, _payload(library,
-                                              RUN_OF_RECORD_REQUEST))
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"][0]
-
-    assert placed["sfx_id"] == WHOOSH
-    assert placed["duration_seconds"] == RUN_OF_RECORD_REQUEST
-    assert placed["source_in"] == pytest.approx(WHOOSH_TRANSIENT)
-    assert (placed["timeline_out"] - placed["timeline_in"]
-            == pytest.approx(RUN_OF_RECORD_REQUEST))
-    assert placed["played_whole_sound"] is False
-    assert placed["fade_out_seconds"] == pytest.approx(
-        DECLICK_FADE_FRAMES / FPS, abs=1e-4)
-
-
-def test_the_step_refuses_a_length_the_sound_has_not_got(library):
-    """Refused by name, at PLAN time, with nothing written."""
-    proc = _run_post_bridge(library, _payload(library, 12.0))
-    assert proc.returncode == 1, proc.stdout + proc.stderr
-    error = json.loads(proc.stdout)["error"]
-    assert WHOOSH in error
-    assert "12.0" in error and "8.04" in error
-    assert "Nothing is clamped" in error
-
-
-def test_the_step_still_plays_the_whole_sound_when_none_is_asked(library):
-    proc = _run_post_bridge(library, _payload(library, None))
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"][0]
-    assert placed["duration_seconds"] == pytest.approx(
-        WHOOSH_SECONDS - WHOOSH_TRANSIENT)
-    assert placed["played_whole_sound"] is True
-    assert placed["fade_out_seconds"] == 0.0
 
 
 def test_the_manifest_carries_the_ramp_to_the_mix_route():

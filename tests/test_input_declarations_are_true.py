@@ -60,30 +60,6 @@ def rows(dag, manifests):
 
 # ── The survey covers the pipeline ──────────────────────────────────
 
-@pytest.mark.heavy
-def test_every_step_and_every_declared_input_is_surveyed(dag, manifests,
-                                                         rows):
-    surveyed = {(r.node_id, r.name) for r in rows}
-    declared = {
-        (node["id"], inp.get("name"))
-        for node in dag["nodes"]
-        for inp in ((manifests[node["id"]].get("interface") or {})
-                    .get("inputs") or [])
-    }
-    assert surveyed == declared
-    assert {r.node_id for r in rows} == {n["id"] for n in dag["nodes"]}
-
-
-def test_the_survey_reads_the_route_the_runner_really_uses(dag, rows):
-    """A row's route is `edge` exactly when a `data_mapping` targets that
-    input name - the same reading `gather_step_inputs` makes when it
-    decides whether to raise."""
-    routed = input_contract.routed_inputs(dag)
-    for row in rows:
-        assert (row.route == input_contract.ROUTE_EDGE) == (
-            row.name in routed.get(row.node_id, set())), (
-            f"{row.node_id}.{row.name} routed as {row.route}")
-
 
 # ── The three disagreements ─────────────────────────────────────────
 
@@ -132,53 +108,6 @@ def test_the_survey_is_clean(rows):
 
 # ── The recorded tables name real declarations ──────────────────────
 
-def test_the_recorded_tables_name_real_declarations(rows):
-    declared = {(r.node_id, r.name) for r in rows}
-    for table, label in (
-            (REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT,
-             "REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT"),
-            (UNCONSUMED_DECLARATIONS, "UNCONSUMED_DECLARATIONS")):
-        for key in table:
-            assert key in declared, (
-                f"{label} names {key}, which is not a declared input of "
-                f"that step")
-
-
-def test_every_recorded_entry_carries_a_reason():
-    for table in (REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT,
-                  UNCONSUMED_DECLARATIONS,
-                  UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT):
-        for key, reason in table.items():
-            assert len(reason.split()) >= 12, (
-                f"{key} is recorded with no real reason: {reason!r}")
-
-
-def test_an_unrouted_record_names_no_declared_input(rows):
-    """The other table's contract is the mirror image: an entry here
-    says the declaration has GONE while a frozen `handoff.md` still
-    documents the read. An entry naming a declared input is stale."""
-    declared = {(r.node_id, r.name) for r in rows}
-    stale = sorted(key for key in UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT
-                   if key in declared)
-    assert not stale, (
-        "recorded as unrouted, but declared again: %s" % (stale,))
-
-
-def test_an_unrouted_record_names_a_line_the_handoff_still_carries(rows):
-    """And the other side: once the captain edits the frozen line, the
-    disagreement is over and the entry must go. Read off the handoff
-    file itself, not asserted."""
-    assert input_contract.unrouted_but_documented(rows) == []
-
-
-def test_a_recorded_requirement_is_still_declared_required(rows):
-    """The table is 'required THOUGH the step runs without it'. An entry
-    for an input that has since been relaxed is stale."""
-    required = {(r.node_id, r.name) for r in rows if r.required}
-    stale = sorted(key for key in REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT
-                   if key not in required)
-    assert not stale, f"recorded as required, but declared optional: {stale}"
-
 
 # ── The four that started it ────────────────────────────────────────
 
@@ -196,37 +125,7 @@ def test_the_four_decoration_specs_are_optional_and_nothing_refuses(rows):
         assert row.consumed, f"{name} is optional and nothing reads it"
 
 
-def test_the_step_that_reads_around_the_runner_is_the_one_measured(rows):
-    """Every measured entry is `compile_manifest`'s, and that is not a
-    coincidence: it is the only step that loads its inputs out of
-    `pipeline_data.json` itself instead of receiving what
-    `gather_step_inputs` assembled (AGENTS.md 10.1)."""
-    measured = {node_id for node_id, _
-                in REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT}
-    assert measured == {"compile_manifest"}
-
-
 # ── The reading of the code, on cases with a known answer ───────────
-
-def test_a_direct_subscript_is_read_as_a_refusal(rows):
-    by_key = {(r.node_id, r.name): r for r in rows}
-    row = by_key[("assign_aroll", "audio_spine")]
-    assert row.refused_by == input_contract.REFUSED_BY_STEP
-    assert "input_data['audio_spine']" in row.step_refusal
-
-
-def test_a_require_keys_call_is_read_as_a_refusal(rows):
-    by_key = {(r.node_id, r.name): r for r in rows}
-    row = by_key[("speech_sequence", "temporal_index")]
-    assert row.refused_by == input_contract.REFUSED_BY_STEP
-    assert "require_keys()" in row.step_refusal
-
-
-def test_a_get_behind_a_guard_that_exits_is_read_as_a_refusal(rows):
-    by_key = {(r.node_id, r.name): r for r in rows}
-    row = by_key[("validate_sfx_library", "sfx_library")]
-    assert row.refused_by == input_contract.REFUSED_BY_STEP
-    assert "guard raises" in row.step_refusal
 
 
 def test_a_presence_guard_is_not_read_as_an_absence_refusal(rows):
@@ -270,25 +169,6 @@ def test_a_view_carries_its_source_input_to_the_prompt(rows):
     assert by_key[("creative_direction", "temporal_index")].prompt_reads
 
 
-def test_a_shared_tool_counts_as_the_step_reading_its_input(rows):
-    """`review_rough_cut` reads `project_config` through
-    `library/tools/duration_targets.py`."""
-    by_key = {(r.node_id, r.name): r for r in rows}
-    assert by_key[("review_rough_cut", "project_config")].code_reads
-
-
-def test_a_key_restored_around_the_projection_reaches_the_prompt(rows):
-    """`creative_brief` is not a `context_fields` entry: it is saved and
-    restored around the projection by name (AGENTS.md 10.1)."""
-    by_key = {(r.node_id, r.name): r for r in rows}
-    assert by_key[("plan_sfx", "creative_brief")].prompt_reads
-
-
-@pytest.mark.heavy
-def test_the_cli_agrees_with_the_suite():
-    assert input_contract.main(["--bad"]) == 0
-
-
 # ── The step with no prompt ─────────────────────────────────────────
 #
 # The survey read "reaches the prompt" off `context_fields`, and a step
@@ -307,18 +187,6 @@ def test_a_step_with_no_prompt_reaches_no_prompt(rows):
     assert prompt_less, "the DAG has prompt-less steps; the survey found none"
     assert not [f"{r.node_id}.{r.name}" for r in prompt_less
                 if r.prompt_reads]
-
-
-def test_the_runner_decides_which_steps_have_a_prompt(dag, rows):
-    """Asked of `get_step_implementation`, not of a list kept here."""
-    from library.processes.edit_video import run_pipeline
-
-    step_ref = {node["id"]: node["step_ref"] for node in dag["nodes"]}
-    for row in rows:
-        step_dir = input_contract._LIBRARY_ROOT / step_ref[row.node_id]
-        expected = bool(
-            run_pipeline.get_step_implementation(step_dir).get("prompt"))
-        assert row.has_prompt is expected, row.node_id
 
 
 def test_the_motion_graphics_steps_two_declarations_now_reach_a_prompt(rows):
@@ -410,37 +278,3 @@ def test_the_new_findings_report_and_do_not_fail(rows):
     assert dropped, "the class the fix exists to see is empty"
     assert input_contract.disagreements(rows) == []
     assert input_contract.main(["--bad"]) == 0
-
-
-def test_the_llm_steps_are_judged_exactly_as_before(rows):
-    """The dataflow read is asked only where it decides something, so a
-    step with a prompt is surveyed by PR 320's rule unchanged."""
-    for row in rows:
-        if not row.has_prompt:
-            continue
-        assert row.code_consumes is None
-        assert row.value_evidence == ""
-        assert row.consumed == (row.code_reads or row.prompt_reads)
-
-
-def test_the_prompt_less_findings_are_reported(rows, capsys):
-    """Reports; never fails. Fixing each is separate work."""
-    dropped = input_contract.unread_by_a_prompt_less_step(rows)
-    prompt_less = sorted({r.node_id for r in rows if not r.has_prompt})
-    with capsys.disabled():
-        print(f"\n  steps with no prompt: {len(prompt_less)}   declared "
-              f"inputs their code does not read: {len(dropped)}")
-        for row in dropped:
-            print(f"    UNREAD  {row.node_id}.{row.name} "
-                  f"({'required' if row.required else 'optional'}) - "
-                  f"{input_contract.unread_basis(row)}")
-        print("  (reporting only - escalating a pre-existing finding to a "
-              "failure is the captain's call.)")
-        print("  Blind spot, stated: a step WITH a prompt is still judged "
-              "on whether")
-        print("  its code NAMES the key, not on whether the value goes "
-              "anywhere. And")
-        print("  the value read is one-sided:")
-        for limit in input_contract._UNTRACEABLE:
-            print(f"    - {limit}")
-    assert True

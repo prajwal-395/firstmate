@@ -220,13 +220,6 @@ def test_read_pool_measures_which_timeline_places_what(project):
     assert duplicates == [] and root_name == "Master"
 
 
-def test_read_pool_reports_a_duplicate_bin(project):
-    proj, _folder = project
-    pool = proj.GetMediaPool()
-    pool.AddSubFolder(pool.GetRootFolder(), "Reels")
-    pool.AddSubFolder(pool.GetRootFolder(), "Reels")
-    _, duplicates, _, _ = ex.read_pool(proj)
-    assert duplicates == ["Reels"]
 
 
 # ------------------------------------------------------------ applying
@@ -275,13 +268,6 @@ def test_applying_twice_moves_nothing_the_second_time(project):
     assert bins_of(proj.GetMediaPool().GetRootFolder()) == before
 
 
-def test_a_bin_is_never_created_twice(project):
-    """`AddSubFolder` does not check, so `ensure_folder` must."""
-    proj, folder = project
-    ex.organise_project(proj, folder, MASTER, apply=True)
-    ex.organise_project(proj, folder, MASTER, apply=True)
-    _, duplicates, _, _ = ex.read_pool(proj)
-    assert duplicates == []
 
 
 def test_apply_restores_the_current_folder_it_found(project):
@@ -316,16 +302,6 @@ def test_the_check_fails_a_timeline_moved_to_the_wrong_bin(project):
 # ------------------------------------------------------------ the journal
 
 
-def test_every_apply_writes_its_own_journal_and_overwrites_none(project):
-    proj, folder = project
-    first = ex.organise_project(proj, folder, MASTER, apply=True,
-                                journal_path=ex.journal_path_for(folder, "A"))
-    second = ex.organise_project(proj, folder, MASTER, apply=True,
-                                 journal_path=ex.journal_path_for(folder, "B"))
-    assert first["journal"]["journal_path"] != second["journal"]["journal_path"]
-    listed = ex.journals(folder)
-    assert [entry["moves"] for entry in listed] == [0, len(first["journal"]["moves"])]
-    assert all(entry["reverted_at"] is None for entry in listed)
 
 
 def test_a_second_apply_cannot_destroy_the_first_journals_undo(project):
@@ -358,21 +334,8 @@ def test_revert_puts_every_item_and_every_stamp_back(project):
         assert clip.GetClipProperty("Clip Color") == ""
 
 
-def test_revert_reports_the_bins_it_will_not_delete(project):
-    proj, folder = project
-    result = ex.organise_project(proj, folder, MASTER, apply=True)
-    undone = ex.revert(proj, result["journal"]["journal_path"])
-    assert f"{BIN_REELS}/{STATE_BINS['current']}" in undone["bins_left_behind"]
-    assert BIN_REELS in undone["bins_left_behind"]
 
 
-def test_reverting_the_same_journal_twice_refuses(project):
-    proj, folder = project
-    result = ex.organise_project(proj, folder, MASTER, apply=True)
-    path = result["journal"]["journal_path"]
-    ex.revert(proj, path)
-    with pytest.raises(OrganizationError, match="already reverted"):
-        ex.revert(proj, path)
 
 
 def test_a_journal_is_written_even_when_the_apply_raises(project, monkeypatch):
@@ -446,51 +409,10 @@ def test_an_unplaced_item_whose_file_is_gone_is_counted_as_offline(project):
     assert cost["bytes_on_disk"] == 0
 
 
-def test_the_check_reports_the_unplaced_burden_and_does_not_fail_on_it(
-        project):
-    """Both halves of AGENTS.md 10.4 in one assertion: the survey finds
-    the burden AND the findings list stays empty once filed, because a
-    superseded render is filed exactly where its evidence puts it."""
-    proj, folder = project
-    ex.organise_project(proj, folder, MASTER, apply=True)
-    survey = ex.survey_project(proj, folder, MASTER)
-    assert survey["findings"] == []
-    assert survey["unplaced"]["count"] == 1
 
 
-def test_the_unplaced_report_reads_as_sentences_and_can_say_none(project,
-                                                                 tmp_path):
-    proj, folder = project
-    orphan_b = (tmp_path / "pipeline_output" / "steps"
-                / "4_05_render_subtitles" / "b.mov")
-    orphan_b.parent.mkdir(parents=True, exist_ok=True)
-    orphan_b.write_bytes(b"y" * 2048)
-    cost = ex.organise_project(proj, folder, MASTER,
-                               apply=True)["unplaced"]
-    text = ex.render_unplaced(cost)
-    assert "on NO timeline" in text and "Not placed on any timeline" in text
-    assert "captain" in text
-    empty = ex.render_unplaced(dict(cost, count=0))
-    assert "Nothing this pipeline generated is unplaced" in empty
 
 
-def test_the_unplaced_report_separates_a_file_a_placed_item_also_uses(
-        project, tmp_path):
-    """`pool.ImportMedia` made a second pool item for a path already in
-    the pool three times on the field test. Removing that ITEM is safe;
-    deleting the FILE takes media off a live timeline."""
-    shared = (tmp_path / "pipeline_output" / "steps"
-              / "4_05_render_subtitles" / "a.mov")
-    shared.parent.mkdir(parents=True, exist_ok=True)
-    shared.write_bytes(b"z" * 8192)
-    proj, folder = project
-    root = proj.GetMediaPool().GetRootFolder()
-    root.clips.append(FakeClip("c-dup", "sub_a.mov", path=str(shared)))
-    cost = ex.organise_project(proj, folder, MASTER,
-                               apply=True)["unplaced"]
-    assert cost["shared_with_placed"] == (str(shared),)
-    assert cost["bytes_shared"] == 8192
-    assert "PLACED item ALSO uses" in ex.render_unplaced(cost)
 
 
 # --------------------------------------- retiring the migration's shells

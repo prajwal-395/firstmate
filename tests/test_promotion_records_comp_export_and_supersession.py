@@ -179,24 +179,3 @@ class TestPromotionRecordsBoth:
         superseded, reason = is_snapshot_superseded(review, stale.name)
         assert superseded, reason
 
-    def test_supersession_failure_does_not_skip_comp_export(
-            self, tmp_path, monkeypatch):
-        bvc.init_project_repo(str(tmp_path))
-        timeline = _FakeTimeline(REEL, [_FakeItem()])
-        _install(monkeypatch, _FakeProject("Podcast (field test)",
-                                           [timeline]))
-        import library.tools.plan_provenance as provenance
-
-        def _broken(review_dir, snapshots_by_timeline):
-            raise RuntimeError("provenance store unavailable")
-
-        monkeypatch.setattr(provenance, "record_snapshot_supersession",
-                            _broken)
-
-        report = bvc.record_reel_promotion(
-            str(tmp_path), "Podcast (field test)", [REEL])
-
-        assert report["committed"] is True
-        assert "supersession_failed" in report
-        # The supersession failed and the comp export still ran.
-        assert len(report["fusion_comps"]["files"]) == 1

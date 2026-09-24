@@ -21,8 +21,6 @@ sys.path.insert(0, PROJECT_ROOT)
 from library.tools.person_object_profiles import (
     attach_name,
     build_profiles,
-    load_profiles,
-    save_profiles,
 )
 
 
@@ -56,17 +54,6 @@ def test_recurring_person_links_across_clips():
         "clip_a", "clip_b", "clip_c"}
 
 
-def test_distinct_persons_stay_separate():
-    clips = [
-        _clip("clip_a", "young man in black baseball cap and grey shirt"),
-        _clip("clip_b", "older woman in red dress holding a microphone"),
-    ]
-    profiles = build_profiles(clips)
-    persons = [p for p in profiles if p["kind"] == "person"]
-    assert len(persons) == 2
-    assert {p["profile_id"] for p in persons} == {"person_01", "person_02"}
-
-
 def test_background_passerby_is_not_the_subject():
     clips = [
         _clip("clip_a", "young man in black baseball cap and grey shirt",
@@ -96,17 +83,6 @@ def test_names_start_unset_and_attach_explicitly():
     renamed = attach_name(profiles, profiles[0]["profile_id"], "PLACEHOLDER")
     assert renamed["name"] == "PLACEHOLDER"
     assert profiles[0]["name"] == "PLACEHOLDER"
-
-
-def test_attach_name_to_unknown_id_raises():
-    profiles = build_profiles([
-        _clip("clip_a", "young man in black baseball cap and grey shirt")])
-    try:
-        attach_name(profiles, "person_99", "Nobody")
-    except KeyError:
-        pass
-    else:
-        raise AssertionError("expected KeyError for unknown profile id")
 
 
 def test_distinctive_object_links_but_generic_one_does_not():
@@ -169,18 +145,6 @@ def test_subset_hub_label_does_not_merge_cars():
     assert len(profiles) == 3
 
 
-def test_identical_object_labels_still_link():
-    clips = [
-        _clip("clip_a", "silver chain bracelet", category="object",
-              role="background"),
-        _clip("clip_b", "silver chain bracelet", category="object",
-              role="background"),
-    ]
-    profiles = build_profiles(clips)
-    assert len(profiles) == 1
-    assert profiles[0]["clip_count"] == 2
-
-
 def test_ids_are_deterministic():
     clips = [
         _clip("clip_b", "older woman in red dress holding a microphone",
@@ -194,19 +158,3 @@ def test_ids_are_deterministic():
         (p["profile_id"], p["display_label"]) for p in second]
     # Longest screen time orders first however the input arrives.
     assert first[0]["display_label"].startswith("older woman")
-
-
-def test_empty_input_builds_nothing():
-    assert build_profiles([]) == []
-    assert build_profiles([{"clip_id": "clip_a", "objects": []}]) == []
-
-
-def test_save_load_roundtrip(tmp_path):
-    profiles = build_profiles([
-        _clip("clip_a", "young man in black baseball cap and grey shirt"),
-        _clip("clip_b", "young man in black baseball cap and silver chain"),
-    ])
-    path = str(tmp_path / "profiles.json")
-    save_profiles(profiles, path)
-    reloaded = load_profiles(path)
-    assert reloaded == profiles

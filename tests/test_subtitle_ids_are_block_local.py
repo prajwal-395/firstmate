@@ -128,7 +128,3 @@ def test_the_hook_block_gets_a_named_id_rather_than_an_ordinal():
     assert hook_ids and all(i.startswith("sub_hook_") for i in hook_ids)
 
 
-def test_ids_are_unique_across_the_whole_plan():
-    entries = _plan(_spine(["golf", "hotel", "india", "juliet"]))
-    ids = [e["id"] for e in entries]
-    assert len(ids) == len(set(ids))

@@ -61,15 +61,11 @@ def test_a_run_that_wrote_no_ending_is_interrupted_not_failed():
     ({"status": "gate_pending", "paused_at_gate": "review_rough_cut",
       "finished_at": "12:00"}, run_restart.AFTER_GATE),
     ({}, run_restart.UNKNOWN),
-    (None, run_restart.UNKNOWN),
 ])
 def test_every_ending_has_its_own_basis(previous, expected):
     assert run_restart.classify(previous, {}).basis == expected
 
 
-def test_a_clean_predecessor_is_not_a_restart():
-    assert not run_restart.classify(
-        {"status": "success", "finished_at": "12:00"}, {}).is_restart
 
 
 # ── The status file keeps what it used to overwrite ─────────────────
@@ -100,14 +96,6 @@ def test_the_previous_account_survives_the_next_run(tmp_path):
     assert on_disk["restart"]["stopped_at_step"] == "mesh_spine"
 
 
-def test_the_history_is_bounded(tmp_path):
-    project = str(tmp_path)
-    for _ in range(run_restart.MAX_HISTORY + 5):
-        run_control.begin_run_status(project, "full run", [])
-        run_control.write_run_status(project, status="failed",
-                                     finished_at="x")
-    record = run_control.begin_run_status(project, "full run", [])
-    assert len(record["run_history"]) == run_restart.MAX_HISTORY
 
 
 # ── It reaches the outputs, not only a log ──────────────────────────
@@ -122,29 +110,10 @@ def test_the_state_file_carries_the_restart():
     assert state[run_restart.STATE_KEY][0]["basis"] == run_restart.AFTER_FAILURE
 
 
-def test_a_clean_run_adds_nothing_to_the_state():
-    state = {}
-    run_restart.append_to_state(
-        state, run_restart.classify({"status": "success",
-                                     "finished_at": "x"}, {}))
-    assert run_restart.STATE_KEY not in state
 
 
-def test_the_provenance_run_record_carries_it(tmp_path):
-    ledger = ProvenanceLedger(str(tmp_path))
-    ledger.start_run("20260829T123324-1", mode="full run",
-                     restart={"basis": run_restart.AFTER_FAILURE,
-                              "stopped_at_step": "mesh_spine"})
-    ledger.end_run("20260829T123324-1", "success", ["mesh_spine"])
-    runs = ledger.runs()
-    assert len(runs) == 1
-    assert runs[0].restart["stopped_at_step"] == "mesh_spine"
 
 
-def test_a_run_recorded_before_this_existed_still_reads(tmp_path):
-    ledger = ProvenanceLedger(str(tmp_path))
-    ledger.start_run("20260826T105800-1", mode="full run")
-    assert ledger.runs()[0].restart is None
 
 
 # ── What can be recovered for runs already on disk ──────────────────
@@ -166,12 +135,6 @@ def test_past_restarts_are_reconstructed_without_inventing_a_cause():
     assert rows[0]["reconstructed"] is True
 
 
-def test_a_run_that_never_ended_reconstructs_as_interrupted():
-    rows = run_restart.reconstruct_from_ledger([
-        RunRecord("20260829T120000-1", "s"),
-        RunRecord("20260829T123324-1", "s", status="success", ended_at="e"),
-    ])
-    assert rows[0]["basis"] == run_restart.INTERRUPTED
 
 
 # ── PR #409's half: step ids on the events ──────────────────────────

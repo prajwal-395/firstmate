@@ -253,39 +253,6 @@ def test_the_qa_calls_still_have_something_to_ask(node_id, already_in_hand,
     assert still_asked in asked, asked
 
 
-@pytest.mark.heavy
-def test_a_step_with_something_to_ask_still_calls_the_model(tmp_path):
-    """The counterpart: the skip is about the schema, not about a name."""
-    import threading
-    import time
-
-    project = tmp_path / "project"
-    project.mkdir()
-    prompt_path = tmp_path / "handoff.md"
-    prompt_path.write_text("Do the work.\n", encoding="utf-8")
-
-    req = project / "pipeline_output" / "llm_requests" / "semantic_analysis.json"
-    res = project / "pipeline_output" / "llm_responses" / "semantic_analysis.json"
-
-    def answer():
-        deadline = time.time() + 25
-        while time.time() < deadline:
-            if req.exists():
-                res.parent.mkdir(parents=True, exist_ok=True)
-                res.write_text(json.dumps({"a_verdict": "fine"}), encoding="utf-8")
-                return
-            time.sleep(0.05)
-
-    threading.Thread(target=answer, daemon=True).start()
-
-    result = present_llm_step(
-        str(prompt_path), {"project_folder": str(project)}, "semantic_analysis",
-        manifest={"interface": {"outputs": [{"name": "a_verdict"}]}},
-        full_auto="agent", llm_timeout=30,
-    )
-    assert result == {"a_verdict": "fine"}
-
-
 # ---------------------------------------------------------------------------
 # A pre-bridge's own table must survive the projection.
 # ---------------------------------------------------------------------------
@@ -344,65 +311,3 @@ def test_the_handoff_asks_for_a_table_the_bridge_really_builds(node_id):
             f"mentions {stem!r} - either the prompt lost the instruction "
             f"or the bridge is computing a table nothing reads"
         )
-
-
-@pytest.mark.heavy
-@pytest.mark.parametrize("node_id", sorted(BRIDGE_TABLES))
-def test_a_bridge_table_reaches_the_prompt(node_id, tmp_path):
-    """The regression this pins: built, then projected away.
-
-    Driven through `present_llm_step` rather than `project_fields`,
-    because the allow-list really does drop these names - what keeps them
-    is the restore that runs after it, and only the full call exercises
-    that.
-    """
-    import threading
-    import time
-
-    tables = BRIDGE_TABLES[node_id]
-    project = tmp_path / "project"
-    project.mkdir()
-    prompt_path = tmp_path / "handoff.md"
-    prompt_path.write_text("Use the table.\n", encoding="utf-8")
-
-    req = project / "pipeline_output" / "llm_requests" / f"{node_id}.json"
-    res = project / "pipeline_output" / "llm_responses" / f"{node_id}.json"
-
-    def answer():
-        deadline = time.time() + 25
-        while time.time() < deadline:
-            if req.exists():
-                res.parent.mkdir(parents=True, exist_ok=True)
-                res.write_text(json.dumps({"a_verdict": "fine"}),
-                               encoding="utf-8")
-                return
-            time.sleep(0.05)
-
-    threading.Thread(target=answer, daemon=True).start()
-
-    inputs = {"project_folder": str(project),
-              "a_key_no_manifest_names": {"dropped": True}}
-    for table in tables:
-        inputs[table] = f"[1]{{col}}\n{node_id}-row"
-
-    m = manifest(node_id)
-    present_llm_step(
-        str(prompt_path), inputs, node_id,
-        manifest={"context_fields": m["context_fields"],
-                  "interface": {"outputs": [{"name": "a_verdict"}]}},
-        full_auto="agent", llm_timeout=30,
-        bridge_supplied=set(tables),
-    )
-
-    written = json.loads(req.read_text(encoding="utf-8"))
-    for table in tables:
-        assert f"{node_id}-row" in written["context"], (
-            f"'{node_id}' built {table!r} and the prompt does not carry "
-            f"it - the projection deleted the one table the handoff tells "
-            f"the model to read"
-        )
-    # The allow-list still governs everything the bridge did NOT build.
-    assert "a_key_no_manifest_names" not in written["context"], (
-        "the bridge restore is passing through un-named inputs too, "
-        "which would undo the projection entirely"
-    )

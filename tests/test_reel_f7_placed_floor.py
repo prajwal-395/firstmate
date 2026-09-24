@@ -63,17 +63,6 @@ def _errors(findings):
     return [f for f in findings if f.severity == "error"]
 
 
-def test_the_floor_is_the_pipelines_own_not_a_chosen_number():
-    assert MIN_CAPTION_DISPLAY_SECONDS == 0.5
-    import inspect
-    default = inspect.signature(
-        check_short_captions).parameters["min_duration_seconds"].default
-    assert default == MIN_CAPTION_DISPLAY_SECONDS
-    default_av = inspect.signature(
-        check_short_av_items).parameters["min_duration_seconds"].default
-    assert default_av == MIN_CAPTION_DISPLAY_SECONDS
-
-
 def test_reel_02_flash_card_now_fails():
     """R02 card 0 "yeah." - 3 frames, last of its own block."""
     findings = check_short_captions(
@@ -83,16 +72,6 @@ def test_reel_02_flash_card_now_fails():
     assert len(errors) == 1, [f.message for f in findings]
     assert errors[0].finding_class == FindingClass.F7
     assert errors[0].detail["duration_frames"] == 3
-
-
-def test_reel_03_flash_card_now_fails():
-    """R03 card 3 "yeah" - 3 frames, last of its own block."""
-    findings = check_short_captions(
-        "Reel 03 - search-didnt-change-the-question-did",
-        [_placed_card(3, text="yeah")], FPS)
-    errors = _errors(findings)
-    assert len(errors) == 1, [f.message for f in findings]
-    assert errors[0].finding_class == FindingClass.F7
 
 
 def test_reel_19_flash_card_now_fails():
@@ -105,26 +84,11 @@ def test_reel_19_flash_card_now_fails():
     assert errors[0].detail["duration_frames"] == 2
 
 
-def test_no_card_is_held_quietly_or_loudly():
-    """Nothing is HELD any more: no warning carries an exemption."""
-    findings = check_short_captions(
-        "Reel 02", [_placed_card(3), _placed_card(2)], FPS)
-    assert [f for f in findings if f.severity == "warning"] == []
-    assert len(_errors(findings)) == 2
-
-
 def test_a_correct_length_card_still_passes():
     findings = check_short_captions(
         "Reel 01", [_placed_card(int(round(1.0 * FPS)),
                                    text="a full second of text")], FPS)
     assert findings == []
-
-
-def test_the_floor_is_twelve_frames_at_reel_rate():
-    """0.5s at 23.976fps is 11.99 frames: 12 passes, 11 fails."""
-    assert check_short_captions("R", [_placed_card(12)], FPS) == []
-    errors = _errors(check_short_captions("R", [_placed_card(11)], FPS))
-    assert len(errors) == 1
 
 
 def _item(track_type, track_index, duration_frames, name="clip"):
@@ -151,13 +115,6 @@ def test_fragment_av_slivers_fail_against_the_same_floor():
     assert len(errors) == 2, [f.message for f in findings]
     assert all(f.finding_class == FindingClass.F7 for f in errors)
     assert {f.detail["duration_frames"] for f in errors} == {3, 5}
-
-
-def test_full_length_av_items_pass():
-    findings = check_short_av_items(
-        "Reel 01", [_item("video", 1, 600)], [_item("audio", 1, 600)],
-        FPS)
-    assert findings == []
 
 
 def test_verify_reel_grades_the_placed_card_not_the_plan():

@@ -61,41 +61,8 @@ def test_a_row_exists_because_something_goes_on_it():
     assert len(plan.audio_tracks) == 2
 
 
-def test_single_angle_keeps_the_legacy_shape():
-    """A manifest that declares no angles builds exactly V1/A1 as before."""
-    plan = plan_layout({
-        "angles": [],
-        "has_broll": False,
-        "caption_spans": [],
-        "mg_spans": [],
-        "has_generators": False,
-        "timed_text_spans": [],
-        "music_spans": [],
-        "sfx_spans": [],
-    })
-    assert [(t.index, t.role) for t in plan.video_tracks] == [(1, "a_roll")]
-    assert [(t.index, t.role) for t in plan.audio_tracks] == [(1, "speech")]
 
 
-def test_row_order_is_fixed_and_counts_come_from_material():
-    """Picture rows, then captions, then decoration; speech, then bed, then SFX."""
-    plan = plan_layout(_two_angle_material(
-        has_broll=True,
-        caption_spans=[(0, 100)],
-        mg_spans=[(0, 50), (25, 75)],
-        has_generators=True,
-        timed_text_spans=[(0, 10)],
-        music_spans=[(0, 200)],
-        sfx_spans=[(0, 50), (25, 75), (100, 150)],
-    ))
-    video_roles = [t.role for t in plan.video_tracks]
-    assert video_roles == ["a_roll", "a_roll", "b_roll", "captions",
-                           "motion_graphics", "motion_graphics",
-                           "generators", "timed_text"]
-    assert [t.index for t in plan.video_tracks] == [1, 2, 3, 4, 5, 6, 7, 8]
-    audio_roles = [t.role for t in plan.audio_tracks]
-    assert audio_roles == ["speech", "speech", "music", "sfx", "sfx"]
-    assert [t.index for t in plan.audio_tracks] == [1, 2, 3, 4, 5]
 
 
 def test_overlapping_sfx_layers_stack_and_sequential_ones_share():

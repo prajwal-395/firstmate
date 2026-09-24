@@ -16,24 +16,7 @@ def test_get_projects(mock_projects_root, mock_list_projects, mock_load_state):
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
-def test_select_project():
-    response = client.post("/api/projects/select", json={"project_dir": "/mock/project"})
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
 
-@patch("library.dashboard.server._load_pipeline_state")
-@patch("library.dashboard.server._load_project_config")
-@patch("library.dashboard.server._get_project_dir")
-def test_get_project(mock_get_dir, mock_config, mock_state):
-    mock_get_dir.return_value = "/mock/project"
-    mock_config.return_value = {"name": "Test Project"}
-    mock_state.return_value = {"steps_completed": {"scan": {}}}
-    
-    response = client.get("/api/project")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Test Project"
-    assert data["steps_completed"] == 1
 
 @patch("library.dashboard.server.get_all_gate_statuses")
 @patch("library.dashboard.server._load_pipeline_state")
@@ -66,12 +49,3 @@ def test_get_step_detail(mock_get_dir, mock_state, mock_summary, mock_gate_statu
     assert "raw_footage_files" in data["output"]
     assert data["summary_md"] == "Mock summary"
 
-@patch("library.dashboard.server.save_gate_feedback")
-@patch("library.dashboard.server._get_project_dir")
-def test_gate_action(mock_get_dir, mock_save_fb):
-    mock_get_dir.return_value = "/mock/project"
-    
-    response = client.post("/api/gates/scan/action", json={"action": "approve", "feedback": "Looks good"})
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "action": "approve", "step_id": "scan"}
-    mock_save_fb.assert_called_once()

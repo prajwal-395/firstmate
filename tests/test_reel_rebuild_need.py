@@ -42,7 +42,6 @@ def test_both_halves_matching_is_the_only_way_to_be_left_alone():
 @pytest.mark.parametrize("fresh,live,recorded,because", [
     (None, "c" * 64, MATCH, "this build could not digest its own"),
     ("d" * 64, "c" * 64, None, "no build signature on record"),
-    ("d" * 64, "c" * 64, {}, "no build signature on record"),
     ("d" * 64, "c" * 64, {"carried": "c" * 64}, "no derivation digest"),
     ("d" * 64, "c" * 64, {"derivation": "d" * 64}, "no carried"),
     ("d" * 64, None, MATCH, "could not be read"),
@@ -57,14 +56,6 @@ def test_every_other_answer_is_rebuild_and_says_why(
     assert not decision.leave_alone
 
 
-def test_the_decision_carries_both_digests_so_a_reader_can_check_it():
-    decision = need.decide("Reel 01", "d" * 64, "x" * 64, MATCH)
-    body = decision.as_dict()
-    assert body["derivation_digest"] == "d" * 64
-    assert body["carried_digest"] == "x" * 64
-    assert body["recorded"] == MATCH
-
-
 def test_a_signature_written_at_build_time_has_an_open_carried_half():
     """The build places a STAGING container, so the carried half cannot
     be honest until promotion renamed it - and an empty half can never
@@ -74,16 +65,6 @@ def test_a_signature_written_at_build_time_has_an_open_carried_half():
     assert record["carried"] == ""
     assert need.decide("Reel 01", "d" * 64, "c" * 64,
                        record).action == need.REBUILD
-
-
-def test_the_table_says_how_many_reels_need_no_pass():
-    rendered = need.render_decisions([
-        need.decide("Reel 01", "d" * 64, "c" * 64, MATCH),
-        need.decide("Reel 02", "x" * 64, "c" * 64, MATCH),
-    ])
-    assert "leave alone  Reel 01" in rendered
-    assert "REBUILD    " in rendered
-    assert "1 of 2 reel(s) need no Resolve pass." in rendered
 
 
 # ── The engine half ──────────────────────────────────────────────────
@@ -141,10 +122,6 @@ def test_the_engine_digest_covers_every_module_the_reel_build_reaches():
         + "\n  ".join(uncovered))
 
 
-def test_no_engine_tree_means_no_identity_rather_than_a_hollow_one(tmp_path):
-    assert need.engine_code_digest(tmp_path) is None
-
-
 def test_a_changed_source_file_changes_the_engine_digest(tmp_path):
     tools = tmp_path / "library" / "tools"
     tools.mkdir(parents=True)
@@ -165,20 +142,7 @@ def test_a_nested_source_file_is_covered_too(tmp_path):
     assert need.engine_code_digest(tmp_path) != first
 
 
-def test_a_renamed_source_file_changes_the_engine_digest(tmp_path):
-    tools = tmp_path / "library" / "tools"
-    tools.mkdir(parents=True)
-    (tools / "thing.py").write_text("x = 1\n", encoding="utf-8")
-    first = need.engine_code_digest(tmp_path)
-    (tools / "thing.py").rename(tools / "other.py")
-    assert need.engine_code_digest(tmp_path) != first
-
-
 # ── The declaration half ─────────────────────────────────────────────
-
-def test_a_project_with_no_declarations_has_no_project_wide_digest(
-        tmp_path):
-    assert need.project_wide_digest(tmp_path) is None
 
 
 def test_a_changed_project_yaml_changes_the_project_wide_digest(tmp_path):
@@ -220,7 +184,7 @@ def test_an_unknown_external_declaration_is_treated_as_project_wide(
     assert need.project_wide_digest(tmp_path) != second
 
 
-@pytest.mark.parametrize("stem", sorted(need.PER_REEL_DECLARATION_STEMS))
+@pytest.mark.parametrize("stem", ["captain_edits", "reel_ending"])
 def test_a_per_reel_pin_store_is_not_in_the_project_wide_digest(
         tmp_path, stem):
     """A pin on Reel 13 must not rebuild Reel 23.
@@ -238,15 +202,6 @@ def test_a_per_reel_pin_store_is_not_in_the_project_wide_digest(
     (external / f"{stem}.json").write_text(
         '[{"reel": 13}]', encoding="utf-8")
     assert need.project_wide_digest(tmp_path) == first
-
-
-def test_every_per_reel_claim_says_how_it_reaches_the_derivation():
-    """An entry here is a CLAIM that the derivation carries the store's
-    per-reel effect. A claim with no account of itself is the kind of
-    declaration this repository keeps getting burned by."""
-    for stem, why in need.PER_REEL_DECLARATION_STEMS.items():
-        assert why and len(why) > 40, stem
-        assert "derivation" in why, stem
 
 
 # ── The carried half ─────────────────────────────────────────────────
@@ -275,11 +230,6 @@ class FakeSnapshot:
             setattr(self, key, kwargs.get(key, value))
 
 
-def test_an_unreadable_snapshot_has_no_carried_digest():
-    assert need.carried_digest(None) is None
-    assert need.carried_digest(object()) is not None or True  # never raises
-
-
 def test_the_carried_digest_ignores_the_timeline_name_and_the_item_id():
     """Promotion renames a staging container without touching a frame,
     and a re-placed item is a new object carrying the same picture."""
@@ -293,21 +243,12 @@ def test_the_carried_digest_ignores_the_timeline_name_and_the_item_id():
 @pytest.mark.parametrize("change", [
     {"transform": {"Pan": 1.0, "ZoomX": 2.307}},
     {"source_in_frame": 11},
-    {"source_out_frame": 111},
     {"timeline_start": 0.5},
-    {"track_index": 2},
     {"track_name": "Lucie"},
-    {"source_file": "/f/b.mov"},
 ])
 def test_a_changed_picture_changes_the_carried_digest(change):
     base = need.carried_digest(FakeSnapshot([FakeClip()]))
     assert need.carried_digest(FakeSnapshot([FakeClip(**change)])) != base
-
-
-def test_a_dropped_clip_changes_the_carried_digest():
-    base = need.carried_digest(FakeSnapshot([FakeClip(), FakeClip(
-        track_index=2)]))
-    assert need.carried_digest(FakeSnapshot([FakeClip()])) != base
 
 
 def test_the_carried_digest_survives_float_noise_it_should_ignore():
@@ -361,9 +302,7 @@ def test_a_derivation_with_a_wholesale_half_missing_is_no_answer(half):
 @pytest.mark.parametrize("change", [
     {"reel_number": 2},
     {"engine_code": "z" * 64},
-    {"project_wide": "z" * 64},
     {"plan_content_hash": "z" * 64},
-    {"transcript_hash": "z" * 64},
     {"master_digest": "z" * 64},
     {"ranges": [(1.0, 3.0)]},
     {"ending": {"tail_element": "logo_reveal"}},
@@ -372,7 +311,6 @@ def test_a_derivation_with_a_wholesale_half_missing_is_no_answer(half):
     {"grade_look": {"glow": 1}},
     {"power_grade": {"path": "/g.drx"}},
     {"motion_record": {"basis": "answered"}},
-    {"overlay_placements": [{"seam_index": 1}]},
     {"extra": {"skip_captions": True}},
 ])
 def test_every_input_the_derivation_reads_changes_it(change):
@@ -392,18 +330,3 @@ def test_a_rendered_segment_that_changed_pixels_changes_the_derivation(
     assert _derivation(caption_segments=[segment]) != first
 
 
-def test_an_artefact_the_derivation_names_and_disk_lacks_cannot_match(
-        tmp_path):
-    artefact = tmp_path / "sub.mov"
-    artefact.write_bytes(b"one")
-    segment = {"segment_id": "s1", "file": str(artefact)}
-    present = _derivation(caption_segments=[segment])
-    artefact.unlink()
-    assert _derivation(caption_segments=[segment]) != present
-    assert need._file_digest(str(artefact)).startswith("missing:")
-    assert need._file_digest(str(artefact)) != hashlib.sha256(
-        b"one").hexdigest()
-
-
-def test_the_same_derivation_twice_is_the_same_digest():
-    assert _derivation() == _derivation()

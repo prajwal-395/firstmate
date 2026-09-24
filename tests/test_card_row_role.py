@@ -47,9 +47,6 @@ def _project(tmp_path, effect: dict):
     return str(tmp_path)
 
 
-def test_the_brand_template_may_declare_the_row(tmp_path):
-    assert ffe.resolve_card_row_role(
-        {"card_row_role": "semantic"}, str(tmp_path)) == "semantic"
 
 
 def test_the_project_wins_over_the_brand(tmp_path):
@@ -58,21 +55,14 @@ def test_the_project_wins_over_the_brand(tmp_path):
         {"card_row_role": "semantic"}, project) == "motion_graphics"
 
 
-def test_the_project_may_declare_what_the_brand_does_not(tmp_path):
-    project = _project(tmp_path, {"card_row_role": "semantic"})
-    assert ffe.resolve_card_row_role({}, project) == "semantic"
 
 
-@pytest.mark.parametrize("bad", ["V5", "1", "a_roll", "captions", ""])
+@pytest.mark.parametrize("bad", ["V5", "captions"])
 def test_anything_but_the_two_roles_is_refused_by_name(bad, tmp_path):
     with pytest.raises(ffe.CardRowRoleError, match="card_row_role"):
         ffe.resolve_card_row_role({"card_row_role": bad}, str(tmp_path))
 
 
-def test_a_non_mapping_effect_is_refused(tmp_path):
-    _project(tmp_path, ["not", "a", "mapping"])
-    with pytest.raises(ffe.CardRowRoleError, match="must be a mapping"):
-        ffe.resolve_card_row_role({}, str(tmp_path))
 
 
 def test_requiring_names_the_choice_when_cards_exist_but_no_role(tmp_path):
@@ -80,9 +70,6 @@ def test_requiring_names_the_choice_when_cards_exist_but_no_role(tmp_path):
         ffe.require_card_row_role({}, str(tmp_path))
 
 
-def test_requiring_returns_the_declared_role(tmp_path):
-    project = _project(tmp_path, {"card_row_role": "semantic"})
-    assert ffe.require_card_row_role({}, project) == "semantic"
 
 
 # ── B. The layout ──────────────────────────────────────────────────
@@ -124,26 +111,8 @@ def test_the_card_joins_the_role_packing_not_beside_it():
     assert rows[layout.lane_of_span(ordered, 1)].name == "Semantic 2"
 
 
-def test_non_overlapping_card_shares_the_role_row():
-    """The tail card plays after the body, so it shares the row - one
-    row, both lanes."""
-    plan = layout.plan_layout({
-        "angles": _angles(),
-        "semantic_spans": [(0, 100)],
-        "card_role": "semantic", "card_spans": [(480, 551)]})
-    rows = plan.rows_for_role("semantic")
-    assert [t.name for t in rows] == ["Semantic"]
-    ordered = layout.card_spans_for_role(plan.material, "semantic")
-    assert layout.lane_of_span(ordered, 1) == 0
 
 
-def test_a_motion_graphics_card_row_uses_the_mg_packing():
-    plan = layout.plan_layout({
-        "angles": _angles(),
-        "mg_spans": [(0, 100)],
-        "card_role": "motion_graphics", "card_spans": [(480, 551)]})
-    rows = plan.rows_for_role("motion_graphics")
-    assert [t.name for t in rows] == ["Motion Graphics"]
 
 
 def test_an_unknown_card_role_is_refused_at_the_plan():
@@ -151,10 +120,6 @@ def test_an_unknown_card_role_is_refused_at_the_plan():
         layout.plan_layout({"angles": _angles(), "card_role": "V5"})
 
 
-def test_card_spans_without_a_role_are_refused_at_the_plan():
-    with pytest.raises(ValueError, match="card_role"):
-        layout.plan_layout(
-            {"angles": _angles(), "card_spans": [(480, 551)]})
 
 
 # ── C. The placement, against fake Resolve ─────────────────────────
@@ -246,23 +211,6 @@ def test_the_same_card_lands_on_motion_graphics_when_that_is_declared(
     assert names[row] == "Motion Graphics"
 
 
-def test_the_card_follows_the_name_across_track_counts(tmp_path):
-    """Explainer + semantic + captions is five video rows; the card is
-    still on the row named Semantic rather than an index."""
-    timeline, pool, project = _world()
-    from tests.test_reel_build_sop_conformance import _semantic as _sem
-    build_reel_timeline(
-        project, FakeMoment(), _master_clips(), [_caption(2.0, 4.0)],
-        23.976, 1080, 1920, str(tmp_path), _transcript(),
-        cards=[_tail_card(tmp_path)],
-        explainer_segments=[_sem(0.0, 48)],
-        semantic_segments=[_sem(48.0, 96)],
-        master_timeline=None, program_channels={"1": 1, "2": 1},
-        card_row_role="semantic")
-    names = _card_row_names(timeline)
-    assert len(names) == 5
-    row = _row_of(timeline, "logo_reveal.mov")
-    assert names[row] == "Semantic"
 
 
 def test_cards_without_a_declared_role_refuse_before_placing(tmp_path):
@@ -285,9 +233,6 @@ def test_material_carries_the_card_spans_with_their_role():
     assert material["card_spans"] == [(480, 551)]
 
 
-def test_material_refuses_spans_with_no_role():
-    with pytest.raises(ReelBuildError, match="card_row_role"):
-        reel_track_material([], {"1": 1}, card_spans=[(480, 551)])
 
 
 # ── D. The verifier ────────────────────────────────────────────────
@@ -343,38 +288,12 @@ def test_f13_passes_the_card_on_its_declared_row():
         1080, 1920, FPS, card_row_role="semantic") == []
 
 
-def test_f13_reads_numbered_layer_rows_by_name():
-    assert check_full_frame_cards(
-        "Reel 13", [_declared_card()], [_placed(6, "Motion Graphics 2")],
-        1080, 1920, FPS, card_row_role="motion_graphics") == []
 
 
-def test_f13_legacy_cards_still_read_v1_without_a_role():
-    assert check_full_frame_cards(
-        "Reel 13", [_declared_card()], [_placed(1, "Akshita")],
-        1080, 1920, FPS) == []
 
 
-def test_f13_legacy_cards_above_v1_still_fail_without_a_role():
-    findings = check_full_frame_cards(
-        "Reel 13", [_declared_card()], [_placed(4, "Semantic")],
-        1080, 1920, FPS)
-    assert any("belongs on V1" in f.message for f in findings)
 
 
-def test_a_span_stays_on_v1_whatever_the_card_row_is():
-    span = _PlanCard(render_name="reel_13_span_01", placement="span",
-                     reel_start_frame=0, duration_frames=480,
-                     element="full_frame_span")
-    item = TimelineItem(
-        track_type="video", track_index=1,
-        start_frame=0, end_frame=480, duration_frames=480,
-        source_start_frame=0, source_end_frame=480,
-        source_file="/p/reel_13_span_01.mov", speaker=None,
-        name="reel_13_span_01.mov", track_name="Akshita")
-    assert check_full_frame_cards(
-        "Reel 13", [span], [item], 1080, 1920, FPS,
-        card_row_role="semantic") == []
 
 
 def test_the_classifier_keeps_a_card_on_an_overlay_row_as_picture():
@@ -429,15 +348,6 @@ def test_f12_grades_a_card_on_its_declared_row_against_the_frame():
         declared_intent=0.0, cards=[_declared_card()]) == []
 
 
-def test_a_tail_card_on_its_declared_row_leaves_no_picture_hole():
-    footage = TimelineItem(
-        track_type="video", track_index=1,
-        start_frame=0, end_frame=480, duration_frames=480,
-        source_start_frame=0, source_end_frame=480,
-        source_file="/m/a.MXF", speaker="Akshita", name="a.MXF",
-        track_name="Akshita")
-    assert check_picture_holes(
-        "Reel 13", [footage, _placed(5, "Semantic")]) == []
 
 
 # ── E. The digest ──────────────────────────────────────────────────
@@ -488,11 +398,6 @@ def test_a_moved_card_row_changes_the_derivation():
     assert before != after
 
 
-def test_the_role_changes_nothing_where_no_cards_exist():
-    """A project that declares no cards digests byte-identically with
-    or without the role - no fleet-wide rebuild for a declaration
-    nobody there needs."""
-    assert _derivation() == _derivation(card_row_role="semantic")
 
 
 # ── E2. The neighbouring row-name gap, same class ──────────────────

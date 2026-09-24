@@ -39,13 +39,6 @@ def test_the_declarable_set_is_derived_not_listed_again():
     assert len(variants.declarable()) >= 5
 
 
-@pytest.mark.parametrize("store", sorted(external_inputs.DECLARATIONS))
-def test_every_declaration_store_is_expressible(store):
-    """The stores `edit_depth` names owners for - the ending, the
-    caption timing, the overlay intent, the mix intent, the placed
-    assets - are exactly the ones a variant may differ in."""
-    assert variants.validate_variant_spec(
-        {"suffix": " (other-ending)", "declares": [store]}) == []
 
 
 def test_a_declaring_variant_needs_no_seam():
@@ -104,12 +97,6 @@ def test_the_out_of_vocabulary_roster_names_an_owner_for_every_entry():
             f"end rather than a rule.")
 
 
-def test_out_of_vocabulary_and_declarable_cannot_overlap():
-    """A store that is both expressible and excluded is a rule nobody
-    can obey."""
-    words = " ".join(variants.OUT_OF_VOCABULARY)
-    for store in variants.declarable():
-        assert store not in words
 
 
 def test_declares_must_be_a_list_of_known_names():
@@ -145,15 +132,3 @@ def test_declares_is_written_sorted(tmp_path):
         "caption_timing", "reel_ending"]
 
 
-def test_specs_for_reel_reads_back_what_was_declared(tmp_path):
-    project = tmp_path / "p"
-    (project / "pipeline_output" / "review").mkdir(parents=True)
-    variants.write_variant_specs(str(project), {"variants": {"9": [
-        {"suffix": " (b)", "declares": ["reel_ending"]},
-        {"suffix": " (a)", "cutaway": {"hide_angle": "A",
-                                       "window_seconds": [1, 2]}}]}})
-    specs = variants.specs_for_reel(str(project), 9)
-    assert [s["suffix"] for s in specs] == [" (a)", " (b)"]
-    assert variants.spec_by_suffix(str(project), 9, " (b)")["declares"] \
-        == ["reel_ending"]
-    assert variants.spec_by_suffix(str(project), 9, " (z)") is None

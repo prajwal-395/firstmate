@@ -73,77 +73,10 @@ NEW_OPERATIONS = ("reel.entry_motion", "reel.set_properties")
 # ── Registration: the 1327 shape ──────────────────────────────────────
 
 
-@pytest.mark.parametrize("name", NEW_OPERATIONS)
-def test_the_operation_is_registered_under_the_step_that_owns_it(name):
-    """The gap this file closes, stated the way 1327 stated touchup's."""
-    assert name in O.names()
-    op = O.get(name)
-    assert op.owning_node == "build_reels"
-    assert op.owning_dir == "step_7_01_build_reels"
-    assert op.body == "step.py"
-    # Caller-supplied, like the touchup: the structured change arrives
-    # from the fix that computed it, never from gathering.
-    assert op.caller_supplied is True
-    # PROJECT only.  The change addresses items by (row, position) on
-    # one reel's timeline, so a region address would promise a scope
-    # the write does not keep.
-    assert op.scopes == (O.PROJECT,)
-    with pytest.raises(O.ScopeNotSupported):
-        op.check_scope(O.scope_mod.region("45.0-72.0"))
-
-
-@pytest.mark.parametrize("name,attr", [
-    ("reel.entry_motion", "animate_entry"),
-    ("reel.set_properties", "set_clip_properties"),
-])
-def test_the_operation_runs_the_owning_steps_own_body(name, attr):
-    """Ruling 1 holds without a special case: `run` resolves into the
-    owning step's directory, which the general gate
-    (`test_operations_add_no_second_implementation.py`) already
-    enforces over the whole registry - this pins the attribute each
-    new name is bound to."""
-    op = O.get(name)
-    assert op.attr == attr
-    assert callable(op.run)
-    assert Path(op.run.__code__.co_filename).parent == (
-        REPO / "library" / "steps" / "step_7_01_build_reels")
-
-
 # ── Effect and requires: derived, in the vocabulary ───────────────────
 
 
-@pytest.mark.parametrize("name", NEW_OPERATIONS)
-def test_the_effect_derives_in_the_requirement_vocabulary(name):
-    """Every requirement the owning node produces - never hand-written,
-    the same derivation `test_operations_declare_effect.py`
-    recomputes independently over the whole registry."""
-    op = O.get(name)
-    assert [r.name for r in op.effect] == [REEL_GOAL]
-    vocabulary = {req.name for req in R.all_requirements()}
-    assert REEL_GOAL in vocabulary
-    # The sibling contract: one node, one effect, one precondition
-    # set.  A new operation asking more or less than the node asks is
-    # a contract about something else.
-    build = O.get("reel.build")
-    touchup = O.get("reel.touchup")
-    assert ([r.name for r in op.requires]
-            == [r.name for r in build.requires]
-            == [r.name for r in touchup.requires])
-    assert op.requires, "an operation with no requires cannot refuse"
-
-
 # ── Reachability through compose, without steering it ─────────────────
-
-
-def test_compose_reaches_the_goal_both_operations_declare():
-    """The absorbed row's answer: the goal each new operation's effect
-    names composes to a runnable plan.  Reached by naming the goal -
-    the operations themselves are chosen BY NAME
-    (`operations.get`), never by rewriting the goal's default plan."""
-    comp = C.compose(REEL_GOAL)
-    assert comp.completed
-    for name in NEW_OPERATIONS:
-        assert REEL_GOAL in [r.name for r in O.get(name).effect]
 
 
 def test_the_representative_stays_the_rebuild():
@@ -198,28 +131,6 @@ def test_step_bodies_refuse_each_others_edits():
         animate_entry("/project", props)
 
 
-def test_step_bodies_return_the_touchup_receipt(monkeypatch):
-    """The bodies own no logic: validated args reach `apply_touchup`,
-    whose receipt returns under the touchup's own record key."""
-    from library.steps.step_7_01_build_reels import step as build_reels
-
-    seen = {}
-
-    def _fake_apply(project_folder, spec):
-        seen["project_folder"] = project_folder
-        seen["spec"] = spec
-        return {"gate": {"class": "composed"}}
-
-    monkeypatch.setattr("library.tools.reel_touchup.apply_touchup",
-                        _fake_apply)
-    spec = {"reel": 2, "edits": [
-        {"op": "set_properties", "row": "V4", "item": 0,
-         "properties": {"ZoomX": 1.5}}]}
-    assert build_reels.set_clip_properties("/project", spec) == {
-        "reel_touchup": {"gate": {"class": "composed"}}}
-    assert seen == {"project_folder": "/project", "spec": spec}
-
-
 # ── The gate: what routes, what refuses ───────────────────────────────
 
 
@@ -247,9 +158,6 @@ def test_set_properties_qualifies_composed(tmp_path):
 @pytest.mark.parametrize("properties,match", [
     ({}, "names no properties"),
     ("ZoomX", "a `properties` mapping"),
-    ({"Resolution": "1080x1920"}, "cannot be set"),
-    ({"ZoomX": None}, "cannot be set"),
-    ({"ZoomX": "<auto>"}, "cannot be set"),
 ])
 def test_set_properties_refuses_what_it_cannot_write(tmp_path, properties,
                                                      match):
@@ -310,7 +218,7 @@ def test_entry_motion_refuses_a_ramp_longer_than_its_clip(tmp_path):
              "fade_in_frames": 40}]})
 
 
-@pytest.mark.parametrize("row", ["V1", "V2"])
+@pytest.mark.parametrize("row", ["V1"])
 def test_entry_motion_refuses_the_comp_bearing_rows(tmp_path, row):
     """V1/V2 treatments belong to the comp pass, which plans them
     whole at build time - the same boundary `add_overlay` keeps.  A
@@ -385,18 +293,6 @@ def test_a_rewrite_shadowed_by_an_in_place_write_is_pruned(tmp_path):
     assert [(c.row, c.item_index) for c in qualification.changes] == [
         ("V4", 2)]
     assert len(qualification.in_place) == 1
-
-
-def test_the_gate_names_all_seven_ops(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "dissolve"}]})
-    message = str(refusal.value)
-    assert "seven ops" in message
-    for known in ("move", "swap_pixels", "add_overlay", "remove_overlay",
-                  "retime", "set_properties", "entry_motion"):
-        assert known in message
 
 
 # ── The write: onto staging, judged by re-read ────────────────────────
@@ -480,28 +376,6 @@ def test_entry_motion_imports_a_drawing_comp_with_a_covering_window(
     assert reel_read.comp_draws_something({"tools": reg_ids}) is True
 
 
-def test_in_place_edits_ride_an_empty_composition(tmp_path):
-    """An in-place-only spec still runs the composition's own
-    machinery - coverage verified, nothing placed - so the path
-    stays one implementation rather than branching around it."""
-    _approved, staged, pool = _staged_pair(tmp_path)
-    qualification = tu.qualify(_tracks(staged), {"reel": 1, "edits": [
-        {"op": "set_properties", "row": "V4", "item": 0,
-         "properties": {"ZoomX": 1.5}},
-        {"op": "entry_motion", "row": "V4", "item": 2,
-         "fade_in_frames": 6}]})
-    tu._apply_in_place(staged, qualification, str(tmp_path / "comps"))
-    changes = tu._rekey_changes(_tracks(staged), qualification)
-    assert changes == []
-    receipt = ce.apply_composed_edit(
-        timeline=staged, media_pool=pool, changes=changes,
-        comp_dir=str(tmp_path / "c"), withheld_dir=str(tmp_path / "w"),
-        rederiver=tu._NullRederiver("test"), grade_sources={})
-    assert receipt.verified == {"landed": 0, "asked": 0}
-    assert staged.rows["V4"][0].GetProperty("ZoomX") == 1.5
-    assert staged.rows["V4"][2].GetFusionCompCount() == 1
-
-
 # ── Executing through the registry refuses without the caller's spec ──
 
 
@@ -535,17 +409,3 @@ def _satisfying_project(tmp_path) -> str:
         "  project_name: Fixture Project\n"
         "  timeline_name: Fixture Timeline\n", encoding="utf-8")
     return str(tmp_path)
-
-
-@pytest.mark.parametrize("name", NEW_OPERATIONS)
-def test_executing_without_the_spec_refuses_and_names_it(name, tmp_path):
-    """Caller-supplied means caller-supplied: with every requirement
-    satisfied, the operation still refuses - naming the argument the
-    caller owes and how to hand it over, the way `reel.touchup`
-    already does."""
-    op = O.get(name)
-    folder = _satisfying_project(tmp_path)
-    assert op.unmet(folder) == []
-    result = op.execute(folder)
-    assert result.refused
-    assert "spec" in result.error

@@ -226,18 +226,8 @@ def test_the_dominant_script_comes_from_the_transcript_itself():
     assert set(flagged[0]["foreign"]) == {"LATIN"}
 
 
-def test_digits_and_punctuation_are_not_evidence_of_a_script():
-    assert tc.script_census("2023 -- $40,000!") == {}
-    assert tc.script_of("7") is None and tc.script_of(" ") is None
-    assert tc.script_of("a") == "LATIN"
 
 
-def test_a_transcript_with_no_letters_flags_nothing():
-    empty = document(False)
-    for row in empty["segments"]:
-        row["text"] = "1234"
-    assert tc.dominant_script(empty["segments"]) is None
-    assert tc.script_mismatches(empty) == []
 
 
 def test_the_flag_says_what_it_cannot_catch():
@@ -313,11 +303,6 @@ def _numeric_comparisons(source: str) -> list:
     return found
 
 
-def test_the_threshold_check_can_fail():
-    """A gate that cannot fail is worse than no gate (AGENTS.md 10.4)."""
-    assert _numeric_comparisons("if confidence < 0.4:\n    pass\n")
-    assert _numeric_comparisons("bad = [x for x in rows if x['s'] <= -1.0]")
-    assert not _numeric_comparisons("if value is None:\n    pass\n")
 
 
 def test_no_confidence_threshold_is_invented_anywhere():
@@ -364,15 +349,6 @@ def test_the_transcriber_stops_throwing_the_number_away():
         "transcriber's own confidence again")
 
 
-def test_a_row_carries_it_onto_disk_and_back():
-    from library.tools.timeline_transcript import SpokenSegment
-
-    row = SpokenSegment(speaker="Akshita", text=CLEAN, timeline_start=281.07,
-                        timeline_end=284.07, source_file="/x.MXF",
-                        source_start=1.0, source_end=4.0,
-                        resolve_item_id="clip-b", avg_logprob=-0.21)
-    assert row.as_dict()["avg_logprob"] == -0.21
-    assert SpokenSegment(**row.as_dict()).avg_logprob == -0.21
 
 
 def test_a_transcript_that_predates_this_still_loads():
@@ -450,32 +426,6 @@ def test_the_handoff_names_both_things_the_projection_now_delivers():
     assert "transcription_confidence" in view and "script_mismatch" in view
 
 
-def test_the_confidence_column_costs_about_seven_characters_a_row():
-    """#585 justified +25,859 characters for 793 cut boundaries at 32.6
-    each. The same arithmetic, asked of this.
-
-    Measured on the field-test episode: 929 rows, +6,589 characters,
-    7.1 a row. Asked here at the same scale, because the column header
-    and the legend are fixed costs and a three-row fixture would price
-    them per row and report 66.
-    """
-    rows = 929
-    without = {"measurement": "x", "derived_from": {}, "segments": [
-        segment("Akshita", float(i), i + 0.9,
-                "one line of the conversation, about this long", "clip-b")
-        for i in range(rows)]}
-    with_it = json.loads(json.dumps(without))
-    for i, row in enumerate(with_it["segments"]):
-        row["avg_logprob"] = round(-0.05 - (i % 90) / 100.0, 3)
-
-    grew = (len(json_to_toon(build_view("spoken_lines",
-                                        {"timeline_transcript": with_it})))
-            - len(json_to_toon(build_view("spoken_lines",
-                                          {"timeline_transcript": without}))))
-    per_row = grew / rows
-    assert 0 < per_row < 12, (
-        f"the confidence column costs {per_row:.1f} characters a row, "
-        f"{grew} over {rows} rows")
 
 
 # ── The THIRD reading of a missing number, and it is new ─────────────

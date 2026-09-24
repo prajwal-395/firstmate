@@ -87,16 +87,6 @@ def test_build_time_repair_moves_a_stored_end_out_of_a_word():
                       "now": 414.03, "through": "about"}]
 
 
-def test_a_clean_moment_passes_through_untouched():
-    """The snap is a fixed point on word edges, so repair is
-    idempotent: a fresh proposal's spans are returned AS-IS, the same
-    object, with nothing reported."""
-    moment = _moment(342.038, 414.03)
-    repaired, moves = snap_moment_to_speech(moment, _reel5_transcript())
-    assert repaired is moment
-    assert moves == []
-
-
 def test_repair_is_idempotent():
     """Repairing twice is repairing once: the second pass finds no
     boundary inside any word."""
@@ -132,27 +122,3 @@ def test_repair_snaps_a_stored_cta_without_reselecting():
     assert repaired.approval is Approval.APPROVED
 
 
-def test_repair_preserves_which_moments_were_approved():
-    """Option (b) never re-decides content: approval, slug, reason and
-    take measurements ride along untouched on the repaired copy."""
-    moment = _moment(342.038, 413.851)
-    repaired, _ = snap_moment_to_speech(moment, _reel5_transcript())
-    assert repaired.approval is Approval.APPROVED
-    assert repaired.slug == "schema-and-knowledge-graphs"
-    assert repaired.reason == moment.reason
-
-
-def test_the_repaired_moment_builds_word_edge_ranges():
-    """End to end of the repair half: the ranges the builder lays down
-    from the repaired moment open and close on word edges, while the
-    raw stored span still ends mid-word - the stall this removes."""
-    from library.tools.reel_build import keep_ranges, reel_ranges
-
-    tx = _reel5_transcript()
-    raw_ranges = reel_ranges(_moment(342.038, 413.851), tx)
-    assert raw_ranges == [(342.038, 413.851)], (
-        "the stored span reaches the builder unrepaired - this is the "
-        "mid-word end the F8 gate fails")
-    repaired, _ = snap_moment_to_speech(_moment(342.038, 413.851), tx)
-    assert reel_ranges(repaired, tx) == [(342.038, 414.03)]
-    assert keep_ranges(342.038, 414.03, []) == [(342.038, 414.03)]

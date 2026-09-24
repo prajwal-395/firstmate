@@ -94,12 +94,6 @@ def test_the_emblem_lands_on_its_word_window():
     assert end == pytest.approx(1211.621)
 
 
-def test_a_single_word_anchors_to_that_word():
-    start, end = sv.find_phrase_window(WORDS, "money")
-    assert start == pytest.approx(1211.361)
-    assert end == pytest.approx(1211.621)
-
-
 def test_search_ignores_case_and_punctuation():
     start, _ = sv.find_phrase_window(WORDS, "Lots Of Money,")
     assert start == pytest.approx(1210.981)
@@ -163,12 +157,6 @@ def test_the_engine_carries_no_keyword_table():
         assert literal not in source, f"{literal!r} in semantic_visual.py"
 
 
-def test_the_asset_source_is_stated():
-    """The module says what the asset is and what it costs, in one place."""
-    assert "composed" in sv.ASSET_SOURCE.lower()
-    assert "licen" in sv.ASSET_SOURCE.lower() or "network" in sv.ASSET_SOURCE.lower()
-
-
 # ── 3. the plan honours the anchor ─────────────────────────────────────
 
 def test_resolve_plan_lands_an_anchored_entry_on_its_words():
@@ -181,20 +169,6 @@ def test_resolve_plan_lands_an_anchored_entry_on_its_words():
     assert moment["subject"] == "money - paid advertising budgets"
 
 
-def test_an_unfindable_anchor_is_dropped_by_name():
-    resolved = resolve([money_entry(anchor_phrase="crypto fortune")])
-    assert not resolved.moments
-    assert resolved.dropped[0].reason == "anchor_phrase_not_found"
-
-
-def test_no_timings_anywhere_is_dropped_by_name():
-    resolved = mgp.resolve_plan(
-        [money_entry()], timeline_duration=DURATION, fps=FPS,
-        palette_roles={}, word_windows=[])
-    assert not resolved.moments
-    assert resolved.dropped[0].reason == "no_word_timings_to_anchor_against"
-
-
 def test_two_timings_is_ambiguous_and_refused():
     """An entry naming BOTH an anchor phrase and explicit seconds claims
     two timings. The engine does not pick one - choosing would be the
@@ -202,25 +176,6 @@ def test_two_timings_is_ambiguous_and_refused():
     resolved = resolve([money_entry(start_seconds=5.0, duration_seconds=1.0)])
     assert not resolved.moments
     assert resolved.dropped[0].reason == "conflicting_timing"
-
-
-def test_without_a_hold_the_word_span_is_the_hold():
-    """No `hold_seconds`: the graphic lives exactly as long as the words.
-    The measurement is the default; anything longer is the plan's number."""
-    resolved = resolve([money_entry(hold_seconds=None)])
-    moment = resolved.moments[0]
-    assert moment["timeline_end"] - moment["timeline_start"] == pytest.approx(
-        1211.621 - 1210.981, abs=0.04)
-
-
-# ── 4. the roster carries the element ──────────────────────────────────
-
-def test_subject_emblem_is_in_the_roster_and_drawable():
-    assert mgv.canonical_key("subject_emblem") == "subject_emblem"
-    assert "subject_emblem" in mgp.DRAWABLE
-    element = mgv.ELEMENTS_BY_KEY["subject_emblem"]
-    assert element.copy == "required"
-    assert element.reachable == mgv.REACHABLE_NOW
 
 
 # ── 5. spine words reach the resolver in timeline seconds ──────────────

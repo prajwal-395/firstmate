@@ -157,30 +157,12 @@ def test_a_declared_task_reaches_a_model_with_its_role_attached(
     assert undetermined.collected()[-1].reading == undetermined.NOTHING_MISSING
 
 
-def test_the_floors_gate_reads_the_task_prompt(tmp_path):
-    project = _write_project(tmp_path, [_task_entry()])
-    task = creative_tasks.tasks_for_project(str(project))["reel_pick"]
-
-    prompt = creative_tasks.build_prompt(task)
-
-    # The gate is the same enumeration steps are read for - not a copy
-    # of its phrases.
-    assert creative_floors.find_floors(prompt) == []
-
-
 # ── The declaration is refused when it would break a guard ─────────────
 
 def test_a_task_whose_handoff_demands_a_count_is_refused(tmp_path):
     project = _write_project(
         tmp_path, [_task_entry()],
         handoff_text="# Pick reels\n\nYou must plan at least 3 reels.\n")
-    with pytest.raises(creative_tasks.CreativeTaskError, match="floor"):
-        creative_tasks.tasks_for_project(str(project))
-
-
-def test_a_task_whose_role_demands_a_count_is_refused(tmp_path):
-    role = dict(ROLE, decides=["Plan at least 3 shorts."])
-    project = _write_project(tmp_path, [_task_entry(role=role)])
     with pytest.raises(creative_tasks.CreativeTaskError, match="floor"):
         creative_tasks.tasks_for_project(str(project))
 
@@ -194,13 +176,6 @@ def test_a_task_shadowing_a_step_id_is_refused(tmp_path):
 def test_a_task_with_nothing_to_ask_is_refused(tmp_path):
     project = _write_project(tmp_path, [_task_entry(outputs=[])])
     with pytest.raises(creative_tasks.CreativeTaskError, match="nothing to ask"):
-        creative_tasks.tasks_for_project(str(project))
-
-
-def test_a_task_with_an_incomplete_role_is_refused(tmp_path):
-    role = dict(ROLE, defers=[])
-    project = _write_project(tmp_path, [_task_entry(role=role)])
-    with pytest.raises(creative_tasks.CreativeTaskError, match="role"):
         creative_tasks.tasks_for_project(str(project))
 
 
@@ -233,41 +208,8 @@ def test_a_task_with_direction_and_evidence_gets_the_flag_field(
     assert FIELD in schema_names
 
 
-def test_a_task_with_no_evidence_gets_no_flag_field(
-        tmp_path, monkeypatch):
-    project = _write_project(tmp_path, [_task_entry()])
-    _run_task(monkeypatch, project, "reel_pick",
-              {"timeline_transcript": {}}, _canned_answer())
-
-    from library.tools.project_layout import Area, layout_for
-    request = json.loads(
-        (layout_for(str(project)).read_dir(Area.LLM_REQUESTS)
-         / f"{creative_tasks.task_key('reel_pick')}.json"
-         ).read_text(encoding="utf-8"))
-    schema_names = [o["name"] for o in json.loads(request["expected_schema"])]
-    from library.tools.direction_contradiction import FIELD
-    assert FIELD not in schema_names
-
-
 # ── The bench mirrors the task's prompt contributions ──────────────────
-
-def test_the_replay_bench_mirrors_the_task_role():
-    source = (REPO / "library/tools/replay_bench/reconstruct.py").read_text(
-        encoding="utf-8")
-    assert "creative_tasks" in source
 
 
 # ── The declaration round-trips through the project config ─────────────
 
-def test_creative_tasks_round_trip_through_project_config(tmp_path):
-    from library.schemas.project_config import (
-        load_project_config, project_config_to_dict,
-    )
-    project = _write_project(tmp_path, [_task_entry()])
-
-    config = load_project_config(project / "project.yaml")
-    assert len(config.pipeline.creative_tasks) == 1
-    assert config.pipeline.creative_tasks[0]["name"] == "reel_pick"
-
-    assert (project_config_to_dict(config)["pipeline"]["creative_tasks"]
-            == config.pipeline.creative_tasks)

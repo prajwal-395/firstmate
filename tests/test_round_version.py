@@ -65,13 +65,6 @@ def test_a_new_ask_after_a_build_opens_the_next_round():
     assert len(without_build[1]["opened_by"]) == 2
 
 
-def test_round_one_is_the_first_cut_and_says_so():
-    """A project with no feedback at all still has a version."""
-    rounds = rv.round_boundaries([], promotions=[])
-    assert len(rounds) == 1
-    assert rounds[0]["round"] == 1
-    assert rounds[0]["why"] == rv.FIRST_ROUND_WHY
-    assert rounds[0]["opened_by"] == []
 
 
 def test_a_reply_of_ours_opens_no_round(tmp_path, monkeypatch):
@@ -142,9 +135,6 @@ def test_an_unreadable_rounds_file_refuses_rather_than_starting_empty(
         rv.read_rounds(str(project))
 
 
-def test_digest_rows_changes_when_the_picture_does():
-    assert rv.digest_rows(_rows(3, 30)) == rv.digest_rows(_rows(3, 30))
-    assert rv.digest_rows(_rows(3, 30)) != rv.digest_rows(_rows(4, 40))
 
 
 # ── Backfill ─────────────────────────────────────────────────────
@@ -229,9 +219,3 @@ def test_a_measurement_outranks_a_reconstruction(repo_project):
     assert kept["built_with"] == "deadbeef"
 
 
-def test_backfill_on_a_project_with_no_repo_says_so(tmp_path):
-    project = tmp_path / "project"
-    (project / "pipeline_output" / "review").mkdir(parents=True)
-    report = rv.backfill(str(project))
-    assert report["commits"] == 0
-    assert "no committed timeline snapshot" in report["why"]

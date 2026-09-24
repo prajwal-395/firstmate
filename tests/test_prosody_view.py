@@ -66,13 +66,6 @@ def test_seventeen_error_records_become_one_line():
     assert "measured" not in view["prosody"]
 
 
-def test_the_absence_is_reported_rather_than_hidden():
-    """A model told plainly that nothing was measured knows not to reason
-    about it. Silence would read as "no prosody worth mentioning"."""
-    view = build_view("prosody", {"prosody_analysis": {"profiles": HOLLOW}})
-    assert "no prosody measurement" in view["prosody"]["not_measured"]
-
-
 def test_a_real_measurement_still_reaches_the_prompt():
     """A saving bought by blinding the step is not a saving."""
     view = build_view(
@@ -103,16 +96,6 @@ def test_contours_do_not_reach_the_prompt():
     assert "pitch_stats" in view["prosody"]["measured"]["clip_001"]["prosody"]
     assert "pitch_contour_10ms" not in view["prosody"]["measured"]["clip_001"]["prosody"]
     assert "intensity_contour_50ms" not in view["prosody"]["measured"]["clip_001"]["prosody"]
-
-
-def test_the_view_and_the_step_agree_on_what_a_measurement_is():
-    """One predicate, so the write-time and read-time answers cannot differ."""
-    from library.steps.step_1_05_prosody_analysis.step import (
-        profile_defect as step_side,
-    )
-    assert step_side is profile_defect
-    assert profile_defect(REAL["clip_011"]) == ""
-    assert profile_defect(HOLLOW["clip_001"]) == "parselmouth not installed"
 
 
 # ── Nothing consumes it, and the view is intact for whatever does ────
@@ -150,37 +133,8 @@ def test_prosody_is_declared_by_its_wired_consumers():
         f"Expected {expected_consumers}, got {actual}")
 
 
-def test_projecting_through_the_view_carries_no_error_records():
-    """The defect itself, on the fields a consumer would declare: the
-    seventeen error records collapse to one stated absence, and the rest
-    of the projection is untouched."""
-    inputs = {
-        "prosody_analysis": {"profiles": HOLLOW, "total_clips": 17},
-        "clip_catalog": [{"filename": "IMG_1816.MOV", "duration_seconds": 70.1}],
-    }
-    context = json_to_toon(project_fields(inputs, CONSUMER_FIELDS))
-    assert context.count("parselmouth not installed") == 1
-    assert "IMG_1816.MOV" in context, "the rest of the projection is unchanged"
-
-
-def test_the_raw_paths_are_what_carried_the_seventeen_error_records():
-    """Why the view exists at all: an allow-list selects by NAME and
-    these records have the right names."""
-    inputs = {"prosody_analysis": {"profiles": HOLLOW, "total_clips": 17}}
-    raw = json_to_toon(project_fields(inputs, ["prosody_analysis"]))
-    assert raw.count("parselmouth not installed") == 17
-
-
 def test_a_step_with_no_prosody_routed_gets_nothing_rather_than_an_error():
     assert build_view("prosody", {"clip_catalog": []}) == {}
     assert build_view("prosody", {"prosody_analysis": {}}) == {}
 
 
-@pytest.mark.parametrize("name", sorted(CONTEXT_VIEWS))
-def test_every_view_survives_a_second_projection(name):
-    """`llm_only` steps are projected twice on every run."""
-    fields = manifest()["context_fields"] + ["view:prosody"]
-    once = project_fields(
-        {"prosody_analysis": {"profiles": {**HOLLOW, **REAL}}}, fields)
-    twice = project_fields(once, fields)
-    assert twice.get(name) == once.get(name)

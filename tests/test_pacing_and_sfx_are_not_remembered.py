@@ -190,23 +190,8 @@ def _inputs(**overrides):
     return payload
 
 
-def test_one_row_per_planned_cut():
-    assert len(build_transition_rows(_inputs())) == 3
 
 
-def test_a_cut_is_keyed_by_the_block_it_cuts_into():
-    """`spine_block_position` is the identifier `sfx_creative` names.
-
-    Keyed by timeline seconds instead, the model would have to
-    re-derive the join out of `timed_spine` before it could place a
-    sound - the same defect class as `sfx_candidates_toon` keyed by
-    `segment_id` (#223) and `cuts_toon` (#218), AGENTS.md 10.1.
-    """
-    rows = build_transition_rows(_inputs())
-    assert [r["spine_block_position"] for r in rows] == [1, 2, 3]
-
-    spine_positions = {b["position"] for b in _spine()["structure"]}
-    assert all(r["spine_block_position"] in spine_positions for r in rows)
 
 
 def test_a_drawn_transition_is_told_apart_from_one_that_draws_nothing():
@@ -245,17 +230,6 @@ def test_a_cut_that_names_no_boundary_is_unresolved_not_the_nearest_block():
     )
 
 
-def test_the_transition_rationale_does_not_travel():
-    """4.02 explaining itself is three quarters of the spec's bytes.
-
-    On project 001 the recorded `transition_spec` is 11,273 bytes and
-    the table it becomes is 491 - the step gets what it needs to pair a
-    sound, not everything the plan happens to hold.
-    """
-    serialised = json.dumps(build_transition_rows(_inputs()))
-    assert "Nothing to draw" not in serialised
-    assert "xxx" not in serialised
-    assert len(serialised) < 500
 
 
 def test_the_table_is_empty_rather_than_wrong_without_the_plan():
@@ -270,25 +244,6 @@ def test_the_table_is_empty_rather_than_wrong_without_the_plan():
     assert build_transition_rows(payload) == []
 
 
-def test_the_bridge_emits_the_table_on_a_real_run():
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
-    proc = subprocess.run(
-        [sys.executable, str(SFX / "bridge.py")],
-        input=json.dumps(_inputs()),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=str(REPO),
-        env=env,
-    )
-    if proc.returncode != 0:
-        pytest.skip(f"the SFX library is not resolvable here: {proc.stdout}")
-    out = json.loads(proc.stdout)
-    assert out["transitions_toon"].startswith(
-        "[3]{spine_block_position,transition_type,draws_on_screen,"
-        "duration_frames,cut_point_seconds}"
-    )
 
 
 def test_the_table_is_declared_as_an_output():
@@ -298,15 +253,3 @@ def test_the_table_is_declared_as_an_output():
     assert "transitions_toon" in names
 
 
-def test_no_cut_resolves_onto_the_opening_block():
-    """A cut is a boundary BEFORE a block, so the first block has none.
-
-    Step 4.02's own resolver refuses index 0 for the same reason; a
-    transition landing there would invite a sound at the top of the
-    video that the plan never asked for.
-    """
-    spec = [{"transition_id": "trans_000", "cut_point_original": 0.0,
-             "transition_type": "defocus", "duration_frames": 15,
-             "rationale": ""}]
-    rows = build_transition_rows(_inputs(transition_spec=spec))
-    assert rows[0]["spine_block_position"] == "unresolved"

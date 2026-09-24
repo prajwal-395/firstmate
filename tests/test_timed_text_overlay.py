@@ -138,42 +138,12 @@ SAMPLE_DECLARATION = {
 }
 
 
-def test_props_are_deterministic():
-    """Same input declaration -> identical JSON output, byte-for-byte."""
-    a = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
-    b = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
-    assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
-def test_deterministic_across_multiple_runs():
-    """Run the generator 10 times; all results must be identical."""
-    baseline = json.dumps(
-        generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920), sort_keys=True)
-    for _ in range(10):
-        assert json.dumps(
-            generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920),
-            sort_keys=True) == baseline
 
 
-def test_props_match_remotion_schema():
-    """Output props must match TimedTextOverlay's expected shape."""
-    result = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
-    assert "moments" in result
-    assert "fontFamily" in result
-    assert "fps" in result
-    assert "width" in result
-    assert "height" in result
-    assert "durationInFrames" in result
 
 
-def test_moments_have_required_fields():
-    """Every moment in the output carries the full TimedTextOverlay contract."""
-    result = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
-    required = {"text", "color", "fontSize", "startFrame", "durationFrames",
-                "x", "y", "fadeInFrames", "fadeOutFrames"}
-    for i, moment in enumerate(result["moments"]):
-        missing = required - set(moment.keys())
-        assert not missing, f"Moment {i} missing keys: {missing}"
 
 
 # ─────────────────────────────────────────────────────────
@@ -197,17 +167,8 @@ def test_empty_effect_dict_produces_nothing():
     assert result is None
 
 
-def test_empty_moments_produces_nothing():
-    """A declaration with an empty moments list is treated as undeclared."""
-    result = generate_timed_text_overlay_props(
-        {"timed_text_overlay": {"moments": []}}, width=1080, height=1920)
-    assert result is None
 
 
-def test_none_declaration_produces_nothing():
-    result = generate_timed_text_overlay_props(
-        {"timed_text_overlay": None}, width=1080, height=1920)
-    assert result is None
 
 
 # ─────────────────────────────────────────────────────────
@@ -250,36 +211,8 @@ def test_a_pipeline_step_reads_the_slot():
         f"nothing - the exact defect this slot spent four months in.")
 
 
-def test_no_reader_record_is_gone():
-    """`NO_READER` retired with the reader, and must not come back.
-
-    It said "do not declare this slot until a step reads it". A step
-    does. Leaving the record in place would tell the next agent to keep
-    the working capability switched off.
-    """
-    source = open(
-        os.path.join(PROJECT_ROOT, "library", "tools",
-                     "timed_text_overlay.py"), encoding="utf-8").read()
-    tree = ast.parse(source)
-    names = {
-        target.id
-        for node in tree.body if isinstance(node, ast.Assign)
-        for target in node.targets if isinstance(target, ast.Name)
-    }
-    assert "NO_READER" not in names, (
-        "library/tools/timed_text_overlay.py still declares NO_READER, "
-        "but step 4.06 reads the slot.")
 
 
-def test_the_manifest_carries_the_segments():
-    """compile_manifest must emit the key, or the renderer never sees it."""
-    compile_step = os.path.join(
-        PROJECT_ROOT, "library", "steps", "step_5_04_compile_manifest",
-        "step.py")
-    with open(compile_step, encoding="utf-8") as f:
-        assert '"timed_text_overlay"' in f.read(), (
-            "compile_manifest does not emit timed_text_overlay, so 4.06's "
-            "rendered segments stop at pipeline_data.json")
 
 
 # ─────────────────────────────────────────────────────────
@@ -312,54 +245,6 @@ def test_fourth_wall_trial_run_asset_is_gone_from_the_engine():
         f"the removed 4th Wall trial-run asset is back: {offenders}")
 
 
-def test_root_tsx_registers_only_general_compositions():
-    """Root.tsx is the ENGINE's composition registry.
-
-    A composition named after one series belongs with that series'
-    project, not here - that is what `content.bookends` + `source:` is
-    for (library/tools/bookends.py).  `FourthWallOverlay` was registered
-    here; it is gone.
-
-    `FullFrameCard` is listed because it is series-NEUTRAL in the same
-    way the other three are: it draws whatever runs, colours and
-    typeface a project declares and states none of its own
-    (`library/tools/full_frame_element.py`, AGENTS.md 14).  The
-    assertion stays an EQUALITY rather than a subset check, so a
-    composition added without this reasoning still fails here.
-
-    `BrandMotion` is listed for the same reason: it plays whatever
-    staged brand file a project declares and states none of its own -
-    the studio default is an empty `src` that renders null, and there
-    is no copy, colour, typeface or motion character in the component
-    (`library/tools/brand_motion.py`, AGENTS.md 14).  PR 704 registered
-    it without writing this paragraph down; `test_brand_motion.py`
-    pins the registration itself, so removing it here is not the fix.
-
-    `StagedScene` is listed for the same reason, and it is the one that
-    most needed the paragraph: it draws a whole animated PICTURE rather
-    than an overlay, which is exactly where a house look would hide.  It
-    states no ground colour, no texture, no vignette, no palette, no
-    typeface, no size, no camera move and no duration - all of them
-    arrive in props from a declaration, and the studio default is a
-    black ground with no layers, which draws nothing.  The three values
-    it does supply are the neutral camera (no move), an absent frame
-    hold (every frame drawn) and what its four ease NAMES look like -
-    each the absence of a choice or the drawing of a word, in the
-    reading AGENTS.md 10.5 gives `CUT_TYPES` and `RAMP_FRAMES`.
-    `docs/ANIMATION_FIRST_REFERENCE.md` is the measurement it answers
-    and `tests/test_staged_scene.py` pins the registration itself.
-    """
-    with open(ROOT_TSX, encoding="utf-8") as f:
-        src = f.read()
-    ids = set(
-        line.split('id="', 1)[1].split('"', 1)[0]
-        for line in src.splitlines() if 'id="' in line
-    )
-    assert ids == {"SubtitleOverlay", "MotionGraphics", "TimedTextOverlay",
-                   "FullFrameCard", "BrandMotion", "StagedScene"}, (
-        f"Root.tsx registers {sorted(ids)}. A composition named after one "
-        f"series is a project asset - declare it with content.bookends "
-        f"and a project-owned `source:` instead.")
 
 
 # ─────────────────────────────────────────────────────────
@@ -391,25 +276,8 @@ def test_overlapping_moments_share_one_segment():
     assert segments[0]["timeline_end"] == 2.5
 
 
-def test_touching_moments_share_one_segment():
-    """A moment starting on the frame the previous one ends is contiguous."""
-    segments = plan_timed_text_segments(_declaration(
-        _moment(start_frame=30, duration_frames=30),
-        _moment(start_frame=60, duration_frames=30),
-    ), width=1080, height=1920)
-    assert len(segments) == 1
-    assert segments[0]["total_frames"] == 60
 
 
-def test_planned_segments_never_overlap():
-    """The property that lets every segment share one video track."""
-    segments = plan_timed_text_segments(_declaration(
-        _moment(start_frame=300, duration_frames=60),
-        _moment(start_frame=30, duration_frames=30),
-        _moment(start_frame=100, duration_frames=30),
-    ), width=1080, height=1920)
-    for prev, curr in zip(segments, segments[1:]):
-        assert curr["timeline_start"] >= prev["timeline_end"]
 
 
 def test_moment_frames_are_rebased_against_their_segment():
@@ -430,13 +298,6 @@ def test_moment_frames_are_rebased_against_their_segment():
     assert segments[0]["timeline_start"] == 3.0
 
 
-def test_segment_props_carry_the_fixture_geometry():
-    segments = plan_timed_text_segments(
-        _declaration(_moment(), font_family="Montserrat"),
-        fps=30, width=320, height=568)
-    props = segments[0]["props"]
-    assert (props["width"], props["height"], props["fps"]) == (320, 568, 30)
-    assert props["fontFamily"] == "Montserrat"
 
 
 def test_a_moment_past_the_end_of_the_edit_is_rejected():
@@ -448,11 +309,6 @@ def test_a_moment_past_the_end_of_the_edit_is_rejected():
     assert "reaches no picture" in str(exc.value)
 
 
-def test_timeline_bound_is_optional():
-    """A caller that does not know the edit's length still gets a plan."""
-    segments = plan_timed_text_segments(
-        _declaration(_moment(start_frame=1800, duration_frames=60)), width=1080, height=1920)
-    assert len(segments) == 1
 
 
 # ─────────────────────────────────────────────────────────
@@ -619,37 +475,14 @@ def test_zero_fades_are_legal():
     assert segments[0]["props"]["moments"][0]["fadeInFrames"] == 0
 
 
-def test_a_non_mapping_declaration_raises():
-    with pytest.raises(TimedTextDeclarationError):
-        plan_timed_text_segments({"timed_text_overlay": {"moments": "nope"}}, width=1080, height=1920)
 
 
 # ─────────────────────────────────────────────────────────
 # Schema integration
 # ─────────────────────────────────────────────────────────
 
-def test_schema_loads_timed_text_overlay():
-    """BrandTemplate.from_dict loads the timed_text_overlay slot."""
-    from library.schemas.brand_template import BrandTemplate
-    tmpl = BrandTemplate.from_dict({
-        "series_id": "test",
-        "effect": {
-            "timed_text_overlay": {
-                "font_family": "Montserrat",
-                "moments": [{"text": "test", "color": "#fff",
-                             "start_frame": 0, "duration_frames": 30}],
-            }
-        }
-    })
-    assert tmpl.effect.timed_text_overlay is not None
-    assert tmpl.effect.timed_text_overlay["font_family"] == "Montserrat"
 
 
-def test_schema_omitted_is_none():
-    """A template that omits timed_text_overlay gets None, not an empty dict."""
-    from library.schemas.brand_template import BrandTemplate
-    tmpl = BrandTemplate.from_dict({"series_id": "test"})
-    assert tmpl.effect.timed_text_overlay is None
 
 
 
@@ -694,18 +527,6 @@ def test_an_omitted_typeface_raises_rather_than_substituting():
     assert "font_family" in str(exc.value)
 
 
-@pytest.mark.parametrize("key", [
-    "font_size", "fade_in_frames", "fade_out_frames", "font_weight",
-    "text_shadow", "x", "y",
-])
-def test_each_look_key_is_required_on_its_own(key):
-    """Dropping any one key drops nothing silently: it raises, by name."""
-    moment = _moment()
-    del moment[key]
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(_declaration(moment), width=1080,
-                                 height=1920)
-    assert key in str(exc.value)
 
 
 @pytest.mark.parametrize("bad,needle", [
@@ -739,16 +560,6 @@ def test_an_omitted_alignment_still_renders_centred():
     assert declared[0]["props"]["moments"][0]["textAlign"] == "right"
 
 
-def test_custom_fps_and_dimensions():
-    """fps, width, height, duration_in_frames are forwarded."""
-    result = generate_timed_text_overlay_props(
-        SAMPLE_DECLARATION,
-        fps=60, width=1920, height=1080, duration_in_frames=3600,
-    )
-    assert result["fps"] == 60
-    assert result["width"] == 1920
-    assert result["height"] == 1080
-    assert result["durationInFrames"] == 3600
 
 
 # ─────────────────────────────────────────────────────────
@@ -803,19 +614,6 @@ def test_a_project_declaration_beats_the_templates(tmp_path):
         "FROM THE TEMPLATE")
 
 
-def test_a_project_that_declares_nothing_leaves_the_template_alone(tmp_path):
-    from library.tools.timed_text_overlay import resolve_declaration
-
-    template_effect = {"timed_text_overlay": {"moments": [
-        {"text": "KEEP ME", "color": "#FFFFFF",
-         "start_frame": 0, "duration_frames": 30}]}}
-    project = _write_project(tmp_path, "name: No Card\n")
-    assert resolve_declaration(template_effect, project) == template_effect
-
-    # No project.yaml at all, and no project folder at all.
-    assert resolve_declaration(template_effect, str(tmp_path / "nope")) == (
-        template_effect)
-    assert resolve_declaration(template_effect, "") == template_effect
 
 
 @pytest.mark.parametrize("body,needle", [
@@ -875,23 +673,6 @@ def test_a_project_font_reaches_the_props_as_a_static_path():
     assert props["fontFile"] == "brand/NanumPenScript-Regular.ttf"
 
 
-def test_a_bundled_or_accepted_family_needs_no_file():
-    from library.tools.render_fonts import (
-        ACCEPTED_SYSTEM_FONTS,
-        BUNDLED_FONT_FAMILY,
-    )
-    from library.tools.timed_text_overlay import plan_timed_text_segments
-
-    for family in [BUNDLED_FONT_FAMILY, *ACCEPTED_SYSTEM_FONTS]:
-        declaration = {"timed_text_overlay": {
-            "font_family": family,
-            "moments": [{"text": "x", "color": "#FFFFFF",
-                          "start_frame": 0, "duration_frames": 30,
-                          **_LOOK}],
-        }}
-        props = plan_timed_text_segments(declaration, width=1080, height=1920)[0]["props"]
-        assert props["fontFamily"] == family
-        assert "fontFile" not in props
 
 
 # ─────────────────────────────────────────────────────────

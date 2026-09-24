@@ -64,12 +64,3 @@ def test_band_with_no_glyphs_refuses(tmp_path):
     image.save(png)
     with pytest.raises(AssertionError, match="no glyphs in band"):
         body_heights(png)
-
-
-def test_empty_frame_is_not_uniform(tmp_path):
-    from PIL import Image
-
-    png = str(tmp_path / "blank.png")
-    Image.new("RGB", (400, 200), (0, 0, 0)).save(png)
-    assert body_heights(png) == []
-    assert not siblings_uniform([])

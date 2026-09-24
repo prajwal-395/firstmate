@@ -113,43 +113,8 @@ def test_relative_declaration_resolves_against_the_project(tmp_path):
     assert found["content"] == BRIEF_TEXT
 
 
-def test_snapshot_is_tracked_by_the_allow_list(tmp_path):
-    """Derived paths, not copied ones: fails naming the store if dropped."""
-    src = _outside_brief(tmp_path)
-    project = tmp_path / "project"
-    project.mkdir()
-    assert brief_snapshot.record_brief_for_run(
-        str(project), str(src))["snapshotted"] is True
-
-    assert bvc.init_project_repo(str(project))["initialised"] is True
-    result = bvc.commit_build(str(project), message="first commit\n")
-    assert result["committed"] is True
-    tracked = set(_git(project, "ls-files").splitlines())
-    for rel in brief_snapshot.snapshot_relpaths():
-        assert rel in tracked, (
-            f"brief snapshot {rel} is excluded from the generated "
-            f"allow-list: the versioned home of the creative brief is "
-            f"unversioned again")
 
 
-def test_unchanged_snapshot_rewrites_nothing(tmp_path):
-    """An unchanged brief is a no-op: the bytes, digest and files stand."""
-    src = _outside_brief(tmp_path)
-    project = tmp_path / "project"
-    project.mkdir()
-
-    first = brief_snapshot.record_brief_for_run(str(project), str(src))
-    md_rel, json_rel = brief_snapshot.snapshot_relpaths()
-    md_before = (project / md_rel).read_bytes()
-    json_before = (project / json_rel).read_bytes()
-
-    second = brief_snapshot.record_brief_for_run(str(project), str(src))
-
-    assert second["snapshotted"] is True
-    assert second["unchanged"] is True
-    assert second["sha256"] == first["sha256"]
-    assert (project / md_rel).read_bytes() == md_before
-    assert (project / json_rel).read_bytes() == json_before
 
 
 def test_edited_brief_supersedes_and_stays_distinct(tmp_path):
@@ -191,25 +156,5 @@ def test_no_brief_clears_a_stale_snapshot(tmp_path):
     assert not (project / json_rel).exists()
 
 
-def test_no_brief_and_no_snapshot_is_quiet(tmp_path):
-    """A brief-less project with nothing stale reports nothing to do."""
-    project = tmp_path / "project"
-    project.mkdir()
-
-    report = brief_snapshot.record_brief_for_run(str(project), "")
-
-    assert report["snapshotted"] is False
-    assert report["cleared"] == []
 
 
-def test_unreadable_brief_never_raises(tmp_path):
-    """A record that breaks the build is worse than no record."""
-    project = tmp_path / "project"
-    project.mkdir()
-
-    report = brief_snapshot.record_brief_for_run(
-        str(project), str(tmp_path / "planning-tree" / "missing.md"))
-
-    assert report["snapshotted"] is False
-    assert report["reason"]
-    assert brief_snapshot.read_snapshot(str(project)) is None

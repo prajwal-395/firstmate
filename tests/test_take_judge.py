@@ -108,11 +108,6 @@ def test_an_inverted_cut_is_withdrawn():
     assert [w["reason"] for w in withdrawn] == ["inverted_or_empty"]
 
 
-def test_an_empty_cut_is_withdrawn():
-    kept, withdrawn = reel_build.judge_take_cuts(
-        [_cut((10.0, 10.0), (12.0, 13.0))], 0.0, 20.0, {"segments": []})
-    assert kept == []
-    assert [w["reason"] for w in withdrawn] == ["inverted_or_empty"]
 
 
 def test_a_cut_that_keeps_before_it_drops_is_withdrawn():

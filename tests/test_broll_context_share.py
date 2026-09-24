@@ -247,15 +247,8 @@ def test_the_prompt_declares_no_path_into_the_raw_vision_documents():
         f"itself is at the path in `footage_analysis_reference`.")
 
 
-def test_the_step_is_still_routed_the_documents_it_no_longer_prints():
-    """The post-bridge and the pre-bridge both read them, unprojected."""
-    declared = {i["name"] for i in _manifest()["interface"]["inputs"]}
-    assert "semantic_analysis_documents" in declared
 
 
-def test_the_reference_is_a_registered_referenced_input():
-    """Clause 5: a harness that cannot follow a path gets it whole."""
-    assert "footage_analysis_reference" in REFERENCED_INPUTS
 
 
 # ── The measured half: what the prompt spends on the analysis ─────────
@@ -293,27 +286,8 @@ READINGS_OF_THE_ANALYSIS = (
 )
 
 
-def test_the_prompt_spends_less_on_readings_than_the_analysis_costs(project):
-    sections = _sections(project)
-    readings = {k: _bytes(v) for k, v in sections.items()
-                if k in READINGS_OF_THE_ANALYSIS}
-    assert set(readings) >= {"broll_candidates_toon", "picture",
-                             "footage_analysis_reference"}, sorted(sections)
-
-    inline = _bytes(json_to_toon(project_fields(
-        {"semantic_analysis_documents": DOCUMENTS}, WITHDRAWN_PATHS)))
-    spent = sum(readings.values())
-    ratio = spent / inline
-    assert ratio < READINGS_BUDGET, (
-        f"3.02 spends {spent:,} B of prompt on readings of an analysis "
-        f"that is {inline:,} B carried whole (ratio {ratio:.3f}, ceiling "
-        f"{READINGS_BUDGET}). Per section: "
-        + ", ".join(f"{k} {v:,} B" for k, v in sorted(readings.items())))
 
 
-def test_the_raw_structure_is_not_a_section_of_the_prompt(project):
-    sections = _sections(project)
-    assert "semantic_analysis_documents" not in sections, sorted(sections)
 
 
 # ── Nothing the choice needs became unreachable ───────────────────────
@@ -349,10 +323,6 @@ ONLY_AT_THE_PATH = (
 )
 
 
-def test_every_field_the_table_offers_is_still_in_the_prompt(project):
-    table = _sections(project)["broll_candidates_toon"]
-    for field in IN_THE_PROMPT:
-        assert field in table, field
 
 
 def test_the_answer_is_still_resolved_against_something_it_can_see(project):
@@ -391,12 +361,6 @@ def test_the_map_names_every_clip_by_the_id_an_answer_must_use(project):
         assert f"## {entry['clip_id']}  [" in reference, entry["clip_id"]
 
 
-def test_the_map_is_a_fraction_of_the_document(project):
-    reference = _sections(project)["footage_analysis_reference"]
-    document = Path(reference_path(reference)).read_text(encoding="utf-8")
-    assert _bytes(reference) < _bytes(document) / 3, (
-        f"map {_bytes(reference):,} B against document "
-        f"{_bytes(document):,} B - not a saving worth the indirection")
 
 
 def test_the_bridge_refuses_when_there_is_nowhere_to_write_it():

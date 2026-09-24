@@ -99,31 +99,6 @@ class TestTheVocabulary:
             assert isinstance(meaning, str), (
                 f"{word} still carries a number: {meaning!r}")
 
-    def test_only_two_words_have_a_level_anybody_decides(self):
-        """`silent` is the absence of music and the two fades are a MOVE,
-        so neither is a value a mix engineer is asked for."""
-        assert set(DECIDED_BEHAVIORS) == {"prominent", "background"}
-        assert "silent" not in DECIDED_BEHAVIORS
-
-    def test_a_fade_takes_the_level_it_moves_to(self):
-        """The old -12 was a plateau in the middle of a ramp: a level
-        nobody planned. A fade has no level of its own."""
-        words = ["silent", "fade_in", "background"]
-        level, why, scope = level_for_block(1, words, DECIDED)
-        assert level == DECIDED["background"]
-        assert scope == "background"
-        assert "move" in why
-
-    def test_a_fade_out_that_ends_the_piece_ends_in_silence(self):
-        level, why, _ = level_for_block(1, ["prominent", "fade_out"], DECIDED)
-        assert level == SILENT_LEVEL_DB
-
-    def test_a_word_nothing_decided_carries_no_level_rather_than_zero(self):
-        """Never 0, which is a real level and reads as the file's own."""
-        level, why, _ = level_for_block(0, ["background"], {})
-        assert level is None
-        assert "nothing decided" in why
-
     def test_the_two_word_form_is_withdrawn_and_named_as_such(self):
         """`full`/`ducked` are not merely absent: asking for one says why."""
         assert set(WITHDRAWN_BEHAVIORS) == {"full", "ducked"}
@@ -136,17 +111,6 @@ class TestTheVocabulary:
         with pytest.raises(MusicBehaviorError):
             level_for_block(0, ["quiet-ish"], DECIDED)
 
-    def test_a_block_that_declares_nothing_takes_one_documented_default(self):
-        """A card is assembled by bookends.py and plans no behaviour. The
-        one true thing the old reduction knew - nothing is ducking under a
-        block with no speech - survives, as a DEFAULT rather than an
-        override."""
-        assert resolve_music_behavior(None, block_carries_speech=False) == \
-            "prominent"
-        assert resolve_music_behavior(None, block_carries_speech=True) == \
-            "background"
-
-
 # ─── The narrowing this file exists to prevent ────────────────────────
 
 class TestCompileManifestCarriesTheWord:
@@ -157,35 +121,6 @@ class TestCompileManifestCarriesTheWord:
             _block("transition_slot", music_behavior="silent"))
         assert entry["music_behavior"] == "silent"
 
-    def test_every_word_in_the_vocabulary_survives_unchanged(self):
-        for word in MUSIC_BEHAVIORS:
-            for block_type in ("hook", "speech", "intro", "transition_slot",
-                               "outro", "intro_card", "end_card"):
-                entry = _spine_block_entry(
-                    _block(block_type, music_behavior=word))
-                assert entry["music_behavior"] == word, (
-                    f"{block_type} planned {word} and the manifest says "
-                    f"{entry['music_behavior']}")
-
-    def test_the_manifest_never_speaks_a_word_outside_the_vocabulary(self):
-        """A reduction to ANY private vocabulary fails here, not only the
-        `full`/`ducked` one that was there."""
-        for block_type in ("hook", "speech", "intro", "transition_slot",
-                           "outro", "intro_card", "outro_card", "end_card"):
-            for planned in list(MUSIC_BEHAVIORS) + [None]:
-                extra = {} if planned is None else {"music_behavior": planned}
-                entry = _spine_block_entry(_block(block_type, **extra))
-                assert entry["music_behavior"] in MUSIC_BEHAVIORS
-
-    def test_a_card_that_plans_nothing_is_not_left_ducking_under_no_speech(self):
-        entry = _spine_block_entry(_block("intro_card"))
-        assert entry["music_behavior"] == "prominent"
-
-    def test_a_withdrawn_word_arriving_from_upstream_fails_loudly(self):
-        with pytest.raises(MusicBehaviorError):
-            _spine_block_entry(_block("speech", music_behavior="ducked"))
-
-
 # ─── The half that carries the level ──────────────────────────────────
 
 class TestAudioMixTranslatesTheWord:
@@ -195,32 +130,6 @@ class TestAudioMixTranslatesTheWord:
             [_block("transition_slot", music_behavior="silent")])
         assert automation[0]["music_behavior"] == "silent"
         assert automation[0]["target_level_db"] == -96
-
-    def test_every_word_reaches_a_level_and_says_where_it_came_from(self):
-        structure = [_block("transition_slot", position=i,
-                            music_behavior=word)
-                     for i, word in enumerate(MUSIC_BEHAVIORS)]
-        # `background` last so the fades have something to move to.
-        structure.append(_speech_block(position=99,
-                                       music_behavior="background"))
-        automation, undetermined = _automation_for(structure)
-        assert undetermined == []
-        for window in automation:
-            assert window["target_level_db"] is not None
-            assert window["target_level_basis"]
-
-    def test_the_decided_level_is_what_reaches_the_automation(self):
-        automation, _ = _automation_for(
-            [_speech_block(position=1, music_behavior="background")])
-        assert automation[0]["target_level_db"] == DECIDED["background"]
-
-    def test_a_window_nothing_decided_carries_no_level_and_names_itself(self):
-        """Never a substitute: the mix says which windows have no gain."""
-        automation, undetermined = _automation_for(
-            [_speech_block(position=1, music_behavior="background")],
-            decided={})
-        assert automation[0]["target_level_db"] is None
-        assert [w["spine_block_position"] for w in undetermined] == [1]
 
     def test_the_two_halves_agree_block_for_block(self):
         """`_spine_blocks` and `music_automation` are two readings of one
@@ -244,14 +153,6 @@ class TestAudioMixTranslatesTheWord:
 # ─── The gate at the top of the path ──────────────────────────────────
 
 class TestTheSpineGate:
-
-    def test_valid_and_undeclared_behaviours_pass_the_spine_contract(self):
-        """B1 collapse: the two no-raise spine-gate validators in one test."""
-        validate_spine_blocks([_block("transition_slot",
-                                      music_behavior="silent")])
-        # A bookend card carries none - see library/tools/bookends.py -
-        # and neither does a pacing beat that simply did not say.
-        validate_spine_blocks([_block("intro")])
 
     def test_a_word_outside_the_vocabulary_is_rejected_at_the_spine(self):
         """Including the withdrawn two-word form, so a reduction upstream

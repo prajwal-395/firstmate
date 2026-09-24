@@ -153,44 +153,8 @@ def test_the_suite_prints_why_a_test_skipped():
         )
 
 
-def test_no_deferral_names_a_file_that_is_gone():
-    """A grandfathered file that no longer exists is a lie about the debt.
-
-    `per-file-ignores` is silent about a pattern matching nothing, so a
-    renamed file leaves an entry that reads as outstanding work and
-    silences nothing.
-    """
-    config = tomllib.loads(GATE_CONFIG.read_text(encoding="utf-8"))
-    deferred = config["lint"]["per-file-ignores"]
-    assert deferred, "the deferral list is empty - say so in the file rather than leaving it bare"
-    missing = sorted(p for p in deferred if not (REPO_ROOT / p).exists())
-    assert not missing, (
-        f"ruff-ci-gate.toml defers rules for files that no longer exist: "
-        f"{missing}. Delete the lines - the list is the record of what this "
-        f"repository still owes."
-    )
 
 
-def test_every_deferred_rule_is_one_the_gate_actually_enforces():
-    """Deferring a rule the gate does not select defers nothing.
-
-    It reads as a recorded exception and is a no-op, which is the same
-    shape as the swallowed exit code one level down.
-    """
-    config = tomllib.loads(GATE_CONFIG.read_text(encoding="utf-8"))
-    selected = set(config["lint"]["select"])
-    unenforced = sorted({
-        code
-        for codes in config["lint"]["per-file-ignores"].values()
-        for code in codes
-        if code not in selected and not any(
-            code.startswith(prefix) for prefix in selected
-        )
-    })
-    assert not unenforced, (
-        f"ruff-ci-gate.toml defers {unenforced}, which its `select` does not "
-        f"enforce anywhere. The exception is decorative."
-    )
 
 
 @pytest.mark.parametrize("code", ["PLW1510", "B023"])

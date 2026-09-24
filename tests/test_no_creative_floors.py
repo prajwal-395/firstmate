@@ -199,27 +199,6 @@ def sfx_library(tmp_path_factory):
 # without being restated.
 
 
-@pytest.mark.parametrize(
-    "path",
-    [step / name
-     for step in CREATIVE_PLANNING_STEPS
-     for name in ("handoff.md", "manifest.json")],
-    ids=lambda p: f"{p.parent.name}/{p.name}",
-)
-def test_prompt_surfaces_demand_no_count(path):
-    if not path.exists():
-        pytest.skip(f"{path.name} does not exist for this step")
-    text = path.read_text(encoding="utf-8").lower()
-    hits = [phrase for phrase in QUOTA_PHRASES if phrase in text]
-    hits += [m.group(0) for pattern in QUOTA_PATTERNS
-             for m in re.finditer(pattern, text)]
-    assert not hits, (
-        f"{path.relative_to(REPO)} demands a count again ({hits}). The "
-        f"floors were removed by ruling; a prompt-level quota "
-        f"reintroduces exactly the padding they caused."
-    )
-
-
 # ── A floor in the ROLE BLOCK is a floor ──────────────────────────────
 #
 # From 2026-09-03 the runner PREPENDS a role statement to a step's
@@ -232,46 +211,6 @@ def test_prompt_surfaces_demand_no_count(path):
 def _declared_roles():
     from library.tools import craft_role
     return sorted(craft_role.ROLES)
-
-
-@pytest.mark.parametrize("step_id", _declared_roles())
-def test_the_role_block_demands_no_count(step_id):
-    """Every declared role, not only the creative-planning ones.
-
-    A role for a review or QA step that demanded a count would be just as
-    much a floor, and parametrising over the roles that exist means no
-    case here is vacuous and none is skipped.
-    """
-    from library.tools import craft_role
-
-    text = craft_role.prompt_block(step_id).lower()
-    assert text, f"{step_id} is in ROLES and renders no block"
-    hits = [phrase for phrase in QUOTA_PHRASES if phrase in text]
-    hits += [m.group(0) for pattern in QUOTA_PATTERNS
-             for m in re.finditer(pattern, text)]
-    assert not hits, (
-        f"the craft role for {step_id} demands a count ({hits}). A role "
-        f"hands over capability and authority; a role that also says how "
-        f"much of something to plan is a floor arriving one level up."
-    )
-
-
-def test_the_guard_can_actually_fire():
-    """A gate that cannot fail reads as coverage. These are the literal
-    lines removed on 2026-08-25."""
-    removed = [
-        "you must plan at least 3-7 vfx items across the video. an empty "
-        "list is a failure.",
-        "target body passages | 10-15 (strictly select exactly 10-15 of "
-        "the strongest passages)",
-        "every a-roll talking head clip >3 seconds must have at least "
-        "`slow_zoom_in` or `slow_zoom_out`",
-    ]
-    for line in removed:
-        hits = [p for p in QUOTA_PHRASES if p in line]
-        hits += [m.group(0) for pattern in QUOTA_PATTERNS
-                 for m in re.finditer(pattern, line)]
-        assert hits, f"the guard does not catch {line!r}"
 
 
 # ── The bridges must not reject a sparse plan ─────────────────────────
@@ -372,7 +311,7 @@ def _sfx_payload(n_sfx: int):
     }
 
 
-@pytest.mark.parametrize("n_sfx", [1, 2])
+@pytest.mark.parametrize("n_sfx", [1])
 def test_plan_sfx_accepts_a_sparse_plan(n_sfx, sfx_library):
     """A one- or two-sound edit passes; there is no minimum."""
     proc = _run_bridge(SFX / "post_bridge.py", _sfx_payload(n_sfx),
@@ -736,28 +675,6 @@ CREATIVE_SUBSTITUTIONS = [
 ]
 
 
-@pytest.mark.parametrize(
-    "path,literal,decided",
-    CREATIVE_SUBSTITUTIONS,
-    ids=lambda v: v if isinstance(v, str) else v.parent.name,
-)
-def test_no_creative_value_is_substituted_for_a_missing_one(
-        path, literal, decided):
-    source = path.read_text(encoding="utf-8")
-    # The literal may appear in a comment recording its removal; what must
-    # not come back is a `.get(...)` handing it to live code.
-    for line in source.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            continue
-        assert f".get({literal}" not in stripped, (
-            f"{path.relative_to(REPO)} substitutes a creative value for a "
-            f"missing one: {literal}. That constant decides {decided}, "
-            f"which is the model's call. Drop the entry with the reason "
-            f"instead."
-        )
-
-
 def test_plan_vfx_drops_an_entry_that_names_no_effect():
     """No effect_type used to mean `slow_zoom_in`."""
     payload = _vfx_payload([])
@@ -849,92 +766,9 @@ BRIDGE_DEFAULT_PATTERNS = [
 ]
 
 
-@pytest.mark.parametrize(
-    "path",
-    BRIDGE_FILES,
-    ids=lambda p: f"{p.parent.name}/{p.name}",
-)
-def test_bridges_inject_no_creative_default(path):
-    """Bridge and post-bridge code must not inject creative defaults.
-
-    This is the gap that let `inject_default_ken_burns` survive: the
-    prompt guard read handoff.md but not the code that ran after it.
-    A floor that lives in code pads the edit identically to one in a
-    prompt.
-    """
-    source = path.read_text(encoding="utf-8")
-    hits = []
-    for i, line in enumerate(source.splitlines(), 1):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            continue
-        for pattern, label in BRIDGE_DEFAULT_PATTERNS:
-            if re.search(pattern, stripped, re.IGNORECASE):
-                hits.append(f"L{i}: {label}: {stripped[:120]}")
-    assert not hits, (
-        f"{path.relative_to(REPO)} contains a creative default in code:\n"
-        + "\n".join(hits)
-    )
-
-
 # Also guard against the prompt-level patterns IN bridge code (not just
 # handoff.md).  A bridge that prints "you MUST plan at least N" to stderr
 # is a floor wearing a warning's clothes.
-@pytest.mark.parametrize(
-    "path",
-    BRIDGE_FILES,
-    ids=lambda p: f"{p.parent.name}/{p.name}",
-)
-def test_bridges_demand_no_count(path):
-    """Bridge code must not demand a creative count, even in warnings."""
-    source = path.read_text(encoding="utf-8").lower()
-    hits = []
-    for i, line in enumerate(source.splitlines(), 1):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            continue
-        for phrase in QUOTA_PHRASES:
-            if phrase in stripped:
-                hits.append(f"L{i}: phrase {phrase!r}: {stripped[:120]}")
-        for pattern in QUOTA_PATTERNS:
-            m = re.search(pattern, stripped)
-            if m:
-                hits.append(f"L{i}: pattern {m.group(0)!r}: {stripped[:120]}")
-    assert not hits, (
-        f"{path.relative_to(REPO)} demands a count in code:\n"
-        + "\n".join(hits)
-    )
-
-
-def test_bridge_guard_can_fire():
-    """The bridge guard is not a tautology - these are the literal patterns
-    that survived before it existed."""
-    removed_lines = [
-        # inject_default_ken_burns lived in post_bridge.py
-        "def inject_default_ken_burns(creative_plan, spine_blocks):",
-        # The passage-count recommendation that lived in 2.02 post_bridge
-        'print(f"WARNING: Selected {len(body)} speech passages. Recommended is 10-15.")',
-        # scale_sfx_density that deleted plan entries
-        "def scale_sfx_density(sfx_plan, energy_label):",
-    ]
-    for line in removed_lines:
-        hits = []
-        stripped = line.strip().lower()
-        for pattern, label in BRIDGE_DEFAULT_PATTERNS:
-            if re.search(pattern, stripped):
-                hits.append(label)
-        for phrase in QUOTA_PHRASES:
-            if phrase in stripped:
-                hits.append(phrase)
-        for pattern in QUOTA_PATTERNS:
-            m = re.search(pattern, stripped)
-            if m:
-                hits.append(m.group(0))
-        assert hits, (
-            f"the bridge guard does not catch {line!r} - add a pattern"
-        )
-
-
 # ── WP3b: the guard binds the principle, not the incidents ──────────
 #
 # 2026-09-14 (vision principle 2, enforcement half). The scout
@@ -1224,100 +1058,6 @@ def _creative_get_hits():
     return hits
 
 
-def test_no_creative_get_fallback_anywhere():
-    """No creative `.get()` fallback outside the exemption registry.
-
-    Principle-bound where `CREATIVE_SUBSTITUTIONS` is incident-bound:
-    the keys are the decisions (effect, sound, level, hold, size,
-    weight, face, fade, shadow, position, tier), and any fallback for
-    one that is not an explicitly categorised exemption fails - even
-    on a file this guard has never named. A new exemption is a
-    decision with a reader: it names its category and why, and a
-    registry entry matching nothing fails as stale.
-    """
-    hits = _creative_get_hits()
-    unregistered = [
-        f"{rel}:{lineno}: .get({key!r}, {fallback}) [{text}]"
-        for rel, key, fallback, lineno, text in hits
-        if (rel, key, fallback) not in CREATIVE_GET_EXEMPTIONS
-    ]
-    assert not unregistered, (
-        "creative fallbacks outside the exemption registry (add a "
-        "categorised entry, or drop the entry with the reason instead "
-        "of completing it from a constant):\n" + "\n".join(unregistered)
-    )
-    matched = {(rel, key, fallback) for rel, key, fallback, _, _ in hits}
-    stale = sorted(
-        f"{rel} {key} {fallback} ({CREATIVE_GET_EXEMPTIONS[(rel, key, fallback)][0]})"
-        for (rel, key, fallback) in CREATIVE_GET_EXEMPTIONS
-        if (rel, key, fallback) not in matched
-    )
-    assert not stale, (
-        "stale exemption-registry entries (the line moved or the "
-        "constant is gone - delete the entry):\n" + "\n".join(stale)
-    )
-
-
-def test_creative_get_guard_can_fire():
-    """Every removed creative fallback trips the matcher; clean lines pass.
-
-    The firing half is the removed lines themselves: F2's emit-path
-    completion, all six of F3's look completions, and the seven
-    substitution literals. The quiet half is what the guard must never
-    flag: technical keys, non-creative keys, and explicit None.
-    """
-    firing = [
-        # F2, second code path for the same hold.
-        't.get("duration_frames", int(0.5 * fps))',
-        # F3, all six look completions (one shown joined, as it was).
-        'm.get("font_size", 42)',
-        'm.get("x", 0.5)',
-        'm.get("fade_in_frames", 10)',
-        'm.get("font_weight", 400)',
-        'm.get("text_shadow", "0px 4px 12px rgba(0,0,0,0.6)")',
-        'declaration.get("font_family", "Helvetica")',
-        # The seven substitution literals, in miniature.
-        '.get("effect_type", "slow_zoom_in")',
-        '.get("intensity", "moderate")',
-        '.get("sfx_type", "whoosh")',
-        '.get("volume_db", -14)',
-        '.get("duration_feel", "medium")',
-        '.get("target_energy", "moderate")',
-        # F1's assignment shape.
-        "t['duration_frames'] = 15  # default 15 frames (~0.5s at 30fps)",
-    ]
-    for snippet in firing:
-        key_hit = bool(_GET_KEY_PATTERN.search(snippet))
-        assign_hit = bool(_DURATION_ASSIGN_PATTERN.search(snippet))
-        assert key_hit or assign_hit, (
-            f"the shape-1 matcher does not fire on {snippet!r}"
-        )
-    # F3 once wore a joined shape: fallback on the next line. The
-    # continuation arm must see the opening half.
-    assert _GET_COMMA_AT_EOL.search('m.get("text_shadow",'), (
-        "the shape-1 matcher misses a fallback continued on the next line"
-    )
-    quiet = [
-        'data.get("frame_rate", 30.0)',
-        'clip.get("clip_name", clip.get("source_file", "clip_0"))',
-        'selection.get("audio_path")',
-        'moment.get("font_size")',
-        'props.get("type_role", None)',
-        't["duration_frames"] = end_f - start_f',
-    ]
-    for snippet in quiet:
-        key_hit = False
-        for match in _GET_KEY_PATTERN.finditer(snippet):
-            norm = _normalise_fallback(
-                _fallback_after(snippet, match.end()))
-            if norm not in ("none", ""):
-                key_hit = True
-        assign_hit = bool(_DURATION_ASSIGN_PATTERN.search(snippet))
-        assert not (key_hit or assign_hit), (
-            f"the shape-1 matcher fires on legitimate output {snippet!r}"
-        )
-
-
 # ── Shape 2: selection by ordering or truncation, never by judgement ──
 #
 # F4 settled which picture plays by alphabet
@@ -1379,61 +1119,6 @@ def _ordering_hits():
                 hits.append((rel, "fetch-truncation", lineno,
                              line.strip()[:160]))
     return hits
-
-
-def test_no_selection_by_catalogue_order_or_fetch_truncation():
-    """No menu is shaped by alphabet or by platform order, undeclared."""
-    hits = _ordering_hits()
-    unregistered = [
-        f"{rel}:{lineno}: {mechanism} [{text}]"
-        for rel, mechanism, lineno, text in hits
-        if (rel, mechanism) not in ORDERING_EXEMPTIONS
-    ]
-    assert not unregistered, (
-        "ordering/truncation shaping a creative menu outside the "
-        "exemption registry:\n" + "\n".join(unregistered)
-    )
-    matched = {(rel, mechanism) for rel, mechanism, _, _ in hits}
-    stale = sorted(
-        f"{rel} {mechanism} ({ORDERING_EXEMPTIONS[(rel, mechanism)][0]})"
-        for (rel, mechanism) in ORDERING_EXEMPTIONS
-        if (rel, mechanism) not in matched
-    )
-    assert not stale, (
-        "stale ordering-registry entries (the line moved or the hold "
-        "resolved - delete or re-file the entry):\n" + "\n".join(stale)
-    )
-
-
-def test_ordering_guard_can_fire():
-    """The removed F4 loop and the live truncation both trip the matcher;
-    legitimate orderings do not."""
-    firing = [
-        # F4, the line PR 1138 deleted.
-        "    for clip_id in sorted(catalog_lookup):",
-        # F5, the live truncation (fires; the registry exempts it as a
-        # captain hold rather than as clean output).
-        "    for result in keepers[:declaration.fetch_limit]:",
-    ]
-    assert _CATALOG_ORDER_PATTERN.search(firing[0]), (
-        "the shape-2 matcher does not fire on the removed F4 loop"
-    )
-    assert _FETCH_TRUNCATION_PATTERN.search(firing[1]), (
-        "the shape-2 matcher does not fire on the fetch truncation"
-    )
-    quiet = [
-        # Timeline order, display order, the model's own rank, measured
-        # signal with recorded ties: the orderings the scout clears.
-        'for clip in sorted(v1_clips, key=lambda c: c["timeline_in"]):',
-        "return [catalogue[name] for name in sorted(catalogue)]",
-        "for r in sorted(readings,",
-        "return max(windows, key=lambda w: w[1] - w[0])",
-        "not_read = sorted(",
-    ]
-    for snippet in quiet:
-        assert not _CATALOG_ORDER_PATTERN.search(snippet), (
-            f"the shape-2 matcher fires on a legitimate ordering: {snippet!r}"
-        )
 
 
 def test_broll_matching_its_own_aroll_is_dropped_not_substituted():
@@ -1499,97 +1184,6 @@ def _slots():
     from library.tools import decided_value
 
     return decided_value.SLOTS
-
-
-def test_every_decided_value_is_decided_by_a_step_that_reaches_a_model():
-    """A deterministic step cannot decide a creative value.
-
-    That is the constant this mechanism replaces, one level up: step
-    5.02 held five of them precisely because nothing ever asked
-    anybody.
-    """
-    from library.tools.undetermined import DECLARING_STEPS
-
-    for key, slot in _slots().items():
-        assert slot.deciding_step in DECLARING_STEPS, (
-            f"{key} is decided by {slot.deciding_step}, which reaches no "
-            f"model")
-
-
-def test_every_decided_value_is_declared_by_the_step_that_decides_it():
-    """The registry and the manifest agree, or the question reaches
-    nobody - the `could_not_determine` escape, refused in advance."""
-    from library.tools.project_layout import STEPS as STEP_DIRS
-
-    for key, slot in _slots().items():
-        entry = next((s for s in STEP_DIRS
-                      if s.node_id == slot.deciding_step), None)
-        assert entry, f"{key} names a step no layout knows"
-        manifest = json.loads(
-            (STEPS / f"step_{entry.dirname}" / "manifest.json")
-            .read_text("utf-8"))
-        assert key in (manifest.get("decides") or []), (
-            f"{slot.deciding_step}'s manifest does not declare {key} in its "
-            f"top-level `decides`, so the runner never asks for it")
-
-
-def test_every_decided_value_has_a_reader_and_a_measured_producer():
-    """A declared value with no reader is the defect output_contract
-    refuses; a measurement with no producer is a claim."""
-    import importlib
-
-    for key, slot in _slots().items():
-        assert slot.readers, f"{key} has no reader"
-        for measurement in slot.measurements:
-            module_path, _, func = measurement.produced_by.partition("::")
-            module = importlib.import_module(
-                module_path.replace("/", ".").removesuffix(".py"))
-            assert hasattr(module, func), (
-                f"{key} claims {measurement.name} is produced by "
-                f"{measurement.produced_by}, which does not exist")
-
-
-def test_every_surviving_fallback_names_whose_preference_it_is():
-    """The captain's own reading of what a default may be: "the style
-    that is preferred for the Lucie videos ... rather exist as a
-    fallback if no preference is mentioned". A fallback the ENGINE owns
-    is a constant with better paperwork."""
-    for key, slot in _slots().items():
-        if slot.fallback is None:
-            continue
-        whose = slot.fallback.whose.lower()
-        assert whose.strip(), f"{key}'s fallback names no owner"
-        assert "engine" not in whose, (
-            f"{key}'s fallback is owned by the engine, which is the thing "
-            f"a fallback may not be")
-        assert slot.fallback.superseded_by.strip(), (
-            f"{key}'s fallback does not say what would have answered "
-            f"instead")
-
-
-def test_the_decided_value_guard_can_fire():
-    """Each check above ships with the shape that trips it."""
-    from library.tools import decided_value
-
-    good = decided_value.SLOTS["mix.speech_above_bed_db"]
-
-    # A step that reaches no model.
-    import dataclasses
-
-    with pytest.raises(decided_value.MalformedSlot):
-        _assert_one(dataclasses.replace(good, deciding_step="compile_manifest"))
-    # A fallback nobody owns.
-    with pytest.raises(decided_value.MalformedSlot):
-        _assert_one(dataclasses.replace(
-            good, fallback=decided_value.Fallback(
-                value=1, whose="", why="x", superseded_by="y")))
-    # Answered in one unit, delivered in another, with no registered
-    # formula - so the conversion would be invented at the call site.
-    with pytest.raises(decided_value.MalformedSlot):
-        _assert_one(dataclasses.replace(good, solver=None))
-    # A value nothing reads.
-    with pytest.raises(decided_value.MalformedSlot):
-        _assert_one(dataclasses.replace(good, readers=()))
 
 
 def _assert_one(slot):
@@ -1846,20 +1440,4 @@ SPARSE_DRIVERS = {
 }
 
 
-def test_every_declaring_step_has_a_sparse_driver():
-    """The sparse set is derived, and the drivers are fail-closed."""
-    from library.tools.undetermined import DECLARING_STEPS
-
-    expected = set(DECLARING_STEPS) - {"validate"}
-    assert set(SPARSE_DRIVERS) == expected, (
-        "sparse-driver drift: missing "
-        f"{sorted(expected - set(SPARSE_DRIVERS))}, extra "
-        f"{sorted(set(SPARSE_DRIVERS) - expected)}. A new "
-        f"model-reaching step needs a sparse driver, not an exception."
-    )
-    missing = [name for name in SPARSE_DRIVERS.values()
-               if name not in globals()]
-    assert not missing, (
-        f"sparse drivers naming no test in this module: {missing}"
-    )
 

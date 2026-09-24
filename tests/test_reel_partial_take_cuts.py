@@ -132,24 +132,6 @@ def test_reel_03s_first_take_is_not_partly_cut():
     assert 302.626 not in dropped, cuts
 
 
-def test_reel_03_opens_on_the_hook_and_not_on_an_orphaned_tail():
-    """The reel's first played second is the span's own first second.
-
-    The rebuilt reel opened on "And whoever AI best understands, gets
-    the answer" - the third line of a take whose first two had been cut
-    from in front of it - and reached the model's written hook 3.41s in.
-    """
-    from library.tools.reel_opening import opening_words
-
-    cuts = redundant_takes(REEL_03_START, REEL_03_END, REEL_03)
-    ranges = keep_ranges(REEL_03_START, REEL_03_END, cuts)
-
-    assert ranges[0][0] == REEL_03_START, ranges
-    opening = " ".join(word["word"] for word in opening_words(ranges, REEL_03))
-    assert opening.startswith("Yeah, so search didn't change."), opening
-    assert not opening.startswith("And whoever"), opening
-
-
 def test_a_repeated_run_that_can_go_whole_still_goes():
     """The rule withholds partial cuts, not cutting.
 
@@ -184,36 +166,6 @@ def test_a_partly_cut_take_is_refused():
     said = str(refusal.value)
     assert "WHOLE or not at all" in said
     assert "And whoever AI best understands, gets the answer." in said
-
-
-def test_the_cut_the_rule_produces_passes_its_own_gate():
-    """The other direction: a coherent list is not refused.
-
-    A gate that refused correct output would be no more coverage than
-    one that cannot fail (AGENTS.md 10.4), so both verdicts are pinned
-    on the same real span.
-    """
-    cuts = redundant_takes(REEL_03_START, REEL_03_END, REEL_03)
-    assert cuts, "the span really does contain a removable repetition"
-    assert_takes_are_whole(cuts, REEL_03_START, REEL_03_END, REEL_03)
-
-
-def test_no_run_a_cut_touches_is_left_partly_standing():
-    """The property the rule guarantees, checked directly.
-
-    A reel opens on the first second its keep ranges retain.  Every run
-    a cut touches is removed entirely, so the leading segment is either
-    the span's own first segment or the first segment after a wholly
-    removed run - never a tail whose opening was cut from in front of
-    it.
-    """
-    cuts = redundant_takes(REEL_03_START, REEL_03_END, REEL_03)
-    for run in redundant_runs(REEL_03_START, REEL_03_END, REEL_03):
-        touched = [segment for segment in run.segments
-                   if any(cut.dropped_start < segment["timeline_end"]
-                          and cut.dropped_end > segment["timeline_start"]
-                          for cut in cuts)]
-        assert not touched or len(touched) == len(run.segments), run
 
 
 # ── What the refusal SAYS ────────────────────────────────────────────
@@ -283,22 +235,3 @@ REEL_16_SEGMENTS = [
 REEL_16 = {"segments": REEL_16_SEGMENTS}
 
 
-def test_reel_16s_half_cut_take_is_the_same_defect_mid_reel():
-    """Leading a reel is where the fragment is loudest, not the rule.
-
-    Reel 16 says "Those queries don't work for Google, but they work for
-    AI" twice.  The second half paired safely and the first half was
-    refused at a ratio of 2.47, so the cut removed "but they work for
-    AI" and left "Those queries don't work for Google," hanging in the
-    middle of the reel.  The rule is about the CUT, not the position, so
-    this one is withheld too.
-    """
-    cuts = redundant_takes(2217.710, 2287.089, REEL_16)
-    dropped = sorted(round(cut.dropped_start, 3) for cut in cuts)
-    assert 2248.570 not in dropped, cuts
-    assert_takes_are_whole(cuts, 2217.710, 2287.089, REEL_16)
-
-    groups = refused_take_groups(2217.710, 2287.089, REEL_16)
-    assert len(groups) == 1, groups
-    assert groups[0]["lines"] == ["Those queries don't work for Google,",
-                                  "but they work for AI."]

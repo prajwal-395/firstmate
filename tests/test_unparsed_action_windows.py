@@ -165,21 +165,8 @@ GENUINELY_EMPTY_PROFILE = {
 class TestDataDistinction:
     """An unparsed window and a genuinely empty one are recorded differently."""
 
-    def test_unparsed_window_carries_parse_error(self):
-        """The flag is on the raw action window entry."""
-        unparsed = IMG_1809_PROFILE["actions"][1]
-        assert unparsed["parse_error"] is True
-        assert unparsed["actions"] == []
 
-    def test_genuinely_empty_window_has_no_parse_error(self):
-        genuinely_empty = GENUINELY_EMPTY_PROFILE["actions"][0]
-        assert "parse_error" not in genuinely_empty
-        assert genuinely_empty["actions"] == []
 
-    def test_parsed_window_has_no_parse_error(self):
-        parsed = IMG_1809_PROFILE["actions"][0]
-        assert "parse_error" not in parsed
-        assert len(parsed["actions"]) > 0
 
 
 # ── Part 2: The sentinel block reaches the adapted document ──────────

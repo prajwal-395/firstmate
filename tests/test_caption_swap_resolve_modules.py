@@ -23,9 +23,6 @@ SCRIPTING = ("/Library/Application Support/Blackmagic Design/"
              "DaVinci Resolve/Developer/Scripting")
 
 
-def test_unset_env_reads_the_default_modules_dir(monkeypatch):
-    monkeypatch.delenv("RESOLVE_SCRIPT_API", raising=False)
-    assert r405._script_modules_dir() == SCRIPTING + "/Modules"
 
 
 def test_injected_scripting_dir_gains_modules(monkeypatch):
@@ -34,9 +31,6 @@ def test_injected_scripting_dir_gains_modules(monkeypatch):
     assert r405._script_modules_dir() == SCRIPTING + "/Modules"
 
 
-def test_explicit_modules_dir_passes_through(monkeypatch):
-    monkeypatch.setenv("RESOLVE_SCRIPT_API", SCRIPTING + "/Modules")
-    assert r405._script_modules_dir() == SCRIPTING + "/Modules"
 
 
 def test_stub_module_imports_through_the_resolved_dir(

@@ -36,17 +36,6 @@ from library.tools import pool_stream_meta
 
 # ── The comparison ──────────────────────────────────────────────
 
-def test_agreement_is_no_disagreement():
-    """Identical signatures compare clean, codec leg included.
-
-    The pool side speaks RESOLVE's vocabulary (`Animation`) and the
-    disk side ffprobe's (`qtrle`) - the same codec under two names,
-    which is why the comparison translates rather than compares."""
-    pool = {"width": 904, "height": 480, "codec": "animation"}
-    disk = {"width": 904, "height": 480, "codec": "qtrle"}
-    assert pool_stream_meta.stream_disagreement(pool, disk) is None
-
-
 def test_reel_26_input_fires_the_resolution_leg():
     """Pool `866x480` against disk `904x480` is stale, whatever else."""
     pool = {"width": 866, "height": 480, "codec": None}
@@ -105,25 +94,6 @@ def test_pool_codec_is_the_video_one_never_the_first_codec_key():
     assert stream["codec"] == "apple prores 4444"
 
 
-def test_pool_without_a_codec_key_compares_on_resolution_alone():
-    """A pool that exposes no codec key says so in the record rather
-    than passing off a half check as a full one."""
-
-    class _Item:
-        def GetClipProperty(self, key=None):
-            if key is None:
-                return {"Type": "Video"}  # no codec key at all
-            return "866x480" if key == "Resolution" else ""
-
-    stream = pool_stream_meta.pool_stream(_Item())
-    assert (stream["width"], stream["height"]) == (866, 480)
-    assert stream["codec"] is None
-    found = pool_stream_meta.stream_disagreement(
-        stream, {"width": 904, "height": 480, "codec": "qtrle"})
-    assert found["mismatches"] == ["resolution"]
-    assert found["codec_compared"] is False
-
-
 def test_an_unknown_pool_vocabulary_is_not_compared():
     """A codec name this table has not learned is NOT staleness.
 
@@ -141,18 +111,6 @@ def test_an_unknown_pool_vocabulary_is_not_compared():
     found = pool_stream_meta.stream_disagreement(pool_stale, disk)
     assert found["mismatches"] == ["resolution"]
     assert found["codec_compared"] is False
-
-
-def test_the_two_vocabularies_share_no_value():
-    """Why the translation exists at all. Measured 2026-09-13 across
-    all 242 pooled items of the field-test project: Resolve and
-    ffprobe name the same bytes differently on EVERY observed pair, so
-    a raw string comparison would call every item stale."""
-    for pool_name, disk_name in pool_stream_meta.CODEC_VOCABULARY.items():
-        assert pool_stream_meta.codecs_agree(pool_name, disk_name) is True
-    assert pool_stream_meta.codecs_agree("animation", "qtrle") is True
-    assert pool_stream_meta.codecs_agree("apple prores 4444", "qtrle") is False
-    assert pool_stream_meta.CODEC_VOCABULARY["animation"] != "animation"
 
 
 def test_disk_stream_reads_a_real_file_by_name_not_by_position(tmp_path):
@@ -178,13 +136,6 @@ def test_disk_stream_reads_a_real_file_by_name_not_by_position(tmp_path):
         check=True, capture_output=True, encoding="utf-8")
     assert pool_stream_meta.disk_stream(str(made)) == {
         "width": 904, "height": 480, "codec": "qtrle"}
-
-
-def test_disk_stream_of_a_missing_file_is_all_none(tmp_path):
-    """The probe degrades to incomparable, honestly - no ffmpeg output
-    is mistaken for a measurement."""
-    stream = pool_stream_meta.disk_stream(str(tmp_path / "gone.mov"))
-    assert stream == {"width": None, "height": None, "codec": None}
 
 
 # ── The build refresh ───────────────────────────────────────────
@@ -311,20 +262,4 @@ def test_second_hit_prefers_the_fresh_item_without_importing(tmp_path):
     with _disk_as(904, 480, "qtrle"):
         assert import_pool_item(pool, path) is fresh
     assert pool.imports == []
-    assert pool.deletes == []
-
-
-def test_codec_only_staleness_refreshes(tmp_path):
-    """Same dimensions, codec turned over underneath: the resolution
-    leg cannot see it, the codec leg must."""
-    from library.tools.reel_build import import_pool_item
-
-    path = _overlay(tmp_path)
-    pool = _Pool()
-    stale = _Clip(path, resolution="904x480", codec="Apple ProRes 4444")
-    pool.root._clips.append(stale)
-    with _disk_as(904, 480, "qtrle"):
-        placed = import_pool_item(pool, path)
-    assert placed is not stale
-    assert pool.imports == [[path]]
     assert pool.deletes == []

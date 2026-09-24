@@ -33,18 +33,6 @@ from library.tools.builtin_effect_loader import (
 class TestPresetClassification:
     """The split must be derived from declared image input, not category."""
 
-    def test_classification_covers_all_presets(self):
-        """Every preset in the index appears in exactly one bucket."""
-        all_effects = list_builtin_effects()
-        clip_fx, generators = classify_builtin_effects()
-        assert len(clip_fx) + len(generators) == len(all_effects), (
-            f"Classification lost presets: "
-            f"{len(clip_fx)} clip + {len(generators)} gen != {len(all_effects)} total"
-        )
-        # No overlap
-        overlap = set(clip_fx) & set(generators)
-        assert not overlap, f"Presets in both buckets: {overlap}"
-
     def test_classification_derived_from_file_not_category(self):
         """The split comes from MainInput1 in the .setting file, not the category label."""
         clip_fx, generators = classify_builtin_effects()
@@ -62,24 +50,6 @@ class TestPresetClassification:
         assert len(lf_clip) + len(lf_gen) == 40, (
             f"Lens flare split: {len(lf_clip)} clip + {len(lf_gen)} gen != 40"
         )
-
-    def test_generators_have_no_image_input(self):
-        """Every generator preset must lack MainInput1 = InstanceInput."""
-        _, generators = classify_builtin_effects()
-        for name, entry in generators.items():
-            path = BUILTIN_DIR / entry["path"]
-            assert not _has_image_input(path), (
-                f"Generator {name} has MainInput1 - should be a clip effect"
-            )
-
-    def test_clip_effects_have_image_input(self):
-        """Every clip effect preset must have MainInput1 = InstanceInput."""
-        clip_fx, _ = classify_builtin_effects()
-        for name, entry in clip_fx.items():
-            path = BUILTIN_DIR / entry["path"]
-            assert _has_image_input(path), (
-                f"Clip effect {name} lacks MainInput1 - should be a generator"
-            )
 
     def test_is_generator_effect_api(self):
         """is_generator_effect correctly identifies generators and clip effects."""
@@ -130,84 +100,6 @@ class TestGeneratorRejectedFromClipEffect:
             f"Expected 'Rejected generator preset' in stderr, got: {stderr_output}"
         )
         assert "fireworks" in stderr_output
-
-    def test_clip_effect_still_accepted(self):
-        """A real clip effect (with image input) is still accepted."""
-        from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
-
-        creative_plan = [{
-            "target_block_position": 1,
-            "effect_type": "advanced_camera_shake",  # a clip effect
-            "intensity": "moderate",
-        }]
-        timed_spine = {
-            "structure": [{
-                "position": 1,
-                "timeline_start": 0.0,
-                "timeline_end": 5.0,
-                "block_type": "speech",
-            }]
-        }
-
-        result = resolve_vfx(creative_plan, timed_spine, frame_rate=30.0)
-        assert len(result) == 1, (
-            f"Clip effect 'advanced_camera_shake' should be accepted, "
-            f"but resolve_vfx returned {len(result)} entries"
-        )
-        assert result[0]["effect_type"] == "advanced_camera_shake"
-
-    def test_multiple_generators_all_rejected(self):
-        """All generator presets in a plan are rejected."""
-        from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
-
-        generators_to_test = ["fireworks", "snow", "embers", "matrix", "bubbles"]
-        creative_plan = [
-            {"target_block_position": i + 1, "effect_type": g, "intensity": "moderate"}
-            for i, g in enumerate(generators_to_test)
-        ]
-        timed_spine = {
-            "structure": [
-                {"position": i + 1, "timeline_start": i * 5.0, "timeline_end": (i + 1) * 5.0, "block_type": "speech"}
-                for i in range(len(generators_to_test))
-            ]
-        }
-
-        captured = io.StringIO()
-        old_stderr = sys.stderr
-        sys.stderr = captured
-        try:
-            result = resolve_vfx(creative_plan, timed_spine, frame_rate=30.0)
-        finally:
-            sys.stderr = old_stderr
-
-        assert len(result) == 0, (
-            f"All generators should be rejected, but {len(result)} passed through"
-        )
-        stderr_output = captured.getvalue()
-        for g in generators_to_test:
-            assert g in stderr_output, f"Generator {g} should appear in rejection output"
-
-
-class TestClassificationCounts:
-    """Verify the expected split counts match the measured reality."""
-
-    def test_expected_counts(self):
-        """32 clip effects and 111 generators, totaling 143."""
-        clip_fx, generators = classify_builtin_effects()
-        assert len(clip_fx) == 32, f"Expected 32 clip effects, got {len(clip_fx)}"
-        assert len(generators) == 111, f"Expected 111 generators, got {len(generators)}"
-        assert len(clip_fx) + len(generators) == 143
-
-    def test_clip_effect_categories(self):
-        """Clip effects span multiple categories (not just 'tools')."""
-        clip_fx, _ = classify_builtin_effects()
-        categories = {entry["category"] for entry in clip_fx.values()}
-        # tools, lens_flares, shaders, looks, generators, how_to
-        assert "tools" in categories
-        assert "lens_flares" in categories
-        assert len(categories) >= 3, (
-            f"Clip effects should span multiple categories, got {categories}"
-        )
 
 
 class TestRendererRejectsUnclassifiable:

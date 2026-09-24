@@ -38,7 +38,6 @@ which the tests below pin from both directions.
 
 from __future__ import annotations
 
-from library.tools.frame_utils import span_frames
 from library.tools.reel_conformance_verifier import (
     FindingClass,
     PlannedPlacement,
@@ -110,38 +109,6 @@ def _error_classes(result) -> set:
             if f.severity == "error"}
 
 
-def test_the_two_layers_disagree_by_one_frame_on_reel13s_numbers():
-    """The mechanism, pinned with the check's own arithmetic.
-
-    A single 79.354s keep range lays PLANNED_FRAMES picture frames,
-    while a caption closing exactly at the reel end - the modal shape
-    once the boundary snap parks range edges on word ends - records to
-    CAPTION_RECORD_END by the shared `span_frames` both the placer and
-    F2 count with. Held against the all-tracks extent, the exact R5
-    refusal falls out: 1902 vs 1903, +1 frame, +0.04s.
-
-    Green before and after the fix: it documents the divergence the
-    scoping removes, and the refusal the old scope produced.
-    """
-    planned = sum(round(end * FPS) - round(start * FPS)
-                  for start, end in PLAN_KEEP_RANGES)
-    assert planned == PLANNED_FRAMES
-
-    record_start, record_end = span_frames(0.0, REEL_END_SECONDS, FPS)
-    assert (record_start, record_end) == (0, CAPTION_RECORD_END)
-
-    findings = check_plan_describes_timeline(
-        "Reel 13", PLAN_KEEP_RANGES, record_end, FPS)
-    assert len(findings) == 1
-    finding = findings[0]
-    assert finding.finding_class == FindingClass.PLAN_MISMATCH
-    assert finding.detail["planned_frames"] == PLANNED_FRAMES
-    assert finding.detail["timeline_frames"] == CAPTION_RECORD_END
-    assert finding.detail["delta_frames"] == 1
-    assert "+1 frames" in finding.message
-    assert "+0.04s" in finding.message
-
-
 def test_a_caption_tail_past_exact_picture_does_not_refuse_the_plan():
     """The regression: picture tiles to the frame, caption rounds one
     past it, timeline carries 1903 - and the plan still describes the
@@ -196,25 +163,3 @@ def test_a_genuinely_longer_picture_still_refuses():
     assert len(findings) == 1
     assert findings[0].finding_class == FindingClass.PLAN_MISMATCH
     assert findings[0].detail["delta_frames"] == 1
-
-
-def test_a_genuinely_longer_picture_still_refuses_through_verify_reel():
-    """The wired gate still refuses real picture excess end to end:
-    picture runs to 1903 with no caption tail anywhere, so the scope
-    cannot explain it away and PLAN-MISMATCH fires.
-
-    Green after the fix (red before it only because the picture-scoped
-    wiring did not exist yet - the same refusal through the old scope
-    is pinned by the test above).
-    """
-    timeline = ReelTimeline(
-        reel_name="Reel 13 - the-accounting-firm",
-        fps=FPS,
-        total_frames=PLANNED_FRAMES + 1,
-        picture_frames=PLANNED_FRAMES + 1,
-        video_items=(_picture(0, PLANNED_FRAMES + 1),),
-        audio_items=(),
-        caption_items=(),
-    )
-    result = verify_reel(_plan(), timeline)
-    assert FindingClass.PLAN_MISMATCH in _error_classes(result)

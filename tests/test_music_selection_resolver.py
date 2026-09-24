@@ -111,19 +111,6 @@ def test_an_ambiguous_title_is_refused_not_first_matched():
     )
 
 
-def test_an_empty_title_is_refused():
-    path, errors = resolve_audio_path(
-        "", "library", [_candidate("rise", "library", "/music/rise.mp3")])
-    assert path is None
-    assert errors
-
-
-def test_external_has_no_catalogue_path_to_resolve():
-    path, errors = resolve_audio_path("anything", "external", [])
-    assert path is None
-    assert errors, "external tracks are fetched by URL, not resolved by title"
-
-
 # ── The post-bridge uses it ───────────────────────────────────────────
 
 

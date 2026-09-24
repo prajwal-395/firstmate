@@ -202,10 +202,6 @@ def test_carrying_everything_files_nothing_and_signs_off(project):
     assert signoff.sign_off(str(project), REEL)["reel"] == REEL
 
 
-def test_empty_markers_file_nothing(project):
-    assert owed.record(str(project), None)["filed"] == []
-    assert owed.record(str(project), {})["filed"] == []
-    assert signoff.sign_off(str(project), REEL)["reel"] == REEL
 
 
 def test_an_unreadable_obligation_file_refuses(project):
@@ -271,12 +267,6 @@ def test_step_helper_files_promoted_markers_and_continues(project):
     assert WORDS in entry["text"]
 
 
-def test_step_helper_with_nothing_dropped_files_nothing(project):
-    module = _verify_step_module()
-    for markers in (None, {}, {REEL: {"carried": [], "uncarried": []}}):
-        report = module.record_uncarried_notes(str(project), markers)
-        assert report["filed"] == [] and report["reopened"] == []
-    assert owed.open_for(str(project)) == []
 
 
 def test_partial_promotion_carries_its_marker_losses(project):

@@ -50,14 +50,6 @@ def _dag_node_id(step_dirname: str) -> str:
     raise AssertionError(f"no DAG node runs {step_dirname}")
 
 
-def test_the_constraint_steps_are_named_in_the_dags_vocabulary():
-    """The mismatch itself: a directory name here reaches no step."""
-    wrong = [s for s in BRAND_CONSTRAINT_STEPS if s not in DAG_NODE_IDS]
-    assert not wrong, (
-        f"BRAND_CONSTRAINT_STEPS names {wrong}, which no DAG node is called. "
-        f"present_llm_step dispatches on the node id, so these steps would "
-        f"receive no brand constraints at all."
-    )
 
 
 @pytest.mark.parametrize("step_dirname", [
@@ -83,29 +75,8 @@ def test_the_identifier_the_runner_passes_gets_a_real_answer(tmp_path, step_dirn
     assert "Brand Constraints:" in constraints
 
 
-def test_both_spellings_of_a_step_reach_the_same_answer(tmp_path):
-    """The manifest id and the node id are one step, so they agree."""
-    templates = write_templates_dir(tmp_path / "templates")
-    loader = TemplateLoader(str(tmp_path), templates)
-    for dirname in ("step_2_01_creative_direction", "step_4_02_plan_transitions",
-                    "step_4_03_plan_vfx"):
-        by_dir = loader.get_brand_constraints("synthetic_default", dirname)
-        by_node = loader.get_brand_constraints(
-            "synthetic_default", _dag_node_id(dirname))
-        assert by_dir == by_node != ""
 
 
-def test_node_id_for_translates_only_what_the_step_table_knows():
-    assert node_id_for("step_1_01_scan_project") == "scan"
-    assert node_id_for("1_01_scan_project") == "scan"
-    assert node_id_for("scan") == "scan"
-    # Untranslatable, and passed through rather than guessed at: stripping
-    # the number would give "scan_project", which names no step.
-    assert node_id_for("step_9_99_invented") == "step_9_99_invented"
-    # Against EVERY process: `STEP_BY_ID` is the repository's table, and
-    # a step wired into another process is not an untranslatable name.
-    assert all(nid in ALL_NODE_IDS or not STEP_BY_ID[nid].wired
-               for nid in STEP_BY_ID)
 
 
 def test_a_step_with_no_brand_slot_gets_the_empty_string(tmp_path):

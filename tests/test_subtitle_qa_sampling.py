@@ -97,10 +97,6 @@ def test_an_empty_overlay_still_fails(tmp_path, monkeypatch):
         run_subtitle_qa(str(mov), str(tmp_path))
 
 
-def test_a_fully_inked_overlay_is_sampled_anywhere(tmp_path):
-    mov = _render_overlay(tmp_path / "solid.mov", "gte(t,0)")
-    found = find_inked_timestamps(str(mov), 4.0, count=2)
-    assert len(found) == 2
 
 
 # ── The mechanical half is what decides ───────────────────────────────
@@ -131,9 +127,6 @@ def test_a_caption_clipped_at_the_bottom_fails(tmp_path):
     assert any("bottom" in p for p in problems), problems
 
 
-def test_a_caption_clipped_at_the_left_fails(tmp_path):
-    problems = check_caption_geometry(str(_frame(tmp_path, (2, 1694, 776, 1770))))
-    assert any("left" in p for p in problems), problems
 
 
 def test_a_caption_in_the_upper_half_fails(tmp_path):

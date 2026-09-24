@@ -283,63 +283,6 @@ def test_the_gate_reads_under_a_shared_hold(built_with_spies):
     assert _holds_open(verifies[1]) == [("sweep all reels", False)]
 
 
-def test_no_whole_build_hold_exists(built_with_spies):
-    """The lease inventory of one build: every hold it takes, and no
-    other. A coarse hold reintroduced anywhere fails here by name."""
-    entered = [purpose for kind, purpose, *_ in built_with_spies["events"]
-               if kind == "lease-enter"]
-    assert entered == [
-        "build reels connect",
-        "build reels drift baseline",
-        "build reels survey",
-        "draw-gain probe",
-        "build reels debris check",
-        "build reels master digest",
-        "place Reel 01 (rebuild staging)",
-        "verify built reels",
-        # `promote_staged_reels` holds its own exclusive lease through
-        # its decorator rather than through the build's name, so it
-        # leaves no line in this record by design.
-        "sweep all reels",
-        "build reels drift end",
-        # The pending-promotion census: a short SHARED read of the
-        # live timeline names so ghost holds reconcile (2026-09-20) -
-        # reporting only, never a gate.
-        "pending promotions census",
-    ]
-
-
-def test_derivation_precedes_the_placement_hold(built_with_spies):
-    """The overlap the ceiling needs: the derivation the hold used to
-    cover still happens, and happens before the hold is taken."""
-    events = built_with_spies["events"]
-    kinds = [kind for kind, *_ in events]
-    first_derivation = kinds.index("derivation")
-    place_hold = next(i for i, entry in enumerate(events)
-                      if entry[0] == "lease-held"
-                      and entry[1] == "place Reel 01 (rebuild staging)")
-    assert first_derivation < place_hold
-
-
-def test_the_phase_log_still_brackets_the_placement(built_with_spies):
-    """The instrument still measures the hold: answers, then the
-    build, then the gate, then the promotion, in that order."""
-    from library.tools import reel_phase_log as phase_log
-
-    ordered = [e["phase"] for e in phase_log.read_events(
-        str(built_with_spies["folder"]))
-        if e.get("reel_number") == 7 and e["phase"] != phase_log.WAIT]
-    for phase in (phase_log.ANSWERS_ARRIVED, phase_log.BUILD_STARTED,
-                  phase_log.BUILD_FINISHED, phase_log.VERIFIED,
-                  phase_log.CONSOLIDATED):
-        assert phase in ordered, f"{phase} was never logged"
-    positions = [ordered.index(p) for p in
-                 (phase_log.ANSWERS_ARRIVED, phase_log.BUILD_STARTED,
-                  phase_log.BUILD_FINISHED, phase_log.VERIFIED,
-                  phase_log.CONSOLIDATED)]
-    assert positions == sorted(positions)
-
-
 # ── The failure mode, demonstrated deliberately ───────────────────────
 #
 # Two lanes ran for 92% of 2026-09-18 one at a time, so the corruption

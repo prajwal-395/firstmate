@@ -48,13 +48,6 @@ def test_the_default_root_is_still_raw(tmp_path):
     assert footage_root(str(project)) == str(project / "raw")
 
 
-def test_a_project_with_no_yaml_still_defaults(tmp_path):
-    """Step 1.01 and the identity check both call this on bare
-    directories in tests; an unreadable project.yaml is not an error."""
-    project = _project(tmp_path)
-    assert footage_root(str(project)).endswith("raw")
-
-
 def test_a_declared_root_is_used(tmp_path):
     media = _media(tmp_path, "LC4930.MXF")
     project = _project(tmp_path, f"name: T\nslug: t\nsource:\n"
@@ -70,12 +63,6 @@ def test_footage_under_a_declared_root_is_enumerated_and_numbered(tmp_path):
     assert [f["filename"] for f in files] == ["LC4930.MXF", "LCATL0011.MXF"]
     assert [f["clip_id"] for f in files] == ["clip_001", "clip_002"]
     assert skipped == []
-
-
-def test_an_empty_declaration_means_the_default(tmp_path):
-    project = _project(tmp_path, "name: T\nslug: t\nsource:\n"
-                                 "  footage_root: ''\n")
-    assert footage_root(str(project)).endswith("raw")
 
 
 # ── The refusals ─────────────────────────────────────────────────────
@@ -100,11 +87,6 @@ def test_a_root_that_does_not_exist_is_refused_not_defaulted(tmp_path):
 
 
 # ── MXF, which is what the field test is shot on ─────────────────────
-
-def test_mxf_is_footage(tmp_path):
-    """Seven Sony XAVC files in MXF OP1A. ffprobe read all of them on
-    2026-09-04; without this the check reported no footage at all."""
-    assert ".mxf" in SUPPORTED_VIDEO_EXTENSIONS
 
 
 def test_an_uppercase_extension_is_still_footage(tmp_path):

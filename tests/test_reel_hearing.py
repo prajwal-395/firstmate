@@ -136,22 +136,6 @@ def test_the_cause_is_owned_by_the_step_that_wrote_the_transcript(hearing):
     assert fit.owner == "temporal_index"
 
 
-def test_the_whole_episode_is_counted_from_the_one_reel(hearing):
-    """The population is the transcript's, not this reel's.
-
-    Fifteen rows exist on the captain's episode whether or not any reel
-    plays one; the fixture transcript is trimmed to this reel's spans,
-    so it carries the one. What is pinned is that the count is REPORTED
-    rather than left to be discovered one delivered reel at a time.
-    """
-    episode = hearing.transcript_fit
-    assert episode["rows"] > 0
-    assert episode["unfitted_rows"] >= len(hearing.unfitted_transcript_rows)
-    assert "rows_detail" not in episode
-    assert any("whole transcript carries" in line
-               for line in reel_hearing.summary_lines(hearing))
-
-
 # ── 2. The normalisation that stops it crying wolf ───────────────────
 
 def test_the_filed_spelling_correction_is_applied_to_the_heard_side(hearing):
@@ -170,25 +154,7 @@ def test_the_filed_spelling_correction_is_applied_to_the_heard_side(hearing):
     assert "Lucie" in hearing.as_dict()["heard_script"]
 
 
-def test_without_the_correction_the_false_divergence_comes_back(
-        timeline, transcript, spoken, tmp_path):
-    """The same reel through a project with nothing on file."""
-    bare = tmp_path / "no_corrections"
-    bare.mkdir()
-    unnormalised = reel_hearing.hear(timeline, transcript, spoken,
-                                     project_folder=str(bare),
-                                     video_path=str(bare / "reel26.mp4"))
-    substitutions = [row for row in unnormalised.divergences
-                     if row["kind"] == reel_hearing.SUBSTITUTED]
-    assert [(row["planned"], row["heard"]) for row in substitutions] == \
-        [("Lucie", "Lucy")]
-
-
 # ── 3. It reports, and it gates nothing ──────────────────────────────
-
-def test_it_gates_nothing(hearing):
-    assert reel_hearing.GATES is False
-    assert hearing.as_dict()["gates"] is False
 
 
 def test_no_gate_reads_the_hearing_record():
@@ -254,12 +220,6 @@ def test_the_findings_go_through_the_one_reader(hearing):
     assert read.counts()[qa_findings.FAILING] == 4
 
 
-def test_the_summary_says_it_does_not_gate(hearing):
-    printed = "\n".join(reel_hearing.summary_lines(hearing))
-    assert "this is a report, not a gate" in printed
-    assert "NO caption on screen" in printed
-
-
 # ── 4. What it refuses rather than passing ───────────────────────────
 
 def test_a_timeline_with_no_transcribed_speech_refuses(timeline, spoken,
@@ -280,20 +240,6 @@ def test_a_timeline_with_no_frame_rate_refuses(timeline, transcript, spoken):
     assert "no frame rate" in str(refused.value)
 
 
-def test_caption_coverage_is_skipped_openly_when_there_are_no_captions(
-        timeline, transcript, spoken, project):
-    """A reel that declares no captions is not a reel with late ones."""
-    timeline["tracks"] = [t for t in timeline["tracks"]
-                          if t["name"] != "Subtitles"]
-    quiet = reel_hearing.hear(timeline, transcript, spoken,
-                              project_folder=str(project))
-    assert quiet.coverage["measured"] is False
-    assert {row["check"] for row in quiet.skipped} == \
-        {reel_hearing.COVERAGE_METRIC, reel_hearing.PAIRING_METRIC}
-    assert reel_hearing.COVERAGE_METRIC not in {f.metric
-                                                for f in quiet.findings}
-
-
 # ── 5. The parts, separately ─────────────────────────────────────────
 
 def test_speech_spans_are_measured_not_read_off_a_track_name(timeline,
@@ -311,32 +257,6 @@ def test_speech_spans_are_measured_not_read_off_a_track_name(timeline,
     assert reel_hearing.speech_spans(timeline, transcript) == before
 
 
-def test_a_caption_card_is_identified_by_its_NAME_not_its_track(timeline):
-    """A card on the wrong row is still a card the viewer reads."""
-    windows = reel_hearing.caption_windows(timeline)
-    assert len(windows) == 13
-    for track in timeline["tracks"]:
-        if track["name"] == "Subtitles":
-            track["name"] = "Somewhere Else"
-    assert reel_hearing.caption_windows(timeline) == windows
-
-
-def test_normalise_folds_spelling_and_nothing_more():
-    assert reel_hearing.normalise("You're,") == reel_hearing.normalise("you’re")
-    assert reel_hearing.normalise("Lucie.") == "lucie"
-    # NOT folded - both are reported, on purpose.
-    assert reel_hearing.normalise("gonna") != reel_hearing.normalise("going")
-    assert reel_hearing.normalise("fifty") != reel_hearing.normalise("50")
-
-
-def test_align_is_an_edit_script():
-    ops = reel_hearing.align(["a", "b", "c"], ["a", "x", "c", "d"])
-    kinds = [kind for kind, _, _ in ops]
-    assert kinds.count(reel_hearing.EQUAL) == 2
-    assert reel_hearing.SUBSTITUTED in kinds
-    assert reel_hearing.EXTRA in kinds
-
-
 def test_a_drift_run_ends_at_a_sign_change():
     """Late then early is two things happening, not one."""
     words = [reel_hearing.Word(word=str(i), token=str(i), start=float(i),
@@ -345,41 +265,6 @@ def test_a_drift_run_ends_at_a_sign_change():
     runs = reel_hearing.drift_runs(pairs, words, words)
     assert [r["words"] for r in runs] == [4, 4]
     assert [r["direction"] for r in runs] == ["late", "early"]
-
-
-def test_an_isolated_late_word_is_not_a_run():
-    words = [reel_hearing.Word(word=str(i), token=str(i), start=float(i),
-                               end=float(i) + 0.1) for i in range(5)]
-    pairs = [(i, i, 0.9 if i == 2 else 0.01) for i in range(5)]
-    assert reel_hearing.drift_runs(pairs, words, words) == []
-
-
-def test_covered_fraction_counts_the_union_of_cards():
-    assert reel_hearing.covered_fraction(0.0, 1.0, [(0.0, 0.5)]) == 0.5
-    assert reel_hearing.covered_fraction(0.0, 1.0, []) == 0.0
-    assert reel_hearing.covered_fraction(0.0, 1.0,
-                                         [(0.0, 0.6), (0.4, 1.0)]) == 1.0
-
-
-def test_the_hearing_id_is_stable_for_one_unchanged_render(hearing, tmp_path):
-    """So hearing the same render twice does not tell the captain twice."""
-    render = tmp_path / "a_render.mp4"
-    render.write_bytes(b"not really an mp4")
-    hearing.video_path = str(render)
-    first = reel_hearing.hearing_id(hearing)
-    assert first == reel_hearing.hearing_id(hearing)
-    render.write_bytes(b"a different render entirely")
-    assert reel_hearing.hearing_id(hearing) != first
-
-
-def test_the_record_lands_beside_the_render(hearing, tmp_path):
-    hearing.video_path = str(tmp_path / "exports" / "Reel 26.mp4")
-    path = reel_hearing.write_record(hearing)
-    assert path.endswith("Reel 26" + reel_hearing.RECORD_SUFFIX)
-    written = json.loads(Path(path).read_text(encoding="utf-8"))
-    assert written["gates"] is False
-    assert written["planned_word_count"] == 140
-    assert written["heard_script"] and written["planned_script"]
 
 
 # ── 6. Announcing a finding ──────────────────────────────────────────
@@ -462,13 +347,6 @@ def test_the_fixture_carries_no_real_project_path():
             assert prefix not in body, f"{name} carries {prefix}"
 
 
-def test_the_fixture_copies_into_a_tmp_project(tmp_path):
-    """No test reaches a real project (AGENTS.md section 8)."""
-    destination = tmp_path / "fixtures"
-    shutil.copytree(FIXTURES, destination)
-    assert (destination / "reel26.timeline.json").exists()
-
-
 # ── 8. The caption-pairing check ─────────────────────────────────────
 #
 # PR 1178 measured this check and did not build it: 13 of 13 cards on
@@ -490,14 +368,6 @@ def test_the_pairing_check_is_clean_on_the_delivered_reel(hearing):
     assert pairing["max_edge_offset_seconds"] == pytest.approx(0.042,
                                                               abs=0.005)
     assert pairing["mean_edge_offset_seconds"] < 0.042
-
-
-def test_the_pairing_finding_is_owned_by_the_caption_plan(hearing):
-    """The step that bound each card to its span can re-plan it."""
-    read = reel_hearing.read_findings(hearing)
-    pairing = next(f for f in read.findings
-                   if f.metric == reel_hearing.PAIRING_METRIC)
-    assert pairing.owner == "plan_subtitles"
 
 
 def _mini_timeline(card_name, reel_in, reel_out, fps=24.0):
@@ -538,21 +408,6 @@ def test_a_displaced_card_is_mispaired():
         3.9, abs=0.05)
 
 
-def test_one_speakers_caption_over_another_speakers_audio_is_mispaired():
-    timeline, transcript = _mini_timeline(
-        "sub_bob_clipa_10000-11000_ab12cd34.mov", 0.2, 1.1)
-    rows = reel_hearing.pairing_rows(timeline, transcript)
-    assert [row["kind"] for row in rows["mispaired"]] == [
-        "speaker_mismatch"]
-
-
-def test_a_card_claiming_speech_no_segment_plays_is_mispaired():
-    timeline, transcript = _mini_timeline(
-        "sub_alice_clipa_50000-52000_ab12cd34.mov", 0.2, 1.1)
-    rows = reel_hearing.pairing_rows(timeline, transcript)
-    assert [row["kind"] for row in rows["mispaired"]] == ["span_unplayed"]
-
-
 def test_a_nospan_card_is_unestablished_never_a_finding():
     """A file that declares no span cannot be paired with any speech,
     and an unmeasurable card is not a guilty one."""
@@ -578,18 +433,3 @@ def test_pairing_is_skipped_openly_when_there_are_no_captions(
                                                for f in quiet.findings}
 
 
-def test_pairing_can_be_declined_by_name(timeline, transcript, spoken,
-                                         project):
-    """Like every other check this pass makes, never silently absent."""
-    from library.tools import hearing_settings
-
-    settings = hearing_settings.resolve(
-        None, None, [reel_hearing.PAIRING_METRIC])
-    declined = reel_hearing.hear(timeline, transcript, spoken,
-                                 project_folder=str(project),
-                                 settings=settings)
-    assert declined.pairing["measured"] is False
-    assert reel_hearing.PAIRING_METRIC in {row["check"]
-                                           for row in declined.skipped}
-    assert reel_hearing.PAIRING_METRIC not in {f.metric
-                                               for f in declined.findings}

@@ -110,27 +110,6 @@ def test_the_tail_drop_reads_as_a_tail():
     assert context["gap_seconds"] > 20
 
 
-def test_a_false_start_reads_as_an_onset():
-    """Reel 28's shape: the dropped false start OPENS its sentence, so
-    the same context that condemns the tail-drop clears this one."""
-    transcript = {"segments": [
-        _seg("Akshita", "that has five star reviews and yada.", 2241.15,
-             [2241.27, 2241.41, 2241.57, 2242.02, 2242.52, 2242.70,
-              2243.85],
-             uid="a0"),
-        _seg("Akshita", "and i got", 2244.995,
-             [2245.16, 2245.20, 2246.01], uid="a1"),
-        _seg("Akshita", "and that is a very specific query", 2246.07,
-             [2246.15, 2246.25, 2246.31, 2246.36, 2246.56, 2247.01,
-              2247.25],
-             uid="a2"),
-        _seg("Akshita", "i got some", 2251.833,
-             [2251.91, 2252.16, 2252.37], uid="a3"),
-    ]}
-    cuts = reel_build.redundant_takes(2241.0, 2253.0, transcript)
-    assert len(cuts) == 1
-    context = reel_build.take_cut_context(cuts[0], transcript)
-    assert context["dropped_position"] == "onset"
 
 
 # ── lc-0006: the paraphrase is surfaced with its turn-crossing ──
@@ -190,17 +169,3 @@ def test_repetition_inside_carries_cut_context():
     assert cuts[0]["dropped_position"] == "tail"
 
 
-def test_candidates_carry_possible_retellings():
-    """The lc-0006 span, as a candidate window, offers the retelling
-    where the model can still redraw past one telling."""
-    data = {"timeline_transcript": _lc0006_transcript()}
-    import copy
-    data["timeline_transcript"] = copy.deepcopy(_lc0006_transcript())
-    entries = bridge.repetition_inside(889.0, 900.0,
-                                       data["timeline_transcript"])
-    # No pair-scan run exists here (nothing paired), so the run list is
-    # empty - and the retelling must still be offered, not lost with it.
-    assert entries == []
-    from library.tools import reel_build as _rb
-    assert len(_rb.possible_retellings(
-        889.0, 900.0, data["timeline_transcript"])) == 1

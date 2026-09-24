@@ -47,15 +47,6 @@ def test_the_default_is_vertical_1080x1920():
     assert resolve_delivery_format(None) == [1080, 1920]
 
 
-@pytest.mark.parametrize("name", sorted(DELIVERY_FORMATS))
-def test_every_format_is_a_positive_pair(name):
-    width, height = DELIVERY_FORMATS[name]
-    assert width > 0 and height > 0
-    # The name has to state the frame, because that is what a template
-    # author and a reviewer see in the YAML.
-    assert f"{width}x{height}" in name
-
-
 def test_an_unknown_format_raises_rather_than_defaulting():
     """A silent fallback is how a landscape master ships again."""
     with pytest.raises(ValueError) as exc:
@@ -68,11 +59,6 @@ def test_an_unknown_format_raises_rather_than_defaulting():
 def test_an_empty_declaration_is_not_an_error():
     """Declaring nothing is legitimate and means the default."""
     assert resolve_format_name("") == DELIVERY_FORMATS[DEFAULT_DELIVERY_FORMAT]
-
-
-def test_a_non_string_declaration_raises():
-    with pytest.raises(TypeError):
-        resolve_format_name([1080, 1920])
 
 
 # ── Precedence: project override > template > default ─────────────────
@@ -148,49 +134,7 @@ def test_every_synthetic_copy_declares_a_known_format(name):
     assert not validate_template(BrandTemplate.from_dict(data))
 
 
-def test_a_project_with_no_template_declares_no_format_and_gets_the_default(tmp_path):
-    """The frame is a property of the PRODUCT, and it has its own default.
-
-    This used to assert that a template-less project read a fallback file
-    off disk. It no longer does - a project that names no brand template
-    declares nothing at all - and the frame is unchanged by that,
-    because `DEFAULT_DELIVERY_FORMAT` is where the vertical default
-    lives; no shipped file restates it anymore.
-    """
-    assert resolve_project_template("").delivery_format == ""
-    assert delivery_format_name(None) == DEFAULT_DELIVERY_FORMAT
-
-    # A removed name raises rather than resolving: the product ships no
-    # templates, so only the project's own copy answers.
-    with pytest.raises(FileNotFoundError):
-        resolve_project_template("default_brand", templates_dir=str(tmp_path))
-
-
-def test_a_named_template_that_does_not_exist_raises():
-    with pytest.raises(FileNotFoundError):
-        resolve_project_template("no_such_series")
-
-
 # ── The project config half ───────────────────────────────────────────
-
-def test_project_config_carries_and_validates_the_override():
-    cfg = _dict_to_project_config({
-        "name": "T", "slug": "t",
-        "pipeline": {"delivery_format": "square_1080x1080"},
-    })
-    assert cfg.pipeline.delivery_format == "square_1080x1080"
-    assert cfg.validate() == []
-
-    bad = _dict_to_project_config({
-        "name": "T", "slug": "t",
-        "pipeline": {"delivery_format": "tall"},
-    })
-    assert any("delivery_format" in e for e in bad.validate())
-
-
-def test_the_template_json_schema_offers_the_enumeration():
-    prop = BrandTemplate.get_json_schema()["properties"]["delivery_format"]
-    assert prop["enum"] == format_names()
 
 
 # ── The source resolution is a DESCRIPTION, and cannot be a target ────

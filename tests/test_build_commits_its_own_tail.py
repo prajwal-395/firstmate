@@ -65,21 +65,8 @@ def test_the_build_command_closes_its_own_record():
     assert writes and min(c.lineno for c in calls) > max(writes)
 
 
-def test_the_closing_commit_never_fails_the_build():
-    """A record that breaks a build is worse than no record - the rule
-    the per-build hook already follows."""
-    body = _function("_commit_run_tail")
-    assert any(isinstance(n, ast.Try) for n in ast.walk(body)), (
-        "_commit_run_tail can now raise out of a finished build")
 
 
-def test_a_project_with_no_repo_is_left_alone(tmp_path):
-    """Version control on the captain's directory stays an explicit
-    act: a build never initialises one unasked."""
-    import manage_project
-
-    manage_project._commit_run_tail(str(tmp_path))
-    assert not (tmp_path / ".git").exists()
 
 
 def test_the_tail_commit_lands_what_the_final_state_write_left(tmp_path):

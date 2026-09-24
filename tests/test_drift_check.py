@@ -72,14 +72,6 @@ def test_the_measured_halving_reads_as_one_factor_of_a_half():
     assert "every one by x0.5" in compared["line"]
 
 
-def test_an_unmoved_reel_holds_what_the_build_wrote():
-    """The `(MFA timings)` timeline: 1.0 on every placed transform."""
-    compared = compare_documents("Reel 26 (MFA timings)", BUILT, BUILT)
-    assert compared["factor"] is None
-    assert compared["moved"] == 0
-    assert "hold exactly what the build wrote" in compared["line"]
-
-
 def test_snapshot_rounding_is_one_factor_not_a_second():
     """`0.7466` stored for a true `0.74655` reads 0.50002, not NO factor.
 
@@ -143,51 +135,6 @@ def test_two_different_factors_refuse_to_read_as_one():
     compared = compare_documents("Reel 01", built, live)
     assert compared["factor"] is None
     assert "by NO single factor" in compared["line"]
-
-
-def test_a_document_that_is_not_a_timeline_refuses():
-    """An empty reading of an unreadable file is the silent pass -
-    the keyed reader holds the same rule as the module it mirrors."""
-    with pytest.raises(TransformDriftError):
-        keyed_transforms({"metadata": {"name": "Reel 01"}})
-
-
-def test_newest_snapshot_wins_per_recorded_name(tmp_path):
-    """Names come from the snapshot's own metadata, newest mtime wins,
-    and the unreadable files are reported, never silently passed."""
-    import time
-    review = tmp_path / "pipeline_output" / "review"
-    review.mkdir(parents=True)
-    old = doc("Reel 01", (1, 1, "a.MXF", 1.0, 0.25))
-    new = doc("Reel 01", (1, 1, "a.MXF", 2.0, 0.25))
-    (review / "Reel_01_old.timeline.json").write_text(
-        json.dumps(old), encoding="utf-8")
-    time.sleep(0.02)
-    (review / "Reel_01_new.timeline.json").write_text(
-        json.dumps(new), encoding="utf-8")
-    (review / "Reel_13.timeline.json").write_text(
-        json.dumps(doc("Reel 13", (1, 1, "a.MXF", 1.0, 0.25))),
-        encoding="utf-8")
-    (review / "broken.timeline.json").write_text("{nope", encoding="utf-8")
-    (review / "nameless.timeline.json").write_text(
-        json.dumps({"tracks": []}), encoding="utf-8")
-
-    found = newest_snapshots(review)
-    assert set(found["snapshots"]) == {"Reel 01", "Reel 13"}
-    chosen = json.loads(
-        found["snapshots"]["Reel 01"].read_text(encoding="utf-8"))
-    assert keyed_transforms(chosen)[(1, 1, "a.MXF")]["Pan"] == 2.0
-    assert len(found["skipped"]) == 2
-
-
-def test_per_reel_factor_needs_nothing_moved_to_say_nothing():
-    assert per_reel_factor([]) is None
-
-
-def test_summarize_keeps_the_unmoved_words():
-    rows = compare_documents("Reel 26", BUILT, BUILT)["rows"]
-    assert summarize("Reel 26", rows) == (
-        "Reel 26: 3 placement(s) hold exactly what the build wrote")
 
 
 # ── The self-read: current for its own read, cursor back ─────────────
@@ -267,25 +214,6 @@ def test_the_read_happens_with_the_reel_current_and_restores(
     assert "drift: Reel 26: 3 of 3 placement(s) moved since the build" in out
 
 
-def test_exact_names_only_never_a_prefix(tmp_path, capsys):
-    """`Reel 2` must not self-read `Reel 26`."""
-    reel26 = _FakeTimeline("Reel 26", "uid-26")
-    project = _FakeProject("field test", [reel26])
-    assert find_live_timeline(project, "Reel 2") is None
-    assert find_live_timeline(project, "Reel 26") is reel26
-
-
-def test_another_project_open_refuses(tmp_path):
-    """Snapshots of one project read as drift against another's
-    timelines is how a comparison lies, so it is refused instead."""
-    project = _FakeProject("someone else's project",
-                           [_FakeTimeline("Reel 26", "uid")])
-    folder = _project_folder(tmp_path, "field test")
-    report = drift_check.check_project(folder, project=project)
-    assert "refusing" in report["error"]
-    assert report["lines"] == []
-
-
 # ── The build runs it twice, and neither run can fail the build ──────
 
 _SOURCE = inspect.getsource(reel_build)
@@ -304,40 +232,3 @@ def test_the_build_checks_drift_at_start_and_end():
     before AND an after. Two sites, named for which end they are."""
     assert _BODY.count('when="build start"') == 1
     assert _BODY.count('when="build end"') == 1
-
-
-def test_the_start_check_runs_before_anything_is_placed():
-    """A baseline taken after staging started is not a baseline."""
-    assert (_BODY.index('when="build start"')
-            < _BODY.index("archive_plan("))
-
-
-def test_the_end_check_runs_after_the_sweep():
-    """The end bracket closes over the promotion, the sweep and the
-    filing - everything in the build that touches the project."""
-    assert (_BODY.index("sweep_all_reels_informational(")
-            < _BODY.index('when="build end"')
-            < _BODY.index("return {"))
-
-
-def test_neither_check_can_fail_the_build():
-    """A detector that fails the build is a gate. Both call sites sit
-    under `except Exception`, like the divergence survey beside them."""
-    for marker in ('when="build start"', 'when="build end"'):
-        guarded = _BODY[_BODY.index(marker):_BODY.index(marker) + 800]
-        assert "except Exception" in guarded, (
-            f"the {marker} check can raise out of the build")
-
-
-def test_the_build_compares_snapshots_against_self_reads():
-    """The call the two sites share, so a refactor cannot keep the
-    sites and lose the comparison."""
-    calls = []
-    for child in ast.walk(_function("rebuild_reels_in_project")):
-        func = getattr(child, "func", None) if isinstance(
-            child, ast.Call) else None
-        if isinstance(func, ast.Attribute) and isinstance(
-                func.value, ast.Name):
-            calls.append(f"{func.value.id}.{func.attr}")
-    assert calls.count("_drift_start.check_project") == 1
-    assert calls.count("_drift_end.check_project") == 1

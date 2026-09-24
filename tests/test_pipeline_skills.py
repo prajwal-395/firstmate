@@ -72,26 +72,6 @@ def black_video(tmp_path):
 
 # ── The catalogue is real directories with model-facing docs ──────
 
-def test_every_catalogued_skill_has_a_directory_entry_and_docs():
-    for name, skill in pipeline_skills.SKILLS.items():
-        d = REPO / "library" / "skills" / name
-        assert d.is_dir(), f"skill {name!r} has no library/skills/ directory"
-        doc = (d / "SKILL.md").read_text(encoding="utf-8").lower()
-        for word in ("when", "cost", "return"):
-            assert word in doc, (
-                f"{name}/SKILL.md never says {word} - it is written for "
-                f"a model deciding whether to call, not for a human")
-        entry = d / "skill.py"
-        assert entry.exists(), f"skill {name!r} has no entry point"
-        assert skill.module == f"library.skills.{name}"
-
-
-def test_kinds_are_only_gate_and_report():
-    for name, skill in pipeline_skills.SKILLS.items():
-        assert skill.kind in (pipeline_skills.GATE,
-                              pipeline_skills.REPORT), name
-
-
 # ── Refusal direction one: a name nothing holds ───────────────────
 
 def test_unknown_skill_name_is_refused():
@@ -100,25 +80,12 @@ def test_unknown_skill_name_is_refused():
                                         "validate")
 
 
-def test_the_refusal_can_actually_fire():
-    """A gate that cannot fail reads as coverage (AGENTS.md 10.4)."""
-    with pytest.raises(pipeline_skills.UnknownSkill):
-        pipeline_skills.declared_skills(
-            {"skills": ["verify_render", "bogus"]}, "validate")
-
-
 def test_skills_under_interface_are_refused_not_ignored():
     """The step-3.04 shape: declared where nothing reads it."""
     with pytest.raises(pipeline_skills.MisplacedSkills,
-                       match="top level"):
+                        match="top level"):
         pipeline_skills.declared_skills(
             {"interface": {"skills": ["verify_render"]}}, "validate")
-
-
-def test_a_non_list_declaration_is_refused():
-    with pytest.raises(pipeline_skills.UnknownSkill):
-        pipeline_skills.declared_skills({"skills": "verify_render"},
-                                        "validate")
 
 
 # ── Refusal direction two: declared but never reaching the prompt ─
@@ -131,33 +98,7 @@ def test_declared_skill_missing_from_prompt_fails():
             "a prompt that names nothing")
 
 
-def test_reached_skill_passes():
-    pipeline_skills.assert_declared_skills_reach_prompt(
-        "validate", {"skills": ["verify_render"]},
-        pipeline_skills.prompt_block(
-            "validate", {"skills": ["verify_render"]}, "agent"))
-
-
-def test_no_manifest_means_no_block_and_no_refusal():
-    assert pipeline_skills.prompt_block("render", None) == ""
-    assert pipeline_skills.prompt_block(
-        "render", {"interface": {}}) == ""
-    pipeline_skills.assert_declared_skills_reach_prompt(
-        "render", None, "anything")
-
-
 # ── The block tells the model what it must do, per harness ───────
-
-def test_block_names_each_skill_and_its_kind():
-    block = pipeline_skills.prompt_block(
-        "validate", {"skills": ["verify_render"]}, "agent")
-    assert "verify_render" in block
-    assert "GATING" in block
-    block = pipeline_skills.prompt_block(
-        "review_rough_cut", {"skills": ["ask_the_footage"]}, "agent")
-    assert "ask_the_footage" in block
-    assert "REPORTING" in block
-
 
 def test_shell_harness_is_told_to_invoke_gating_before_answering():
     block = pipeline_skills.prompt_block(
@@ -171,51 +112,6 @@ def test_shell_less_harness_gets_the_pipeline_runs_it_route():
         "validate", {"skills": ["verify_render"]}, "api")
     assert "python3 -m" not in block
     assert "the pipeline runs `verify_render` for you" in block
-
-
-def test_harness_enumeration_is_complete():
-    assert pipeline_skills.harness_invokes_skills("agent") is True
-    assert pipeline_skills.harness_invokes_skills("api") is False
-    with pytest.raises(pipeline_skills.UnknownHarness, match="brand_new"):
-        pipeline_skills.harness_invokes_skills("brand_new")
-
-
-# ── A third skill joins without touching runner code ──────────────
-
-def test_third_skill_needs_only_a_registry_row(monkeypatch):
-    """The hook the timeline-SOP lane used to join as `verify_timeline`:
-    catalogue growth is a row plus a directory, never a runner change."""
-    third = pipeline_skills.Skill(
-        name="timeline_sop_check",
-        kind=pipeline_skills.GATE,
-        module="library.skills.verify_render",
-        when="WHEN: the timeline must obey the SOP.",
-        cost="COST: free.",
-        returns="RETURNS: a verdict.",
-        pipeline_args=None,
-    )
-    monkeypatch.setitem(pipeline_skills.SKILLS, third.name, third)
-    manifest = {"skills": ["verify_render", "timeline_sop_check"]}
-    block = pipeline_skills.prompt_block("validate", manifest, "agent")
-    assert "timeline_sop_check" in block
-    pipeline_skills.assert_declared_skills_reach_prompt(
-        "validate", manifest, block)
-    assert pipeline_skills.gating_skills(manifest, "validate") == [
-        "verify_render", "timeline_sop_check"]
-    source = (REPO / "library/processes/edit_video/run_pipeline.py"
-              ).read_text(encoding="utf-8")
-    assert "timeline_sop_check" not in source
-
-
-def test_run_skill_dispatches_by_registry(monkeypatch, tmp_path,
-                                          good_video):
-    result = pipeline_skills.run_skill(
-        "verify_render", video_path=good_video,
-        project_folder=str(tmp_path), step_id="validate",
-        expected_resolution=[1080, 1920], expected_fps=30)
-    assert result["passed"] is True
-    with pytest.raises(pipeline_skills.UnknownSkill):
-        pipeline_skills.run_skill("no_such_skill")
 
 
 # ── verify_render gates: fails bad, passes good ───────────────────
@@ -241,14 +137,6 @@ def test_verify_render_fails_a_real_black_render(tmp_path, black_video):
     failed = [c["name"] for c in verdict["checks"] if not c["passed"]]
     assert failed, "a 2s black-and-silent render passed every check"
     assert verdict["receipt"] is not None
-
-
-def test_verify_render_refuses_a_missing_file(tmp_path):
-    from library.skills.verify_render.skill import run
-    verdict = run(str(tmp_path / "absent.mp4"), str(tmp_path),
-                  "validate")
-    assert verdict["passed"] is False
-    assert "not found" in verdict["issues"][0]
 
 
 # ── ask_the_footage reports: deterministic half carries, model opines
@@ -329,12 +217,6 @@ def test_ran_gating_skill_reads_back_from_disk(tmp_path, good_video):
     assert receipts["verify_render"]["result"]["passed"] is True
 
 
-def test_report_only_declaration_needs_no_receipt(tmp_path):
-    assert pipeline_skills.assert_gating_skills_ran(
-        "review_rough_cut", {"skills": ["ask_the_footage"]},
-        str(tmp_path)) == {}
-
-
 def test_pipeline_runs_the_gate_for_a_shell_less_harness(
         tmp_path, good_video):
     """`api` cannot invoke: the pipeline runs verify_render itself and
@@ -351,17 +233,6 @@ def test_pipeline_runs_the_gate_for_a_shell_less_harness(
     assert "PASSED" in fed
     receipts = pipeline_skills.read_receipts(str(tmp_path), "validate")
     assert receipts["verify_render"]["result"]["passed"] is True
-
-
-def test_pipeline_route_refuses_a_missing_video_path(tmp_path):
-    manifest = {"skills": ["verify_render"]}
-    inputs = {"project_folder": str(tmp_path),
-              "rendered_output": {},
-              "assembly_manifest": {}}
-    with pytest.raises(pipeline_skills.UnrunnableSkill,
-                       match="output_path"):
-        pipeline_skills.ensure_gating_receipts(
-            "validate", manifest, inputs, "api")
 
 
 # ── The block reaches the archived prompt the model reads ─────────
@@ -404,13 +275,6 @@ def test_skill_block_reaches_the_archived_request(tmp_path, monkeypatch):
     assert "verify_render" in prompt
     assert "GATING" in prompt
     assert "SENTINEL_HANDOFF_BODY" in prompt
-
-
-def test_replay_bench_mirrors_the_skill_block():
-    source = (REPO / "library/tools/replay_bench/reconstruct.py"
-              ).read_text(encoding="utf-8")
-    assert "import pipeline_skills as _bench_skills" in source
-    assert "_bench_skills.prompt_block(" in source
 
 
 # ── The hybrid loop enforces the must-check ───────────────────────

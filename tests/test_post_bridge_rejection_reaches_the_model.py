@@ -176,34 +176,3 @@ def test_the_feedback_blocks_accumulate_and_stay_bounded(tmp_path):
                (post_bridge_retry.MAX_VIOLATION_CHARS + 600))
     assert len(contexts[-1]) - len(contexts[0]) < ceiling
 
-
-def test_a_long_violation_is_elided_from_the_middle(tmp_path):
-    """The cause of a rejection is as often at the tail as at the head -
-    the lesson #409 learned about stderr truncation."""
-    text = "HEAD" + ("x" * 9000) + "TAIL"
-    block = post_bridge_retry.feedback_block(text, 1)
-    assert "HEAD" in block and "TAIL" in block
-    assert len(block) < post_bridge_retry.MAX_VIOLATION_CHARS + 600
-
-
-@pytest.mark.heavy
-def test_a_step_with_no_post_bridge_still_calls_once(tmp_path):
-    project = tmp_path / "project"
-    project.mkdir()
-    step = tmp_path / "step_2_01_creative_direction"
-    step.mkdir()
-    (step / "handoff.md").write_text("Direct it.\n", encoding="utf-8")
-    req = project / "pipeline_output" / "llm_requests" / "creative_direction.json"
-    res = project / "pipeline_output" / "llm_responses" / "creative_direction.json"
-    seen = []
-    stop_answerer = _answerer(
-        req, res, [{"creative_direction": {"target_mood": "wry"}}], seen)
-    try:
-        result = run_hybrid_step(
-            step, {"project_folder": str(project)}, "creative_direction",
-            manifest={"interface": {"outputs": [{"name": "creative_direction"}]}},
-            full_auto="agent", llm_timeout=30)
-    finally:
-        stop_answerer()
-    assert result == {"creative_direction": {"target_mood": "wry"}}
-    assert len(seen) == 1

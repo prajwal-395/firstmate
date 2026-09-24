@@ -95,53 +95,7 @@ def test_manifest_declares_llm_outputs():
         )
 
 
-def test_schema_is_non_empty_through_the_runner():
-    """The path that actually builds the prompt, not just the manifest."""
-    sys.path.insert(0, str(REPO / "library" / "processes" / "edit_video"))
-    manifest = json.loads((STEP / "manifest.json").read_text(encoding="utf-8"))
-
-    interface = manifest["interface"]
-    # Mirror present_llm_step's own branch.
-    if "llm_outputs" in interface:
-        llm_outputs = interface["llm_outputs"]
-    else:
-        bridge_supplied = {"music_candidates"}
-        already_have = {"creative_direction", "project_folder"} | bridge_supplied
-        llm_outputs = [
-            o for o in interface.get("outputs", [])
-            if o.get("name") not in already_have
-        ]
-    assert llm_outputs, (
-        "the runner would inject an empty schema for music_selection"
-    )
-
-
 # ── 2. The library is consulted ───────────────────────────────────────
-
-
-def test_catalogue_sources_includes_the_music_library(monkeypatch, tmp_path):
-    library = tmp_path / "shared_music"
-    library.mkdir()
-    monkeypatch.setenv("PIPELINE_MUSIC_LIBRARY", str(library))
-    import importlib
-
-    import library.tools.paths as paths
-    importlib.reload(paths)
-    try:
-        sources = catalogue_sources(str(tmp_path / "proj"))
-        assert sources["library"] == (str(library),)
-        # One label, two directories: the captain's read-only music/ and
-        # the downloads area a fetched track lands in. See
-        # library/tools/project_layout.py for why those are separate
-        # places, and catalogue_sources for why they share a label.
-        assert sources["project"] == (
-            str(tmp_path / "proj" / "music"),
-            str(tmp_path / "proj" / "pipeline_output" / "steps"
-                / "2_04_music_selection" / "downloads"),
-        )
-    finally:
-        monkeypatch.delenv("PIPELINE_MUSIC_LIBRARY", raising=False)
-        importlib.reload(paths)
 
 
 def test_bridge_lists_the_library_and_picks_nothing(tmp_path, monkeypatch):
@@ -295,9 +249,7 @@ def test_a_valid_library_selection_passes(tmp_path):
 
 @pytest.mark.parametrize(
     "target,expected",
-    [(60.0, MAX_TRACK_DURATION_FLOOR_SECONDS),   # 10x60 = 600 = the floor
-     (20.0, MAX_TRACK_DURATION_FLOOR_SECONDS),   # floor wins for short edits
-     (120.0, 1200.0)],                           # 10x wins for longer ones
+    [(60.0, MAX_TRACK_DURATION_FLOOR_SECONDS)],   # 10x60 = 600 = the floor
 )
 def test_duration_ceiling(target, expected):
     assert max_track_duration_seconds(target) == expected

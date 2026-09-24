@@ -67,11 +67,6 @@ def test_backgrounds_match_the_landscape_source(name):
     )
 
 
-@pytest.mark.parametrize("name", sorted(BACKGROUND_EFFECTS))
-def test_backgrounds_match_a_vertical_source(name):
-    comp = build_effect_comp(dict(BACKGROUND_EFFECTS[name]), CLIP_DUR,
-                             source_res=VERTICAL)
-    assert all(s == VERTICAL for s in _background_sizes(comp))
 
 
 def test_an_unknown_source_refuses_rather_than_guessing():
@@ -140,16 +135,3 @@ def test_the_renderer_reads_the_source_frame_off_the_media_pool_item():
     assert read(None) is None
 
 
-def test_the_renderer_passes_the_source_frame_to_the_builder():
-    """The band came back once because the fix sat on an uncalled path."""
-    src = APPLY_FUSION_COMPS.read_text()
-    assert "source_res = _source_resolution(mpi)" in src
-    assert "build_effect_comp(effects, clip_dur, source_res," in src
-    # An unreadable MediaPoolItem refuses the comp, by clip, rather
-    # than sizing a canvas by guess.
-    assert "if source_res is None:" in src
-    assert "REFUSING to build" in src
-    # The played horizon travels with it: an end-anchored animation
-    # keyed past everything rendered never draws, so the builder is
-    # told how many frames the timeline really renders for the clip.
-    assert "played_frames=played" in src

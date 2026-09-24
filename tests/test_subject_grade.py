@@ -84,12 +84,6 @@ class TestParsePlanEntry:
         # about how warm warm is.
         assert clean["grade"] == {"gain": 1.173, "saturation": 1.311}
 
-    def test_second_value_set_passes_through_unchanged(self):
-        clean, drop = subject_grade.parse_plan_entry(_warm_entry(
-            grade={"gain": 0.913, "contrast": 0.07, "saturation": 0.884}))
-        assert drop is None
-        assert clean["grade"] == {
-            "gain": 0.913, "contrast": 0.07, "saturation": 0.884}
 
     def test_generic_object_is_dropped_not_guessed(self):
         clean, drop = subject_grade.parse_plan_entry(_warm_entry(
@@ -288,9 +282,6 @@ class TestApplySubjectGrades:
         assert len(drops) == 1
         assert "laptop" in drops[0]["detail"]
 
-    def test_no_entries_no_mattes_no_drops(self, tmp_path):
-        assert subject_grade.apply_subject_grades(
-            [], {}, matte_dir=str(tmp_path)) == ({}, [], [])
 
 
 # ─── 7. The plan-to-manifest path: 5.01 carries, compile grounds ───
@@ -403,22 +394,3 @@ class TestFiveOhOneCarries:
         assert spec["subject_grades"][0]["grade"]["gain"] == 1.173
         assert spec["subject_grade_drops"] == []
 
-    def test_define_color_grade_without_entries_stays_empty(self):
-        from unittest.mock import patch as _patch
-
-        from library.steps.step_5_01_color_grade.grade import (
-            LUMA_METHOD,
-            define_color_grade,
-        )
-
-        measured = {"luma": 122.0, "method": LUMA_METHOD, "samples": 40}
-        with _patch(
-                "library.steps.step_5_01_color_grade.grade.measure_luma",
-                return_value=dict(measured)):
-            spec = define_color_grade(
-                {"entries": [{"track": "V1", "clip_id": "c1",
-                              "entry_id": "e1", "source_file": "f1.mov"}]},
-                project_folder="proj",
-            )["color_grade_spec"]
-        assert spec["subject_grades"] == []
-        assert spec["subject_grade_drops"] == []

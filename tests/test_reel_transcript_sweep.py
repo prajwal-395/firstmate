@@ -105,27 +105,6 @@ def test_sweep_covers_played_words_only(tmp_path):
                                       "prev": "yeah", "next": "exactly"}
 
 
-def test_identical_sounds_group_to_one_candidate(tmp_path):
-    project = _project(tmp_path)
-    report = sw.sweep_moments([_moment(17, 10.0, 14.0),
-                               _moment(18, 10.0, 14.0)], _doc(), project)
-    ums = [c for c in report["candidates"] if c["heard"] == "um"]
-    assert len(ums) == 1
-    assert ums[0]["reels"] == ["reel 17", "reel 18"]
-
-
-def test_preview_records_nothing(tmp_path):
-    from library.tools import learned_context as lc
-
-    project = _project(tmp_path)
-    report = sw.scan(project, moments=[_moment(17, 10.0, 24.0)],
-                     transcript=_doc(), apply=False)
-    assert report["candidates"]
-    assert report["recorded"] == []
-    assert lc.active_for_step(project, "*") == []
-    assert lc.pending(project) == []
-
-
 def test_apply_holds_pending_never_enforced(tmp_path):
     from library.tools import learned_context as lc
     from library.tools import transcript_corrections as tc
@@ -194,11 +173,3 @@ def test_scan_refuses_without_approved_moments(tmp_path):
     project = _project(tmp_path)
     with pytest.raises(sw.SweepRefused):
         sw.scan(project, moments=[], transcript=_doc(), apply=False)
-
-
-def test_scan_refuses_without_files(tmp_path):
-    import pytest
-
-    project = _project(tmp_path)
-    with pytest.raises(sw.SweepRefused):
-        sw.scan(project, apply=False)

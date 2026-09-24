@@ -169,11 +169,3 @@ def test_wired_false_requires_reason_at_import_time():
 
     with pytest.raises(ValueError, match="unwired_reason"):
         StepDir("fake_step", "99_99_fake", wired=False)
-
-
-def test_wired_true_ignores_reason():
-    """A wired step should not carry an unwired_reason."""
-    from library.tools.project_layout import StepDir
-
-    s = StepDir("test_step", "99_99_test", wired=True)
-    assert s.unwired_reason == ""

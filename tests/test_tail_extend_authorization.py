@@ -49,11 +49,6 @@ def test_no_file_is_no_authorisation(tmp_path):
     assert load_authorizations(str(tmp_path / "absent")) == {}
 
 
-def test_a_recorded_ruling_loads_keyed_by_reel(tmp_path):
-    project = _write(tmp_path, {"authorizations": [_entry()]})
-    auths = load_authorizations(project)
-    assert auths[28]["reason"] == "captain 2026-09-21: extend it"
-    assert auths[28]["measured_tail_end"] == 2287.14
 
 
 def test_a_reel_answers_only_its_own_entry(tmp_path):

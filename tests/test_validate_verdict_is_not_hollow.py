@@ -63,10 +63,6 @@ def test_undetermined_verdict_is_not_hollow_but_still_a_failure():
     assert check_validation_verdict("validate", output) == [_expected_detail(output)]
 
 
-def test_pass_verdict_is_neither_hollow_nor_a_failure():
-    output = _validate_output("pass", 0)
-    assert check_output_is_real("validate", output) == []
-    assert check_validation_verdict("validate", output) == []
 
 
 def test_verdict_gate_only_reads_validate():

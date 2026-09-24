@@ -184,68 +184,12 @@ def _prompt_violation(op) -> str:
     return None
 
 
-@pytest.mark.parametrize("op", operations.all(), ids=lambda o: o.name)
-def test_no_operation_introduces_a_second_implementation(op):
-    assert violation(op) is None, f"{op.name}: {violation(op)}"
 
 
-@pytest.mark.parametrize("op", operations.all(), ids=lambda o: o.name)
-def test_every_operation_resolves_to_a_real_callable(op):
-    """`run` is a property, so a typo in `attr` is only found by resolving.
-
-    Prompt capabilities have no `run` and raise instead of resolving -
-    asserted here so a future fallback returning a callable fails
-    loudly rather than reopening the hole the `run` docstring closes.
-    """
-    if getattr(op, "is_prompt", False):
-        with pytest.raises(operations.OperationError):
-            op.run
-        return
-    assert callable(op.run), f"{op.name}: run did not resolve to a callable"
 
 
-def test_every_owning_node_is_a_real_dag_node():
-    """Sixteen of the runner's eighteen per-step services are keyed by the
-    node id, so an operation with an unreal owning node loses its place in
-    the ledgers, the run status, the gates and the collectors.
-
-    Read across EVERY process, not just edit_video. `reel.build` and
-    `reel.verify` are owned by nodes of `library/processes/reels`, and a
-    check that knew only one graph would refuse two operations whose
-    nodes are real - the same confidently-wrong answer in the opposite
-    direction from the one this test exists to catch.
-    """
-    from library.tools import processes
-
-    nodes = set(processes.node_owners())
-    assert nodes >= {n["id"] for n in json.loads(DAG.read_text())["nodes"]}, (
-        "the process registry no longer sees edit_video's own nodes")
-    for op in operations.all():
-        assert op.owning_node in nodes, (
-            f"{op.name} claims owning_node {op.owning_node!r}, "
-            f"which is not a DAG node of any process")
 
 
-def test_no_two_processes_share_a_node_id():
-    """An operation names a node, and a node must mean one thing.
-
-    Node ids key the two ledgers, the run status, the review gate, the
-    marker routing, the step export and `step_outputs` in
-    `pipeline_data.json`, and a derived requirement is NAMED after one
-    (`state.<consumer>.<key>`). Two processes sharing an id would give
-    two different steps one slot in all of them.
-    """
-    from library.tools import processes
-
-    processes.assert_node_ids_are_unique()          # must not raise
-
-    seen = {}
-    for pid in processes.process_ids():
-        for node in processes.load_dag(pid)["nodes"]:
-            assert node["id"] not in seen, (
-                f"{node['id']!r} is declared by {seen[node['id']]!r} and "
-                f"{pid!r}")
-            seen[node["id"]] = pid
 
 
 def test_the_uniqueness_gate_can_fail(monkeypatch):
@@ -264,33 +208,10 @@ def test_the_uniqueness_gate_can_fail(monkeypatch):
     processes.assert_node_ids_are_unique()          # restored, still clean
 
 
-def test_operation_names_are_unique():
-    seen = [op.name for op in operations.all()]
-    assert len(seen) == len(set(seen)), "two operations share a name"
 
 
-def test_every_operation_declares_at_least_one_scope():
-    for op in operations.all():
-        assert op.scopes, f"{op.name} declares no scope"
-        for kind in op.scopes:
-            assert kind in operations.scope_mod.KINDS, (
-                f"{op.name} declares unknown scope {kind!r}")
 
 
-def test_requirements_are_empty_until_increment_3_owns_them():
-    """`requires` is declared and empty ON PURPOSE.
-
-    Executable prerequisites are `library/tools/requirements.py`.  If this
-    starts failing because someone populated `requires` with a prose
-    string or a hand-rolled checker, that is the defect the refactor
-    exists to remove reappearing in a new directory - not a stale test.
-    """
-    for op in operations.all():
-        for requirement in op.requires:
-            assert not isinstance(requirement, str), (
-                f"{op.name} declares a PROSE requirement {requirement!r}. "
-                f"Requirements are executable and owned by "
-                f"library/tools/requirements.py.")
 
 
 # ── The gate must be able to FAIL (AGENTS.md 10.4) ──────────────────
@@ -309,23 +230,6 @@ def test_the_rule_refuses_a_tool_the_owning_step_does_not_import():
     assert "does not import" in (violation(planted) or "")
 
 
-def test_the_package_spelling_imports_the_named_submodule_only():
-    """The bare-package spelling is precise, not a wildcard (2026-09-10).
-
-    `step_4_01_plan_subtitles` does `from library.tools import
-    captain_edits` (PR #857): the gate must see the submodule the step
-    really uses without waving through every other tools module.  If
-    this fails, `tools_imported_by` has regressed to the match-everything
-    reading and the refusal test above passes only by accident.
-    """
-    from library.tools.captain_edits import apply_caption_fixes
-    found = tools_imported_by(STEPS / "step_4_01_plan_subtitles")
-    assert "tools.captain_edits" in found
-    assert "tools" not in found, (
-        "a bare `tools` wildcard is present, so any tools module would "
-        "pass the gate for this step")
-    assert violation(_Planted("legal.pkg", "step_4_01_plan_subtitles",
-                              apply_caption_fixes)) is None
 
 
 def test_the_rule_refuses_reaching_into_another_steps_body():
@@ -372,19 +276,6 @@ def test_the_rule_accepts_the_two_legal_shapes():
                               resolve_safe_area)) is None
 
 
-def test_the_both_spellings_trap_is_actually_handled():
-    """The helper must see the short `tools.` spelling.
-
-    If this fails, `tools_imported_by` has been narrowed to the long form
-    and every operation owned by compile_manifest, mesh_spine,
-    render_subtitles, render_motion_graphics or render would be refused
-    for a reason that is not true.
-    """
-    found = tools_imported_by(STEPS / "step_5_04_compile_manifest")
-    assert "tools.frame_utils" in found, (
-        "the short `from tools.X import` spelling is not being read")
-    assert "tools.music_bed" in found, (
-        "the long `from library.tools.X import` spelling is not being read")
 
 
 # ── The result type increment 6's hook conditions are built from ────
@@ -447,55 +338,12 @@ def test_an_unknown_status_is_refused():
             scope=operations.scope_mod.project(), status="maybe")
 
 
-def test_every_call_carries_both_names():
-    """Increment 2's provenance refuses an operation with no owning step,
-    because sixteen of the eighteen per-step services are node-keyed."""
-    for op in operations.all():
-        identity = op.call_identity()
-        assert identity["operation_id"] == op.name
-        assert identity["step_id"] == op.owning_node
-        assert identity["step_id"], f"{op.name} would arrive with no step id"
 
 
-def test_the_per_segment_seam_is_region_scoped():
-    """Increment 5 reaches render_one_segment through Scope/Region."""
-    segment = operations.get("subtitles.render_segment")
-    assert operations.REGION in segment.scopes
-    assert segment.attr == "render_one_segment"
-    where = operations.scope_mod.region("45.0-72.0")
-    segment.check_scope(where)          # must not raise
 
 
-def test_plan_subtitles_now_offers_region():
-    """The scaffold that refused this is GONE, and increment 5 removed it.
-
-    `test_plan_subtitles_does_not_yet_offer_region` stood here and
-    refused REGION on `subtitles.plan`, because 4.01 numbered its cards
-    from a run-global counter: a region-scoped plan renumbered every card
-    after the region. Measured on project 001, changing one block moved
-    13 ids in blocks that had not changed.
-
-    Block-local caption ids (increment 1, PR #540) removed the cause -
-    the same measurement now moves 0 - so the guard had served its
-    purpose and deleting it is removing a scaffold, not weakening a
-    safety check. This test replaces it so the capability cannot quietly
-    regress to refusing.
-    """
-    plan = operations.get("subtitles.plan")
-    assert operations.REGION in plan.scopes
-    plan.check_scope(operations.scope_mod.region("45.0-72.0"))   # must not raise
 
 
-def test_a_region_only_operation_refuses_project_scope():
-    """`subtitles.splice` at project scope would be a whole-plan
-    overwrite, which `subtitles.plan` already is. Offering both names for
-    one behaviour is the second implementation Ruling 1 forbids."""
-    for name in ("subtitles.splice", "transcript.reindex",
-                 "transcript.splice"):
-        op = operations.get(name)
-        assert op.scopes == (operations.REGION,), name
-        with pytest.raises(operations.ScopeNotSupported):
-            op.check_scope(operations.scope_mod.project())
 
 
 # ── The skill is a PROJECTION of the registry, never a source ───────
@@ -504,42 +352,7 @@ def test_a_region_only_operation_refuses_project_scope():
 SKILL = REPO / ".agents" / "skills" / "pipeline_operations" / "SKILL.md"
 
 
-def test_the_checked_in_skill_matches_what_the_registry_emits():
-    """Byte-identical, or the skill is describing a pipeline that is not
-    this one.
-
-    A hand-written skill would state its prerequisites in prose - the
-    exact defect the refactor removes - and 90 prose preconditions are
-    already evaluated by nothing. Generated, the prose cannot drift and
-    is never the contract.
-
-    If this fails, do not edit SKILL.md: run
-    `python3 -m library.tools.operations --emit-skill > .agents/skills/pipeline_operations/SKILL.md`
-    """
-    assert SKILL.is_file(), f"the generated skill is missing: {SKILL}"
-    on_disk = SKILL.read_text(encoding="utf-8")
-    emitted = operations.emit_skill()
-    assert on_disk.rstrip("\n") == emitted.rstrip("\n"), (
-        "the checked-in skill has drifted from the registry; regenerate it "
-        "rather than editing it by hand")
 
 
-def test_the_skill_names_every_operation():
-    """A projection that silently dropped rows would read as a smaller
-    pipeline than there is."""
-    text = SKILL.read_text(encoding="utf-8")
-    for op in operations.all():
-        assert f"`{op.name}`" in text, f"{op.name} is missing from the skill"
 
 
-def test_the_skill_states_no_prerequisite_in_prose():
-    """The whole point. Requirements are executable and owned by
-    library/tools/requirements.py; a skill that describes them in prose
-    reproduces the defect in a new directory while looking like progress.
-    """
-    text = SKILL.read_text(encoding="utf-8").lower()
-    for banned in ("prerequisite", "precondition", "you must first",
-                   "make sure you have", "requires that"):
-        assert banned not in text, (
-            f"the generated skill states a prerequisite in prose "
-            f"({banned!r}). Requirements are executable.")

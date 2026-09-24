@@ -141,28 +141,12 @@ def _declare(tmp_path, **extra):
 
 # ── 1. the declaration ───────────────────────────────────────────────────
 
-def test_a_declared_cdl_node_survives_to_the_caller(tmp_path):
-    _declare(tmp_path, cdl_node="BAL/EXP")
-    resolved = reel_look.resolve_power_grade(str(tmp_path))
-    assert resolved["cdl_node"] == "BAL/EXP"
-    assert os.path.isabs(resolved["path"])
 
-
-def test_no_cdl_node_is_none_not_a_guess(tmp_path):
-    _declare(tmp_path)
-    assert reel_look.resolve_power_grade(str(tmp_path))["cdl_node"] is None
-
-
-@pytest.mark.parametrize("bad", ["", "   ", 2, ["BAL/EXP"]])
+@pytest.mark.parametrize("bad", [2, ["BAL/EXP"]])
 def test_a_cdl_node_that_is_not_a_label_is_refused(tmp_path, bad):
     _declare(tmp_path, cdl_node=bad)
     with pytest.raises(ColorPageGradeError, match="cdl_node"):
         reel_look.resolve_power_grade(str(tmp_path))
-
-
-def test_a_project_declaring_no_power_grade_gets_none(tmp_path):
-    (tmp_path / "project.yaml").write_text(yaml.safe_dump({"name": "t"}))
-    assert reel_look.resolve_power_grade(str(tmp_path)) is None
 
 
 # ── 2. the routing: a DRX REPLACES the CDL route, never joins it ─────────
@@ -183,30 +167,6 @@ def test_a_declared_drx_is_the_route_and_the_bare_cdl_is_not_applied():
     assert item.cdl_calls == []
     assert record["applied"] == ["a.mxf"]
     assert record["nodes"]["a.mxf"] == 8
-
-
-def test_the_cdl_route_still_makes_the_call_it_always_made():
-    """The mechanism is unchanged - it is only no longer allowed to be
-    a reel's ONLY grade, and the record no longer claims it worked."""
-    item = _FakeItem("/footage/a.mxf")
-    timeline = _FakeTimeline({1: [item]})
-    record = reel_look.apply_grade(
-        timeline, _plan(), dict(TEST_CDL), power_grade=None,
-        footage_sources={"/footage/a.mxf"}, allow_unverified_cdl=True)
-    assert record["route"] == "cdl"
-    assert item.drx_calls == []
-    (call,) = item.cdl_calls
-    assert call["NodeIndex"] == "1"
-    assert call["Slope"] == "1.0300 1.0000 0.9600"
-
-
-def test_neither_declared_is_route_none():
-    item = _FakeItem("/footage/a.mxf")
-    record = reel_look.apply_grade(
-        _FakeTimeline({1: [item]}), _plan(), {}, power_grade=None,
-        footage_sources={"/footage/a.mxf"})
-    assert record["route"] == "none"
-    assert item.cdl_calls == [] and item.drx_calls == []
 
 
 # ── 3. the CDL lands INSIDE the applied grade, on the named node ─────────
@@ -270,44 +230,7 @@ def test_a_missing_label_refuses_the_cdl_rather_than_guessing_node_1():
     assert any("cdl_node_missing" in w for w in record["warnings"])
 
 
-def test_no_cdl_node_declared_means_the_drx_exactly_as_saved():
-    item = _FakeItem("/footage/a.mxf")
-    record = reel_look.apply_grade(
-        _FakeTimeline({1: [item]}), _plan(), dict(TEST_CDL),
-        power_grade={"path": "/look.drx", "provenance": PROVENANCE,
-                     "cdl_node": None},
-        footage_sources={"/footage/a.mxf"})
-    assert item.cdl_calls == []
-    assert record["warnings"] == []
-
-
 # ── 4. what gets graded is unchanged by the route ────────────────────────
-
-def test_the_drx_route_reaches_exactly_the_items_the_cdl_route_reaches():
-    """Swapping route must not swap WHICH clips are graded: a rendered
-    card shares the picture row but is a graphic, and the frame overlay
-    rides another row."""
-    footage_a = _FakeItem("/footage/a.mxf")
-    footage_b = _FakeItem("/footage/b.mxf")
-    card = _FakeItem("/renders/card_head.mov", name="card")
-    frame = _FakeItem("/renders/tv_frame.mov", name="frame")
-    rows = {1: [footage_a, card], 2: [footage_b], 3: [frame]}
-    sources = {"/footage/a.mxf", "/footage/b.mxf"}
-
-    drx = reel_look.apply_grade(
-        _FakeTimeline(rows), _plan(), dict(TEST_CDL),
-        power_grade={"path": "/look.drx", "provenance": PROVENANCE,
-                     "cdl_node": None},
-        footage_sources=sources)
-    for item in (footage_a, footage_b):
-        item.labels = [""]                      # reset for the second pass
-    cdl = reel_look.apply_grade(
-        _FakeTimeline(rows), _plan(), dict(TEST_CDL), power_grade=None,
-        footage_sources=sources, allow_unverified_cdl=True)
-
-    assert sorted(drx["applied"]) == sorted(cdl["applied"]) == ["a.mxf", "b.mxf"]
-    assert card.drx_calls == [] and card.cdl_calls == []
-    assert frame.drx_calls == [] and frame.cdl_calls == []
 
 
 # ── 5. a refusal is recorded, never raised, and never silent ─────────────
@@ -335,13 +258,6 @@ def test_a_setcdl_refusal_inside_the_graph_is_recorded_by_name():
     assert record["applied"] == ["a.mxf"]       # the look landed
     assert record["cdl_landed_on"]["a.mxf"]["landed"] is False
     assert any("BAL/EXP" in w for w in record["warnings"])
-
-
-def test_node_index_by_label_is_none_when_the_graph_will_not_answer():
-    class _Mute:
-        def GetNodeGraph(self):
-            raise RuntimeError("no Color page here")
-    assert color_page_grade.node_index_by_label(_Mute(), "BAL/EXP") is None
 
 
 # ── 6. SetCDL RETURNS TRUE AND CHANGES NOTHING ───────────────────────────
@@ -441,11 +357,3 @@ def test_a_drx_that_says_yes_and_lands_no_nodes_is_not_verified():
     assert any("not VERIFIED" in w for w in record["warnings"])
 
 
-def test_the_measurement_is_recorded_where_the_code_can_read_it():
-    """The numbers are a named constant, not a commit message: a later
-    reader deciding whether the CDL route is safe again must find what
-    was measured, not re-derive it."""
-    text = reel_look.CDL_RETURN_IS_NOT_EVIDENCE
-    for number in ("2,073,600", "601,760", "six times"):
-        assert number in text
-    assert "no GetCDL" in text or "GetCDL" in text

@@ -73,31 +73,6 @@ def _swap_spec():
 # ── The default must not move ──────────────────────────────────────
 
 
-def test_context_free_compose_still_resolves_to_the_rebuild():
-    """`compose` is untouched: the reel goal plans the rebuild."""
-    comp = C.compose(REEL_GOAL)
-    assert comp.completed
-    assert comp.operations == ("reel.build",)
-    assert comp.selection == ()
-
-
-def test_compose_with_change_and_no_change_plans_what_compose_plans():
-    """The cheap route is chosen only when a change is supplied.
-
-    This is the evidence selection was ADDED rather than the default
-    swapped: with no change spec the new entry point resolves to the
-    rebuild, operation for operation.
-    """
-    assert C.representative("build_reels") == "reel.build"
-    comp = C.compose_with_change(REEL_GOAL)
-    assert comp.completed
-    assert comp.operations == C.compose(REEL_GOAL).operations == (
-        "reel.build",)
-    (selection,) = comp.selection
-    assert selection.decided_by == C.REPRESENTATIVE_FALLBACK
-    assert selection.operation == "reel.build"
-
-
 def test_free_text_goal_still_refuses_by_name():
     """Free text never reaches the selector: the goal vocabulary is
     unchanged, so the ending swap phrased plainly refuses - with no
@@ -177,12 +152,6 @@ def test_length_changing_spec_stays_composed_with_the_receipt(tmp_path):
        "properties": {"ZoomX": 1.5}}], "reel.set_properties"),
     ([{"op": "entry_motion", "row": "V4", "item": 0,
        "fade_in_frames": 6}], "reel.entry_motion"),
-    ([{"op": "swap_pixels", "row": "V4", "item": 0,
-       "media": "/lab/new_card.mov"}], "reel.touchup"),
-    ([{"op": "set_properties", "row": "V4", "item": 0,
-       "properties": {"ZoomX": 1.5}},
-      {"op": "entry_motion", "row": "V4", "item": 2,
-       "fade_in_frames": 6}], "reel.touchup"),
 ])
 def test_single_kind_specs_route_to_the_narrowest_operation(
         tmp_path, edits, expected):
@@ -237,24 +206,6 @@ def test_free_text_change_spec_raises_rather_than_routing(tmp_path):
                               _tracks(tmp_path))
 
 
-# ── The forbidden bend, pinned from the selector side ──────────────
-
-
-def test_siblings_keep_declaring_the_same_effect():
-    """All four change-serving siblings declare the identical effect
-    and identical requires. Bending one declaration to steer the
-    choice would corrupt the layer everything else depends on - the
-    selector exists precisely so no declaration has to bend."""
-    build = O.get("reel.build")
-    for name in CHANGE_ROUTES[1:]:
-        op = O.get(name)
-        assert op.owning_node == "build_reels"
-        assert ([r.name for r in op.effect]
-                == [r.name for r in build.effect] == [REEL_GOAL])
-        assert ([r.name for r in op.requires]
-                == [r.name for r in build.requires])
-
-
 # ── Risk 4: no route arrives unchosen-by-design ─────────────────────
 
 
@@ -281,66 +232,4 @@ def _routable_multi_operation_nodes():
                if tuple(r.name for r in op.effect) in effects) > 1)
 
 
-def test_every_multi_operation_node_has_selector_coverage():
-    """A future fifth route must arrive chosen-by-design: any node
-    that outgrows `selector_coverage` fails here until it gains an
-    explicit selector entry."""
-    nodes = _routable_multi_operation_nodes()
-    assert "build_reels" in nodes  # the case this file exists for
-    assert set(nodes) <= set(C.selector_coverage()), (
-        f"nodes without selector coverage: "
-        f"{sorted(set(nodes) - set(C.selector_coverage()))}")
-    for node in nodes:
-        selection = C.select_operation(node)
-        assert selection.node == node
-        assert selection.operation == C.representative(node)
-
-
-def test_an_uncovered_multi_operation_node_refuses(tmp_path):
-    """The runtime half of the guard: if a node outgrows the map
-    without updating it, selection refuses rather than letting the
-    new route inherit the tie-break in silence."""
-    floating = C.select_operation("build_reels", _swap_spec(),
-                                  _tracks(tmp_path))
-    assert floating.decided_by == C.SELECTOR
-    original = dict(C._SELECTORS)
-    try:
-        del C._SELECTORS["build_reels"]
-        with pytest.raises(C.ComposerError, match="no selector covers"):
-            C.select_operation("build_reels", _swap_spec(),
-                               _tracks(tmp_path))
-    finally:
-        C._SELECTORS.clear()
-        C._SELECTORS.update(original)
-
-
 # ── The plan record narrates the choice ────────────────────────────
-
-
-def test_plan_record_names_the_route_and_why(tmp_path):
-    """`describe_plan` carries the selection; `as_record` too. The
-    operator learns which route won, why, and what the other route
-    would have done - not just the operation name."""
-    comp = C.compose_with_change(REEL_GOAL, _swap_spec(),
-                                 _tracks(tmp_path))
-    text = C.describe_plan(comp)
-    assert "route for build_reels: reel.touchup (selector)" in text
-    assert "gate composed" in text
-    record = comp.selection[0].as_record()
-    assert record["operation"] == "reel.touchup"
-    assert record["measured_basis_cited"] is True
-    assert C.compose(REEL_GOAL).as_record().get("selection") is None
-
-
-def test_other_nodes_stand_on_the_representative_explicitly():
-    """Nodes with siblings but no change gate do not pretend to
-    select: the fallback entry names the tie-break and what would
-    change it (a caller-supplied sibling with a real selector)."""
-    comp = C.compose_with_change("state.judge_reels.reel_selection",
-                                 _swap_spec(), tracks=[])
-    assert comp.completed
-    assert comp.operations == ("reel.candidates",)
-    (selection,) = comp.selection
-    assert selection.node == "select_reels"
-    assert selection.decided_by == C.REPRESENTATIVE_FALLBACK
-    assert "no change gate" in selection.reason

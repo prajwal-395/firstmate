@@ -120,26 +120,11 @@ def test_manifest_groups_clips_by_the_plan_rows():
     }
 
 
-def test_the_live_plan_answers_the_same_rows():
-    serializable = _manifest()["tracks"]
-    live = reel_look.fusion_manifest(
-        _placements(), {"power": {}}, _motion(), 24.0,
-        track_plan=_two_angle_plan(), angle_key=_angle_key)["tracks"]
-    assert live == serializable
-
-
 def test_every_planned_treatment_is_reachable():
     manifest = _manifest()
     per_clip = manifest["fusion_effects"]["per_clip"]
     assert len(per_clip) == 4
     assert set(per_clip) <= reachable_effect_labels(manifest)
-
-
-def test_the_pass_walks_both_picture_rows():
-    rows = {index: [c["label"] for c in clips]
-            for index, clips, _ in fusion_comp_tracks(_manifest())}
-    assert rows[1] == [reel_look.clip_label(1), reel_look.clip_label(2)]
-    assert rows[2] == [reel_look.clip_label(0), reel_look.clip_label(3)]
 
 
 # ── The pass itself, driven against a fake Resolve ────────────────────

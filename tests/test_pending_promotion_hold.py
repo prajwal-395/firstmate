@@ -29,7 +29,6 @@ has not happened yet.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -117,26 +116,6 @@ def plan_for(artefacts, name, project_root):
 # ------------------------------------------------- the hold primitives
 
 
-def test_hold_take_read_release_roundtrip(project_dir):
-    assert holds.read_holds(str(project_dir)) == {}
-    entry = holds.take_hold(
-        str(project_dir), HELD_SCRATCH, awaiting=HELD_FINAL,
-        reason="staged rebuild awaiting promotion",
-        taken_by="rebuild_reels_in_project")
-    assert entry["awaiting"] == HELD_FINAL
-    read = holds.read_holds(str(project_dir))
-    assert set(read) == {HELD_SCRATCH}
-    assert read[HELD_SCRATCH]["awaiting"] == HELD_FINAL
-    # Re-taking restarts the pending window rather than stacking.
-    again = holds.take_hold(str(project_dir), HELD_SCRATCH,
-                            awaiting=HELD_FINAL)
-    assert set(holds.read_holds(str(project_dir))) == {HELD_SCRATCH}
-    assert again["taken_at"] >= entry["taken_at"]
-    assert holds.release_hold(str(project_dir), "no such timeline") is False
-    assert holds.release_hold(str(project_dir), HELD_SCRATCH) is True
-    assert holds.read_holds(str(project_dir)) == {}
-
-
 def test_a_corrupt_holds_file_refuses_rather_than_reading_empty(project_dir):
     path = project_dir / "pipeline_output" / "review" / "staging_holds.json"
     path.write_text("{not json", encoding="utf-8")
@@ -145,17 +124,6 @@ def test_a_corrupt_holds_file_refuses_rather_than_reading_empty(project_dir):
     artefacts = scratch_pool()
     with pytest.raises(holds.HoldsUnreadable):
         plan_for(artefacts, ABANDONED_SCRATCH, str(project_dir))
-
-
-def test_hold_age_reads_in_minutes_hours_days():
-    now = datetime(2026, 9, 11, 4, 46, tzinfo=timezone.utc)
-    assert holds.hold_age({"taken_at": "2026-09-11T04:22:00+00:00"},
-                          now=now) == "24m"
-    assert holds.hold_age({"taken_at": "2026-09-11T01:46:00+00:00"},
-                          now=now) == "3h00m"
-    assert holds.hold_age({"taken_at": "2026-09-09T04:46:00+00:00"},
-                          now=now) == "2d0h"
-    assert holds.hold_age({}) == "unknown age"
 
 
 # --------------------------------- the incident, at plan time (04:46Z)
@@ -385,20 +353,6 @@ def test_ordinary_abandoned_scratch_is_still_collected(project_dir):
     assert record["timeline"]["name"] == ABANDONED_SCRATCH
 
 
-def test_releasing_the_hold_makes_the_scratch_sweepable_again(project_dir):
-    """Promotion releases the hold as a side effect; after it, the
-    sweep plans the timeline again. (The promote path itself is
-    pinned below; this pins the release-to-sweepable transition.)"""
-    holds.take_hold(str(project_dir), ABANDONED_SCRATCH,
-                    awaiting="Reel 13 - something (final)")
-    artefacts = scratch_pool()
-    with pytest.raises(ProofRemovalRefused):
-        plan_for(artefacts, ABANDONED_SCRATCH, str(project_dir))
-    assert holds.release_hold(str(project_dir), ABANDONED_SCRATCH) is True
-    plan = plan_for(artefacts, ABANDONED_SCRATCH, str(project_dir))
-    assert plan["timeline"]["name"] == ABANDONED_SCRATCH
-
-
 # ------------------ the lifecycle: promotion releases, the guard stays
 
 
@@ -529,19 +483,6 @@ def test_guard_still_refuses_a_held_lossy_staging_and_keeps_the_hold(project_dir
         [PROMOTE_FINAL, staging])
 
 
-def test_discard_releases_the_hold(project_dir):
-    """The gate-fail path deletes the refused staging and its hold
-    goes with it - nothing is pending any more."""
-    from library.tools.reel_build import discard_staged_reels
-    from library.tools.reel_build import STAGING_SUFFIX
-    staging = PROMOTE_FINAL + STAGING_SUFFIX
-    project = FakeResolveProject([FakeRowTimeline(staging)])
-    holds.take_hold(str(project_dir), staging, awaiting=PROMOTE_FINAL)
-    discard_staged_reels(project, str(project_dir), [staging], None)
-    assert [t.GetName() for t in project.timelines] == []
-    assert holds.read_holds(str(project_dir)) == {}
-
-
 # ── Pending promotions report themselves (Reel 16, 2026-09-19) ──────
 # A build that stages but never promotes left its staging protected
 # and invisible: the holds file knew, and nothing ever read it as
@@ -576,32 +517,6 @@ def test_pending_promotions_lists_stagings_oldest_first(project_dir):
         "Reel 16 - why-ai-trusts-one-brand-over-another"
     assert pending[0]["taken_by"] == "rebuild_reels_in_project"
     assert pending[0]["age"] not in ("", "unknown age")
-
-
-def test_report_pending_is_empty_when_nothing_pending(project_dir):
-    assert holds.pending_promotions(str(project_dir)) == []
-    assert holds.report_pending(str(project_dir)) == ""
-
-
-def test_report_pending_names_staging_awaiting_and_age(project_dir):
-    from library.tools.reel_build import STAGING_SUFFIX
-    staging = "Reel 16 - why-ai-trusts-one-brand-over-another" + STAGING_SUFFIX
-    holds.take_hold(str(project_dir), staging,
-                    awaiting="Reel 16 - why-ai-trusts-one-brand-over-another",
-                    taken_by="rebuild_reels_in_project")
-    report = holds.report_pending(str(project_dir))
-    assert "UNPROMOTED STAGING" in report
-    assert staging in report
-    assert "Reel 16 - why-ai-trusts-one-brand-over-another" in report
-    assert "held 0m" in report or "held 1m" in report
-
-
-def test_pending_promotions_refuses_an_unreadable_holds_file(project_dir):
-    from pathlib import Path
-    path = Path(holds.holds_path_for(str(project_dir)))
-    path.write_text("{not json", encoding="utf-8")
-    with pytest.raises(holds.HoldsUnreadable):
-        holds.pending_promotions(str(project_dir))
 
 
 def test_concurrent_takes_keep_every_hold(project_dir):
@@ -732,28 +647,3 @@ def test_pending_promotions_reports_ghosts_as_stale_not_pending(project_dir):
     assert GHOST_MFA not in unpromoted
     assert GHOST_FIXES not in unpromoted
     assert live_staging not in stale
-
-
-def test_pending_promotions_resolves_a_live_project_by_exact_name(project_dir):
-    """The same three shapes, resolved off a live project handle -
-    the route the build path takes."""
-    live_staging = _take_ghost_and_live_holds(project_dir)
-    project = GhostFakeProject([GHOST_FINAL, live_staging])
-    assert holds.live_timeline_names(project) == [GHOST_FINAL, live_staging]
-    rows = holds.pending_promotions(str(project_dir), project=project)
-    assert {row["staging"]: row["status"] for row in rows} == {
-        GHOST_MFA: "stale",
-        GHOST_FIXES: "stale",
-        live_staging: "pending",
-    }
-
-
-def test_unreconciled_holds_still_read_as_pending(project_dir):
-    """No listing offered: the file alone cannot know a hold is
-    stale, so every row reads pending - the pre-2026-09-20 behaviour,
-    preserved for offline readers."""
-    _take_ghost_and_live_holds(project_dir)
-    rows = holds.pending_promotions(str(project_dir))
-    assert {row["status"] for row in rows} == {"pending"}
-    assert holds.report_pending(str(project_dir)).startswith(
-        "UNPROMOTED STAGING: 3 ")

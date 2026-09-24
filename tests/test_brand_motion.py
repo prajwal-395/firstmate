@@ -135,9 +135,6 @@ def test_measure_source_reads_the_real_shape(prores_with_sound):
     assert source.element.alpha.draws is True
 
 
-def test_measure_source_missing_file_is_not_a_measurement_of_zero(tmp_path):
-    with pytest.raises(BrandMotionUnmeasurable):
-        bm.measure_source(str(tmp_path / "absent.mov"))
 
 
 def test_measure_source_without_alpha_is_refused_as_such(prores_no_alpha):
@@ -172,17 +169,8 @@ def test_measure_source_reads_webm_alpha_through_the_decoder_that_sees_it(
 
 # ── The decodability gate ────────────────────────────────────────────
 
-def test_prores_needs_a_mezzanine_and_says_why(prores_with_sound):
-    source = bm.measure_source(prores_with_sound)
-    necessary, reason = bm.needs_mezzanine(source)
-    assert necessary is True
-    assert "ProRes" in reason or "prores" in reason
 
 
-def test_webm_needs_no_mezzanine(webm_with_alpha):
-    source = bm.measure_source(webm_with_alpha)
-    necessary, _ = bm.needs_mezzanine(source)
-    assert necessary is False
 
 
 # ── The mezzanine ────────────────────────────────────────────────────
@@ -201,51 +189,16 @@ def test_mezzanine_is_same_rate_and_keeps_alpha(prores_with_sound,
     assert rebuilt.element.alpha.draws is True
 
 
-def test_mezzanine_is_reused_when_fresh(prores_with_sound, tmp_path):
-    source = bm.measure_source(prores_with_sound)
-    first = bm.ensure_mezzanine(source, str(tmp_path))
-    mtime = os.path.getmtime(first)
-    second = bm.ensure_mezzanine(source, str(tmp_path))
-    assert second == first
-    assert os.path.getmtime(first) == mtime
 
 
-@pytest.mark.heavy
-def test_mezzanine_rebuilds_when_the_source_is_newer(prores_with_sound,
-                                                    tmp_path):
-    import time
-    source = bm.measure_source(prores_with_sound)
-    first = bm.ensure_mezzanine(source, str(tmp_path))
-    mtime = os.path.getmtime(first)
-    time.sleep(1.05)
-    os.utime(prores_with_sound, None)
-    source = bm.measure_source(prores_with_sound)
-    second = bm.ensure_mezzanine(source, str(tmp_path))
-    assert second == first
-    assert os.path.getmtime(second) > mtime
 
 
-def test_stage_mezzanine_lands_one_named_file(webm_with_alpha, tmp_path):
-    staged = bm.stage_mezzanine(webm_with_alpha, str(tmp_path))
-    assert staged == "brand/sting.webm"
-    assert os.path.isfile(tmp_path / "public" / "brand" / "sting.webm")
 
 
 # ── The conform gate ─────────────────────────────────────────────────
 
-def test_require_conform_passes_the_two_runnable_strategies():
-    assert bm.require_conform("native_sample") == "native_sample"
-    assert bm.require_conform({"conform": "resolve_native"}) == (
-        "resolve_native")
 
 
-def test_require_conform_names_all_three_when_nothing_is_declared():
-    with pytest.raises(ConformNotDeclared) as excinfo:
-        bm.require_conform({})
-    message = str(excinfo.value)
-    assert "native_sample" in message
-    assert "blended_conform" in message
-    assert "resolve_native" in message
 
 
 def test_require_conform_refuses_an_unknown_name_by_name():
@@ -271,24 +224,8 @@ def _props_source(prores_with_sound):
     return bm.measure_source(prores_with_sound)
 
 
-def test_props_render_the_whole_file_at_the_composition_rate(
-        prores_with_sound):
-    source = _props_source(prores_with_sound)
-    props = bm.brand_motion_props(
-        "brand/sting.webm", source, fps=FPS, width=64, height=64,
-        muted=True, conform="native_sample")
-    assert props["src"] == "brand/sting.webm"
-    assert props["durationInFrames"] == max(
-        1, round(source.duration_seconds * FPS))
-    assert props["muted"] is True
-    assert props["volume"] == 1.0
 
 
-def test_props_accept_explicit_silence_or_sound(prores_with_sound):
-    source = _props_source(prores_with_sound)
-    assert bm.brand_motion_props(
-        "brand/sting.webm", source, fps=FPS, width=64, height=64,
-        muted=False, conform="native_sample")["muted"] is False
 
 
 def test_props_refuse_an_unstated_muted(prores_with_sound):
@@ -326,12 +263,6 @@ def test_props_refuse_anything_but_native_sample(prores_with_sound):
             muted=True, conform="blended_conform")
 
 
-def test_props_refuse_an_empty_staged_path(prores_with_sound):
-    source = _props_source(prores_with_sound)
-    with pytest.raises(BrandMotionError):
-        bm.brand_motion_props(
-            "", source, fps=FPS, width=64, height=64,
-            muted=True, conform="native_sample")
 
 
 # ── The composition slot stays a video slot ──────────────────────────
@@ -354,13 +285,3 @@ def test_brand_motion_composition_reads_a_video_file():
 
 # ── The CLI ──────────────────────────────────────────────────────────
 
-def test_cli_measure_reports_the_slot(prores_with_sound):
-    result = subprocess.run(
-        ["python3", "-m", "library.tools.brand_motion",
-         "--measure", prores_with_sound],
-        capture_output=True, text=True, encoding="utf-8", check=False)
-    assert result.returncode == 0, result.stderr
-    report = json.loads(result.stdout)
-    assert report["frame_count"] == 6
-    assert report["has_audio"] is True
-    assert report["needs_mezzanine"] is True

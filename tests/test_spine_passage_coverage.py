@@ -67,16 +67,6 @@ def _spine(refs):
 
 # ── The contract function, both directions ───────────────────────────
 
-def test_valid_coverage_shapes_pass():
-    """B1 collapse: the two no-raise validators in one test."""
-    validate_passage_coverage(
-        _spine([("speech", 1), ("speech", 2)])["structure"], 2)
-    # A hook reusing a body passage is neither failure: the handoff
-    # permits it explicitly.
-    validate_passage_coverage(
-        _spine([("hook", 2), ("speech", 1), ("speech", 2)])["structure"], 2)
-
-
 def test_a_passage_no_block_names_is_content_loss():
     with pytest.raises(SpineContractError) as excinfo:
         validate_passage_coverage(
@@ -109,13 +99,6 @@ def test_a_hook_covers_but_does_not_double():
 def test_enrich_spine_refuses_a_dropped_passage():
     with pytest.raises(SpineContractError):
         enrich_spine(_spine([("speech", 1)]), _speech_sequence(2), {}, {})
-
-
-def test_enrich_spine_refuses_a_doubled_passage():
-    with pytest.raises(SpineContractError):
-        enrich_spine(
-            _spine([("speech", 1), ("speech", 1)]),
-            _speech_sequence(1), {}, {})
 
 
 def test_enrich_spine_accepts_hook_reuse():

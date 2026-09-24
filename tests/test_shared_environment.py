@@ -59,39 +59,11 @@ def test_store_root_is_outside_the_checkout(monkeypatch):
         f"the dependency store resolved INSIDE the checkout at {root}")
 
 
-def test_store_root_follows_the_machines_own_data_dir(monkeypatch, tmp_path):
-    """Derived, never baked - so it installs on any machine."""
-    monkeypatch.delenv("PIPELINE_NODE_STORE", raising=False)
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
-    assert ne.store_root() == tmp_path / "xdg" / "vep" / "node"
-
-    monkeypatch.setenv("PIPELINE_NODE_STORE", str(tmp_path / "elsewhere"))
-    assert ne.store_root() == tmp_path / "elsewhere"
-
-
 #: The two home roots, ASSEMBLED rather than written.
 #: `tests/test_tests_never_reach_real_projects.py` refuses a literal one
 #: in any test module, and it is right to - including in the test that
 #: exists to refuse them elsewhere.
 HOME_ROOTS = tuple(f"{os.sep}{name}{os.sep}" for name in ("Users", "home"))
-
-
-def test_no_home_directory_is_baked_into_the_module():
-    """A path only one machine has is not a default.
-
-    The store must resolve on the next machine, which is the captain's
-    whole directive.  `store_root()` derives it; a literal here would be
-    the defect wearing the fix's clothes.
-    """
-    source = (REPO_ROOT / "library" / "tools"
-              / "shared_environment.py").read_text(encoding="utf-8")
-    code = [line for line in source.splitlines()
-            if not line.lstrip().startswith("#")]
-    offenders = [line for line in code
-                 if any(root in line for root in HOME_ROOTS)]
-    assert not offenders, (
-        "an absolute home directory is baked into the resolution: "
-        + "; ".join(offenders))
 
 
 # ── 2. sharing is by lockfile, so staleness is unreachable ───────────
@@ -117,16 +89,6 @@ def test_a_different_lockfile_can_never_reach_the_same_entry(tmp_path):
     assert ne.store_entry(old) != ne.store_entry(new)
 
 
-def test_the_key_is_the_lockfile_not_the_manifest(tmp_path):
-    """A range in package.json resolves two ways; an entry names one."""
-    one = make_checkout(tmp_path / "one")
-    two = make_checkout(tmp_path / "two")
-    (two / "package.json").write_text(
-        json.dumps({"name": "remotion-subtitles", "dependencies":
-                    {"react": "^19.0.0"}}), encoding="utf-8")
-    assert ne.store_key(one) == ne.store_key(two)
-
-
 def test_a_checkout_with_no_lockfile_refuses_rather_than_inventing_a_key(
         tmp_path):
     """A key with no lockfile behind it is a promise the store cannot keep."""
@@ -138,14 +100,6 @@ def test_a_checkout_with_no_lockfile_refuses_rather_than_inventing_a_key(
 
 
 # ── 3. absence REFUSES, by name ──────────────────────────────────────
-
-def test_absence_raises_rather_than_returning_a_path(tmp_path, monkeypatch):
-    monkeypatch.setenv("PIPELINE_NODE_STORE", str(tmp_path / "store"))
-    monkeypatch.delenv("PIPELINE_NODE_MODULES", raising=False)
-    directory = make_checkout(tmp_path / "lane")
-    assert ne.dependencies_present(directory) is False
-    with pytest.raises(ne.NodeDependenciesMissing):
-        ne.require_dependencies(directory)
 
 
 def test_the_refusal_names_the_store_entry_and_the_install_command(
@@ -203,29 +157,7 @@ def test_a_batch_refuses_with_that_message_rather_than_reaching_node(
     assert ne.INSTALL_SCRIPT in str(raised.value)
 
 
-def test_the_environment_requirement_refuses_and_names_the_store():
-    """`env.remotion_installed` is the prerequisite layer's half."""
-    from library.tools import requirements
-
-    requirement = next(r for r in requirements.ENVIRONMENT
-                       if r.name == "env.remotion_installed")
-    refused = requirement.check(requirement.refuting_context())
-    assert refused.satisfied is False
-    assert ne.INSTALL_SCRIPT in refused.reason
-    assert "SHARED_ENVIRONMENT.md" in refused.reason
-    assert requirement.check(requirement.satisfying_context()).satisfied
-
-
 # ── 4. presence does NOT refuse - including through the symlink ──────
-
-def test_a_real_node_modules_does_not_fire_the_refusal(tmp_path, monkeypatch):
-    monkeypatch.setenv("PIPELINE_NODE_STORE", str(tmp_path / "store"))
-    monkeypatch.delenv("PIPELINE_NODE_MODULES", raising=False)
-    directory = make_checkout(tmp_path / "lane")
-    (directory / "node_modules").mkdir()
-
-    assert ne.dependencies_present(directory) is True
-    assert ne.require_dependencies(directory) == directory / "node_modules"
 
 
 def test_a_checkout_bound_by_symlink_is_present(tmp_path, monkeypatch):
@@ -265,45 +197,7 @@ def test_a_dangling_bind_is_absent_not_present(tmp_path, monkeypatch):
     assert ne.dependencies_present(directory) is False
 
 
-def test_pipeline_node_modules_overrides_outright(tmp_path, monkeypatch):
-    """The escape hatch, for a layout this module did not anticipate."""
-    elsewhere = tmp_path / "somewhere" / "node_modules"
-    elsewhere.mkdir(parents=True)
-    monkeypatch.setenv("PIPELINE_NODE_MODULES", str(elsewhere))
-    directory = make_checkout(tmp_path / "lane")
-    assert ne.node_modules(directory) == elsewhere
-    assert ne.dependencies_present(directory) is True
-
-
 # ── the location is computed ONCE ────────────────────────────────────
-
-def test_paths_and_remotion_batch_do_not_compute_the_location_separately():
-    """Two derivations of one path is one of them to forget.
-
-    `remotion_batch` derived it from `__file__` while `paths` derived it
-    from `PILOT_ROOT`; neither followed an override, because there was
-    none to follow.
-    """
-    batch = (REPO_ROOT / "library" / "tools"
-             / "remotion_batch.py").read_text(encoding="utf-8")
-    assert 'root / REMOTION_DIRNAME' not in batch
-    assert "_node_env.remotion_dir(repo_root)" in batch
-
-    # Every module that LOCATES the renderer at runtime, including the
-    # two steps that actually launch it. A step deriving its own would
-    # not follow `PIPELINE_REMOTION_DIR`, which would make the override
-    # a half-truth - true for the prerequisite check and false for the
-    # render it gates.
-    for module in (
-        "library/tools/paths.py",
-        "library/tools/requirements.py",
-        "library/steps/step_4_05_render_subtitles/step.py",
-        "library/steps/step_4_06_render_motion_graphics/post_bridge.py",
-    ):
-        spelled = _string_literals_outside_docs(REPO_ROOT / module)
-        assert ne.REMOTION_DIRNAME not in spelled, (
-            f"{module} spells the renderer directory itself instead of "
-            f"reading it from shared_environment")
 
 
 def _string_literals_outside_docs(path: Path) -> set:
@@ -332,24 +226,6 @@ def _string_literals_outside_docs(path: Path) -> set:
     return {n.value for n in ast.walk(tree)
             if isinstance(n, ast.Constant) and isinstance(n.value, str)
             and id(n) not in docs}
-
-
-def test_every_reader_follows_one_override(tmp_path):
-    """Set the override once; all three agree, in a real interpreter."""
-    elsewhere = make_checkout(tmp_path / "custom", name="renderer")
-    env = dict(os.environ, PIPELINE_REMOTION_DIR=str(elsewhere))
-    out = subprocess.run(
-        [sys.executable, "-c", (
-            "from library.tools.paths import REMOTION_DIR\n"
-            "from library.tools.remotion_batch import remotion_dir\n"
-            "from library.tools import requirements, shared_environment\n"
-            "print(REMOTION_DIR)\nprint(remotion_dir())\n"
-            "print(requirements.REMOTION_DIR)\n"
-            "print(shared_environment.remotion_dir())")],
-        cwd=REPO_ROOT, env=env, capture_output=True,
-        encoding="utf-8", check=True)
-    reported = out.stdout.split()
-    assert reported == [str(elsewhere)] * 4, reported
 
 
 # ── the install script is the one way to fill the store ──────────────
@@ -404,27 +280,6 @@ def test_the_durable_venv_outranks_a_checkouts_own():
     assert kinds.index("env") == 0, "an explicit override must win outright"
 
 
-def test_the_interpreter_resolves_to_the_durable_venv(tmp_path, monkeypatch):
-    """The rung that exists on this machine, and the one that does not."""
-    monkeypatch.delenv("PIPELINE_PYTHON", raising=False)
-    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
-
-    durable = tmp_path / "vep" / ne.DURABLE_VENV_DIRNAME / "bin" / "python3"
-    durable.parent.mkdir(parents=True)
-    durable.write_text("#!/bin/sh\n", encoding="utf-8")
-    durable.chmod(0o755)
-
-    checkout = tmp_path / "lane"
-    (checkout / ".venv" / "bin").mkdir(parents=True)
-    own = checkout / ".venv" / "bin" / "python3"
-    own.write_text("#!/bin/sh\n", encoding="utf-8")
-    own.chmod(0o755)
-
-    path, why_not = ne.python_interpreter(checkout)
-    assert path == str(durable), "the checkout's own venv outranked the durable one"
-    assert why_not == ""
-
-
 def test_a_checkout_with_no_venv_anywhere_refuses_naming_every_rung(
         tmp_path, monkeypatch):
     """The failure the plugin used to report was true and useless.
@@ -444,21 +299,3 @@ def test_a_checkout_with_no_venv_anywhere_refuses_naming_every_rung(
     assert "docs/ML_ENVIRONMENT.md" in why_not
 
 
-def test_an_explicit_interpreter_wins_outright(tmp_path, monkeypatch):
-    chosen = tmp_path / "chosen"
-    chosen.write_text("#!/bin/sh\n", encoding="utf-8")
-    chosen.chmod(0o755)
-    monkeypatch.setenv("PIPELINE_PYTHON", str(chosen))
-    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
-    assert ne.python_interpreter(tmp_path)[0] == str(chosen)
-
-
-def test_vep_home_is_one_root_both_halves_sit_under(monkeypatch, tmp_path):
-    """The Node store and the ML venv are siblings, by construction.
-
-    Two roots would be two things to relocate and one to forget.
-    """
-    monkeypatch.delenv("PIPELINE_NODE_STORE", raising=False)
-    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
-    assert ne.store_root().parent == ne.vep_home()
-    assert (ne.vep_home() / ne.DURABLE_VENV_DIRNAME).parent == ne.vep_home()

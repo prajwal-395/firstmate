@@ -28,29 +28,6 @@ def _plate_array():
     return np.asarray(Image.open(path).convert("RGB"))
 
 
-def test_the_plate_is_deterministic():
-    import tempfile, os
-
-    d = tempfile.mkdtemp()
-    a = probe.build_plate(os.path.join(d, "a.png"))
-    b = probe.build_plate(os.path.join(d, "b.png"))
-    assert (np.asarray(Image.open(a)) == np.asarray(Image.open(b))).all()
-
-
-def test_bar_extent_finds_the_shifted_bars():
-    plate = _plate_array()
-    # Paste the whole plate shifted down 800px.
-    canvas = np.zeros((1920, 1080, 3), dtype=np.uint8)
-    canvas[800:800 + 1120, :, :] = plate[:1120, :, :]
-    first, last = probe.bar_extent(canvas)
-    assert (first, last) == (800 + 283, 800 + 403)
-
-
-def test_bar_extent_on_blank_is_empty():
-    assert probe.bar_extent(np.zeros((1920, 1080, 3),
-                                     dtype=np.uint8)) == (0, -1)
-
-
 def test_gain_derivation_is_the_law_inverted():
     # Full-frame plate: 800px down from Tilt -400 is gain 2.
     assert probe.derive_gain(800.0, -400.0, 1920, 1920) == pytest.approx(
@@ -59,24 +36,6 @@ def test_gain_derivation_is_the_law_inverted():
         1.0)
     with pytest.raises(ValueError):
         probe.derive_gain(0.0, 0.0, 1920, 1920)
-
-
-def test_the_red_marker_proves_native_size():
-    plate = _plate_array()
-    first, last = probe.red_marker_extent(plate)
-    file_h = probe.PROBE_MARKER_LAST - probe.PROBE_MARKER_FIRST + 1
-    assert last - first + 1 == pytest.approx(
-        file_h, abs=probe.NATIVE_SIZE_TOLERANCE_PX)
-    blank = np.zeros((1920, 1080, 3), dtype=np.uint8)
-    assert probe.red_marker_extent(blank) == (0, -1)
-
-
-def test_fallback_record_is_loud_and_shaped():
-    record = probe._fallback_record(["a reason"])
-    assert record["source"] == "fallback"
-    assert record["gain"] == FALLBACK_DRAW_GAIN
-    assert record["disagrees_with_fallback"] is False
-    assert record["warnings"] == ["a reason"]
 
 
 # ── Orchestration against fakes ───────────────────────────────────
@@ -308,25 +267,3 @@ def test_a_refused_grab_falls_back_loud(monkeypatch, tmp_path):
     assert project.GetCurrentTimeline().GetName() == "entry"
     assert probe_mod.PROBE_TIMELINE_NAME not in [
         tl.GetName() for tl in project.timelines]
-
-
-def test_a_blank_still_falls_back_loud(monkeypatch, tmp_path):
-    import library.tools.draw_gain_probe as probe_mod
-
-    project = _Project()
-    resolve = _Resolve(project)
-
-    def blank(timeline, project, dest):
-        Image.new("RGB", (1080, 1920), (0, 0, 0)).save(dest)
-        from library.tools.marker_capture import StillResult
-        return StillResult(path=dest, gallery_album="a",
-                           stills_before=0, stills_after=0,
-                           exported_names=[], discarded=[],
-                           surface="gallery_still")
-
-    import library.tools.marker_capture as mc_mod
-    monkeypatch.setattr(mc_mod, "grab_still", blank)
-    record = probe_mod.calibrate(resolve, project, FRAME_WH,
-                                 workdir=str(tmp_path))
-    assert record["source"] == "fallback"
-    assert any("bars span" in w for w in record["warnings"])

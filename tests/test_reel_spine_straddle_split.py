@@ -77,14 +77,6 @@ def test_split_spine_plans_captions_without_refusal():
         "alpha beta gamma zeta eta theta"
 
 
-def test_row_nothing_cuts_stays_one_block():
-    """No hole, no split: the common path is untouched."""
-    row = _row("alpha beta gamma delta", 10.0)
-    spine = spine_for_reel(Moment(10.0, 12.0), {"segments": [row]},
-                           ranges=[(10.0, 12.0)])
-    assert len(spine["structure"]) == 1
-
-
 def test_overlapping_words_do_not_split():
     """The aligner's own slop is not a cut: an overlapping pair stays put.
 

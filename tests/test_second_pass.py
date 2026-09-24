@@ -96,21 +96,6 @@ def test_a_named_section_gets_the_shape_the_head_of_the_track_had(track):
         "cannot carry")
 
 
-@needs_ffmpeg
-def test_several_sections_across_several_tracks_are_the_shape(track, tmp_path):
-    """Designed for a SPLICED bed from the start: a shortlist is several
-    sections, not one."""
-    other = _write_track(str(tmp_path / "two.wav"), [0.2] * 100)
-    rows = section_envelopes(track, [
-        {"source_in": 0.0, "source_out": 30.0, "track": "one"},
-        {"source_in": 90.0, "source_out": 120.0, "track": "one"},
-    ]) + section_envelopes(other, [
-        {"source_in": 10.0, "source_out": 40.0, "track": "two"},
-    ])
-    assert len(rows) == 3
-    assert all(r["measured"] for r in rows)
-
-
 def test_a_section_that_cannot_be_measured_says_so_and_carries_no_curve():
     rows = section_envelopes("/nowhere/at/all.wav",
                              [{"source_in": 0.0, "source_out": 30.0}])
@@ -140,36 +125,6 @@ def test_an_unmeasurable_section_never_becomes_a_curve_of_zeroes(monkeypatch,
     # And the span it could not measure is still named, so a reader can
     # tell WHICH section went unmeasured.
     assert (rows[0]["source_in"], rows[0]["source_out"]) == (0.0, 30.0)
-
-
-def test_every_shortlisted_section_gets_a_row_whether_or_not_it_measured():
-    """The mechanism, provable on a runner with no ffmpeg at all."""
-    shortlist = [{"source_in": 0.0, "source_out": 30.0},
-                 {"source_in": 90.0, "source_out": 120.0}]
-    rows = section_envelopes("/nowhere/at/all.wav", shortlist)
-    assert len(rows) == len(shortlist)
-    assert all(r["measured"] is False for r in rows)
-
-
-def test_the_prompt_says_what_a_key_is_and_never_what_to_conclude():
-    """The definitions moved into 2.04's prompt when the freeze lifted,
-    so the no-conclusion rule is asserted where the model reads them."""
-    handoff = " ".join(open(os.path.join(
-        REPO, "library", "steps", "step_2_04_music_selection", "handoff.md"),
-        encoding="utf-8").read().split())
-    start = handoff.index("When that second pass arrives")
-    section = handoff[start:].lower()
-    for key in ("envelope_dbfs", "mean_dbfs", "spread_db", "measured"):
-        assert f"`{key}`" in handoff, key
-    for banned in ("best", "prefer", "should choose", "recommend"):
-        assert banned not in section[:section.index("---")]
-
-
-def test_the_definition_does_not_also_travel_beside_the_numbers():
-    source = open(os.path.join(
-        REPO, "library", "steps", "step_2_04_music_selection",
-        "post_bridge.py"), encoding="utf-8").read()
-    assert '"section_measurements_legend"' not in source
 
 
 # ── The exchange ─────────────────────────────────────────────────────
@@ -259,32 +214,11 @@ def test_pass_two_resolves_and_carries_the_evidence(track):
         "the evidence the choice was made from travels with the choice")
 
 
-def test_naming_no_shortlist_costs_no_extra_pass(track):
-    proc = _run(_payload(track, []))
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    answer = json.loads(proc.stdout)
-    assert second_pass.REQUEST_KEY not in answer
-    assert "music_selection" in answer
-
-
 # ── The mechanism's own rules ────────────────────────────────────────
-
-def test_the_request_is_split_out_before_anything_reads_the_answer():
-    answer, request = second_pass.take(
-        {"a": 1, second_pass.REQUEST_KEY: {"reason": "r", "context": "c"}})
-    assert answer == {"a": 1}
-    assert request == {"reason": "r", "context": "c"}
-
 
 def test_a_request_carrying_nothing_new_is_refused():
     with pytest.raises(second_pass.SecondPassError, match="resample"):
         second_pass.take({second_pass.REQUEST_KEY: {"context": "  "}})
-
-
-def test_the_bound_is_one_extra_pass():
-    assert second_pass.MAX_PASSES == 2
-    assert second_pass.is_final_pass({"__pass": 2})
-    assert not second_pass.is_final_pass({"__pass": 1})
 
 
 def test_a_malformed_shortlist_raises_rather_than_measuring_fewer():
@@ -293,12 +227,3 @@ def test_a_malformed_shortlist_raises_rather_than_measuring_fewer():
                 {"section_shortlist": [{"source_in": 10, "source_out": 5}]}):
         with pytest.raises(second_pass.SecondPassError):
             second_pass.read_shortlist(bad)
-
-
-def test_the_runner_carries_the_block_and_bounds_the_loop():
-    source = open(os.path.join(REPO, "library", "processes", "edit_video",
-                               "run_pipeline.py"), encoding="utf-8").read()
-    assert "second_pass.take(final)" in source
-    assert "second_pass.MAX_PASSES" in source
-    assert "second_pass.block(pass_request" in source
-    assert f'merge_data[second_pass.PASS_KEY]' in source

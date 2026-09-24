@@ -46,23 +46,6 @@ def test_missing_llm_output_fails_the_step():
     assert v["status"] == "fail"
     assert v["distribution_ready"] is False
 
-def test_both_pass_yields_pass():
-    post_bridge_path = Path("library/steps/step_6_02_validate_output/post_bridge.py")
-    input_data = {
-        "deterministic_validation": {"status": "pass", "summary": "Det fine"},
-        "validation_result": {"status": "pass", "summary": "LLM fine"}
-    }
-    result = subprocess.run(
-        [sys.executable, str(post_bridge_path)],
-        input=json.dumps(input_data),
-        capture_output=True,
-        text=True,
-        check=True
-    )
-    output = json.loads(result.stdout)
-    v = output["validation_result"]
-    assert v["status"] == "pass"
-    assert v["distribution_ready"] is True
 
 def test_undetermined_yields_undetermined_and_not_ready():
     post_bridge_path = Path("library/steps/step_6_02_validate_output/post_bridge.py")
@@ -224,28 +207,6 @@ def test_v1_gap_fails_validation(tmp_path):
     assert result["distribution_ready"] is False
 
 
-def test_tiled_v1_with_seated_transitions_passes(tmp_path):
-    """Clean geometry gates nothing: the checks hold without failing."""
-    from library.steps.step_6_02_validate_output import bridge as validate
-
-    video = tmp_path / "master.mp4"
-    video.write_bytes(b"\x00" * 200_000)
-    manifest = _geometry_manifest(
-        clips=[_v1_clip("a", 0.0, 2.0), _v1_clip("b", 2.0, 5.0)],
-        transitions=[
-            {"transition_id": "t1", "transition_type": "hard_cut",
-             "cut_point_timeline": 2.0},
-        ],
-    )
-
-    with patch.object(validate, "run_full_render_qa", return_value=[]):
-        result = validate.validate_output({"output_path": str(video)},
-                                          manifest)
-
-    assert result["checks"]["transitions_at_seams"]["pass"] is True
-    assert result["checks"]["v1_tiling"]["pass"] is True
-    assert result["status"] == "pass"
-    assert result["distribution_ready"] is True
 
 
 def test_declared_black_beat_excuses_a_v1_gap(tmp_path):

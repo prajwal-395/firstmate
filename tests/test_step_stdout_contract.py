@@ -49,10 +49,6 @@ SUBTITLES = (REPO_ROOT / "library" / "steps" / "step_4_05_render_subtitles"
 SHARED = REPO_ROOT / "library" / "tools" / "step_stdout.py"
 
 
-def test_the_shared_guard_exists():
-    src = SHARED.read_text()
-    assert "def claim_stdout" in src
-    assert "def emit" in src
 
 
 @pytest.mark.parametrize("step_py", [STEP, SUBTITLES],

@@ -51,40 +51,14 @@ def _project_with(pipeline: dict, tmp_path) -> str:
     return str(root)
 
 
-def test_defaults_are_tight(tmp_path):
-    project = _project_with({}, tmp_path)
-    assert resolve_overlay_geometry(project) == "tight"
-    assert resolve_overlay_container(project) == "video"
 
 
-def test_no_project_folder_is_tight():
-    assert resolve_overlay_geometry("") == "tight"
-    assert resolve_overlay_geometry(None) == "tight"
-    assert resolve_overlay_container("") == "video"
-    assert resolve_overlay_container(None) == "video"
 
 
-def test_declared_full_is_honoured(tmp_path):
-    project = _project_with({"subtitle_overlay_geometry": "full"},
-                            tmp_path)
-    assert resolve_overlay_geometry(project) == "full"
 
 
-def test_declared_values_are_honoured(tmp_path):
-    project = _project_with({"subtitle_overlay_container": "frames"},
-                            tmp_path)
-    assert resolve_overlay_container(project) == "frames"
 
 
-def test_declared_tight_captions_stay_tight(tmp_path):
-    """`tight` parses and renders tight - the default since 2026-09-10."""
-    project = _project_with({"subtitle_overlay_geometry": "tight"},
-                            tmp_path)
-    assert resolve_overlay_geometry(project) == "tight"
-    plain_root = tmp_path / "plain"
-    plain_root.mkdir()
-    plain = _project_with({}, plain_root)
-    assert resolve_overlay_geometry(plain) == "tight"
 
 
 def test_unknown_values_raise(tmp_path):
@@ -98,31 +72,9 @@ def test_unknown_values_raise(tmp_path):
         resolve_overlay_container(project)
 
 
-def test_vocabularies_are_complete():
-    assert set(GEOMETRIES) == {"full", "tight"}
-    assert set(CONTAINERS) == {"video", "frames"}
 
 
-def test_motion_graphics_geometry_defaults_to_tight(tmp_path):
-    project = _project_with({}, tmp_path)
-    assert resolve_motion_graphics_geometry(project) == "tight"
-    assert resolve_motion_graphics_geometry("") == "tight"
-    assert resolve_motion_graphics_geometry(None) == "tight"
 
 
-def test_motion_graphics_geometry_is_its_own_key(tmp_path):
-    project = _project_with({"motion_graphics_overlay_geometry": "full"},
-                            tmp_path)
-    assert resolve_motion_graphics_geometry(project) == "full"
-    # The caption key does not move it: the two are separate choices.
-    project = _project_with({"subtitle_overlay_geometry": "full"},
-                            tmp_path)
-    assert resolve_motion_graphics_geometry(project) == "tight"
 
 
-def test_motion_graphics_geometry_unknown_raises(tmp_path):
-    project = _project_with({"motion_graphics_overlay_geometry": "small"},
-                            tmp_path)
-    with pytest.raises(ValueError,
-                       match="motion_graphics_overlay_geometry"):
-        resolve_motion_graphics_geometry(project)

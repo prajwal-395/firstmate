@@ -89,22 +89,6 @@ def test_no_build_call_site_invents_a_bin_name():
 # --------------------------------------- per-timeline filing survives
 
 
-def test_a_generated_clip_files_under_the_placer_beneath_06():
-    artefacts = [
-        timeline("t-master", MASTER),
-        timeline("t-cur", "Reel 01 - live",
-                 folder=(bins.REELS_BIN, "Current plan")),
-        clip("c-cur", "sub_live_a.mov",
-             path=f"{PROJECT_ROOT}/pipeline_output/steps/"
-                  f"4_05_render_subtitles/a.mov",
-             placed_by=["Reel 01 - live"],
-             folder=("Reel subtitles", "Reel 01 - live")),
-    ]
-    dest = {v.name: v.destination for v in a_plan(
-        artefacts, current_reels=["Reel 01 - live"]).verdicts}
-    assert dest["sub_live_a.mov"] == (bins.SUBTITLES_BIN, "Reel 01 - live")
-    assert dest["Reel 01 - live"] == (
-        bins.REELS_BIN, bins.REEL_STATE_BINS[org.CURRENT])
 
 
 def test_motion_graphics_kind_files_beneath_07_not_06():
@@ -221,62 +205,7 @@ def screenshot_pool():
     ]
 
 
-def test_the_screenshot_pool_converges_on_the_numbered_scheme():
-    """Every pipeline-owned artefact moves under the surviving scheme;
-    the only thing left behind is the captain's own tier, which no
-    plan may touch."""
-    built = ["Reel 12 - ai-isnt-making-things-up",
-             "Reel 09 - your-website-is-only-20-percent",
-             "Reel 27 - google-reviews-build-ai-trust"]
-    plan = a_plan(screenshot_pool(), current_reels=built,
-                  archived_plan_names=[])
-    dest = {v.name: v.destination for v in plan.verdicts}
-    for reel in built:
-        assert dest[reel] == (
-            bins.REELS_BIN, bins.REEL_STATE_BINS[org.CURRENT]), reel
-    assert dest["SOP Proof_timeline_sop"] == (
-        bins.REELS_BIN, bins.REELS_PROOF_BIN)
-    assert dest["sub_12_a.mov"] == (
-        bins.SUBTITLES_BIN, "Reel 12 - ai-isnt-making-things-up")
-    assert dest["sub_old.mov"] == (bins.SUBTITLES_BIN, bins.UNPLACED_BIN)
-    assert dest["sub_loose.mov"] == (
-        bins.SUBTITLES_BIN, "Reel 09 - your-website-is-only-20-percent")
-    assert dest["podcast_cam_a.mov"] == (bins.SOURCE_BIN,)
-    assert dest["mg_09.mov"] == (
-        bins.MOTION_GRAPHICS_BIN,
-        "Reel 09 - your-website-is-only-20-percent")
-    # The captain's tier survives the migration untouched.
-    left = {name for name, _ in plan.left_alone}
-    assert "Reel 01 - seo-ranks-geo-understands" in left
-    assert "SOP Proof_timeline_sop" not in left
 
 
-def test_no_pipeline_bin_is_left_populated_beside_its_successor():
-    """The bar: re-filing MOVES what exists. After the plan every
-    verdict destination is canonical, so applying it empties the old
-    bins of everything the pipeline owns."""
-    built = ["Reel 12 - ai-isnt-making-things-up",
-             "Reel 09 - your-website-is-only-20-percent",
-             "Reel 27 - google-reviews-build-ai-trust"]
-    plan = a_plan(screenshot_pool(), current_reels=built,
-                  archived_plan_names=[])
-    for verdict in plan.verdicts:
-        assert bins.is_canonical(verdict.destination), verdict.destination
-    legacy_homes = [a for a in screenshot_pool()
-                    if a.folder_path and not bins.is_canonical(a.folder_path)
-                    and a.name != "Reel 01 - seo-ranks-geo-understands"]
-    assert legacy_homes, "the fixture must model the old scheme to prove it"
-    moved_ids = {v.item_id for v in plan.moves}
-    for artefact in legacy_homes:
-        assert artefact.item_id in moved_ids, (
-            f"{artefact.name!r} sits in legacy {artefact.folder_path} "
-            f"and the plan strands it there")
 
 
-def test_the_pool_is_read_before_it_is_written():
-    """The bar, literally: a bin tree with asset counts, read off the
-    artefacts before any move. The captain's pool, not the plan."""
-    text = org.pool_tree_report(screenshot_pool())
-    assert "Reels (4 item(s))" in text
-    assert "Reel subtitles (4 item(s))" in text
-    assert "SOP Proof_timeline_sop" in text

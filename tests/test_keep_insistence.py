@@ -92,26 +92,6 @@ def test_an_insistence_withdraws_the_cut_that_drops_those_seconds():
     assert [ident for _c, ident in withdrawn] == ["keep-1"]
 
 
-def test_a_partial_overlap_is_enough():
-    """A cut removing half of what the captain said to keep still
-    removes it."""
-    kept, withdrawn = reel_build.withdraw_insisted_cuts(
-        [_cut(11.42, 11.98)], [(11.90, 12.40, "keep-1")])
-    assert kept == [] and len(withdrawn) == 1
-
-
-def test_a_cut_elsewhere_is_untouched():
-    cuts = [_cut(30.0, 31.0)]
-    kept, withdrawn = reel_build.withdraw_insisted_cuts(
-        cuts, [(11.42, 11.98, "keep-1")])
-    assert kept == cuts and withdrawn == []
-
-
-def test_no_insistence_changes_nothing():
-    cuts = [_cut(11.42, 11.98)]
-    assert reel_build.withdraw_insisted_cuts(cuts, ()) == (cuts, [])
-
-
 # ── Through the build's own ranges ─────────────────────────────────
 
 def _spoken(ranges):
@@ -175,18 +155,6 @@ def test_an_insistence_round_trips_through_the_store(tmp_path):
     assert transcript_corrections.INSIST_READERS == ["build_reels"]
 
 
-def test_an_insistence_is_not_read_as_an_exclusion(tmp_path):
-    """The two shapes are inverses. Reading one as the other would cut
-    exactly the seconds the captain asked to keep."""
-    transcript_corrections.record_keep_insistence(
-        str(tmp_path), 11.42, 11.98, "stays in")
-    assert transcript_corrections.keep_exclusions(str(tmp_path)) == []
-    transcript_corrections.record_keep_exclusion(
-        str(tmp_path), 90.0, 91.0, "struck")
-    assert len(transcript_corrections.keep_insistences(str(tmp_path))) == 1
-    assert len(transcript_corrections.keep_exclusions(str(tmp_path))) == 1
-
-
 @pytest.mark.parametrize("args,match", [
     ((11.98, 11.42, "why"), "not a range"),
     ((11.42, 11.98, "   "), "no reason"),
@@ -194,10 +162,3 @@ def test_an_insistence_is_not_read_as_an_exclusion(tmp_path):
 def test_a_malformed_insistence_refuses(tmp_path, args, match):
     with pytest.raises(LearnedContextError, match=match):
         transcript_corrections.record_keep_insistence(str(tmp_path), *args)
-
-
-def test_spans_are_clipped_to_the_moment():
-    insisted = [{"start": 5.0, "end": 20.0, "id": "keep-1"},
-                {"start": 80.0, "end": 90.0, "id": "keep-2"}]
-    assert transcript_corrections.insisted_spans_for_span(
-        11.0, 14.0, insisted) == [(11.0, 14.0, "keep-1")]

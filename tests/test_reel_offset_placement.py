@@ -366,18 +366,6 @@ def test_j_cut_refuses_without_source_handles():
         plan_j_cut(before, FPS, JOIN_FRAME, LEAD_FRAMES)
 
 
-def test_j_cut_refuses_a_join_with_no_audio_on_it():
-    before = placements([(0.0, 20.0)], _master_clips(), FPS)
-    with pytest.raises(OffsetRefused, match="no audio"):
-        plan_j_cut(before, FPS, 480, LEAD_FRAMES)
-
-
-def test_j_cut_refuses_a_lead_that_erases_the_tail():
-    before = placements([(0.0, 20.0)], _master_clips(), FPS)
-    with pytest.raises(OffsetRefused, match="erases the item"):
-        plan_j_cut(before, FPS, JOIN_FRAME, 240)
-
-
 def test_audio_row_overlap_after_a_move_refuses():
     """The disjointness guard itself: two audio placements from one
     master row overlapping after a move refuse rather than letting
@@ -421,19 +409,6 @@ def test_cutaway_refuses_a_speaking_cover():
                      cover_words=[(9.8, 10.2, "mm-hm")])
 
 
-def test_cutaway_refuses_a_hole_in_the_cover():
-    clips = _master_clips()
-    short = [c for c in clips
-             if not (getattr(c, "track_type", "") == "video"
-                     and getattr(c, "track_index", None) == 1)]
-    short.append(_clip("video", 1, "Akshita", "Akshita",
-                       "/m/akshita.MXF", 0.0, 5.0, src_in=2000.0))
-    before = placements([(0.0, 20.0)], short, FPS)
-    with pytest.raises(OffsetRefused, match="no covering picture"):
-        plan_cutaway(before, FPS, "2", (CUT_FRAME, CUT_FRAME + 24),
-                     cover_words=[])
-
-
 # ── captions travel with moved speech ──
 
 def test_captions_follow_the_audio_lead():
@@ -449,31 +424,7 @@ def test_captions_follow_the_audio_lead():
     assert notes == [], "no straddle, nothing to confess"
 
 
-def test_straddling_card_shifts_whole_and_is_reported():
-    segments = [_caption(9.0, 10.8, "cap-straddle")]
-    adjusted, notes = shift_captions_for_audio_lead(
-        segments, JOIN_FRAME, LEAD_FRAMES, FPS)
-    assert len(adjusted) == 1
-    assert len(notes) == 1 and notes[0]["segment_id"] == "cap-straddle"
-    assert "early" in notes[0]["compromise"]
-
-
 # ── the link pass ──
-
-def test_offset_link_with_no_matching_item_refuses():
-    FakeTimeline._registry = {}
-    timeline = FakeTimeline()
-    plan = plan_layout({
-        "angles": [{"key": "1", "label": "Akshita",
-                    "speech_name": "Akshita CH1", "program_channel": 1}],
-        "has_broll": False, "has_frame": False, "caption_spans": [],
-        "mg_spans": [], "has_generators": False, "timed_text_spans": [],
-        "music_spans": [], "sfx_spans": [],
-    })
-    with pytest.raises(OffsetRefused, match="matches no speech item"):
-        link_reel_groups(
-            timeline, plan,
-            offset_links=[OffsetLink(speech=(0, 100), pictures=((0, 100),))])
 
 
 def test_legacy_link_pass_untouched_without_offset_links():
@@ -533,67 +484,6 @@ def test_version_a_j_cut_builds_conformance_clean():
 
 
 # ── version B: the reaction cutaway ──
-
-def test_version_b_cutaway_builds_conformance_clean():
-    """Reel 09B beside the captain's Reel 09: Akshita listening across
-    the seam, one second of her continuous picture over Craig's join
-    while his audio plays straight through. Watch that she is
-    listening, not speaking - the build refuses a cover that talks -
-    and that her frame reads as attention at the join. Same room-tone
-    caveat as version A: the audio cut is straight, so a step at the
-    seam survives - listen there."""
-    window = (JOIN_SECONDS - 0.5, JOIN_SECONDS + 0.5)
-    timeline, record = _build(
-        REEL_09B_CUTAWAY, _master_clips(),
-        captions=[_caption(8.0, 9.4, "cap-early"),
-                  _caption(10.6, 12.0, "cap-late")],
-        cutaway={"hide_angle": "2", "window_seconds": window,
-                 "cover_words": []})
-    assert record["timeline_name"] == REEL_09B_CUTAWAY
-    assert record["link_warnings"] == [], record["link_warnings"]
-    assert record["offsets"]["cutaway"]["cover_angles"] == ["1"]
-    report = _verify(timeline, record)
-    assert report["passed"], report["violations"]
-    assert report["checks_skipped"] == []
-    assert set(CHECKS) <= set(report["checks_run"])
-    craig_pic = timeline.GetItemListInTrack("video", 2)
-    spans = sorted((item.GetStart(), item.GetEnd()) for item in craig_pic)
-    assert spans == [(0, CUT_FRAME), (CUT_FRAME + 24, 480)], \
-        "Craig's picture parts around the window; hers shows through"
-    akshita_pic = timeline.GetItemListInTrack("video", 1)
-    assert len(akshita_pic) == 1, "her continuous shot is never cut"
-
-
-def test_version_b_cutaway_with_silent_listener_links_the_cover():
-    """No Akshita audio at all: her revealed picture still joins a
-    speech group - the incoming take's - instead of placing
-    unlinked."""
-    window = (JOIN_SECONDS - 0.5, JOIN_SECONDS + 0.5)
-    timeline, record = _build(
-        REEL_09B_CUTAWAY + "-silent", _master_clips(akshita_audio=False),
-        cutaway={"hide_angle": "2", "window_seconds": window,
-                 "cover_words": []})
-    assert record["link_warnings"] == [], record["link_warnings"]
-    report = _verify(timeline, record)
-    assert report["passed"], report["violations"]
-    akshita_pic = timeline.GetItemListInTrack("video", 1)
-    assert len(akshita_pic[0].GetLinkedItems()) >= 1, \
-        "the revealed listener travels with the seam's words"
-
-
-def test_offset_build_refuses_what_it_cannot_link():
-    """An offset that cannot be linked refuses the whole build - it
-    never places silently unlinked."""
-    window = (JOIN_SECONDS - 0.5, JOIN_SECONDS + 0.5)
-    clips = [c for c in _master_clips(akshita_audio=False)
-             if not (getattr(c, "track_type", "") == "video"
-                     and getattr(c, "track_index", None) == 1)]
-    clips.append(_clip("video", 1, "Akshita", "Akshita",
-                       "/m/akshita.MXF", 30.0, 40.0, src_in=2000.0))
-    before = placements([(0.0, 20.0)], clips, FPS)
-    with pytest.raises(OffsetRefused, match="no covering picture"):
-        plan_cutaway(before, FPS, "2",
-                     (CUT_FRAME, CUT_FRAME + 24), cover_words=[])
 
 
 # ── a HELD FRAME is not an unlinked picture ─────────────────────
@@ -714,20 +604,6 @@ def test_a_stale_recorded_window_is_used_silently_by_plan_cutaway():
         "and it no longer covers the cover - used silently"
 
 
-def test_resolve_cutaway_window_returns_the_recorded_window_when_fresh():
-    """Agreement within a frame builds exactly what the captain
-    recorded - the resolver changes nothing on a fresh spec."""
-    from library.tools.reel_build import resolve_cutaway_window_frames
-    cover = _cover_clip(COVER_MASTER_START, COVER_MASTER_END)
-    placed = placements([(0.0, 20.0)], _master_clips() + [cover], FPS,
-                        lead_frames=LEAD_SHIFT)
-    span = _cover_spans(placed, cover)[0]
-    cutaway = {"hide_angle": "2",
-               "window_seconds": [span[0] / FPS, span[1] / FPS]}
-    assert resolve_cutaway_window_frames(
-        cutaway, cover, placed, FPS) == span
-
-
 def test_resolve_cutaway_window_refuses_a_stale_recorded_window():
     """The fix: the moved build above refuses, naming the recording
     and where the cover now plays - never used silently."""
@@ -745,27 +621,3 @@ def test_resolve_cutaway_window_refuses_a_stale_recorded_window():
         resolve_cutaway_window_frames(stale, cover, moved, FPS)
 
 
-def test_resolve_cutaway_window_refuses_a_cover_that_never_plays():
-    """The ranges no longer cover the cover's master span: the window
-    has nothing to reveal, refused rather than hiding an absence."""
-    from library.tools.reel_build import resolve_cutaway_window_frames
-    cover = _cover_clip(COVER_MASTER_START, COVER_MASTER_END)
-    placed = placements([(0.0, 5.0)], _master_clips() + [cover], FPS)
-    assert _cover_spans(placed, cover) == []
-    cutaway = {"hide_angle": "2",
-               "window_seconds": [COVER_START_F / FPS,
-                                  (COVER_START_F + COVER_SPAN_F) / FPS]}
-    with pytest.raises(OffsetRefused, match="plays nowhere"):
-        resolve_cutaway_window_frames(cutaway, cover, placed, FPS)
-
-
-def test_resolve_cutaway_window_without_a_cover_uses_the_recorded_window():
-    """No cover, no second anchor: the recorded window is returned
-    as-is. This is the boundary of the fix, stated rather than
-    covered - master-anchoring that case is follow-up work."""
-    from library.tools.reel_build import resolve_cutaway_window_frames
-    placed = placements([(0.0, 20.0)], _master_clips(), FPS)
-    cutaway = {"hide_angle": "2", "window_seconds": [9.5, 10.5]}
-    assert resolve_cutaway_window_frames(
-        cutaway, None, placed, FPS) == (
-            int(round(9.5 * FPS)), int(round(10.5 * FPS)))

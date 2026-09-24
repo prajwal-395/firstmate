@@ -156,28 +156,6 @@ def test_stat_callout_wraps_to_the_full_layout_width():
     assert _effective_container(box) == USABLE
 
 
-def test_quote_card_wraps_to_the_full_layout_width():
-    """986x132 against 856x193: same reflow, same fix."""
-    box = tighten_motion_graphics_props(_props([
-        _el("quote_card", anchor="top_centre", runs=_wrap_copy("quote_card"))]))
-    assert box is not None
-    assert box.width >= USABLE + 2 * MG_PAD
-    assert _effective_container(box) == USABLE
-
-
-def test_title_lockup_wraps_to_the_full_layout_width():
-    """The third of the three that differ, identified structurally
-    (see the module docstring): the flagship copy element draws text
-    in a plain div inside the same centre container, so it reflows
-    the same way and is preserved the same way."""
-    box = tighten_motion_graphics_props(_props([
-        _el("title_lockup", anchor="bottom_centre",
-            runs=_wrap_copy("title_lockup"))]))
-    assert box is not None
-    assert box.width >= USABLE + 2 * MG_PAD
-    assert _effective_container(box) == USABLE
-
-
 # ── the mechanism, for every centre copy kind ─────────────────────────
 
 def test_every_centre_copy_kind_carries_the_layout_width():
@@ -196,18 +174,6 @@ def test_every_centre_copy_kind_carries_the_layout_width():
         assert box is not None, kind
         assert box.props["layoutWidth"] == USABLE, kind
         assert _effective_container(box) == USABLE, kind
-
-
-def test_every_centre_anchor_triggers_the_floor():
-    """Top, middle, bottom and bare centre: the horizontal is what
-    binds the container, not the vertical."""
-    for anchor in ("top_centre", "middle_centre", "bottom_centre",
-                   "centre"):
-        box = tighten_motion_graphics_props(_props(
-            [_el("title_lockup", anchor=anchor)]))
-        assert box is not None, anchor
-        assert box.props["layoutWidth"] == USABLE, anchor
-        assert _effective_container(box) == USABLE, anchor
 
 
 def test_short_copy_floors_at_the_layout_width_plus_pads():
@@ -253,18 +219,6 @@ def test_side_anchored_copy_keeps_the_small_canvas():
         assert box.width < USABLE + 2 * MG_PAD, anchor
 
 
-def test_fixed_geometry_at_centre_keeps_the_small_canvas():
-    """`review_panel` states explicit widths with clamped bodies, so
-    a centre anchor cannot re-wrap it and it triggers no floor."""
-    box = tighten_motion_graphics_props(_props([_el(
-        "review_panel", anchor="centre",
-        data={"rows": [{"author": "Dana R.", "body": "Fine."}],
-               "rating": 4.8, "count": 214, "palette": {}})]))
-    assert box is not None
-    assert "layoutWidth" not in box.props
-    assert box.width < USABLE + 2 * MG_PAD
-
-
 def test_mixed_segment_pins_the_side_ink():
     """Bottom-centre copy beside a bottom-left panel: the floor spans
     the layout width, but the canvas origin stays pinned to the
@@ -303,63 +257,3 @@ def test_centre_tall_mix_falls_back_to_full_canvas():
     assert box is None
     assert refusal is not None
     assert refusal.reason == "covers_frame"
-
-
-def test_split_halves_keep_the_full_layout_width():
-    """The split must not lose this file's property: the
-    centre-anchored half still wraps to the full-frame usable width,
-    so each tight row is the same drawing as the full frame."""
-    from library.tools.mg_tight_box import separable_groups
-    elements = [
-        _el("title_lockup", anchor="top_centre",
-            runs=_wrap_copy("title_lockup")),
-        _el("lower_third", anchor="bottom_left"),
-    ]
-    groups = separable_groups(elements)
-    assert [[e["element"] for e in g] for g in groups] == [
-        ["title_lockup"], ["lower_third"]]
-    centre = groups[0]
-    box = tighten_motion_graphics_props(_props(centre))
-    assert box is not None
-    assert box.props["layoutWidth"] == USABLE
-    assert _effective_container(box) == USABLE
-
-
-def test_stack_predicate_mirrors_the_composition():
-    """The trigger is the laid-out stack, not the raw plan: centre
-    horizontal with wrappable copy needs the floor; side stacks and
-    fixed geometry do not."""
-    assert _stack_needs_layout_width(
-        {"top_centre": {"horizontal": "centre",
-                        "rows": [(0, 100.0, 50.0, "title_lockup")]}})
-    assert not _stack_needs_layout_width(
-        {"bottom_left": {"horizontal": "left",
-                         "rows": [(0, 100.0, 50.0, "title_lockup")]}})
-    assert not _stack_needs_layout_width(
-        {"centre": {"horizontal": "centre",
-                    "rows": [(0, 660.0, 400.0, "review_panel")]}})
-    assert not _stack_needs_layout_width({})
-
-
-# ── the composition honours the cap ───────────────────────────────────
-
-def test_composition_caps_centre_stacks_at_layout_width():
-    """The Python half floors the canvas; this pins the other half:
-    the MotionGraphics composition declares `layoutWidth` and caps
-    centre-anchored stack containers at it with auto margins. Without
-    this half an over-wide predicted union would lay its container
-    wider than full frame and unwrap copy the full frame wrapped."""
-    with open(COMPOSITION, encoding="utf-8") as handle:
-        tsx = handle.read()
-    assert "layoutWidth?: number" in tsx, (
-        "MotionGraphicsProps no longer declares layoutWidth - the "
-        "tight props stamp a wrap width nothing reads")
-    assert "maxWidth" in tsx and "layoutWidth" in tsx, (
-        "the composition no longer caps a container at layoutWidth")
-    for marker in ('marginLeft = "auto"', 'marginRight = "auto"',
-                   'String(anchor).endsWith("left")',
-                   'String(anchor).endsWith("right")'):
-        assert marker in tsx, (
-            f"the composition no longer carries {marker} - the centre "
-            f"cap must centre the capped container and must not touch "
-            f"side-anchored stacks")

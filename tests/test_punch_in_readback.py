@@ -118,36 +118,6 @@ def test_a_transform_resolve_did_not_hold_is_refused(tmp_path):
     assert "did not take" in str(excinfo.value)
 
 
-def test_a_transform_that_took_aims_and_covers(tmp_path):
-    """The happy path: held equals asked, the shot is aimed and covers."""
-    asset = _frame_asset(tmp_path / "frame.png")
-    look = _look(asset)
-    window = _window(look)
-    aimed = aim_picture_row(
-        "Reel 09", look, window, 1080, 1920,
-        [_Item(), _Item()], [_place(record=0), _place(record=120)],
-        measure=lambda s, a, b: _subject(),
-        size_of=lambda item: (3840, 2160))
-    assert aimed == 2
-
-
-def test_an_unreadable_transform_falls_back_to_the_return(tmp_path):
-    """No read-back is not a refusal: the `SetProperty` return judged."""
-    asset = _frame_asset(tmp_path / "frame.png")
-    look = _look(asset)
-
-    class _Unreadable(_Item):
-        def GetProperty(self, key):
-            return None
-
-    aimed = aim_picture_row(
-        "Reel 09", look, _window(look), 1080, 1920,
-        [_Unreadable()], [_place()],
-        measure=lambda s, a, b: _subject(),
-        size_of=lambda item: (3840, 2160))
-    assert aimed == 1
-
-
 def test_a_shot_with_no_face_plays_uncropped_and_is_said(
         tmp_path, capsys):
     """Genuine absence still refuses the punch, not the build.

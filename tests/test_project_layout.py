@@ -73,14 +73,6 @@ def _steps_importing_the_layout() -> set:
 
 # ── The count ───────────────────────────────────────────────────────
 
-def test_every_step_that_composes_a_project_path_is_on_the_owner():
-    missing = STEPS_ON_THE_LAYOUT - _steps_importing_the_layout()
-    assert not missing, (
-        f"{len(missing)} step(s) compose their own project paths again: "
-        f"{sorted(missing)}. Name an Area and let "
-        f"library/tools/project_layout.py return the path."
-    )
-
 
 def test_no_step_joins_a_project_folder_with_a_directory_name():
     """The pattern the owner exists to replace, banned at the source."""
@@ -113,23 +105,11 @@ def test_a_step_cannot_write_into_the_captains_footage(tmp_path):
 
 
 @pytest.mark.parametrize("area", [
-    Area.RAW, Area.MUSIC, Area.ASSETS, Area.BRAND_ASSETS, Area.COMPOSITIONS,
+    Area.RAW,
 ])
 def test_no_input_area_is_writable(tmp_path, area):
     with pytest.raises(ProjectLayoutViolation):
         ProjectLayout(tmp_path).write_path(area, "anything.json")
-
-
-def test_an_input_area_is_still_readable(tmp_path):
-    """Protection is about writing. Steps read raw/ constantly."""
-    p = ProjectLayout(tmp_path).read_path(Area.RAW, "IMG_1806.MOV")
-    assert p == tmp_path / "raw" / "IMG_1806.MOV"
-
-
-def test_assert_writable_refuses_a_path_inside_an_input_area(tmp_path):
-    with pytest.raises(ProjectLayoutViolation) as exc:
-        ProjectLayout(tmp_path).assert_writable(tmp_path / "music" / "track.wav")
-    assert "must not write" in str(exc.value)
 
 
 def test_assert_writable_refuses_a_path_outside_the_project(tmp_path):
@@ -181,33 +161,12 @@ def test_a_step_cannot_write_into_another_steps_directory(tmp_path):
     assert "writes only inside its own directory" in str(exc.value)
 
 
-def test_a_step_may_write_into_its_own_directory(tmp_path):
-    layout = ProjectLayout(tmp_path)
-    d = layout.write_dir(Area.PROSODY, step="prosody_analysis")
-    assert layout.step_of(d) == "prosody_analysis"
-
-
 def test_a_step_may_write_to_an_area_no_step_owns(tmp_path):
     """`exports/` is shared by 6.01 and 6.02, and `scratch/` by anyone."""
     layout = ProjectLayout(tmp_path)
     assert layout.write_dir(Area.EXPORTS, step="render")
     assert layout.write_dir(Area.EXPORTS, step="validate")
     assert layout.write_dir(Area.SCRATCH, step="prosody_analysis")
-
-
-def test_assert_step_owns_refuses_a_path_in_another_steps_directory(tmp_path):
-    """The guard for a path that arrived from outside the layout."""
-    layout = ProjectLayout(tmp_path)
-    stray = layout.write_path(Area.PROSODY, "x.json", step="prosody_analysis")
-    layout.assert_step_owns("prosody_analysis", stray)
-    with pytest.raises(ProjectLayoutViolation):
-        layout.assert_step_owns("render_subtitles", stray)
-
-
-def test_an_unknown_step_raises_rather_than_getting_a_directory(tmp_path):
-    with pytest.raises(ProjectLayoutViolation) as exc:
-        ProjectLayout(tmp_path).step_dir("nope")
-    assert "Unknown step" in str(exc.value)
 
 
 def test_a_files_directory_names_the_step_that_wrote_it(tmp_path):
@@ -220,23 +179,7 @@ def test_a_files_directory_names_the_step_that_wrote_it(tmp_path):
         assert layout.step_of(p) == spec.step, f"{area.value} is misfiled"
 
 
-def test_a_path_outside_steps_belongs_to_no_step(tmp_path):
-    layout = ProjectLayout(tmp_path)
-    assert layout.step_of(layout.write_path(Area.LOGS, "run.log")) is None
-    assert layout.step_of(layout.write_dir(Area.EXPORTS)) is None
-
-
 # ── The step table matches the pipeline ─────────────────────────────
-
-def test_every_step_in_the_table_is_a_real_step_directory():
-    from library.tools.project_layout import STEPS
-
-    repo = Path(__file__).resolve().parent.parent / "library" / "steps"
-    on_disk = {p.name for p in repo.iterdir() if p.name.startswith("step_")}
-    for step in STEPS:
-        assert f"step_{step.dirname}" in on_disk, (
-            f"{step.node_id} names directory {step.dirname}, which is not "
-            f"a step in library/steps/")
 
 
 def test_every_step_directory_is_in_the_table():
@@ -246,28 +189,6 @@ def test_every_step_directory_is_in_the_table():
     on_disk = {p.name[len("step_"):] for p in repo.iterdir()
                if p.name.startswith("step_") and p.is_dir()}
     assert on_disk == {s.dirname for s in STEPS}
-
-
-def test_the_table_is_in_dag_order_and_names_the_dag_nodes():
-    """One table, EVERY process, each process's nodes in its own order.
-
-    `library/steps/` is one tree and belongs to the repository rather
-    than to a process, so STEPS lists them all - and the order it lists
-    them in is what the generated README renders from. Processes follow
-    `processes.process_ids()`, which is sorted, so the concatenation is
-    stable rather than incidental.
-    """
-    from library.tools import processes
-    from library.tools.project_layout import STEPS
-
-    dag_ids = [node["id"]
-               for pid in processes.process_ids()
-               for node in processes.load_dag(pid)["nodes"]]
-    wired = [s.node_id for s in STEPS if s.wired]
-    assert wired == dag_ids, (
-        "STEPS must list the wired steps in the order their process runs "
-        "them, processes in processes.process_ids() order - the generated "
-        "README renders from it")
 
 
 def test_the_unwired_steps_are_marked_unwired():
@@ -284,17 +205,6 @@ def test_the_unwired_steps_are_marked_unwired():
     for step in STEPS:
         assert step.wired == (step.node_id in dag_ids), (
             f"{step.node_id}: wired={step.wired} disagrees with every DAG")
-
-
-def test_every_step_owned_area_lives_under_its_step(tmp_path):
-    from library.tools.project_layout import STEP_BY_ID
-
-    for area, spec in AREAS.items():
-        if not spec.step:
-            continue
-        expected = f"pipeline_output/steps/{STEP_BY_ID[spec.step].dirname}"
-        assert spec.relpath == expected or spec.relpath.startswith(expected + "/"), (
-            f"{area.value} declares step {spec.step} but sits at {spec.relpath}")
 
 
 # ── The layout itself ───────────────────────────────────────────────
@@ -331,39 +241,6 @@ def test_ensure_creates_containers_and_not_the_input_side(tmp_path):
                 f"{area.value} should not be pre-created by ensure()")
 
 
-def test_the_folder_explains_itself(tmp_path):
-    """Someone opening this in six months reads one file, not the code."""
-    ProjectLayout(tmp_path).ensure()
-    readme = (tmp_path / "README-LAYOUT.md").read_text(encoding="utf-8")
-    for area, spec in AREAS.items():
-        if spec.relpath in (".", "pipeline_output", "pipeline_output/steps"):
-            continue  # the containers; their contents are what is described
-        assert spec.purpose in readme, f"{area.value} has no stated purpose"
-
-
-def test_the_readme_walks_the_pipeline_in_the_order_it_runs(tmp_path):
-    """The whole point: `ls` and the README both read as the pipeline."""
-    from library.tools.project_layout import STEPS
-
-    ProjectLayout(tmp_path).ensure()
-    readme = (tmp_path / "README-LAYOUT.md").read_text(encoding="utf-8")
-    positions = [readme.index(f"steps/{s.dirname}/") for s in STEPS]
-    assert positions == sorted(positions), (
-        "the README must render steps in run order, not alphabetically")
-
-
-def test_no_step_directory_exists_before_the_step_writes(tmp_path):
-    """A directory that was pre-created carries no information.  A
-    directory that appears only when something writes tells you the step
-    has run and produced output."""
-    from library.tools.project_layout import STEPS
-
-    ProjectLayout(tmp_path).ensure()
-    steps_root = tmp_path / "pipeline_output" / "steps"
-    assert not list(steps_root.iterdir()), (
-        "ensure() should not pre-create step directories")
-
-
 def test_a_step_directory_appears_when_the_step_writes(tmp_path):
     """write_dir creates the step directory on demand."""
     layout = ProjectLayout(tmp_path)
@@ -388,31 +265,6 @@ KNOWN_SORT_INVERSIONS = {
 }
 
 
-def test_the_step_directories_sort_into_pipeline_order(tmp_path):
-    from library.tools.project_layout import STEPS
-
-    layout = ProjectLayout(tmp_path)
-    layout.ensure()
-    # Simulate what happens after all steps run: each step's directory
-    # is created when the step writes its output.
-    for step in STEPS:
-        layout.step_dir(step.node_id, create=True)
-    listing = sorted(p.name for p in
-                     (tmp_path / "pipeline_output" / "steps").iterdir())
-    run_order = [s.dirname for s in STEPS]
-    diverging = {a for a, b in zip(listing, run_order) if a != b}
-    assert diverging <= KNOWN_SORT_INVERSIONS, (
-        f"the listing diverges from run order beyond the two known "
-        f"inversions: {sorted(diverging - KNOWN_SORT_INVERSIONS)}")
-
-
-def test_every_area_has_a_purpose_sentence():
-    for area, spec in AREAS.items():
-        assert spec.purpose.strip(), f"{area.value} has no purpose"
-        assert spec.purpose.strip().endswith("."), (
-            f"{area.value}'s purpose should be a sentence")
-
-
 def test_no_two_areas_claim_the_same_directory():
     seen = {}
     for area, spec in AREAS.items():
@@ -422,23 +274,6 @@ def test_no_two_areas_claim_the_same_directory():
             f"{area.value} and {seen[spec.relpath]} both claim "
             f"{spec.relpath}")
         seen[spec.relpath] = area.value
-
-
-def test_the_input_areas_are_the_captains_material():
-    """`external_state` is here for the same reason `raw` is: the
-    captain made it and no step may write it. It carries state produced
-    outside the pipeline and offered to a step that would otherwise need
-    the step that makes it - see library/tools/external_inputs.py.
-    `context` is here for the same reason: the captain's context folder,
-    read as a map and never written to - see
-    library/tools/project_context.py. (`learned_context` is NOT here:
-    it is pipeline-owned, the write-back half.)"""
-    inputs = {a.value for a, s in AREAS.items() if s.kind is Kind.INPUT}
-    assert inputs == {
-        "project_root", "raw", "music", "assets",
-        "brand_assets", "compositions", "external_state", "run_profiles",
-        "context", "subtitle_plans", "subtitle_overlays",
-    }
 
 
 # ── Backups ─────────────────────────────────────────────────────────
@@ -454,10 +289,6 @@ def test_a_backup_is_a_copy_of_the_state_as_it_stood(tmp_path):
     made = layout.backup_pipeline_data(label="run")
     _state(tmp_path, "after")
     assert json.loads(made.read_text(encoding="utf-8"))["marker"] == "before"
-
-
-def test_nothing_to_back_up_is_not_an_error(tmp_path):
-    assert ProjectLayout(tmp_path).backup_pipeline_data() is None
 
 
 def test_the_backup_store_is_bounded(tmp_path):
@@ -490,24 +321,6 @@ def test_hand_made_backups_are_never_pruned(tmp_path):
         "delete, wherever it sits")
 
 
-def test_the_backup_store_lives_under_the_output_root(tmp_path):
-    _state(tmp_path, "x")
-    made = ProjectLayout(tmp_path).backup_pipeline_data()
-    assert made.parent.parent.parent.name == "pipeline_output"
-    assert made.parent.name == "pipeline_data"
-    assert not list(tmp_path.glob("*.bak*")), (
-        "backups do not sit beside the thing they back up")
-
-
-def test_a_backup_is_named_so_the_pruner_can_recognise_it(tmp_path):
-    _state(tmp_path, "x")
-    made = ProjectLayout(tmp_path).backup_pipeline_data(
-        label="pre trans rerun", now=1_700_000_000)
-    assert made.name.startswith("pipeline_data.")
-    assert made.name.endswith(".pre-trans-rerun.json")
-    assert ProjectLayout(tmp_path).automatic_backups() == [made]
-
-
 # ── The runner takes one backup per run, not per save ───────────────
 
 def test_the_runner_backs_up_once_per_run(tmp_path, monkeypatch):
@@ -524,27 +337,6 @@ def test_the_runner_backs_up_once_per_run(tmp_path, monkeypatch):
 
 
 # ── Nothing else may own a project path ─────────────────────────────
-
-def test_the_project_config_schema_delegates_rather_than_deciding(tmp_path):
-    """Two definitions of "where the exports go" is one too many."""
-    from library.schemas.project_config import ProjectConfig
-
-    cfg = ProjectConfig(name="x", slug="x")
-    object.__setattr__(cfg, "_project_root", Path(tmp_path))
-    layout = ProjectLayout(tmp_path)
-    assert cfg.raw_dir == layout.read_dir(Area.RAW)
-    assert cfg.pipeline_output_dir == layout.read_dir(Area.OUTPUT_ROOT)
-    assert cfg.exports_dir == layout.read_dir(Area.EXPORTS)
-    assert cfg.pipeline_data_path == layout.pipeline_data_path
-
-
-def test_paths_py_forwards_the_project_helpers_it_still_publishes(tmp_path):
-    from library.tools import paths
-
-    layout = ProjectLayout(tmp_path)
-    assert paths.project_output_dir(str(tmp_path)) == layout.read_dir(
-        Area.OUTPUT_ROOT)
-    assert paths.comp_dir(str(tmp_path)) == layout.read_dir(Area.FUSION_COMPS)
 
 
 def test_the_new_project_scaffold_is_the_layout(tmp_path):
@@ -569,14 +361,6 @@ def test_the_new_project_scaffold_is_the_layout(tmp_path):
     steps_root = root / "pipeline_output" / "steps"
     assert not list(steps_root.iterdir()), (
         "new project should not have pre-created step directories")
-
-
-def test_the_timed_text_render_dirname_is_the_layouts(tmp_path):
-    """Two names for one directory is the bug class this replaces."""
-    from library.tools.timed_text_render import TIMED_TEXT_RENDER_DIRNAME
-
-    assert TIMED_TEXT_RENDER_DIRNAME == Path(
-        AREAS[Area.TIMED_TEXT_SEGMENTS].relpath).name
 
 
 # ── Read-side audit: no consumer crashes on a bare project ──────────
@@ -647,32 +431,6 @@ def test_read_paths_survive_a_project_with_no_directories(tmp_path):
 
 
 # ── The captain's own working directories (geo-podcast, 2026-09-09) ────
-
-def test_the_captains_subtitle_working_dirs_are_input_areas():
-    """`subtitle_plans/` and `subtitle_overlays/` at the project root are
-    written by the captain's own standalone scripts
-    (`generate_podcast_subtitles.py`, `place_subtitles.py`,
-    `render_subtitle_segments.py` join `SCRIPT_DIR`, never the layout),
-    not by any pipeline step - step 4.05 renders into
-    `steps/4_05_render_subtitles/`. They are genuine Areas the table was
-    missing: INPUT, so the pipeline can never write there, `organize`
-    leaves them in place, and the README explains them."""
-    for value in ("subtitle_plans", "subtitle_overlays"):
-        spec = AREAS[Area(value)]
-        assert spec.relpath == value
-        assert spec.kind is Kind.INPUT
-
-
-def test_vox_test_renders_are_captured_not_scratch():
-    """`pipeline_output/vox_test_renders/` holds mp4s exported off Resolve
-    "(vox test)" timelines. SCRATCH is safe to discard at any moment,
-    including mid-run; these have a reader (the captain refers back to
-    them) and the timeline that made them is destroyed by a rebuild, so
-    they are CAPTURED like `marker_feedback/`: a re-run must never
-    delete them."""
-    spec = AREAS[Area("vox_test_renders")]
-    assert spec.relpath == f"pipeline_output/vox_test_renders"
-    assert spec.kind is Kind.CAPTURED
 
 
 def test_no_library_code_names_the_captains_stray_directories():

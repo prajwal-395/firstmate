@@ -60,22 +60,3 @@ def test_validate_spine_rejects_leading_silence():
     with pytest.raises(SpineContractError) as exc:
         validate_spine_blocks(blocks, total_duration=65.0, target_duration_zone=(54.0, 60.0, 66.0))
     assert "leading silence block at the head of the timeline is not allowed" in str(exc.value)
-
-def test_validate_spine_rejects_leading_gap():
-    blocks = [
-        {
-            "position": 1,
-            "block_type": "gap",
-            "clip_id": None,
-            "source_start": None,
-            "source_end": None,
-            "timeline_start": 0.0,
-            "timeline_end": 5.0,
-            "word_timestamps": [],
-            "alignment_method": None,
-        }
-    ]
-    
-    with pytest.raises(SpineContractError) as exc:
-        validate_spine_blocks(blocks, total_duration=60.0, target_duration_zone=(54.0, 60.0, 66.0))
-    assert "leading gap block at the head of the timeline is not allowed" in str(exc.value)

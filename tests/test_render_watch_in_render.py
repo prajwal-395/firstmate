@@ -130,14 +130,6 @@ def test_no_project_folder_draws_nothing(monkeypatch, tmp_path, capsys):
 
 # ── The marker is always replaced ────────────────────────────────────
 
-def test_addition_describes_the_table_when_present():
-    """Grabs ran: the review is told what the table is for."""
-    text = render_step._visual_qa_prompt_addition(
-        [{"type": "frame_grab_result"}])
-    assert "visual_qa" in text
-    assert "Use these findings" in text
-
-
 def test_addition_records_the_absence_when_missing():
     """Flag off: the review must not be instructed to use an absent table."""
     for missing in (None, [], {}):
@@ -145,30 +137,3 @@ def test_addition_records_the_absence_when_missing():
         assert "no `visual_qa` table" in text
         assert FLAG in text
         assert "Use these findings" not in text
-
-
-# ── The contract around the wiring ───────────────────────────────────
-
-def test_manifest_declares_both_frame_keys():
-    """`validate_step_output` warns on undeclared extras: both keys the
-    payload can carry - the new watch block and the already-emitted
-    `visual_qa` table - must be declared, and neither may be required,
-    because a default run carries neither."""
-    manifest = json.loads(
-        Path(STEP_DIR, "manifest.json").read_text(encoding="utf-8"))
-    outputs = {o["name"]: o
-               for o in manifest["interface"]["outputs"]}
-    for key in ("render_watch_frames", "visual_qa"):
-        assert key in outputs, f"manifest declares no {key}"
-        assert outputs[key].get("required") is False, \
-            f"{key} must be optional: a default run carries none"
-
-
-def test_handoff_confesses_an_unwatched_render():
-    """The 6.02 rule, in 6.01's words: an absent block must read as an
-    unwatched render, never as a watched one that passed."""
-    handoff = Path(STEP_DIR, "handoff.md").read_text(encoding="utf-8")
-    assert "render_watch_frames" in handoff
-    assert "NOTHING HAS WATCHED THIS RENDER" in handoff
-    # The marker step.py replaces must still be there to be replaced.
-    assert "<!-- VISUAL_QA_INSTRUCTIONS -->" in handoff

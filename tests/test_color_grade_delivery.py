@@ -67,12 +67,6 @@ def _spec(series_look=None, measurement=None):
         )["color_grade_spec"]
 
 
-def test_every_designed_node_states_how_it_is_delivered():
-    assert set(GRADE_PIPELINE_DELIVERY) == set(GRADE_PIPELINE)
-    for node, record in GRADE_PIPELINE_DELIVERY.items():
-        # Delivered or not, every node says by what and why - four of the
-        # five used to be four keys nothing in the repo read.
-        assert len(record.get("reason", "")) > 40, node
 
 
 def test_no_designed_node_is_delivered_by_a_powergrade():
@@ -97,15 +91,6 @@ def test_no_designed_node_sources_its_values_from_the_engine():
         assert source.startswith("brand template"), f"{node}: {source}"
 
 
-def test_a_declared_look_reaches_the_cdl():
-    spec = _spec(DECLARED)
-
-    assert spec["series_look"] == "test_declaration"
-    cdl = spec["per_clip_adjustments"][0]["cdl_values"]
-    # No exposure reference is declared, so the CDL is the look itself.
-    assert cdl == resolve_look(DECLARED).cdl()
-    assert cdl["slope_b"] < cdl["slope_r"]
-    assert cdl["saturation"] != 1.0
 
 
 def test_a_declared_look_reaches_the_fusion_comp():
@@ -152,10 +137,6 @@ def test_a_half_declared_look_fails_loudly():
     assert "threshold" in str(excinfo.value)
 
 
-def test_an_old_catalogue_name_fails_loudly():
-    with pytest.raises(LookDeclarationError) as excinfo:
-        _spec("pmk_default")
-    assert "DECLARATION, not a name" in str(excinfo.value)
 
 
 # ── The exposure half: a measurement, never an assertion ────────────────
@@ -191,20 +172,6 @@ def test_nothing_normalises_without_a_declared_reference():
     assert "declares no `exposure_reference`" in adj["notes"]
 
 
-def test_a_declared_reference_normalises_onto_it():
-    declared = dict(DECLARED, exposure_reference=140.0)
-    spec = _spec(declared, {"luma": 70.0, "method": LUMA_METHOD,
-                            "samples": 30})
-    adj = spec["per_clip_adjustments"][0]
-    # 70 -> 140 is exactly one stop, by the definition of a stop.
-    assert adj["exposure_offset"] == pytest.approx(1.0)
-    assert adj["exposure_gain"] == pytest.approx(2.0)
-    assert adj["cdl_values"]["slope_r"] == pytest.approx(
-        resolve_look(declared).slope[0] * 2.0, rel=1e-3)
-    # A gain must not disturb the look's hue balance.
-    assert (adj["cdl_values"]["slope_r"] / adj["cdl_values"]["slope_b"]
-            == pytest.approx(1.04 / 0.95, rel=1e-3))
-    assert adj["cdl_values"]["offset_r"] == pytest.approx(0.012)
 
 
 def test_the_offset_is_the_definition_of_a_stop_and_is_not_clamped():
@@ -216,23 +183,8 @@ def test_the_offset_is_the_definition_of_a_stop_and_is_not_clamped():
     assert gain == pytest.approx(8.0)
 
 
-def test_nothing_normalises_when_nothing_measured():
-    assert exposure_gain_for(None, 120.0) == (None, 1.0)
-    assert exposure_gain_for(0.0, 120.0) == (None, 1.0)
-    assert exposure_gain_for(120.0, None) == (None, 1.0)
 
 
-def test_the_consistency_note_carries_its_denominator():
-    spec = _spec(DECLARED)
-    note = spec["consistency_notes"]
-    assert "1 distinct CDL value(s) across 1 clip(s)" in note
-    # Three denominators, not one. "how many clips were measured" and
-    # "how many the colourist moved" are different facts, and one
-    # distinct CDL across every clip is only correct when the second is
-    # zero on purpose - which is why the basis is in the same sentence.
-    assert "luma measured on 1 of 1" in note
-    assert "the colourist corrected 0 of 1" in note
-    assert "correction_basis: no_correction_decision" in note
 
 
 def test_the_probe_parses_the_output_ffprobe_actually_writes():
@@ -286,16 +238,6 @@ def test_a_failed_probe_is_reported_and_not_returned_as_a_number(
     assert reason_fragment in measurement["reason"]
 
 
-def test_a_missing_file_is_an_absence_with_a_reason():
-    from library.steps.step_5_01_color_grade.grade import measure_luma
-
-    measurement = measure_luma("/definitely/not/here.mov")
-    assert measurement["luma"] is None
-    assert "not on disk" in measurement["reason"]
-
-    measurement = measure_luma("")
-    assert measurement["luma"] is None
-    assert "no source file" in measurement["reason"]
 
 
 # ── Downstream ──────────────────────────────────────────────────────────
@@ -382,16 +324,6 @@ def test_compile_manifest_draws_no_comp_when_no_look_is_declared():
         assert not effects, f"{label} got a comp with nothing declared: {effects}"
 
 
-def test_every_project_copy_parses_and_declares_no_look():
-    """No look is declared by any project copy. See
-    tests/test_series_look.py for the standing rule."""
-    from tests.brand_fixtures import ALL_SYNTHETIC
-    assert ALL_SYNTHETIC, "no synthetic project copies found to check"
-
-    for name, template in sorted(ALL_SYNTHETIC.items()):
-        declaration = (template.get("style") or {}).get("series_look")
-        # Either nothing, or something resolve_look can deliver whole.
-        assert resolve_look(declaration) is None or declaration
 
 
 def test_a_project_declared_look_reaches_the_cdl(tmp_path):

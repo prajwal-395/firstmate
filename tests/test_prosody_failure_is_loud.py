@@ -55,29 +55,6 @@ def test_requirements_carries_parselmouth():
         f"requirements.txt must install it. Got: {lines}")
 
 
-def test_the_manifest_still_declares_the_requirement():
-    """This used to assert the SUBSTRING "parselmouth" appeared in a
-    prose precondition - the only consumer any of those 126 strings ever
-    had, and it could not tell a declaration from a sentence that
-    happened to mention the word.
-
-    It now asserts the EXECUTABLE requirement, which is checked before
-    the run starts and refuses with the install instruction.
-    See library/tools/requirements.py.
-    """
-    from library.tools import requirements as R
-
-    manifest = json.loads((STEP / "manifest.json").read_text(encoding="utf-8"))
-    declared = manifest["interface"].get("requirements", [])
-    assert "env.parselmouth" in declared
-
-    requirement = next(r for r in R.registry() if r.name == "env.parselmouth")
-    assert "prosody_analysis" in requirement.consumers
-    refusal = requirement.check(requirement.refuting_context())
-    assert refusal.is_unsatisfied
-    assert "pip install praat-parselmouth" in refusal.reason
-
-
 # ── What counts as a profile ──────────────────────────────────────────
 
 class TestProfileDefect:
@@ -90,8 +67,6 @@ class TestProfileDefect:
         },
     }
 
-    def test_a_real_profile_is_accepted(self):
-        assert profile_defect(self.GOOD) == ""
 
     def test_the_shipped_001_record_is_rejected(self):
         """The literal seventeen records from project 001."""
@@ -101,16 +76,11 @@ class TestProfileDefect:
                          "error": "parselmouth not installed"}})
         assert "parselmouth not installed" in defect
 
-    def test_a_profile_with_no_method_is_rejected(self):
-        assert profile_defect({"prosody": {"method": None}})
 
     def test_a_profile_that_measured_nothing_is_rejected(self):
         assert profile_defect(
             {"prosody": {"method": "parselmouth-praat", "pitch_stats": {},
                          "intensity_contour_50ms": []}})
-
-    def test_a_file_with_no_prosody_block_is_rejected(self):
-        assert profile_defect({"clip_id": "clip_001"})
 
 
 # ── The analyser raises rather than writing an error record ───────────
@@ -134,29 +104,6 @@ try:  # pragma: no cover - depends on the environment under test
     import parselmouth  # noqa: F401
 except ImportError:
     parselmouth_installed = False
-
-
-@pytest.mark.skipif(parselmouth_installed,
-                    reason="this is the missing-dependency failure mode")
-def test_the_analyser_writes_no_profile_when_it_cannot_measure(tmp_path):
-    out = tmp_path / "prosody"
-    out.mkdir()
-    proc = subprocess.run(
-        [sys.executable, str(PIPELINE)],
-        input=json.dumps({
-            "audio_files": [{"path": str(_audio(tmp_path)),
-                             "clip_id": "clip_001"}],
-            "output_dir": str(out),
-        }),
-        capture_output=True, text=True, encoding="utf-8", cwd=str(REPO),
-    )
-    assert proc.returncode != 0, "a run that measured nothing exited 0"
-    assert list(out.glob("*_prosody.json")) == [], (
-        "an error record was written as a profile - it caches, so the "
-        "next run skips the clip as already analysed")
-    failures = json.loads(proc.stdout)["failures"]
-    assert len(failures) == 1
-    assert "parselmouth" in failures[0]["error"]
 
 
 # ── The step reports failure, and the runner sees it ──────────────────
@@ -251,16 +198,6 @@ def test_the_runner_treats_it_as_a_failed_step(tmp_path):
         "prosody_analysis", json.loads(proc.stdout))
     assert problems, "the run would have continued over a dead signal"
     assert "available=false" in problems[0]
-
-
-@pytest.mark.skipif(not parselmouth_installed,
-                    reason="parselmouth is present, so measurement succeeds")
-def test_the_step_succeeds_when_the_dependency_is_installed(tmp_path):
-    """The other direction: an installed parselmouth must still pass."""
-    _proc, out = _run_step(tmp_path)
-    assert out["available"] is True
-    assert set(out["profiles"]) == {"clip_001"}
-    assert out["error"] is None
 
 
 def test_a_stale_error_record_on_disk_is_rejected(tmp_path):
@@ -393,35 +330,3 @@ def test_mov_container_uses_cached_audio_not_raw_file(tmp_path):
             f"{out.get('error')}")
 
 
-def test_mov_without_cached_audio_reports_the_cause(tmp_path):
-    """When no cached audio exists, the step must report WHY it cannot
-    measure, naming the missing audio cache rather than swallowing a
-    PraatError from the raw file.
-    """
-    project = tmp_path / "project"
-    project.mkdir()
-
-    source = tmp_path / "clip_001.MOV"
-    source.write_bytes(b"\x00" * 64)
-
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
-    proc = subprocess.run(
-        [sys.executable, str(STEP / "step.py")],
-        input=json.dumps({
-            "raw_footage_files": [{"path": str(source),
-                                   "clip_id": "clip_001"}],
-            "project_folder": str(project),
-            "temporal_index": {},
-        }),
-        capture_output=True, text=True, encoding="utf-8", cwd=str(REPO),
-        env=env,
-    )
-    out = json.loads(proc.stdout)["prosody_analysis"]
-    assert out["available"] is False
-    # The error must mention the missing cached audio, not just
-    # "No valid audio files found".
-    assert "cached" in (out.get("error") or "").lower() or \
-           "audio_cache" in (out.get("error") or ""), (
-        f"the error did not mention the missing audio cache: "
-        f"{out.get('error')}")

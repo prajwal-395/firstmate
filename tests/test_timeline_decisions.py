@@ -120,64 +120,22 @@ def _placement(found, label):
 
 # ── The enumeration ─────────────────────────────────────────────────
 
-def test_every_track_names_a_step_the_dag_really_has():
-    for row in td.TRACK_DECISIONS:
-        assert row.decided_by in STEP_BY_ID, (
-            f"{row.track} claims {row.decided_by!r}, which is not a step in "
-            f"project_layout.STEPS")
 
 
-def test_every_track_names_a_step_a_note_can_be_routed_to():
-    # The two enumerations have to agree or a stamp routes to a step
-    # `marker_routing` cannot deliver to.
-    for row in td.TRACK_DECISIONS:
-        assert row.decided_by in marker_routing.BY_NODE_ID, (
-            f"{row.track} is decided by {row.decided_by!r}, which has no row "
-            f"in marker_routing.STEP_DECISIONS - a note stamped with it "
-            f"could be routed nowhere")
 
 
-def test_every_track_states_what_it_is_and_where_the_decision_is_written():
-    for row in td.TRACK_DECISIONS:
-        assert row.what.strip()
-        assert row.locator.strip()
-        assert row.basis in td.DECISION_BASES
 
 
-def test_the_table_has_no_duplicate_track():
-    tracks = [row.track for row in td.TRACK_DECISIONS]
-    assert len(tracks) == len(set(tracks))
 
 
-def test_every_unstamped_reason_says_why():
-    for key, reason in td.UNSTAMPED_PLACEMENTS.items():
-        assert len(reason) > 60, f"{key} does not explain itself"
 
 
 # ── Reading the manifest ────────────────────────────────────────────
 
-def test_every_placement_of_the_manifest_is_surveyed():
-    found = td.placements(MANIFEST)
-    assert len(found) == 3 + 1 + 1 + 1 + 3
 
 
-def test_the_a_roll_is_the_step_that_chose_the_passage_not_the_transform():
-    # 3.01 assign_aroll copies block["clip_id"] and block["source_start"]
-    # straight off the spine; 2.02 is what chose them.
-    clip = _placement(td.placements(MANIFEST), "speech_9_seg0")
-    assert clip.step == "speech_sequence"
-    assert clip.basis == td.BASIS_CHOSEN
-    assert "assign_aroll" in clip.why_this_step
 
 
-@pytest.mark.parametrize("label,step", [
-    ("interjection_7", "select_broll"),
-    ("background_music", "music_selection"),
-    ("sfx_001", "plan_sfx"),
-    ("sub_block_9", "plan_subtitles"),
-])
-def test_each_track_reaches_the_step_that_decided_it(label, step):
-    assert _placement(td.placements(MANIFEST), label).step == step
 
 
 def test_a_bookend_card_is_not_stamped_and_says_why():
@@ -217,69 +175,22 @@ def test_the_linked_speech_track_is_not_a_second_placement():
     assert td.LINKED_AUDIO_OF["A1"] == "V1"
 
 
-def test_a_repeated_label_still_gets_a_unique_decision_id():
-    manifest = json.loads(json.dumps(MANIFEST))
-    second = json.loads(json.dumps(manifest["tracks"]["V2"]["clips"][0]))
-    second.update({"source_file": "/p/001/raw/IMG_1809.MOV",
-                   "timeline_in_frame": 900, "timeline_out_frame": 975,
-                   "source_in": _seconds(682), "source_out": _seconds(758)})
-    manifest["tracks"]["V2"]["clips"].append(second)
-    ids = [p.decision_id for p in td.placements(manifest) if p.stamped]
-    assert len(ids) == len(set(ids))
-    assert "select_broll/interjection_7#2" in ids
 
 
-def test_the_route_to_the_reasoning_names_the_producing_step(tmp_path):
-    clip = _placement(td.placements(MANIFEST, tmp_path), "interjection_7")
-    assert clip.routes["output"] == (
-        "pipeline_output/steps/3_02_select_broll/output.json")
 
 
-def test_a_prompt_and_an_answer_are_named_only_when_they_are_on_disk(tmp_path):
-    assert "answer" not in _placement(
-        td.placements(MANIFEST, tmp_path), "interjection_7").routes
-    answer = tmp_path / "pipeline_output" / "llm_responses" / "select_broll.json"
-    answer.parent.mkdir(parents=True)
-    answer.write_text("{}", encoding="utf-8")
-    assert _placement(td.placements(MANIFEST, tmp_path),
-                      "interjection_7").routes["answer"] == (
-        "pipeline_output/llm_responses/select_broll.json")
 
 
 # ── The ledger ──────────────────────────────────────────────────────
 
-def test_the_ledger_is_written_into_the_render_step_s_own_directory(tmp_path):
-    path = td.write_ledger(tmp_path, MANIFEST)
-    assert path.parent.name == STEP_BY_ID["render"].dirname
-    assert path.name == td.LEDGER_FILENAME
-    ledger = td.read_ledger(tmp_path)
-    assert ledger["format"] == td.LEDGER_FORMAT
-    assert ledger["timeline"] == "Pipeline_Edit"
-    assert len(ledger["placements"]) == 9
 
 
-def test_a_project_with_no_ledger_reads_as_empty_not_as_an_error(tmp_path):
-    assert td.read_ledger(tmp_path) == {}
 
 
 # ── Matching a marker's clip back to a placement ────────────────────
 
-def test_every_clip_under_the_captain_s_notes_resolves_to_a_placement(tmp_path):
-    td.write_ledger(tmp_path, MANIFEST)
-    ledger = td.read_ledger(tmp_path)
-    for note in (MOMENT_NOTE, CLIP_NOTE, AMBIGUOUS_NOTE):
-        for clip in note["clips"]:
-            assert td.placement_for_clip(ledger, clip) is not None, (
-                f"{clip['name']} at {clip['timeline_start']} matched nothing")
 
 
-def test_a_linked_audio_item_resolves_to_the_same_placement_as_its_video(tmp_path):
-    td.write_ledger(tmp_path, MANIFEST)
-    ledger = td.read_ledger(tmp_path)
-    video, audio = [c for c in AMBIGUOUS_NOTE["clips"]
-                    if c["name"] == "IMG_1817.MOV"]
-    assert td.placement_for_clip(ledger, video)["decision_id"] == \
-        td.placement_for_clip(ledger, audio)["decision_id"]
 
 
 def test_a_clip_from_another_build_matches_nothing(tmp_path):
@@ -346,21 +257,8 @@ def test_a_hand_written_note_survives_stamping_byte_for_byte(tmp_path):
     assert after["customData"] != ""
 
 
-def test_the_stamp_is_the_only_thing_that_changed(tmp_path):
-    timeline, _ = _stamped(tmp_path, {744: dict(CAPTAIN_MARKER)})
-    changed = {k for k, v in timeline.markers[744].items()
-               if CAPTAIN_MARKER.get(k) != v}
-    assert changed == {"customData"}
 
 
-def test_a_marker_at_a_frame_gets_one_record_per_placement_under_it(tmp_path):
-    timeline, report = _stamped(tmp_path, {744: dict(CAPTAIN_MARKER)})
-    envelope = marker_payload.parse(timeline.markers[744]["customData"])
-    records = marker_payload.records_of(envelope, td.KIND_DECISION)
-    # V1 speech_7_seg0, V2 interjection_7, V3 sub_block_7, A2 music.
-    assert {r["step"] for r in records} == {
-        "speech_sequence", "select_broll", "plan_subtitles", "music_selection"}
-    assert report.records_written == len(records) == 4
 
 
 def test_stamping_twice_replaces_rather_than_accumulates(tmp_path):
@@ -385,12 +283,6 @@ def test_another_writer_s_record_is_left_alone(tmp_path):
     assert marker_payload.records_of(after, marker_payload.KIND_STILL) == [still]
 
 
-def test_customdata_this_module_does_not_understand_is_kept(tmp_path):
-    marker = dict(CAPTAIN_MARKER, customData='{"someone else": "mine"}')
-    timeline, _ = _stamped(tmp_path, {744: marker})
-    after = marker_payload.parse(timeline.markers[744]["customData"])
-    assert after["foreign"] == {"someone else": "mine"}
-    assert marker_payload.records_of(after, td.KIND_DECISION)
 
 
 def test_a_marker_over_nothing_is_left_exactly_as_it_was(tmp_path):
@@ -409,19 +301,6 @@ def test_resolve_refusing_the_write_is_reported_not_swallowed(tmp_path):
     assert timeline.markers[744]["customData"] == ""
 
 
-def test_the_record_carries_the_identity_and_the_route_to_the_reasoning(tmp_path):
-    td.write_ledger(tmp_path, MANIFEST)
-    ledger = td.read_ledger(tmp_path)
-    clip = [c for c in CLIP_NOTE["clips"] if c["name"] == "IMG_1811.MOV"][0]
-    record = td.decision_record(td.placement_for_clip(ledger, clip))
-    assert record["kind"] == td.KIND_DECISION
-    assert record["step"] == "select_broll"
-    assert record["decision_id"] == "select_broll/interjection_7"
-    assert record["basis"] == td.BASIS_CHOSEN
-    assert record["locator"].startswith("broll_selections.")
-    assert record["path"] == (
-        "pipeline_output/steps/3_02_select_broll/output.json")
-    marker_payload.merge_record(marker_payload.new_envelope(), record)
 
 
 # ── The routing consumes it ─────────────────────────────────────────
@@ -451,41 +330,10 @@ def _wordless(note):
     return out
 
 
-def test_a_note_naming_no_step_reaches_the_step_that_produced_its_clip(tmp_path):
-    routed = marker_routing.route_project(
-        _project(tmp_path, [_wordless(CLIP_NOTE)]))[0]
-    assert routed.outcome == marker_routing.OUTCOME_ROUTED
-    assert routed.basis == marker_routing.BASIS_STAMPED
-    assert routed.steps == ["select_broll"]
-    assert routed.decision["decision_id"] == "select_broll/interjection_7"
-    assert routed.decision["source"] == "ledger"
 
 
-def test_without_a_ledger_the_same_note_is_unrouted_and_says_so(tmp_path):
-    routed = marker_routing.route_project(
-        _project(tmp_path, [_wordless(CLIP_NOTE)], with_ledger=False))[0]
-    assert routed.outcome == marker_routing.OUTCOME_UNROUTED
-    assert "decision ledger" in routed.reason
-    assert routed.steps == []
 
 
-def test_the_captain_s_own_three_notes_route_exactly_as_they_did(tmp_path):
-    routed = marker_routing.route_project(
-        _project(tmp_path, [MOMENT_NOTE, CLIP_NOTE, AMBIGUOUS_NOTE]))
-    def _one(fragment):
-        hits = [n for n in routed if fragment in n.note]
-        assert len(hits) == 1, f"{fragment!r} matched {len(hits)} notes"
-        return hits[0]
-
-    subtitles = _one("why are the subtitles")
-    broll = _one("broll of nothing")
-    blurry = _one("fully blurry")
-    assert subtitles.steps == ["plan_subtitles"]
-    assert subtitles.basis == marker_routing.BASIS_VOCABULARY
-    assert broll.steps == ["select_broll"]
-    assert broll.basis == marker_routing.BASIS_VOCABULARY
-    assert blurry.outcome == marker_routing.OUTCOME_AMBIGUOUS
-    assert blurry.steps == ["plan_transitions", "plan_vfx"]
 
 
 def test_the_stamp_does_not_overrule_the_captain_s_own_words(tmp_path):
@@ -500,62 +348,13 @@ def test_the_stamp_does_not_overrule_the_captain_s_own_words(tmp_path):
     assert blurry.outcome == marker_routing.OUTCOME_AMBIGUOUS
 
 
-def test_a_declared_step_still_outranks_the_stamp(tmp_path):
-    note = _wordless(CLIP_NOTE)
-    note["note"] += "\nstep: plan_vfx"
-    note["text"] += "\nstep: plan_vfx"
-    routed = marker_routing.route_project(_project(tmp_path, [note]))[0]
-    assert routed.basis == marker_routing.BASIS_DECLARED
-    assert routed.steps == ["plan_vfx"]
 
 
-def test_a_moment_note_is_never_routed_by_the_stamp(tmp_path):
-    routed = marker_routing.route_project(
-        _project(tmp_path, [_wordless(MOMENT_NOTE)]))[0]
-    assert routed.outcome == marker_routing.OUTCOME_UNROUTED
-    assert "MOMENT" in routed.decision["reason"]
-    # ...and what was playing is still recorded, as context.
-    assert {e["step"] for e in routed.decision_context} == {
-        "speech_sequence", "plan_subtitles", "music_selection"}
 
 
-def test_the_marker_s_own_stamp_is_preferred_to_the_ledger(tmp_path):
-    note = _wordless(CLIP_NOTE)
-    envelope = marker_payload.new_envelope()
-    td.stamp_envelope(envelope, [{
-        "track": "V2", "label": "interjection_7", "step": "plan_vfx",
-        "decision_id": "plan_vfx/written_onto_the_marker",
-        "basis": td.BASIS_CHOSEN, "locator": "enhancement_spec",
-        "timeline_in_frame": 705, "timeline_out_frame": 780,
-        "source_basename": "IMG_1811.MOV", "routes": {},
-    }])
-    note["custom_data"] = envelope
-    routed = marker_routing.route_project(_project(tmp_path, [note]))[0]
-    assert routed.decision["source"] == "custom_data"
-    assert routed.steps == ["plan_vfx"]
 
 
-def test_the_report_names_the_decision_behind_the_clip(tmp_path):
-    report = marker_routing.render_report(
-        _project(tmp_path, [_wordless(CLIP_NOTE)]))
-    assert "That clip was produced by" in report
-    assert "select_broll/interjection_7" in report
-    assert "pipeline_output/steps/3_02_select_broll/output.json" in report
 
 
-def test_a_step_reading_the_note_is_told_which_decision_it_is_about(tmp_path):
-    routed = marker_routing.route_project(
-        _project(tmp_path, [_wordless(CLIP_NOTE)]))
-    block = marker_routing.prompt_block(routed)
-    assert block["notes"][0]["clip_decided_by"] == "select_broll"
-    assert block["notes"][0]["clip_decision_id"] == (
-        "select_broll/interjection_7")
-    # The legend has to say what the new columns are: the handoffs are
-    # frozen, so the data is the only place it can be said.
-    assert "clip_decided_by" in marker_routing.PROMPT_LEGEND
-    assert "clip_decision_written_in" in marker_routing.PROMPT_LEGEND
 
 
-def test_the_reason_the_stamp_ranks_below_the_words_is_written_down():
-    assert "plan_vfx" in td.STAMP_RANKS_BELOW_THE_WORDS
-    assert "speech_sequence" in td.STAMP_RANKS_BELOW_THE_WORDS

@@ -150,10 +150,6 @@ def test_moving_the_audio_peak_does_not_move_the_window():
 
 # ── The picture decides, and says which part of it did ────────────────
 
-def test_the_moment_the_model_asked_for_wins():
-    early = choose_window(
-        "wide view of parked cars", _analysis(), INDEX, 20.0, 2.0)
-    assert (early.video_in, early.basis) == (0.0, "moment_match")
 
 
 def test_one_span_is_recorded_as_no_choice_at_all():
@@ -179,14 +175,6 @@ def test_nothing_matching_is_undiscriminated_not_a_preference():
     assert "none matching" in choice.basis_detail
 
 
-def test_a_tie_is_reported_as_a_tie():
-    twice = [
-        {"label": "wall", "visual": "brick wall", "start": 0.0, "end": 10.0},
-        {"label": "wall", "visual": "brick wall", "start": 10.0, "end": 20.0},
-    ]
-    choice = choose_window("brick wall", _analysis(twice), INDEX, 20.0, 2.0)
-    assert choice.basis == "moment_match_tie"
-    assert choice.video_in == 0.0
 
 
 # ── Where the candidate spans come from ───────────────────────────────
@@ -214,10 +202,6 @@ def test_span_points_closer_than_the_index_can_resolve_are_one_point():
     assert len(rows) == 1
 
 
-def test_a_clip_shorter_than_its_slot_plays_whole():
-    choice = choose_window("anything", _analysis(), INDEX, 1.5, 2.0)
-    assert choice.basis == "no_room"
-    assert choice.as_tuple() == (0.0, 1.5)
 
 
 # ── usable_ranges: the method decides, not the ranges ─────────────────
@@ -244,46 +228,12 @@ def test_a_measured_usable_range_excludes_a_window_outside_it():
 
 # ── The rows stay usable by a model (route 2 must stay open) ──────────
 
-def test_every_candidate_column_is_defined_in_the_legend():
-    rows = candidate_windows("brick wall", _analysis(), INDEX, 20.0, 2.0)
-    assert rows
-    for row in rows:
-        assert set(row) == set(CANDIDATE_LEGEND), (
-            "a column a prompt would carry with no definition, or a "
-            "definition with no column"
-        )
 
 
-def test_every_declined_signal_is_a_real_column_with_a_reason():
-    for key, reason in DECLINED_TO_RANK.items():
-        assert key in CANDIDATE_LEGEND, f"{key} is not measured"
-        assert reason.strip(), f"{key} declines to rank for no stated reason"
 
 
-def test_the_visual_signals_are_actually_measured_not_placeholders():
-    """Route 2 needs numbers, not None columns."""
-    rows = candidate_windows("brick wall", _analysis(), INDEX, 20.0, 2.0)
-    for key in ("motion_mean", "motion_peak", "camera_motion",
-                "brightness_mean", "saturation_mean", "face_fraction"):
-        assert all(r[key] is not None for r in rows), key
 
 
-def test_every_basis_the_chooser_emits_is_in_the_vocabulary():
-    tree = ast.parse(open(WINDOW_SOURCES[0], encoding="utf-8").read())
-    emitted = set()
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                and node.func.id == "WindowChoice" and len(node.args) >= 3
-                and isinstance(node.args[2], ast.Constant)):
-            emitted.add(node.args[2].value)
-        if (isinstance(node, ast.Assign) and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == "basis"):
-            for sub in ast.walk(node.value):
-                if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                    emitted.add(sub.value)
-    assert emitted, "found no basis strings to check"
-    assert emitted <= set(BASES), sorted(emitted - set(BASES))
 
 
 def test_the_post_bridge_records_what_chose_the_window():

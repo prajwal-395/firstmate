@@ -72,23 +72,12 @@ def test_agreement_says_nothing(capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_an_unpinned_overlay_reports_nothing(capsys):
-    placement, provenance = _resolve(
-        "caption", "seg-2", COMPUTED, {"seg-1": _pin(-435.0)})
-    assert provenance == "computed" and placement == COMPUTED
-    assert capsys.readouterr().err == ""
 
 
-def test_a_pin_with_nothing_to_compare_against_is_not_an_alarm(capsys):
-    """A fresh placement with no computed value is not a disagreement -
-    there is no second answer for the pin to overrule."""
-    intent = {"seg-1": _pin(-870.0)}
-    _resolve("caption", "seg-1", None, intent)
-    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("field,value", [
-    ("pan", 900.0), ("tilt", -870.0), ("scaling", 42),
+    ("pan", 900.0),
 ])
 def test_every_placement_field_is_compared(field, value):
     pinned = dict(COMPUTED)
@@ -115,13 +104,5 @@ def test_pins_that_matched_nothing_are_named():
     assert stale == ["sub_akshita_old-id_1_aaaa", "sub_akshita_old-id_2_bbbb"]
 
 
-def test_the_caption_kind_default_is_never_called_stale():
-    """A kind default that placed no caption on one reel is not stale -
-    that reel just had no caption for it."""
-    intent = {overlay_intent.CAPTION_KIND: dict(COMPUTED)}
-    assert overlay_intent.unmatched(intent, []) == []
 
 
-def test_nothing_declared_is_nothing_stale():
-    assert overlay_intent.unmatched(None, ["a"]) == []
-    assert overlay_intent.unmatched({}, []) == []

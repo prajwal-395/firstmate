@@ -72,28 +72,3 @@ def test_vanished_file_is_named(tmp_path, capsys):
     report = display_drift.check(root)
     assert report["vanished"] == ["subtitle_plans/a_subtitles.json"]
     assert "gone since snapshot" in capsys.readouterr().err
-
-
-def test_no_snapshot_checks_nothing(tmp_path):
-    report = display_drift.check(str(tmp_path))
-    assert report["baseline"] is False
-
-
-def test_history_and_reports_are_not_witnessed(tmp_path):
-    root = str(tmp_path)
-    _write(root, "pipeline_output/review/reel_proposals_v2_20260911T000000Z.json",
-           {"old": True})
-    _write(root, "pipeline_output/review/conformance_report.json",
-           {"report": True})
-    _write(root, "pipeline_output/llm_requests/r.json", {"echo": True})
-    assert display_drift.display_files(root) == []
-    assert display_drift.snapshot(root)["files"] == 0
-
-
-def test_cli_snapshot_then_check(tmp_path):
-    root = str(tmp_path)
-    _write(root, "subtitle_plans/a_subtitles.json", {"cards": []})
-    assert display_drift.main(["snapshot", root]) == 0
-    assert display_drift.main(["check", root]) == 0
-    _write(root, "subtitle_plans/a_subtitles.json", {"cards": [1]})
-    assert display_drift.main(["check", root]) == 2

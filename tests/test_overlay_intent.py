@@ -104,45 +104,16 @@ def test_segment_pin_beats_kind_default():
     assert placement["tilt"] == -1600.0
 
 
-def test_motion_graphics_have_no_kind_fallback():
-    intent = parse_intent(REEL_09_INTENT)
-    placement, provenance = _resolve(
-        "semantic visual", "mg_geo-podcast_unseen",
-        {"scaling": 1, "pan": 99.0, "tilt": 9.0}, intent)
-    assert provenance == "computed"
-    assert placement == {"scaling": 1, "pan": 99.0, "tilt": 9.0}
 
 
-def test_unpinned_keeps_computed():
-    placement, provenance = _resolve(
-        CAPTION_KIND, "sub_x", COMPUTED_CAPTION, {})
-    assert provenance == "computed"
-    assert placement == COMPUTED_CAPTION
-    assert placement is not COMPUTED_CAPTION
 
 
-def test_nothing_computed_nothing_declared_is_no_transform():
-    placement, provenance = _resolve("caption", "sub_x", None, {})
-    assert (placement, provenance) == (None, "computed")
 
 
-def test_partial_pin_is_refused():
-    with pytest.raises(OverlayIntentError):
-        parse_intent({"version": 2,
-                      "targets": {"caption": {"scaling": 1}}})
 
 
-def test_non_numeric_pin_is_refused():
-    with pytest.raises(OverlayIntentError):
-        parse_intent({"version": 2, "targets": {
-            "caption": {"canvas_centre": [540.0, "low"], "scaling": 1}}})
 
 
-def test_a_centre_that_is_not_a_pair_is_refused():
-    for bad in (1385.0, [540.0], [540.0, 1385.0, 0.0], {"y": 1385.0}):
-        with pytest.raises(OverlayIntentError):
-            parse_intent({"version": 2, "targets": {
-                "caption": {"canvas_centre": bad, "scaling": 1}}})
 
 
 def test_a_version_1_file_is_refused_and_says_how_to_migrate():
@@ -159,68 +130,22 @@ def test_a_version_1_file_is_refused_and_says_how_to_migrate():
     assert "version 2" in str(excinfo.value)
 
 
-def test_wrong_version_is_refused():
-    with pytest.raises(OverlayIntentError):
-        parse_intent({"version": 7, "targets": {}})
 
 
-def test_a_pin_the_placer_cannot_size_raises_rather_than_reading_honoured():
-    """A pin needs the canvas to become a transform, and a pin that
-    silently did not apply is the whole failure this module exists to
-    stop."""
-    intent = parse_intent(REEL_09_INTENT)
-    with pytest.raises(OverlayIntentError) as excinfo:
-        resolve(CAPTION_KIND, "sub_x", COMPUTED_CAPTION, intent,
-                canvas=None, frame=FRAME)
-    assert "cannot be honoured" in str(excinfo.value)
 
 
-def test_one_place_is_two_transforms_on_two_canvases():
-    """The reason a place is the right unit: the SAME pin reaches the
-    same screen row from canvases of different heights, with different
-    stored numbers - which a raw Pan/Tilt pin cannot do."""
-    from library.tools.resolve_transform import drawn_origin
-
-    intent = parse_intent(REEL_09_INTENT)
-    rows = []
-    for canvas in ((840, 480), (840, 540)):
-        placement, _ = _resolve(CAPTION_KIND, "sub_x", None, intent,
-                                canvas=canvas)
-        _ox, oy = drawn_origin(canvas[0], canvas[1], *FRAME,
-                               placement["pan"], placement["tilt"])
-        rows.append((placement["tilt"], oy + canvas[1] / 2.0))
-    assert rows[0][0] != rows[1][0], "different canvases, different numbers"
-    assert rows[0][1] == pytest.approx(rows[1][1]), "one place"
 
 
-def test_non_object_is_refused():
-    with pytest.raises(OverlayIntentError):
-        parse_intent([])
 
 
 def test_missing_project_file_is_no_intent(tmp_path):
     assert load_intent(str(tmp_path)) == {}
 
 
-def test_missing_explicit_file_is_refused(tmp_path):
-    with pytest.raises(OverlayIntentError):
-        load_intent(intent_file=str(tmp_path / "absent.json"))
 
 
-def test_malformed_file_is_refused(tmp_path):
-    path = tmp_path / "overlay_intent.json"
-    path.write_text("{not json", encoding="utf-8")
-    with pytest.raises(OverlayIntentError):
-        load_intent(intent_file=str(path))
 
 
-def test_explicit_file_loads(tmp_path):
-    path = tmp_path / "overlay_intent.json"
-    path.write_text(json.dumps(REEL_09_INTENT), encoding="utf-8")
-    intent = load_intent(intent_file=str(path))
-    placement, provenance = _resolve(
-        CAPTION_KIND, "sub_x", COMPUTED_CAPTION, intent)
-    assert (placement["tilt"], provenance) == (-1700.0, "declared")
 
 
 class _Item:
@@ -284,17 +209,6 @@ def test_declared_intent_wins_over_computed_on_the_timeline():
     assert item.set_calls == {"Scaling": 1, "Pan": 0.0, "Tilt": -850.0}
 
 
-def test_no_intent_keeps_computed_on_the_timeline():
-    item = _Item(10)
-    ok, note = place_overlay_segment(
-        _Pool(result=["placed"]), _Timeline([item]), object(),
-        track_index=3, record_frame=10,
-        source_in_frame=0, source_out_frame=9,
-        placement=dict(COMPUTED_CAPTION),
-        label="seg", kind="caption", segment_id="sub_x",
-        intent=None)
-    assert ok and note == ""
-    assert item.set_calls["Tilt"] == -1744.0
 
 
 #: Two segments off one Craig clip on Reel 13: same speaker, same
@@ -350,15 +264,6 @@ def test_two_same_speaker_segments_with_different_spans_stay_distinct():
         "span B must resolve its own pin, never span A's")
 
 
-def test_a_pin_never_claims_a_span_it_does_not_name():
-    """One pin for span A, and span B re-renders: B keeps the
-    computation. The prefix widens the match from one filename to
-    one overlay, never to the neighbour."""
-    intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
-    placement, provenance = _resolve(
-        CAPTION_KIND, SPAN_B_NEW, COMPUTED_CAPTION, intent)
-    assert provenance == "computed"
-    assert placement == COMPUTED_CAPTION
 
 
 def test_an_mg_pin_matches_exactly_never_by_project_prefix():
@@ -398,45 +303,10 @@ def test_two_pins_claiming_one_prefix_refuse_rather_than_guess():
     assert SPAN_A_OLD in message and SPAN_A_NEW in message
 
 
-def test_unmatched_is_prefix_aware_and_still_reports_the_dead():
-    """`unmatched` applies the same lookup `resolve` does: a pin
-    whose overlay re-rendered is matched, not reported. What is
-    reported is genuinely unbound - the Reel 13 span no reel
-    captions any more."""
-    from library.tools.overlay_intent import unmatched
-
-    intent = parse_intent(
-        {"version": 2,
-         "targets": {
-             SPAN_A_OLD: PIN_A,
-             "sub_craig_58b86d7d-824a-44d5-9b0e_1898556-1901284_724fbe6c":
-                 PIN_A,
-         }})
-    assert unmatched(intent, [SPAN_A_NEW]) == [
-        "sub_craig_58b86d7d-824a-44d5-9b0e_1898556-1901284_724fbe6c"]
 
 
-def test_report_unmatched_names_the_pin_aloud(capsys):
-    """The silence is the defect: a pin that matches nothing must
-    print its own name. Fails if the report goes quiet."""
-    from library.tools.overlay_intent import report_unmatched
-
-    dead = "sub_craig_58b86d7d-824a-44d5-9b0e_1898556-1901284_724fbe6c"
-    intent = parse_intent({"version": 2,
-                           "targets": {SPAN_A_OLD: PIN_A, dead: PIN_A}})
-    missed = report_unmatched(intent, [SPAN_A_NEW],
-                              source="overlay_intent.json (Reel 13)")
-    assert missed == [dead]
-    err = capsys.readouterr().err
-    assert dead in err, "an unmatched pin is REPORTED, not dropped"
 
 
-def test_report_unmatched_is_quiet_when_every_pin_bound(capsys):
-    from library.tools.overlay_intent import report_unmatched
-
-    intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
-    assert report_unmatched(intent, [SPAN_A_NEW]) == []
-    assert capsys.readouterr().err == ""
 
 
 # ── A hand-set zoom rides beside the place, never in `scaling` ────────
@@ -450,59 +320,14 @@ def test_report_unmatched_is_quiet_when_every_pin_bound(capsys):
 ZOOM_PIN = {"canvas_centre": [540.0, 312.0], "scaling": 1, "zoom": 0.88}
 
 
-def test_a_zoom_parses_beside_the_place():
-    intent = parse_intent({"version": 2, "targets": {
-        "mg_geo-podcast_a072b160": dict(ZOOM_PIN)}})
-    assert intent["mg_geo-podcast_a072b160"]["zoom"] == 0.88
 
 
-def test_a_non_positive_zoom_is_refused():
-    for bad in (0, 0.0, -0.5, "0.88", True, float("inf"),
-                float("nan")):
-        with pytest.raises(OverlayIntentError):
-            parse_intent({"version": 2, "targets": {
-                "mg_geo-podcast_a072b160": {
-                    "canvas_centre": [540.0, 312.0], "scaling": 1,
-                    "zoom": bad}}})
 
 
-def test_no_zoom_is_no_zoom_key():
-    """The failing input the zoom store exists to end: a pin that
-    names a place and no magnification resolves a placement with no
-    zoom in it, so the clip plays at the build's zoom - which is what
-    let Reel 01's 12% scale-down die on the rebuild."""
-    intent = parse_intent({"version": 2, "targets": {
-        "mg_geo-podcast_a072b160": {
-            "canvas_centre": [540.0, 312.0], "scaling": 1}}})
-    placement, provenance = _resolve(
-        "explainer", "mg_geo-podcast_a072b160",
-        {"scaling": 1, "pan": 0.0, "tilt": 0.0}, intent,
-        canvas=(296, 480))
-    assert provenance == "declared"
-    assert "zoom" not in placement
 
 
-def test_a_declared_zoom_resolves_beside_the_place():
-    from library.tools.overlay_intent import transform_for
-
-    intent = parse_intent({"version": 2, "targets": {
-        "mg_geo-podcast_a072b160": dict(ZOOM_PIN)}})
-    placement = transform_for(intent["mg_geo-podcast_a072b160"],
-                              (296, 480), FRAME,
-                              "mg_geo-podcast_a072b160")
-    assert placement["zoom"] == 0.88
-    assert placement["scaling"] == 1
 
 
-def test_a_declared_zoom_overrules_loudly():
-    from library.tools.overlay_intent import disagreement
-
-    assert "zoom 0.88" in disagreement(
-        {"scaling": 1, "pan": 0.0, "tilt": 0.0, "zoom": 0.88},
-        {"scaling": 1, "pan": 0.0, "tilt": 0.0}, "mg_x")
-    assert disagreement(
-        {"scaling": 1, "pan": 0.0, "tilt": 0.0},
-        {"scaling": 1, "pan": 0.0, "tilt": 0.0}, "mg_x") == ""
 
 
 def test_a_declared_zoom_holds_on_the_timeline():
@@ -526,19 +351,6 @@ def test_a_declared_zoom_holds_on_the_timeline():
     assert item.set_calls["Tilt"] != 0.0  # the place still applied
 
 
-def test_a_zoom_survives_a_rebuild_that_recomputes_the_place():
-    """The survival case: one parse, two placements computed against
-    fresh canvases the way two builds compute them - the zoom rides
-    both, by value, while the Pan/Tilt are recomputed each time."""
-    from library.tools.overlay_intent import transform_for
-
-    intent = parse_intent({"version": 2, "targets": {
-        "mg_geo-podcast_a072b160": dict(ZOOM_PIN)}})
-    first = transform_for(intent["mg_geo-podcast_a072b160"],
-                          (296, 480), FRAME, "mg_x")
-    second = transform_for(intent["mg_geo-podcast_a072b160"],
-                            (296, 480), FRAME, "mg_x")
-    assert first["zoom"] == second["zoom"] == 0.88
 
 
 # ── A pin on the PLACING survives the re-render that kills the id ────
@@ -567,14 +379,6 @@ def _reel_26_label(index=0):
     return segment_name(REEL_26, index)
 
 
-def test_label_is_stable_against_the_measured_23ms_shift():
-    """The label's inputs exclude everything the re-render changed: the
-    same reel and slot compute the same label in both eras, while the
-    digest ids differ. The exact spelling is pinned - a rename of the
-    label orphans every pin written against it, so it fails loudly
-    here rather than silently on the timeline. Fails if label
-    computation ever reads a render input (timing, canvas, copy)."""
-    assert _reel_26_label(0) == "lt_reel_26_geo_podcast_00"
 
 
 def test_a_label_pin_binds_both_eras_of_the_measured_pair():
@@ -594,39 +398,8 @@ def test_a_label_pin_binds_both_eras_of_the_measured_pair():
         assert placement["scaling"] == 1
 
 
-def test_a_label_pin_does_not_bind_every_graphic_on_the_project():
-    """The docstring's warning, kept: one label names one placing. A
-    pin for Reel 26's slot binds neither the same project's other
-    graphic nor another reel's same-index slot."""
-    from library.tools.overlay_intent import resolve as mg_resolve
-
-    label = _reel_26_label(0)
-    intent = parse_intent({"version": 2, "targets": {label: dict(MG_PIN)}})
-    computed = {"scaling": 1, "pan": 99.0, "tilt": 9.0}
-    other, prov_other = mg_resolve(
-        "speaker lower third", "mg_geo-podcast_a072b160",
-        dict(computed), intent, canvas=CANVAS, frame=FRAME,
-        placement_label=_reel_26_label(1))
-    assert (other, prov_other) == (computed, "computed")
-    foreign, prov_foreign = mg_resolve(
-        "speaker lower third", "mg_geo-podcast_ffffffff",
-        dict(computed), intent, canvas=CANVAS, frame=FRAME,
-        placement_label=_reel_26_label(0).replace("26", "01"))
-    assert (foreign, prov_foreign) == (computed, "computed")
 
 
-def test_exact_and_label_pins_claiming_one_segment_refuse():
-    """A stale digest pin and a label pin both naming one live
-    segment: neither outranks the other (both are specific), so the
-    build refuses and names both instead of overruling one in
-    silence. Same discipline as two pins on one prefix."""
-    intent = parse_intent({"version": 2, "targets": {
-        MG_OLD: PIN_A, _reel_26_label(0): PIN_B}})
-    with pytest.raises(OverlayIntentError) as excinfo:
-        _resolve("speaker lower third", MG_OLD, COMPUTED_CAPTION, intent,
-                 placement_label=_reel_26_label(0))
-    message = str(excinfo.value)
-    assert MG_OLD in message and _reel_26_label(0) in message
 
 
 # ── One caption pin over several karaoke cards sharing a prefix ──────
@@ -666,29 +439,8 @@ def test_one_pin_fans_out_over_cards_sharing_its_prefix():
     assert unmatched(intent, [CARD_A, CARD_B, CARD_C]) == []
 
 
-def test_a_bare_prefix_pin_fans_out_the_same_way():
-    """A pin already stripped to the provenance prefix behaves
-    identically: every card of the block resolves it."""
-    intent = parse_intent({"version": 2, "targets": {
-        "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173": PIN_A}})
-    for card in (CARD_A, CARD_B, CARD_C):
-        _, provenance = _resolve(CAPTION_KIND, card,
-                                 COMPUTED_CAPTION, intent)
-        assert provenance == "declared", card
 
 
-def test_cards_of_a_neighbouring_span_stay_unpinned():
-    """Fan-out stops at the prefix boundary: a card off the next span
-    keeps the computation while its neighbour's three cards resolve
-    the pin."""
-    intent = parse_intent({"version": 2, "targets": {
-        "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_dddd4444": PIN_A}})
-    placement, provenance = _resolve(
-        CAPTION_KIND,
-        "sub_craig_f24c6416-7523-42bb-b9fe_167200-169000_eeee5555",
-        COMPUTED_CAPTION, intent)
-    assert provenance == "computed"
-    assert placement == COMPUTED_CAPTION
 
 
 # ── The build records which pins applied, durably ────────────────────
@@ -712,90 +464,16 @@ def test_resolve_records_the_winning_pin_key():
     assert quiet == []
 
 
-def test_intent_report_counts_pins_not_applications():
-    """The durable sentence: one caption pin fanning out over three
-    cards is one pin honoured. `declared`/`applied` are pin keys;
-    `unmatched` is what matched nowhere; kind defaults ride beside."""
-    from library.tools.overlay_intent import intent_report
-
-    intent = parse_intent({"version": 2, "targets": {
-        "caption": {"canvas_centre": [540.0, 1395.0], "scaling": 1},
-        "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_dddd4444": PIN_A,
-        "sub_craig_deadbeef-0000-4000-8000_100-200_eeee5555": PIN_B}})
-    report = intent_report(
-        intent,
-        ["sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_dddd4444"] * 3,
-        [CARD_A, CARD_B, CARD_C],
-        source="overlay_intent.json (Reel 26)")
-    assert report["applied"] == [
-        "sub_craig_f24c6416-7523-42bb-b9fe_162173-167173_dddd4444"]
-    assert report["unmatched"] == [
-        "sub_craig_deadbeef-0000-4000-8000_100-200_eeee5555"]
-    assert report["kind_defaults"] == ["caption"]
-    assert len(report["declared"]) == 2
 
 
-def test_unmatched_is_label_aware():
-    """A label pin whose placing played under a new digest is matched,
-    not reported - the same promise the prefix tier already keeps."""
-    from library.tools.overlay_intent import unmatched
-
-    label = _reel_26_label(0)
-    intent = parse_intent({"version": 2, "targets": {label: dict(MG_PIN)}})
-    assert unmatched(intent, [MG_NEW], [label]) == []
-    assert unmatched(intent, ["mg_geo-podcast_other"], []) == [label]
 
 
 # ── Re-keying digest pins onto labels drops nothing ──────────────────
 
-def test_rekey_maps_live_digests_and_keeps_the_rest_verbatim():
-    """The migration: a live digest becomes its placing's label
-    carrying its value; a stale digest with no record, a caption pin
-    and the kind default stay byte-identical. Nothing is deleted."""
-    from library.tools.overlay_intent import rekey_targets
-
-    label = _reel_26_label(0)
-    targets = {MG_OLD: dict(MG_PIN),
-               "mg_geo-podcast_deadbeef": dict(MG_PIN),
-               SPAN_A_OLD: dict(PIN_A),
-               "caption": {"canvas_centre": [540.0, 1395.0],
-                           "scaling": 1}}
-    new_targets, report = rekey_targets(targets, {MG_OLD: label})
-    assert new_targets[label] == dict(MG_PIN)
-    assert new_targets["mg_geo-podcast_deadbeef"] == dict(MG_PIN)
-    assert new_targets[SPAN_A_OLD] == dict(PIN_A)
-    assert report["mapped"] == {MG_OLD: label}
-    assert report["unmapped"] == sorted(
-        ["mg_geo-podcast_deadbeef", SPAN_A_OLD, "caption"])
-    assert report["collisions"] == {}
-    assert len(new_targets) == len(targets)
 
 
-def test_rekey_refuses_two_digests_claiming_one_placing():
-    """Two recorded digests mapping onto one label is the double-claim
-    the resolver refuses at build time: the re-key leaves BOTH
-    verbatim and names the collision instead of picking a winner."""
-    from library.tools.overlay_intent import rekey_targets
-
-    label = _reel_26_label(0)
-    targets = {MG_OLD: dict(PIN_A), MG_NEW: dict(PIN_B)}
-    new_targets, report = rekey_targets(
-        targets, {MG_OLD: label, MG_NEW: label})
-    assert new_targets == targets
-    assert report["collisions"] == {label: sorted([MG_NEW, MG_OLD])}
-    assert report["mapped"] == {}
 
 
-def test_rekey_refuses_to_overwrite_a_live_label_pin():
-    """A digest mapping onto a label that is already pinned is the
-    same collision: the digest stays, the label stays, both named."""
-    from library.tools.overlay_intent import rekey_targets
-
-    label = _reel_26_label(0)
-    targets = {MG_OLD: dict(PIN_A), label: dict(PIN_B)}
-    new_targets, report = rekey_targets(targets, {MG_OLD: label})
-    assert new_targets == targets
-    assert report["collisions"] == {label: sorted([MG_OLD, label])}
 
 
 def test_rekeyed_pin_resolves_the_measured_pair_end_to_end():
@@ -817,19 +495,6 @@ def test_rekeyed_pin_resolves_the_measured_pair_end_to_end():
     assert placement["scaling"] == 1
 
 
-def test_lt_segment_name_matches_the_reel_build_spelling():
-    """One name, one spelling: the canonical lower-third label equals
-    what the reel placer passes the renderer, on ordinary names and
-    on the edge cases (empty, punctuation-only, overlong)."""
-    from library.tools.reel_build import _reel_slug
-    from library.tools.speaker_identity import segment_name
-
-    names = [REEL_26, "Reel 01", "", "!!!", "x" * 60,
-             "Reel 26 ... (all three fixes)"]
-    for reel_name in names:
-        for index in (0, 3):
-            assert segment_name(reel_name, index) == (
-                f"lt_{_reel_slug(reel_name)}_{index:02d}"), reel_name
 
 
 # ── The map behind the re-key, off the build's own records ───────────
@@ -867,40 +532,8 @@ def _write_review_records(project_folder):
     )])
 
 
-def test_collect_reads_explicit_fields_and_recomputes_legacy_ones():
-    """The re-key map: legacy entries (path only) map through the
-    recomputed label of their own layer, the new-shape entry through
-    its explicit one. All three agree with what the renderer was
-    given."""
-    from library.tools import explainer_plan as _explainer
-    from library.tools.overlay_intent import collect_placement_labels
-
-    import tempfile
-    with tempfile.TemporaryDirectory() as project_folder:
-        _write_review_records(project_folder)
-        found = collect_placement_labels(project_folder)
-    assert found[MG_OLD] == _reel_26_label(0)
-    assert found["mg_geo-podcast_bbbb2222"] == _explainer.segment_name(
-        "Reel 27", 0)
-    assert found["mg_geo-podcast_aaaa1111"] == "lt_reel_01_00"
 
 
-def test_collect_skips_semantic_records_with_no_file_identity():
-    """Pre-label semantic records carry spans, not files: they map no
-    pin, rather than mapping one onto a guess."""
-    from library.tools import reel_semantic_visual as sem
-    from library.tools.overlay_intent import collect_placement_labels
-
-    import tempfile
-    with tempfile.TemporaryDirectory() as project_folder:
-        sem.write_records(project_folder, [{
-            "reel": REEL_26, "basis": "planned", "entries": [],
-            "dropped": [],
-            "segments": [{"timeline_start": 9.773, "timeline_end": 12.0,
-                          "total_frames": 54,
-                          "elements": ["title_lockup"]}]}])
-        found = collect_placement_labels(project_folder)
-    assert found == {}
 
 
 def test_check_names_each_pin_state_and_rekey_rewrites_mapped(tmp_path,

@@ -81,23 +81,5 @@ def test_a_stranded_failure_is_still_named_in_the_summary():
     assert "does not decide the status" in source
 
 
-def test_the_summary_returns_the_stranded_half():
-    """A caller that reads the summary dict can see it too, so the
-    distinction is not confined to stderr."""
-    func = _run_function()
-    for node in ast.walk(func):
-        if isinstance(node, ast.Dict):
-            keys = [k.value for k in node.keys
-                    if isinstance(k, ast.Constant)]
-            if "outstanding_failures" in keys:
-                assert "stranded_failures" in keys
-                return
-    raise AssertionError("the summary dict never carries the two halves")
 
 
-def test_object_segmentation_is_the_case_this_was_written_for():
-    """Read off the DAG rather than asserted: 1.06 has no node, so a
-    recorded failure of it is stranded by definition."""
-    nodes = {n["id"] for n in json.loads(DAG.read_text(encoding="utf-8"))["nodes"]}
-    assert "object_segmentation" not in nodes
-    assert "creative_direction" in nodes

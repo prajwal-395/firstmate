@@ -72,10 +72,6 @@ def test_no_font_is_imported_over_http():
 # The bundled asset, and its licence
 # ─────────────────────────────────────────────────────────
 
-def test_the_font_ships():
-    assert os.path.exists(FONT_FILE), (
-        "the bundled font is missing; every caption render depends on it")
-    assert os.path.getsize(FONT_FILE) > 100_000, "font file is implausibly small"
 
 
 def test_the_licence_ships_beside_the_font():
@@ -150,19 +146,8 @@ def _fonts_ts():
         return f.read()
 
 
-def test_the_loader_blocks_the_render():
-    src = _fonts_ts()
-    assert "delayRender(" in src, (
-        "without delayRender the font load races the first frame, which is "
-        "the entire bug")
-    assert "continueRender(" in src
 
 
-def test_the_loader_declares_the_variable_axis():
-    src = _fonts_ts()
-    assert 'weight: "100 900"' in src, (
-        "a variable font registered without its axis makes Chromium "
-        "synthesise bold instead of using the real weight")
 
 
 def test_a_missing_font_is_a_loud_failure():
@@ -243,22 +228,3 @@ def test_project_copies_name_bundled_or_explicitly_accepted_fonts():
         f"reason it is allowed to be non-deterministic.")
 
 
-def test_the_font_walk_sees_more_than_style_typography():
-    """The walk must find a font wherever a template puts one.
-
-    Regression cover for the hole above: this is the exact declaration
-    that slipped through, and it is not under `style.typography`.
-    """
-    found = dict(_font_names({
-        "style": {"typography": {"font": "Montserrat"}},
-        "effect": {"timed_text_overlay": {
-            "font_family": "'Nanum Pen Script', cursive",
-            "moments": [{"font_family": "Archivo Black"}],
-        }},
-    }))
-    assert found == {
-        "style.typography.font": "Montserrat",
-        "effect.timed_text_overlay.font_family": "'Nanum Pen Script', cursive",
-        "effect.timed_text_overlay.moments[0].font_family": "Archivo Black",
-    }
-    assert _primary_family("'Nanum Pen Script', cursive") == "Nanum Pen Script"

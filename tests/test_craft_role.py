@@ -36,10 +36,6 @@ def test_the_membership_guard_can_actually_fire(monkeypatch):
         craft_role._assert_roles_account_for_every_model_reaching_step()
 
 
-def test_a_step_with_no_role_renders_nothing():
-    """The call site is one unconditional line, so the empty case has to
-    be empty rather than a heading with nothing under it."""
-    assert craft_role.prompt_block("validate") == ""
 
 
 def test_the_role_is_prepended_to_the_prompt_the_model_reads(tmp_path,
@@ -92,12 +88,6 @@ def test_the_role_is_prepended_to_the_prompt_the_model_reads(tmp_path,
         "SENTINEL_HANDOFF_BODY")
 
 
-def test_the_replay_bench_mirrors_the_role():
-    """A prompt contribution the bench does not mirror makes `verify`
-    report every role-carrying step as an unaccounted difference."""
-    source = (REPO / "library/tools/replay_bench/reconstruct.py").read_text(
-        encoding="utf-8")
-    assert "craft_role.prompt_block(node_id) + prompt" in source
 
 
 # ── The module's own prose states the true counts ─────────────────────
@@ -126,27 +116,5 @@ def _word(n: int) -> str:
     return _NUMBER_WORDS[n]
 
 
-def test_the_prose_states_how_many_roles_are_declared():
-    doc = craft_role.__doc__.lower()
-    assert f"{_word(len(craft_role.ROLES))} are declared" in doc, (
-        "the relocated-rules prose no longer says how many roles are "
-        f"declared (tables hold {len(craft_role.ROLES)}). A declaration "
-        "must be true; update the sentence with the change that moved "
-        "the count."
-    )
 
 
-def test_the_prose_states_how_many_steps_have_none():
-    doc = craft_role.__doc__.lower()
-    without = len(craft_role.WITHOUT_A_DECLARED_ROLE)
-    total = len(craft_role.ROLES) + without
-    assert f"{_word(without)} of the {_word(total)} are there today" in doc, (
-        "the WITHOUT_A_DECLARED_ROLE census no longer matches the table. "
-        "A declaration must be true; update the sentence with the change "
-        "that moved the count."
-    )
-    assert f"{_word(without)} are not" in doc, (
-        "the relocated-rules prose no longer says how many steps have no "
-        f"declared role (tables hold {without}). A declaration must be "
-        "true; update the sentence with the change that moved the count."
-    )

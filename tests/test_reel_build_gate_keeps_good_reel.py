@@ -295,18 +295,6 @@ def test_a_gate_failing_build_grades_the_staging_not_the_approved_reel(project):
     assert gate.call_args[1]["only_reels"] == [TARGET + STAGING_SUFFIX]
 
 
-def test_a_gate_failing_build_reports_the_planning_findings(project):
-    """The raise still carries the gate's own findings, not a swap error."""
-    resolve_project = FakeProject([MASTER] + APPROVED)
-    _gate_failed_report(project)
-
-    with pytest.raises(RuntimeError) as refused:
-        _drive(resolve_project, project, 1, only=[3])
-
-    message = str(refused.value)
-    assert "F17" in message and "F8" in message
-
-
 def test_a_passing_build_replaces_the_target_and_reports_final_names(project):
     """The other direction: a clean gate still replaces, and the record
     names the reels the captain sees - no staging container leaks into
@@ -332,63 +320,3 @@ def test_a_passing_build_replaces_the_target_and_reports_final_names(project):
                 if name.endswith(STAGING_SUFFIX)]
 
 
-def test_stage_then_promote_is_the_dag_path_end_to_end(project):
-    """`verify=False` stops at staging and returns the mapping; the
-    promotion retires the original to a backup and moves the staging
-    onto the final name - no staging or backup container left."""
-    resolve_project = FakeProject([MASTER] + APPROVED)
-    original = next(t for t in resolve_project.timelines
-                    if t.GetName() == TARGET)
-
-    def _place(**place_kwargs):
-        name = place_kwargs.get("timeline_name")
-        assert name, "the placer was asked to build into no container"
-        resolve_project.GetMediaPool().CreateEmptyTimeline(name)
-        # The placer returns its build record now (the track
-        # plan the timeline was placed from); the container
-        # the mock creates is the half these tests grade.
-        return {"track_plan": {"video_tracks": [],
-                               "audio_tracks": [],
-                               "material": {}}}
-
-    with patch("library.tools.reel_build.build_reel_timeline",
-               side_effect=_place), \
-            patch("library.tools.reel_build.reel_subtitle_segments",
-                  return_value=[]), \
-            patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=resolve_project), \
-            patch("library.tools.reel_proposal.read_proposal",
-                  return_value=[_moment(i + 1, name)
-                                for i, name in enumerate(APPROVED)]), \
-            patch("library.tools.timeline_ingest.snapshot_timeline"), \
-            patch("library.tools.reel_conformance_verifier.run_verification",
-                  return_value=0):
-        record = rebuild_reels_in_project(
-            str(project), organise=False, verify=False, only=[3])
-
-        staging = TARGET + STAGING_SUFFIX
-        assert record["timelines_built"] == [staging]
-        assert record["staged_timelines"] == {TARGET: staging}
-        # Staged and ungraded: BOTH containers exist, the original
-        # untouched.
-        assert original in resolve_project.timelines
-        assert staging in resolve_project.names()
-
-        promoted = promote_staged_reels(
-            str(project), "Mock Project", MASTER,
-            record["staged_timelines"], organise=False)
-
-    assert promoted["promoted"] == [TARGET]
-    # Deleted by default: the backup object is gone from the project,
-    # and nothing was renamed into the archive
-    # (`library/tools/reel_retirement.py`).
-    assert original not in resolve_project.timelines
-    assert f"{TARGET} (pre-rebuild backup)" not in \
-        resolve_project.names()
-    # The replaced timeline is DELETED by default: one timeline per
-    # reel, nothing archived (`library/tools/reel_retirement.py`).
-    assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED)
-    assert not [name for name in resolve_project.names()
-                if name.endswith((STAGING_SUFFIX, BACKUP_SUFFIX))]

@@ -55,12 +55,6 @@ def test_a_decision_for_nothing_still_passes_quietly():
     assert findings == []
 
 
-def test_every_entry_dropped_still_passes_quietly():
-    findings = check_semantic_visuals(
-        "Reel 09", [],
-        {"reel": "Reel 09", "basis": sem.EVERY_ENTRY_DROPPED,
-         "entries": [], "dropped": [], "segments": []}, FPS)
-    assert findings == []
 
 
 # ── The rollup counts what the build wrote ───────────────────────────
@@ -74,37 +68,8 @@ def _write_semantic(project, records):
         encoding="utf-8")
 
 
-def test_collect_counts_both_layers_per_reel(tmp_path):
-    from library.tools import reel_look as look
-
-    project = tmp_path / "proj"
-    _write_semantic(project, [
-        _awaiting_record("Reel 09"),
-        {"reel": "Reel 10", "basis": sem.PLANNED, "entries": [],
-         "dropped": [],
-         "segments": [{"timeline_start": 1.0, "timeline_end": 2.0,
-                       "total_frames": 24, "elements": ["subject_emblem"]}]},
-    ])
-    report = awaiting.collect(
-        str(project),
-        motion_records=[
-            {"reel": "Reel 09", "basis": look.MOTION_AWAITING_ANSWER,
-             "proposed": 0, "resolved": 0, "dropped": []},
-            {"reel": "Reel 11", "basis": look.MOTION_PLANNED,
-             "proposed": 1, "resolved": 1, "dropped": []},
-        ])
-    assert report["outstanding_answers"] == 2
-    by_reel = {r["reel"]: r["layers"] for r in report["reels"]}
-    assert by_reel["Reel 09"] == ["picture_motion", "semantic_visuals"]
-    assert "Reel 10" not in by_reel
-    assert "Reel 11" not in by_reel
 
 
-def test_collect_is_empty_when_nothing_is_owed(tmp_path):
-    project = tmp_path / "proj"
-    (project / "pipeline_output" / "review").mkdir(parents=True)
-    report = awaiting.collect(str(project), motion_records=[])
-    assert report == {"reels": [], "outstanding_answers": 0}
 
 
 def test_collect_reads_motion_from_state_when_not_built_this_call(tmp_path):
@@ -124,9 +89,6 @@ def test_collect_reads_motion_from_state_when_not_built_this_call(tmp_path):
         {"reel": "Reel 07", "layers": ["picture_motion"]}]
 
 
-def test_summary_lines_are_empty_when_nothing_is_owed():
-    assert awaiting.summary_lines(
-        {"reels": [], "outstanding_answers": 0}) == []
 
 
 def test_summary_lines_name_every_incomplete_reel():

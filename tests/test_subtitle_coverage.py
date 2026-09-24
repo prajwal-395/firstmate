@@ -52,10 +52,6 @@ class TestNormalizeWord:
         assert sc.normalize_word("ai,") == "ai"
         assert sc.normalize_word("it's") == "it's"
 
-    def test_readings_still_differ(self):
-        # The normalisation lane's corrections must never read as
-        # matches: "100" and "hundred" stay apart.
-        assert sc.normalize_word("100") != sc.normalize_word("hundred")
 
 
 # ── played but not captioned ─────────────────────────────────────

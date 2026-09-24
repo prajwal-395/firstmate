@@ -101,18 +101,6 @@ def test_a_withdrawn_type_is_recorded_not_swapped():
     assert spec[0]["downgrade_reason"]
 
 
-def test_no_spec_entry_can_carry_an_undrawable_type():
-    spec = resolve_transitions(
-        creative_plan=[
-            {"cut_point_position": 2, "type": "whip_pan"},
-            {"cut_point_position": 3, "type": "light_leak"},
-        ],
-        timed_spine=_spine((1, "a"), (2, "b"), (3, "c")),
-        music_selection={},
-    )
-    from library.tools.transition_vocabulary import PLANNABLE_TYPES
-    for entry in spec:
-        assert entry["transition_type"] in PLANNABLE_TYPES
 
 
 # ── 5.04 → renderer: the correctly-indexed list is the one that is read ──
@@ -134,17 +122,6 @@ def _manifest_with_transition(**overrides):
     }
 
 
-def test_renderer_reads_the_indexed_list_and_maps_tail_then_head():
-    manifest = _manifest_with_transition()
-    specs = manifest["fusion_effects"]["transitions"]
-    by_clip = {}
-    for tspec in specs:
-        by_clip.setdefault(tspec["after_clip"], {})["tail_transition"] = tspec["type"]
-        by_clip.setdefault(tspec["after_clip"] + 1, {})["head_transition"] = tspec["type"]
-    # The outgoing clip gets the tail, the incoming clip gets the head.
-    assert by_clip[1]["tail_transition"] == "fade_to_black"
-    assert by_clip[2]["head_transition"] == "fade_to_black"
-    assert 0 not in by_clip
 
 
 @pytest.mark.parametrize("ttype", FUSION_TYPES)

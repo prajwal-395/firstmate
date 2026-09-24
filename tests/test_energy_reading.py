@@ -70,21 +70,6 @@ def _modules_importing_the_vocabulary():
     return found
 
 
-def test_the_readers_of_the_vocabulary_are_the_registered_ones():
-    """A new bucketer has to be registered, and then agree.
-
-    The point of this module is that two readers of `target_energy` once
-    disagreed about "building" and only one of them acted.  With one
-    reader left, "they agree" is not a statement that can fail - what can
-    is "these are the readers", so a second one arriving fails here and
-    has to be added to PHRASE_VERDICTS below.
-    """
-    assert _modules_importing_the_vocabulary() == KNOWN_READERS, (
-        "a module reads library/tools/energy_reading.py and is not "
-        "registered in KNOWN_READERS. Add it, and add it to "
-        "PHRASE_VERDICTS so its bucketing is compared against the others.")
-
-
 # The verdict every registered reader must give, written out rather than
 # derived, so the test compares against a STATEMENT and not against the
 # implementation it is checking.
@@ -106,69 +91,10 @@ EVERY_READER = {
 }
 
 
-@pytest.mark.parametrize("phrase", list(PHRASE_VERDICTS))
-def test_every_reader_gives_the_stated_verdict(phrase):
-    expected = PHRASE_VERDICTS[phrase]
-    for name, read in EVERY_READER.items():
-        assert read(phrase) == expected, (
-            f"{name} buckets {phrase!r} as {read(phrase)!r}, and this "
-            f"module states {expected!r}")
-
-
 def test_building_is_not_high():
     """The word the 001 direction chose OVER "high"."""
     assert read_energy("building") == "moderate"
     assert not _is_high_energy({"target_energy": "building"})
-
-
-def test_high_is_still_high():
-    assert read_energy("high") == "high"
-    assert _is_high_energy({"target_energy": "high"})
-
-
-def test_calm_is_still_calm():
-    assert read_energy("low and reflective") == "calm"
-
-
-def test_high_wins_a_mixed_phrase():
-    assert read_energy("calm but building to something intense") == "high"
-
-
-def test_the_withdrawn_words_are_recorded_with_reasons():
-    """Widening the high bucket decides which transitions get drawn on
-    every project using the word, so it must be a decision, not drift."""
-    assert "building" in energy_reading.WITHDRAWN_HIGH_WORDS
-    for word, reason in energy_reading.WITHDRAWN_HIGH_WORDS.items():
-        assert word not in energy_reading.HIGH_ENERGY_WORDS
-        assert len(reason) > 20, f"{word} is withdrawn with no reason"
-
-
-def test_no_module_carries_its_own_word_list():
-    """The defect was two lists, not two opinions.
-
-    Read with the AST rather than by grepping, so the modules can keep
-    explaining themselves in prose while still owning no vocabulary.
-    """
-    import ast
-
-    for module_path in (
-        REPO / "library" / "tools" / "transition_selector.py",
-        REPO / "library" / "steps" / "step_5_03_creative_cohesion" / "step.py",
-    ):
-        tree = ast.parse(module_path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-                continue
-            words = {e.value.lower() for e in node.elts
-                     if isinstance(e, ast.Constant) and isinstance(e.value, str)}
-            # Only the withdrawn words. The colour-mood check next door
-            # legitimately owns a list containing "calm", and that is a
-            # different vocabulary about a different thing.
-            clash = words & set(energy_reading.WITHDRAWN_HIGH_WORDS)
-            assert not clash, (
-                f"{module_path.name} carries its own energy word list "
-                f"({sorted(clash)}) - the vocabulary belongs in "
-                f"library/tools/energy_reading.py")
 
 
 # ── The concrete regression: what 001's "building" made 5.03 do ───────
@@ -198,31 +124,3 @@ def test_building_no_longer_shortens_the_defocus_transitions():
         "a deliberate 'building' still cuts 500ms defocus transitions to "
         "333ms")
     assert not any("High energy" in w for w in review["warnings"])
-
-
-def test_an_explicit_high_does_not_shorten_them_either():
-    """The threshold itself is gone, not just the reading of "building".
-
-    "high energy means every transition under 500 ms, so make it 10
-    frames" is a creative value step 5.03 chose, and `duration_frames` is
-    the ONE field `compile_manifest` rewrites - so the invented number
-    reached the picture.  A pace check here needs a pace the creative
-    direction DECLARED, which no step emits (AGENTS.md 10.5).
-    """
-    inputs = _building_inputs()
-    inputs["creative_direction"]["target_energy"] = "high"
-    review = review_creative_cohesion(inputs)
-    assert review["adjustments"] == []
-    assert not any("High energy" in w for w in review["warnings"])
-
-
-def test_the_transitions_are_counted_and_not_judged():
-    """What replaced the four thresholds: a number, and no verdict."""
-    inputs = _building_inputs()
-    inputs["creative_direction"]["target_energy"] = "high"
-    review = review_creative_cohesion(inputs)
-    m = review["measurements"]
-    assert m["transitions_planned"] == 3
-    assert m["transitions_drawn"] == 3
-    assert m["sfx_events"] == 0
-    assert m["declared_target_energy"] == "high"

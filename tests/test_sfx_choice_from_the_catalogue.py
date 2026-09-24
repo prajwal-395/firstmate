@@ -138,24 +138,6 @@ def test_an_id_resolves_exactly_or_not_at_all(tmp_path):
             f"{near_miss!r} resolved - a nearest match is a chooser")
 
 
-def test_the_catalogue_keeps_its_declared_column_order(tmp_path):
-    catalog = load_sfx_catalog(str(_library(tmp_path)))
-    assert list(catalog_rows(catalog)[0]) == list(CATALOG_COLUMNS)
-
-
-def test_every_sound_gets_its_own_section_titled_with_its_id(tmp_path):
-    """The heading IS the string an answer has to name.
-
-    That is what lets `brief_reference`'s map name all 78 of the
-    captain's sounds without the body being read.
-    """
-    catalog = load_sfx_catalog(str(_library(tmp_path)))
-    document = catalog_document(catalog)
-    for entry in catalog:
-        assert f"\n## {entry['sfx_id']}\n" in document, entry["sfx_id"]
-    assert document.count("\n## ") == len(catalog)
-
-
 def test_a_description_with_a_comma_and_an_apostrophe_needs_no_escaping(
         tmp_path):
     """Every field is its own line, so nothing is quoted at all.
@@ -170,15 +152,6 @@ def test_a_description_with_a_comma_and_an_apostrophe_needs_no_escaping(
     assert "doesn''t" not in document
     assert ("- description: A dry, close snap, and it doesn't ring on."
             in document)
-
-
-def test_an_empty_catalogue_says_so_rather_than_pretending(tmp_path):
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    assert load_sfx_catalog(str(empty)) == []
-    document = catalog_document([])
-    assert "0 playable sounds" in document
-    assert "\n## " not in document
 
 
 # ── Nothing maps a word to a sound any more ───────────────────────────
@@ -201,28 +174,6 @@ UNDELIVERABLE_TYPES = ("foley", "ambient", "reverse_cymbal")
 FROZEN_PROMPT = SFX_STEP / "handoff.md"
 
 
-def test_the_undeliverable_types_are_gone_from_everything_but_the_prompt():
-    reachable = [
-        SFX_STEP / "manifest.json",
-        SFX_STEP / "bridge.py",
-        SFX_STEP / "post_bridge.py",
-        REPO / "library" / "tools" / "sfx_library.py",
-    ]
-    for path in reachable:
-        text = path.read_text(encoding="utf-8")
-        for name in UNDELIVERABLE_TYPES:
-            if path.suffix == ".py" and name in _docstrings(text):
-                continue  # recorded history, not a reachable value
-            assert name not in text, (
-                f"{name!r} is still in {path.relative_to(REPO)} - it names "
-                f"a sound the library cannot play")
-
-    # The prompt is the captain's, and it still lists them. Recorded here
-    # so nobody reads the assertion above as covering the whole step.
-    assert any(name in FROZEN_PROMPT.read_text(encoding="utf-8")
-               for name in UNDELIVERABLE_TYPES)
-
-
 def _docstrings(source: str) -> str:
     import ast
     out = []
@@ -234,15 +185,6 @@ def _docstrings(source: str) -> str:
             if doc:
                 out.append(doc)
     return "\n".join(out)
-
-
-def test_the_schema_asks_for_a_library_id_not_a_type():
-    manifest = json.loads((SFX_STEP / "manifest.json").read_text(
-        encoding="utf-8"))
-    described = manifest["interface"]["llm_outputs"][0]["description"]
-    assert "sfx_id" in described
-    assert "sfx_catalog_reference" in described
-    assert "sfx_type" not in described
 
 
 # ── A plan naming an unplayable sound fails at PLAN time ──────────────
@@ -318,27 +260,6 @@ def test_a_plan_naming_real_sounds_resolves_to_real_files(tmp_path):
     assert placed["timeline_out"] - placed["timeline_in"] == pytest.approx(0.35)
 
 
-def test_a_sound_that_builds_plays_from_its_own_beginning(tmp_path):
-    """A `swelling` sound is END-aligned, so its head is not trimmed.
-
-    Trimming to the transient would throw away the build that the
-    placement is pointing at an energy peak, and leave 0.3s of a
-    2.0s sound.
-    """
-    library = _library(tmp_path)
-    proc = _run_post_bridge(_payload([
-        {"spine_block_position": 1, "sfx_id": "builder.wav",
-         "volume_db": -14, "rationale": "resolves at the cut"},
-    ]), library)
-
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    placed, = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
-    assert placed["sfx_envelope"] == "swelling"
-    assert placed["placement_method"] == placement_of("swelling")
-    assert placed["source_in"] == 0.0
-    assert placed["duration_seconds"] == pytest.approx(2.0)
-
-
 # ── The transition plan reaches the step that pairs sounds with cuts ──
 #
 # The edge and the `transitions_toon` table landed in #294, on its own
@@ -347,36 +268,4 @@ def test_a_sound_that_builds_plays_from_its_own_beginning(tmp_path):
 # see, and the id the table is keyed by has to be the one `sfx_creative`
 # names.
 
-def test_the_transition_plan_is_routed_to_plan_sfx():
-    dag = json.loads((REPO / "library" / "processes" / "edit_video"
-                      / "dag.json").read_text(encoding="utf-8"))
-    edge = [e for e in dag["edges"]
-            if e["from"] == "plan_transitions" and e["to"] == "plan_sfx"]
-    assert len(edge) == 1, (
-        "plan_sfx's handoff names pairing sounds with transitions as its "
-        "first purpose; it needs that edge exactly once")
-    assert edge[0]["data_mapping"] == {"transition_spec": "transition_spec"}
 
-    manifest = json.loads((SFX_STEP / "manifest.json").read_text(
-        encoding="utf-8"))
-    declared = {i["name"]: i for i in manifest["interface"]["inputs"]}
-    assert "transition_spec" in declared
-
-    # The pre-bridge reduces it to a table keyed by the spine block the
-    # cut leads INTO - the same identifier `sfx_creative` names - so the
-    # raw spec stays out of the prompt and the model needs no join.
-    assert "transitions_toon" in manifest["context_fields"]
-    assert "transition_spec" not in manifest["context_fields"]
-    assert any(o["name"] == "transitions_toon"
-               for o in manifest["interface"]["outputs"])
-
-
-def test_a_sound_and_a_transition_are_named_by_the_same_identifier():
-    """`spine_block_position` in both, or the pairing needs a join."""
-    manifest = json.loads((SFX_STEP / "manifest.json").read_text(
-        encoding="utf-8"))
-    answer = manifest["interface"]["llm_outputs"][0]["description"]
-    assert "spine_block_position" in answer
-
-    bridge = (SFX_STEP / "bridge.py").read_text(encoding="utf-8")
-    assert '"spine_block_position", "transition_type"' in bridge

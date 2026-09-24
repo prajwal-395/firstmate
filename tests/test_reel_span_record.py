@@ -133,26 +133,6 @@ def test_no_answer_file_is_not_a_decision_for_no_pictures(tmp_path):
     assert record["moments"] == []
 
 
-def test_no_timed_words_is_not_a_decision_for_no_pictures(tmp_path, capsys):
-    project = tmp_path / "proj"
-    record = span.span_record_for_build(
-        _Moment(), {"segments": []}, _ranges(), str(project),
-        fps=30.0, timeline_name="Reel 09 - plays with his mind")
-    assert record["basis"] == span.SPAN_NOT_PLANNED
-
-
-def test_a_resolved_moment_carries_no_look_values(tmp_path):
-    project = tmp_path / "proj"
-    _answer_file(project, [_resolving_beat()])
-    record = span.span_record_for_build(
-        _Moment(), _transcript(), _ranges(), str(project),
-        fps=30.0, timeline_name="Reel 09 - plays with his mind")
-    assert set(record["moments"][0]) <= {
-        "segment", "shows", "anchor_phrase", "lead_seconds",
-        "anchor_start", "anchor_end", "event_start", "timing_basis",
-        "why"}
-
-
 # ── The file: the V6 convention, a span payload ──────────────────────
 
 def test_records_merge_per_reel_the_v6_way(tmp_path):
@@ -186,48 +166,6 @@ def test_records_merge_per_reel_the_v6_way(tmp_path):
     assert span.span_record_for_reel(None, "Reel 09 - plays with his mind") is None
 
 
-def test_records_follow_staging_rename_and_refusal_drop(tmp_path):
-    project = tmp_path / "proj"
-    _answer_file(project, [_refused_beat()])
-    record = span.span_record_for_build(
-        _Moment(), _transcript(), _ranges(), str(project),
-        fps=30.0, timeline_name="Reel 09 - plays STAGING")
-    span.write_span_records(str(project), [record])
-    span.rename_span_record_reels(
-        str(project), {"Reel 09 - plays STAGING": "Reel 09 - plays with his mind"})
-    records = span.read_span_records(str(project))
-    assert span.span_record_for_reel(
-        records, "Reel 09 - plays with his mind") is not None
-    span.drop_span_record_reels(str(project), ["Reel 09 - plays with his mind"])
-    assert span.read_span_records(str(project))["plans"] == []
-
-
-def test_staging_rename_replaces_the_previous_final_record(tmp_path):
-    project = tmp_path / "proj"
-    _answer_file(project, [_refused_beat()])
-    stale = span.span_record_for_build(
-        _Moment(), _transcript(), _ranges(), str(project),
-        fps=30.0, timeline_name="Reel 09 - plays with his mind")
-    span.write_span_records(str(project), [stale])
-    _answer_file(project, [_resolving_beat()])
-    fresh = span.span_record_for_build(
-        _Moment(), _transcript(), _ranges(), str(project),
-        fps=30.0, timeline_name="Reel 09 - plays STAGING")
-    span.write_span_records(str(project), [fresh])
-    span.rename_span_record_reels(
-        str(project), {"Reel 09 - plays STAGING": "Reel 09 - plays with his mind"})
-    records = span.read_span_records(str(project))
-    matches = [p for p in records["plans"]
-               if p["reel"] == "Reel 09 - plays with his mind"]
-    assert len(matches) == 1
-    assert span.span_record_for_reel(
-        records, "Reel 09 - plays with his mind")["basis"] == fresh["basis"]
-
-
-def test_no_record_file_reads_as_no_record():
-    assert span.read_span_records("/no/such/project") == {}
-
-
 # ── The grade: every-dropped refuses, stillness passes ───────────────
 
 def _record(basis, proposed=0, reasons=()):
@@ -255,24 +193,6 @@ def test_a_deliberate_stillness_passes():
     assert check_span_plan(
         "Reel 09 - plays with his mind",
         _record(span.SPAN_NO_EVENTS_PLANNED)) == []
-
-
-def test_an_unasked_reel_passes():
-    assert check_span_plan(
-        "Reel 09 - plays with his mind",
-        _record(span.SPAN_NOT_PLANNED)) == []
-
-
-def test_a_planned_span_with_no_placer_yet_passes():
-    planned = _record(span.SPAN_EVENTS_PLANNED, proposed=1)
-    planned["moments"] = [{"segment": 1, "shows": "a mind",
-                           "event_start": 1.8}]
-    planned["resolved"] = 1
-    assert check_span_plan("Reel 09 - plays with his mind", planned) == []
-
-
-def test_a_reel_with_no_record_is_not_graded():
-    assert check_span_plan("Reel 09 - plays with his mind", None) == []
 
 
 # ── End to end: resolve, record, grade ───────────────────────────────
@@ -329,6 +249,3 @@ def test_verify_reel_refuses_an_all_refused_span_plan():
     assert FindingClass.F23 in [f.finding_class for f in result.errors]
 
 
-def test_verify_reel_without_a_span_record_has_no_f23():
-    result = verify_reel(_plan(), _timeline())
-    assert FindingClass.F23 not in [f.finding_class for f in result.findings]

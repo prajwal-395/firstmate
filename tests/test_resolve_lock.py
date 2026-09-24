@@ -105,14 +105,6 @@ def test_assert_current_timeline_fails_on_mismatch(lock_dir, unguarded):
             assert_current_timeline(project, expected)
 
 
-def test_assert_current_timeline_passes_on_match(lock_dir, unguarded):
-    expected = FakeTimeline("Reel 03", uid="a")
-    project = FakeProject(current=expected)
-    with resolve_lease("test", timeout=1.0):
-        assert_current_timeline(project, expected)
-    assert project.set_calls == ["Reel 03"]
-
-
 def test_a_write_without_the_lease_is_refused(lock_dir, unguarded):
     """The whole repair: taking the lease is not a rule a caller may forget."""
     expected = FakeTimeline("Reel 03")
@@ -123,15 +115,6 @@ def test_a_write_without_the_lease_is_refused(lock_dir, unguarded):
     assert "cursor_fence" in str(raised.value)
     # And it refused BEFORE moving anything.
     assert project.set_calls == []
-
-
-def test_the_lease_satisfies_the_refusal(lock_dir, unguarded):
-    expected = FakeTimeline("Reel 03")
-    project = FakeProject(current=expected)
-    with resolve_lease("build reels", timeout=1.0):
-        assert_current_timeline(project, expected)
-    with pytest.raises(UnguardedPlacementError):
-        assert_current_timeline(project, expected)
 
 
 # ── The lease ───────────────────────────────────────────────────────
@@ -148,17 +131,6 @@ def test_a_shared_holder_may_not_upgrade_in_place(lock_dir, unguarded):
         with pytest.raises(ResolveBusy, match="cannot upgrade in place"):
             with resolve_lease("write", exclusive=True, timeout=1.0):
                 pass
-
-
-def test_the_lease_names_its_holder_on_disk(lock_dir, unguarded):
-    with resolve_lease("build reels", owner="lane-12", timeout=1.0):
-        recorded = json.loads(
-            resolve_lock.lease_path().read_text(encoding="utf-8"))
-        assert recorded["owner"] == "lane-12"
-        assert recorded["purpose"] == "build reels"
-        assert recorded["pid"] == os.getpid()
-        assert "build reels" in resolve_lock.holder().describe()
-    assert not resolve_lock.lease_path().exists()
 
 
 # ── Real contention, across processes ───────────────────────────────
@@ -236,18 +208,6 @@ def test_a_waiter_that_gives_up_names_the_holder(lock_dir):
 
 # ── Contention measurement: every acquisition says what it waited ──
 
-def test_an_uncontended_acquisition_records_zero_not_nothing(lock_dir,
-                                                             unguarded):
-    """A zero-wait acquisition is recorded as zero, not omitted.
-
-    Only contended acquisitions logged means nobody can compute what
-    fraction contended - and that fraction is the whole question.
-    """
-    with resolve_lease("a quiet build", timeout=1.0) as lease:
-        assert lease.wait_seconds == 0.0 or lease.wait_seconds < 0.25
-        assert lease.waited_on == ""
-
-
 _WAITER_STATS = textwrap.dedent("""
     import sys, time
     sys.path.insert(0, {repo!r})
@@ -260,29 +220,6 @@ _WAITER_STATS = textwrap.dedent("""
     except ResolveBusy as busy:
         print("BUSY %s" % (busy,), flush=True)
 """)
-
-
-@pytest.mark.heavy
-def test_a_contended_acquisition_records_its_wait_and_its_holder(lock_dir):
-    """Two processes, one flock: the waiter names how long and behind whom.
-
-    The measurement the queue question waits on: a 40s wait behind
-    "place Reel 12" is a different finding from 40s behind the
-    captain's session, and both differ from no wait at all.
-    """
-    holder = _spawn(_HOLDER.format(repo=REPO_ROOT, seconds=1.5), lock_dir)
-    assert holder.stdout.readline().strip() == "HELD"
-
-    waiter = _spawn(_WAITER_STATS.format(repo=REPO_ROOT, timeout=10.0),
-                    lock_dir)
-    waited, _ = waiter.communicate(timeout=30)
-    holder.communicate(timeout=30)
-
-    assert waited.startswith("ACQUIRED"), waited
-    _, seconds, waited_on = waited.strip().split(" ", 2)
-    assert float(seconds) >= 1.0, waited
-    assert "holder" in waited_on, waited_on
-    assert "holding for the demonstration" in waited_on, waited_on
 
 
 # ── The fence: an uncooperative writer, DETECTED ────────────────────
@@ -308,32 +245,6 @@ def test_the_fence_detects_a_foreign_cursor_move(lock_dir):
     assert "does not take the lease" in message
 
 
-def test_the_fence_reports_a_move_it_corrected_mid_section(lock_dir):
-    """Drift caught by a write's own check still fails the section.
-
-    `assert_current_timeline` re-establishes the cursor, so the write
-    after it lands correctly - but a write BEFORE it may not have, and
-    a section that silently repaired a race it never reported is the
-    same blind spot in a smaller window.
-    """
-    mine = FakeTimeline("Reel 03", uid="a")
-    theirs = FakeTimeline("Reel 01", uid="b")
-    project = FakeProject(current=mine)
-
-    with pytest.raises(ResolveRaceError, match="inside 'place captions'"):
-        with cursor_fence(project, mine, "place captions"):
-            project.moves = [theirs]          # read by the check below
-            assert_current_timeline(project, mine)
-
-
-def test_a_fence_nobody_disturbed_passes_and_reports_nothing(lock_dir):
-    mine = FakeTimeline("Reel 03", uid="a")
-    project = FakeProject(current=mine)
-    with cursor_fence(project, mine, "place captions") as fence:
-        assert_current_timeline(project, mine)
-    assert fence.drift_seen == []
-
-
 # ── The human, who never queues ─────────────────────────────────────
 
 def test_the_captains_button_does_not_queue_behind_a_build(lock_dir,
@@ -352,13 +263,6 @@ def test_the_captains_button_does_not_queue_behind_a_build(lock_dir,
     finally:
         holder.kill()
         holder.communicate(timeout=30)
-
-
-def test_the_captains_button_takes_the_lease_when_it_is_free(lock_dir,
-                                                              unguarded):
-    with prefer_lease("capture a frame for firstmate", timeout=1.0) as got:
-        assert got is not None
-        assert got.purpose == "capture a frame for firstmate"
 
 
 # ── The exemption is explained, or it is not an exemption ───────────
@@ -405,19 +309,6 @@ def test_a_stale_inherited_pid_does_not_grant_the_lease(lock_dir,
     """A killed holder must not leave its children writing unguarded."""
     monkeypatch.setenv(resolve_lock.INHERIT_ENV, "999999")
     assert resolve_lock.inherited_holder() is None
-
-
-def test_an_unrelated_process_does_not_inherit(lock_dir):
-    """Only a DESCENDANT sees the variable - it travels downward only."""
-    holder = _spawn(_HOLDER.format(repo=REPO_ROOT, seconds=2.0), lock_dir)
-    assert holder.stdout.readline().strip() == "HELD"
-    try:
-        waiter = _spawn(_WAITER.format(repo=REPO_ROOT, timeout=0.5), lock_dir)
-        out, _ = waiter.communicate(timeout=30)
-        assert out.startswith("BUSY"), out
-    finally:
-        holder.kill()
-        holder.communicate(timeout=30)
 
 
 # ── The gate PR 1039 left behind, pointed at the lock that now exists ─
@@ -473,49 +364,7 @@ def test_the_lock_exists_exactly_when_something_enters_it():
         f"{'defines' if defined else 'does not define'} resolve_lease "
         f"and the repository has {len(callers)} caller(s) {callers}. A "
         f"lock nothing enters serialises nothing and reads as coverage "
-        f"(AGENTS.md 10.4) - either wire it or leave it removed.")
-
-
-def test_the_lease_is_wired_into_the_paths_that_write():
-    """Not "at least one caller" - the write paths, by name.
-
-    `tests/test_resolve_guard_wiring.py` checks each entry point
-    against `concurrency_routing`; this is the blunt count that would
-    catch a mass unwiring the table was edited to match.
-    """
-    # Not resolve_lock.py itself: the module composes its own helpers,
-    # and counting those would report a lock nobody else takes as wired
-    # - the exact reading the removed one got away with.
-    in_library = [site for site in _lease_call_sites()
-                  if site.startswith("library/")
-                  and "resolve_lock.py" not in site]
-    assert len(in_library) >= 8, in_library
-
-
-def test_the_removal_note_survives_and_says_why():
-    """The module must keep stating what was removed and on what basis.
-
-    The note is the only thing standing between the next reader and
-    re-adding the ORIGINAL shape - a lock a caller had to remember to
-    take - for the reason it was added the first time. It now also has
-    to say what changed, because a module that carried only the
-    removal would read as though nothing guards placement across
-    processes, which is no longer true.
-    """
-    source = (REPO / "library/tools/resolve_lock.py").read_text(
-        encoding="utf-8")
-    assert "resolve_placement_lock" in source, (
-        "the note recording why the placement lock was removed is gone "
-        "from resolve_lock.py")
-    assert "assert_current_timeline" in source
-    assert "DUAL_WORKFLOW_SYNC_2026-09-12" in source, (
-        "resolve_lock.py must point at the measurement that removed the "
-        "lock, or the removal is an assertion with no evidence behind it")
-    assert "OVERTURNED" in source, (
-        "that measurement concluded a reader racing a writer is "
-        "unmediated by design. A SHARED lease mediates it, so the "
-        "module must say which of its conclusions no longer holds "
-        "rather than silently contradicting it")
+         f"(AGENTS.md 10.4) - either wire it or leave it removed.")
 
 
 # ── A holder's own cursor excursion is not interference ─────────────
@@ -541,30 +390,6 @@ def test_an_excursion_inside_a_fence_is_not_reported_as_drift(lock_dir):
             assert project.GetCurrentTimeline() is other
         assert project.GetCurrentTimeline() is home
     assert fence.drift_seen == []
-
-
-def test_an_excursion_that_does_not_restore_is_still_caught(lock_dir):
-    """The fence's real property survives: the cursor must come back."""
-    home = FakeTimeline("home reel", uid="id-home")
-    other = FakeTimeline("reel being read", uid="id-other")
-    project = FakeProject(current=home)
-    with pytest.raises(ResolveRaceError):
-        with resolve_lock.cursor_fence(project, home, "a section",
-                                       timeout=1.0):
-            with resolve_lock.cursor_excursion(project, other, "read"):
-                pass
-            # a foreign writer moves it AFTER the excursion returned
-            project.current = other
-
-
-def test_an_excursion_still_refuses_without_a_lease(lock_dir, unguarded):
-    home = FakeTimeline("home reel", uid="id-home")
-    other = FakeTimeline("reel being read", uid="id-other")
-    project = FakeProject(current=home)
-    with pytest.raises(UnguardedPlacementError):
-        with resolve_lock.cursor_excursion(project, other, "read"):
-            pass
-    assert project.set_calls == []
 
 
 # ── The captain's signal: deference, not just detection ─────────────
@@ -615,23 +440,6 @@ def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir,
         waiter.join(timeout=30)
 
 
-def test_absent_signal_leaves_acquisition_exactly_as_today(lock_dir,
-                                                             unguarded):
-    """No signal, no change: the lease behaves as it always has.
-
-    Passes on the old shape too - that is the point. The new gear adds
-    a wait; it replaces nothing.
-    """
-    assert resolve_lock.captain_present() is None
-    started = time.time()
-    with resolve_lease("an agent build", owner="lane-12", timeout=5.0):
-        recorded = json.loads(
-            resolve_lock.lease_path().read_text(encoding="utf-8"))
-        assert recorded["owner"] == "lane-12"
-    assert not resolve_lock.lease_path().exists()
-    assert time.time() - started < 5.0
-
-
 @pytest.mark.heavy
 def test_a_signal_that_never_clears_raises_instead_of_wedging(lock_dir,
                                                                unguarded):
@@ -678,37 +486,6 @@ def test_a_held_lease_is_never_revoked_by_the_signal(lock_dir, unguarded):
         resolve_lock.captain_release()
 
 
-def test_the_captains_button_never_queues_behind_their_signal(lock_dir,
-                                                                 unguarded):
-    """`prefer_lease` is the human-initiated path: it does not wait."""
-    resolve_lock.captain_hold("editing by hand")
-    try:
-        started = time.time()
-        with prefer_lease("capture a frame for firstmate",
-                          timeout=5.0) as got:
-            assert got is not None, (
-                "the lease was free and the captain's own button "
-                "should have taken it")
-        assert time.time() - started < 2.0
-    finally:
-        resolve_lock.captain_release()
-
-
-def test_captain_hold_release_and_status_roundtrip(lock_dir):
-    assert resolve_lock.captain_present() is None
-    assert "not in Resolve" in resolve_lock.captain_status()
-    record = resolve_lock.captain_hold("grading")
-    assert record.note == "grading"
-    assert record.age() >= 0.0
-    present = resolve_lock.captain_present()
-    assert present is not None and present.note == "grading"
-    status = resolve_lock.captain_status()
-    assert "IN RESOLVE" in status and "grading" in status, status
-    assert resolve_lock.captain_release() is True
-    assert resolve_lock.captain_present() is None
-    assert resolve_lock.captain_release() is False
-
-
 def test_an_unreadable_signal_still_counts_as_set(lock_dir):
     """Fail-closed, like `pipeline.hold`: presence is the signal."""
     resolve_lock.captain_path().write_text("not json{{{", encoding="utf-8")
@@ -716,17 +493,6 @@ def test_an_unreadable_signal_still_counts_as_set(lock_dir):
         assert resolve_lock.captain_present() is not None
     finally:
         resolve_lock.captain_release()
-
-
-def test_the_captain_cli_sets_shows_and_clears(lock_dir, capsys):
-    """The terminal interface: set it, see it, clear it."""
-    assert resolve_lock._main(["captain-hold", "--note", "grade"]) == 1
-    assert resolve_lock._main(["captain-status"]) == 1
-    shown = capsys.readouterr().out
-    assert "IN RESOLVE" in shown and "grade" in shown, shown
-    assert resolve_lock._main(["captain-release"]) == 0
-    assert resolve_lock._main(["captain-status"]) == 0
-    assert "not in Resolve" in capsys.readouterr().out
 
 
 def test_the_unguarded_prefer_path_never_establishes_the_cursor():

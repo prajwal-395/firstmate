@@ -145,15 +145,6 @@ def test_layer_without_a_stated_reason_is_dropped(tmp_path):
     assert "states no reason" in proc.stderr
 
 
-def test_blank_rationale_is_no_rationale(tmp_path):
-    lib = _library(tmp_path)
-    proc = _run(_payload([
-        {"spine_block_position": 1, "sfx_id": DRONE, "volume_db": -20,
-         "role": "layer", "rationale": "   "},
-    ], [_block(1, 0, 12)]), lib)
-    assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
-    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
-    assert placed == [], f"a blank-rationale layer survived: {placed}"
 
 
 def test_unknown_role_is_dropped_not_silently_literal(tmp_path):

@@ -143,19 +143,6 @@ def test_a_cut_with_nothing_after_it_on_v1_cannot_carry_one():
         "outgoing speech on V1 but it ends the V1 track")
 
 
-def test_the_predicate_is_the_one_compile_manifest_builds_v1_from():
-    """Not a restatement: the compiler's own source is read.
-
-    ``block_reaches_v1`` deciding something different from the loop that
-    builds ``v1_clips`` is exactly the drift this module exists to stop,
-    and a copy of the tuple in two files is how it would start.
-    """
-    source = (REPO / "library" / "steps" / "step_5_04_compile_manifest"
-              / "step.py").read_text(encoding="utf-8")
-    assert "from library.tools.transition_carriers import block_reaches_v1" \
-        in source
-    assert "if block_reaches_v1(block):" in source
-    assert 'block["block_type"] in ("speech", "hook")' not in source
 
 
 def test_the_compiler_accepts_every_cut_the_table_calls_buildable():

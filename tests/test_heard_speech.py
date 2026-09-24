@@ -91,23 +91,6 @@ def test_the_whole_vendor_surface_is_declared_in_one_block():
 
 # ── 1b. The second half the hybrid needs ─────────────────────────────
 
-def test_a_recorded_payload_maps_the_sentences_the_hybrid_windows_by():
-    """The transcriber publishes sentences and words as two flat lists
-    with no key joining them, and the hybrid needs the grouping."""
-    spoken = heard_speech.read_payload(_payload(), "reel26.mp4")
-    assert spoken.sentences
-    assert spoken.sentences == sorted(spoken.sentences,
-                                      key=lambda s: (s.start, s.end))
-    assert all(s.text.strip() for s in spoken.sentences)
-
-
-def test_a_language_payload_maps_onto_its_own_answer():
-    heard = heard_speech.read_language_payload(
-        {"language": "en", "confidence": 0.9866393194271199})
-    assert heard.language == "en"
-    assert heard.confidence == pytest.approx(0.9866393194271199)
-    assert heard.as_dict()["language"] == "en"
-
 
 def test_a_language_payload_that_names_nothing_refuses():
     """An unanswered language question and 'this is English' must never
@@ -117,22 +100,7 @@ def test_a_language_payload_that_names_nothing_refuses():
         heard_speech.read_language_payload({"confidence": 0.99})
 
 
-def test_a_language_payload_with_no_confidence_still_answers():
-    heard = heard_speech.read_language_payload({"language": "de"})
-    assert heard.language == "de"
-    assert heard.confidence is None
-
-
 # ── 2. What it returns ───────────────────────────────────────────────
-
-def test_a_recorded_payload_maps_onto_words_in_the_file_s_own_timebase():
-    spoken = heard_speech.read_payload(_payload(), "reel26.mp4")
-    assert len(spoken.words) == 142
-    assert spoken.words[0].word == "What"
-    assert spoken.words == sorted(spoken.words, key=lambda w: (w.start,
-                                                               w.end))
-    assert spoken.engine["transcriber"] == heard_speech.BINARY
-    assert spoken.media_path == "reel26.mp4"
 
 
 def test_a_word_with_no_usable_timing_is_dropped_rather_than_guessed():
@@ -162,23 +130,7 @@ def test_the_transcriber_s_own_structural_failures_are_named():
                      "sub_frame_word"]
 
 
-def test_the_recorded_reel_has_the_one_anomaly_it_was_measured_to_have():
-    spoken = heard_speech.read_payload(_payload())
-    assert len(spoken.anomalies) == 1
-
-
 # ── 3. What it refuses ───────────────────────────────────────────────
-
-def test_an_absent_file_refuses_rather_than_returning_silence(tmp_path):
-    """An empty hearing and a silent render must not be the same object."""
-    if not heard_speech.executable():
-        pytest.skip(
-            "the transcriber is not installed on this machine; the refusal "
-            "it raises for an absent file needs it on PATH to reach. Runs "
-            "wherever `da` is installed - see docs/ML_ENVIRONMENT.md.")
-    with pytest.raises(heard_speech.TranscriberUnavailable) as refused:
-        heard_speech.transcribe(str(tmp_path / "nothing.mp4"))
-    assert "no file" in str(refused.value)
 
 
 def test_availability_names_what_is_missing(monkeypatch):

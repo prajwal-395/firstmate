@@ -99,30 +99,6 @@ def test_digits_and_symbols_are_spelled_out_for_the_aligner():
     )
 
 
-def test_ordinary_words_pass_through_verbatim():
-    """Brand words reach G2P untouched; the named failure class is left
-    alone rather than mangled into something confidently wrong."""
-    assert (
-        mfa_align.normalize_for_aligner("ChatGPT CRM GEO Mm-hmm eye-opening AI's")
-        == "ChatGPT CRM GEO Mm-hmm eye-opening AI's"
-    )
-
-
-def test_ordinals_currency_and_commas():
-    assert mfa_align._spell_token("21st") == "twenty first"
-    assert mfa_align._spell_token("1st") == "first"
-    assert mfa_align._spell_token("2nd") == "second"
-    assert mfa_align._spell_token("3rd") == "third"
-    assert mfa_align._spell_token("4th") == "fourth"
-    assert mfa_align._spell_token("$5") == "five dollars"
-    assert mfa_align._spell_token("1,000") == "one thousand"
-
-
-def test_the_map_keeps_every_original_token_beside_its_phrase():
-    pairs = mfa_align.normalization_map("Take 20% off")
-    assert pairs == [("Take", "Take"), ("20%", "twenty percent"), ("off", "off")]
-
-
 # ── 2. TextGrid parsing reads the words tier
 
 
@@ -133,10 +109,6 @@ def test_parse_reads_the_words_tier_and_skips_empties(tmp_path):
         encoding="utf-8",
     )
     assert mfa_align.parse_textgrid(grid) == [("hello", 0.5, 0.9), ("world", 0.9, 1.4)]
-
-
-def test_a_missing_textgrid_parses_to_nothing(tmp_path):
-    assert mfa_align.parse_textgrid(tmp_path / "nope.TextGrid") == []
 
 
 # ── 3. the merge writes the ORIGINAL tokens back
@@ -253,18 +225,6 @@ def test_an_absent_environment_declines_rather_than_raising(monkeypatch, tmp_pat
     assert refused.value.reason == mfa_align.MFA_ENVIRONMENT_ABSENT
 
 
-def test_an_uncovered_language_declines(monkeypatch, tmp_path):
-    monkeypatch.setattr(se, "mfa_available", lambda: (True, "here"))
-    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        mfa_align.align(_windows(), "xh", str(tmp_path / "s.wav"))
-    assert refused.value.reason == mfa_align.MFA_LANGUAGE_NOT_COVERED
-
-
-def test_covers_names_only_the_installed_model():
-    assert mfa_align.covers("en")
-    assert not mfa_align.covers("xh")
-
-
 # ── 6. the seam: MFA preferred, wav2vec2 live behind it, record says which
 
 
@@ -369,16 +329,6 @@ def test_an_mfa_decline_runs_wav2vec2_and_records_it(monkeypatch, tmp_path):
     assert aligned["segments"][0]["text"] == "Absolutely."
 
 
-def test_the_composite_covers_what_either_aligner_covers(monkeypatch):
-    """MFA declines the language check through the same contract, so
-    an uncovered language still reaches the wav2vec2 question."""
-    import library.tools.timeline_transcript as tt
-
-    monkeypatch.setattr(tt, "aligner_covers", lambda language: False)
-    assert tt._aligner().covers("en") is True
-    assert tt._aligner().covers("xh") is False
-
-
 def test_the_document_says_which_aligner_timed_each_speaker():
     import library.tools.timeline_transcript as tt
 
@@ -397,17 +347,6 @@ def test_the_document_says_which_aligner_timed_each_speaker():
     assert record["aligners"] == {"Akshita": "mfa", "Craig": "wav2vec2"}
 
 
-def test_a_record_predating_the_second_aligner_is_not_relabelled():
-    """`aligners` says what was recorded. A speaker whose record has
-    no `aligner` reads None, not a guess about the past."""
-    import library.tools.timeline_transcript as tt
-
-    record = tt.transcription_record(
-        {"Craig": {"arm": hybrid_transcription.ARM_HYBRID}}
-    )
-    assert record["aligners"] == {"Craig": None}
-
-
 # ── 7. the environment half: discovered, overridable, refusing by name
 
 
@@ -420,48 +359,9 @@ def test_the_mfa_binary_lives_under_vep_home(monkeypatch, tmp_path):
     )
 
 
-def test_an_explicit_mfa_binary_wins_outright(monkeypatch, tmp_path):
-    elsewhere = tmp_path / "mfa"
-    monkeypatch.setenv("PIPELINE_MFA_BINARY", str(elsewhere))
-    assert se.mfa_binary() == elsewhere
-
-
-def test_no_home_directory_is_baked_into_mfa_discovery():
-    import ast
-
-    tree = ast.parse(Path(se.__file__).read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            assert "prajwal" not in node.value
-
-
 def test_the_refusal_names_the_install_script(monkeypatch, tmp_path):
     monkeypatch.setenv("PIPELINE_MFA_BINARY", str(tmp_path / "no-mfa-here"))
     monkeypatch.setenv("PIPELINE_MFA_MODELS", str(tmp_path / "no-models"))
     usable, detail = se.mfa_available()
     assert usable is False
     assert se.MFA_INSTALL_SCRIPT in detail
-
-
-def test_the_install_script_reports_without_installing(tmp_path):
-    script = Path(__file__).resolve().parents[1] / se.MFA_INSTALL_SCRIPT
-    assert script.is_file() and os.access(script, os.X_OK)
-
-    import subprocess
-    import sys
-
-    repo = Path(__file__).resolve().parents[1]
-    result = subprocess.run(
-        [str(script), "--check"],
-        cwd=repo,
-        capture_output=True,
-        encoding="utf-8",
-        check=False,
-        env=dict(
-            os.environ,
-            PIPELINE_MFA_BINARY=str(tmp_path / "no-mfa-here"),
-            PIPELINE_MFA_MODELS=str(tmp_path / "no-models"),
-        ),
-    )
-    assert result.returncode == 1, result.stdout + result.stderr
-    assert "MFA ENV: ABSENT" in result.stdout

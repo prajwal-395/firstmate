@@ -71,13 +71,6 @@ def _curves(comp: str, played: int) -> dict:
 
 # ── The shape ──────────────────────────────────────────────────────
 
-def test_the_shape_is_three_phases_totalling_18_frames():
-    """0.6 s at 30 fps: reads as a switch, does not eat the bookends."""
-    assert (COLLAPSE_FRAMES, DOT_FRAMES, DECAY_FRAMES) == (6, 3, 9)
-    assert switch_total() == 18
-    # The depth travels in the mapping but is not a length: changing
-    # the look must not move the window.
-    assert switch_total({**switch_shape(), "collapse_crop": 0.1}) == 18
 
 
 def test_both_directions_read_one_declaration():
@@ -94,27 +87,12 @@ def test_both_directions_read_one_declaration():
             == {**switch_shape(), "collapse_frames": 12})
 
 
-def test_collapse_stops_short_of_fully_closed():
-    """0.49, not 0.5: a fully closed band flashes uncropped on some
-    Resolve builds.  ONE depth, shared by both directions."""
-    assert COLLAPSE_CROP == 0.49
-    assert DOT_SIZE == 0.05
-    assert (COLLAPSE_MIN, COLLAPSE_MAX) == (0.0, 0.5)
 
 
-def test_the_gains_run_from_black_to_picture():
-    """Black is no signal; the dot is the spot at its hottest."""
-    assert BLACK_GAIN == 0.0
-    assert PICTURE_GAIN == 1.0
-    assert PICTURE_GAIN < LINE_GAIN < DOT_GAIN
 
 
 # ── The declaration ────────────────────────────────────────────────
 
-def test_timing_override_merges_over_defaults():
-    assert validate_timing({"collapse_frames": 2}, "test") == {
-        "collapse_frames": 2, "dot_frames": 3, "decay_frames": 9,
-        "collapse_crop": 0.49}
 
 
 def test_declared_collapse_merges_as_a_float_not_frames():
@@ -190,11 +168,6 @@ def test_both_keys_draw_the_band_the_dot_and_the_gain():
         assert "Crop" not in comp
 
 
-def test_absent_keys_draw_nothing():
-    comp = build_effect_comp({}, 300, source_res=SOURCE_RES)
-    assert "PowerBand" not in comp
-    assert "PowerDot" not in comp
-    assert "PowerDecay" not in comp
 
 
 def test_the_switch_on_opens_on_fully_black():

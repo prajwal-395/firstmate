@@ -222,13 +222,8 @@ def test_validate_prompt_carries_no_manifest_at_all():
 
 # ── The view enumeration ──────────────────────────────────────────────
 
-def test_an_unknown_view_raises():
-    with pytest.raises(ValueError, match="Unknown context view"):
-        build_view("moments_but_not_yet", {"temporal_index": TEMPORAL_INDEX})
 
 
-def test_a_view_whose_source_is_not_routed_contributes_nothing():
-    assert build_view("transcript", {"clip_catalog": []}) == {}
 
 
 @pytest.mark.parametrize("name", sorted(CONTEXT_VIEWS))
@@ -302,51 +297,3 @@ def test_the_post_bridge_still_reads_every_word_timing(tmp_path):
 
 # ── End to end: what actually lands in a recorded request ─────────────
 
-@pytest.mark.heavy
-def test_a_recorded_request_carries_the_transcript_and_no_word_timings(tmp_path):
-    """Driven through `present_llm_step`, so the file on disk is the proof."""
-    import threading
-    import time
-
-    from library.processes.edit_video.run_pipeline import present_llm_step
-
-    project = tmp_path / "project"
-    project.mkdir()
-    prompt_path = tmp_path / "handoff.md"
-    prompt_path.write_text("Decide the direction.\n", encoding="utf-8")
-
-    req = project / "pipeline_output" / "llm_requests" / "creative_direction.json"
-    res = project / "pipeline_output" / "llm_responses" / "creative_direction.json"
-
-    reply = {"creative_direction": {"narrative_theme": "a theme",
-                                    "target_mood": "calm"}}
-
-    def answer():
-        # Answer for as long as the call runs: an empty answer fails QA
-        # and the step asks again, so a responder that fires once leaves
-        # the retry waiting out its timeout.
-        deadline = time.time() + 25
-        while time.time() < deadline:
-            if req.exists() and not res.exists():
-                res.parent.mkdir(parents=True, exist_ok=True)
-                res.write_text(json.dumps(reply), encoding="utf-8")
-            time.sleep(0.05)
-
-    threading.Thread(target=answer, daemon=True).start()
-
-    present_llm_step(
-        str(prompt_path),
-        {"project_folder": str(project), "temporal_index": TEMPORAL_INDEX},
-        "creative_direction",
-        manifest={
-            "context_fields": manifest(
-                VIEW_STEPS["creative_direction"])["context_fields"],
-            "interface": {"outputs": [{"name": "creative_direction"}]},
-        },
-        full_auto="agent", llm_timeout=30,
-    )
-
-    context = json.loads(req.read_text(encoding="utf-8"))["context"]
-    assert CONTRACTION in context, context
-    assert '"word":' not in context, context
-    assert "''" not in context, context

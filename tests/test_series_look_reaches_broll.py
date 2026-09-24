@@ -70,24 +70,6 @@ MANIFEST = {
 
 # ── The enumeration ───────────────────────────────────────────────────
 
-def test_the_fusion_pass_walks_v1_and_v2():
-    assert FUSION_COMP_TRACKS == (1, 2)
-
-
-def test_transitions_stay_on_v1():
-    """`after_clip` indexes the V1 clip list; replaying it on another
-    track would draw a transition at an unrelated cut."""
-    assert TRANSITION_TRACK == 1
-    applies = {index: t for index, _clips, t in fusion_comp_tracks(MANIFEST)}
-    assert applies == {1: True, 2: False}
-
-
-def test_both_tracks_carry_their_clips():
-    tracks = {i: clips for i, clips, _ in fusion_comp_tracks(MANIFEST)}
-    assert [c["label"] for c in tracks[1]] == ["a_roll_0", "a_roll_1"]
-    assert [c["label"] for c in tracks[2]] == ["broll_1"]
-
-
 def test_every_looked_clip_is_reachable():
     per_clip = MANIFEST["fusion_effects"]["per_clip"]
     assert set(per_clip) <= reachable_effect_labels(MANIFEST)

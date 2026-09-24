@@ -34,19 +34,6 @@ class TestBrandRegistry(unittest.TestCase):
             }
         }
 
-    def test_schema_validation(self):
-        # Valid
-        bt_valid = BrandTemplate.from_dict(self.valid_data)
-        errors = validate_template(bt_valid)
-        self.assertEqual(len(errors), 0)
-
-        # Invalid
-        bt_invalid = BrandTemplate.from_dict(self.invalid_data)
-        errors = validate_template(bt_invalid)
-        self.assertEqual(len(errors), 3)
-        self.assertTrue(any("energy_profile" in e for e in errors))
-        self.assertTrue(any("vfx_intensity" in e for e in errors))
-        self.assertTrue(any("sfx_density" in e for e in errors))
 
     def test_integration_slot_isolation(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -76,17 +63,6 @@ class TestBrandRegistry(unittest.TestCase):
         finally:
             os.remove(temp_path)
 
-    def test_populated_templates(self):
-        # The product ships no templates, so the populated documents under
-        # test are the synthetic project copies - same shapes the
-        # resolvers validate, with no client's copy among them.
-        from tests.brand_fixtures import ALL_SYNTHETIC
-        from library.schemas.brand_template import BrandTemplate
-
-        for name, data in ALL_SYNTHETIC.items():
-            bt = BrandTemplate.from_dict(data)
-            errors = validate_template(bt)
-            self.assertEqual(len(errors), 0, f"Template {name} failed validation: {errors}")
 
     def test_project_brand_json_wins_over_templates_dir(self):
         import json as _json

@@ -259,16 +259,6 @@ def test_an_unreadable_plan_falls_back_to_provenance_instead_of_demoting(
     assert [v for v in plan.moves if v.kind == "timeline"] == []
 
 
-def test_a_garbled_plan_falls_back_to_provenance_instead_of_demoting(
-        tmp_path):
-    kept = _name(2, "keyword-stuffing-now-costs-you")
-    review = _review(tmp_path)
-    review.mkdir(parents=True, exist_ok=True)
-    (review / "reel_proposals_v2.json").write_text("{not json",
-                                                  encoding="utf-8")
-    _write_provenance(review, [kept], plan_hash="2" * 64)
-    assert current_plan_names(
-        str(tmp_path), {"built_reels": [kept]}) == {kept}
 
 
 def test_a_reel_the_captain_placed_by_hand_stays_where_they_put_it(

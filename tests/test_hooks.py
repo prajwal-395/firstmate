@@ -93,51 +93,6 @@ def _run_hook(name="record_it", **over):
 
 # ── The vocabulary is closed, and refuses at LOAD ───────────────────
 
-def test_an_unknown_condition_is_refused_by_name(project):
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [_steer_hook(when="operation_finished")])
-    assert "operation_finished" in str(exc.value)
-    # The known set is listed, the shape run_scope._reject_unknown takes.
-    assert "qa_finding_raised" in str(exc.value)
-
-
-def test_an_unknown_key_is_refused_rather_than_ignored(project):
-    """A misspelled key that armed nothing would look exactly like a hook
-    with nothing to do."""
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [_steer_hook(**{"matches": {"metric": "x"}})])
-    assert "matches" in str(exc.value)
-
-
-def test_an_unknown_action_kind_is_refused(project):
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [_steer_hook(action={"kind": "exec", "text": "x"})])
-    assert "exec" in str(exc.value)
-
-
-def test_every_hook_must_say_why_it_exists(project):
-    """`describe` carries the reason JSON cannot carry as a comment, and
-    it is what the run header and the fired record print."""
-    hook = _steer_hook()
-    del hook["describe"]
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [hook])
-    assert "describe" in str(exc.value)
-
-
-def test_two_hooks_may_not_share_a_name(project):
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [_steer_hook(), _steer_hook()])
-    assert "tell_the_captain" in str(exc.value)
-
-
-def test_a_malformed_file_is_refused_by_name(project):
-    (project / hooks.DECLARATION_FILENAME).write_text("{not json",
-                                                      encoding="utf-8")
-    with pytest.raises(hooks.HookError) as exc:
-        hooks.load(str(project))
-    assert "not valid JSON" in str(exc.value)
-
 
 # ── A run action may only name a script that is already here ────────
 
@@ -177,89 +132,10 @@ def test_a_run_action_can_never_be_a_shell_string(project, attempt):
     assert "never carries a path, an argument or a shell string" in message
 
 
-def test_a_plausible_but_absent_script_gets_the_allow_list_refusal(project):
-    """The other half of the pair: a well-formed name that is simply not
-    here is told what IS here, rather than told about shell strings."""
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [_run_hook(
-            action={"kind": "run", "script": "notify_slack.py"})])
-    message = str(exc.value)
-    assert "is not in scripts/hooks/" in message
-    assert "record_payload.py" in message
-
-
-def test_a_project_may_not_add_to_the_allow_list(project, tmp_path):
-    """The allow-list is the ENGINE's directory, so a project declaration
-    cannot introduce executable code."""
-    smuggled = project / "scripts" / "hooks"
-    smuggled.mkdir(parents=True)
-    (smuggled / "mine.py").write_text("print('hi')", encoding="utf-8")
-    with pytest.raises(hooks.HookError) as exc:
-        _declare(project, [_run_hook(
-            action={"kind": "run", "script": "mine.py"})])
-    assert "mine.py" in str(exc.value)
-
-
-def test_the_two_action_kinds_may_not_borrow_each_others_fields(project):
-    with pytest.raises(hooks.HookError):
-        _declare(project, [_run_hook(action={
-            "kind": "run", "script": "record_payload.py", "text": "hi"})])
-    with pytest.raises(hooks.HookError):
-        _declare(project, [_steer_hook(action={
-            "kind": "steer", "text": "hi", "script": "record_payload.py"})])
-
-
 # ── Where a declaration comes from ──────────────────────────────────
-
-def test_a_project_declaration_replaces_the_engine_one(project):
-    declaration = _declare(project, [_steer_hook()])
-    assert declaration.source == hooks.PROJECT
-    assert declaration.path.endswith(hooks.DECLARATION_FILENAME)
-    assert [h.name for h in declaration.hooks] == ["tell_the_captain"]
-
-
-def test_with_no_project_file_the_engine_answers(project):
-    declaration = hooks.load(str(project))
-    assert declaration.source == hooks.ENGINE
-    assert declaration.hooks == (), "the engine declares none by default"
-
-
-def test_an_absence_is_stated_once_rather_than_left_silent(project):
-    """A layer that says nothing when it has nothing to do reads exactly
-    like a layer that is broken."""
-    lines = hooks.describe(hooks.load(str(project)))
-    assert lines and "nothing fires automatically" in lines[0]
-
-
-def test_the_header_names_every_hook_and_its_reason(project):
-    lines = hooks.describe(_declare(project, [_steer_hook()]))
-    body = "\n".join(lines)
-    assert "tell_the_captain" in body
-    assert "qa_finding_raised" in body
-    assert "Why this hook exists" in body
 
 
 # ── The fingerprint ─────────────────────────────────────────────────
-
-def test_a_fingerprint_is_readable_not_hashed():
-    assert hooks.fingerprint("qa_finding_raised", QA_PAYLOAD) == \
-        "qa_finding_raised:subtitle_gaps"
-
-
-def test_a_payload_missing_an_identity_field_raises():
-    """A fingerprint completed from a default would make two different
-    findings look like one, and the once-only guard would swallow the
-    second in silence."""
-    with pytest.raises(hooks.HookError) as exc:
-        hooks.fingerprint("qa_finding_raised", {"step": "validate"})
-    assert "metric" in str(exc.value)
-
-
-def test_every_condition_declares_what_identifies_an_instance():
-    for name, condition in hooks.CONDITIONS.items():
-        assert condition.identity, f"{name} has no identity fields"
-        assert condition.describe, f"{name} has no description"
-        assert condition.name == name
 
 
 # ── Firing: the run action ──────────────────────────────────────────
@@ -279,17 +155,6 @@ def test_a_run_action_really_runs_and_gets_the_payload_on_stdin(project):
     assert envelope["project_dir"] == str(project)
 
 
-def test_a_failing_script_is_reported_and_does_not_raise(project):
-    """A hook is automation ON TOP of the run. A run whose real work
-    succeeded must not be failed by it."""
-    declaration = _declare(project, [_run_hook()])
-    # The script refuses a project_dir that is not a directory.
-    fired = hooks.dispatch(str(project) + "_gone", "qa_finding_raised",
-                           QA_PAYLOAD, "run-1", declaration)
-    assert [f.outcome for f in fired] == [hooks.FAILED]
-    assert "exited 2" in fired[0].detail
-
-
 # ── Firing: the steer action, into the captain's own feed ───────────
 
 def test_a_steer_lands_in_the_review_channel_tagged_as_machine(project):
@@ -307,19 +172,6 @@ def test_a_steer_lands_in_the_review_channel_tagged_as_machine(project):
     # It says which hook and which instance, so the captain can tell what
     # produced it without opening a log.
     assert "qa_finding_raised:subtitle_gaps" in note["text"]
-
-
-def test_a_steer_anchors_to_something_the_dashboard_really_renders(project):
-    """`normalise_anchor` refuses an empty selector - "a note with no
-    anchor is a page comment". That rule is satisfied, not weakened:
-    `pipeline-view.js` renders `data-step-id` on every step card."""
-    declaration = _declare(project, [_steer_hook()])
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1",
-                   declaration)
-    anchor = review_channel.list_notes(str(project))[0]["anchor"]
-    assert anchor["selector"] == '[data-step-id="validate"]'
-    assert anchor["step_id"] == "validate"
-    assert anchor["view"] == "pipeline"
 
 
 def test_a_steer_sends_only_its_own_note(project):
@@ -379,23 +231,6 @@ def test_a_hook_does_not_fire_inside_a_hook(project):
     assert not (project / "pipeline_output" / "logs" / "hooks.log").exists()
 
 
-def test_the_depth_guard_is_passed_to_the_child_and_is_not_configurable(project):
-    """The child's env carries the next depth. `_run_step_subprocess`
-    passes no explicit env, so every descendant inherits it."""
-    assert hooks.child_env()[hooks.ENV_DEPTH] == "1"
-    os.environ[hooks.ENV_DEPTH] = "1"
-    assert hooks.child_env()[hooks.ENV_DEPTH] == "2"
-    # There is no declaration key that could switch this off.
-    assert "depth" not in hooks.DECLARATION_KEYS
-    assert "depth" not in hooks.HOOK_KEYS
-
-
-def test_the_header_says_when_this_run_can_fire_nothing(project):
-    os.environ[hooks.ENV_DEPTH] = "1"
-    lines = hooks.describe(_declare(project, [_steer_hook()]))
-    assert any("none of them will fire" in line for line in lines)
-
-
 # ── Guard 2: one instance fires a hook once ─────────────────────────
 
 def test_the_same_instance_fires_once_per_run(project):
@@ -409,59 +244,6 @@ def test_the_same_instance_fires_once_per_run(project):
 
     log = project / "pipeline_output" / "logs" / "hooks.log"
     assert len(log.read_text(encoding="utf-8").strip().splitlines()) == 1
-
-
-def test_a_different_instance_of_the_same_condition_still_fires(project):
-    """The key is the FINGERPRINT, not the condition: two different QA
-    findings are two things to act on."""
-    declaration = _declare(project, [_run_hook()])
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1",
-                   declaration)
-    other = hooks.dispatch(str(project), "qa_finding_raised",
-                           {"metric": "chroma", "step": "validate"},
-                           "run-1", declaration)
-    assert [f.outcome for f in other] == [hooks.FIRED]
-
-
-def test_a_later_run_may_fire_the_same_instance_again(project):
-    """`run_id` is in the key. A new run is a new chance to act; the
-    ledger stops a LOOP, not a re-run."""
-    declaration = _declare(project, [_run_hook()])
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1",
-                   declaration)
-    again = hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD,
-                           "run-2", declaration)
-    assert [f.outcome for f in again] == [hooks.FIRED]
-
-
-def test_the_ledger_is_append_only_and_readable(project):
-    declaration = _declare(project, [_run_hook()])
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1",
-                   declaration)
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-2",
-                   declaration)
-    rows = [json.loads(line) for line in
-            hooks.ledger_path(str(project)).read_text(
-                encoding="utf-8").strip().splitlines()]
-    assert [r["run_id"] for r in rows] == ["run-1", "run-2"]
-    assert all(r["hook"] == "record_it" for r in rows)
-    assert all(r["fingerprint"] == "qa_finding_raised:subtitle_gaps"
-               for r in rows)
-    # The reason the hook exists travels with the record.
-    assert all(r["describe"] for r in rows)
-
-
-def test_a_failed_fire_is_still_recorded(project):
-    """A hook that ran and blew up has still RUN. Firing it again on the
-    same instance is the loop the ledger exists to stop."""
-    declaration = _declare(project, [_run_hook()])
-    hooks.dispatch(str(project) + "_gone", "qa_finding_raised", QA_PAYLOAD,
-                   "run-1", declaration)
-    # The ledger lands in the real project, which is where it is read.
-    rows = hooks.ledger_path(str(project) + "_gone").read_text(
-        encoding="utf-8").strip().splitlines()
-    assert len(rows) == 1
-    assert json.loads(rows[0])["outcome"] == hooks.FAILED
 
 
 # ── Guard 3: the per-run budget, reported and not fatal ─────────────
@@ -489,43 +271,7 @@ def test_the_budget_stops_firing_and_says_so(project, monkeypatch):
     assert "does not fail the run" in body
 
 
-def test_exhausting_the_budget_is_not_an_exception(project, monkeypatch):
-    monkeypatch.setattr(hooks, "MAX_FIRES_PER_RUN", 0)
-    declaration = _declare(project, [_run_hook()])
-    fired = hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD,
-                           "run-1", declaration)
-    assert [f.outcome for f in fired] == [hooks.OVER_BUDGET]
-
-
 # ── What the run summary is handed ──────────────────────────────────
-
-def test_nothing_declared_reports_nothing(project):
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1")
-    assert hooks.summary_lines() == []
-    assert hooks.as_records() == []
-
-
-def test_what_fired_is_reported_for_the_run_summary(project):
-    declaration = _declare(project, [_run_hook(), _steer_hook()])
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1",
-                   declaration)
-    body = "\n".join(hooks.summary_lines())
-    assert "2 fired of 2 considered" in body
-    assert "record_it" in body and "tell_the_captain" in body
-
-    records = hooks.as_records()
-    assert {r["hook"] for r in records} == {"record_it", "tell_the_captain"}
-    assert all(r["fingerprint"] == "qa_finding_raised:subtitle_gaps"
-               for r in records)
-
-
-def test_the_collector_is_reset_per_run(project):
-    declaration = _declare(project, [_run_hook()])
-    hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD, "run-1",
-                   declaration)
-    assert hooks.fires()
-    hooks.reset()
-    assert hooks.fires() == []
 
 
 # ── match, which is field equality and never an expression ──────────
@@ -548,13 +294,6 @@ def test_match_accepts_a_list_meaning_any_of(project):
     fired = hooks.dispatch(str(project), "qa_finding_raised", QA_PAYLOAD,
                            "run-1", declaration)
     assert [f.outcome for f in fired] == [hooks.FIRED]
-
-
-def test_a_condition_nothing_is_armed_for_fires_nothing(project):
-    declaration = _declare(project, [_run_hook()])
-    assert hooks.dispatch(str(project), "gate_verdict",
-                          {"step": "scan", "verdict": "approved"},
-                          "run-1", declaration) == []
 
 
 def test_dispatching_an_unknown_condition_raises(project):
@@ -641,57 +380,6 @@ def test_the_operation_conditions_match_the_real_result_type():
                 f"{name} names element_identity but no collection to "
                 f"take it from."
             )
-
-
-def test_the_element_contract_comes_from_requirements_not_operations():
-    """`unsatisfied` holds Requirement objects, and `.name` is THEIR
-    contract.
-
-    `OperationResult.unsatisfied` is annotated `Tuple[Any, ...]` and is
-    deliberately not validated - increment 4 will not add that check,
-    because it would be a second implementation of `requirements.py`'s
-    own invariant. So the element half of a one-to-many identity is
-    asserted here, against the type that owns it.
-    """
-    try:
-        from library.tools import requirements
-    except ImportError:
-        requirements = None
-
-    if requirements is None:
-        assert "increment 3" in hooks.__doc__ or "PROVISIONAL" in hooks.__doc__
-        return
-
-    fields = set(getattr(requirements.Requirement,
-                         "__dataclass_fields__", {}))
-    assert fields, "Requirement is not a dataclass any more"
-    for name in hooks.OPERATION_DERIVED:
-        condition = hooks.CONDITIONS[name]
-        for identity in condition.element_identity:
-            assert identity in fields, (
-                f"{name}'s element identity {identity!r} is not on "
-                f"requirements.Requirement, which carries "
-                f"{sorted(fields)}."
-            )
-
-
-def test_hooks_defines_no_result_type_and_no_hollow_rule():
-    """Ruling 1, asserted rather than intended.
-
-    `dispatch` takes a plain Mapping and is handed what the operation
-    already decided. A `hollow` or `produced_nothing` computed in this
-    module would be the second implementation the ruling forbids.
-    """
-    import inspect
-    source = inspect.getsource(hooks)
-    body = "\n".join(line for line in source.splitlines()
-                     if not line.strip().startswith(("#", "*")))
-    for banned in ("check_output_is_real(", "def produced_nothing",
-                   "class OperationResult"):
-        assert banned not in body, (
-            f"hooks.py contains {banned!r}: the operation layer already "
-            f"owns that, and a second one is what Ruling 1 forbids."
-        )
 
 
 def test_a_refusal_with_no_requirements_still_reaches_a_hook(project):

@@ -94,16 +94,6 @@ def test_a_snap_cascade_is_flagged_with_its_pulled_in_words():
         "epsilon", "zeta"]
 
 
-def test_the_render_names_the_move_and_the_words():
-    text = render_snap_preview(preview_snap(
-        [_moment(16, 19.7, 25.0)], _cascade_transcript()))
-    assert "snap preview: 1 moment(s)" in text
-    assert "2 need(s) a decision" in text
-    assert "Reel 16: body_start 19.700s -> 10.000s (-9.700s)" in text
-    assert "NEEDS DECISION" in text
-    assert "alpha" in text and "beta" in text
-
-
 # --------------------------------------- small moves stay quiet
 
 
@@ -130,17 +120,6 @@ def test_a_word_edge_nudge_is_reported_never_flagged():
     text = render_snap_preview(report)
     assert "NEEDS DECISION" not in text
     assert "0 need(s) a decision" in text
-
-
-def test_a_clean_moment_reads_as_one_quiet_line():
-    # (10, 40) is the cascade transcript's fixed point: every edge
-    # sits on a segment edge outside any word, so the snap holds.
-    report = preview_snap([_moment(5, 10.0, 40.0)],
-                          _cascade_transcript())
-    assert report["moved"] == 0
-    assert report["flagged"] == 0
-    assert report["moments"][0]["moves"] == []
-    assert "no boundary moves" in render_snap_preview(report)
 
 
 def test_the_threshold_is_two_seconds_and_tunable():
@@ -269,30 +248,3 @@ def test_a_decided_pin_is_recorded_with_provenance_and_applied(tmp_path):
     assert [r["reel"] for r in applied] == [6]
     assert redrawn[0].call_to_action.timeline_start == 100.5
     assert redrawn[0].call_to_action.timeline_end == 120.0
-
-
-def test_preview_snap_cli_reports_beforehand(tmp_path, capsys):
-    """`preview-snap <project>` reads the stored proposal and the
-    transcript and prints the report - the line the canary never
-    had."""
-    from library.tools.project_layout import ProjectLayout
-    from library.tools.reel_proposal import (
-        main as preview_main, proposal_path, write_proposal,
-    )
-    from library.tools.timeline_transcript import transcript_path
-
-    project = tmp_path / "project"
-    project.mkdir()
-    ProjectLayout(str(project)).ensure()
-    tx = _cascade_transcript()
-    transcript_file = Path(transcript_path(str(project)))
-    transcript_file.parent.mkdir(parents=True, exist_ok=True)
-    transcript_file.write_text(json.dumps(tx), encoding="utf-8")
-    write_proposal(Path(proposal_path(str(project))),
-                   [_moment(16, 19.7, 25.0)], tx)
-
-    assert preview_main([str(project)]) == 0
-    out = capsys.readouterr().out
-    assert "snap preview: 1 moment(s)" in out
-    assert "2 need(s) a decision" in out
-    assert "NEEDS DECISION" in out

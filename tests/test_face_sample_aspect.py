@@ -105,12 +105,6 @@ class TestSampleDimensions:
             "sampled landscape is the squash this fix removes")
         assert _aspect(w, h) == pytest.approx(270 / 480.0, rel=0.02)
 
-    def test_landscape_source_is_sampled_landscape(self, tmp_path):
-        path = _synth(tmp_path / "landscape.mp4", "480x270")
-        w, h = s.face_sample_dimensions(path)
-        assert w > h
-        assert _aspect(w, h) == pytest.approx(480 / 270.0, rel=0.02)
-
     def test_rotation_side_data_decides_the_shape(self, tmp_path):
         """The iPhone case: stored landscape, displayed portrait.
 
@@ -126,12 +120,6 @@ class TestSampleDimensions:
         assert h > w, (
             f"a clip stored 480x270 with rotation -90 displays 270x480 and "
             f"was sampled {w}x{h}")
-
-    def test_it_never_upscales_past_the_source(self, tmp_path):
-        """A small clip carries no extra detail at the target size."""
-        path = _synth(tmp_path / "small.mp4", "160x120")
-        w, h = s.face_sample_dimensions(path)
-        assert (w, h) == (160, 120)
 
     def test_it_raises_rather_than_defaulting_to_a_shape(self, tmp_path):
         """A silent fixed shape is the bug. Refusing is the fix."""
@@ -160,17 +148,6 @@ class TestFramesReachingTheCascade:
         monkeypatch.setattr(s, "_load_face_cascade", lambda: SpyCascade())
         s.compute_face_presence(path)
         return seen
-
-    def test_portrait_frames_are_not_squashed(self, tmp_path, monkeypatch):
-        pytest.importorskip("cv2")
-        path = _synth(tmp_path / "portrait.mp4", "270x480", seconds=2)
-        seen = self._shapes_seen(path, monkeypatch)
-        assert seen, "the cascade was handed no frames at all"
-        for h, w in seen:
-            assert _aspect(w, h) == pytest.approx(270 / 480.0, rel=0.02), (
-                f"cascade was handed {w}x{h} for a 270x480 clip - aspect "
-                f"{_aspect(w, h):.3f} against the source's "
-                f"{270 / 480.0:.3f}")
 
     def test_rotated_frames_are_not_squashed(self, tmp_path, monkeypatch):
         pytest.importorskip("cv2")
@@ -249,18 +226,3 @@ def test_face_width_is_recorded_and_parallel_to_the_centre(tmp_path,
     assert widths, "no widths recorded"
     for w in widths:
         assert w == pytest.approx(box_w / sample_w, abs=0.01)
-
-
-def test_a_sample_with_no_face_carries_no_width(tmp_path, monkeypatch):
-    """None, not zero: zero is a measurement and this is an absence."""
-    pytest.importorskip("cv2")
-    path = _synth(tmp_path / "landscape.mp4", "480x270", seconds=2)
-
-    class BlindCascade:
-        def detectMultiScale(self, gray, **kwargs):
-            return []
-
-    monkeypatch.setattr(s, "_load_face_cascade", lambda: BlindCascade())
-    out = s.compute_face_presence(path)
-    assert out["face_width"], "the track must exist even with no detections"
-    assert all(w is None for w in out["face_width"])

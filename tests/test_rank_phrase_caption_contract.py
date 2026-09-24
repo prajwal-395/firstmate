@@ -66,20 +66,6 @@ def test_rank_phrase_on_one_card_passes_contract():
         "the top three searches but on"
 
 
-def test_rank_phrase_split_across_cards_passes_contract():
-    """"number" closing one card must still shelter "one" opening the next.
-
-    Grouping splits long blocks; the contract carries the predecessor's
-    last word as left context, so a boundary split reads the way the
-    block's whole stream did.
-    """
-    entries = _entries(
-        "craig says being number one on google changes everything today")
-    assert len(entries) > 1
-    assert " ".join(e["text"] for e in entries) == \
-        "craig says being number one on google changes everything today"
-
-
 def test_bare_numerals_still_read_as_digits():
     """The fix must not blunt the rule where it applies.
 

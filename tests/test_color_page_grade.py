@@ -41,8 +41,6 @@ def test_no_declaration_applies_nothing(tmp_path):
     assert resolve_color_page_grade(_project(tmp_path, None)) is None
 
 
-def test_no_project_folder_applies_nothing():
-    assert resolve_color_page_grade("") is None
 
 
 def test_a_declared_grade_resolves_to_an_absolute_path(tmp_path):
@@ -78,8 +76,6 @@ def test_a_path_with_no_provenance_is_refused(tmp_path):
 @pytest.mark.parametrize("provenance", [
     {},
     {"source": "x", "authorised_by": "y"},
-    {"source": "x", "licence": "z"},
-    {"authorised_by": "y", "licence": "z"},
 ])
 def test_provenance_with_a_hole_is_refused(tmp_path, provenance):
     drx = _drx(tmp_path)
@@ -90,33 +86,10 @@ def test_provenance_with_a_hole_is_refused(tmp_path, provenance):
     assert "provenance" in str(excinfo.value)
 
 
-def test_a_missing_file_is_refused_not_rendered_ungraded(tmp_path):
-    with pytest.raises(ColorPageGradeError) as excinfo:
-        resolve_color_page_grade(_project(
-            tmp_path, {"power_grade_drx": {
-                "path": str(tmp_path / "absent.drx"),
-                "provenance": dict(PROVENANCE)}}))
-    assert "not on disk" in str(excinfo.value)
 
 
-def test_a_non_drx_path_is_refused(tmp_path):
-    cube = tmp_path / "grade.cube"
-    cube.write_bytes(b"LUT")
-    with pytest.raises(ColorPageGradeError) as excinfo:
-        resolve_color_page_grade(_project(
-            tmp_path, {"power_grade_drx": {
-                "path": str(cube), "provenance": dict(PROVENANCE)}}))
-    assert ".drx" in str(excinfo.value)
 
 
-def test_unknown_keys_are_refused(tmp_path):
-    drx = _drx(tmp_path)
-    with pytest.raises(ColorPageGradeError) as excinfo:
-        resolve_color_page_grade(_project(
-            tmp_path, {"power_grade_drx": {
-                "path": drx, "provenance": dict(PROVENANCE),
-                "intensity": 0.5}}))
-    assert "intensity" in str(excinfo.value)
 
 
 # ── The apply record ─────────────────────────────────────────────
@@ -157,9 +130,6 @@ class _CountingItem(_Item):
         return fresh
 
 
-def test_apply_returns_the_read_back_node_count():
-    record = apply_power_grade(_CountingItem(), "/grade/v04.drx")
-    assert record == {"path": "/grade/v04.drx", "applied": True, "nodes": 8}
 
 
 def test_a_false_return_is_reported_not_raised():

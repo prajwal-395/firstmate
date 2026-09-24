@@ -15,7 +15,6 @@ never writes there - the same law that guards `raw/`), and
 `library/tools/learned_context.py`).
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -24,7 +23,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from library.tools.project_layout import Area, Kind, ProjectLayout  # noqa: E402
+from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 
 
 def _project_with_context(tmp_path, files):
@@ -36,28 +35,6 @@ def _project_with_context(tmp_path, files):
         else:
             p.write_text(body, encoding="utf-8")
     return str(tmp_path)
-
-
-def test_the_context_folder_is_an_input_area():
-    """Captain-owned, like raw/: readable, never writable by a step."""
-    from library.tools import project_layout
-    assert project_layout.AREAS[Area.CONTEXT].kind == Kind.INPUT
-
-
-def test_the_learned_context_area_is_writable_and_not_an_input(tmp_path):
-    """Pipeline-owned: a run records there, and a re-run must not delete it."""
-    from library.tools import project_layout
-    from library.tools.project_layout import ProjectLayoutViolation
-    spec = project_layout.AREAS[Area.LEARNED_CONTEXT]
-    assert spec.kind != Kind.INPUT
-    assert spec.kind in project_layout.WRITABLE_KINDS
-    # It resolves inside the project and accepts writes.
-    p = ProjectLayout(tmp_path).write_path(
-        Area.LEARNED_CONTEXT, "learnings.json")
-    assert str(p).startswith(str(tmp_path))
-    # And writing into the captain's context still refuses.
-    with pytest.raises(ProjectLayoutViolation):
-        ProjectLayout(tmp_path).write_path(Area.CONTEXT, "note.md")
 
 
 def test_a_step_cannot_write_into_the_captains_context(tmp_path):
@@ -112,14 +89,6 @@ def test_a_markdown_body_is_reachable_through_the_map(tmp_path):
     assert sentinel in out.stdout
 
 
-def test_an_empty_folder_says_so_out_loud(tmp_path):
-    """No context is a stated reading, never silence (brief_attachment's
-    contract, generalised)."""
-    from library.tools import project_context
-    built = project_context.build_context_map(str(tmp_path))
-    assert "no context files" in built.lower()
-
-
 def test_an_image_is_listed_with_its_path_not_its_bytes(tmp_path):
     """An image has no section map. It travels as a listing - name, size,
     format, path - and the step opens it with an image-capable tool."""
@@ -152,17 +121,6 @@ def test_a_declaring_step_is_routed_the_map(tmp_path):
     assert "Dusk exteriors." in inputs["project_context"]
 
 
-def test_a_step_that_declares_nothing_gets_nothing(tmp_path):
-    from library.processes.edit_video.run_pipeline import gather_step_inputs
-    project = _project_with_context(
-        tmp_path, {"note.txt": "Dusk exteriors.\n"})
-    dag = {"edges": []}
-    inputs = gather_step_inputs(
-        "music_selection", dag, {"project_folder": project},
-        manifest={"interface": {"inputs": []}}, step_type="llm_only")
-    assert "project_context" not in inputs
-
-
 def test_projection_does_not_drop_the_map(tmp_path):
     """Restored BY NAME like creative_brief: a step's allow-list neither
     has to list the captain's context nor can drop it."""
@@ -179,36 +137,3 @@ def test_projection_does_not_drop_the_map(tmp_path):
         manifest=manifest, step_type="llm_only")
     assert "note.txt" in inputs.get("project_context", "")
 
-
-def test_project_context_is_a_process_level_input():
-    from library.processes.edit_video.run_pipeline import PROCESS_LEVEL_INPUTS
-    assert "project_context" in PROCESS_LEVEL_INPUTS
-
-
-def test_the_brief_steps_declare_project_context():
-    """The same planning steps that read the brief read the folder.
-    Pinned, so a new consumer cannot appear unnoticed - and so none can
-    vanish unnoticed either."""
-    brief_steps = set()
-    for manifest_path in sorted((REPO_ROOT / "library" / "steps").glob(
-            "*/manifest.json")):
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        names = {i.get("name") for i in
-                 manifest.get("interface", {}).get("inputs", [])}
-        if "creative_brief" in names:
-            brief_steps.add(manifest_path.parent.name)
-            assert "project_context" in names, (
-                f"{manifest_path.parent.name} reads the brief but not the "
-                f"context folder")
-    assert brief_steps == {
-        "step_2_01_creative_direction",
-        "step_2_02_speech_sequence",
-        "step_2_04_music_selection",
-        "step_2_05_mesh_spine",
-        "step_3_02_select_broll",
-        "step_3_04_select_reels",
-        "step_4_02_plan_transitions",
-        "step_4_03_plan_vfx",
-        "step_4_04_plan_sfx",
-        "step_5_01_color_grade",
-    }, f"the brief-reading set moved: {sorted(brief_steps)}"

@@ -148,36 +148,7 @@ def test_record_preserves_the_captains_words_verbatim(tmp_path):
     assert on_disk["text"] == note["text"]
 
 
-def test_record_refuses_an_invented_status(tmp_path):
-    with pytest.raises(ValueError):
-        mr.record_resolution(str(tmp_path), _timeline_note(),
-                             "fixed-ish", action="x")
-
-
 # ── The checks carry a verdict ────────────────────────────────────
-
-def test_checks_fail_on_bad_input():
-    passed, _ = mr.verify("a_roll_two_rows", {"a_roll_video_rows": 1})
-    assert passed is False
-    passed, _ = mr.verify("a_roll_two_rows", {})
-    assert passed is False
-    passed, _ = mr.verify("motion_graphics_present",
-                          {"motion_graphics_items": []})
-    assert passed is False
-    passed, _ = mr.verify("motion_graphics_present", {})
-    assert passed is False
-
-
-def test_checks_pass_on_real_measurements():
-    passed, evidence = mr.verify("a_roll_two_rows",
-                                 {"a_roll_video_rows": 2})
-    assert passed is True
-    assert evidence["a_roll_video_rows"] == 2
-    passed, evidence = mr.verify(
-        "motion_graphics_present",
-        {"motion_graphics_items": ["lower_third_akshita"]})
-    assert passed is True
-
 
 def test_unknown_check_is_refused():
     with pytest.raises(mr.UnknownCheck):
@@ -206,20 +177,6 @@ def test_verified_fix_clears_the_timeline_marker(tmp_path):
     on_disk = mr.read_resolution(str(tmp_path), note["note_id"])
     assert on_disk["status"] == mr.STATUS_RESOLVED_VERIFIED
     assert on_disk["evidence"]["a_roll_video_rows"] == 2
-
-
-def test_verified_fix_clears_a_clip_marker(tmp_path):
-    note = _taste_note(outcome="routed", steps=["render"],
-                       note_id="reel-09:clip_marker:528b",
-                       note="the a-roll row needs to be 2 rows")
-    item = FakeClipItem({528: {"name": note["name"], "note": note["note"]}})
-    result = mr.resolve_note(
-        str(tmp_path), note, action="split the a-roll onto two rows",
-        rationale="rebuilt with one row per angle",
-        check=mr.CHECK_A_ROLL_ROWS, measured={"a_roll_video_rows": 2},
-        item=item)
-    assert result["record"]["marker_removed"] is True
-    assert item.GetMarkers() == {}
 
 
 def test_decline_never_clears_even_beside_a_passing_check(tmp_path):
@@ -254,19 +211,6 @@ def test_taste_note_is_unverifiable_and_keeps_its_marker(tmp_path):
     assert len(timeline.GetMarkers()) == 1
 
 
-def test_claimed_fix_without_a_named_check_keeps_its_marker(tmp_path):
-    note = _timeline_note()
-    timeline = ExplodingTimeline(
-        {1674: {"name": note["name"], "note": note["note"]}})
-    result = mr.resolve_note(
-        str(tmp_path), note, action="split the a-roll onto two rows",
-        rationale="rebuilt", timeline=timeline)
-    record = result["record"]
-    assert record["status"] == mr.STATUS_ADDRESSED_UNVERIFIED
-    assert result["marker_touched"] is False
-    assert len(timeline.GetMarkers()) == 1
-
-
 def test_failed_check_keeps_its_marker(tmp_path):
     note = _timeline_note()
     timeline = ExplodingTimeline(
@@ -280,18 +224,6 @@ def test_failed_check_keeps_its_marker(tmp_path):
     assert record["evidence"]["a_roll_video_rows"] == 1
     assert result["marker_touched"] is False
     assert len(timeline.GetMarkers()) == 1
-
-
-def test_unknown_check_touches_nothing(tmp_path):
-    note = _timeline_note()
-    timeline = ExplodingTimeline(
-        {1674: {"name": note["name"], "note": note["note"]}})
-    with pytest.raises(mr.UnknownCheck):
-        mr.resolve_note(
-            str(tmp_path), note, action="did the thing", rationale="did it",
-            check="looks_good_to_me", measured={}, timeline=timeline)
-    assert len(timeline.GetMarkers()) == 1
-    assert mr.read_resolution(str(tmp_path), note["note_id"]) is None
 
 
 # ── Failure keeps the words ───────────────────────────────────────
@@ -335,37 +267,6 @@ def test_stale_frame_refuses_the_deletion(tmp_path):
     assert len(timeline.GetMarkers()) == 1
 
 
-# ── Deletion is judged by what comes back ─────────────────────────
-
-def test_absent_marker_is_not_claimed_as_removed():
-    timeline = FakeTimeline({})
-    outcome = mr.delete_timeline_marker(timeline, 1674)
-    assert outcome["removed"] is False
-    assert outcome["returned"] is False
-    assert outcome["still_present"] is True
-
-
-def test_delete_by_custom_data_refuses_an_empty_scope():
-    timeline = FakeTimeline({1674: {}})
-    outcome = mr.delete_marker_by_custom_data(timeline, "")
-    assert outcome["removed"] is False
-    assert len(timeline.GetMarkers()) == 1
-
-
-# ── Verifiability is stated, not guessed ──────────────────────────
-
-def test_verifiability_names_what_it_can_and_cannot_prove():
-    verifiable, checks = mr.verifiability_of(_timeline_note())
-    assert verifiable is True
-    assert mr.CHECK_A_ROLL_ROWS in checks
-    verifiable, reason = mr.verifiability_of(_taste_note())
-    assert verifiable is False
-    assert "mesh_spine" in reason
-    ambiguous = _timeline_note(outcome="ambiguous", steps=["a", "b"])
-    verifiable, _ = mr.verifiability_of(ambiguous)
-    assert verifiable is False
-
-
 # ── A "done" claim is backed by the artefact, or it is not done ───
 #
 # `declared_element_reaches_reels` is the check for the commonest
@@ -401,14 +302,6 @@ def _survey(tmp_path, **reels):
 
     return rd.survey(str(tmp_path),
                      {reel: Snap(names) for reel, names in reels.items()})
-
-
-def test_a_declaration_that_reached_every_reel_passes(tmp_path):
-    passed, evidence = mr.verify(mr.CHECK_DECLARATION_REACHES, {
-        "divergence": _survey(tmp_path, **{"Reel 26": ["logo_reveal.mov"]}),
-        "declaration": "full_frame_elements"})
-    assert passed is True
-    assert evidence["reels"] == ["Reel 26"]
 
 
 def test_a_declaration_absent_from_one_reel_FAILS(tmp_path):

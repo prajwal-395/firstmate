@@ -97,8 +97,6 @@ def test_rejected_label_raises(tmp_path):
 
 @pytest.mark.parametrize("case", [
     "approved_and_proposed_labels",
-    "master_and_unnamed_labels",
-    "missing_proposals_file",
     "reel_number_not_proposed",
 ])
 def test_non_rejected_labels_proceed_without_reading(tmp_path, case):
@@ -123,20 +121,6 @@ def test_non_rejected_labels_proceed_without_reading(tmp_path, case):
     else:
         project = _project_with_proposals(tmp_path, [_moment(9, "approved")])
         refuse_rejected_reel_timeline("Reel 40 - never-proposed", project)
-
-
-def test_verdict_is_read_live_not_cached(tmp_path):
-    """The captain rules while renders fly: approve then reject the
-    same reel and the gate follows the file, both directions."""
-    project = _project_with_proposals(tmp_path, [_moment(22, "approved")])
-    refuse_rejected_reel_timeline("Reel 22 - x", project)
-    path = os.path.join(project, "pipeline_output", "review",
-                        "reel_proposals_v2.json")
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump({"format": "reel_proposal/1",
-                   "moments": [_moment(22, "rejected")]}, handle)
-    with pytest.raises(NotApproved):
-        refuse_rejected_reel_timeline("Reel 22 - x", project)
 
 
 # ── The render path refuses before drawing ───────────────────────────

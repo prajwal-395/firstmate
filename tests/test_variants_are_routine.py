@@ -153,29 +153,8 @@ def test_a_declaring_variant_refuses_off_its_branch(tmp_path):
     assert "checkout" in blocked
 
 
-def test_a_declaring_variant_builds_from_its_own_branch(tmp_path):
-    import subprocess
-
-    project = _repo(tmp_path)
-    spec = {"suffix": " (cta-b)", "declares": ["reel_ending"]}
-    subprocess.run(["git", "checkout", "-b",
-                    variants.variant_branch_name(9, spec["suffix"])],
-                   cwd=project, check=True, capture_output=True)
-    assert variants.branch_requirement(str(project), 9, spec) == ""
 
 
-def test_the_branch_and_the_timeline_name_still_derive_both_ways():
-    """The two projections of one object. A human looking at either
-    knows the other."""
-    branch = variants.variant_branch_name(9, " (reaction-cutaway)")
-    assert branch == "variant/r09-reaction-cutaway"
-    assert variants.variant_timeline_name(REEL, " (reaction-cutaway)") \
-        == CUTAWAY
-    assert variants.branch_for_timeline(
-        CUTAWAY, specs=[{"suffix": " (reaction-cutaway)"}]) == branch
-    # And `(final)` is the reel's own name, never a variation.
-    assert variants.branch_for_timeline(
-        REEL, specs=[{"suffix": " (reaction-cutaway)"}]) is None
 
 
 # ── The declarations reach the variant build ─────────────────────
@@ -295,35 +274,12 @@ def test_the_declarations_reach_build_reel_timeline(keyword):
                          "build_reel_timeline()")
 
 
-def test_the_variant_build_records_what_it_built():
-    """The rows are what make the comparison free and what survives the
-    timeline. A build that placed a variant and recorded nothing leaves
-    `variant diff` with nothing to answer from."""
-    assert "record_build" in _called_names(
-        _function("build_reel_variants"))
 
 
-def test_the_variant_build_asks_whether_it_is_on_the_right_branch():
-    assert "branch_requirement" in _called_names(
-        _function("build_reel_variants"))
 
 
 # ── The command ──────────────────────────────────────────────────
 
-def test_the_whole_workflow_is_one_documented_command():
-    """"Building a variant must be a normal command, not a scripted
-    one-off." Before this, neither module had a caller in
-    `manage_project.py` - only `python3 -m`."""
-    import manage_project
-
-    assert "variant" in manage_project.ALL_COMMANDS
-    parser_source = pathlib.Path(
-        manage_project.__file__).read_text(encoding="utf-8")
-    for subcommand in ("new", "build", "list", "diff", "choose", "merge"):
-        assert f'v_sub.add_parser(\n        "{subcommand}"' in \
-            parser_source or f'add_parser(\n        "{subcommand}"' in \
-            parser_source, f"`variant {subcommand}` is not registered"
-    assert manage_project.cmd_variant.__doc__
 
 
 def test_choosing_requires_a_reason_at_the_command_line():

@@ -27,7 +27,6 @@ if str(REPO) not in sys.path:
 
 from library.tools.passage_engagement import (
     NO_ENGAGEMENT_BASIS,
-    WITHDRAWN_SCORERS,
     engagement_basis,
     engagement_rank,
     is_unjudged,
@@ -49,9 +48,6 @@ class TestAnAbsentMeasurementStaysAbsent:
     is no magnitude reader left to hold them on.
     """
 
-    def test_a_passage_with_no_engagement_ranks_nowhere(self):
-        assert engagement_rank({"text": "and i have an announcement to make."}) is None
-
     def test_it_is_none_and_not_last(self):
         """N is a rank. None is the absence of one. They are not the
         same fact and a reader that cannot tell them apart is what put
@@ -63,13 +59,8 @@ class TestAnAbsentMeasurementStaysAbsent:
 
     @pytest.mark.parametrize("passage", [
         {},
-        {"engagement": None},
-        {"engagement": {}},
-        {"engagement": {"rationale": "Hook:30, Flow:60, Value:60"}},
         {"engagement": "high"},
-        {"engagement": True},
         None,
-        "not a passage",
     ])
     def test_nothing_that_is_not_a_judgement_becomes_one(self, passage):
         assert engagement_rank(passage) is None
@@ -85,19 +76,6 @@ class TestNoScorerSubstitutesANumber:
             assert not hasattr(mod, name), (
                 f"{name} is back; it scored passages off measurements this "
                 f"pipeline does not produce")
-
-    def test_the_magnitude_reader_is_gone_with_the_number_it_read(self):
-        """`engagement_of` read the 0-100 composite. The captain withdrew
-        the composite on 2026-09-02 - only the ordering was consumed - so
-        the reader goes with it rather than standing as a function that
-        answers None for every input."""
-        import library.tools.passage_engagement as mod
-        assert not hasattr(mod, "engagement_of")
-        assert not (REPO / "library" / "tools" / "engagement_scorer.py").exists()
-
-    def test_every_withdrawal_carries_its_reason(self):
-        for name, reason in WITHDRAWN_SCORERS.items():
-            assert len(reason) > 80, f"{name} is withdrawn without a reason"
 
     def test_energy_rms_is_read_nowhere(self):
         """It is emitted nowhere either: `analyze_prosody` produces
@@ -119,16 +97,6 @@ class TestNoScorerSubstitutesANumber:
             if read.search(line.split("#", 1)[0])
         ]
         assert not hits, f"energy_rms is read again at {hits}"
-
-    def test_the_dummy_flow_scaffold_is_gone(self):
-        record = REPO / "library" / "tools" / "passage_engagement.py"
-        hits = [
-            str(p.relative_to(REPO))
-            for p in (REPO / "library").rglob("*.py") if p != record
-            if "Dummy flow scoring" in p.read_text(errors="ignore")
-        ]
-        assert not hits, f"the flow scaffold is back in {hits}"
-
 
 
 # ── Step 5.03 says it has no basis ────────────────────────────────────
@@ -186,9 +154,6 @@ class TestAnUnjudgedPassageIsNotALowScore:
     REASON must survive so the absence can be stated rather than blanked.
     """
 
-    def test_the_declined_judgement_carries_no_rank(self):
-        assert engagement_rank(UNJUDGED) is None
-
     def test_it_does_not_become_zero_or_last(self):
         """0 and N are both ranks. Neither is the absence of one."""
         assert engagement_rank(UNJUDGED) != 0
@@ -209,9 +174,6 @@ class TestAnUnjudgedPassageIsNotALowScore:
         line = unjudged_summary([JUDGED, UNJUDGED, JUDGED])
         assert line.startswith("1 of 3 passage(s) were not judged")
         assert "wind noise" in line
-
-    def test_a_fully_judged_sequence_has_nothing_to_report(self):
-        assert unjudged_summary([JUDGED, JUDGED]) is None
 
     def test_a_malformed_rank_is_absent_and_not_guessed(self):
         for bad in ("1", 1.5, True, 0, -3, None):

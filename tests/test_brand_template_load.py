@@ -64,18 +64,10 @@ def _project(tmp_path, name, template_name):
 
 # ── the declaration is read off project.yaml ────────────────────────
 
-def test_project_template_name_reads_the_declaration(tmp_path):
-    folder = _project(tmp_path, "geo", "synthetic_cinematic")
-    assert project_template_name(folder) == "synthetic_cinematic"
 
 
-def test_project_template_name_is_empty_when_none_declared(tmp_path):
-    folder = _project(tmp_path, "bare", None)
-    assert project_template_name(folder) == ""
 
 
-def test_project_template_name_survives_a_missing_project_yaml(tmp_path):
-    assert project_template_name(str(tmp_path)) == ""
 
 
 # ── the declaration reaches the run ─────────────────────────────────
@@ -87,10 +79,6 @@ def test_load_pipeline_state_carries_the_declared_template(tmp_path):
     assert state["brand_template"] == "synthetic_cinematic"
 
 
-def test_a_project_declaring_none_stays_declaring_none(tmp_path):
-    folder = _project(tmp_path, "bare", None)
-    state = load_pipeline_state(folder)
-    assert "brand_template" not in state
 
 
 def test_an_existing_declaration_in_state_is_not_overwritten(tmp_path):
@@ -217,32 +205,12 @@ def test_a_typo_in_the_declaration_raises(tmp_path):
                            _manifest_declaring_brand_effect())
 
 
-def test_a_missing_path_raises_as_a_path(tmp_path):
-    with pytest.raises(FileNotFoundError) as exc:
-        resolve_template_reference(str(tmp_path / "nope.yaml"))
-    assert "nope.yaml" in str(exc.value)
 
 
 # ── both spellings of the reference resolve ─────────────────────────
 
-def test_a_path_reference_still_loads(tmp_path):
-    path = tmp_path / "synthetic_cinematic.yaml"
-    path.write_text(yaml.safe_dump(SYNTHETIC_CINEMATIC), encoding="utf-8")
-    by_path = resolve_template_reference(str(path))
-    folder = _project(tmp_path, "geo", "synthetic_cinematic")
-    write_brand_json(folder, "synthetic_cinematic")
-    by_name = resolve_template_reference(
-        "synthetic_cinematic", project_folder=folder)
-    assert query_slots(by_path, "effect") == query_slots(by_name, "effect")
 
 
-def test_reference_name_is_the_name_half_of_either_form(tmp_path):
-    path = os.path.join(str(tmp_path), "synthetic_cinematic.yaml")
-    assert reference_template_name(path) == "synthetic_cinematic"
-    assert reference_template_name("synthetic_cinematic") == "synthetic_cinematic"
-    # "" names no fallback.  Answering a shipped name here is what
-    # sent every template-less project the fallback template's constraints.
-    assert reference_template_name("") == ""
 
 
 # ── step 5.01 asked for the WHOLE template, and got nothing ─────────

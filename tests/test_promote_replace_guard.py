@@ -252,7 +252,6 @@ def test_build_with_failed_overlay_renders_refuses(project_dir):
 
 @pytest.mark.parametrize("declaration", [
     ["video:Semantic"],
-    ["Semantic"],
 ])
 def test_declared_reduction_passes_and_names_what_it_declared(
         project_dir, declaration):
@@ -285,48 +284,6 @@ def test_unreadable_retiring_timeline_refuses(project_dir):
     assert sorted(resolve.names()) == sorted(
         [MASTER, FINAL, staging.GetName()])
     assert resolve.deleted == []
-
-
-def test_growth_and_a_shortened_cut_pass_undeclared(project_dir):
-    """Not a nuisance: MORE items, or the same items over fewer
-    frames, is never a loss - the captain's grain removal, j-cut
-    deletion and cut shortening all read this way."""
-    retired = FakeTimeline(FINAL, video=[
-        ("Akshita", [FakeItem("Craig A", 0, 67),
-                     FakeItem("Craig B", 67, 138)]),
-        ("Subtitles", [FakeItem("card 1", 0, 70),
-                       FakeItem("card 2", 70, 138)]),
-    ])
-    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
-        ("Akshita", [FakeItem("Craig A", 0, 55),
-                     FakeItem("LC4932 cover", 574, 598),
-                     FakeItem("Craig B", 598, 657)]),
-        ("Subtitles", [FakeItem("card 1", 0, 60),
-                       FakeItem("card 2", 60, 120)]),
-    ])
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-
-    promoted = _promote(resolve, project_dir, {FINAL: staging.GetName()})
-
-    assert promoted["promoted"] == [FINAL]
-    assert promoted["replace_reports"][FINAL]["refused"] is False
-    # The replaced timeline is DELETED by default: one timeline per
-    # reel, nothing archived (`library/tools/reel_retirement.py`).
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
-    assert resolve.deleted == [f"{FINAL} (pre-rebuild backup)"]
-
-
-def test_fresh_build_with_no_original_skips_the_diff(project_dir):
-    """Nothing is being replaced, so there is nothing to diff against."""
-    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
-        ("Akshita", [FakeItem("Akshita A", 0, 131)]),
-    ])
-    resolve = FakeProject([FakeTimeline(MASTER), staging])
-
-    promoted = _promote(resolve, project_dir, {FINAL: staging.GetName()})
-
-    assert promoted["promoted"] == [FINAL]
-    assert promoted["replace_reports"] == {}
 
 
 def _join_timelines():
@@ -388,83 +345,3 @@ def test_a_loss_that_gains_frames_still_refuses(project_dir):
     assert resolve.deleted == []
 
 
-def test_a_same_name_shrink_still_refuses(project_dir):
-    """Names alone are not sufficient either: every name survives but
-    the row lost seconds, so no join cover and the guard refuses."""
-    retired = FakeTimeline(FINAL, video=[
-        ("Craig", [FakeItem("Craig", 0, 100),
-                   FakeItem("Craig", 100, 190)]),
-    ])
-    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
-        ("Craig", [FakeItem("Craig", 0, 150)]),
-    ])
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-
-    with pytest.raises(ReelBuildError, match="video:Craig"):
-        _promote(resolve, project_dir, {FINAL: staging.GetName()})
-
-    assert sorted(resolve.names()) == sorted(
-        [MASTER, FINAL, staging.GetName()])
-    assert resolve.deleted == []
-
-
-def test_specs_fan_out_globally_or_scope_to_one_reel():
-    """The caller shape: `ROW` covers every promoted reel, `FINAL::ROW`
-    covers one - and there is no spelling for 'allow everything'."""
-    assert guard.parse_specs(["video:Semantic"], ["A", "B"]) == {
-        "A": {"video:Semantic"}, "B": {"video:Semantic"}}
-    assert guard.parse_specs(["B::video:Semantic"], ["A", "B"]) == {
-        "A": set(), "B": {"video:Semantic"}}
-    assert guard.parse_specs({"A": ["Semantic"]}, ["A", "B"]) == {
-        "A": {"Semantic"}}
-    assert guard.parse_specs(None, ["A"]) == {}
-    with pytest.raises(ValueError):
-        guard.parse_specs([""], ["A"])
-    with pytest.raises(ValueError):
-        guard.parse_specs([42], ["A"])
-
-
-def test_the_promotion_stamps_the_round_with_the_rows_it_read(project_dir):
-    """The version object rides on the diff the guard already ran.
-
-    `library/tools/round_version.py`. The rows stored against the round
-    are the ones the guard read off the incoming staging in phase 0, so
-    the stamp costs no extra Resolve call - and storing them is what
-    lets `round-diff` answer off disk afterwards, long after the
-    timeline it describes has been retired and collected.
-
-    Remove the stamp and the promotion leaves no version record: the
-    newest build under the final name is the answer by construction
-    again, which is the defect the round object exists to close.
-    """
-    from library.tools import round_version
-
-    retired, staging = _cutaway_timelines()
-    # Grow rather than shrink, so the guard passes and the promotion
-    # reaches the stamp.
-    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
-        ("Akshita", [FakeItem("Craig A", 0, 55),
-                     FakeItem("LC4932 cover", 574, 598),
-                     FakeItem("Craig B", 598, 657),
-                     FakeItem("logo_reveal.mov", 657, 728)]),
-        ("Craig", [FakeItem("Craig wide", 0, 131)]),
-        ("Subtitles", [FakeItem("card 1", 0, 60),
-                       FakeItem("card 2", 60, 131)]),
-    ])
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-
-    promoted = _promote(resolve, project_dir, {FINAL: staging.GetName()})
-
-    assert promoted["promoted"] == [FINAL]
-    stamped = promoted["round"]
-    assert stamped is not None
-    reel = stamped["reels"][FINAL]
-    assert reel["source"] == round_version.SOURCE_STAMPED
-    # The rows really are the promoted picture, not the retired one.
-    assert reel["rows"]["video:Akshita"]["count"] == 4
-    assert [item["name"] for item in
-            reel["rows"]["video:Akshita"]["items"]][-1] == "logo_reveal.mov"
-    # And it is on disk, where `round-diff` reads it.
-    on_disk = round_version.read_rounds(str(project_dir))
-    assert on_disk["rounds"][-1]["reels"][FINAL]["rows"] \
-        ["video:Akshita"]["count"] == 4

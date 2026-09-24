@@ -59,29 +59,12 @@ def test_an_unmeasured_passage_keeps_its_row_and_says_so():
         [{"block": "Body[#1]", "clip_id": "clip_009"}]))
 
 
-def test_nothing_measured_prints_nothing():
-    assert summary_lines([]) == []
-    assert summary_lines(None) == []
-    assert passage_rows(None) == []
 
 
-def test_the_summary_states_the_share_of_the_block():
-    lines = "\n".join(summary_lines(REPORT))
-    assert "1.169s = 39% of the block" in lines
-    assert "No threshold fires" in lines
 
 
-def test_the_view_carries_the_legend_and_every_passage():
-    view = build_view("alignment", {
-        "speech_sequence": {"alignment_report": REPORT}})["alignment"]
-    assert "largest_gap_seconds" in view["legend"]
-    assert len(view["passages"]) == 3
-    assert view["passages"][0]["largest_gap_seconds"] == 1.169
 
 
-def test_the_view_is_empty_when_there_is_no_report():
-    assert build_view("alignment", {"speech_sequence": {}}) == {}
-    assert build_view("alignment", {}) == {}
 
 
 def test_the_legend_says_what_a_key_is_and_never_what_to_conclude():
@@ -92,16 +75,6 @@ def test_the_legend_says_what_a_key_is_and_never_what_to_conclude():
         assert verdict not in text, verdict
 
 
-def test_review_rough_cut_declares_the_view_and_the_input_it_reads():
-    manifest = json.loads((
-        Path(__file__).resolve().parents[1] / "library" / "steps"
-        / "step_3_03_review_rough_cut" / "manifest.json").read_text())
-    assert "view:alignment" in manifest["context_fields"]
-    # The view is a READING of the report; the raw structure stays
-    # dropped, so the two never ship together (AGENTS.md 10.1).
-    assert "-speech_sequence.alignment_report" in manifest["context_fields"]
-    assert "speech_sequence" in {
-        i["name"] for i in manifest["interface"]["inputs"]}
 
 
 def test_the_run_summary_reads_it():

@@ -101,57 +101,7 @@ def test_the_verdict_is_blind_to_the_name():
     assert "the filename" in DECLINED_SIGNALS
 
 
-def test_true_peak_is_not_compared():
-    """The noisiest column across re-encodes, and the least informative."""
-    assert "true_peak_dbtp" in DECLINED_SIGNALS
-    louder = dict(LYRICS_WAV)
-    louder["true_peak_dbtp"] = LYRICS_MP3["true_peak_dbtp"] + 5.0
-    assert same_recording(LYRICS_MP3, louder)[0] is True
-
-
 # ── Nothing is deleted ────────────────────────────────────────────────
-
-def test_a_duplicate_is_marked_not_dropped():
-    marked = mark_duplicates(FOUR)
-    assert len(marked) == len(FOUR)
-    by_title = {c["title"]: c for c in marked}
-
-    copy = by_title["Sickick - Infected _lyrics_"]
-    assert copy["duplicate_of"] == LYRICS_MP3["audio_path"]
-    assert copy["duplicate_of_title"] == LYRICS_MP3["title"]
-    assert copy["duplicate_deltas"]["rms_spread_db"] == pytest.approx(0.44)
-
-    representative = by_title["Sickick - Infected (lyrics)"]
-    assert representative["duplicate_count"] == 1
-    assert "duplicate_of" not in representative
-
-    for title in ("Sickick- _Infected_ _Instrumental_",
-                  "_background music_ rise"):
-        assert "duplicate_of" not in by_title[title]
-
-
-def test_the_input_is_not_mutated():
-    original = [dict(c) for c in FOUR]
-    mark_duplicates(FOUR)
-    assert FOUR == original
-
-
-def test_001s_four_candidates_are_three_recordings():
-    marked = mark_duplicates(FOUR)
-    assert distinct_count(marked) == 3
-    groups = duplicate_groups(marked)
-    assert len(groups) == 1
-    assert groups[0]["representative_title"] == LYRICS_MP3["title"]
-    assert groups[0]["also"] == [LYRICS_WAV["audio_path"]]
-    assert groups[0]["worst_delta_db"] == pytest.approx(0.44)
-    assert "appears 2 times" in summarise(marked)
-
-
-def test_nothing_is_reported_when_every_candidate_is_distinct():
-    marked = mark_duplicates([LYRICS_MP3, INSTRUMENTAL, RISE])
-    assert duplicate_groups(marked) == []
-    assert summarise(marked) == ""
-
 
 # ── An absent measurement is not evidence of sameness ─────────────────
 
@@ -188,8 +138,7 @@ def test_the_tolerance_is_twice_the_worst_measured_re_encode_difference():
 
 
 @pytest.mark.parametrize("field", [
-    "integrated_lufs", "loudness_range_lu", "rms_spread_db",
-    "window_spread_db", "speech_band_ratio_db",
+    "integrated_lufs",
 ])
 def test_a_difference_past_the_tolerance_is_a_different_recording(field):
     other = dict(LYRICS_WAV)

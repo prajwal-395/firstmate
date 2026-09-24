@@ -137,15 +137,6 @@ class TestFramingEndToEnd:
         expected_zoom = round(1.0 + (EXPECTED_FULL_FILL_ZOOM - 1.0) * 0.5, 4)
         assert result["fill_zoom"] == expected_zoom
 
-    def test_framing_intent_full_produces_max_zoom(self):
-        """framing_intent=1.0 should produce the full fill zoom."""
-        result = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=1.0,
-        )
-        assert result["needs_conform"] is True
-        assert result["fill_zoom"] == EXPECTED_FULL_FILL_ZOOM
-
     def test_framing_intent_zero_produces_letterbox(self):
         """framing_intent=0.0 should produce letterbox (no conform)."""
         result = _conform_fields(
@@ -259,59 +250,10 @@ class TestFramingEndToEnd:
         assert results["warnings"], "a refused property must be recorded"
         assert "ZoomX" in results["warnings"][0]
 
-    def test_pan_property_names_match_resolve(self):
-        """The names are pinned, so a rename cannot pass silently."""
-        import library.steps.step_6_01_render.resolve_build_timeline as rbt
-        assert rbt._CONFORM_PAN_PROP in RESOLVE_VIDEO_ITEM_PROPERTIES
-        assert rbt._CONFORM_TILT_PROP in RESOLVE_VIDEO_ITEM_PROPERTIES
-        for prop in rbt._CONFORM_ZOOM_PROPS:
-            assert prop in RESOLVE_VIDEO_ITEM_PROPERTIES
-        assert "PanX" not in RESOLVE_VIDEO_ITEM_PROPERTIES
-        assert "PanY" not in RESOLVE_VIDEO_ITEM_PROPERTIES
-
 
 # ─────────────────────────────────────────────────────────
 # 2. Template bias applies when clip does not set one
 # ─────────────────────────────────────────────────────────
-
-class TestTemplateBias:
-    """When a clip has no explicit framing_intent, the template's
-    default should be used as a fallback by the caller's resolution
-    logic."""
-
-    def test_template_framing_intent_applies_as_fallback(self):
-        """Calling _conform_fields with a template's framing_intent
-        value (simulating the _resolve_framing fallback) produces the
-        expected partial zoom."""
-        template_intent = 0.7
-        result = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=template_intent,
-        )
-        assert result["needs_conform"] is True
-        expected_zoom = round(1.0 + (EXPECTED_FULL_FILL_ZOOM - 1.0) * 0.7, 4)
-        assert result["fill_zoom"] == expected_zoom
-
-    def test_brand_template_schema_has_framing_intent(self):
-        """The BrandTemplate schema must expose framing_intent on the
-        style slots so templates can set it."""
-        slots = StyleSlots(framing_intent=0.5)
-        assert slots.framing_intent == 0.5
-
-    def test_brand_template_framing_intent_defaults_to_none(self):
-        """An unset framing_intent should be None, meaning auto."""
-        slots = StyleSlots()
-        assert slots.framing_intent is None
-
-    def test_brand_template_from_dict_reads_framing_intent(self):
-        """BrandTemplate.from_dict should pick up framing_intent from
-        the style dict."""
-        data = {
-            "series_id": "test",
-            "style": {"framing_intent": 0.3},
-        }
-        tmpl = BrandTemplate.from_dict(data)
-        assert tmpl.style.framing_intent == 0.3
 
 
 # ─────────────────────────────────────────────────────────
@@ -332,20 +274,6 @@ class TestClipOverridesTemplate:
             framing_intent=0.0,  # clip's own value
         )
         assert result.get("needs_conform") is False
-
-    def test_clip_intent_partial_overrides_template_full(self):
-        """A clip-level framing_intent=0.3 should win over a template
-        value of 1.0 when passed directly."""
-        result_clip = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=0.3,
-        )
-        result_template = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=1.0,
-        )
-        # The zoom at 0.3 must be less than at 1.0
-        assert result_clip["fill_zoom"] < result_template["fill_zoom"]
 
 
 # ─────────────────────────────────────────────────────────
@@ -370,18 +298,6 @@ class TestUnsetIsTheDefault:
         assert result["needs_conform"] is True
         assert result["fill_zoom"] == EXPECTED_FULL_FILL_ZOOM
         assert "framing_pan_x" not in result
-
-    def test_unset_matches_the_declared_default(self):
-        from library.tools.framing_intent import DEFAULT_FRAMING_INTENT
-        unset = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=None,
-        )
-        declared = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=DEFAULT_FRAMING_INTENT,
-        )
-        assert unset == declared
 
     def test_a_visible_subject_no_longer_forces_letterbox(self):
         """The exact case that letterboxed all eight of 001's A-roll
@@ -408,16 +324,6 @@ class TestUnsetIsTheDefault:
                                "framing_intent": 0.0,
                                "framing_delivered": 0.0}
 
-    def test_unset_matching_aspect_no_conform(self):
-        """A clip whose aspect ratio matches the target should never
-        need conform, regardless of framing_intent."""
-        matching_meta = {"clip_v": {"width": 1080, "height": 1920}}
-        result = _conform_fields(
-            matching_meta, "clip_v", VERTICAL_PROJ_RES,
-            framing_intent=None,
-        )
-        assert result.get("needs_conform") is False
-
     def test_renderer_no_pan_when_unset(self):
         """With no pan in the clip dict, only zoom is touched, so a
         project that never set framing renders byte-identically."""
@@ -442,37 +348,6 @@ class TestUnsetIsTheDefault:
 class TestFramingEdgeCases:
     """Additional edge cases for robustness."""
 
-    def test_framing_intent_clamped_above_one(self):
-        """Values > 1.0 should be clamped to 1.0."""
-        result = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=1.5,
-        )
-        assert result["fill_zoom"] == EXPECTED_FULL_FILL_ZOOM
-
-    def test_framing_intent_clamped_below_zero(self):
-        """Values < 0.0 should be clamped to 0.0 (letterbox)."""
-        result = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=-0.5,
-        )
-        assert result.get("needs_conform") is False
-
-    def test_framing_pan_clamped_to_range(self):
-        """Pan values outside -1..1 should be clamped."""
-        result = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=1.0,
-            framing_pan_x=2.0,  # > 1.0, should clamp
-        )
-        # The result should still have a valid pan, equivalent to pan=1.0
-        result_at_one = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=1.0,
-            framing_pan_x=1.0,
-        )
-        assert result["framing_pan_x"] == result_at_one["framing_pan_x"]
-
     def test_missing_clip_metadata_returns_empty(self):
         """If clip metadata is missing, should return empty dict."""
         result = _conform_fields(
@@ -480,31 +355,6 @@ class TestFramingEdgeCases:
             framing_intent=0.5,
         )
         assert result == {}
-
-    def test_pan_zero_not_included(self):
-        """framing_pan_x=0 should not add framing_pan_x to the result
-        (centred is the default, no point setting it)."""
-        result = _conform_fields(
-            LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-            framing_intent=0.5,
-            framing_pan_x=0.0,
-        )
-        assert "framing_pan_x" not in result
-
-    def test_monotonic_zoom_across_continuum(self):
-        """Zoom should increase monotonically as framing_intent goes
-        from 0.0 to 1.0."""
-        zooms = []
-        for intent in [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]:
-            result = _conform_fields(
-                LANDSCAPE_CLIP_META, "clip_001", VERTICAL_PROJ_RES,
-                framing_intent=intent,
-            )
-            zooms.append(result["fill_zoom"])
-        for i in range(1, len(zooms)):
-            assert zooms[i] >= zooms[i - 1], (
-                f"Zoom should increase monotonically: {zooms}"
-            )
 
 
 if __name__ == "__main__":

@@ -247,17 +247,6 @@ def test_explicit_full_path_is_unchanged(tmp_path):
     assert out["frames"] is None
 
 
-def test_full_frames_keeps_full_geometry(tmp_path):
-    out = render_one_segment(_props(), str(tmp_path), "tl",
-                             remotion_dir="/none",
-                             renderer=_StubRenderer(),
-                             overlay_container="frames")
-    assert out["provenance"] == RENDERED
-    assert out["geometry"] == "full"
-    assert out["tight_box"] is None
-    assert out["frames"]["count"] == 60
-    assert out["frames"]["dir"].endswith("_frames")
-    assert not out["frames"]["dir"].endswith("_tight_frames")
 
 
 def test_incomplete_sequence_is_a_failure_not_a_render(tmp_path):

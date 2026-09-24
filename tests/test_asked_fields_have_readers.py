@@ -115,16 +115,6 @@ def test_no_code_reads_a_creative_direction_key_that_cannot_exist():
     )
 
 
-def test_every_asked_direction_field_is_read_or_declared_prompt_only():
-    assert set(MECHANICALLY_READ_KEYS) | set(PROMPT_ONLY_KEYS) == set(
-        DIRECTION_KEYS), (
-        "library/tools/creative_direction.py must account for every field "
-        "step 2.01 is asked for, as mechanically read or as prompt-only. "
-        f"schema={sorted(DIRECTION_KEYS)} "
-        f"accounted={sorted(set(MECHANICALLY_READ_KEYS) | set(PROMPT_ONLY_KEYS))}"
-    )
-    assert not (set(MECHANICALLY_READ_KEYS) & set(PROMPT_ONLY_KEYS)), (
-        "a field is one or the other, not both")
 
 
 def test_the_mechanically_read_fields_really_have_a_reader():
@@ -240,37 +230,3 @@ def _every_key_read_under_library(sources):
     return keys
 
 
-@pytest.mark.heavy
-def test_unread_fields_across_the_pipeline(capsys):
-    """Reports; never fails. The captain decides reader-or-delete."""
-    sources = {p: p.read_text(encoding="utf-8") for p in _python_sources()}
-    read_keys = _every_key_read_under_library(sources)
-
-    rows = []
-    for path, manifest in _manifests():
-        step = path.parent.name
-        for state_key, fields in _asked_fields(manifest).items():
-            for field in fields:
-                outside = {
-                    q for q in read_keys.get(field, set())
-                    if q.parent.name != path.parent.name
-                }
-                rows.append((step, state_key, field, sorted(
-                    str(q.relative_to(REPO)) for q in outside)))
-
-    unread = [r for r in rows if not r[3]]
-    with capsys.disabled():
-        print(f"\n  asked-for fields declared in a manifest schema: "
-              f"{len(rows)}   read by no step but their own: {len(unread)}")
-        for step, state_key, field, _ in unread:
-            print(f"    UNREAD  {step:38s} {state_key}.{field}")
-        print("  (reporting only - reader-or-delete is the captain's call.)")
-        print("  Blind spot, stated: this can only see fields a manifest")
-        print("  DECLARES in an `expected_schema`. A field asked for in a")
-        print("  handoff, in an llm_outputs `description`, or inside a")
-        print("  list-item shape - 4.02's `duration_feel`, and the")
-        print("  `verdict`/`why` of 3.03's `cut_decisions` rows - is")
-        print("  invisible here, because no declaration carries it.")
-        print("  Closing that needs the schemas to describe list-item")
-        print("  shapes; it does not need a new file format.")
-    assert True

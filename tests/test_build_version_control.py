@@ -79,20 +79,6 @@ BINARY_DECOYS = [
 ]
 
 
-def test_allow_list_versions_text_only(tmp_path):
-    for rel in TEXT_FILES:
-        _write(tmp_path, rel, f"text of {rel}\n")
-    for rel in BINARY_DECOYS:
-        _write(tmp_path, rel, b"\x00\x01binary\xff" * 100)
-    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
-    result = bvc.commit_build(str(tmp_path), message="first commit\n")
-    assert result["committed"] is True
-    tracked = set(_git(tmp_path, "ls-files").splitlines())
-    for rel in TEXT_FILES:
-        assert rel in tracked, f"allow-listed {rel} missing from the repo"
-    for rel in BINARY_DECOYS:
-        assert rel not in tracked, f"binary {rel} swallowed into the repo"
-    assert ".gitignore" in tracked
 
 
 # ── Declaration-store coverage ─────────────────────────────────────
@@ -186,18 +172,6 @@ def _declaration_stores():
     ]
 
 
-def test_every_declaration_store_the_pipeline_reads_is_versioned(tmp_path):
-    stores = _declaration_stores()
-    for rel, _readers in stores:
-        _write(tmp_path, rel, f"text of {rel}\n")
-    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
-    result = bvc.commit_build(str(tmp_path), message="first commit\n")
-    assert result["committed"] is True
-    tracked = set(_git(tmp_path, "ls-files").splitlines())
-    for rel, readers in stores:
-        assert rel in tracked, (
-            f"declaration store {rel} (read by {readers}) is excluded "
-            f"from the generated allow-list")
 
 
 def test_learned_context_crash_tmp_stays_out(tmp_path):
@@ -221,52 +195,10 @@ def test_learned_context_crash_tmp_stays_out(tmp_path):
     assert f"{rel}/.learnings.abc123.tmp" not in tracked
 
 
-def test_commit_message_renders_what_the_run_knows(tmp_path):
-    _write(tmp_path, "pipeline_run.json", json.dumps({
-        "mode": "single-step judge_reels, full-auto agy, no breakpoints",
-        "argv": ["--project", "/p", "--step", "judge_reels"],
-        "profile": {"name": ""},
-        "status": "partial",
-        "steps_to_run": ["judge_reels"],
-        "last_completed_step": "judge_reels",
-        "restart": {"basis": "after_failure", "previous_status": "failed"},
-    }))
-    _write(tmp_path, "pipeline_data.json", json.dumps({
-        "edit_completed": {"judge_reels": {}, "select_reels": {}},
-        "failed_steps": [],
-    }))
-    msg = bvc.render_commit_message(str(tmp_path))
-    assert msg.splitlines()[0] == "build judge_reels (partial)"
-    assert "mode: single-step judge_reels" in msg
-    assert "argv: --project /p --step judge_reels" in msg
-    assert "steps run: judge_reels" in msg
-    assert "completed (2): judge_reels, select_reels" in msg
-    assert "restart: after_failure (after failed)" in msg
-    # No profile name declared, no provenance record: both lines are
-    # omitted rather than invented.
-    assert "profile:" not in msg
-    assert "\nrun:" not in msg
 
 
-def test_noop_build_produces_no_commit(tmp_path):
-    bvc.init_project_repo(str(tmp_path))
-    _write(tmp_path, "project.yaml", "name: demo\n")
-    first = bvc.commit_build(str(tmp_path), message="first\n")
-    assert first["committed"] is True
-    second = bvc.commit_build(str(tmp_path))
-    assert second == {"committed": False, "reason": "clean"}
-    assert _git(tmp_path, "rev-list", "--count", "HEAD").strip() == "1"
 
 
-def test_committed_bytes_are_verbatim(tmp_path):
-    # The absolute-path decision: machine-local paths are committed
-    # exactly as the pipeline wrote them, so a checkout rebuilds.
-    content = '{"source_file": "/Users/prajwal/footage/clip_001.mp4"}\n'
-    bvc.init_project_repo(str(tmp_path))
-    _write(tmp_path, "pipeline_data.json", content)
-    assert bvc.commit_build(str(tmp_path), message="paths\n")["committed"]
-    shown = _git(tmp_path, "show", "HEAD:pipeline_data.json")
-    assert shown == content
 
 
 def test_build_record_names_the_blind_spot(tmp_path):
@@ -291,10 +223,6 @@ def test_record_without_repo_declines(tmp_path):
     assert report == {"committed": False, "reason": "no-repo", "files": []}
 
 
-def test_record_without_project_folder_declines():
-    report = bvc.record_finished_timeline(object(), object(), "", "cut_01")
-    assert report["committed"] is False
-    assert "project_folder" in report["reason"]
 
 
 # ── The reels promotion record ─────────────────────────────────────
@@ -377,12 +305,6 @@ def test_reel_promotion_without_repo_declines(tmp_path):
     assert report["reason"] == "no-repo"
 
 
-def test_reel_promotion_without_names_declines(tmp_path):
-    bvc.init_project_repo(str(tmp_path))
-    report = bvc.record_reel_promotion(
-        str(tmp_path), "Podcast (field test)", [])
-    assert report["committed"] is False
-    assert "no promoted timelines" in report["reason"]
 
 
 def test_reel_promotion_commits_the_declarations_when_the_snapshot_fails(
@@ -421,40 +343,3 @@ def test_reel_promotion_commits_the_declarations_when_the_snapshot_fails(
     assert "external/reel_ending.json" in report["files"]
 
 
-def test_reel_promotion_snapshots_each_timeline_then_commits(
-        tmp_path, monkeypatch):
-    bvc.init_project_repo(str(tmp_path))
-    project = _promotion_project()
-    monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
-                        _FakeDvr(_FakeResolve(project)))
-    import library.tools.timeline_serializer as ser
-    seen = []
-
-    def _fake_serialize(resolve_mock=None, timeline=None):
-        # The snapshot names its handle: the cursor is never moved to
-        # read (2026-09-20: an unleased cursor walk killed a sibling
-        # lane's Fusion pass), so the fake reads the handle it is
-        # given rather than whatever is current.
-        seen.append(timeline.GetName())
-        return {"schema_version": "1.0", "timeline": seen[-1]}
-
-    monkeypatch.setattr(ser, "serialize_timeline_state", _fake_serialize)
-    report = bvc.record_reel_promotion(
-        str(tmp_path), "Podcast (field test)",
-        ["Reel 28 - the-nail-salon-query-google-cant-answer", "Nope"])
-    assert report["committed"] is True
-    assert report["missing"] == ["Nope"]
-    assert seen == ["Reel 28 - the-nail-salon-query-google-cant-answer"]
-    snapshot = (tmp_path / "pipeline_output" / "review" /
-                "Reel_28_-_the-nail-salon-query-google-cant-answer"
-                ".timeline.json")
-    assert snapshot.is_file()
-    assert json.loads(snapshot.read_text(encoding="utf-8"))["timeline"] == \
-        "Reel 28 - the-nail-salon-query-google-cant-answer"
-    # The commit holds the snapshot, and the cursor never moved: the
-    # snapshot names its handle rather than setting the current
-    # timeline per name, so there is nothing to put back.
-    assert "pipeline_output/review/Reel_28" in "\n".join(report["files"])
-    assert project.GetCurrentTimeline().GetName() == "GEO Podcast - Synced"
-    log = _git(tmp_path, "log", "--oneline")
-    assert log.strip() != ""

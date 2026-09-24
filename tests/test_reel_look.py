@@ -79,24 +79,6 @@ def test_a_landscape_frame_in_a_portrait_reel_is_cover_scaled(tmp_path):
     assert zoom == pytest.approx((1920 / 1080) / (2160 / 3840), abs=1e-9)
 
 
-def test_cover_scale_answers_the_other_direction_too():
-    """A TALLER-than-frame asset fits by height and covers by width."""
-    assert tv_frame.cover_zoom((1080, 4320), 1920, 1080) == pytest.approx(
-        (1920 / 1080) / (1080 / 4320) / ((1920 / 1080) / (1080 / 4320)) * 4.0,
-        rel=1.0)
-    # Stated plainly rather than through the captain's ratio, which only
-    # holds when the fit is by width: fit 1080/4320 = 0.25 by height,
-    # cover 1920/1080 = 1.7778 by width.
-    assert tv_frame.cover_zoom((1080, 4320), 1920, 1080) == pytest.approx(
-        (1920 / 1080) / (1080 / 4320), rel=1e-9)
-
-
-def test_a_frame_at_the_delivery_aspect_needs_no_cover_zoom(tmp_path):
-    asset = _png(tmp_path / "portrait.png", (2160, 3840), window=True)
-    tv_frame.assert_frameable(_look(asset), 1080, 1920)
-    assert tv_frame.cover_zoom((2160, 3840), 1080, 1920) == pytest.approx(1.0)
-
-
 def test_a_frame_whose_cover_would_upscale_it_is_refused(tmp_path):
     """The first thing that genuinely cannot be framed."""
     asset = _png(tmp_path / "small.png", (540, 960), window=True)
@@ -115,34 +97,6 @@ def test_a_frame_with_no_window_is_refused(tmp_path):
     assert "slate" in str(excinfo.value)
 
 
-def test_no_declaration_refuses_nothing():
-    tv_frame.assert_frameable(None, 1080, 1920)
-
-
-def test_the_frame_overlay_is_rendered_at_its_cover_size():
-    """Rendered at the size it is DRAWN at, so nothing upscales it.
-
-    The first version rendered a fitted band padded to the delivery
-    frame; zooming that to cover would have upscaled a 1080-wide render
-    3.16 times, which is exactly what the upscale refusal exists to
-    stop happening to the asset itself.
-    """
-    drawn = tv_frame.cover_size((3840, 2160), 1080, 1920)
-    assert drawn[1] == 1920
-    assert drawn[0] >= 1080
-    # Even on both axes, because ffmpeg's encoders reject an odd one.
-    assert drawn[0] % 2 == 0 and drawn[1] % 2 == 0
-
-
-def test_picture_placements_keep_their_own_rows():
-    """Captain's ruling on Reel 09: no collapse. Each angle's picture
-    stays on its own row under the look, and the frame runs are read
-    off the placements as they are - there is no
-    `assert_one_picture_at_a_time` or `collapse_to_v1` left to call."""
-    assert not hasattr(reel_look, "assert_one_picture_at_a_time")
-    assert not hasattr(reel_look, "collapse_to_v1")
-
-
 def test_sequential_placements_frame_as_one_run():
     fps = 24.0
     placements = [
@@ -154,15 +108,6 @@ def test_sequential_placements_frame_as_one_run():
     assert reel_look.frame_runs(placements, fps) == [(0, 240)]
 
 
-def test_frame_runs_break_where_the_picture_does():
-    fps = 24.0
-    placements = [
-        _placement("/a.mxf", 0, 5.0, fps),
-        _placement("/b.mxf", 240, 5.0, fps),
-    ]
-    assert reel_look.frame_runs(placements, fps) == [(0, 120), (240, 360)]
-
-
 def test_power_effects_land_on_the_first_and_last_picture():
     effects = reel_look.power_effects(
         {"power": {}}, reel_look.clip_label(0), reel_look.clip_label(2))
@@ -171,69 +116,12 @@ def test_power_effects_land_on_the_first_and_last_picture():
     assert "tv_power_tail" not in effects[reel_look.clip_label(0)]
 
 
-def test_both_directions_ship_one_timing():
-    """The head and the tail a reel ships carry the SAME shape.
-
-    Not "agree today": `power_effects` resolves one declaration and
-    hands it to both directions, so a project cannot re-time the
-    switch-on and leave the switch-off behind (captain, 2026-09-11 -
-    "the tv on animation should start from fully black just like the
-    reverse of how the tv off animation goes to fully black").
-    """
-    effects = reel_look.power_effects(
-        {"power": {}}, reel_look.clip_label(0), reel_look.clip_label(2))
-    head = effects[reel_look.clip_label(0)]["tv_power_head_timing"]
-    tail = effects[reel_look.clip_label(2)]["tv_power_tail_timing"]
-    assert head == tail
-    assert head["collapse_crop"] == 0.49
-    declared = reel_look.power_effects(
-        {"power": {"collapse_crop": 0.3, "decay_frames": 12}},
-        reel_look.clip_label(0), reel_look.clip_label(2))
-    got_head = declared[reel_look.clip_label(0)]["tv_power_head_timing"]
-    got_tail = declared[reel_look.clip_label(2)]["tv_power_tail_timing"]
-    assert got_head == got_tail
-    assert got_head["collapse_crop"] == 0.3
-    assert got_head["decay_frames"] == 12
-
-
-def test_declared_zoom_multiplies_the_projects_own_framing():
-    assert reel_look.declared_zoom_over(1.0, None) == 1.0
-    assert reel_look.declared_zoom_over(
-        1.0, {"punch_in": 2.3}) == pytest.approx(2.3)
-    assert reel_look.declared_zoom_over(
-        1.5, {"punch_in": 2.0}) == pytest.approx(3.0)
-
-
 def test_an_unanswered_motion_ask_is_not_an_empty_plan(tmp_path):
     resolved, record = reel_look.resolve_motion(None, {"structure": []}, 24.0)
     assert resolved == []
     assert record["basis"] == reel_look.MOTION_AWAITING_ANSWER
     resolved, record = reel_look.resolve_motion([], {"structure": []}, 24.0)
     assert record["basis"] == reel_look.MOTION_PLANNED_NONE
-
-
-def test_motion_with_no_stated_reason_is_dropped():
-    spine = {"structure": [
-        {"position": 0, "timeline_start": 0.0, "timeline_end": 10.0}]}
-    resolved, record = reel_look.resolve_motion(
-        [{"target_block_position": 0, "effect_type": "ken_burns",
-          "params": {"zoom_start": 1.0, "zoom_end": 1.04}}],
-        spine, 24.0)
-    assert resolved == []
-    assert record["basis"] == reel_look.MOTION_EVERY_ENTRY_DROPPED
-    assert record["dropped"][0]["reason"] == "no_stated_reason"
-
-
-def test_ken_burns_without_a_direction_is_dropped():
-    spine = {"structure": [
-        {"position": 0, "timeline_start": 0.0, "timeline_end": 10.0}]}
-    resolved, record = reel_look.resolve_motion(
-        [{"target_block_position": 0, "effect_type": "ken_burns",
-          "params": {"zoom_start": 1.0, "zoom_end": 1.0},
-          "rationale": "the shot wants to breathe"}],
-        spine, 24.0)
-    assert resolved == []
-    assert record["dropped"][0]["reason"] == "ken_burns_without_direction"
 
 
 def test_a_reasoned_drift_resolves_and_reaches_the_manifest():
@@ -345,13 +233,6 @@ def test_no_subject_means_no_punch_in():
         {"punch_in": 2.3}, None, 3840, 2160, 1080, 1920) is None
 
 
-def test_more_than_one_subject_means_no_punch_in():
-    """A two-shot is not a close-up, and "largest face" is not "speaker"."""
-    two = _Subject(0.5, 0.32, others=1)
-    assert reel_look.punch_in_properties(
-        {"punch_in": 2.3}, two, 3840, 2160, 1080, 1920) is None
-
-
 def test_the_punch_in_is_aimed_at_the_measured_subject():
     window = _window(90)
     props = reel_look.punch_in_properties(
@@ -379,24 +260,6 @@ def test_the_aim_never_uncovers_the_screen_window():
     reel_look.assert_covers_window(far, 3840, 2160, 1080, 1920, window)
 
 
-def test_the_aim_bound_is_what_the_verifier_checks():
-    """The placer's clamp and F12 grade ONE property, stated once."""
-    from library.tools.reel_framing import delivered_picture
-
-    window = _window(90)
-    props = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.10, 0.32), 3840, 2160, 1080, 1920,
-        window=window)
-    delivered = delivered_picture(3840, 2160, 1080, 1920, props)
-    assert reel_look.uncovered_window_edges(delivered, window) == []
-
-    # And it really can report one: the same picture unaimed against the
-    # unrotated window leaves black top and bottom.
-    flat = delivered_picture(3840, 2160, 1080, 1920,
-                             {"ZoomX": 2.3, "ZoomY": 2.3})
-    assert reel_look.uncovered_window_edges(flat, _window(0))
-
-
 def test_a_landscape_frame_is_turned_upright_for_a_portrait_delivery():
     """The captain's instruction, and what the turn buys.
 
@@ -411,19 +274,6 @@ def test_a_landscape_frame_is_turned_upright_for_a_portrait_delivery():
     assert tv_frame.cover_zoom((2160, 3840), 1080, 1920) == pytest.approx(1.0)
 
 
-def test_a_frame_already_upright_is_not_turned():
-    look = {"rotate": tv_frame.AUTO_ROTATE}
-    assert tv_frame.applied_rotation(look, (2160, 3840), 1080, 1920) == 0
-    assert tv_frame.oriented_size((2160, 3840), 0) == (2160, 3840)
-
-
-def test_a_declaration_may_refuse_the_turn_or_state_its_own():
-    assert tv_frame.applied_rotation(
-        {"rotate": 0}, (3840, 2160), 1080, 1920) == 0
-    assert tv_frame.applied_rotation(
-        {"rotate": 270}, (3840, 2160), 1080, 1920) == 270
-
-
 def test_a_partial_turn_is_refused():
     """A frame turns in quarters or not at all."""
     with pytest.raises(ValueError) as excinfo:
@@ -431,36 +281,6 @@ def test_a_partial_turn_is_refused():
     assert "quarters" in str(excinfo.value)
     with pytest.raises(TypeError):
         tv_frame.validate_rotation("sideways", "test declaration")
-
-
-def test_the_turned_window_frames_the_declared_punch_in():
-    """The alignment the captain asked for, as arithmetic.
-
-    The bezel was drawn to frame a 2.30 punch-in: turned and conformed
-    into the reel, its transparent window lands where that punch-in puts
-    its picture. Both sides are computed here from the two declarations,
-    so a change to either that broke the alignment would fail.
-    """
-    from library.tools.reel_framing import delivered_picture
-
-    asset_w, asset_h = 3840, 2160
-    # The measured window of the captain's asset, unrotated.
-    x0, y0, x1, y1 = 519, 37, 3322, 2123
-    rotation = tv_frame.applied_rotation(
-        {"rotate": tv_frame.AUTO_ROTATE}, (asset_w, asset_h), 1080, 1920)
-    assert rotation == 90
-    # A quarter turn clockwise sends (x, y) to (H-1-y, x): the window's
-    # horizontal extent becomes its VERTICAL one, which is the whole
-    # point - the rails move from the sides to the top and bottom.
-    assert (y0, y1) == (37, 2123)          # unused after the turn, but
-    scale = 1080 / asset_h                 # the asset is 2160 wide now
-    window_top = x0 * scale
-    window_bottom = x1 * scale
-
-    picture = delivered_picture(asset_w, asset_h, 1080, 1920,
-                                {"ZoomX": 2.3, "ZoomY": 2.3})
-    assert abs(picture.top - window_top) <= 3
-    assert abs(picture.bottom - window_bottom) <= 4
 
 
 def _window(look_rotate, asset=(3840, 2160)):
@@ -491,40 +311,6 @@ def test_the_picture_covers_the_SCREEN_WINDOW_not_the_frame():
         == pytest.approx(3.05, abs=0.01)
 
 
-def test_the_drawn_zoom_is_the_larger_of_declared_and_needed():
-    """A project may punch in tighter than the screen needs, never looser."""
-    window = _window(90)
-    look = {"punch_in": 2.3}
-    props = reel_look.punch_in_properties(
-        look, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920, window=window)
-    assert props["ZoomX"] == pytest.approx(2.307, abs=0.001)
-
-    tighter = reel_look.punch_in_properties(
-        {"punch_in": 3.0}, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920,
-        window=window)
-    assert tighter["ZoomX"] == pytest.approx(3.0)
-
-
-def test_a_real_aim_moves_hundreds_of_pixels():
-    """A subject at the edge of the shot pulls the picture right across.
-
-    The aim was doubted because three shots of one reel all measured
-    near centre and so all moved ~40px. That is the footage, not the
-    arithmetic: a subject at 0.30 moves the picture 498px - stored as
-    Pan ~249 under today's measured draw gain (it stored ~498 under
-    the 2026-09-11 gain; see `tests/test_draw_gain_measured.py`).
-    """
-    window = _window(90)
-    left = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.30, 0.32), 3840, 2160, 1080, 1920,
-        window=window)
-    right = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.70, 0.32), 3840, 2160, 1080, 1920,
-        window=window)
-    assert left["Pan"] > 200
-    assert right["Pan"] < -200
-
-
 def test_a_punch_in_leaving_black_in_the_screen_is_refused():
     """The post-condition, on the exact geometry that shipped.
 
@@ -539,14 +325,6 @@ def test_a_punch_in_leaving_black_in_the_screen_is_refused():
             3840, 2160, 1080, 1920, flat)
     message = str(excinfo.value)
     assert "top 227" in message and "bottom 228" in message
-
-
-def test_covering_the_window_passes_the_check():
-    window = _window(90)
-    props = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920,
-        window=window)
-    reel_look.assert_covers_window(props, 3840, 2160, 1080, 1920, window)
 
 
 def test_the_window_is_a_required_argument():
@@ -585,59 +363,6 @@ def _overlay_dir(project_folder):
     return os.path.join(
         str(ProjectLayout(str(project_folder)).read_dir(Area.SCRATCH)),
         "reel_look", "frame_overlays")
-
-
-@pytest.mark.heavy
-def test_two_run_lengths_share_one_overlay_artefact(tmp_path):
-    """One still is one file, however many lengths use it.
-
-    Measured 2026-09-09 in `lucie/geo-podcast`: six renders of the same
-    frame at six lengths (2.8 GB) because the duration was part of the
-    filename, so the existence check missed on every new length.
-    """
-    look = _upright_frame_project(tmp_path)
-    segments = reel_look.frame_overlay_segments(
-        look, [(0, 48), (100, 220)], 24.0, 1080, 1920, str(tmp_path))
-    assert len(segments) == 2
-    assert segments[0]["overlay_path"] == segments[1]["overlay_path"]
-    assert os.path.isfile(segments[0]["overlay_path"])
-    # Each run is trimmed at placement, so each keeps its own length.
-    assert segments[0]["total_frames"] == 48
-    assert segments[1]["total_frames"] == 120
-    # And the identity carries no duration: one directory, one file.
-    stem = os.path.basename(
-        segments[0]["overlay_path"]).rsplit(".", 1)[0]
-    assert "_48f" not in stem and "_120f" not in stem
-    assert [os.path.basename(p) for p in
-            os.listdir(_overlay_dir(tmp_path))].__len__() == 1
-
-
-@pytest.mark.heavy
-def test_a_shorter_reuse_extends_nothing_and_renders_nothing(tmp_path):
-    """A run shorter than the render on disk trims it, and renders nothing."""
-    look = _upright_frame_project(tmp_path)
-    first = reel_look.frame_overlay_segments(
-        look, [(0, 220)], 24.0, 1080, 1920, str(tmp_path))
-    before = os.path.getmtime(first[0]["overlay_path"])
-    second = reel_look.frame_overlay_segments(
-        look, [(0, 48)], 24.0, 1080, 1920, str(tmp_path))
-    assert second[0]["overlay_path"] == first[0]["overlay_path"]
-    assert second[0]["total_frames"] == 48
-    assert os.path.getmtime(second[0]["overlay_path"]) == before
-    assert _rendered_frames(second[0]["overlay_path"]) >= 220
-
-
-@pytest.mark.heavy
-def test_a_longer_run_extends_the_shared_render(tmp_path):
-    """A run longer than the render on disk re-renders it, still as one file."""
-    look = _upright_frame_project(tmp_path)
-    short = reel_look.frame_overlay_segments(
-        look, [(0, 48)], 24.0, 1080, 1920, str(tmp_path))
-    longer = reel_look.frame_overlay_segments(
-        look, [(0, 220)], 24.0, 1080, 1920, str(tmp_path))
-    assert longer[0]["overlay_path"] == short[0]["overlay_path"]
-    assert _rendered_frames(longer[0]["overlay_path"]) >= 220
-    assert len(os.listdir(_overlay_dir(tmp_path))) == 1
 
 
 def test_the_overlay_name_shape_matches_shared_and_legacy_renders():

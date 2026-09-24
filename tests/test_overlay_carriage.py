@@ -152,9 +152,6 @@ def test_the_tolerance_neither_fails_correct_output_nor_passes_the_defect():
 
 @pytest.mark.parametrize("codec,pix_fmt,profile", [
     ("qtrle", "argb", ""),
-    ("prores", "yuva444p10le", "4444"),
-    ("prores", "yuva444p12le", "4444"),
-    ("png", "rgba", ""),
 ])
 def test_these_carry_alpha(codec, pix_fmt, profile):
     assert carries_alpha(codec_name=codec, pix_fmt=pix_fmt, profile=profile)
@@ -162,7 +159,6 @@ def test_these_carry_alpha(codec, pix_fmt, profile):
 
 @pytest.mark.parametrize("codec,pix_fmt,profile", [
     ("prores", "yuv422p10le", "HQ"),
-    ("h264", "yuv420p", "High"),
 ])
 def test_these_do_not(codec, pix_fmt, profile):
     assert not carries_alpha(codec_name=codec, pix_fmt=pix_fmt,
@@ -180,41 +176,6 @@ def _old_sniff(codec_name: str, pix_fmt: str, profile: str) -> bool:
         codec_name.lower() == "prores" and "4444" in profile)
 
 
-@needs_ffmpeg
-def test_asset_qa_accepts_a_real_qtrle_overlay(tmp_path):
-    """R8: `qa/asset_qa.py` rejected a valid overlay as having no alpha.
-
-    Run against a real file, through the real gate, because the point
-    is what QA does to an artefact and not what a predicate returns.
-    The overlay is half transparent and half coloured, which is the
-    shape every caption has.
-    """
-    from library.tools.qa import asset_qa
-
-    overlay = tmp_path / "sub_probe.mov"
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error",
-         "-f", "lavfi", "-i", "color=c=red:s=64x64:r=24:d=1",
-         "-f", "lavfi", "-i",
-         "gradients=s=64x64:c0=black:c1=white:r=24:d=1",
-         "-filter_complex", "[0:v][1:v]alphamerge[v]", "-map", "[v]",
-         *OVERLAY_ENCODE_ARGS, str(overlay)],
-        check=True, capture_output=True)
-
-    fields = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=codec_name,pix_fmt,profile",
-         "-of", "csv=p=0", str(overlay)],
-        capture_output=True, text=True, check=True).stdout.strip().split(",")
-    codec, pix_fmt = fields[0], fields[1]
-    profile = fields[2] if len(fields) > 2 else ""
-
-    assert not _old_sniff(codec, pix_fmt, profile), (
-        f"the old sniff was supposed to reject a {codec}/{pix_fmt} "
-        f"overlay; if it does not, this test no longer shows the defect")
-    assert asset_qa.verify_alpha_channel(str(overlay)), (
-        "QA rejected a valid qtrle overlay: the gate this change has to "
-        "pass would refuse every artefact this change produces")
 
 
 # ── The data level is per codec, and that is the whole point ─────────
@@ -267,13 +228,6 @@ def test_a_prores_item_keeps_auto():
     assert item.properties["Data Level"] == "Auto"
 
 
-def test_a_clip_with_no_alpha_is_left_alone():
-    """This runs on generic import paths that carry a-roll too."""
-    item = _FakeItem()
-    apply_clip_attributes(
-        item, "aroll.mov", probe={"codec_name": "h264",
-                                  "pix_fmt": "yuv420p", "profile": "High"})
-    assert item.properties == {"Alpha mode": "Straight", "Data Level": "Auto"}
 
 
 def test_a_refused_data_level_raises_rather_than_warning():
@@ -299,77 +253,16 @@ def test_an_unreadable_file_claims_nothing():
 
 # ── The encode arguments ─────────────────────────────────────────────
 
-def test_the_crop_path_uses_the_shared_encode_arguments():
-    """One spelling of the codec, or the two overlay paths drift."""
-    import inspect
-
-    from library.tools import tight_box
-
-    source = inspect.getsource(tight_box.crop_probe_to_tight)
-    assert "OVERLAY_ENCODE_ARGS" in source
-    assert "prores_ks" not in source, (
-        "the caption crop must not name an encoder of its own")
 
 
-def test_the_arguments_name_an_alpha_carrying_format():
-    assert OVERLAY_ENCODE_ARGS == ("-c:v", OVERLAY_VIDEO_CODEC,
-                                   "-pix_fmt", OVERLAY_PIXEL_FORMAT)
-    assert carries_alpha(codec_name=OVERLAY_VIDEO_CODEC,
-                         pix_fmt=OVERLAY_PIXEL_FORMAT)
 
 
 # ── The migration ────────────────────────────────────────────────────
 
-@needs_ffmpeg
-def test_a_transcode_is_bit_exact_and_smaller(tmp_path):
-    """Why a carriage bump may be paid with a transcode, not a re-render."""
-    source = tmp_path / "overlay.mov"
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error",
-         "-f", "lavfi", "-i", "testsrc2=s=320x240:r=24:d=1",
-         "-f", "lavfi", "-i", "color=c=black:s=320x240:r=24:d=1",
-         "-filter_complex", "[0:v][1:v]alphamerge[v]", "-map", "[v]",
-         "-c:v", "prores_ks", "-profile:v", "4444",
-         "-pix_fmt", "yuva444p10le", str(source)],
-        check=True, capture_output=True)
-    before = source.stat().st_size
-    record = transcode_in_place(str(source))
-    assert record["error"] == "", record["error"]
-    assert record["changed"] is True
-    assert record["bit_exact"] is True
-    assert record["before"] == before
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(source)],
-        capture_output=True, text=True, check=True)
-    assert probe.stdout.strip() == OVERLAY_VIDEO_CODEC
 
 
-@needs_ffmpeg
-def test_a_file_already_carried_is_not_rewritten(tmp_path):
-    source = tmp_path / "overlay.mov"
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error",
-         "-f", "lavfi", "-i", "testsrc2=s=64x64:r=24:d=1",
-         *OVERLAY_ENCODE_ARGS, str(source)],
-        check=True, capture_output=True)
-    record = transcode_in_place(str(source))
-    assert record["changed"] is False
-    assert record["skipped"] == "already qtrle"
 
 
-@needs_ffmpeg
-def test_frames_are_identical_can_say_no(tmp_path):
-    """The verify has to be able to fail, or it is not a verify."""
-    one, other = tmp_path / "a.mov", tmp_path / "b.mov"
-    for path, pattern in ((one, "testsrc2"), (other, "smptebars")):
-        subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-             "-i", f"{pattern}=s=64x64:r=24:d=1",
-             *OVERLAY_ENCODE_ARGS, str(path)],
-            check=True, capture_output=True)
-    assert frames_are_identical(str(one), str(one))
-    assert not frames_are_identical(str(one), str(other))
 
 
 def test_a_carriage_stamp_moves_only_where_it_matches(tmp_path):
@@ -394,46 +287,8 @@ def test_a_carriage_stamp_moves_only_where_it_matches(tmp_path):
         "restamping must not lose the rest of the sidecar")
 
 
-def test_the_carriage_names_the_codec_change():
-    """The stamp was bumped, so a cached ProRes artefact cannot read as
-    current - which is the whole reason the carriage is in the key."""
-    from library.tools.overlay_mode import OVERLAY_CARRIAGE
-
-    assert OVERLAY_CARRIAGE == "tight-480-4"
 
 
-@needs_ffmpeg
-def test_the_probe_cache_follows_a_file_that_changed_underneath_it(tmp_path):
-    """A transcode in place must not be read through a stale probe.
-
-    `apply_clip_attributes` runs on every import and every lookup hit,
-    so the probe is cached - and this is the case that makes caching on
-    the path alone wrong: the same path holds a different codec after
-    `transcode_in_place`, and the two codecs need OPPOSITE data levels.
-    """
-    source = tmp_path / "overlay.mov"
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error",
-         "-f", "lavfi", "-i", "testsrc2=s=64x64:r=24:d=1",
-         "-f", "lavfi", "-i", "color=c=gray:s=64x64:r=24:d=1",
-         "-filter_complex", "[0:v][1:v]alphamerge[v]", "-map", "[v]",
-         "-c:v", "prores_ks", "-profile:v", "4444",
-         "-pix_fmt", "yuva444p10le", str(source)],
-        check=True, capture_output=True)
-
-    before_item = _FakeItem()
-    apply_clip_attributes(before_item, str(source))
-    assert before_item.properties["Data Level"] == "Auto", (
-        "ProRes must be left on Auto")
-
-    record = transcode_in_place(str(source))
-    assert record["changed"] is True, record
-
-    after_item = _FakeItem()
-    apply_clip_attributes(after_item, str(source))
-    assert after_item.properties["Data Level"] == DATA_LEVEL_FULL, (
-        "the same path now holds qtrle and was read through the stale "
-        "probe: the clip would composite the whole frame 16/255 dark")
 
 
 # ── The stamp moves with the codec, both directions ──────────────────

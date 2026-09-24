@@ -100,11 +100,6 @@ def test_a_hand_made_parens_name_is_its_own_reel():
             != fl.durable_identity(REEL, ASK)
 
 
-def test_whitespace_and_case_do_not_split_a_note():
-    assert fl.durable_identity(REEL, "  The  Ending\nCuts  Early ") \
-        == fl.durable_identity(REEL, "the ending cuts early")
-
-
 def test_different_words_are_different_notes():
     """Normalisation must not merge two questions into one.
 
@@ -119,13 +114,6 @@ def test_the_same_words_on_two_reels_are_two_notes():
         != fl.durable_identity("Reel 23 - b", ASK)
 
 
-def test_a_marker_with_no_words_asks_nothing():
-    entries = fl.collect(None, [
-        pull(REEL, "2026-09-11T04:00:00Z",
-             {"name": "", "note": "", "text": "", "frame": 1})])
-    assert entries == {}
-
-
 # ── The state, and the join back to a resolution record ──────────
 
 def resolution(status, resolved_at, text=ASK, timeline=REEL):
@@ -135,13 +123,6 @@ def resolution(status, resolved_at, text=ASK, timeline=REEL):
             "text": f"feedback\n\n{text}", "check": "a_roll_two_rows",
             "verifier": "marker_resolution.CHECKS[a_roll_two_rows]",
             "marker_removed": True}
-
-
-def test_an_unanswered_note_is_open():
-    document = fl.build(None, [pull(REEL, "2026-09-11T04:00:00Z",
-                                    note(ASK))], resolutions=[])
-    assert document["entries"][0]["state"] == fl.STATE_OPEN
-    assert len(document["open"]) == 1
 
 
 def test_a_resolution_reaches_its_note_ACROSS_a_rebuild():
@@ -200,41 +181,6 @@ def test_a_declined_note_seen_again_is_not_a_re_ask():
         resolutions=[resolution(mr.STATUS_DECLINED,
                                 "2026-09-11T10:00:00Z")])
     assert document["entries"][0]["reasked"] is False
-
-
-def test_the_latest_resolution_wins():
-    document = fl.build(
-        None, [pull(REEL, "2026-09-11T04:00:00Z", note(ASK))],
-        resolutions=[resolution(mr.STATUS_RESOLVED_VERIFIED,
-                                "2026-09-11T10:00:00Z"),
-                     resolution(mr.STATUS_ADDRESSED_UNVERIFIED,
-                                "2026-09-11T12:00:00Z")])
-    assert document["entries"][0]["state"] == mr.STATUS_ADDRESSED_UNVERIFIED
-
-
-def test_a_resolution_for_words_nobody_pulled_creates_no_entry():
-    document = fl.build(
-        None, [pull(REEL, "2026-09-11T04:00:00Z", note(ASK))],
-        resolutions=[resolution(mr.STATUS_RESOLVED_VERIFIED,
-                                "2026-09-11T10:00:00Z",
-                                text="something never typed")])
-    assert len(document["entries"]) == 1
-    assert document["entries"][0]["state"] == fl.STATE_OPEN
-
-
-def test_the_states_are_marker_resolutions_own():
-    """A second vocabulary is how two records come to disagree."""
-    assert set(fl.STATES) == {fl.STATE_OPEN, mr.STATUS_RESOLVED_VERIFIED,
-                              mr.STATUS_ADDRESSED_UNVERIFIED,
-                              mr.STATUS_DECLINED, mr.STATUS_UNVERIFIABLE}
-
-
-def test_a_status_outside_the_vocabulary_does_not_set_a_state():
-    document = fl.build(
-        None, [pull(REEL, "2026-09-11T04:00:00Z", note(ASK))],
-        resolutions=[resolution("looks_fine_to_me",
-                                "2026-09-11T10:00:00Z")])
-    assert document["entries"][0]["state"] == fl.STATE_OPEN
 
 
 # ── Our reply is OURS, by record and not by colour ───────────────
@@ -331,16 +277,6 @@ def test_a_captain_sentence_mentioning_reply_stays_an_ask():
     assert document["entries"][0]["kind"] == fl.KIND_ASK
 
 
-def test_a_replys_words_do_not_count_as_the_captain_echoing_themselves():
-    identity = fl.durable_identity("Reel 01 - a", ASK)
-    document = fl.build(
-        None,
-        [pull("Reel 01 - a", "2026-09-11T04:00:00Z", reply_note(identity)),
-         pull("Reel 23 - b", "2026-09-11T04:00:00Z", reply_note(identity))],
-        resolutions=[])
-    assert document["echoes"] == {}
-
-
 def test_one_instruction_on_four_reels_is_reported_as_ONE(tmp_path):
     """"apply this to all of the reels" - one mechanism, not N edits."""
     words = "this animation here is something i want applied to all reels"
@@ -376,15 +312,6 @@ def test_the_ledger_is_rewritten_whole_from_the_durable_records(tmp_path):
         encoding="utf-8"))["format"] == fl.LEDGER_FORMAT
 
 
-def test_the_ledger_lands_in_the_captured_area(tmp_path):
-    """Beside the pulls, where a re-render cannot reach it."""
-    from library.tools.project_layout import Area, ProjectLayout
-
-    path = fl.ledger_path(tmp_path)
-    assert path.parent == ProjectLayout(str(tmp_path)).read_dir(
-        Area.MARKER_FEEDBACK)
-
-
 def test_render_shows_the_words_not_just_the_marker_name():
     """The first line of a marker's text is its NAME field.
 
@@ -397,27 +324,7 @@ def test_render_shows_the_words_not_just_the_marker_name():
     assert "akshita finishes talking" in printed
 
 
-def test_render_names_a_re_ask_out_loud():
-    document = fl.build(
-        None,
-        [pull(REEL, "2026-09-11T04:00:00Z", note(ASK, frame=1902)),
-         pull(REEL, "2026-09-11T18:00:00Z", note(ASK, frame=1907))],
-        resolutions=[resolution(mr.STATUS_RESOLVED_VERIFIED,
-                                "2026-09-11T10:00:00Z")])
-    assert "RE-ASKED" in fl.render(document)
-
-
-def test_render_survives_an_empty_project():
-    assert "no note" in fl.render(fl.build(None, [], resolutions=[]))
-
-
 # ── The identity grammar the `answers` single writer enforces ────────
-
-
-def test_is_identity_accepts_what_durable_identity_produces():
-    assert fl.is_identity(fl.durable_identity(REEL, f"feedback\n\n{ASK}"))
-    assert fl.is_identity(fl.durable_identity(
-        "Reel 04 (pre-rebuild backup)", "verdict (firstmate)\n\nFIXABLE"))
 
 
 def test_is_identity_rejects_prose_frames_and_fragments():

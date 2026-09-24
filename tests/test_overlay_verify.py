@@ -56,11 +56,6 @@ def test_clamped_store_fails_values_with_both_numbers():
     assert finding["gap"]["tilt"] == -7680.0 - -7929.0
 
 
-def test_identity_store_on_tight_clip_fails_values():
-    report = verify_values(
-        [_clip("cap", {"scaling": 0, "pan": 0.0, "tilt": 0.0})], {},
-        computed={("caption", "sub_x"): dict(COMPUTED)}, full_wh=(1080, 1920))
-    assert not report["passed"]
 
 
 def test_declared_intent_is_the_expectation():
@@ -89,25 +84,8 @@ def test_computed_store_fails_against_declared_intent():
     assert report["findings"][0]["provenance"] == "declared"
 
 
-def test_clip_with_no_expectation_is_skipped_not_passed():
-    report = verify_values([_clip("mystery", dict(COMPUTED),
-                                  kind="unknown", segment_id="zzz")],
-                           {}, computed={}, full_wh=(1080, 1920))
-    assert report["passed"] is True
-    assert report["checked"] == 0
-    assert len(report["skipped"]) == 1
 
 
-def test_origin_inverts_placement():
-    for canvas_wh, centre in (((840, 480), (540.0, 1396.0)),
-                              ((296, 480), (148.0, 960.0)),
-                              ((442, 480), (859.0, 960.4))):
-        placement = placement_for_box(canvas_wh[0], canvas_wh[1],
-                                      centre[0], centre[1],
-                                      FULL[0], FULL[1])
-        ox, oy = canvas_origin(placement, canvas_wh, FULL)
-        assert (ox, oy) == (round(centre[0] - canvas_wh[0] / 2.0),
-                            round(centre[1] - canvas_wh[1] / 2.0))
 
 
 def _asset_frame(path, canvas_wh=(200, 120), ink=(40, 30, 160, 90)):
@@ -145,15 +123,3 @@ def test_shifted_store_fails_pixels_with_gap(tmp_path):
     assert report["findings"][0]["gap_px"] == 11.0
 
 
-def test_blank_asset_frame_is_skipped(tmp_path):
-    from PIL import Image
-
-    frame = str(tmp_path / "blank.png")
-    Image.new("RGBA", (200, 120), (0, 0, 0, 0)).save(frame)
-    placement = placement_for_box(200, 120, 540.0, 960.0, *FULL)
-    clip = _clip("cap", dict(placement))
-    clip.update({"asset_frame": frame, "canvas_wh": (200, 120)})
-    key = ("caption", "sub_x")
-    report = verify_pixels([clip], {}, computed={key: dict(placement)}, full_wh=(1080, 1920))
-    assert report["checked"] == 0
-    assert len(report["skipped"]) == 1

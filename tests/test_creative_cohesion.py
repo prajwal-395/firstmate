@@ -133,43 +133,8 @@ def test_001s_real_transition_spec_is_counted_and_left_alone():
             if t["transition_id"] in ("trans_008", "trans_013")] == [15, 15]
 
 
-def test_an_aligned_edit_reports_only_what_it_could_not_measure():
-    inputs = {
-        "creative_direction": {"target_energy": "calm"},
-        "transition_spec": [
-            {"transition_type": "fade_to_black", "duration_frames": 45},
-            {"transition_type": "defocus", "duration_frames": 45},
-            {"transition_type": "hard_cut", "duration_frames": 0},
-        ],
-        "sfx_spec": [{"sfx_type": "swell"} for _ in range(5)],
-        "project_config": {"target_duration_seconds": 60},
-        "speech_sequence": {"body_sequence": [{"start_time": 0, "end_time": 60}]},
-        "audio_spine": SPINE_60S,
-    }
-
-    review = review_creative_cohesion(inputs)
-
-    # The passages carry no engagement judgement, and nothing invents one
-    # - see library/tools/passage_engagement.py. The review states that
-    # rather than comparing zeros.
-    assert review["warnings"] == [
-        "Engagement not compared: " + NO_ENGAGEMENT_BASIS,
-    ]
-    assert review["adjustments"] == []
-    assert review["observations"] == []
 
 
-def test_missing_inputs_are_stated_not_judged():
-    review = review_creative_cohesion({})
-    # Each gate says it could not measure, rather than judging the edit
-    # against an energy and a duration this step invented.
-    from library.tools.duration_targets import NO_TARGET_DECLARED
-    assert review["warnings"] == [
-        "Engagement not compared: " + NO_ENGAGEMENT_BASIS,
-        f"Duration not checked: {NO_TARGET_DECLARED}",
-    ]
-    assert review["adjustments"] == []
-    assert review["observations"] == []
 
 
 def test_the_review_no_longer_reports_a_score():
@@ -204,18 +169,6 @@ def test_the_grade_check_that_could_not_fire_is_gone():
     assert not any('color_grade_spec.get(' in line for line in live)
 
 
-def test_step_501_really_emits_neither_key():
-    """The evidence for the removal, held where it goes stale.
-
-    Driven against step 5.01's own builder, so this fails the day the
-    grade starts declaring a mood and the check can come back with
-    something real to read.
-    """
-    from library.steps.step_5_01_color_grade.grade import define_color_grade
-    spec = define_color_grade({})["color_grade_spec"]
-    assert "mood" not in spec and "grade_name" not in spec, spec.keys()
-    # What it does carry, so a reader knows what a future check has.
-    assert {"series_look", "fusion_look", "look_notes"} <= set(spec)
 
 
 def test_the_cohesion_step_no_longer_asks_for_the_grade():

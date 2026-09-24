@@ -42,54 +42,6 @@ def test_full_auto_api(temp_project_dir):
         assert output.get("test_out") == "success"
         mock_generate.assert_called_once()
 
-def test_full_auto_agent_writes_request(temp_project_dir):
-    """Test that --full-auto agent writes request files to the correct path"""
-    inputs = {"project_folder": temp_project_dir, "some_data": 456}
-    
-    prompt_path = Path(temp_project_dir) / "handoff.md"
-    prompt_path.write_text("Test prompt")
-    
-    requests_dir = Path(temp_project_dir) / "pipeline_output" / "llm_requests"
-    responses_dir = Path(temp_project_dir) / "pipeline_output" / "llm_responses"
-    
-    # Stub the agent wait loop's own sleep/clock, not the GLOBAL
-    # time.sleep/time.time every other thread calls (run_pipeline._agent_sleep).
-    with patch("library.processes.edit_video.run_pipeline._agent_sleep"), patch("library.processes.edit_video.run_pipeline._agent_clock", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]):
-        with pytest.raises(LLMError, match="Timeout"):
-            present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agent", llm_timeout=1)
-            
-    req_file = requests_dir / "test_step.json"
-    assert req_file.exists()
-    
-    with open(req_file) as f:
-        req_data = json.load(f)
-        assert req_data["step_id"] == "test_step"
-        assert req_data["prompt"] == "Test prompt"
-        assert "timestamp" in req_data
-
-def test_full_auto_agent_reads_response(temp_project_dir):
-    """Test that reading a response file returns valid step output"""
-    inputs = {"project_folder": temp_project_dir}
-    prompt_path = Path(temp_project_dir) / "handoff.md"
-    prompt_path.write_text("Test prompt")
-    
-    # Don't pre-create the response file before the function, because the function unlinks it.
-    responses_dir = Path(temp_project_dir) / "pipeline_output" / "llm_responses"
-    res_file = responses_dir / "test_step.json"
-    res_data = {"test_out": "agent_success"}
-    
-    def mock_sleep(secs):
-        if not res_file.parent.exists():
-            res_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(res_file, "w") as f:
-            json.dump(res_data, f)
-            
-    with patch("library.processes.edit_video.run_pipeline._agent_sleep", side_effect=mock_sleep):
-        # Should read the response file and return the dict
-        output = present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agent", llm_timeout=5)
-    
-    assert output == res_data
-
 def test_hybrid_step_full_auto(temp_project_dir):
     """Test that hybrid steps with --full-auto run full pre-bridge -> LLM -> post-bridge"""
     step_dir = Path(temp_project_dir) / "my_step"

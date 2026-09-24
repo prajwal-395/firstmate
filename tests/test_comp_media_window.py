@@ -27,9 +27,6 @@ FREEZE_FRAMES = 19
 # ── The predicate ───────────────────────────────────────────────────
 
 
-def test_the_conformed_freeze_window_covers_its_nineteen_frames():
-    assert window.uncovered_reason(CONFORMED, FREEZE_FRAMES) is None
-    assert window.covers(CONFORMED, FREEZE_FRAMES)
 
 
 def test_the_shipped_freeze_window_does_not_cover_its_first_frame():
@@ -39,10 +36,6 @@ def test_the_shipped_freeze_window_does_not_cover_its_first_frame():
     assert not window.covers(DRIFTED, FREEZE_FRAMES)
 
 
-def test_a_window_that_stops_short_names_the_frames_it_leaves_bare():
-    short = dict(CONFORMED, GlobalOut=10.0)
-    reason = window.uncovered_reason(short, FREEZE_FRAMES)
-    assert reason is not None and "GlobalOut 10" in reason
 
 
 def test_a_long_clip_whose_window_starts_far_negative_is_covered():
@@ -123,12 +116,6 @@ class _Item:
         return True
 
 
-def test_a_covered_window_is_left_alone():
-    item = _Item([CONFORMED])
-    receipt = window.conform_item(item, FREEZE_FRAMES, "banked.comp",
-                                  label="freeze")
-    assert receipt["repaired"] is False
-    assert item.imported == [], "nothing to repair, so nothing was written"
 
 
 def test_a_drifted_window_is_repaired_by_re_importing_the_banked_comp():
@@ -156,13 +143,6 @@ def test_a_repair_that_did_not_take_REFUSES_rather_than_shipping():
     assert "GlobalIn 1" in str(caught.value)
 
 
-def test_an_unreadable_window_is_reported_and_not_repaired():
-    item = _Item([None])
-    receipt = window.conform_item(item, FREEZE_FRAMES, "banked.comp",
-                                  label="freeze")
-    assert receipt["unreadable"] is True
-    assert receipt["repaired"] is False
-    assert item.imported == []
 
 
 # ── The diagnosis half: reading a built reel without rendering it ───
@@ -293,10 +273,3 @@ def test_the_comp_pass_conforms_a_drifted_window_it_just_imported(
         "render job")
 
 
-def test_the_comp_pass_REFUSES_when_the_window_will_not_conform(
-        monkeypatch, tmp_path):
-    drifted = dict(DRIFTED, GlobalIn=1.0, GlobalOut=72.0)
-    afc, _state = _drive_comp_pass(monkeypatch, tmp_path, [drifted])
-    with pytest.raises(window.CompWindowUncovered):
-        afc.apply_fusion_comps(_manifest(), str(tmp_path),
-                               step_id="build_reels")

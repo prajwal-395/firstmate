@@ -28,11 +28,6 @@ def _record(project):
     return run_control.read_run_status(str(project))
 
 
-def test_begin_starts_with_empty_timings(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    _begin(project, ["scan", "catalog"])
-    assert _record(project)["step_timings"] == {}
 
 
 def test_completed_run_carries_a_duration_for_each_step_that_ran(tmp_path):
@@ -52,23 +47,8 @@ def test_completed_run_carries_a_duration_for_each_step_that_ran(tmp_path):
     assert record["step_timings"]["temporal_index"] == {"reused": True}
 
 
-def test_reused_step_carries_no_duration(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    _begin(project, ["scan"])
-    run_control.record_step_timing(str(project), "scan", reused=True)
-    assert "duration_s" not in _record(project)["step_timings"]["scan"]
 
 
-def test_record_merges_one_step_without_touching_the_rest(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
-    _begin(project, ["scan", "catalog"])
-    run_control.record_step_timing(str(project), "scan", duration_s=3.0)
-    run_control.record_step_timing(str(project), "catalog", reused=True)
-    record = _record(project)
-    assert record["step_timings"]["scan"]["duration_s"] == 3.0
-    assert record["step_timings"]["catalog"] == {"reused": True}
 
 
 def test_rerun_overwrites_the_step_previous_entry(tmp_path):

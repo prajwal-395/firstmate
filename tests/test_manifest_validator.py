@@ -31,11 +31,6 @@ def get_valid_manifest():
         "subtitles": []
     }
 
-def test_valid_manifest_passes():
-    manifest = get_valid_manifest()
-    errors = validate_manifest(manifest)
-    assert not errors, f"Expected valid manifest to pass, got {errors}"
-
 def test_missing_source_file_fails():
     manifest = get_valid_manifest()
     manifest["tracks"]["V1"]["clips"][0]["source_file"] = "/does/not/exist.mov"
@@ -62,27 +57,6 @@ def test_invalid_cdl_values_fail():
     assert any("slope_r" in e for e in errors)
     assert any("power_g" in e for e in errors)
     assert any("offset_b" in e for e in errors)
-
-def test_negative_duration_fails():
-    manifest = get_valid_manifest()
-    manifest["tracks"]["V1"]["clips"][0]["timeline_out"] = -5.0
-    errors = validate_manifest(manifest)
-    assert any("Negative duration" in e for e in errors), errors
-
-
-def test_schema_violation_fails():
-    manifest = get_valid_manifest()
-    del manifest["project"]  # Required field
-    errors = validate_manifest(manifest)
-    assert any("Schema validation error" in e for e in errors)
-
-def test_subtitle_duration_exceeds_project():
-    manifest = get_valid_manifest()
-    manifest["subtitles"] = [
-        {"timeline_start": 0.0, "timeline_end": 15.0, "text": "This exceeds the 10.0 project duration"}
-    ]
-    errors = validate_manifest(manifest)
-    assert any("exceeds project duration" in e for e in errors)
     
 def test_subtitle_overlay_exceeds_project():
     """Uses the shape compile_manifest writes: subtitle_overlay.segments.

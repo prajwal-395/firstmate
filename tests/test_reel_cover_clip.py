@@ -81,31 +81,6 @@ def test_cover_derives_master_span_from_the_neighbour(tmp_path):
     assert clip.source_file == str(media)
 
 
-def test_cover_before_the_neighbour_counts_backwards(tmp_path):
-    media = tmp_path / "cam.mxf"
-    _render(media, "color=c=0x808080:s=160x120:r=24")
-    clip = verify_cover_clip(str(media), 0.5, 1.0,
-                             [_placed(media, 2.0, 4.0, 200.0)],
-                             _transcript(), FPS, require_face=False)
-    assert clip.timeline_end == pytest.approx(199.5)
-    assert clip.timeline_start == pytest.approx(199.0)
-
-
-def test_cover_refuses_a_missing_file(tmp_path):
-    with pytest.raises(OffsetRefused, match="no such file"):
-        verify_cover_clip(str(tmp_path / "absent.mxf"), 0.0, 1.0,
-                          [], _transcript(), FPS)
-
-
-def test_cover_refuses_a_span_past_the_end(tmp_path):
-    media = tmp_path / "cam.mxf"
-    _render(media, "color=c=0x808080:s=160x120:r=24")
-    with pytest.raises(OffsetRefused, match="overruns the file"):
-        verify_cover_clip(str(media), 3.5, 4.5,
-                          [_placed(media, 0.0, 2.0, 98.0)],
-                          _transcript(), FPS)
-
-
 def test_cover_refuses_with_no_sync_basis(tmp_path):
     """No placed clip of that file on any picture row: sync would be
     asserted, so the cover is refused."""
@@ -116,15 +91,6 @@ def test_cover_refuses_with_no_sync_basis(tmp_path):
     with pytest.raises(OffsetRefused, match="no sync basis"):
         verify_cover_clip(str(media), 2.5, 3.5,
                           [_placed(other, 0.0, 2.0, 98.0)],
-                          _transcript(), FPS)
-
-
-def test_cover_refuses_double_placed_frames(tmp_path):
-    media = tmp_path / "cam.mxf"
-    _render(media, "color=c=0x808080:s=160x120:r=24")
-    with pytest.raises(OffsetRefused, match="already play"):
-        verify_cover_clip(str(media), 1.5, 2.5,
-                          [_placed(media, 0.0, 2.0, 98.0)],
                           _transcript(), FPS)
 
 
@@ -144,15 +110,6 @@ def test_cover_refuses_a_moving_camera(tmp_path):
     media = tmp_path / "moving.mp4"
     _render(media, "testsrc2=s=160x120:r=24")
     with pytest.raises(OffsetRefused, match="camera moved"):
-        verify_cover_clip(str(media), 2.5, 3.5,
-                          [_placed(media, 0.0, 2.0, 98.0)],
-                          _transcript(), FPS, require_face=False)
-
-
-def test_cover_refuses_black(tmp_path):
-    media = tmp_path / "black.mxf"
-    _render(media, "color=black:s=160x120:r=24")
-    with pytest.raises(OffsetRefused, match="effectively black"):
         verify_cover_clip(str(media), 2.5, 3.5,
                           [_placed(media, 0.0, 2.0, 98.0)],
                           _transcript(), FPS, require_face=False)

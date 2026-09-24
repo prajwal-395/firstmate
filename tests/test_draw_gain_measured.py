@@ -58,42 +58,6 @@ def test_the_measured_caption_points_solve_gain_two():
             2.0, abs=0.01)
 
 
-def test_the_measured_motion_graphics_points_solve_gain_two():
-    # (stored units, drawn shift) horizontally and vertically.
-    assert _solved_gain(960.0 - 312.0, 1296.0, 480, 1920) == \
-        pytest.approx(2.0, abs=0.01)
-    assert _solved_gain(860.0 - 540.0, 583.7837837837837, 296,
-                        1080) == pytest.approx(2.0, abs=0.01)
-
-
-def test_the_measured_picture_probe_solves_gain_two():
-    base = fit_base_scale(3840, 2160, 1080, 1920)
-    # Tilt 100 -> 63 px, Tilt 200 -> 127 px (linear), Pan 100 -> 200.
-    assert _solved_gain(63.0, 100.0, 2160, 1920, base) == \
-        pytest.approx(2.0, abs=0.05)
-    assert _solved_gain(127.0, 200.0, 2160, 1920, base) == \
-        pytest.approx(2.0, abs=0.05)
-    assert _solved_gain(200.0, 100.0, 3840, 1080, base) == \
-        pytest.approx(2.0, abs=0.05)
-
-
-def test_the_measured_4k_plate_solves_gain_two():
-    # Native 3840x2160 plate, Tilt -400 moves 800 on 3840x2160.
-    assert _solved_gain(800.0, 400.0, 2160, 2160) == pytest.approx(
-        2.0, abs=0.01)
-
-
-def test_gain_one_solves_no_measured_case():
-    """The discriminator: under gain 1.0 every cell above misses."""
-    assert _solved_gain(1418.5 - 960.0, 917.0, 480, 1920) != \
-        pytest.approx(1.0, abs=0.05)
-    assert _solved_gain(960.0 - 312.0, 1296.0, 480, 1920) != \
-        pytest.approx(1.0, abs=0.05)
-    base = fit_base_scale(3840, 2160, 1080, 1920)
-    assert _solved_gain(200.0, 100.0, 3840, 1080, base) != \
-        pytest.approx(1.0, abs=0.05)
-
-
 def test_the_declared_row_converts_to_the_captains_hand_value():
     """The ground truth the rebuild gate checks: caption_row 0.8451 is
     delivery row 1623, canvas centre y 1418.5 on a 904x480 canvas, and

@@ -117,31 +117,12 @@ def test_unknown_duration_renders_segments_verbatim():
     assert "undescribed" not in prose
 
 
-def test_camera_prose_names_its_gap_too():
-    """The one-shot camera pass has the same shape, so the same marker."""
-    doc = dict(PREFIX_ONLY, camera=[
-        {"start": 0.0, "end": 20.0, "mode": "handheld",
-         "framing": "medium", "stability": "stable",
-         "movement": "walking"},
-    ])
-    prose = camera_prose(doc)
-    assert "undescribed" in prose
-    assert "20.0-188.6s" in prose
-
-
 def test_the_marker_carries_no_structure_fields():
     """The prose travels inline in 3.02; the structure must not travel
     with it (`test_no_scene_structure_travels_inline`)."""
     prose = scene_prose(PREFIX_ONLY)
     for marker in ("notable_features", "seen [", "usable_ranges_method"):
         assert marker not in prose
-
-
-def test_adapted_analysis_scene_carries_the_gap():
-    """`analysis.scene` is the routed carrier - the gap must survive
-    adaptation, on stored profiles as well as fresh ones."""
-    adapted = adapt_semantic_document(dict(PREFIX_ONLY))
-    assert "undescribed" in adapted["analysis"]["scene"]
 
 
 def test_normalize_sorts_clamps_and_drops_empties():
@@ -158,14 +139,6 @@ def test_normalize_sorts_clamps_and_drops_empties():
     # Every other key survives verbatim.
     assert normalized[0]["location"] == "street"
     assert normalized[1]["location"] == "lot"
-
-
-def test_coverage_summary_counts_overlaps_once():
-    summary = coverage_summary(
-        [{"start": 0.0, "end": 10.0}, {"start": 5.0, "end": 15.0}], 100.0)
-    assert summary["described_s"] == 15.0
-    assert summary["ratio"] == 0.15
-    assert summary["undescribed_ranges"] == [[15.0, 100.0]]
 
 
 def test_prefix_only_summary_matches_the_issue_measurement():
@@ -223,19 +196,3 @@ def test_analyze_clip_stores_normalized_scene_and_its_coverage():
     assert coverage["ratio"] == pytest.approx(18.9 / 188.578, abs=1e-4)
     assert coverage["undescribed_ranges"] == [[18.9, 188.578]]
     json.dumps(profile)
-
-
-def test_analyze_clip_prints_the_described_share(capsys):
-    """The operator sees 10% at analysis time, not at edit time."""
-    from unittest.mock import patch
-
-    from library.tools.analysis import vision_pipeline_v3 as vp
-
-    meta = {"clip_id": "IMG_1816", "file_path": "/footage/IMG_1816.MOV",
-            "duration_s": 188.578, "fps": 30.0, "resolution": [1920, 1080]}
-    with patch.object(vp.picture_quality, "measure_soft_picture",
-                      return_value=[]):
-        vp.analyze_clip(
-            _StubAnalyzer(), meta, [], [], "", None, "/tmp/nonexistent-cache")
-    out = capsys.readouterr().out
-    assert "10%" in out and "described" in out

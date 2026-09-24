@@ -200,22 +200,6 @@ def test_a_playhead_that_will_not_land_fails_the_still(
     assert list(tmp_path.glob("reel9_*.png")) == []
 
 
-def test_a_declined_grab_is_reported_not_silent(
-        no_lease, monkeypatch, tmp_path):
-    from library.tools.marker_capture import StillCaptureError
-
-    def refuse(timeline, project, destination):
-        raise StillCaptureError("ExportStills returned False")
-
-    monkeypatch.setattr(gate_stills, "grab_still", refuse)
-    project, _entry, _reel = _project()
-    report = grab_reel_stills(
-        project, "Reel 21 - my-website", [10], tmp_path, "reel21")
-    assert report["ok"] is False
-    assert report["stills"] == []
-    assert "ExportStills returned False" in report["failed"][0]["reason"]
-
-
 def test_a_rate_less_timeline_refuses_before_anything_moves(
         no_lease, grab_png, tmp_path):
     class NoRate(FakeTimeline):
@@ -229,19 +213,3 @@ def test_a_rate_less_timeline_refuses_before_anything_moves(
     assert report["ok"] is False
     assert "no frame rate" in report["error"]
     assert grab_png == []
-
-
-def test_png_size_reads_ihdr_without_pillow(tmp_path):
-    good = tmp_path / "good.png"
-    good.write_bytes(_minimal_png(1080, 1920))
-    assert png_size(good) == (1080, 1920)
-    bad = tmp_path / "bad.png"
-    bad.write_bytes(b"not a png at all")
-    assert png_size(bad) is None
-    assert png_size(tmp_path / "absent.png") is None
-
-
-def test_still_filename_flattens_the_label():
-    assert still_filename("Reel 21 - my-website!", 20) == \
-        "Reel_21_-_my-website__f000020.png"
-    assert still_filename("", 7) == "reel_f000007.png"

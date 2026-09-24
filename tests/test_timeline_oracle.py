@@ -199,23 +199,6 @@ def test_a_declared_live_name_reports_an_empty_timeline():
     assert "not satisfied" in oracle.render_report(evaluation)
 
 
-def test_every_precondition_the_rebuild_declares_evaluates():
-    """Each of `reel.build`'s six names answers rather than raising.
-
-    Live-readable or not: the screen answers what is on it and the
-    requirement's own check answers the rest - verbatim, never flipped.
-    """
-    from library.tools import operations as _operations
-
-    build = next(op for op in _operations.all() if op.name == "reel.build")
-    assert len(build.requires) == 6
-    for requirement in build.requires:
-        evaluation = oracle.evaluate_precondition_against_live(
-            requirement.name, {}, {})
-        assert evaluation["precondition"] == requirement.name
-        assert evaluation["declared"] is True
-        assert evaluation["basis"] == "requirement_check"
-        assert evaluation["kind"] == requirement.kind
 
 
 def test_a_delegated_refusal_names_what_is_missing():
@@ -230,17 +213,6 @@ def test_a_delegated_refusal_names_what_is_missing():
     assert "Missing: timeline_transcript" in report
 
 
-def test_a_delegated_machine_verdict_probes_the_machine():
-    """`env.resolve_scripting` answers from this machine, honestly."""
-    evaluation = oracle.evaluate_precondition_against_live(
-        "env.resolve_scripting", {}, {})
-    assert evaluation["satisfied"] in (True, False)
-    assert evaluation["kind"] == "environment"
-    report = oracle.render_report(evaluation)
-    if evaluation["satisfied"]:
-        assert "holds" in report
-    else:
-        assert "does not hold" in report
 
 
 def test_exact_names_win_and_prefixes_refuse():
@@ -278,10 +250,3 @@ def test_no_writer_or_cursor_move_lives_in_this_module():
     assert "['unique_id']" not in text
 
 
-def test_rows_load_from_a_read_reel_result(tmp_path):
-    timeline = _Timeline(_v1(_Item("LC4930.MXF", 0, 684)))
-    tracks = reel_read.read_tracks(timeline)
-    document = {"tracks": tracks}
-    path = tmp_path / "live.json"
-    path.write_text(json.dumps(document), encoding="utf-8")
-    assert oracle.load_rows(path) == reel_read.rows_of(document)

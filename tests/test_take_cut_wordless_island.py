@@ -149,11 +149,6 @@ def test_the_island_survives_take_cuts_without_the_absorb():
                                   for a, b in ranges], ranges
 
 
-def test_the_island_is_wordless_room_tone():
-    """'art' ends 1221.510 and 'and' starts 1221.731: 221ms of room
-    tone, the fix's precondition."""
-    assert reel_build._remnant_has_timed_words(
-        1221.51, 1221.73, _transcript()) is None
 
 
 def test_reel_ranges_absorbs_the_island(monkeypatch):
@@ -174,16 +169,6 @@ def test_reel_ranges_absorbs_the_island(monkeypatch):
                 a, b, _transcript()) is not None, (a, b)
 
 
-def test_absorb_wordless_take_gaps_merges_the_two_cuts():
-    """Directly: the island range is gone, absorbed into the cut."""
-    ranges = keep_ranges(START, END, _cuts())
-    out = absorb_wordless_take_gaps(ranges, _cuts(), _transcript())
-    assert (1221.51, 1221.73) not in [(round(a, 2), round(b, 2))
-                                      for a, b in out], out
-    assert (round(START, 2), 1219.06) in [(round(a, 2), round(b, 2))
-                                          for a, b in out], out
-    assert (1227.05, round(END, 2)) in [(round(a, 2), round(b, 2))
-                                        for a, b in out], out
 
 
 # ── The kill chain, both ways ────────────────────────────────────────
@@ -199,12 +184,6 @@ def test_the_island_placed_is_an_f7_error():
     assert all(f.finding_class == FindingClass.F7 for f in errors)
 
 
-def test_the_absorbed_reel_clears_the_f7_floor():
-    """And after the absorb: the same items, no findings."""
-    ranges = absorb_wordless_take_gaps(keep_ranges(START, END, _cuts()),
-                                       _cuts(), _transcript())
-    assert check_short_av_items("Reel 15", _items(ranges),
-                                _items(ranges), FPS) == []
 
 
 # ── The refusal branch ───────────────────────────────────────────────

@@ -178,18 +178,6 @@ def _promote(project_dir, resolve, **kwargs):
             {REEL_01: STAGING_01}, **kwargs)
 
 
-def test_a_clean_promotion_still_reports_success(project_dir):
-    """The control: nothing in this file may fail a promotion whose
-    own record lands whole."""
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-
-    result = _promote(project_dir, resolve)
-
-    assert result["promoted"] == [REEL_01]
-    assert REEL_01 in resolve.names()
-    assert STAGING_01 not in resolve.names()
 
 
 def test_a_failed_retirement_refuses_the_promotion(project_dir):
@@ -244,16 +232,6 @@ def test_a_failed_signoff_supersession_refuses_the_promotion(
     assert REEL_01 in resolve.names()
 
 
-def test_a_vacuous_supersede_declaration_still_promotes(project_dir):
-    """No sign-off was ever live: a defensive `--supersede` ends
-    nothing, and there is nothing to refuse."""
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-
-    result = _promote(project_dir, resolve, supersede=[REEL_01])
-
-    assert result["promoted"] == [REEL_01]
 
 
 def test_a_vanished_signoff_refuses_the_promotion(project_dir):

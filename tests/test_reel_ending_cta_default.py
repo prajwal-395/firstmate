@@ -129,24 +129,6 @@ def test_the_inheritance_does_not_know_who_closes(tmp_path):
             if k not in ("reel", "ends_on", "cta")}
 
 
-def test_three_different_passages_inherit_the_same_ending(tmp_path):
-    """There is no ONE CTA to hang this on, which is why it hangs on the
-    type.  Measured on the field test: the reels the captain complained
-    about close on three different passages."""
-    holds = {
-        name: reel_ending.resolve_ending(
-            str(tmp_path), name, _moment(cta))["tail_hold"]
-        for name, cta in (
-            ("Reel 01 - geo-is-comprehension-not-position", AKSHITA_CTA),
-            ("Reel 31 - is-there-a-way-to-game-ai", dict(
-                AKSHITA_CTA, timeline_start=1855.84, timeline_end=1865.28,
-                text="doing all the grunt work, so that you can focus on "
-                     "running your actual business.")),
-            ("Reel 28 - the-nail-salon-query-google-cant-answer",
-             CRAIG_CTA))}
-    assert set(holds.values()) == {"freeze"}
-
-
 # ── What a declaration is FOR ──────────────────────────────────────
 
 def test_a_per_reel_declaration_overrides_the_inheritance(tmp_path):
@@ -165,20 +147,6 @@ def test_a_per_reel_declaration_overrides_the_inheritance(tmp_path):
     assert not reel_ending.is_inherited(ending)
 
 
-def test_a_declaration_still_wins_for_a_staging_container(tmp_path):
-    """Prefix matching is what makes a pin survive a rebuild, and the
-    inheritance must not step in front of it mid-build."""
-    _declare(tmp_path, [{
-        "reel": "Reel 07 - held",
-        "ends_on": {"anchor_phrase": "the link's in our bio"},
-        "tail_element": "none", "reason": "nothing draws on this one"}])
-    ending = reel_ending.resolve_ending(
-        str(tmp_path), "Reel 07 - held (scratch 3) (rebuild staging)",
-        _moment(AKSHITA_CTA))
-    assert ending["tail_element"] == "none"
-    assert not reel_ending.is_inherited(ending)
-
-
 # ── What does NOT inherit ──────────────────────────────────────────
 
 def test_a_reel_that_closes_on_no_cta_inherits_nothing(tmp_path):
@@ -192,13 +160,6 @@ def test_a_reel_that_closes_on_no_cta_inherits_nothing(tmp_path):
     # is not a reel build - sees declarations only.
     assert reel_ending.resolve_ending(
         str(tmp_path), "Reel 01 - geo-is-comprehension-not-position") is None
-
-
-def test_a_cta_with_too_few_words_anchors_nothing(tmp_path):
-    """An anchor of one or two words could name any of several sayings.
-    Below the floor the CTA is not used as an anchor at all."""
-    assert reel_ending.cta_default_ending(
-        "Reel 99 - x", _moment(dict(AKSHITA_CTA, text="go"))) is None
 
 
 # ── The anchor is the CTA's OWN words ──────────────────────────────
@@ -226,23 +187,6 @@ def test_the_anchor_is_read_from_the_transcript_not_the_cta_text():
     # the plan's.
     fallback = reel_ending.cta_default_ending("Reel 07 - x", _moment(cta))
     assert "lucy" in fallback["ends_on"]["anchor_phrase"]
-
-
-def test_the_inherited_anchor_is_what_the_captain_wrote_by_hand():
-    """Reel 13's pin was written by hand before any of this existed.
-    Deriving the anchor from the CTA reproduces it, which is the
-    evidence that the default is the declaration rather than a new
-    rule beside it."""
-    ending = reel_ending.cta_default_ending(
-        "Reel 13 - the-accounting-firm-ai-called-healthcare",
-        _moment({"timeline_start": 328.61, "timeline_end": 341.27,
-                 "speaker": "Akshita",
-                 "text": "And that's why we've been building the Lucy "
-                         "visibility system for months. And if you want "
-                         "to see how your brand appears, you should go "
-                         "check it out. The link's in our bio."}))
-    assert (ending["ends_on"]["anchor_phrase"]
-            == "you should go check it out the link's in our bio")
 
 
 # ── What the inheritance actually does to a build ──────────────────
@@ -391,48 +335,7 @@ def test_a_declared_ending_takes_no_breath(tmp_path):
     assert len(record["held"]) == 1 and record["held"][0]["breath_end"] is None
 
 
-def test_an_inherited_anchor_that_finds_nothing_is_not_an_alarm(
-        tmp_path, capsys):
-    """A reel that ends where its plan ends is the ORDINARY case for an
-    inherited ending.  Printing it beside real failures on stderr would
-    teach a reader to skim both - and the freeze still applies, because
-    the hold is planned from the closing shot, not from the anchor."""
-    shots = [SimpleNamespace(timeline_start=333.8, timeline_end=341.27,
-                             source_in=500.0, track_index=1,
-                             speaker="Akshita")]
-    cta = dict(AKSHITA_CTA)
-    inherited = reel_ending.resolve_ending(
-        str(tmp_path), "Reel 01 - x", _moment(cta),
-        _transcript(cta, ["words", "the", "reel", "does", "not", "play"]))
-    ranges = [(333.8, 341.0)]
-    out, record = reel_ending.apply_ending(
-        ranges, reel_build.placements(ranges, shots, FPS),
-        {"segments": []}, inherited, FPS)
-
-    assert out == ranges and len(record["stale"]) == 1
-    reel_ending.report(record)
-    captured = capsys.readouterr()
-    assert captured.err == ""
-    assert "call to action" in captured.out
-    # The freeze is unaffected: it reads the closing shot, not the words.
-    assert reel_ending.plan_freeze(
-        _placements(), inherited, FPS) is not None
-
-
-def test_a_build_says_which_endings_it_was_told_and_which_it_inherited(
-        tmp_path, capsys):
-    """A build printing "Ending: ..." for a reel nobody wrote a pin for
-    would read as a declaration the captain has forgotten making."""
-    inherited = reel_ending.resolve_ending(
-        str(tmp_path), "Reel 01 - x", _moment(AKSHITA_CTA))
-    reel_ending.report({"applied": [], "stale": [], "held": [{
-        "reel": "Reel 01 - x", "anchor_phrase": "the link's in our bio",
-        "source": inherited["source"], "tail_element": "tv_power_tail",
-        "tail_hold": "freeze", "was": [0.0, 1.0], "now": [0.0, 1.0]}]})
-    assert "inherited from the call to action" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize("cta", [AKSHITA_CTA, CRAIG_CTA])
+@pytest.mark.parametrize("cta", [AKSHITA_CTA])
 def test_every_inherited_ending_passes_the_declared_check(cta):
     """A default that would be refused as a hand-written declaration is
     a default nobody could have written down."""

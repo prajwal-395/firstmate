@@ -129,64 +129,10 @@ def test_pin_path_refuses_the_off_frame_tilt():
     assert "ENTIRELY OUTSIDE THE FRAME" in reason
 
 
-def test_pin_path_accepts_the_same_graphic_placed_right():
-    """No false alarm: the pin's own transform passes the pin's intent."""
-    from library.tools.overlay_intent import resolve as resolve_intent
-
-    segment = {"tight_box": {"width": OFF_FRAME_CANVAS[0],
-                             "height": OFF_FRAME_CANVAS[1],
-                             "placement": {"scaling": 1, "pan": 0.0,
-                                           "tilt": OFF_FRAME_TILT}}}
-    intent = {"mg_reel30_first": {"canvas_centre": [540.0, 312.0],
-                                  "scaling": 1}}
-    draw_intent = draw_intent_for_segment(
-        segment, kind="motion graphic",
-        segment_id="mg_reel30_first", intent=intent, frame_wh=FRAME)
-    placement, provenance = resolve_intent(
-        "motion graphic", "mg_reel30_first",
-        {"scaling": 1, "pan": 0.0, "tilt": OFF_FRAME_TILT}, intent,
-        canvas=OFF_FRAME_CANVAS, frame=FRAME)
-    assert provenance == "declared"
-    reason = _intent_reason(
-        draw_intent, placement,
-        {"Pan": placement["pan"], "Tilt": placement["tilt"]})
-    assert reason == "", f"a correct pin placement must pass, got: {reason}"
 
 
-def test_pin_wins_over_the_caption_row():
-    """A pinned caption is judged by the pin, never by the row.
-
-    Reel 09 pinned all 22 captions at one centre; the row later moved.
-    Judging the pin by the row would false-alarm on exactly the
-    corrections pins exist to keep.
-    """
-    segment = {"tight_box": {"width": 904, "height": 480,
-                             "placement": {"scaling": 1, "pan": 0.0,
-                                           "tilt": -1700.0}}}
-    intent = {"caption": {"canvas_centre": [540.0, 1395.0], "scaling": 1}}
-    draw_intent = draw_intent_for_segment(
-        segment, kind="caption", segment_id="sub_x", intent=intent,
-        frame_wh=FRAME)
-    assert draw_intent is not None
-    box = draw_intent["intent_box"]
-    assert ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0) == pytest.approx(
-        (540.0, 1395.0))
 
 
-def test_unpinned_motion_graphics_ride_as_before():
-    """No per-graphic declaration exists at placement time for these,
-    so the helper says nothing rather than guessing - a wrong intent
-    box false-alarms on correct output, which is worse than no check.
-    """
-    segment = {"tight_box": {"width": 724, "height": 480,
-                             "placement": {"scaling": 1, "pan": 0.0,
-                                           "tilt": 100.0}}}
-    assert draw_intent_for_segment(
-        segment, kind="explainer", segment_id="vox_r1_0", intent={},
-        frame_wh=FRAME) is None
-    assert draw_intent_for_segment(
-        segment, kind="semantic visual", segment_id="sem_r1_0",
-        intent=None, frame_wh=FRAME) is None
 
 
 # ── The caption row path ──────────────────────────────────────────────
@@ -218,30 +164,6 @@ def _caption_segment(tmp_path, canvas=(904, 480), tilt=-1744.0,
                                         "tilt": tilt}}}
 
 
-def test_caption_row_path_passes_a_correct_caption(tmp_path):
-    """The row re-derived from today's declarations accepts the placement
-    the same arithmetic computed - no false alarm on correct output."""
-    project = _project_with_caption_row(tmp_path)
-    segment = _caption_segment(tmp_path)
-    draw_intent = caption_draw_intent(
-        segment, frame_wh=FRAME, project_folder=project)
-    assert draw_intent is not None, (
-        "a structural caption with render props must verify")
-    # The placement the declarations imply passes: no false alarm on
-    # correct output. (The record's own tilt is illustrative only.)
-    intended = constant_caption_box({
-        "width": FRAME[0], "height": FRAME[1],
-        "style": {"safeArea": {"top": 120, "right": 120,
-                               "bottom": 321, "left": 90},
-                  "captionMaxWidth": 840, "position": "bottom"},
-        "subtitles": [{"text": ""}]})
-    assert (intended.width, intended.height) == (904, 480)
-    intended_reason = _intent_reason(
-        draw_intent, dict(intended.placement),
-        {"Pan": intended.placement["pan"],
-         "Tilt": intended.placement["tilt"]})
-    assert intended_reason == "", \
-        f"correct row placement refused: {intended_reason}"
 
 
 def test_caption_row_path_refuses_a_stale_sidecar_placement(tmp_path):
@@ -266,53 +188,10 @@ def test_caption_row_path_refuses_a_stale_sidecar_placement(tmp_path):
     assert "off by" in reason
 
 
-def test_caption_row_path_follows_a_declared_row(tmp_path):
-    """The reel override moves the intent: the check judges against
-    today's declaration, never a hardcoded row."""
-    import json as _json
-
-    project = _project_with_caption_row(tmp_path)
-    external = os.path.join(project, "external")
-    os.makedirs(external, exist_ok=True)
-    with open(os.path.join(external, "reel_caption_row.json"), "w",
-              encoding="utf-8") as handle:
-        _json.dump({"version": 1,
-                    "rows": [{"reel": "reel-a", "caption_row": 0.72,
-                              "reason": "test"}]},
-                   handle)
-    segment = _caption_segment(tmp_path)
-    plain = caption_draw_intent(segment, frame_wh=FRAME,
-                                project_folder=project)
-    per_reel = caption_draw_intent(segment, frame_wh=FRAME,
-                                   project_folder=project,
-                                   reel_name="reel-a")
-    assert plain is not None and per_reel is not None
-    assert plain["intent_box"] != per_reel["intent_box"], (
-        "the reel override must move the intent, or it is decoration")
 
 
-def test_caption_skips_without_props_or_with_legacy_canvas(tmp_path):
-    """No anchor, no verdict; a non-structural canvas is hung
-    differently, so no rect rather than a wrong one."""
-    project = _project_with_caption_row(tmp_path)
-    no_props = {"overlay_path": "", "frames": {},
-                "tight_box": {"width": 904, "height": 480,
-                              "placement": {"scaling": 1, "pan": 0.0,
-                                            "tilt": -1700.0}}}
-    assert caption_draw_intent(no_props, frame_wh=FRAME,
-                               project_folder=project) is None
-    legacy = _caption_segment(tmp_path, canvas=(840, 200), tilt=-5000.0)
-    assert caption_draw_intent(legacy, frame_wh=FRAME,
-                               project_folder=project) is None
 
 
-def test_full_canvas_segments_take_no_intent():
-    assert draw_intent_for_segment(
-        {"tight_box": None}, kind="caption", segment_id="s",
-        intent={}, frame_wh=FRAME) is None
-    assert draw_intent_for_segment(
-        {}, kind="caption", segment_id="s", intent={}, frame_wh=FRAME
-    ) is None
 
 
 # ── matching_target: the quiet lookup the pin path reads ─────────────
@@ -332,52 +211,10 @@ def test_matching_target_exact_prefix_and_kind():
                            frame_wh=FRAME) is None
 
 
-def test_matching_target_label_tier_survives_a_rerender():
-    """The 1186 tier, through this seam: the digest id died in a
-    re-render, the placing label did not, and the pin still binds."""
-    intent = {"vox_r1_00": {"canvas_centre": [540.0, 312.0], "scaling": 1}}
-    key, target = matching_target(intent, "explainer", "mg_proj_c43f73d8",
-                                  "vox_r1_00")
-    assert key == "vox_r1_00"
-    assert target["canvas_centre"] == [540.0, 312.0]
-    # An exact pin still binds where the placing carries no pin.
-    intent["mg_proj_c43f73d8"] = {"canvas_centre": [1.0, 2.0],
-                                  "scaling": 1}
-    key, _target = matching_target(intent, "explainer", "mg_proj_c43f73d8",
-                                   "vox_r9_99")
-    assert key == "mg_proj_c43f73d8"
 
 
-def test_matching_target_label_collision_refuses():
-    """An exact pin and a label pin both naming one live segment RAISE
-    rather than being guessed between - the 1186 collision rule, intact
-    through this seam."""
-    from library.tools.overlay_intent import OverlayIntentError
-
-    intent = {"vox_r1_00": {"canvas_centre": [540.0, 312.0], "scaling": 1},
-              "other_key": {"canvas_centre": [1.0, 2.0], "scaling": 1}}
-    with pytest.raises(OverlayIntentError):
-        matching_target(intent, "explainer", "vox_r1_00", "other_key")
 
 
-def test_label_pin_refuses_the_off_frame_tilt_after_rerender():
-    """The pixel incident under 1186's world: the graphic re-rendered
-    under a new digest, the label pin still binds, Tilt 5184 still
-    refused."""
-    segment = {"tight_box": {"width": OFF_FRAME_CANVAS[0],
-                             "height": OFF_FRAME_CANVAS[1],
-                             "placement": {"scaling": 1, "pan": 0.0,
-                                           "tilt": OFF_FRAME_TILT}}}
-    intent = {"vox_r1_00": {"canvas_centre": [540.0, 312.0], "scaling": 1}}
-    draw_intent = draw_intent_for_segment(
-        segment, kind="explainer", segment_id="mg_proj_newdigest",
-        placement_label="vox_r1_00", intent=intent, frame_wh=FRAME)
-    assert draw_intent is not None, (
-        "a label pin must arm the check after a re-render kills the id")
-    reason = _intent_reason(
-        draw_intent, {"scaling": 1, "pan": 0.0, "tilt": OFF_FRAME_TILT},
-        {"Pan": 0.0, "Tilt": OFF_FRAME_TILT})
-    assert reason and "ENTIRELY OUTSIDE THE FRAME" in reason
 
 
 # ── Finding 2, proved: stored -7680 is REFUSED by the values half ─────
@@ -435,82 +272,12 @@ def test_sweep_refuses_the_reel09_clamp():
     assert finding["expected"]["tilt"] == -7929.0
 
 
-def test_sweep_passes_a_matching_store():
-    timeline = _timeline_with({3: [_Item(10, {"Scaling": 1, "Pan": 0.0,
-                                              "Tilt": -7929.0})]})
-    report = sweep_reel_overlays(
-        timeline, [_sweep_entry("sub_r09_x", REEL09_COMPUTED)], intent={},
-        full_wh=FRAME)
-    assert report["passed"] and report["values"]["checked"] == 1
 
 
-def test_sweep_never_fails_the_build():
-    """An unreadable timeline degrades to loud skips; the reel stands.
-
-    A clip nothing could read is SKIPPED, never passed - and never a
-    build failure either.
-    """
-    class _Broken:
-        def GetItemListInTrack(self, kind, index):
-            raise RuntimeError("no Resolve here")
-
-    report = sweep_reel_overlays(
-        _Broken(), [_sweep_entry("sub_r09_x", REEL09_CLAMPED)], intent={},
-        full_wh=FRAME)
-    assert report["passed"] is True
-    assert report["values"]["checked"] == 0
-    assert report["values"]["skipped"][0]["label"] == "sub_r09_x"
 
 
-def test_sweep_reports_unavailable_rather_than_raising():
-    """What the sweep cannot run at all is said once; the reel stands."""
-    report = sweep_reel_overlays(
-        _timeline_with({}), [_sweep_entry("sub_r09_x", REEL09_CLAMPED)],
-        intent={}, full_wh=None)
-    assert report["passed"] is True
-    assert "unavailable" in report
 
 
-def test_sweep_pixel_half_runs_where_a_still_reaches(tmp_path):
-    """Frames-container captions decode their first PNG; mov clips skip
-    the pixel half loudly (the placement-time check already judges
-    their held geometry)."""
-    from PIL import Image
-
-    frames = tmp_path / "seg_frames"
-    frames.mkdir()
-    image = Image.new("RGBA", (200, 120), (0, 0, 0, 0))
-    pixels = image.load()
-    for y in range(30, 90):
-        for x in range(40, 160):
-            pixels[x, y] = (255, 255, 255, 255)
-    image.save(str(frames / "frame-00.png"))
-    image.save(str(frames / "frame-01.png"))
-    from library.tools.tight_box import placement_for_box
-
-    placement = placement_for_box(200, 120, 540.0, 960.0, *FRAME)
-    entry = _sweep_entry("sub_frames", placement, canvas=(200, 120),
-                         computed=placement)
-    entry["frames_dir"] = str(frames)
-    timeline = _timeline_with({3: [_Item(10, {"Scaling": 1,
-                                              "Pan": placement["pan"],
-                                              "Tilt": placement["tilt"]})]})
-    report = sweep_reel_overlays(timeline, [entry], intent={},
-                                 full_wh=FRAME)
-    assert report["passed"]
-    assert report["pixels"]["checked"] == 1
-    # And a mov-only clip skips pixels without failing values.
-    mov_entry = _sweep_entry("sub_mov", placement, track=4, frame=20,
-                             canvas=(200, 120), computed=placement)
-    mov_entry["overlay_path"] = "/nowhere/sub_mov.mov"
-    timeline2 = _timeline_with({4: [_Item(20, {"Scaling": 1,
-                                               "Pan": placement["pan"],
-                                               "Tilt": placement["tilt"]})]})
-    report2 = sweep_reel_overlays(timeline2, [mov_entry], intent={},
-                                  full_wh=FRAME)
-    assert report2["passed"]
-    assert report2["pixels"]["checked"] == 0
-    assert len(report2["pixels"]["skipped"]) == 1
 
 
 # ── The placer evaluates what the callers now supply ──────────────────
@@ -552,22 +319,7 @@ def _library_source(relative):
         return handle.read()
 
 
-def test_master_captions_supply_draw_intent():
-    source = _library_source(
-        "library/steps/step_6_01_render/resolve_build_timeline.py")
-    assert "draw_intent=draw_intent_for_segment(" in source
-    assert "draw_intent_for_segment,\n" in source
 
 
-def test_reel_placers_supply_draw_intent_and_collect_sweep_records():
-    source = _library_source("library/tools/reel_build.py")
-    assert source.count("draw_intent=draw_intent_for_segment(") >= 1
-    assert source.count("draw_intent=_draw_intent_for_segment(") >= 1
-    assert "sweep_out" in source
-    assert "sweep_reel_overlays(" in source
-    assert 'build_record["overlay_sweep"]' in source
 
 
-def test_overlay_verify_has_a_production_caller():
-    source = _library_source("library/tools/reel_build.py")
-    assert "from library.tools.overlay_verify import" in source

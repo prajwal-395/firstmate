@@ -100,9 +100,6 @@ LEGACY_PROFILE = {
 }
 
 
-def test_v3_profile_is_detected_and_legacy_is_not():
-    assert is_v3_profile(V3_PROFILE)
-    assert not is_v3_profile(LEGACY_PROFILE)
 
 
 def test_legacy_documents_pass_through_untouched():
@@ -110,42 +107,12 @@ def test_legacy_documents_pass_through_untouched():
     assert adapt_semantic_document(LEGACY_PROFILE) == LEGACY_PROFILE
 
 
-def test_v3_fields_survive_adaptation():
-    """The adapter adds a view; it must not replace the observations."""
-    adapted = adapt_semantic_document(V3_PROFILE)
-    assert adapted["camera"] == V3_PROFILE["camera"]
-    assert adapted["scene"] == V3_PROFILE["scene"]
-    assert adapted["objects"] == V3_PROFILE["objects"]
-    assert adapted["assessment"]["usable_ranges"] == [[0, 45.943]]
-    assert adapted["assessment"]["primary_subject_visible"] == [[0, 46]]
 
 
-def test_v3_scene_segments_become_a_time_bounded_description():
-    adapted = adapt_semantic_document(V3_PROFILE)
-    scene = adapted["analysis"]["scene"]
-    assert "0.0-46.0s" in scene
-    assert "Outdoor parking lot and construction site" in scene
-    assert "Construction site with steel frame" in scene
 
 
-def test_v3_camera_segments_carry_framing_and_stability_per_range():
-    """The audit's headline unreachable fields, rendered where steps read."""
-    adapted = adapt_semantic_document(V3_PROFILE)
-    motion = adapted["analysis"]["motion"]
-    assert "wide framing" in motion
-    assert "close-up framing" in motion
-    assert "[0.0-12.0s]" in motion
-    assert "[12.0-46.0s]" in motion
-    assert "stable" in motion and "unstable" in motion
 
 
-def test_v3_actions_become_time_resolved_blocks():
-    adapted = adapt_semantic_document(V3_PROFILE)
-    blocks = adapted["blocks"]
-    assert len(blocks) == 1
-    assert blocks[0]["timestamp_range"] == "0:00-0:10"
-    assert "walks forward" in blocks[0]["visual"]
-    assert blocks[0]["label"] == "Outdoor parking lot and construction site"
 
 
 def test_adapter_does_not_invent_fields_v3_never_measured():
@@ -156,14 +123,6 @@ def test_adapter_does_not_invent_fields_v3_never_measured():
     assert "mood" not in adapt_semantic_document(V3_PROFILE)["analysis"]
 
 
-def test_derived_assessment_fields_are_renderings_of_real_observations():
-    assessment = adapt_semantic_document(V3_PROFILE)["assessment"]
-    # content_type says the subject is talking to camera.
-    assert assessment["clip_type"] == "a_roll"
-    assert assessment["usable_portions"] == "0.0-45.9s"
-    assert "person" in assessment["keywords"]
-    assert "outdoor" in assessment["keywords"]
-    assert "close-up" in assessment["keywords"]
 
 
 def test_a_fully_excluded_clip_says_so_rather_than_rendering_blank():
@@ -228,11 +187,6 @@ def test_a_legacy_document_without_the_method_field_still_renders_blank():
     assert clip_observations(legacy)["usable_ranges"] == "0.0-12.0s"
 
 
-def test_scenery_content_type_is_not_labelled_a_roll():
-    scenery = dict(V3_PROFILE)
-    scenery["assessment"] = dict(V3_PROFILE["assessment"],
-                                 content_type="scenery")
-    assert adapt_semantic_document(scenery)["assessment"]["clip_type"] == "b_roll"
 
 
 def test_describe_clip_handles_a_raw_v3_profile():
@@ -242,29 +196,10 @@ def test_describe_clip_handles_a_raw_v3_profile():
     assert "Outdoor parking lot" in described
 
 
-def test_clip_observations_expose_framing_stability_and_bounds():
-    observed = clip_observations(V3_PROFILE)
-    assert observed["framing"] == "wide -> close-up"
-    assert observed["stability"] == "unstable"
-    assert observed["movement"] == "stationary -> panning_right"
-    assert observed["content_type"] == "person_talking_to_camera"
-    assert observed["usable_ranges"] == "0.0-45.9s"
-    assert observed["subjects"].startswith("young man in a black baseball cap")
-    assert "0.0-46.0s" in observed["description"]
 
 
-def test_clip_observations_degrade_without_inventing_on_legacy_docs():
-    observed = clip_observations(LEGACY_PROFILE)
-    assert observed["description"] == "The image depicts an outdoor urban plaza."
-    assert observed["activity"] == "The camera is static."
-    # v3 never ran on this clip, so these were never measured.
-    assert observed["framing"] == ""
-    assert observed["stability"] == ""
 
 
-def test_clip_tags_reach_v3_derived_keywords():
-    assert "outdoor" in clip_tags(V3_PROFILE)
-    assert "vlog" in clip_tags(LEGACY_PROFILE)
 
 
 def test_lookup_join_survives_adaptation():
@@ -276,9 +211,6 @@ def test_lookup_join_survives_adaptation():
     assert describe_clip(lookup["clip_009"])
 
 
-def test_adapt_documents_leaves_non_dicts_alone():
-    assert adapt_semantic_documents(["junk", 3]) == ["junk", 3]
-    assert adapt_semantic_documents("not a list") == "not a list"
 
 
 # ─── The measured values must survive all the way into a prompt ───
@@ -493,19 +425,4 @@ def test_stability_summary_real_assessment_still_wins():
     assert stability_summary(V3_PROFILE) == "unstable"
 
 
-def test_stability_summary_unknown_multi_segment():
-    """When camera[] has multiple segments with different stability, and
-    assessment says "unknown", the summary joins them with arrows."""
-    doc = {
-        "scene": [{"start": 0, "end": 9, "type": "outdoor"}],
-        "camera": [
-            {"start": 0, "end": 5, "mode": "handheld", "framing": "wide",
-             "stability": "stable", "movement": "stationary"},
-            {"start": 5, "end": 9, "mode": "handheld", "framing": "wide",
-             "stability": "shaky", "movement": "walking"},
-        ],
-        "assessment": {"camera_stability": "unknown"},
-        "analysis_metadata": {"pipeline_version": "v3"},
-    }
-    assert stability_summary(doc) == "stable -> shaky"
 

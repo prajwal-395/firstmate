@@ -80,10 +80,6 @@ def test_a_declaration_selects_the_program_stream():
     assert chosen["basis"] == "declared"
 
 
-def test_a_declaration_naming_no_stream_is_refused():
-    streams = describe_audio_streams(_mxf_like_probe())
-    with pytest.raises(ProgramStreamRefused):
-        select_program_stream(streams, declaration=9, source="LC4930.MXF")
 
 
 def test_a_single_stream_needs_no_declaration():

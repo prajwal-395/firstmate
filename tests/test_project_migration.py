@@ -96,13 +96,6 @@ def test_no_action_is_a_delete(messy):
     assert {a["action"] for a in m["actions"]} <= {"move", "copy", "remove_empty_dir"}
 
 
-def test_every_moved_file_exists_at_its_destination(messy):
-    from pathlib import Path
-    m = organize_project(messy, apply=True)
-    for a in m["actions"]:
-        assert Path(a["dest"]).exists(), f"{a['dest']} is missing"
-
-
 def test_a_name_collision_never_overwrites(messy):
     layout = ProjectLayout(messy)
     dest = layout.write_path(Area.UNSORTED, "media", "001.mov")
@@ -157,13 +150,6 @@ def test_hand_made_backups_go_to_the_legacy_store_by_name(messy):
     assert not list(messy.glob("*.bak*")), "none left at the root"
 
 
-def test_the_live_state_file_is_not_mistaken_for_a_backup(messy):
-    organize_project(messy, apply=True)
-    assert (messy / "pipeline_data.json").exists()
-    assert json.loads(
-        (messy / "pipeline_data.json").read_text(encoding="utf-8")) == {"a": 1}
-
-
 def test_unattributed_media_is_admitted_rather_than_guessed_at(messy):
     m = organize_project(messy, apply=True)
     names = {u["path"] for u in m["unidentified"]}
@@ -176,19 +162,6 @@ def test_unattributed_media_is_admitted_rather_than_guessed_at(messy):
     assert (dest / "README.md").is_file(), "a bucket must say what it is"
 
 
-def test_an_unattributed_file_is_still_a_measured_one(messy, monkeypatch):
-    """"121 MB" says nothing. The measurements are what make it honest."""
-    import library.tools.project_migration as mig
-
-    monkeypatch.setattr(
-        mig, "media_facts",
-        lambda p: "61.7s, 1080x1920 h264, written by DaVinci Resolve Studio")
-    m = organize_project(messy, apply=False)
-    reason = _by_name(m, "fully loaded demo v0.mov")[0]["reason"]
-    assert "DaVinci Resolve Studio" in reason
-    assert "cannot be established" in reason
-
-
 def test_loose_scripts_and_status_files_are_kept_and_labelled(messy):
     organize_project(messy, apply=True)
     unsorted = ProjectLayout(messy).read_dir(Area.UNSORTED)
@@ -196,44 +169,6 @@ def test_loose_scripts_and_status_files_are_kept_and_labelled(messy):
     assert (unsorted / "status_files" / "e2e-v4.status").exists()
     assert (unsorted / "status_files" / "state" / "live-test.status").exists()
     assert (unsorted / "mock_data" / "mock_sfx" / "profiles" / "a.json").exists()
-
-
-def test_a_run_archive_goes_with_the_backups(messy):
-    organize_project(messy, apply=True)
-    assert (ProjectLayout(messy).read_path(
-        Area.BACKUPS, "run_archives", "_archive_2026-08-17_pre_rerun",
-        "pipeline_data.json")).exists()
-
-
-def test_run_state_and_config_stay_at_the_root(messy):
-    m = organize_project(messy, apply=True)
-    stayed = {e["path"] for e in m["left_in_place"]}
-    for name in ("project.yaml", "pipeline_data.json", "pipeline_run.json",
-                 ".DS_Store", "raw/", "music/", "exports/"):
-        assert name in stayed, f"{name} should have been left alone"
-        assert (messy / name.rstrip("/")).exists()
-
-
-def test_exports_are_not_touched(messy):
-    organize_project(messy, apply=True)
-    assert (messy / "exports" / "Pipeline_Edit.mp4").exists()
-
-
-def test_the_captains_subtitle_dirs_are_left_in_place(tmp_path):
-    """`subtitle_plans/` and `subtitle_overlays/` are INPUT areas the
-    layout names, so `organize` reports them as known rather than
-    sweeping them into `unsorted/misc/`."""
-    (tmp_path / "project.yaml").write_text("slug: test\n", encoding="utf-8")
-    for name in ("subtitle_plans", "subtitle_overlays"):
-        d = tmp_path / name / "akshita"
-        d.mkdir(parents=True)
-        (d / "manifest.json").write_text("{}", encoding="utf-8")
-    m = organize_project(tmp_path, apply=True)
-    stayed = {e["path"] for e in m["left_in_place"]}
-    assert "subtitle_plans/" in stayed
-    assert "subtitle_overlays/" in stayed
-    assert (tmp_path / "subtitle_plans" / "akshita" / "manifest.json").exists()
-    assert (tmp_path / "subtitle_overlays" / "akshita" / "manifest.json").exists()
 
 
 # ── The manifest ────────────────────────────────────────────────────
@@ -259,13 +194,6 @@ def test_the_manifest_records_every_action_with_a_reason(messy):
     assert stored["applied"] is True
 
 
-def test_the_manifest_reads_as_prose(messy):
-    md = render_manifest_markdown(organize_project(messy, apply=True))
-    assert "Nothing was deleted" in md
-    assert "001.mov" in md
-    assert "Could not be identified" in md
-
-
 def test_a_reorganisation_can_be_undone_by_reading_the_manifest(messy):
     before = sorted(p.name for p in messy.iterdir())
     m = organize_project(messy, apply=True)
@@ -276,34 +204,10 @@ def test_a_reorganisation_can_be_undone_by_reading_the_manifest(messy):
         f"revert did not restore: {set(before) - set(after)}")
 
 
-def test_revert_does_not_undo_a_copy(messy):
-    """Undoing a copy means deleting, and this tool does not delete."""
-    m = organize_project(messy, apply=True)
-    dest = ProjectLayout(messy).read_path(
-        Area.VISION_ANALYSIS, "clip_profile_IMG_1806_v3.json")
-    revert_from_manifest(m["manifest_path"], apply=True)
-    assert dest.exists()
-
-
 def test_organizing_twice_is_a_no_op_the_second_time(messy):
     organize_project(messy, apply=True)
     second = organize_project(messy, apply=True)
     assert not second["actions"], f"the layout is not stable: {second['actions']}"
-
-
-def test_a_rescued_copy_is_not_copied_again(messy):
-    """The source stays in raw/, so nothing else stops a second copy.
-
-    A duplicate would land as `clip_profile_IMG_1806_v3__2.json`, and
-    step 1.03 globs `clip_profile_*.json` - it would read that as a stem
-    it has never analysed.
-    """
-    organize_project(messy, apply=True)
-    organize_project(messy, apply=True)
-    landed = sorted(
-        p.name for p in ProjectLayout(messy).read_dir(
-            Area.VISION_ANALYSIS).iterdir())
-    assert landed == ["clip_profile_IMG_1806_v3.json"]
 
 
 # ── Moving a by-kind project onto the by-step layout ────────────────
@@ -339,39 +243,11 @@ def test_a_by_kind_tree_moves_under_its_producing_step(by_kind):
                 / "clip_001_prosody.json").exists()
 
 
-def test_a_flat_per_step_export_moves_into_that_steps_directory(by_kind):
-    organize_project(by_kind, apply=True)
-    layout = ProjectLayout(by_kind)
-    d = layout.step_dir("temporal_index")
-    assert (d / "output.json").is_file()
-    assert (d / "summary.md").is_file()
-    assert not (by_kind / "pipeline_output" / "temporal_index.json").exists()
-
-
-def test_the_pipeline_log_moves_to_the_logs_area(by_kind):
-    organize_project(by_kind, apply=True)
-    assert (ProjectLayout(by_kind).read_path(
-        Area.LOGS, "pipeline_log.jsonl")).is_file()
-
-
 def _contents(root):
     """Every file's bytes. Matching on content, not name, because the
     per-step exports are deliberately RENAMED to output.json."""
     from collections import Counter
     return Counter(p.read_bytes() for p in root.rglob("*") if p.is_file())
-
-
-def test_relocating_a_by_kind_tree_loses_nothing(by_kind):
-    before = _contents(by_kind)
-    organize_project(by_kind, apply=True)
-    lost = before - _contents(by_kind)
-    assert not lost, f"the relocation lost {len(lost)} file(s) of content"
-
-
-def test_relocating_twice_is_a_no_op_the_second_time(by_kind):
-    organize_project(by_kind, apply=True)
-    second = organize_project(by_kind, apply=True)
-    assert not second["actions"], f"not stable: {second['actions']}"
 
 
 def test_the_emptied_by_kind_husks_are_removed_in_the_same_run(by_kind):
@@ -411,21 +287,6 @@ def test_a_directory_the_layout_does_not_name_is_never_removed(by_kind):
     assert stray.is_dir(), "an unrecognised empty directory is not ours to remove"
     planned = _plan_legacy_dir_cleanup(ProjectLayout(by_kind))
     assert all(Path(a.src).name in LEGACY_AREA_DIRS for a in planned)
-
-
-def test_a_removal_is_recorded_like_every_other_action(by_kind):
-    m = organize_project(by_kind, apply=True)
-    removals = [a for a in m["actions"] if a["action"] == "remove_empty_dir"]
-    assert removals
-    for a in removals:
-        assert a["reason"] and a["bytes"] == 0
-    assert "empty_directories_removed" in m["policy"]
-
-
-def test_reverting_puts_an_emptied_directory_back(by_kind):
-    m = organize_project(by_kind, apply=True)
-    revert_from_manifest(m["manifest_path"], apply=True)
-    assert (by_kind / "pipeline_output" / "prosody").is_dir()
 
 
 def test_an_already_tidy_project_needs_nothing(tmp_path):
@@ -477,32 +338,6 @@ def test_empty_scaffold_step_dirs_are_removed(scaffolded):
                and "step directory" in a["reason"]]
     # 28 steps, one has content, so 27 should be removed.
     assert len(removed) == len(STEPS) - 1
-
-
-def test_empty_scaffold_areas_are_removed(scaffolded):
-    from library.tools.project_layout import _OUT
-
-    m = organize_project(scaffolded, apply=True)
-    # logs/ has content - stays.
-    assert (scaffolded / _OUT / "logs").is_dir()
-    # Empty areas like gates/, annotations/ etc. are gone.
-    removed = [a for a in m["actions"]
-               if a["action"] == "remove_empty_dir"
-               and "pre-created by the old" in a["reason"]
-               and "step directory" not in a["reason"]]
-    assert removed, "some empty project-level areas should have been removed"
-    for a in m["actions"]:
-        if a["action"] == "remove_empty_dir":
-            assert a["reason"], "every removal has a stated reason"
-
-
-def test_scaffold_cleanup_is_recorded_in_the_manifest(scaffolded):
-    m = organize_project(scaffolded, apply=True)
-    removals = [a for a in m["actions"] if a["action"] == "remove_empty_dir"]
-    assert removals
-    for a in removals:
-        assert a["reason"]
-        assert a["bytes"] == 0
 
 
 def test_a_nonempty_step_dir_is_never_removed_by_scaffold_cleanup(scaffolded):

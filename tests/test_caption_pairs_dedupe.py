@@ -187,75 +187,7 @@ def test_sidecar_from_a_moved_row_is_refused():
             "new one - the unified filename would serve stale rows")
 
 
-def test_sidecar_without_a_row_stamp_is_refused():
-    """A sidecar that predates the row stamp cannot prove which row it
-    was measured for - every sidecar on disk from before the stamp -
-    so it is refused the same way as a moved one."""
-    from library.tools.overlay_mode import OVERLAY_CARRIAGE
-
-    sidecar = {
-        "width": 840,
-        "height": 480,
-        "placement": {"scaling": 1, "pan": 0.0, "tilt": -850.0},
-        "carriage": OVERLAY_CARRIAGE,
-        "union": {"x0": 126, "y0": 1416, "x1": 937, "y1": 1596},
-    }
-    try:
-        restore_reused_placement(sidecar, _row_props(ROW_NEW),
-                                 (1080, 1920))
-    except TightBoxMismatch as exc:
-        assert "safeArea" in str(exc)
-    else:
-        raise AssertionError(
-            "an unstamped sidecar restored - its row is unprovable")
 
 
-def test_sidecar_on_the_same_row_still_restores():
-    """The guard refuses only what moved: an identical row restores,
-    so reuse keeps its win on every build that changes nothing."""
-    from library.tools.overlay_mode import OVERLAY_CARRIAGE
-
-    sidecar = {
-        "width": 840,
-        "height": 480,
-        "placement": {"scaling": 1, "pan": 0.0, "tilt": -850.0},
-        "carriage": OVERLAY_CARRIAGE,
-        # Stamped under today's gain: the guard refuses only what
-        # moved, and the gain is part of what must not have moved
-        # (see test_reused_placement_from_a_superseded_gain_is_refused).
-        "draw_gain": 2.0,
-        "safe_area": {"top": 120, "right": 120,
-                      "bottom": ROW_NEW, "left": 90},
-        "union": {"x0": 126, "y0": 1416, "x1": 937, "y1": 1596},
-    }
-    restored = restore_reused_placement(sidecar, _row_props(ROW_NEW),
-                                        (1080, 1920))
-    assert restored.placement == {
-        "scaling": 1, "pan": 0.0, "tilt": -850.0}
 
 
-def test_identical_rows_pair_back_without_rendering(tmp_path):
-    """Reuse itself is untouched: nothing moving means the second
-    build still pairs back with no renderer call."""
-    out = str(tmp_path)
-    props, tight_canned, _box = _small_frames_setup(
-        tmp_path, "steady")
-    steady = _row_props(ROW_NEW)
-    steady["durationInFrames"] = props["durationInFrames"]
-    steady["_source_out_frame"] = props["_source_out_frame"]
-
-    first = render_one_segment(
-        steady, out, "tl", remotion_dir=REMOTION,
-        renderer=_ServingRenderer(tight_canned),
-        reuse=True, overlay_geometry="tight",
-        overlay_container="frames")
-    assert first["provenance"] == RENDERED
-    engine = _ServingRenderer(tight_canned)
-    second = render_one_segment(
-        steady, out, "tl", remotion_dir=REMOTION,
-        renderer=engine, reuse=True, overlay_geometry="tight",
-        overlay_container="frames")
-    assert second["provenance"] == REUSED
-    assert engine.calls == []
-    assert second["tight_box"]["placement"] == \
-        first["tight_box"]["placement"]

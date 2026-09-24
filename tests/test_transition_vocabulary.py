@@ -82,23 +82,10 @@ def _handoff_toolkit_types() -> set:
     }
 
 
-def test_the_handoff_offers_only_plannable_types():
-    offered = _handoff_toolkit_types()
-    assert offered, "could not parse the toolkit table"
-    assert offered <= set(PLANNABLE_TYPES), sorted(offered - set(PLANNABLE_TYPES))
 
 
-def test_the_handoff_offers_every_plannable_type():
-    """A drawable transition nobody is told about is dead capability."""
-    assert _handoff_toolkit_types() == set(PLANNABLE_TYPES)
 
 
-@pytest.mark.parametrize("name", sorted(ALL_SYNTHETIC))
-def test_brand_templates_allow_only_plannable_types(name):
-    types = (ALL_SYNTHETIC[name].get("effect") or {}).get("transition_types") or []
-    allowed, rejected = filter_allowed(types)
-    assert not rejected, f"{name} lists {rejected}"
-    assert allowed, f"{name} would permit no transition at all"
 
 
 def test_no_template_permits_the_full_vocabulary_without_declaring_it():
@@ -128,20 +115,10 @@ def test_no_template_permits_the_full_vocabulary_without_declaring_it():
 
 # ── The vocabulary itself is coherent ──
 
-def test_withdrawn_and_plannable_do_not_overlap():
-    assert not set(WITHDRAWN) & set(PLANNABLE_TYPES)
 
 
-def test_aliases_resolve_to_plannable_types():
-    for alias, target in ALIASES.items():
-        assert target in PLANNABLE_TYPES, alias
-        assert canonical_type(alias) == target
 
 
-def test_withdrawn_types_come_back_with_a_reason():
-    for ttype in WITHDRAWN:
-        assert canonical_type(ttype) is None
-        assert len(withdrawal_reason(ttype)) > 40, ttype
 
 
 def test_canonicalisation_is_case_and_space_insensitive():

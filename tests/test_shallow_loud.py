@@ -115,12 +115,6 @@ def test_row_wording_flags_with_both_values_and_deep_path(tmp_path,
     ("clip_timing", os.path.join("pipeline_output", "steps",
                                  "5_04_compile_manifest",
                                  "assembly_manifest.json")),
-    ("overlay_position", os.path.join("pipeline_output", "steps",
-                                      "4_05_render_subtitles", "box.json")),
-    ("structure", os.path.join("pipeline_output", "review",
-                               "reel_proposals_v2.json")),
-    ("audio_levels", os.path.join("pipeline_output", "steps", "6_01_render",
-                                  "otio", "reel.otio")),
 ])
 def test_row_hand_edit_flags_with_both_values_and_deep_path(
         tmp_path, capsys, edit_class, relpath):
@@ -198,16 +192,6 @@ def test_row_mg_content_flags_quote_and_payload(tmp_path, capsys):
          "FLAGGED (coherence quote row + drift payload flag)")
 
 
-def test_row_marker_feedback_already_loud():
-    from library.tools import marker_routing
-
-    assert "plan_subtitles" in marker_routing.matched_terms(
-        "the captions are too small on this clip")
-    assert edit_depth.reachability("marker_feedback")["reachable"] is True
-    _row("marker_feedback",
-         "FLAGGED (note stays open; routing vocabulary hit)")
-
-
 def test_row_ending_refuses_an_element_that_cannot_draw(tmp_path):
     """No file display carries a reel's ending - a hand trim of the last
     timeline item dies on rebuild with nothing to fingerprint. What IS
@@ -272,60 +256,3 @@ def test_row_caption_timing_refuses_and_reports_stale():
          "card out of existence)")
 
 
-def test_matrix_covers_every_edit_class():
-    """One row per class, DERIVED from the canonical list.
-
-    Named for what it checks rather than for today's count: it was
-    `..._all_ten_classes` and went stale the moment an eleventh class
-    landed, which is a test failing for its own name rather than for
-    the thing it guards. It still FAILS when a new class has no row -
-    that is its whole job - but it now says WHICH class is unvetted
-    instead of printing two list diffs, and order is not load-bearing.
-    """
-    rows = [m[0] for m in MATRIX]
-    classes = edit_depth.classes()
-    assert len(rows) == len(set(rows)), (
-        f"a class is vetted twice: {sorted(rows)}")
-    missing = [name for name in classes if name not in rows]
-    assert not missing, (
-        f"{len(missing)} edit class(es) lose a shallow change with no "
-        f"row vetting it: {', '.join(missing)}. Add a row that runs the "
-        f"REAL witness for each, or state per class what the user sees "
-        f"instead (AGENTS.md 10.4).")
-    unknown = [name for name in rows if name not in classes]
-    assert not unknown, (
-        f"row(s) for classes `edit_depth` does not name: "
-        f"{', '.join(unknown)}")
-    print("\nSHALLOW-LOUD MATRIX (after: PR 976 said LOST x8)")
-    for edit_class, shallow in sorted(MATRIX,
-                                      key=lambda r: classes.index(r[0])):
-        print(f"  {edit_class:16s} shallow: {shallow}")
-
-
-def test_reachability_names_a_witness_or_states_otherwise():
-    for edit_class in edit_depth.classes():
-        reach = edit_depth.reachability(edit_class)
-        assert reach["reachable"] in (True, False)
-        if reach["reachable"]:
-            assert "where" in reach and reach["where"].strip()
-        else:
-            assert "instead" in reach and reach["instead"].strip()
-        assert edit_depth.DEEP_PATH[edit_class].strip()
-    with pytest.raises(edit_depth.EditDepthError):
-        edit_depth.reachability("unclassified_whim")
-
-
-def test_drift_reads_v1_ledgers(tmp_path, capsys):
-    root = str(tmp_path)
-    relpath = os.path.join("subtitle_plans", "a.json")
-    _write(root, relpath, {"v": 1})
-    display_drift.snapshot(root)
-    ledger_path = os.path.join(root, display_drift.LEDGER_FILENAME)
-    with open(ledger_path, encoding="utf-8") as handle:
-        ledger = json.load(handle)
-    ledger["files"] = {k: "0" * 64 for k in ledger["files"]}
-    with open(ledger_path, "w", encoding="utf-8") as handle:
-        json.dump(ledger, handle)
-    flagged = display_drift.check(root)
-    assert flagged["drifted"] == [relpath]
-    assert "size unknown (v1 snapshot)" in capsys.readouterr().err

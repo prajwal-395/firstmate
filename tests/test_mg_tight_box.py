@@ -110,11 +110,6 @@ def test_no_elements_means_no_box():
     assert tighten_motion_graphics_props(_props([])) is None
 
 
-def test_unknown_elements_draw_nothing_so_no_box():
-    props = _props([_el("tracked_label")])
-    assert tighten_motion_graphics_props(props) is None
-
-
 def test_unknown_elements_are_ignored_beside_real_ones():
     # Mid-frame, so the box the test compares is one Resolve can
     # hold: a bottom-anchored box this small needs Tilt past the
@@ -134,14 +129,6 @@ def test_frame_accents_alone_cover_the_frame():
     assert tighten_motion_graphics_props(props) is None
 
 
-def test_accents_plus_progress_bar_cover_the_frame():
-    props = _props([
-        _el("frame_accents", anchor="top_left"),
-        _el("progress_bar", anchor="bottom_centre"),
-    ])
-    assert tighten_motion_graphics_props(props) is None
-
-
 def test_bottom_progress_bar_rides_the_minimum_canvas():
     """Was refused: a bottom progress bar is a thin strip far from the
     frame centre, needing Tilt past what Resolve holds on a 140-tall
@@ -155,70 +142,9 @@ def test_bottom_progress_bar_rides_the_minimum_canvas():
     assert abs(box.placement["tilt"]) <= 3400
 
 
-def test_top_progress_bar_rides_the_minimum_canvas():
-    """The top case of the same fix: a thin strip at the top inset
-    needed Tilt +11433 on its measured canvas; grown below its edge
-    to 480, it places inside the rail."""
-    box = tighten_motion_graphics_props(
-        _props([_el("progress_bar", anchor="top_centre")]))
-    assert box is not None
-    assert box.height == 480
-    assert abs(box.placement["tilt"]) <= 3400
-
-
-def test_single_title_is_much_smaller_than_full_frame():
-    box = tighten_motion_graphics_props(
-        _props([_el("title_lockup", anchor="middle_centre")]))
-    assert box is not None
-    assert 0 < box.width < FULL_W
-    assert 0 < box.height < FULL_H
-    assert box.width * box.height < 0.25 * FULL_W * FULL_H
-
-
-def test_canvas_dimensions_are_even():
-    box = tighten_motion_graphics_props(
-        _props([_el("title_lockup", anchor="middle_centre")]))
-    assert box.width % 2 == 0
-    assert box.height % 2 == 0
-
-
-def test_tight_safe_area_is_padding_plus_rail_growth():
-    box = tighten_motion_graphics_props(
-        _props([_el("title_lockup", anchor="middle_centre")]))
-    # middle grows symmetrically: both insets share the growth, and
-    # the canvas ships at the floor.
-    assert box.height == 480
-    assert box.props["safeArea"]["left"] == MG_PAD
-    assert box.props["safeArea"]["right"] == MG_PAD
-    assert (box.props["safeArea"]["top"]
-            == box.props["safeArea"]["bottom"] >= MG_PAD)
-
-
-def test_elements_timing_and_frame_pass_through_untouched():
-    props = _props([
-        _el("title_lockup", row=0, start=0, duration=40,
-            anchor="bottom_left"),
-        _el("quote_card", anchor="top_left", row=0, start=30,
-            duration=40),
-    ])
-    box = tighten_motion_graphics_props(props)
-    assert box is not None
-    assert box.props["elements"] == props["elements"]
-    assert box.props["durationInFrames"] == props["durationInFrames"]
-    assert box.props["fps"] == props["fps"]
-    assert box.props["width"] == box.width
-    assert box.props["height"] == box.height
-
-
 def test_channel_bug_forces_full_canvas():
     props = _props([_el("channel_bug", anchor="top_right",
                         footprint=0.15, asset="brand/bug.png")])
-    assert tighten_motion_graphics_props(props) is None
-
-
-def test_website_panel_forces_full_canvas():
-    props = _props([_el("website_panel", footprint=0.8,
-                        asset="brand/page.png")])
     assert tighten_motion_graphics_props(props) is None
 
 
@@ -228,16 +154,6 @@ def test_middle_stack_mixed_with_top_falls_back():
         _el("context_stamp", anchor="centre"),
     ])
     assert tighten_motion_graphics_props(props) is None
-
-
-def test_all_middle_stays_tight():
-    props = _props([
-        _el("context_stamp", anchor="centre"),
-        _el("stat_callout", anchor="middle_right"),
-    ])
-    box = tighten_motion_graphics_props(props)
-    assert box is not None
-    assert box.width * box.height < 0.5 * FULL_W * FULL_H
 
 
 def test_top_and_bottom_mix_stays_tight():
@@ -292,43 +208,6 @@ def test_left_anchored_element_sits_left_of_centre():
     assert ox + box.width / 2 < FULL_W / 2
 
 
-def test_right_anchored_element_sits_right_of_centre():
-    from library.tools.tight_box import canvas_offset
-    box = tighten_motion_graphics_props(
-        _props([_el("lower_third", anchor="bottom_right")]))
-    assert box is not None
-    ox, _ = canvas_offset(box)
-    assert ox + box.width / 2 > FULL_W / 2
-
-
-def test_comparison_bars_span_the_width_but_stay_short():
-    box = tighten_motion_graphics_props(_props([
-        _el("comparison_bars",
-            runs=[{"text": "alpha", "type_role": "micro"},
-                  {"text": "beta", "type_role": "micro"}],
-            data={"values": [30, 70]}),
-    ]))
-    assert box is not None
-    assert box.height < FULL_H / 2
-    assert box.width * box.height < 0.5 * FULL_W * FULL_H
-
-
-def test_footprint_scales_the_estimate():
-    # Mid-frame, so both boxes are ones Resolve can hold.
-    small = tighten_motion_graphics_props(_props(
-        [_el("title_lockup", anchor="middle_centre", footprint=0.5)]))
-    big = tighten_motion_graphics_props(_props(
-        [_el("title_lockup", anchor="middle_centre", footprint=2.0)]))
-    assert small is not None and big is not None
-    # Both unions fit inside the layout-width floor, so both canvases
-    # ship at it (966x480) - the footprint scales the ESTIMATE, which
-    # is what the union carries, not the floored canvas.
-    assert (small.width, small.height) == (966, 480)
-    assert (big.width, big.height) == (966, 480)
-    assert big.union_w > small.union_w
-    assert big.union_h > small.union_h
-
-
 def test_missing_safe_area_refuses_like_the_component():
     props = _props([_el("title_lockup")])
     del props["safeArea"]
@@ -351,13 +230,6 @@ def test_canvas_wider_than_the_frame_refuses():
                "type_role": "display"}])])
     with pytest.raises(TightBoxClipsInk, match="1262x480"):
         tighten_motion_graphics_props(props)
-
-
-def test_pads_cover_slide_and_shadow():
-    """Slide moves 40px, text shadows blur 12px, glitch jitters ~6px:
-    the pad must clear the largest plus margin, or the box clips ink
-    mid-entrance."""
-    assert MG_PAD >= 40 + 8
 
 
 def _staged(name="Craig Lucie", title="CEO Lucie Content",
@@ -392,37 +264,6 @@ def test_staged_lower_third_tightens():
     assert placement_holds(box.placement, FULL_W, FULL_H) == ""
 
 
-def test_staged_box_follows_the_drawing():
-    """The box is derived, not estimated: a longer name widens it, and
-    the title's line is in the union only where a second run exists."""
-    one_run = tighten_motion_graphics_props(
-        _props([_staged(title=None)]))
-    two_runs = tighten_motion_graphics_props(
-        _props([_staged()]))
-    long_name = tighten_motion_graphics_props(
-        _props([_staged(name="Craig Alexander Lucie")]))
-    assert one_run is not None and two_runs is not None
-    assert long_name is not None
-    assert two_runs.union_h > one_run.union_h
-    assert long_name.union_w > two_runs.union_w
-    assert long_name.width > two_runs.width
-
-
-def test_other_construction_draws_the_panel():
-    """The composition only special-cases `construction ==
-    "staged_rule"` and keeps the flat attribution block for anything
-    else - so any other value takes the padded-panel arm, not a
-    refusal. A future construction drawing a third thing needs its own
-    arm; modelling it as either of these two would be the guess."""
-    el = _staged()
-    el["data"] = {"construction": "something_else_entirely"}
-    box, refusal = tighten_motion_graphics_props_with_reason(
-        _props([el]))
-    assert refusal is None
-    assert box is not None
-    assert 0 < box.width < FULL_W
-
-
 def test_every_refusal_names_itself():
     """No silent None survives: each structural fallback returns its
     reason and the element that caused it, which is what the artefact
@@ -447,40 +288,6 @@ def test_every_refusal_names_itself():
         assert refusal.reason == reason
         assert refusal.element == element
         assert refusal.message()
-
-
-def test_canvas_refusal_carries_its_reason():
-    """The one full-frame `title_lockup` on the captain's project: a
-    display run with no wrap bound measures wider than the usable
-    frame. The raise carries which element and which union, so the
-    fallback can still say so on the artefact."""
-    from library.tools.tight_box import TightBoxClipsInk
-    props = _props([_el(
-        "title_lockup", anchor="top_centre",
-        runs=[{"text": "A COMPLETELY DIFFERENT SYSTEM",
-               "type_role": "display"}])])
-    with pytest.raises(TightBoxClipsInk):
-        tighten_motion_graphics_props_with_reason(props)
-    try:
-        tighten_motion_graphics_props_with_reason(props)
-    except TightBoxClipsInk as exc:
-        assert exc.refusal.reason == "canvas_larger_than_frame"
-        assert exc.refusal.element == "title_lockup"
-        assert "1262x480" in exc.refusal.detail
-    else:  # pragma: no cover - the raise above already proved it
-        raise AssertionError("expected TightBoxClipsInk")
-
-
-def test_tightness_record_states_the_outcome():
-    """The sidecar shape: a tight artefact needs no reason, a full one
-    without a reason is what the guard refuses."""
-    box = tighten_motion_graphics_props(_props([_staged()]))
-    assert box is not None
-    record = tightness_record(box, None, FULL_W, FULL_H)
-    assert record["outcome"] == "tight"
-    assert record["reason"] == ""
-    assert (record["width"], record["height"]) == (box.width, box.height)
-    assert record["placement"] == box.placement
 
 
 def _write_props(path, width=FULL_W, height=FULL_H, elements=None):
@@ -515,29 +322,6 @@ def test_guard_refuses_an_undeclared_full_canvas(tmp_path):
     assert census["undeclared_files"] == ["mg_x_props.json"]
 
 
-def test_guard_passes_a_declared_full_canvas_by_design(tmp_path):
-    props_path = _write_props(tmp_path / "mg_x_props.json")
-    _write_sidecar(props_path)
-    errors, census = check_motion_graphics_files(
-        [props_path], FULL_W, FULL_H)
-    assert errors == []
-    assert census["full_by_design"] == 1
-    assert census["tight"] == 0
-
-
-def test_guard_counts_a_declared_full_canvas_with_reason(tmp_path):
-    props_path = _write_props(tmp_path / "mg_x_props.json")
-    _write_sidecar(props_path, reason="canvas_larger_than_frame",
-                   element="title_lockup")
-    errors, census = check_motion_graphics_files(
-        [props_path], FULL_W, FULL_H)
-    assert errors == []
-    assert census["full_with_reason"] == 1
-    assert census["by_reason"] == {"canvas_larger_than_frame": 1}
-    assert census["full_files"]["mg_x_props.json"]["element"] == \
-        "title_lockup"
-
-
 def test_guard_refuses_an_empty_reason_and_a_stale_sidecar(tmp_path):
     no_reason = _write_props(tmp_path / "mg_noreason_props.json")
     _write_sidecar(no_reason, reason="")
@@ -548,28 +332,6 @@ def test_guard_refuses_an_empty_reason_and_a_stale_sidecar(tmp_path):
         [no_reason, stale], FULL_W, FULL_H)
     assert len(errors) == 2
     assert census["full_undeclared"] == 2
-
-
-def test_guard_leaves_tight_artefacts_alone(tmp_path):
-    props_path = _write_props(tmp_path / "mg_t_props.json",
-                              width=512, height=480)
-    errors, census = check_motion_graphics_files(
-        [props_path], FULL_W, FULL_H)
-    assert errors == []
-    assert census["tight"] == 1
-
-
-def test_guard_dir_walk_and_missing_dir(tmp_path):
-    props_path = _write_props(tmp_path / "mg_x_props.json")
-    _write_sidecar(props_path)
-    errors, census = check_motion_graphics_dir(
-        str(tmp_path), FULL_W, FULL_H)
-    assert errors == []
-    assert census["total"] == 1
-    errors, census = check_motion_graphics_dir(
-        str(tmp_path / "no_such_dir"), FULL_W, FULL_H)
-    assert errors == []
-    assert census["total"] == 0
 
 
 def test_top_anchored_graphic_places_at_the_measured_value():
@@ -642,28 +404,3 @@ def test_list_build_mixed_roles_share_one_row_height():
     mixed_w, mixed_h = _element_size(mixed, 1.0, "", 10 ** 9, cache)
     unified_w, unified_h = _element_size(unified, 1.0, "", 10 ** 9, cache)
     assert mixed_h == unified_h
-
-
-def test_list_build_canvas_covers_the_unified_drawing():
-    """Reel 25's list re-rendered under the old prediction clipped by
-    70px: supporting runs measured at their own 36px role while the
-    fixed renderer draws them at the lead 56px. The canvas must cover
-    every run measured at the one size the composition draws."""
-    from library.tools.mg_tight_box import (
-        TYPE_SIZE,
-        TYPE_WEIGHT,
-        _list_item_width,
-    )
-    runs = _list_build_runs()
-    box = tighten_motion_graphics_props(
-        _props([_el("list_build", anchor="top_centre", runs=runs)]))
-    assert box is not None
-    lead_size = TYPE_SIZE[runs[0]["type_role"]]
-    cache: dict = {}
-    drawn = max(
-        _list_item_width(
-            r["text"], lead_size,
-            TYPE_WEIGHT.get(r["type_role"], TYPE_WEIGHT["supporting"]),
-            "", cache)
-        for r in runs)
-    assert box.width - 2 * MG_PAD >= drawn

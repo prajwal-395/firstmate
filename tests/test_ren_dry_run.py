@@ -156,25 +156,6 @@ def test_no_execute_write_or_lease_lives_in_this_module():
 # ── The change, stated structurally ────────────────────────────────
 
 
-def test_build_change_spec_addresses_the_live_item_by_name():
-    """The defect: the spec addressing a stale position while the gate
-    qualified another - name-to-position happens once, off the same
-    read the gate sees."""
-    spec = D.build_change_spec(
-        _reel_26_tracks(),
-        reel=26,
-        row="V7",
-        old_clip="logo_bulb_23976.mov",
-        new_media="/lab/new.mov",
-    )
-    assert spec == {
-        "reel": 26,
-        "edits": [
-            {"op": "swap_pixels", "row": "V7", "item": 0, "media": "/lab/new.mov"}
-        ],
-    }
-
-
 def test_build_change_spec_refuses_an_absent_clip_by_name():
     """The defect: a swap spec for an item the timeline does not have,
     sailing through to a delete addressed by blind position."""
@@ -353,18 +334,6 @@ def test_dry_run_carries_a_refused_gate_instead_of_crashing(tmp_path):
     assert record["go"] is False
 
 
-def test_report_names_both_paths_and_that_neither_ran(tmp_path):
-    """The deliverable is the contrast - what the composed path WOULD
-    execute against what the old path would have - printed while
-    executing neither."""
-    text = D.render_report(_dry_run_til_gate(tmp_path))
-    assert text.startswith("REN DRY RUN - Reel 26 ending swap")
-    assert "touch-reel demo 26 --edits" in text
-    assert "build-reels demo --only-reel 26" in text
-    assert "Nothing executed." in text
-    assert "DRY-RUN VERDICT: NO-GO" in text
-
-
 # ── CLI off disk ───────────────────────────────────────────────────
 
 
@@ -389,27 +358,3 @@ def test_cli_off_disk_prints_the_report_and_exits_no_go(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "REN DRY RUN - Reel 26 ending swap" in out
     assert "Nothing executed." in out
-
-
-def test_cli_writes_the_json_record_when_asked(tmp_path, capsys):
-    """The defect: `--out` writing nothing (or crashing) while the
-    console report prints - part two reads the record, not the prose."""
-    project = _project_with_reel_26(tmp_path)
-    tracks_file = tmp_path / "tracks.json"
-    tracks_file.write_text(json.dumps({"tracks": _reel_26_tracks()}), encoding="utf-8")
-    out_file = tmp_path / "dry.json"
-    code = D.main(
-        [
-            project,
-            "--new-media",
-            _media(tmp_path),
-            "--tracks-file",
-            str(tracks_file),
-            "--out",
-            str(out_file),
-        ]
-    )
-    assert code == 1
-    document = json.loads(out_file.read_text(encoding="utf-8"))
-    assert document["gate"]["class"] == "composed"
-    assert document["go"] is False

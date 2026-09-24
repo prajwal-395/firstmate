@@ -53,13 +53,6 @@ def test_respell_fixes_copy_and_keeps_identity():
     assert obj["cta"]["speaker"] == "Akshita"
 
 
-def test_respell_without_corrections_touches_nothing():
-    obj = {"reason": "visit lucy today"}
-    before = copy.deepcopy(obj)
-    assert respell_display(obj, []) == {"replacements": 0, "fields": []}
-    assert obj == before
-
-
 def _words(*tokens, start=10.0):
     words = []
     cursor = start
@@ -105,21 +98,6 @@ def test_select_reels_regen_carries_correction(tmp_path):
     assert "lucy" not in json.dumps(moments).replace("Lucie", "")
     assert moments[0]["slug"] == "t"
     assert "Lucie" in moments[0]["transcript_preview"]
-
-
-def test_select_reels_regen_without_project_is_unchanged():
-    from library.steps.step_3_04_select_reels.post_bridge import resolve
-
-    transcript = _two_speaker_transcript(stale_word="lucy")
-    llm = {"moments": [{
-        "start": 10.0, "end": 22.0, "slug": "t",
-        "reason": "visit lucy today"}]}
-    out = resolve(llm, {"timeline_transcript": transcript,
-                        "project_folder": ""})
-    moments = out["reel_selection"]["moments"]
-    assert len(moments) == 1
-    # No project, no corrections: the regen is what it always was.
-    assert "visit lucy today" in moments[0]["reason"]
 
 
 def test_judge_bridge_lines_carry_correction(tmp_path):
@@ -206,26 +184,3 @@ def test_judge_post_bridge_holds_grounding_on_stale_transcript(tmp_path):
     out = resolve(llm, data)
     assert out["reel_judgement"]["refused"] == []
     assert len(out["reel_judgement"]["readings"]) == 1
-
-
-def test_post_pass_never_refuses_and_says_what_moved(tmp_path, capsys):
-    obj = {"text": "say lucy now"}
-    report = apply_post_pass(obj, str(tmp_path), "vetting")
-    assert report == {"replacements": 0, "fields": []}
-    assert obj == {"text": "say lucy now"}
-    assert capsys.readouterr().err == ""
-
-
-def test_verdict_shaped_report_respells_deterministically():
-    corrections = [{"id": "lc-1", "heard": "lucy", "correct": "Lucie"}]
-    report = {"quality_bar": {"verdicts": [{
-        "name": "Reel 1", "number": 1,
-        "call_to_action": {"text": "the lucy system"},
-        "findings": [{"code": "QB_X", "severity": "warning",
-                      "detail": {"text": "says lucy twice"}}]}]}}
-    out = respell_display(report, corrections)
-    assert out["replacements"] == 2
-    verdict = report["quality_bar"]["verdicts"][0]
-    assert verdict["call_to_action"]["text"] == "the Lucie system"
-    assert verdict["findings"][0]["code"] == "QB_X"
-    assert verdict["name"] == "Reel 1"

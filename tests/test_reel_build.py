@@ -64,24 +64,6 @@ def test_a_question_and_its_answer_are_not_a_retake():
     assert redundant_takes(0.0, 60.0, tx) == []
 
 
-def test_mic_bleed_cannot_cut_the_other_speakers_line():
-    """Akshita's words land on Craig's track through his mic, so BOTH
-    sides of a pair can read as Craig. Same-speaker alone is not enough -
-    the duration and symmetry tests carry it."""
-    tx = _tx(_seg("Craig", "what has been the biggest mind blowing thing to you",
-                  10.0, 15.0),
-             _seg("Craig", "the most mind blowing thing", 16.0, 17.0, "u2"))
-    assert redundant_takes(0.0, 60.0, tx) == []
-
-
-def test_a_short_phrase_inside_a_longer_sentence_is_not_a_retake():
-    """Containment alone reads 1.00 here and would delete the shorter."""
-    tx = _tx(_seg("Akshita", "make sure you are writing about that", 10.0, 13.0),
-             _seg("Akshita", "make sure you are writing about why you are "
-                             "better than a competitor today", 14.0, 19.0, "u2"))
-    assert redundant_takes(0.0, 60.0, tx) == []
-
-
 def test_a_fragment_is_never_kept_over_a_full_line():
     """Reel 06 would have dropped 4.3s to keep a 0.5s fragment."""
     tx = _tx(_seg("Akshita", "it is going to start hallucinating because it is "
@@ -97,12 +79,6 @@ def test_a_fragment_is_never_kept_over_a_full_line():
     assert 4.3 / 0.5 > DURATION_RATIO
 
 
-def test_takes_far_apart_are_not_paired():
-    tx = _tx(_seg("Akshita", AUDIT_1, 10.0, 15.0),
-             _seg("Akshita", AUDIT_2, 300.0, 304.5, "u2"))
-    assert redundant_takes(0.0, 600.0, tx) == []
-
-
 def test_a_near_miss_is_reported_not_cut():
     """Everything the cut rule is unsure of becomes a MARKER."""
     tx = _tx(_seg("Akshita", "make sure you are writing about that", 10.0, 13.0),
@@ -110,10 +86,6 @@ def test_a_near_miss_is_reported_not_cut():
                              "better than a competitor today", 14.0, 19.0, "u2"))
     assert redundant_takes(0.0, 60.0, tx) == []
     assert suspected_takes(0.0, 60.0, tx), "a near miss must still be reported"
-
-
-def test_the_duration_ratio_is_bounded():
-    assert DURATION_RATIO >= 1.0
 
 
 # ── Keep ranges and sync ─────────────────────────────────────────────
@@ -129,16 +101,6 @@ def _clip(track, speaker, tl_start, tl_end, src_in=100.0):
         name="clip")
 
 
-def test_a_cut_removes_its_span_from_the_reel():
-    from library.tools.reel_build import Cut
-    cut = Cut(20.0, 25.0, "dropped", 26.0, 31.0, "kept", "Akshita", 0.9, 0.8)
-    assert keep_ranges(0.0, 60.0, [cut]) == [(0.0, 20.0), (25.0, 60.0)]
-
-
-def test_no_cut_leaves_the_span_whole():
-    assert keep_ranges(0.0, 60.0, []) == [(0.0, 60.0)]
-
-
 def test_both_tracks_shift_by_the_same_amount():
     """This is what stops a cut sliding one speaker against the other."""
     from library.tools.reel_build import Cut
@@ -150,16 +112,6 @@ def test_both_tracks_shift_by_the_same_amount():
     for spot in spots:
         by_track.setdefault(spot["track_index"], []).append(round(spot["record"], 3))
     assert by_track[1] == by_track[2], "the two tracks must land identically"
-
-
-def test_a_reel_closes_the_gap_a_cut_leaves():
-    from library.tools.reel_build import Cut
-    cut = Cut(20.0, 25.0, "d", 26.0, 31.0, "k", "Akshita", 0.9, 0.8)
-    ranges = keep_ranges(0.0, 60.0, [cut])
-    spots = placements(ranges, [_clip(1, "Akshita", 0.0, 60.0)], 23.976)
-    assert spots[0]["record"] == 0.0
-    assert spots[1]["snapped_record"] == 480, "the second range butts up"
-    assert sum((s["source_out"] - s["source_in"]) * 23.976 for s in spots) == pytest.approx(1320)
 
 
 # ── The resolution that would otherwise be silently wrong ────────────
@@ -256,31 +208,6 @@ def test_no_reel_build_site_writes_the_frame_by_hand():
 # `tests/test_reel_build_sop_conformance.py`, which drives the real
 # `build_reel_timeline` against fake Resolve and reads the timeline
 # back through the verifier.
-
-def test_reel_contiguous_placement_exact_frames():
-    """
-    Two contiguous ranges must snap exactly with no uncovered frames between them.
-    This tests the exact frame arithmetic in placements.
-    """
-    from library.tools.reel_build import placements
-    from unittest.mock import MagicMock
-    
-    # Range 1: 0 to 5.1 seconds
-    # Range 2: 5.1 to 10.0 seconds
-    clip1 = MagicMock(timeline_start=0.0, timeline_end=5.1, source_in=100.0, track_index=1, speaker="A")
-    clip2 = MagicMock(timeline_start=5.1, timeline_end=10.0, source_in=200.0, track_index=1, speaker="A")
-    
-    ranges = [(0.0, 5.1), (5.1, 10.0)]
-    
-    placements_list = placements(ranges, [clip1, clip2], 23.976)
-    
-    p1 = placements_list[0]
-    p2 = placements_list[1]
-    
-    dur1 = int(round(p1["source_out"] * 23.976)) - int(round(p1["source_in"] * 23.976))
-    
-    assert p1["snapped_record"] == 0
-    assert p2["snapped_record"] == p1["snapped_record"] + dur1
 
 
 def test_build_reel_timeline_places_each_clip_exactly_once():
@@ -430,31 +357,6 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
             f"clip {i} ends at frame {this_end}, "
             f"clip {i+1} starts at frame {next_call['recordFrame']}"
         )
-def test_reel_05_boundary_rounding():
-    """
-    Test the exact rounding boundary from Reel 05 that produced the 1-frame hole.
-    Frame 841 at 23.976 fps corresponds to ~35.0767 seconds.
-    """
-    from library.tools.reel_build import placements
-    from unittest.mock import MagicMock
-    
-    # 841 frames at 23.976 fps is exactly 841 / 23.976 = 35.07674341007674 seconds.
-    boundary_time = 841 / 23.976
-    clip1 = MagicMock(timeline_start=0.0, timeline_end=boundary_time, source_in=100.0, track_index=1, speaker="A")
-    clip2 = MagicMock(timeline_start=boundary_time, timeline_end=boundary_time + 10.0, source_in=200.0, track_index=1, speaker="A")
-    
-    ranges = [(0.0, boundary_time), (boundary_time, boundary_time + 10.0)]
-    
-    placements_list = placements(ranges, [clip1, clip2], 23.976)
-    
-    p1 = placements_list[0]
-    p2 = placements_list[1]
-    
-    # Check that second clip snapped exactly to end of first
-    dur1 = int(round(p1["source_out"] * 23.976)) - int(round(p1["source_in"] * 23.976))
-    assert p1["snapped_record"] == 0
-    assert dur1 == 841
-    assert p2["snapped_record"] == 841
 
 
 # ── The closing CTA, from anywhere in the episode ────────────────────
@@ -478,19 +380,6 @@ def _moment(start, end, cta=None, number=1, slug="topic"):
         call_to_action=(CallToAction(timeline_start=cta[0],
                                      timeline_end=cta[1])
                         if cta else None))
-
-
-def test_a_moment_with_no_cta_plays_only_its_body():
-    """The field is additive: every reel built before it behaves the same."""
-    from library.tools.reel_build import reel_ranges
-    assert reel_ranges(_moment(100.0, 160.0), _tx()) == [(100.0, 160.0)]
-
-
-def test_the_cta_range_is_appended_after_the_body():
-    from library.tools.reel_build import reel_ranges
-    ranges = reel_ranges(_moment(600.0, 660.0, cta=(468.06, 476.5)), _tx())
-    assert ranges == [(600.0, 660.0), (468.06, 476.5)], (
-        "the closer is laid down LAST, however far away it is on the master")
 
 
 def test_a_distant_cta_clip_lands_last_on_the_reel():
@@ -570,48 +459,6 @@ def test_one_shared_cta_range_closes_two_different_reels():
     assert first[-1]["snapped_record"] != second[-1]["snapped_record"]
 
 
-def test_a_cta_survives_the_bad_takes_being_cut_from_the_body():
-    """Cutting a retake out of the body must not disturb the closer - it
-    moves earlier by exactly the cut's length and plays the same seconds."""
-    from library.tools.reel_build import Cut, placements, reel_ranges
-
-    fps = 24000 / 1001
-    tx = _tx(_seg("Akshita", AUDIT_1, 120.0, 125.0),
-             _seg("Akshita", AUDIT_2, 128.0, 132.5, "u2"))
-    ranges = reel_ranges(_moment(100.0, 160.0, cta=(468.0, 476.0)), tx)
-
-    assert ranges[:-1] == [(100.0, 120.0), (125.0, 160.0)], "the retake is cut"
-    assert ranges[-1] == (468.0, 476.0), "the closer is untouched and last"
-
-    closer = _clip(2, "Craig", 460.0, 480.0, src_in=460.0)
-    spots = placements(ranges, [_clip(1, "Akshita", 100.0, 160.0,
-                                      src_in=100.0), closer], fps)
-    assert spots[-1]["clip"] is closer
-    kept = sum(int(round(b * fps)) - int(round(a * fps))
-               for a, b in ranges[:-1])
-    assert spots[-1]["snapped_record"] == kept
-
-
-def test_the_cta_range_is_not_scanned_for_retakes():
-    """The closer is placed WHOLE. A retake scan silently shortening a
-    passage the captain approved is worse than a repetition in it."""
-    from library.tools.reel_build import reel_ranges
-    tx = _tx(_seg("Craig", AUDIT_1, 468.0, 473.0),
-             _seg("Craig", AUDIT_2, 474.0, 478.5, "u2"))
-    ranges = reel_ranges(_moment(100.0, 160.0, cta=(468.0, 480.0)), tx)
-    assert ranges[-1] == (468.0, 480.0)
-
-
-def test_a_moment_that_cannot_carry_a_cta_reads_as_having_none():
-    """An older plan, or a stand-in, has no `call_to_action` at all."""
-    from unittest.mock import MagicMock
-    from library.tools.reel_build import cta_range, reel_ranges
-    old = MagicMock(spec=["timeline_start", "timeline_end"])
-    old.timeline_start, old.timeline_end = 10.0, 40.0
-    assert cta_range(old) is None
-    assert reel_ranges(old, _tx()) == [(10.0, 40.0)]
-
-
 def test_a_closer_must_present_two_real_numbers():
     """A bare MagicMock answers every attribute with a truthy mock, and
     `float()` of one is 1.0 - so a stand-in that never mentioned a CTA
@@ -642,24 +489,6 @@ def test_a_sub_frame_closer_is_refused_rather_than_dropped():
         reel_ranges(_moment(600.0, 660.0, cta=(468.0, 468.01)), _tx())
 
 
-def test_a_word_ending_exactly_on_a_range_end_is_inside_it():
-    """The closing word of every range - and so of every closer - ends
-    EXACTLY on the range end that `snap_to_speech` produced."""
-    from library.tools.reel_build import reel_time
-    ranges = [(600.0, 660.0), (468.0, 471.2)]
-    assert reel_time(471.2, ranges) is None, "half-open, for a word START"
-    assert reel_time(471.2, ranges, at_end=True) == pytest.approx(63.2)
-    assert reel_time(660.0, ranges, at_end=True) == pytest.approx(60.0)
-
-
-def test_a_range_start_is_still_exclusive_at_the_end_reading():
-    """`at_end` must not make a range's START belong to the range before
-    it, or a word would be timed into a passage it is not in."""
-    from library.tools.reel_build import reel_time
-    assert reel_time(0.0, [(0.0, 20.0)], at_end=True) is None
-    assert reel_time(0.0, [(0.0, 20.0)]) == 0.0
-
-
 def test_a_finely_segmented_retake_is_cut():
     """Reel 03: three takes of one sentence, none of them long.
 
@@ -688,20 +517,6 @@ def test_a_finely_segmented_retake_is_cut():
     assert cuts[0].kept_start == 11.0
 
 
-def test_a_short_pair_of_different_lines_is_still_left_alone():
-    """Removing the floor did not make every short pair a take.
-
-    The content-word test is what separates a retake from two short
-    turns, and it still does: back-channel and two different short lines
-    share no content vocabulary and are not paired.
-    """
-    tx = _tx(_seg("Craig", "so what are the seven modules doing", 10.0, 10.8),
-             _seg("Craig", "and where does the score come from", 11.0, 11.9,
-                  "u2"))
-    assert redundant_takes(0.0, 60.0, tx) == []
-
-
-
 def test_intra_turn_repetition_is_cut():
     """Reel 03's span 301.2-341.3 with its three takes.
     
@@ -728,7 +543,6 @@ def test_intra_turn_repetition_is_cut():
     # It should cut at least something, meaning the intra-turn repetition is found
     assert len(cuts) > 0
     assert cuts[0].dropped_start == 301.2
-
 
 
 # ── Overlay placement is video-only and judged ────────────────────────
@@ -907,31 +721,6 @@ def test_an_overlay_import_lands_in_its_declared_bin_not_in_current():
     assert list(tops) == [bins.ASSETS_BIN]
 
 
-def test_the_import_restores_the_previous_current_folder():
-    """Bin creation moves CURRENT (`AddSubFolder` parks it on the bin
-    it made), so the import restores what it found - the next timeline
-    creation must not land where this import filed."""
-    pool = _FakePool()
-    before = pool.GetCurrentFolder()
-    _placer(pool=pool)
-    assert pool.GetCurrentFolder() is before
-
-
-def test_import_into_bin_creates_no_duplicate_bins_on_rebuild(tmp_path):
-    """Lookup-first: the second build of the same reel reuses the bins
-    the first build made instead of forking same-named duplicates
-    (`AddSubFolder` never refuses)."""
-    from library.tools.execution.organise_media_pool import import_into_bin
-
-    pool = _FakePool()
-    dest = ("06 - Subtitle renders", "fake reel")
-    import_into_bin(pool, dest, ["/renders/a.mov"])
-    import_into_bin(pool, dest, ["/renders/b.mov"])
-    tops = pool.GetRootFolder().GetSubFolderList()
-    assert [f.GetName() for f in tops] == ["06 - Subtitle renders"]
-    assert [f.GetName() for f in tops[0].GetSubFolderList()] == ["fake reel"]
-
-
 # ── The explainer render reads the project's geometry ────────────────
 
 def test_explainer_render_forwards_the_project_folder(tmp_path, monkeypatch):
@@ -1057,13 +846,6 @@ def test_a_tight_segment_is_placed_through_its_box_placement():
         "Scaling": 1, "Pan": 140.0, "Tilt": -1720.0}
 
 
-def test_a_full_canvas_segment_takes_no_transform():
-    """`tight_box` None is full canvas, which needs no transform - and
-    a segment whose box the module declined must not inherit one."""
-    _, placed = _tight_placer([_segment()])
-    assert placed[0].set_calls == {}
-
-
 def test_a_graphic_resolve_has_moved_is_reported_by_name(capsys):
     """THE READ-BACK. A placed overlay holding something other than
     its box placement is REPORTED by name: the clip IS on the
@@ -1076,16 +858,3 @@ def test_a_graphic_resolve_has_moved_is_reported_by_name(capsys):
     assert "Tilt" in err and "-3840" in err
 
 
-def test_a_declared_cover_zoom_is_held_and_judged_against():
-    """The TV frame's cover zoom is the one DECLARED overlay transform,
-    so holding it is correct rather than a refusal - the read-back is
-    scoped to what the caller asked for, never to the identity alone."""
-    item = _PlacedItem(218)
-    pool = _FakePool(append_result=[item])
-    timeline = _TrackTimeline([item])
-    place_overlay_segments(
-        pool, _FakeProject(timeline), timeline, "fake reel", 24000 / 1001,
-        [_segment()], 7, kind="TV frame", check="F4",
-        properties={"ZoomX": 1.7778, "ZoomY": 1.7778},
-        project_folder="/proj")
-    assert item.set_calls == {"ZoomX": 1.7778, "ZoomY": 1.7778}

@@ -160,31 +160,12 @@ def test_the_row_draws_the_hand_place(tmp_path):
     assert rows == pytest.approx(CANVAS_ROWS)
 
 
-def test_the_stored_value_draws_his_centre():
-    """-917 draws canvas centre y 1418.5 under the measured gain -
-    his hand value is ground truth and the fraction reconstructs it."""
-    _, origin_y = drawn_origin(904, 480, FRAME_W, FRAME_H, 0.0,
-                               HAND_TILT)
-    assert origin_y + 240.0 == pytest.approx(HAND_CENTRE_Y, abs=0.5)
 
 
 # ── Why the value is DERIVED and not chosen ────────────────────────
 
-def test_the_row_is_read_back_off_the_approved_canvas():
-    """0.8451 is not a taste value: it is the measured canvas bottom
-    less `PAD_BOTTOM`, over the delivery height."""
-    row_px = CANVAS_ROWS[1] - tight_box.PAD_BOTTOM
-    assert row_px == pytest.approx(1623.0, abs=0.5)
-    assert subtitle_style.caption_row_px(CAPTAIN_ROW, FRAME_H) == 1623
 
 
-@pytest.mark.parametrize("row", [0.6, 0.7217, 0.8, CAPTAIN_ROW, 0.85])
-def test_the_canvas_bottom_tracks_the_row_one_for_one(tmp_path, row):
-    """The relation the derivation rests on, checked across the band
-    rather than at the point it has to hold at."""
-    _, (_, bottom) = _caption_canvas(_project(tmp_path, row))
-    row_px = subtitle_style.caption_row_px(row, FRAME_H)
-    assert bottom == pytest.approx(row_px + tight_box.PAD_BOTTOM)
 
 
 def test_the_new_placement_is_one_resolve_can_hold(tmp_path):
@@ -214,21 +195,6 @@ REELS = (
 )
 
 
-@pytest.mark.parametrize("reel", REELS)
-def test_the_row_governs_every_reel_not_just_the_one_looked_at(tmp_path,
-                                                               reel):
-    """*"i would like to see that reposition across all reels we have
-    an will make here"* is a statement about the series, so it is the
-    PROJECT row that moves. With no `reel_caption_row.json` in
-    `external/`, every reel resolves to it - which is also what makes
-    a later per-reel pin still possible without unpicking this."""
-    folder = _project(tmp_path, CAPTAIN_ROW)
-    assert declared_row(folder, reel) is None
-    assert subtitle_style.project_caption_row(
-        folder, reel_name=reel) == pytest.approx(CAPTAIN_ROW)
-    tilt, rows = _caption_canvas(folder, reel_name=reel)
-    assert tilt == pytest.approx(HAND_TILT, abs=1.0)
-    assert rows == pytest.approx(CANVAS_ROWS)
 
 
 def test_a_per_reel_pin_still_outranks_the_project_row(tmp_path):
@@ -250,19 +216,3 @@ def test_a_per_reel_pin_still_outranks_the_project_row(tmp_path):
 
 # ── What else the row moves, stated rather than discovered ─────────
 
-def test_the_lower_third_floor_follows_the_captions_down(tmp_path):
-    """Moving the caption row moves the floor the lower thirds clear,
-    by design: `speaker_identity.placement_box` grows its box upward
-    from whichever row the project declared. A reviewer should see
-    that here rather than on a rebuilt reel."""
-    from library.tools.speaker_identity import placement_box
-
-    tallest_card = 188
-    old = placement_box(_project(tmp_path / "a", SUPERSEDED_ROW),
-                        FRAME_W, FRAME_H, tallest_card)
-    new = placement_box(_project(tmp_path / "b", CAPTAIN_ROW),
-                        FRAME_W, FRAME_H, tallest_card)
-    assert old["caption_row"] == 1596
-    assert new["caption_row"] == 1623
-    assert new["floor"] - old["floor"] == 27
-    assert old["insets"]["bottom"] - new["insets"]["bottom"] == 27

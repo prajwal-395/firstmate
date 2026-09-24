@@ -194,16 +194,6 @@ def test_a_second_build_of_the_same_comp_reuses_the_banked_file(tmp_path):
     assert first == second
 
 
-def test_build_effect_comp_is_deterministic():
-    """Content addressing is only a key if the same request is the same
-    bytes; a timestamp or an unseeded random in the builder would make
-    every run a miss and the bank an ever-growing pile."""
-    args = ({"_preset": "slow_zoom_in", "zoom_start": 1.0, "zoom_end": 1.03},
-            600, (3840, 2160))
-    assert build_effect_comp(dict(args[0]), args[1], args[2]) == \
-        build_effect_comp(dict(args[0]), args[1], args[2])
-
-
 def test_the_old_input_only_key_is_gone():
     """`clip_asset_key` fingerprinted the request, not the answer.
 

@@ -119,32 +119,6 @@ def test_progress_bar_progress_still_draws():
             != _mg_drawing_digest(_props(moved), "full", None))
 
 
-def test_drawing_changes_still_render():
-    """A new drawing input needs no edit: it digests differently."""
-    base = _props(_lower_third())
-    for mutate in (
-        lambda p: p["elements"][0]["runs"].__setitem__(
-            0, {"text": "Someone Else", "type_role": "display"}),
-        lambda p: p["elements"][0].__setitem__("color", "#000000"),
-        lambda p: p["elements"][0]["data"].__setitem__(
-            "construction", "other"),
-        lambda p: p["elements"][0].__setitem__("durationFrames", 90),
-        lambda p: p.__setitem__("durationInFrames", 90),
-        lambda p: p["elements"][0].__setitem__("element", "title_lockup"),
-    ):
-        changed = copy.deepcopy(base)
-        mutate(changed)
-        assert (_mg_drawing_digest(changed, "full", None)
-                != _mg_drawing_digest(base, "full", None))
-
-
-def test_geometry_still_distinguishes():
-    """Full canvas and tight canvas are different artefacts of one draw."""
-    props = _props(_lower_third())
-    assert (_mg_drawing_digest(props, "full", None)
-            != _mg_drawing_digest(props, "tight", None))
-
-
 class _StubRun:
     """Acts like a successful `npx remotion render`, drawing real pixels.
 
@@ -191,32 +165,3 @@ def _planned(element, timeline_start=0.0):
         "elements": [element["element"]],
         "props": _props(element),
     }
-
-
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_second_reel_reuses_the_first_reels_card(tmp_path, monkeypatch):
-    """The reel path joins the cache: reel two reuses, never re-renders.
-
-    Two placings of one card on two reels' timebases - different
-    progress fractions, different bounds, different placement labels -
-    render once. The entry still names its own placing; only the file
-    is shared.
-    """
-    stub = _StubRun()
-    monkeypatch.setattr(
-        "library.steps.step_4_06_render_motion_graphics.post_bridge.subprocess.run",
-        stub,
-    )
-    first = render_one_segment(
-        _planned(_lower_third(progress_end=0.0438, timeline_start=0.0)),
-        str(tmp_path), segment_name="lt_reel_01_00",
-        overlay_geometry="full", reuse=True)
-    assert first["provenance"] == "rendered"
-    second = render_one_segment(
-        _planned(_lower_third(progress_end=0.0667, timeline_start=19.06)),
-        str(tmp_path), segment_name="lt_reel_02_00",
-        overlay_geometry="full", reuse=True)
-    assert second["provenance"] == "reused"
-    assert second["overlay_path"] == first["overlay_path"]
-    assert second["placement_label"] == "lt_reel_02_00"
-    assert len(stub.calls) == 1

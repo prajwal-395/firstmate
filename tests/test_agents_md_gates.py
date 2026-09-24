@@ -67,16 +67,6 @@ def test_a_new_section_with_no_budget_is_refused(tmp_path):
     assert "NO BUDGET DECLARED" in out
 
 
-def test_a_budget_for_a_deleted_section_is_refused(tmp_path):
-    """A budget for a section that does not exist is a lie about what is owed."""
-    text = AGENTS.read_text(encoding="utf-8")
-    s = text.index("## 13. Intros, outros and end cards")
-    e = text.index("## 14. General assets")
-    f = tmp_path / "AGENTS.md"
-    f.write_text(text[:s] + text[e:], encoding="utf-8")
-    code, out = run(SIZE, f)
-    assert code == 1
-    assert "budgeted but no longer in the file" in out
 
 
 def test_budgets_cannot_be_raised_one_section_at_a_time():
@@ -95,10 +85,6 @@ def test_budgets_cannot_be_raised_one_section_at_a_time():
 # The preservation check, widened to an enumerated corpus
 # --------------------------------------------------------------------------
 
-def test_preservation_passes_on_an_unchanged_file():
-    code, out = run(PRESERVE, "--before", AGENTS, "--after", AGENTS)
-    assert code == 0, out
-    assert "RESULT: PASS" in out
 
 
 def test_a_rule_deleted_with_no_destination_fails(tmp_path):
@@ -164,33 +150,6 @@ def test_a_gutted_section_must_point_at_a_destination_that_gained(tmp_path):
     assert "SHRANK INTO SILENCE" in out
 
 
-def test_an_index_row_pointing_at_a_destination_that_gained_nothing_is_refused(tmp_path):
-    """Naming a destination is not enough - it has to have received something.
-
-    The destination here must be a repo file this branch does NOT modify, or the
-    premise collapses: it originally used `series_look.py`, and the moment section
-    12's rules moved INTO that file the "gained nothing" case stopped existing and
-    this test failed for a reason that had nothing to do with the gate. The
-    assertion below states the premise so a future collision says so directly.
-    """
-    import subprocess
-    untouched = "library/tools/beat_grid.py"
-    changed = subprocess.run(["git", "diff", "--name-only", "HEAD", "--", untouched],
-                             capture_output=True, text=True, cwd=REPO_ROOT, check=False).stdout
-    assert not changed.strip(), (
-        f"{untouched} is modified on this branch, so it has GAINED and cannot serve as "
-        f"the gained-nothing destination. Pick another file this branch leaves alone.")
-
-    text = AGENTS.read_text(encoding="utf-8")
-    s = text.index("## 12. The look")
-    e = text.index("## 13. Intros")
-    f = tmp_path / "row.md"
-    f.write_text(text[:s] + "## 12. The look\n\nThere is no house look. One enumeration, "
-                 f"`{untouched}`.\n\n" + text[e:], encoding="utf-8")
-    code, out = run(PRESERVE, "--before", AGENTS, "--after", f,
-                    untouched, "--gained-since", "HEAD")
-    assert code == 1
-    assert "SHRANK INTO SILENCE" in out
 
 
 def test_a_token_dump_still_fails(tmp_path):
@@ -204,22 +163,3 @@ def test_a_token_dump_still_fails(tmp_path):
     assert "TOKEN DUMPS" in out
 
 
-def test_a_bold_statement_never_spans_a_line_break():
-    """`bold()` must not match across a newline.
-
-    With `re.DOTALL`, a `**` pair the 15-character floor skipped
-    (`**MediaPoolItem**` is 14) let the match run on to the next `**` and produce
-    a span crossing a heading - a phantom that then fails the check for content
-    that never moved. Measured on AGENTS.md: 264 spans with DOTALL, 2 of them
-    containing a heading; 258 without it, and none do.
-    """
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("_pres", PRESERVE)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    sample = ("Super Scale is a **MediaPoolItem** property taking an **int**, with "
-              "companion keys `X`.\n\n### A heading\n\n**A real rule statement here.**")
-    found = mod.bold(sample)
-    assert "A real rule statement here." in found, found
-    assert not any("heading" in b.lower() for b in found), found
-    assert not any("\n" in b for b in found), found

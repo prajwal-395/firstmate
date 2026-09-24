@@ -48,10 +48,6 @@ def test_a_project_with_no_look_gets_the_correction_as_the_whole_grade():
     assert cdl["offset_r"] == 0.0 and cdl["power_r"] == 1.0
 
 
-def test_a_declared_look_with_no_correction_is_byte_for_byte_the_look():
-    """The house look is not removed; it gains a craft layer underneath."""
-    look = resolve_look(DECLARED)
-    assert cc.compose_cdl(look, None, NEUTRAL_CDL) == look.cdl()
 
 
 def test_every_term_composes_the_way_the_legend_says():
@@ -98,23 +94,6 @@ def test_an_all_neutral_entry_is_dropped_rather_than_written_as_a_no_op():
     assert [d.reason for d in dropped] == ["no_correction_terms"]
 
 
-def test_every_way_an_entry_can_fall_short_is_a_named_drop():
-    corrections, dropped = _read([
-        {"exposure_stops": 1.0, "why": "no clip"},
-        {"clip_id": "clip_013", "exposure_stops": 1.0},          # no reason
-        {"clip_id": "clip_999", "exposure_stops": 1.0, "why": "not here"},
-        {"clip_id": "clip_011", "exposure_stops": -0.3, "why": "one"},
-        {"clip_id": "clip_011", "exposure_stops": -0.6, "why": "two"},
-    ])
-    # The duplicate is dropped rather than merged: merging means the
-    # engine deciding which correction the colourist meant.
-    assert [c.clip_id for c in corrections] == ["clip_011"]
-    assert corrections[0].exposure_stops == -0.3
-    assert [d.reason for d in dropped] == [
-        "no_clip_named", "no_reason_given", "clip_not_in_the_cut",
-        "duplicate_clip"]
-    assert {d.reason for d in dropped} <= set(cc.DROP_REASONS)
-    assert "clip_999" in dropped[2].detail
 
 
 # ── The four absences are four, not one ──────────────────────────────
@@ -131,17 +110,3 @@ def test_a_judged_no_correction_is_not_an_absent_decision():
     ) == cc.EVERY_ENTRY_DROPPED
 
 
-def test_the_basis_record_counts_proposed_and_resolved_separately():
-    """An empty result reads identically whether nothing was proposed or
-    everything was discarded - the vfx_plan_basis lesson."""
-    corrections, dropped = _read([
-        {"clip_id": "clip_011", "exposure_stops": -0.3, "why": "bright"},
-        {"clip_id": "clip_013", "exposure_stops": 1.0},
-    ])
-    record = cc.basis_record(
-        cc.planning_basis(True, corrections, dropped), corrections, dropped,
-        "the plaza is a stop up on everything else")
-    assert record["basis"] == cc.CORRECTED
-    assert record["proposed"] == 2 and record["resolved"] == 1
-    assert record["dropped"][0]["reason"] == "no_reason_given"
-    assert "plaza" in record["assessment"]

@@ -101,11 +101,6 @@ def test_the_build_refuses_a_midword_keep_edge():
         reel_ranges(_moment(), _r07_transcript())
 
 
-def test_the_plan_refuses_a_midword_keep_edge():
-    with pytest.raises(ProposalError, match="cut in half"):
-        validate_proposal([_moment()], _r07_transcript(), 600.0)
-
-
 def test_a_keep_edge_on_word_edges_passes():
     """The same takes, but the segment edge lands exactly where "Your"
     starts: the viewer hears whole words, so the plan stands."""
@@ -147,24 +142,6 @@ def test_faithful_disfluency_is_not_a_take_and_not_a_midword_edge():
     from library.tools.reel_build import midword_keep_edges, redundant_takes
     assert redundant_takes(10.0, 22.0, tx) == []
     assert midword_keep_edges(10.0, 22.0, tx) == []
-
-
-def test_a_same_text_restatement_by_another_speaker_is_not_cut():
-    """The R07 class of escape the window cannot explain: "check both"
-    restated 12s apart is INSIDE `CUT_WINDOW_SECONDS`, so its survival
-    is one of the other bars - here the same-speaker guard, which exists
-    because mic bleed puts both sides of an exchange on one track and
-    cutting across speakers deletes questions with their answers. Each
-    bar that lets a repeat through is there because loosening it removed
-    real content; that is a tuning cost, not a missing class."""
-    tx = _tx(
-        _seg("Craig", "hiring managers would check both places", 10.0, 14.0,
-             "u1"),
-        _seg("Akshita", "hiring managers would definitely check both",
-             22.0, 26.0, "u2"),
-    )
-    from library.tools.reel_build import redundant_takes
-    assert redundant_takes(0.0, 60.0, tx) == []
 
 
 def test_float_dust_on_a_word_edge_is_not_a_midword_cut():

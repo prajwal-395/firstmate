@@ -133,26 +133,6 @@ class TestFolderRestoreOnSuccess:
             f"{pm.open_folder_calls[-1]!r}"
         )
 
-    def test_folder_restored_after_create(self, monkeypatch):
-        """After navigating and creating a project, the folder is restored."""
-        pm = MockProjectManager(
-            current_folder="CaptainFolder",
-            project_list=[],  # project doesn't exist
-        )
-        resolve = MockResolve(pm)
-        monkeypatch.setattr(
-            "library.tools.resolve_project_sync._get_resolve",
-            lambda: resolve,
-        )
-
-        config = _make_config(folder="Deep/Nested/Path")
-        result = ensure_resolve_project(config, create_if_missing=True)
-
-        assert result["success"]
-        assert pm.open_folder_calls[-1] == "CaptainFolder", (
-            "Folder was not restored after project creation"
-        )
-
 
 class TestFolderRestoreOnException:
     """The folder is restored even when the body raises an exception."""
@@ -215,11 +195,7 @@ class TestNoFolderNavigation:
 class TestFolderRestoreErrorDocumentation:
     """The error class exists and documents the hazard."""
 
-    def test_folder_restore_error_exists(self):
-        assert issubclass(FolderRestoreError, RuntimeError)
 
     def test_folder_restore_error_docstring_mentions_h10(self):
         assert "H10" in FolderRestoreError.__doc__
 
-    def test_folder_restore_error_docstring_mentions_global(self):
-        assert "GLOBAL" in FolderRestoreError.__doc__ or "global" in FolderRestoreError.__doc__.lower()

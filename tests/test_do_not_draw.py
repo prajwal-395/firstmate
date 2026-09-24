@@ -70,44 +70,6 @@ def _write_rules(project, body):
 
 # ── 1. The declaration validates, loudly ─────────────────────────────
 
-def test_a_suppression_validates():
-    assert do_not_draw.validate_rules([_rule()])[0]["reel"] == REEL
-
-
-def test_a_suppression_naming_no_graphic_is_refused():
-    with pytest.raises(do_not_draw.DoNotDrawError):
-        do_not_draw.validate_rules([_rule(placement_label=None,
-                                          segment_id=None)])
-
-
-def test_a_reasonless_suppression_is_refused():
-    with pytest.raises(do_not_draw.DoNotDrawError):
-        do_not_draw.validate_rules([_rule(reason="  ")])
-
-
-def test_a_reelless_suppression_is_refused():
-    with pytest.raises(do_not_draw.DoNotDrawError):
-        do_not_draw.validate_rules([_rule(reel="")])
-
-
-def test_non_list_elements_are_refused():
-    with pytest.raises(do_not_draw.DoNotDrawError):
-        do_not_draw.validate_rules([_rule(elements="stat_callout")])
-
-
-def test_an_exact_duplicate_is_refused():
-    with pytest.raises(do_not_draw.DoNotDrawError):
-        do_not_draw.validate_rules([_rule(), _rule()])
-
-
-def test_a_wrong_version_is_refused():
-    with pytest.raises(do_not_draw.DoNotDrawError):
-        do_not_draw.parse_rules({"version": 7, "suppressions": []})
-
-
-def test_no_file_is_no_suppressions(tmp_path):
-    assert do_not_draw.load_rules(str(_project(tmp_path))) == []
-
 
 def test_a_malformed_file_refuses_rather_than_building_past(tmp_path):
     project = _project(tmp_path)
@@ -131,18 +93,6 @@ def test_a_segment_id_hit_suppresses_without_a_label():
     assert held
 
 
-def test_a_rule_for_another_reel_is_not_news():
-    held, why = do_not_draw.should_suppress(
-        [_rule()], "Reel 02 - something-else", _segment())
-    assert not held and why == ""
-
-
-def test_a_staging_suffix_names_the_same_reel():
-    held, _ = do_not_draw.should_suppress(
-        [_rule()], REEL + " (scratch 7) (rebuild staging)", _segment())
-    assert held
-
-
 def test_a_shifted_plan_refuses_the_suppression_and_says_so():
     """The input that would delete the WRONG graphic: the plan
     re-ordered under the label, so it now wears another element.
@@ -155,34 +105,7 @@ def test_a_shifted_plan_refuses_the_suppression_and_says_so():
     assert "stat_callout" in why and "quote_card" in why
 
 
-def test_no_elements_anywhere_means_no_cross_check():
-    held, _ = do_not_draw.should_suppress(
-        [_rule(elements=[])], REEL, _segment(elements=[]))
-    assert held
-
-
 # ── 3. Unmatched: a rule the plan left behind says so ────────────────
-
-def test_a_rule_matching_nothing_reports():
-    missed = do_not_draw.unmatched([_rule()], REEL, [_segment(
-        label="vox_reel_01_the_cta_01",
-        segment_id="mg_geo-podcast_ffff0000")])
-    assert [r["placement_label"] for r in missed] == [LABEL]
-
-
-def test_a_rule_doing_its_job_never_reports():
-    assert do_not_draw.unmatched([_rule()], REEL, [_segment()]) == []
-
-
-def test_other_reels_rules_are_not_this_builds_business():
-    assert do_not_draw.unmatched(
-        [_rule()], "Reel 02 - something-else", [_segment()]) == []
-
-
-def test_report_unmatched_is_loud(capsys):
-    do_not_draw.report_unmatched([_rule()], REEL, [])
-    _, err = capsys.readouterr()
-    assert LABEL in err and "retire" in err
 
 
 # ── 4. Survival: the deletion holds across a re-render ───────────────

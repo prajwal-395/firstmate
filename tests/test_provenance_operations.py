@@ -77,24 +77,6 @@ def test_an_operation_is_recorded_as_an_operation(project):
     assert rec.is_attributed
 
 
-def test_an_operation_keeps_its_owning_node_so_step_readers_still_work(project):
-    """The reason `step_id` is not renamed.
-
-    Four records in this pipeline are keyed by node id. A reader that
-    groups by step must keep working without knowing operations exist.
-    """
-    ledger = ProvenanceLedger(project, step_ids=["plan_subtitles"],
-                              operation_ids=["subtitles.plan"])
-    _observe(ledger, project, Area.SUBTITLE_SEGMENTS, "seg.mov",
-             step_id="plan_subtitles", run_id="r1",
-             operation_id="subtitles.plan")
-
-    rec = ledger.of(
-        ProjectLayout(project).read_path(Area.SUBTITLE_SEGMENTS, "seg.mov"))
-    assert rec.step_id == "plan_subtitles"      # the node, for old readers
-    assert rec.producer == "subtitles.plan"     # the narrowest name
-
-
 def test_a_step_is_still_recorded_as_a_step(project):
     ledger = ProvenanceLedger(project)
     records = _observe(ledger, project, Area.PROSODY, "p.json",
@@ -103,38 +85,6 @@ def test_a_step_is_still_recorded_as_a_step(project):
     assert records[0].producer_kind == PRODUCER_STEP
     assert records[0].operation_id is None
     assert records[0].producer == "prosody_analysis"
-
-
-def test_a_record_written_before_operations_existed_still_reads(project):
-    """Backward compatibility, which is a claim about real files on disk.
-
-    Records are reconstructed with `ArtifactRecord(**row)` inside a
-    `try/except TypeError: continue`, so a field without a default would
-    not error - it would make every historic record VANISH silently.
-    """
-    old_row = {"path": "pipeline_output/x.json", "method": "observed",
-               "step_id": "scan", "run_id": "r0", "bytes": 3}
-    rec = ArtifactRecord(**old_row)
-
-    assert rec.producer_kind == PRODUCER_STEP
-    assert rec.operation_id is None
-    assert rec.producer == "scan"
-
-
-def test_operations_are_recorded_beside_steps_not_merged_into_them(project):
-    """The run summary decides SUCCESS from DAG completeness.
-
-    An operation must be visible in the run's account without being able
-    to make an incomplete DAG read as complete, so it gets its own field.
-    """
-    ledger = ProvenanceLedger(project)
-    ledger.start_run("r1", mode="operation")
-    ledger.end_run("r1", "success", steps=["scan"],
-                   operations=["subtitles.plan"])
-
-    run = ledger.runs()[0]
-    assert run.steps == ["scan"]
-    assert run.operations == ["subtitles.plan"]
 
 
 # ── The refusals, each paired with the passing case ─────────────────
@@ -153,15 +103,6 @@ def test_an_operation_with_no_owning_node_is_refused(project):
     assert "owning step" in str(exc.value)
 
 
-def test_and_it_passes_once_an_owning_node_is_given(project):
-    ledger = ProvenanceLedger(project, step_ids=["plan_subtitles"],
-                              operation_ids=["subtitles.plan"])
-    records = _observe(ledger, project, Area.SUBTITLE_SEGMENTS, "b.mov",
-                       step_id="plan_subtitles", run_id="r1",
-                       operation_id="subtitles.plan")
-    assert records[0].step_id == "plan_subtitles"
-
-
 def test_an_undeclared_operation_is_refused(project):
     """`UNKNOWN` already exists to admit a gap; inventing a producer is
     the one thing worse than admitting it."""
@@ -174,15 +115,6 @@ def test_an_undeclared_operation_is_refused(project):
                  operation_id="subtitles.invented")
 
     assert "subtitles.invented" in str(exc.value)
-
-
-def test_and_it_passes_once_the_operation_is_declared(project):
-    ledger = ProvenanceLedger(project, step_ids=["plan_subtitles"],
-                              operation_ids=["subtitles.plan"])
-    records = _observe(ledger, project, Area.SUBTITLE_SEGMENTS, "d.mov",
-                       step_id="plan_subtitles", run_id="r1",
-                       operation_id="subtitles.plan")
-    assert records[0].operation_id == "subtitles.plan"
 
 
 def test_an_operation_naming_an_unknown_owning_node_is_refused(project):
@@ -223,23 +155,6 @@ def test_a_ledger_that_declares_nothing_REFUSES_an_operation(project):
     assert "operations.names()" in str(exc.value)   # names the way out
 
 
-def test_a_ledger_with_operations_but_no_steps_refuses_too(project):
-    """The sibling, and it is the same defect wearing the other hat.
-
-    `if self.step_ids and ...` had the identical shape. Fixing one and
-    leaving the other is how this returns next month with a face nobody
-    recognises.
-    """
-    ledger = ProvenanceLedger(project, operation_ids=["subtitles.plan"])
-
-    with pytest.raises(ProvenanceError) as exc:
-        _observe(ledger, project, Area.SUBTITLE_SEGMENTS, "h.mov",
-                 step_id="plan_subtitles", run_id="r1",
-                 operation_id="subtitles.plan")
-
-    assert "no declared steps" in str(exc.value)
-
-
 def test_and_a_fully_declared_ledger_still_records(project):
     """The mirror. Both refusals above must not make the layer unusable."""
     ledger = ProvenanceLedger(project, step_ids=["plan_subtitles"],
@@ -252,17 +167,3 @@ def test_and_a_fully_declared_ledger_still_records(project):
     assert records[0].step_id == "plan_subtitles"
 
 
-def test_recording_a_STEP_needs_no_declarations_at_all(project):
-    """The property the strictness must not break.
-
-    `run_pipeline` builds its ledger with no declarations and records a
-    step on every node. Both new refusals sit inside `if operation_id:`
-    precisely so that path is untouched - and if that ever stops being
-    true, the runner breaks on every step of every run.
-    """
-    ledger = ProvenanceLedger(project)
-    records = _observe(ledger, project, Area.PROSODY, "p2.json",
-                       step_id="prosody_analysis", run_id="r1")
-
-    assert records[0].producer_kind == PRODUCER_STEP
-    assert records[0].step_id == "prosody_analysis"

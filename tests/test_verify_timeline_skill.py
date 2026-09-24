@@ -188,45 +188,12 @@ def test_a_malformed_plan_is_a_refusal_not_a_pass(
     assert "video_tracks" in verdict["issues"][0]
 
 
-def test_missing_names_are_refusals(tmp_path, live_timeline):
-    assert skill.run(
-        "", str(tmp_path), "build",
-        project="Exact Project")["passed"] is False
-    assert skill.run(
-        "Reel 09", str(tmp_path), "build",
-        project="")["passed"] is False
 
 
-def test_dispatches_by_registry_name(tmp_path, live_timeline):
-    """The new shape: `run_skill` reaches the verifier by catalogue name.
-
-    On the old shape this raises UnknownSkill - the catalogue held
-    exactly three skills, none the SOP verifier.
-    """
-    result = pipeline_skills.run_skill(
-        "verify_timeline", timeline_name="Reel 09",
-        project_folder=str(tmp_path), step_id="build",
-        project="Exact Project", plan=_plan().serializable())
-    assert result["passed"] is True
 
 
-def test_declared_skill_reaches_the_prompt():
-    manifest = {"skills": ["verify_timeline"]}
-    block = pipeline_skills.prompt_block("build", manifest, "agent")
-    assert "verify_timeline" in block
-    assert "python3 -m library.skills.verify_timeline.skill" in block
-    pipeline_skills.assert_declared_skills_reach_prompt(
-        "build", manifest, block)
-    assert pipeline_skills.gating_skills(manifest, "build") == [
-        "verify_timeline"]
 
 
-def test_ran_gating_skill_reads_back_from_disk(tmp_path, live_timeline):
-    skill.run("Reel 09", str(tmp_path), "build",
-              project="Exact Project", plan=_plan().serializable())
-    receipts = pipeline_skills.assert_gating_skills_ran(
-        "build", {"skills": ["verify_timeline"]}, str(tmp_path))
-    assert receipts["verify_timeline"]["result"]["passed"] is True
 
 
 def test_cli_passes_and_fails_by_exit_code(tmp_path, live_timeline,

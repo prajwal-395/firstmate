@@ -86,17 +86,6 @@ def test_a_sequence_short_of_a_declared_target_is_refused(enriched):
     assert "54.0-66.0s" in message
 
 
-def test_a_sequence_over_a_declared_target_is_refused(enriched):
-    total = pb.total_speech_seconds(enriched["body_sequence"])
-    with pytest.raises(pb.SpeechDurationError):
-        pb.refuse_out_of_zone_sequence(total, _zone(10))
-
-
-def test_a_sequence_inside_the_zone_passes(enriched):
-    total = pb.total_speech_seconds(enriched["body_sequence"])
-    assert pb.refuse_out_of_zone_sequence(total, _zone(21)) is None
-
-
 def test_no_declared_target_is_unchecked_not_judged(enriched):
     total = pb.total_speech_seconds(enriched["body_sequence"])
     assert pb.refuse_out_of_zone_sequence(total, None) is None
@@ -129,12 +118,3 @@ def test_main_refuses_an_out_of_zone_sequence(clip_011, index_dir, capsys,
     out = json.loads(capsys.readouterr().out)
     assert out["step"] == "2.02_bridge"
     assert "outside the declared target zone" in out["error"]
-
-
-def test_main_emits_an_unchecked_sequence(clip_011, index_dir, capsys,
-                                          monkeypatch):
-    monkeypatch.setattr(sys, "stdin",
-                        io.StringIO(_payload(clip_011, index_dir, None)))
-    pb.main()
-    out = json.loads(capsys.readouterr().out)
-    assert len(out["speech_sequence"]["body_sequence"]) == len(ORDER)

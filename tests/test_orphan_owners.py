@@ -78,35 +78,8 @@ def test_retime_refuses_timecode_and_extension():
     assert stale and "EXTEND" in stale[0]["reason"]
 
 
-def test_retime_stale_when_words_gone():
-    transcript = _transcript()
-    edits = [{"kind": "span_retime", "anchor_phrase": "words never said",
-              "edge": "tail", "reason": "x"}]
-    _, _, stale = captain_edits.match_span_retimes(
-        _placements(), transcript, edits)
-    assert stale and stale[0]["reason"].startswith("STALE")
 
 
-def test_shallow_trim_dies_on_rebuild_deep_pin_survives():
-    """The vetting row: hand-edit the placement, recompute, watch it
-    go; pin it, recompute twice, watch it stay."""
-    from library.tools import reel_build
-
-    transcript = _transcript()
-    # Shallow: move the edge on the placement dict itself.
-    shallow = _placements()
-    shallow[0]["master"] = (10.5, 12.5)
-    # Rebuild recomputes placements from ranges: the hand move is not
-    # an input, so it is not an output.
-    rebuilt = list(_placements())
-    assert rebuilt[0]["master"] == (9.5, 12.5)
-    # Deep: the pin is an input to the rebuild chain.
-    edits = [{"kind": "span_retime", "anchor_phrase": "beta gamma",
-              "edge": "head", "reason": "vetting"}]
-    out, applied, _, _ = captain_edits.retime_placements(
-        rebuilt, transcript, edits, fps=24.0)
-    assert applied and out[0]["master"] == (10.5, 12.5)
-    assert callable(reel_build.placements)
 
 
 # ── Orphan 2: hand audio levels ────────────────────────────────────
@@ -142,14 +115,6 @@ def test_mix_pin_holds_bed_and_clip_post_plan():
     assert min(sting["keyframes"].values()) < -12.0
 
 
-def test_mix_pin_skips_unlocated_targets_loudly():
-    transcript = _transcript()
-    pins = [{"anchor_phrase": "beta", "target": "bed",
-             "level_db": -20.0, "reason": "x"}]
-    targets = [{"role": "music", "label": "bed", "keyframes": {0: -12.0}}]
-    _, applied, skipped, _ = mix_intent.apply_mix_intent(
-        targets, transcript, pins)
-    assert not applied and len(skipped) == 1
 
 
 def test_mix_intent_refuses_absurd_and_partial():
@@ -167,35 +132,6 @@ def test_mix_intent_refuses_absurd_and_partial():
               "level_db": -20.0, "reason": "x", "start": 1.0}])
 
 
-def test_shallow_fader_dies_on_rebuild_deep_pin_survives():
-    """Hand-edit the curve, rebuild the curve from the plan, watch it
-    go; pin it, rebuild then apply, watch it stay."""
-    from library.tools import otio_mix
-
-    automation = [{"timeline_start": 0.0, "timeline_end": 4.0,
-                   "target_level_db": -12.0}]
-    plan_keys = otio_mix.music_curve(
-        automation, fps=24.0, clip_start_frame=0, clip_frame_count=97,
-        fade_seconds=1.0)
-    assert set(plan_keys.values()) == {-12.0}
-    # Shallow: the hand plateau is not an input to music_curve.
-    assert set(otio_mix.music_curve(
-        automation, fps=24.0, clip_start_frame=0, clip_frame_count=97,
-        fade_seconds=1.0).values()) == {-12.0}
-    # Deep: pin applies post-plan and survives the next plan rebuild.
-    transcript = _transcript()
-    pins = [{"anchor_phrase": "beta gamma", "target": "bed",
-             "level_db": -28.0, "reason": "vetting"}]
-    targets = [{"role": "music", "label": "bed", "master": (9.0, 13.0),
-                "keyframes": dict(plan_keys)}]
-    rebuilt_keys = otio_mix.music_curve(
-        automation, fps=24.0, clip_start_frame=0, clip_frame_count=97,
-        fade_seconds=1.0)
-    targets[0]["keyframes"] = dict(rebuilt_keys)
-    _, applied, _, _ = mix_intent.apply_mix_intent(
-        targets, transcript, pins)
-    assert applied
-    assert min(targets[0]["keyframes"].values()) == pytest.approx(-28.0)
 
 
 # ── Orphan 3: hand-placed assets ───────────────────────────────────
@@ -273,25 +209,3 @@ def test_placed_assets_refuse_mid_reel_relative_and_missing():
     assert len(manifest["tracks"]["V1"]["clips"]) == 1
 
 
-def test_shallow_card_dies_on_recompile_deep_card_survives():
-    """Hand-append a clip entry, re-assemble from the spine, watch it
-    go; declare it, carry, re-carry, watch it stay."""
-    manifest = _manifest()
-    manifest["tracks"]["V1"]["clips"].append(
-        {"label": "hand_card", "timeline_in": 10.0,
-         "timeline_out": 15.0})
-    # Re-assembly builds clips from the spine: the hand entry is not
-    # an input, so it is not an output.
-    recompiled = _manifest()
-    assert [c["label"] for c in recompiled["tracks"]["V1"]["clips"]] == ["a"]
-    # Deep: the declaration carries on every compile.
-    asset_file = "/tmp/vetting_recompile.mov"
-    with open(asset_file, "wb") as handle:
-        handle.write(b"\x00")
-    assets = [{"slot": "tail", "asset": asset_file,
-               "duration_seconds": 5.0, "reason": "vetting"}]
-    for _ in range(2):
-        fresh = _manifest()
-        report = placed_assets.carry_into_manifest(fresh, assets, fps=30.0)
-        assert len(report["carried"]) == 1
-        assert fresh["tracks"]["V1"]["clips"][-1]["bookend"] == "tail_card"

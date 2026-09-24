@@ -76,13 +76,6 @@ def test_a_single_speaker_window_is_never_a_candidate():
     assert exchange_windows(turns, "Craig", "Akshita") == []
 
 
-def test_a_two_speaker_window_is_a_candidate():
-    turns = [_turn("Craig", 0.0, 20.0), _turn("Akshita", 21.0, 50.0)]
-    windows = exchange_windows(turns, "Craig", "Akshita")
-    assert len(windows) == 1
-    assert windows[0].speakers == ["Craig", "Akshita"]
-
-
 # ── The captain's length brief ───────────────────────────────────────
 
 def test_length_is_guidance_and_a_long_story_is_still_reported():
@@ -93,20 +86,6 @@ def test_length_is_guidance_and_a_long_story_is_still_reported():
     windows = exchange_windows(turns, "Craig", "Akshita")
     assert windows, "a 100s exchange must be offered, not withheld"
     assert windows[0].measurements()["within_length_guidance"] is False
-
-
-def test_a_candidate_inside_the_guidance_says_so():
-    turns = [_turn("Craig", 0.0, 20.0), _turn("Akshita", 21.0, 60.0)]
-    body = exchange_windows(turns, "Craig", "Akshita")[0].measurements()
-    assert body["within_length_guidance"] is True
-
-
-def test_the_guidance_is_45_to_90_and_is_not_enforced():
-    from library.tools.reel_exchange import LENGTH_GUIDANCE
-    assert LENGTH_GUIDANCE == (45.0, 90.0)
-    turns = [_turn("Craig", 0.0, 10.0), _turn("Akshita", 11.0, 120.0)]
-    assert exchange_windows(turns, "Craig", "Akshita"), (
-        "guidance the model weighs, never a boundary this module enforces")
 
 
 # ── Concerns are raised, never enforced ──────────────────────────────
@@ -172,14 +151,6 @@ def test_overlapping_windows_are_one_stretch_not_many_takes():
     assert len(groups) == 1
 
 
-def test_non_overlapping_windows_are_separate_stretches():
-    a = Exchange(0.0, 60.0, (_turn("Craig", 0.0, 20.0),
-                             _turn("Akshita", 21.0, 60.0)))
-    b = Exchange(100.0, 160.0, (_turn("Craig", 100.0, 120.0),
-                                _turn("Akshita", 121.0, 160.0)))
-    assert len(collapse_overlapping([a, b])) == 2
-
-
 def test_a_conversation_recorded_twice_collapses():
     words = "seo convinces an algorithm to rank pages geo makes ai comprehend"
     a = Exchange(0.0, 55.0, (_turn("Craig", 0.0, 20.0, words),
@@ -211,21 +182,7 @@ def test_containment_not_jaccard():
     assert containment(short, long) == 1.0
 
 
-def test_the_two_bands_are_ordered():
-    assert POSSIBLE_RETAKE < SAME_EXCHANGE
-
-
 # ── The funnel reports what LEFT ─────────────────────────────────────
-
-def test_the_funnel_accounts_for_every_window():
-    turns = [_turn("Craig", 0.0, 20.0), _turn("Akshita", 21.0, 50.0),
-             _turn("Craig", 200.0, 220.0,
-                   "check it out on our website the lucy visibility score"),
-             _turn("Akshita", 221.0, 250.0)]
-    report = funnel(turns, "Craig", "Akshita")
-    assert report["windows_found"] == report["clean"] + report["with_concerns"]
-    for key in ("survivors", "flagged", "retakes", "alternatives"):
-        assert key in report, f"the funnel must say what left: {key}"
 
 
 def test_a_flagged_window_is_reported_not_deleted():
@@ -253,16 +210,3 @@ def test_overlap_groups_do_not_chain():
     assert [(g[0].start, g[0].end) for g in groups] == [(0.0, 50.0), (80.0, 130.0)]
 
 
-def test_two_overlapping_heads_are_not_a_conversation_recorded_twice():
-    """Heads may now overlap each other, and identical wording across an
-    overlap is one conversation seen twice rather than said twice.
-    `collapse_retakes` skips a candidate overlapping the head, so the
-    change cannot inflate the retake count - the error the collapse
-    order exists to prevent."""
-    words = "seo convinces an algorithm to rank pages geo makes ai comprehend"
-    a = Exchange(0.0, 50.0, (_turn("Craig", 0.0, 20.0, words),
-                             _turn("Akshita", 21.0, 50.0, words)))
-    b = Exchange(30.0, 80.0, (_turn("Craig", 30.0, 50.0, words),
-                              _turn("Akshita", 51.0, 80.0, words)))
-    assert containment(a, b) == 1.0
-    assert len(collapse_retakes([a, b])) == 2

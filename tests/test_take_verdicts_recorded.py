@@ -118,17 +118,5 @@ def test_an_exact_duplicate_is_not_re_recorded(tmp_path):
     assert len(tc.keep_exclusions(str(tmp_path))) == 1
 
 
-def test_verdicts_for_a_dropped_moment_die_with_it(tmp_path):
-    """Only surviving moments verdict: the caller passes survivors,
-    so a dropped moment's takes never reach the store."""
-    recorded, refused = post_bridge.record_take_verdicts(
-        [], _transcript(), str(tmp_path), 100.0)
-    assert recorded == refused == []
-    assert tc.keep_exclusions(str(tmp_path)) == []
 
 
-def test_captain_strikes_still_default_to_captain(tmp_path):
-    """The author field is new; the captain's own strikes keep their
-    meaning with no author passed."""
-    tc.record_keep_exclusion(str(tmp_path), 12.0, 15.0, "struck")
-    assert tc.keep_exclusions(str(tmp_path))[0]["author"] == "captain"

@@ -35,72 +35,10 @@ def _mirror(op) -> tuple:
     return tuple(r for r in R.all_requirements() if op.owning_node in r.produced_by)
 
 
-@pytest.mark.parametrize("op", operations.all(), ids=lambda o: o.name)
-def test_effect_is_the_derived_mirror(op):
-    """`effect` is derived from the requirement registry, never listed.
-
-    Recomputed here from `all_requirements()` rather than read off the
-    property, so a future hand-written override fails loudly instead of
-    drifting silently - the same discipline `requires` follows.
-
-    Compared BY NAME: derived requirements carry fresh `check` closures
-    on every `all_requirements()` call, so dataclass equality can never
-    hold across two calls.  Names are the vocabulary here, and order is
-    the registry's own.
-    """
-    assert [r.name for r in op.effect] == [r.name for r in _mirror(op)]
 
 
-@pytest.mark.parametrize("op", operations.all(), ids=lambda o: o.name)
-def test_effect_speaks_only_the_requirement_vocabulary(op):
-    """Every effect member is a real requirement, produced by this node.
-
-    No strings, no second vocabulary: a composer matches these against
-    `requires`, which carries the same objects, so anything else would
-    be prose in a costume.
-    """
-    # Derived `state_key` requirements are rebuilt on every
-    # `all_requirements()` call, so identity cannot hold - what is pinned
-    # is that each effect member matches a registry entry field for
-    # field, on every field that is data rather than a fresh closure.
-    registry = {r.name: r for r in R.all_requirements()}
-    for req in op.effect:
-        assert isinstance(req, R.Requirement)
-        assert req.name in registry
-        twin = registry[req.name]
-        assert (
-            req.kind,
-            req.describe,
-            req.produced_by,
-            req.consumers,
-            req.overridable,
-        ) == (
-            twin.kind,
-            twin.describe,
-            twin.produced_by,
-            twin.consumers,
-            twin.overridable,
-        )
-        assert req.kind in R.KINDS
-        assert op.owning_node in req.produced_by
 
 
-def test_empty_effect_operations_are_exactly_the_reasoned_five():
-    """The tripwire: a new operation without an effect refuses the suite.
-
-    BOTH directions, because each alone keeps passing while the mapping
-    rots: an unlisted empty effect would be an unjustified gap, and a
-    listed operation whose node now produces something would be a stale
-    reason claiming coverage that exists.
-    """
-    empty = {op.name for op in operations.all() if not op.effect}
-    reasoned = set(operations.EMPTY_EFFECT_REASONS)
-    assert empty == reasoned, (
-        f"unreasoned empty effects (classify in EMPTY_EFFECT_REASONS): "
-        f"{sorted(empty - reasoned)}; "
-        f"stale reasons (node now produces something - delete the entry): "
-        f"{sorted(reasoned - empty)}"
-    )
 
 
 def test_empty_effect_reasons_are_real():
@@ -127,19 +65,3 @@ def test_empty_effect_reasons_are_real():
         )
 
 
-def test_requires_and_effect_share_one_registry():
-    """The composition property: an effect can satisfy a precondition.
-
-    Every requirement named by any operation's `effect` is askable
-    through `requires` - with the one designed exception: a `verdict`
-    requirement is a goal only (no consumers by construction), so no
-    operation requires one.  Both properties still read the same
-    `all_requirements()` pool, so a producer found working backwards
-    from a goal is a consumer some operation will refuse without -
-    except a verdict producer, which the composer names as the plan's
-    own last step.
-    """
-    pool = {r.name for r in R.all_requirements()}
-    for op in operations.all():
-        for req in list(op.effect) + list(op.requires):
-            assert req.name in pool

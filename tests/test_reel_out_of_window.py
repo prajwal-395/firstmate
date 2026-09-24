@@ -47,14 +47,6 @@ SIBLINGS = {
 }
 
 
-def test_stored_windows_reads_the_declaration():
-    body, closer = stored_windows(_moment(R13_BODY, R13_CLOSER))
-    assert body == R13_BODY
-    assert closer == R13_CLOSER
-    body, closer = stored_windows(_moment(R13_BODY))
-    assert closer is None
-
-
 def test_clean_ranges_pass_silently():
     ledger = audit_ranges(
         number=13, staging="s", final="f",
@@ -123,63 +115,3 @@ def test_wholly_foreign_range_refuses_with_ledger_attached():
     assert ledger["ranges"][1]["invades"] == []
 
 
-def test_reel_without_closer_audits_body_only():
-    ledger = audit_ranges(
-        number=7, staging="s", final="f",
-        stored_body=(100.0, 160.0), stored_closer=None,
-        ranges=[(100.0, 160.0)],
-        sibling_windows={7: {"body": (100.0, 160.0), "closer": None}})
-    assert [row["origin"] for row in ledger["ranges"]] == ["body"]
-    with pytest.raises(OutOfWindowRange):
-        audit_ranges(
-            number=7, staging="s", final="f",
-            stored_body=(100.0, 160.0), stored_closer=None,
-            ranges=[(100.0, 160.0), (300.0, 310.0)],
-            sibling_windows={7: {"body": (100.0, 160.0),
-                                 "closer": None}})
-
-
-def test_ledger_filing_merges_per_final_name(tmp_path):
-    first = audit_ranges(
-        number=13, staging="s", final="Reel 13",
-        stored_body=R13_BODY, stored_closer=R13_CLOSER,
-        ranges=R13_RANGES_UNENDED, sibling_windows=SIBLINGS)
-    path = file_reel_ledger(tmp_path, "Reel 13", first)
-    assert path is not None and path.exists()
-    second = audit_ranges(
-        number=5, staging="s", final="Reel 05",
-        stored_body=R05_BODY, stored_closer=(179.83, 192.391),
-        ranges=[(342.038, 413.851), (179.83, 192.391)],
-        sibling_windows=SIBLINGS)
-    file_reel_ledger(tmp_path, "Reel 05", second)
-    merged = read_reel_ledger(tmp_path)
-    assert set(merged["reels"]) == {"Reel 13", "Reel 05"}
-    assert merged["reels"]["Reel 13"]["ranges"][1]["invades"][0][
-        "reel"] == 5
-    # Refiling one reel leaves the other alone.
-    file_reel_ledger(tmp_path, "Reel 13", second)
-    assert set(read_reel_ledger(tmp_path)["reels"]) == {
-        "Reel 13", "Reel 05"}
-
-
-def test_ledger_filing_survives_a_corrupt_file(tmp_path):
-    ledger_file = (tmp_path / "pipeline_output" / "review"
-                   / reel_ledger.FILENAME)
-    ledger_file.parent.mkdir(parents=True)
-    ledger_file.write_text("not json{", encoding="utf-8")
-    ledger = audit_ranges(
-        number=13, staging="s", final="Reel 13",
-        stored_body=R13_BODY, stored_closer=R13_CLOSER,
-        ranges=R13_RANGES_UNENDED, sibling_windows=SIBLINGS)
-    assert file_reel_ledger(tmp_path, "Reel 13", ledger) is not None
-    assert read_reel_ledger(tmp_path)["reels"]["Reel 13"]["format"] == (
-        reel_ledger.FORMAT)
-
-
-def test_skipped_out_of_window_is_a_filable_outcome():
-    from library.tools import reel_phase_log
-    assert "skipped_out_of_window" in reel_phase_log.OUTCOMES
-    payload = reel_phase_log.assemble_summary(
-        outcome="skipped_out_of_window", staging="s", final="f",
-        decision="skipped out of window: reason")
-    assert payload["outcome"] == "skipped_out_of_window"

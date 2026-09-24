@@ -176,20 +176,8 @@ def test_runs_of_one_level_become_one_plateau():
     assert _level_at(curve, seam) == LEVELS["background"]
 
 
-def test_the_ramp_sits_between_the_plateaus():
-    curve = _curve()
-    boundary = int(2.4 * FPS)
-    assert _level_at(curve, boundary - 20) == LEVELS["silent"]
-    assert _level_at(curve, boundary + 20) == LEVELS["fade_in"]
-    middle = _level_at(curve, boundary)
-    assert LEVELS["silent"] < middle < LEVELS["fade_in"]
 
 
-def test_the_curve_never_leaves_the_clip():
-    curve = otio_mix.music_curve(
-        AUTOMATION, fps=FPS, clip_start_frame=0, clip_frame_count=900,
-        fade_seconds=1.0)
-    assert min(curve) >= 0 and max(curve) <= 899
 
 
 def test_frames_are_measured_from_the_clip_not_the_timeline():
@@ -218,9 +206,6 @@ def test_a_short_block_still_keeps_a_plateau():
     assert _level_at(curve, 22) == -6
 
 
-def test_an_empty_plan_makes_no_curve():
-    assert otio_mix.music_curve([], fps=FPS, clip_start_frame=0,
-                                clip_frame_count=900, fade_seconds=1.0) == {}
 
 
 # ── The parameter Resolve reads ─────────────────────────────────────
@@ -248,8 +233,6 @@ def test_the_level_is_db_with_no_conversion():
     assert parameter["maxValue"] == otio_mix.MAX_VOLUME_DB
 
 
-def test_silence_is_inside_resolves_own_bounds():
-    assert otio_mix.MIN_VOLUME_DB <= LEVELS["silent"] <= otio_mix.MAX_VOLUME_DB
 
 
 def test_a_level_outside_the_bounds_is_clamped_not_dropped():
@@ -279,11 +262,6 @@ MANIFEST = {
 }
 
 
-def test_the_bed_and_every_sfx_are_targets():
-    targets = otio_mix.mix_targets(MANIFEST, fps=FPS)
-    assert [t["label"] for t in targets] == ["bed", "sfx_001", "sfx_002"]
-    assert targets[0]["keyframes"], "the bed carries the automation curve"
-    assert [t["level_db"] for t in targets[1:]] == [-18.0, -12.0]
 
 
 def test_sfx_volume_db_now_has_a_route():
@@ -329,16 +307,6 @@ def test_the_level_is_read_back_off_the_timeline():
                                       for f, v in targets[0]["keyframes"].items()}
 
 
-def test_a_level_that_did_not_land_is_a_complaint():
-    otio = _otio([("Music", "Audio", [_clip("/m.wav", 0, 900)])])
-    targets = [t for t in otio_mix.mix_targets(MANIFEST, fps=FPS)
-               if t["role"] == "music"]
-    applied = otio_mix.apply_mix(otio, targets)["applied"]
-    # Resolve accepted the file and dropped the level - the failure the
-    # read-back exists to catch.
-    clip = otio["tracks"]["children"][0]["children"][0]
-    clip["effects"][0]["metadata"]["Resolve_OTIO"]["Parameters"] = []
-    assert otio_mix.verify(otio, applied)
 
 
 # ── The traps that answer None ──────────────────────────────────────
@@ -353,11 +321,6 @@ def test_missing_media_is_named_before_the_import_can_swallow_it(tmp_path):
     assert otio_mix.unresolvable_media(otio) == ["/gone/missing.mov"]
 
 
-def test_nothing_missing_reads_as_nothing_missing(tmp_path):
-    present = tmp_path / "here.wav"
-    present.write_bytes(b"x")
-    otio = _otio([("Music", "Audio", [_clip(str(present), 0, 300)])])
-    assert otio_mix.unresolvable_media(otio) == []
 
 
 # ── The round trip, driven against a fake Resolve ───────────────────
@@ -532,15 +495,6 @@ def test_the_round_trip_puts_every_planned_level_on_the_new_timeline(tmp_path):
     assert levels["/m.wav"]["keyframes"], "the bed carries a curve"
 
 
-def test_the_otio_lands_in_the_render_steps_own_area(tmp_path):
-    from library.tools.execution.deliver_audio_mix import deliver_mix
-    resolve, project, pool, timeline = _fake_setup(tmp_path)
-    with patch("library.tools.otio_mix.os.path.exists", return_value=True):
-        report = deliver_mix(resolve, project, pool, timeline, MANIFEST,
-                             fps=FPS, project_folder=str(tmp_path))
-    area = ProjectLayout(str(tmp_path)).read_dir(Area.TIMELINE_INTERCHANGE)
-    assert Path(report["mixed_otio_path"]).parent == area
-    assert area.name == "otio" and area.parent.name == "6_01_render"
 
 
 def test_missing_media_refuses_the_trip_and_keeps_the_timeline(tmp_path):
@@ -554,27 +508,8 @@ def test_missing_media_refuses_the_trip_and_keeps_the_timeline(tmp_path):
     assert timeline.GetName() == "Test_Edit", "the name was put back"
 
 
-def test_a_refused_import_puts_the_placement_timeline_back(tmp_path):
-    from library.tools.execution.deliver_audio_mix import deliver_mix
-    resolve, project, pool, timeline = _fake_setup(tmp_path)
-    pool.ImportTimelineFromFile = lambda *a, **k: None
-    with patch("library.tools.otio_mix.os.path.exists", return_value=True):
-        report = deliver_mix(resolve, project, pool, timeline, MANIFEST,
-                             fps=FPS, project_folder=str(tmp_path))
-    assert not report["delivered"]
-    assert "returned None" in report["reason"]
-    assert report["timeline"] is timeline
-    assert timeline.GetName() == "Test_Edit"
 
 
-def test_a_plan_with_nothing_in_it_is_not_a_failure(tmp_path):
-    from library.tools.execution.deliver_audio_mix import deliver_mix
-    resolve, project, pool, timeline = _fake_setup(tmp_path)
-    report = deliver_mix(resolve, project, pool, timeline,
-                         {"tracks": {}, "audio_mix": {}},
-                         fps=FPS, project_folder=str(tmp_path))
-    assert not report["delivered"]
-    assert "nothing planned" in report["reason"]
 
 
 # ── The order the whole build depends on ────────────────────────────

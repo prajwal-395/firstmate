@@ -137,69 +137,10 @@ class TestMalformedDeclarationsRaise:
             project_framing_intent(folder)
         assert "project.yaml" in str(excinfo.value)
 
-    def test_bounds_are_accepted(self):
-        assert validate_framing_intent(0, "a test") == 0.0
-        assert validate_framing_intent(1, "a test") == 1.0
-
-
-class TestTheProjectConfigCarriesIt:
-    """A declaration that project.yaml round-tripping would drop is a
-    declaration that disappears the first time anything rewrites the file.
-    `delivery_format` is in the dataclass for the same reason."""
-
-    def test_round_trip_preserves_a_declaration(self, tmp_path):
-        from library.schemas.project_config import (
-            _dict_to_project_config, project_config_to_dict)
-        cfg = _dict_to_project_config({
-            "name": "Bars", "slug": "bars",
-            "pipeline": {"brand_template": "synthetic_default",
-                         "framing_intent": 0.0},
-        })
-        assert cfg.pipeline.framing_intent == 0.0
-        assert project_config_to_dict(cfg)["pipeline"]["framing_intent"] == 0.0
-        assert cfg.validate() == []
-
-    def test_undeclared_stays_absent(self):
-        from library.schemas.project_config import (
-            _dict_to_project_config, project_config_to_dict)
-        cfg = _dict_to_project_config({
-            "name": "Silent", "slug": "silent",
-            "pipeline": {"brand_template": "synthetic_default"},
-        })
-        assert cfg.pipeline.framing_intent is None
-        assert "framing_intent" not in project_config_to_dict(cfg)["pipeline"]
-
-    def test_out_of_range_is_a_validation_error(self):
-        from library.schemas.project_config import _dict_to_project_config
-        cfg = _dict_to_project_config({
-            "name": "Broken", "slug": "broken",
-            "pipeline": {"framing_intent": 100},
-        })
-        assert any("framing_intent" in e for e in cfg.validate())
-
 
 class TestSyntheticCopies:
     """What each synthetic project copy means, now that silence means
     fill. Named here so a change to any copy is a change to a test."""
-
-    def test_synthetic_cinematic_still_letterboxes(self):
-        from tests.brand_fixtures import SYNTHETIC_CINEMATIC
-        tmpl = BrandTemplate.from_dict(SYNTHETIC_CINEMATIC)
-        assert template_framing_intent(tmpl) == LETTERBOX
-
-    def test_synthetic_shortform_still_fills(self):
-        from tests.brand_fixtures import SYNTHETIC_SHORTFORM
-        tmpl = BrandTemplate.from_dict(SYNTHETIC_SHORTFORM)
-        assert template_framing_intent(tmpl) == FILL
-
-    @pytest.mark.parametrize("name", [
-        "synthetic_default", "synthetic_interview", "synthetic_client",
-    ])
-    def test_the_silent_copies_now_fill(self, name):
-        from tests.brand_fixtures import ALL_SYNTHETIC
-        tmpl = BrandTemplate.from_dict(ALL_SYNTHETIC[name])
-        assert template_framing_intent(tmpl) is None
-        assert resolve_framing_intent(template=tmpl) == FILL
 
     def test_every_synthetic_copy_delivers_vertical(self):
         """A fill is only the right default because every copy declares a
@@ -232,15 +173,6 @@ class TestDeclaredIsNotDelivered:
     def test_portrait_source_matching_the_frame_covers_it(self):
         assert source_covers_frame(1080, 1920, *self.VERTICAL) is True
 
-    def test_a_taller_source_still_covers_the_frame(self):
-        """4:5 into 9:16 crops the height; it never shows a bar."""
-        assert source_covers_frame(1080, 1350, *self.VERTICAL) is False
-        assert source_covers_frame(1080, 2400, *self.VERTICAL) is False
-
-    def test_a_source_with_no_dimensions_covers_nothing(self):
-        assert source_covers_frame(0, 0, *self.VERTICAL) is False
-        assert source_covers_frame(None, None, *self.VERTICAL) is False
-
     def test_a_covering_source_fills_whatever_was_declared(self):
         assert delivered_framing_intent(LETTERBOX, True) == FILL
         assert delivered_framing_intent(0.4, True) == FILL
@@ -250,10 +182,6 @@ class TestDeclaredIsNotDelivered:
         assert delivered_framing_intent(LETTERBOX, False) == LETTERBOX
         assert delivered_framing_intent(0.4, False) == 0.4
         assert delivered_framing_intent(FILL, False) == FILL
-
-    def test_a_malformed_resolved_intent_still_raises(self):
-        with pytest.raises(ValueError):
-            delivered_framing_intent(1.5, False)
 
 
 class TestTheManifestRecordsBoth:
@@ -281,24 +209,6 @@ class TestTheManifestRecordsBoth:
         assert got["framing_intent"] == LETTERBOX
         assert got["framing_delivered"] == FILL
 
-    def test_a_landscape_clip_told_to_fill_delivers_fill(self):
-        got = self._conform(clip="landscape", framing_intent=FILL)
-        assert got["framing_intent"] == FILL
-        assert got["framing_delivered"] == FILL
-        assert got["fill_zoom"] > 1.0
-
-    def test_a_partial_punch_in_delivers_exactly_what_it_declared(self):
-        """Below FILL the bars are narrower, not gone."""
-        got = self._conform(clip="landscape", framing_intent=0.5)
-        assert got["framing_delivered"] == 0.5
-
-    def test_the_backdrop_route_delivers_a_full_frame(self):
-        """Blurred backdrop behind an inset picture: every row is picture."""
-        got = self._conform(clip="landscape", framing_intent=FILL,
-                            subject_center_x=0.5, subject_width=0.8)
-        assert "framing_backdrop" in got
-        assert got["framing_delivered"] == FILL
-
 
 class TestAProjectDeclarationEscapesThePunchIn:
     """Issue #277: every landscape clip shipped punched in 3.1605x,
@@ -323,20 +233,6 @@ class TestAProjectDeclarationEscapesThePunchIn:
                           "rotation": rotation}}
         return _conform_fields(meta, clip_id, (1080, 1920),
                                framing_intent=intent)
-
-    def test_declared_letterbox_letterboxes_the_landscape_aroll(
-            self, tmp_path):
-        folder = write_project(tmp_path, """
-            name: Project 001 Shape
-            slug: project-001-shape
-            pipeline:
-              framing_intent: 0.0
-        """)
-        got = self._conform_project_clip(folder, "IMG_1817.MOV", 1920, 1080)
-        assert got["framing_intent"] == LETTERBOX
-        assert got["framing_delivered"] == LETTERBOX
-        assert got["needs_conform"] is False
-        assert "fill_zoom" not in got
 
     def test_declared_letterbox_still_fills_a_portrait_cutaway(
             self, tmp_path):

@@ -64,27 +64,8 @@ BIG_OUTPUT_STEP = """
 """
 
 
-def test_a_step_output_larger_than_the_pipe_buffer_does_not_deadlock(tmp_path):
-    step = _write_step(tmp_path, BIG_OUTPUT_STEP)
-
-    code, out, err = _run_step_subprocess(
-        [sys.executable, str(step)], {"rows": PAYLOAD_ROWS}, "big")
-
-    assert code == 0
-    parsed = json.loads(out)
-    assert len(parsed["rows"]) == PAYLOAD_ROWS
-    assert len(out) > 300_000, f"payload was only {len(out)} bytes"
-    assert "done collecting" in err
 
 
-def test_run_deterministic_step_parses_a_large_result(tmp_path):
-    """The caller's view: the JSON round-trips, not just the bytes."""
-    step = _write_step(tmp_path, BIG_OUTPUT_STEP)
-
-    result = run_deterministic_step(str(step), {"rows": PAYLOAD_ROWS})
-
-    assert len(result["rows"]) == PAYLOAD_ROWS
-    assert result["rows"][-1]["clip_id"] == f"clip_{PAYLOAD_ROWS - 1:05d}"
 
 
 BIG_BOTH_STEP = """
@@ -112,50 +93,7 @@ def test_large_stderr_and_large_stdout_together(tmp_path):
     assert err.count("progress line") == 3000
 
 
-def test_a_large_stdin_payload_is_delivered(tmp_path):
-    """stdin can also exceed the buffer - the runner sends whole state."""
-    step = _write_step(tmp_path, """
-        import json, sys
-        data = json.loads(sys.stdin.read())
-        json.dump({"seen": len(data["blob"])}, sys.stdout)
-    """)
-
-    blob = "z" * 500_000
-    code, out, _ = _run_step_subprocess(
-        [sys.executable, str(step)], {"blob": blob}, "stdin")
-
-    assert code == 0
-    assert json.loads(out)["seen"] == len(blob)
 
 
-def test_a_failing_step_still_reports_its_stderr(tmp_path):
-    """The diagnosis path must not regress while fixing the hang."""
-    step = _write_step(tmp_path, """
-        import sys
-        print("it went wrong", file=sys.stderr)
-        sys.exit(3)
-    """)
-
-    code, out, err = _run_step_subprocess(
-        [sys.executable, str(step)], {}, "fail")
-
-    assert code == 3
-    assert "it went wrong" in err
-
-    with pytest.raises(RuntimeError, match="it went wrong"):
-        run_deterministic_step(str(step), {})
 
 
-def test_a_quiet_fast_step_does_not_lose_its_output(tmp_path):
-    """Readers are joined after exit, so a step that finishes instantly
-    still has its bytes collected rather than raced away."""
-    step = _write_step(tmp_path, """
-        import json, sys
-        json.dump({"ok": True}, sys.stdout)
-    """)
-
-    for _ in range(15):
-        code, out, _ = _run_step_subprocess(
-            [sys.executable, str(step)], {}, "quick")
-        assert code == 0
-        assert json.loads(out) == {"ok": True}

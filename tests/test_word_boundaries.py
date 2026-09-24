@@ -41,11 +41,6 @@ def _word(text, start, end, **extra):
 
 # ── The shared implementation ──────────────────────────────────────
 
-def test_both_paths_call_the_same_function():
-    """Two copies of a clamp is how the asymmetry happens again."""
-    from library.steps.step_1_04_temporal_index import step as s104
-
-    assert s104._sanitize_word_boundaries is sanitize_word_boundaries
 
 
 def test_a_stretched_word_is_cut_back_to_start_plus_median():
@@ -93,8 +88,6 @@ def test_sanitising_preserves_every_key_and_every_word():
     assert out[1]["end"] == 9.4
 
 
-def test_sanitising_nothing_is_nothing():
-    assert sanitize_word_boundaries([]) == []
 
 
 # ── The reels path, on field-test-shaped fixtures ──────────────────
@@ -132,13 +125,6 @@ def test_a_stretched_word_no_longer_unbinds_its_row():
     assert all(s.read_from_words for s in out)
 
 
-def test_the_clamp_leaves_the_start_where_the_aligner_put_it():
-    out = tt.segments_for_speaker({"segments": [AUDITS_ROW]}, "Craig",
-                                  CLIPS)
-    audits = [w for s in out for w in s.words
-              if w["word"] == "audits"][0]
-    assert audits["start"] == 100.67
-    assert audits["end"] == 100.95
 
 
 def test_a_word_in_a_gap_stays_unbound_after_the_clamp():

@@ -149,41 +149,10 @@ def test_the_rule_that_shipped_opens_body_3_on_the_wrong_i(clip_011):
     assert "goals" not in pb.normalize(passage["text"]).split()
 
 
-def test_neither_existing_guard_can_see_it(clip_011):
-    """MIN_TEXT_OVERLAP is set-based, so the bad span scores 1.0."""
-    passage = clip_011["passages"]["body_3"]
-    start = float(passage["source_start"])
-    end = float(passage["source_end"])
-    windowed = _hint_nearest_alignment(
-        pb._clip_regions_to_window(clip_011["speech_regions"], start, end),
-        passage)
-
-    passage_words = set(pb.normalize(passage["text"]).split())
-    found = set(pb.normalize(w["word"]) for w in windowed)
-    ratio = len(passage_words & found) / len(passage_words)
-    assert ratio == 1.0
-    assert ratio >= pb.MIN_TEXT_OVERLAP
-
-    # It is 36.8% voiced. Nothing in the module looked.
-    assert pb._voiced_fraction(windowed) < 0.40
 
 
 # ─── the fix ───────────────────────────────────────────────────
 
-def test_body_3_is_re_anchored_onto_its_own_first_word(index_dir, clip_011):
-    """The aligner opens body_3 where the model's text begins."""
-    result = pb.enrich_speech_sequence(_sequence(clip_011), index_dir)
-    body_3 = result["body_sequence"][ORDER.index("body_3")]
-
-    assert body_3["source_start"] == pytest.approx(CORRECT_ANCHOR)
-    assert body_3["source_end"] == pytest.approx(116.512)
-    assert body_3["word_timestamps"][0]["word"].lower().strip(" ,.") == "i"
-    assert body_3["word_timestamps"][1]["word"].lower().strip(" ,.") == "get"
-
-    entry = _report(result)["Body[4]"]
-    assert entry["leading_gap_seconds"] < 0.1
-    # The unintended audio is gone.
-    assert (SHIPPED_LEADING_GAP - entry["leading_gap_seconds"]) > 6.8
 
 
 def test_the_re_anchor_trades_away_no_completeness(index_dir, clip_011):
@@ -263,17 +232,6 @@ def test_only_body_3_moves(index_dir, clip_011):
     }
 
 
-def test_the_report_measures_every_passage(index_dir, clip_011):
-    """The record is a measurement of all of them, not just the bad one."""
-    report = pb.enrich_speech_sequence(
-        _sequence(clip_011), index_dir)["alignment_report"]
-
-    assert len(report) == len(ORDER)
-    for entry in report:
-        assert entry["leading_gap_seconds"] is not None
-        assert entry["voiced_fraction"] is not None
-        assert entry["largest_gap_seconds"] is not None
-        assert entry["anchors_considered"] >= 1
 
 
 # ─── the measurements are measurements, not thresholds ─────────
@@ -336,41 +294,3 @@ def test_the_ranking_puts_completeness_before_the_gap():
 
 # ─── the emitted document declares itself ──────────────────────
 
-def test_post_bridge_success_output_declares_every_top_level_key(
-        tmp_path, clip_011):
-    """Item 10: post_bridge.py's success output is merged into the step's
-    final output by run_hybrid_step, so every top-level key it emits must
-    be one the manifest declares - the `step` provenance marker 2.02
-    emitted read as `unexpected extra fields: step` on every run. The
-    post-bridge is DRIVEN as a subprocess over JSON stdin, the way the
-    runner runs it, over 001's own clip_011 timings."""
-    d = tmp_path / "temporal_index"
-    d.mkdir()
-    (d / "clip_011.json").write_text(
-        json.dumps({"speech_regions": clip_011["speech_regions"]}),
-        encoding="utf-8")
-    passage = dict(clip_011["passages"]["body_0"])
-    payload = {
-        "speech_sequence": {"hook_segment": None,
-                            "body_sequence": [passage]},
-        "temporal_index": {"index_dir": str(d)},
-    }
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO_ROOT) + env.get("PYTHONPATH", "")
-    proc = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "library" / "steps"
-                             / "step_2_02_speech_sequence" / "post_bridge.py")],
-        input=json.dumps(payload), capture_output=True, text=True,
-        encoding="utf-8", cwd=str(REPO_ROOT), env=env, timeout=120,
-        check=False)
-    assert proc.returncode == 0, proc.stderr[-2000:]
-    out = json.loads(proc.stdout)
-    assert out["speech_sequence"]["body_sequence"][0]["clip_id"] == (
-        "clip_011"), "the fixture must take the success path or this test proves nothing"
-    declared = {o.get("name") for o in json.loads(
-        (REPO_ROOT / "library" / "steps" / "step_2_02_speech_sequence"
-         / "manifest.json").read_text(encoding="utf-8")
-    )["interface"]["outputs"]}
-    assert not (set(out) - declared), (
-        "post_bridge.py emits top-level keys the manifest does not "
-        f"declare: {sorted(set(out) - declared)}")

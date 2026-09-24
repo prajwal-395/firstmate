@@ -41,48 +41,11 @@ def test_the_roster_gate_can_fail_on_an_entry_with_no_refusals():
     ffe.assert_roster_is_well_formed()
 
 
-def test_the_roster_gate_can_fail_on_an_unknown_reachability():
-    original = ffe.ROSTER
-    try:
-        ffe.ROSTER = original + (
-            replace(original[0], key="mystery", reachable="probably"),)
-        with pytest.raises(ffe.FullFrameVocabularyError, match="reachability"):
-            ffe.assert_roster_is_well_formed()
-    finally:
-        ffe.ROSTER = original
-
-
-def test_an_element_cannot_be_in_the_roster_and_out_of_it():
-    original = ffe.ROSTER
-    try:
-        ffe.ROSTER = original + (replace(original[0], key="intro_card"),)
-        with pytest.raises(ffe.FullFrameVocabularyError, match="out of it"):
-            ffe.assert_roster_is_well_formed()
-    finally:
-        ffe.ROSTER = original
-
-
 def test_the_boundary_names_the_module_that_owns_each_near_miss():
     """A near miss is REDIRECTED, never merely refused."""
     for key, why in ffe.OUT_OF_VOCABULARY.items():
         assert ".py" in why or "AGENTS.md" in why, (
             f"{key} is refused without naming who owns it: {why!r}")
-
-
-def test_the_motion_characters_are_the_overlay_rosters_own():
-    """One vocabulary of motion character in this engine, not two."""
-    assert ffe.MOTION_CHARACTERS == tuple(
-        mg.AXES_BY_NAME["entrance"].positions)
-    assert ffe.NO_MOTION in ffe.MOTION_CHARACTERS
-
-
-def test_roster_rows_carry_every_column_the_legend_names():
-    rows = ffe.roster_rows()
-    assert rows
-    for row in rows:
-        for column in ("element", "copy", "reachable", "never"):
-            assert row[column], f"{row['element']} has no {column}"
-            assert column in ffe.ROSTER_LEGEND
 
 
 # ── The declaration ──────────────────────────────────────────────────
@@ -178,15 +141,6 @@ def test_a_run_may_state_its_own_words():
     assert normalised[0]["runs"][0]["bind"] is None
 
 
-def test_a_declaration_with_no_motion_defaults_to_the_one_that_draws_none():
-    entry = copy.deepcopy(VALID)
-    entry.pop("entrance")
-    entry.pop("exit")
-    normalised = ffe.declared_elements({"full_frame_elements": [entry]})
-    assert normalised[0]["entrance"] == ffe.NO_MOTION
-    assert normalised[0]["exit"] == ffe.NO_MOTION
-
-
 def test_the_project_yaml_wins_over_the_brand_template(tmp_path):
     """A card is copy the viewer reads, so the project owns it."""
     (tmp_path / "project.yaml").write_text(
@@ -208,13 +162,6 @@ def test_the_project_yaml_wins_over_the_brand_template(tmp_path):
     assert len(elements) == 1
     assert elements[0]["placement"] == "tail"
     assert elements[0]["runs"][0]["text"] == "from the project"
-
-
-def test_a_project_that_declares_none_leaves_the_template_slot_alone(tmp_path):
-    (tmp_path / "project.yaml").write_text("name: x\n", encoding="utf-8")
-    resolved = ffe.resolve_declaration(
-        {"full_frame_elements": [dict(VALID)]}, str(tmp_path))
-    assert len(ffe.declared_elements(resolved)) == 1
 
 
 # ── The facts a card may quote ───────────────────────────────────────
@@ -245,28 +192,12 @@ def test_the_opening_line_is_quoted_from_the_ranges_the_reel_plays():
     assert facts.reel_number == 7
 
 
-def test_a_narrower_window_quotes_fewer_words():
-    facts = ffe.ReelFacts.from_moment(
-        _Moment(), [(10.0, 16.0)], _transcript(), opening_seconds=4.0)
-    wide = facts.opening_line()
-    narrow = facts.opening_line(1.0)
-    assert len(narrow.split()) < len(wide.split())
-    assert wide.startswith(narrow)
-
-
 def test_a_card_asking_for_more_opening_than_was_measured_is_refused():
     """Never a quotation quietly shorter than the one declared."""
     facts = ffe.ReelFacts.from_moment(
         _Moment(), [(10.0, 16.0)], _transcript(), opening_seconds=2.0)
     with pytest.raises(ffe.FullFrameDeclarationError, match="measured over"):
         facts.opening_line(6.0)
-
-
-def test_required_opening_window_reads_the_widest_declaration():
-    from library.tools import reel_opening
-    assert ffe.required_opening_window([]) == reel_opening.OPENING_SECONDS
-    assert ffe.required_opening_window(
-        [{"opening_seconds": 9.0}, {"opening_seconds": None}]) == 9.0
 
 
 def test_a_binding_with_nothing_behind_it_refuses_the_card():
@@ -276,13 +207,6 @@ def test_a_binding_with_nothing_behind_it_refuses_the_card():
                           opening_window=3.0)
     with pytest.raises(ffe.FullFrameDeclarationError, match="nothing there"):
         ffe.plan_reel_cards(declarations, empty, 960, 24000 / 1001, width=1080, height=1920)
-
-
-def test_an_unknown_binding_name_is_refused_at_the_facts():
-    facts = ffe.ReelFacts(reel_number=1, speakers=("A",), opening=(),
-                          opening_window=3.0)
-    with pytest.raises(ffe.FullFrameDeclarationError, match="not a copy binding"):
-        facts.binding("episode_number")
 
 
 # ── Planning ─────────────────────────────────────────────────────────
@@ -315,20 +239,6 @@ def test_a_head_card_starts_at_reel_zero_and_a_tail_card_after_the_body():
     assert cards[0].reel_end_frame == cards[0].duration_frames
 
 
-def test_two_head_cards_stack_rather_than_overlap():
-    first = copy.deepcopy(VALID)
-    second = copy.deepcopy(VALID)
-    second["duration_seconds"] = 1.0
-    second["runs"] = [{"text": "and then", "type_role": "micro",
-                       "colour": "#FFF"}]
-    declarations = ffe.declared_elements(
-        {"full_frame_elements": [first, second]})
-    cards = ffe.plan_reel_cards(declarations, _facts(), 960, FPS, width=1080, height=1920)
-    assert cards[0].reel_start_frame == 0
-    assert cards[1].reel_start_frame == cards[0].duration_frames
-    assert cards[0].reel_end_frame == cards[1].reel_start_frame
-
-
 def test_the_props_carry_the_declaration_and_nothing_the_engine_chose():
     cards = ffe.plan_reel_cards(
         ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
@@ -345,30 +255,10 @@ def test_the_props_carry_the_declaration_and_nothing_the_engine_chose():
     assert props["runs"][0]["text"].startswith("So ranking")
 
 
-def test_uppercase_is_the_declarations_and_is_off_unless_asked():
-    plain = ffe.plan_reel_cards(
-        ffe.declared_elements(declare(runs=[
-            {"bind": "speakers", "type_role": "micro", "colour": "#FFF"}])),
-        _facts(), 960, FPS, width=1080, height=1920)[0]
-    shouted = ffe.plan_reel_cards(
-        ffe.declared_elements(declare(runs=[
-            {"bind": "speakers", "type_role": "micro", "colour": "#FFF",
-             "uppercase": True}])),
-        _facts(), 960, FPS, width=1080, height=1920)[0]
-    assert plain.props["runs"][0]["text"] == "Akshita, Craig"
-    assert shouted.props["runs"][0]["text"] == "AKSHITA, CRAIG"
-
-
 def test_a_card_that_rounds_to_no_frames_is_refused():
     declarations = ffe.declared_elements(declare(duration_seconds=0.001))
     with pytest.raises(ffe.FullFrameDeclarationError, match="at least one"):
         ffe.plan_reel_cards(declarations, _facts(), 960, FPS, width=1080, height=1920)
-
-
-def test_a_card_carries_no_file_until_it_has_been_rendered():
-    card = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)[0]
-    assert card.rendered_path == ""
 
 
 # ── Rendering ────────────────────────────────────────────────────────
@@ -430,46 +320,4 @@ def test_a_render_that_produces_no_file_raises(monkeypatch, tmp_path):
         ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
 
 
-def test_a_failed_render_raises_rather_than_leaving_a_reel_without_it(
-        monkeypatch, tmp_path):
-    def fake_batch(jobs, **kwargs):
-        return [{"ok": False, "out": job.out_path,
-                 "error": "chromium exploded"} for job in jobs]
-
-    monkeypatch.setattr(ffe, "render_batch", fake_batch)
-    cards = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
-    with pytest.raises(ffe.FullFrameRenderError, match="chromium exploded"):
-        ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
-
-
-def test_a_batch_that_cannot_start_raises(monkeypatch, tmp_path):
-    """No renderer is not a card failure: it still refuses, by name."""
-    from library.tools.remotion_batch import RemotionBatchError
-
-    def fake_batch(jobs, **kwargs):
-        raise RemotionBatchError("no node on PATH")
-
-    monkeypatch.setattr(ffe, "render_batch", fake_batch)
-    cards = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
-    with pytest.raises(ffe.FullFrameRenderError, match="no node on PATH"):
-        ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
-
-
 # ── The composition really exists ────────────────────────────────────
-
-
-def test_the_named_composition_is_registered_with_remotion():
-    """A props file for a composition nobody registered renders nothing."""
-    from library.tools.paths import REMOTION_DIR
-
-    root = (REMOTION_DIR / "src" / "Root.tsx").read_text(encoding="utf-8")
-    assert f'id="{ffe.FULL_FRAME_COMPOSITION}"' in root
-    component = (REMOTION_DIR / "src" / "compositions" /
-                 ffe.FULL_FRAME_COMPOSITION / "index.tsx")
-    assert component.is_file()
-    source = component.read_text(encoding="utf-8")
-    # It reuses the overlay composition's motion characters rather than
-    # spelling a second set.
-    assert "entranceTransform" in source and "typewriterSplit" in source

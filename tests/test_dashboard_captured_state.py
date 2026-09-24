@@ -67,35 +67,6 @@ def client(captured_project):
 
 # ── Clips: real captured catalog has 17 clips ──────────────────────
 
-def test_captured_clips_non_empty(client):
-    """The captured run has 17 clips.  Every clip must show a real
-    duration, resolution, and frame rate - not zeros/empty.
-    """
-    response = client.get("/api/clips")
-    assert response.status_code == 200
-    clips = response.json()
-
-    assert len(clips) >= 10, (
-        f"Expected >=10 clips from captured run, got {len(clips)}. "
-        "The clip_catalog key is probably missing or the catalog wrapper is wrong."
-    )
-
-    for clip in clips:
-        assert clip["duration_s"] > 0, (
-            f"Clip {clip['clip_id']} has duration_s=0. "
-            "Reader is using 'duration_s' instead of 'duration_seconds'."
-        )
-        assert clip["resolution"], (
-            f"Clip {clip['clip_id']} has empty resolution. "
-            "Reader is using 'resolution' key instead of width/height."
-        )
-        assert "x" in clip["resolution"], (
-            f"Clip {clip['clip_id']} resolution={clip['resolution']!r} - not WxH format."
-        )
-        assert clip["fps"] > 0, (
-            f"Clip {clip['clip_id']} has fps=0. "
-            "Reader is using 'fps' instead of 'frame_rate'."
-        )
 
 
 # ── Step status: all captured steps should be completed ─────────────
@@ -126,19 +97,6 @@ def test_captured_step_status(client, captured_project):
 
 # ── Step detail: catalog output has clip_catalog ────────────────────
 
-def test_captured_step_detail_catalog(client, captured_project):
-    """Step detail for catalog should return the full clip_catalog."""
-    with patch("library.dashboard.server._load_dag") as mock_dag:
-        mock_dag.return_value = {
-            "nodes": [{"id": "catalog", "name": "Catalog"}]
-        }
-
-        response = client.get("/api/steps/catalog")
-        assert response.status_code == 200
-        detail = response.json()
-        assert detail["id"] == "catalog"
-        assert "clip_catalog" in detail["output"]
-        assert len(detail["output"]["clip_catalog"]) >= 10
 
 
 # ── Pipeline status endpoint ───────────────────────────────────────

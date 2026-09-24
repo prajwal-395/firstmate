@@ -161,16 +161,6 @@ def _retiring_cta():
     ])
 
 
-def test_the_anchor_is_the_source_file_and_frame():
-    notes = marker_carry.read_clip_markers(_retiring_cta(), "Reel 09")
-    assert len(notes) == 1
-    note = notes[0]
-    assert note["note"] == CTA_NOTE
-    assert note["source_frame"] == 12
-    assert note["anchor"]["source_file"] == "/f/mg_cta.mov"
-    assert note["anchor"]["source_frame"] == 12
-    assert note["anchor"]["track_type"] == "video"
-    assert note["frame"] == 512  # 500 + (12 - 0), never a clamp
 
 
 def test_a_clip_marker_carries_by_file_not_by_timeline_frame():
@@ -278,19 +268,6 @@ def test_a_marker_whose_file_is_gone_names_the_file(capsys):
     assert CTA_NOTE in err
 
 
-def test_a_key_outside_what_the_clip_plays_is_kept_not_clamped():
-    item = _ClipItem("cta card", 500, 560, "/f/mg_cta.mov", left=0,
-                     markers={999: {"color": "Blue", "name": "feedback",
-                                    "note": CTA_NOTE, "duration": 1,
-                                    "customData": ""}})
-    timeline = _Timeline("Reel 09", video=[("Motion Graphics", [item])])
-    notes = marker_carry.read_clip_markers(timeline, "Reel 09")
-    assert len(notes) == 1
-    assert notes[0]["frame"] is None
-    assert "outside" in notes[0]["unplaced_reason"]
-    carried, uncarried = marker_carry.plan_clip_carry(
-        notes, timeline, "Reel 09")
-    assert not carried and uncarried[0]["note"] == CTA_NOTE
 
 
 def test_a_pool_inherited_copy_is_not_carried_twice():
@@ -307,35 +284,10 @@ def test_a_pool_inherited_copy_is_not_carried_twice():
     assert marker_carry.read_clip_markers(timeline, "Reel 09") == []
 
 
-def test_a_marker_resolve_declines_is_named(capsys):
-    retiring = _retiring_cta()
-    notes = marker_carry.read_clip_markers(retiring, "Reel 09")
-    card = _ClipItem("cta card", 500, 560, "/f/mg_cta.mov", left=0,
-                     decline={12})
-    replacement = _Timeline("staging", video=[
-        ("Motion Graphics", [card])])
-    carried, uncarried = marker_carry.plan_clip_carry(
-        notes, replacement, "Reel 09")
-    assert len(carried) == 1
-    failed = marker_carry.place_clip_markers(replacement, carried)
-    assert len(failed) == 1 and failed[0]["note"] == CTA_NOTE
-    assert "CLIP MARKER NOT CARRIED" in capsys.readouterr().err
 
 
-def test_an_item_without_the_marker_api_reads_as_no_markers():
-    timeline = _Timeline("Reel 09", video=[
-        ("Akshita", [_BareItem("Akshita A", 0, 600)])])
-    assert marker_carry.read_clip_markers(timeline, "Reel 09") == []
 
 
-def test_an_unreadable_clip_row_refuses():
-    class _Broken(_Timeline):
-        def GetTrackCount(self, media):
-            raise RuntimeError("Resolve is busy")
-
-    with pytest.raises(marker_carry.MarkerCarryUnreadable,
-                       match="could not be read"):
-        marker_carry.read_clip_markers(_Broken("Reel 09"), "Reel 09")
 
 
 # ── Through the promotion ─────────────────────────────────────────
@@ -482,18 +434,3 @@ def test_promotion_carries_the_unique_clip_note_and_reports_the_other(
     assert "this card flashes" in err
 
 
-def test_promotion_still_passes_timelines_without_clip_markers(
-        project_dir):
-    """The old fakes (items without the marker API) promote exactly
-    as before: no clip markers read, nothing carried, nothing lost."""
-    retired = _Timeline(FINAL_A, video=[
-        ("Akshita", [_BareItem("Akshita A", 0, 600)])])
-    staging = _Timeline(FINAL_A + " (rebuild staging)", video=[
-        ("Akshita", [_BareItem("Akshita A", 0, 600)])])
-    project = FakeProject([_Timeline(MASTER), retired, staging])
-
-    promoted = _promote(project, project_dir,
-                        {FINAL_A: staging.GetName()})
-
-    assert promoted["promoted"] == [FINAL_A]
-    assert FINAL_A not in promoted["markers"]

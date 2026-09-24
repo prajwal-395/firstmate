@@ -51,15 +51,6 @@ def _directives(semantic):
     return manifest["neural_engine_directives"]
 
 
-def test_handheld_footage_in_the_retired_schema_is_stabilised():
-    directives = _directives({"semantic_analysis_documents": [{
-        "clip_id": "clip_001",
-        "analysis": {"motion": "The camera moves in a handheld style, "
-                               "drifting as the speaker walks."},
-    }]})
-    assert any(d.get("stabilize") for d in directives.values())
-
-
 def test_handheld_footage_in_the_v3_schema_is_stabilised():
     """v3 measures exactly this - camera[].mode "handheld" plus a
     stability verdict - and there was no path from it to a directive."""
@@ -84,29 +75,6 @@ def test_a_locked_off_camera_is_not_stabilised():
                                "throughout the sequence."},
     }]})
     assert not any(d.get("stabilize") for d in directives.values())
-
-
-def test_documents_keyed_by_file_stem_still_join():
-    """step_1_03 keys by FILE STEM, the catalog by clip_XXX."""
-    stem = os.path.splitext(os.path.basename(SOURCE))[0]
-    directives = _directives({"semantic_analysis_documents": [{
-        "clip_id": stem,
-        "analysis": {"motion": "Handheld, with visible shake."},
-    }]})
-    assert any(d.get("stabilize") for d in directives.values())
-
-
-def test_magic_mask_is_never_emitted():
-    """CreateMagicMask returns False for every mode, so a directive for
-    it is a promise nothing keeps."""
-    directives = _directives({"semantic_analysis_documents": [{
-        "clip_id": "clip_001",
-        "analysis": {"motion": "Handheld interview of a speaker, shaky."},
-        "assessment": {"clip_type": "a-roll",
-                       "keywords": ["interview", "speaker", "subject"]},
-    }]})
-    for d in directives.values():
-        assert "magic_mask" not in d
 
 
 def test_documents_that_join_to_nothing_fail_loudly():

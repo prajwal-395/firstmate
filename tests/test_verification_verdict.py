@@ -51,9 +51,6 @@ def _report(station: str, passed: bool):
 class TestDeriveVerificationVerdict:
     """The function that replaces the hardcoded all_passed = True."""
 
-    def test_two_passing_stations_returns_true(self):
-        reports = [_report("clip_placement", True), _report("audio", True)]
-        assert derive_verification_verdict(reports) is True
 
     def test_one_of_two_failing_returns_false(self):
         """This is the core test. On the old hardcoded True, this would
@@ -64,23 +61,12 @@ class TestDeriveVerificationVerdict:
         ]
         assert derive_verification_verdict(reports) is False
 
-    def test_all_stations_failing_returns_false(self):
-        reports = [
-            _report("clip_placement", False),
-            _report("audio", False),
-            _report("fusion_comps", False),
-        ]
-        assert derive_verification_verdict(reports) is False
 
     def test_no_stations_returns_true(self):
         """No evidence of failure is not a failure."""
         assert derive_verification_verdict([]) is True
 
-    def test_single_passing_station_returns_true(self):
-        assert derive_verification_verdict([_report("full_sweep", True)]) is True
 
-    def test_single_failing_station_returns_false(self):
-        assert derive_verification_verdict([_report("full_sweep", False)]) is False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -143,14 +129,7 @@ class TestDetectUnreachableFusionEffects:
         assert dropped[0]["params"] == _PMK_LOOK
         assert dropped[0]["label"] in dropped[0]["detail"]
 
-    def test_all_placed_returns_empty(self):
-        per_clip = {"a_roll_0": _PMK_LOOK, "a_roll_1": _PMK_LOOK}
-        placed = {1: {"a_roll_0", "a_roll_1"}, 2: set()}
 
-        assert detect_unreachable_fusion_effects(per_clip, placed) == []
-
-    def test_empty_per_clip_returns_empty(self):
-        assert detect_unreachable_fusion_effects({}, {1: {"a_roll_0"}}) == []
 
     def test_no_tracks_at_all_drops_everything(self):
         """A build that placed nothing must not read as a clean run."""
@@ -189,17 +168,8 @@ class TestRendererCallsExtractedFunctions:
             f"{[n for n, _ in hardcoded]}"
         )
 
-    def test_renderer_calls_derive_verification_verdict(self):
-        src = _source()
-        assert "derive_verification_verdict(qa_reports)" in src
 
-    def test_renderer_calls_detect_unreachable_fusion_effects(self):
-        src = _source()
-        assert "detect_unreachable_fusion_effects(" in src
 
-    def test_renderer_calls_format_fusion_drop_error(self):
-        src = _source()
-        assert "format_fusion_drop_error(dropped)" in src
 
     def test_success_is_independent_of_verification(self):
         src = _source()

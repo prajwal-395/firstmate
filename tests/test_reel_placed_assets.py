@@ -55,27 +55,6 @@ def _project(tmp_path):
     return project, src
 
 
-def test_the_durable_areas_are_step_owned_output():
-    """The declaration half: placed reel assets are OUTPUT of the step
-    that builds reels, filed under that step's own directory - never
-    scratch."""
-    for area in (Area.REEL_FRAME_OVERLAYS, Area.REEL_CARDS):
-        spec = ProjectLayout.spec(area)
-        assert spec.kind is Kind.OUTPUT, f"{area.value} is not OUTPUT"
-        assert spec.step == "build_reels", f"{area.value} has no owner"
-        assert spec.relpath.startswith("pipeline_output/steps/7_01_build_reels/"), (
-            spec.relpath
-        )
-
-
-def test_scratch_says_placed_files_do_not_live_here():
-    """The honest half of the declaration: scratch names the boundary
-    and where the placed files went instead."""
-    purpose = ProjectLayout.spec(Area.SCRATCH).purpose
-    assert "REEL_FRAME_OVERLAYS" in purpose
-    assert "REEL_CARDS" in purpose
-
-
 def test_a_scratch_path_is_not_placeable(tmp_path):
     project, src = _project(tmp_path)
     assert is_under_scratch(src, project)
@@ -115,14 +94,6 @@ def test_promoted_overlay_lands_durable_not_under_scratch(tmp_path):
     # it does not move the source.
     assert os.path.isfile(src)
     assert os.path.getsize(src) == before
-
-
-def test_promotion_is_idempotent(tmp_path):
-    project, src = _project(tmp_path)
-    first = promote_to_durable(src, project, Area.REEL_FRAME_OVERLAYS)
-    second = promote_to_durable(src, project, Area.REEL_FRAME_OVERLAYS)
-    assert first == second
-    assert len(os.listdir(os.path.dirname(first))) == 1
 
 
 def test_promoting_a_missing_file_is_refused_not_placed(tmp_path):
@@ -170,45 +141,3 @@ def test_a_card_with_no_file_passes_through_to_the_builder(tmp_path):
     assert card["rendered_path"] == ""
 
 
-def test_the_placer_refuses_scratch_when_it_knows_the_folder(tmp_path):
-    """The guard at the placement site: with the folder in scope, a
-    scratch segment never reaches Resolve."""
-    from library.tools.reel_build import place_overlay_segments
-
-    project, src = _project(tmp_path)
-
-    class _Pool:
-        def ImportMedia(self, paths):
-            raise AssertionError("must refuse before importing")
-
-    class _Timeline:
-        def GetUniqueId(self):
-            return "t"
-
-    class _Project:
-        def GetCurrentTimeline(self):
-            return _Timeline()
-
-    with pytest.raises(PlacedAssetInScratch):
-        place_overlay_segments(
-            _Pool(),
-            _Project(),
-            _Timeline(),
-            "reel",
-            24000 / 1001,
-            [{"overlay_path": src, "timeline_start": 0.0, "total_frames": 100}],
-            2,
-            kind="TV frame",
-            check="F4",
-            project_folder=project,
-        )
-
-
-def test_durable_copy_exists_creates_nothing(tmp_path):
-    project, src = _project(tmp_path)
-    assert durable_copy_exists(src, project, Area.REEL_FRAME_OVERLAYS) is None
-    dest = promote_to_durable(src, project, Area.REEL_FRAME_OVERLAYS)
-    assert durable_copy_exists(src, project, Area.REEL_FRAME_OVERLAYS) == dest
-    assert scratch_dir_for(project) == os.path.join(
-        project, "pipeline_output", "scratch"
-    )

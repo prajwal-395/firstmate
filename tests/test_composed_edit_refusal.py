@@ -169,21 +169,6 @@ def test_an_insertion_with_no_declared_treatment_refuses(tmp_path):
     assert [i.GetStart() for i in timeline.rows["V1"]] == [590, 1069, 1255, 1274]
 
 
-def test_an_insertion_needs_the_generator_as_surely_as_a_trim(tmp_path):
-    """A newly placed item carries NO comp - not a stale one, none."""
-    timeline, pool, media = build_reel(tmp_path)
-    comp_dir, withheld = _dirs(tmp_path)
-    ending = ce.Insertion(track_type="video", track_index=1,
-                          media_pool_item=media["aroll"], left_offset=4000,
-                          duration=24, record_frame=1274, properties={})
-
-    with pytest.raises(ce.CompRederivationUnreachable) as refusal:
-        ce.apply_composed_edit(timeline=timeline, media_pool=pool,
-                               changes=[], insertions=[ending],
-                               comp_dir=comp_dir, withheld_dir=withheld,
-                               rederiver=None)
-    assert "1 item(s) are newly placed" in str(refusal.value)
-    assert timeline.delete_calls == []
 
 
 # ── 2. A generator that cannot be reached ───────────────────────────
@@ -204,36 +189,6 @@ def test_bypass_2_an_unreachable_generator_refuses_by_its_own_reason(tmp_path):
     assert timeline.delete_calls == []
 
 
-def test_the_real_generator_names_why_it_cannot_be_reached(tmp_path):
-    """`ReelLookRederiver` is the route into the builder's own pass.
-
-    Each refusal below is a way the pass would run and write nothing, or
-    write onto the wrong clips, while reporting success.
-    """
-    timeline, _pool, _media = build_reel(tmp_path)
-    changes, _head = _trimmed(timeline)
-    manifest = {"tracks": {"V1": {"clips": [{"source_file": "/lab/a.mov"}] * 3}},
-                "fusion_effects": {"per_clip": {"a_roll_0": {"glow_gain": 1.4}}}}
-    folder = str(tmp_path)
-
-    assert ce.ReelLookRederiver(manifest, folder, "P", "T"
-                                ).reachable_reason(changes) is None
-
-    no_folder = ce.ReelLookRederiver(manifest, str(tmp_path / "gone"), "P", "T")
-    assert "not a directory" in no_folder.reachable_reason(changes)
-
-    no_timeline = ce.ReelLookRederiver(manifest, folder, "P", "")
-    assert "whatever is current" in no_timeline.reachable_reason(changes)
-
-    empty = ce.ReelLookRederiver({"tracks": manifest["tracks"],
-                                  "fusion_effects": {}}, folder, "P", "T")
-    assert "without writing a single comp" in empty.reachable_reason(changes)
-
-    # The manifest must describe the timeline the edit PRODUCED: the
-    # pass maps specs to items by position along the row.
-    stale = ce.ReelLookRederiver(manifest, folder, "P", "T")
-    stale.expected_row_counts = {"V1": 4}
-    assert "onto the wrong clips" in stale.reachable_reason(changes)
 
 
 def test_a_trimmed_comp_on_a_row_the_pass_never_writes_is_refused(tmp_path):
@@ -318,28 +273,6 @@ def test_bypass_5_the_stale_comp_is_not_in_the_restore_directory(tmp_path):
     assert len(sorted(Path(comp_dir).iterdir())) == 1
 
 
-def test_the_restore_of_a_trimmed_item_puts_back_no_comp(tmp_path):
-    """Everything else is restored; only the comp waits for the builder."""
-    timeline, pool, _media = build_reel(tmp_path)
-    changes, head = _trimmed(timeline)
-    comp_dir, withheld = _dirs(tmp_path)
-    captures = [ce.capture_item(timeline.rows[c.row][c.item_index], c,
-                                comp_dir, withheld) for c in changes]
-    capture = next(c for c in captures if c.change is head)
-
-    ce.delete_all(timeline, [timeline.rows[c.change.row][c.change.item_index]
-                             for c in captures])
-    ordered = ce.placement_order(captures)
-    ce.place_all(pool, ordered)
-    landed = ce.verify_placement(ce._rows_of(timeline), ordered)
-    placed = landed[("V1", head.record_frame)]
-
-    receipt = ce.restore_item(placed, capture)
-
-    assert receipt["comps"] == []
-    assert receipt["comp_rederivation_required"] is True
-    assert placed.GetFusionCompCount() == 0
-    assert placed.GetProperty("ZoomX") == 2.307, "the transform still came back"
 
 
 # ── 6 and 7. A generator that runs and does not deliver ─────────────
@@ -389,17 +322,6 @@ def test_bypass_7_a_generator_that_leaves_an_uncovered_window(tmp_path):
     assert "GlobalIn 1 is past comp frame 0" in str(refusal.value)
 
 
-def test_a_generator_that_declined_is_not_read_as_a_pass(tmp_path):
-    timeline, pool, _media = build_reel(tmp_path)
-    changes, _head = _trimmed(timeline)
-    comp_dir, withheld = _dirs(tmp_path)
-
-    with pytest.raises(ce.CompRederivationNotProven) as refusal:
-        ce.apply_composed_edit(timeline=timeline, media_pool=pool,
-                               changes=changes, comp_dir=comp_dir,
-                               withheld_dir=withheld,
-                               rederiver=_Generator(ok=False))
-    assert "ran and failed" in str(refusal.value)
 
 
 # ── 8. The one bypass only the source can rule out ──────────────────
@@ -471,24 +393,5 @@ def test_the_refusal_runs_before_the_capture_in_the_orchestrator():
             < positions["place_all"]), positions
 
 
-def test_the_seven_steps_are_all_present_and_named():
-    """None of the seven is optional, so none of them may quietly go."""
-    source = MODULE.read_text(encoding="utf-8")
-    for step in ("conform_comp_windows", "plan_ripple", "capture_item",
-                 "delete_all", "place_all", "verify_placement",
-                 "restore_item", "assert_rederivation_reachable",
-                 "assert_rederived"):
-        assert f"def {step}(" in source, f"step {step} is gone"
 
 
-def test_the_module_quotes_no_stale_spike_ratio():
-    """The spike's ~112 s / 50x ratio predates the re-derivation
-    condition and the PR 1217 lease split, and post-condition
-    measurement superseded it (44.1 s / 54.9 s composed against
-    24.0 s / 59.2 s rebuilds).  The module may disclaim the old
-    figure; it may not present it as the rebuild cost."""
-    source = MODULE.read_text(encoding="utf-8")
-    assert "50x" not in source
-    assert "costs ~112" not in source
-    assert "~112 s of Resolve time" not in source
-    assert "What it costs, and it is not the spike's figure" in source

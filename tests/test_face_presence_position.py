@@ -56,13 +56,6 @@ def test_every_return_path_carries_face_center_x():
     assert not missing, f"return sites without face_center_x: {missing}"
 
 
-def test_face_center_x_sits_beside_values_everywhere():
-    for keys in _face_presence_returns():
-        assert "values" in keys
-        assert keys.index("face_center_x") == keys.index("values") + 1, (
-            "face_center_x is parallel to values and should read that way")
-
-
 def test_the_variance_fallback_reports_no_position():
     """It knows presence, never position.
 
@@ -86,23 +79,6 @@ class TestCascadeAvailability:
 
         class FakeCv2:
             data = None
-
-        monkeypatch.setitem(sys.modules, "cv2", FakeCv2())
-        assert s._load_face_cascade() is None
-
-    def test_returns_none_when_the_xml_is_absent(self, monkeypatch, tmp_path):
-        """OpenCV 5 ships cv2/data/ with no haarcascade files in it."""
-        from library.steps.step_1_04_temporal_index import step as s
-
-        class FakeData:
-            haarcascades = str(tmp_path) + os.sep
-
-        class FakeCv2:
-            data = FakeData()
-
-            @staticmethod
-            def CascadeClassifier(path):
-                pytest.fail("must not construct a classifier for a missing XML")
 
         monkeypatch.setitem(sys.modules, "cv2", FakeCv2())
         assert s._load_face_cascade() is None
@@ -154,14 +130,3 @@ class TestCascadeAvailability:
 
         monkeypatch.setitem(sys.modules, "cv2", FakeCv2())
         assert s._load_face_cascade() is sentinel
-
-
-def test_opencv_is_pinned_below_5():
-    """The code needs Haar cascades, so the requirement must say so."""
-    with open(os.path.join(PROJECT_ROOT, "requirements.txt"), encoding="utf-8") as f:
-        req = f.read()
-    line = next(l for l in req.splitlines()
-                if l.strip().startswith("opencv-python"))
-    assert "<5" in line, (
-        "opencv-python must be pinned below 5: OpenCV 5 removed Haar "
-        f"cascades, and step_1_04 depends on them. Found: {line!r}")

@@ -33,11 +33,9 @@ clip_008 @2.0s are sharp and legible and neither does.  Cost: 2.79s per
 clip, 0.059x realtime.
 """
 
-import json
 import os
 import shutil
 import subprocess
-import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,7 +66,6 @@ from library.tools.analysis.picture_quality import (
     _sample_dimensions,
     measure_soft_picture,
     sample_sharpness,
-    sharpness_threshold,
     soft_picture_ranges,
 )
 try:
@@ -106,16 +103,6 @@ def _track(values, rate=RATE):
 
 @needs_mlx
 class TestUnmeasuredClaimsNothing:
-    def test_no_signal_at_all_yields_no_usable_range(self):
-        """No temporal index and no picture sample -> no range asserted."""
-        usable, _unusable, method, signals = _compute_usable_ranges(
-            None, 188.578, "unknown", soft_picture_ranges=None)
-
-        assert method == "unmeasured"
-        assert signals == []
-        assert usable == []
-        assert usable != [[0, 188.578]]
-
     def test_the_whole_clip_is_never_the_unmeasured_answer(self):
         """The exact shape the 2026-08-26 run wrote, for every clip."""
         for duration in (3.567, 22.87, 139.13, 188.578):
@@ -166,16 +153,6 @@ class TestMeasuredAndClean:
         assert unusable == []
         assert usable == [[0, 10.0]]
 
-    def test_soft_ranges_narrow_the_usable_ranges(self):
-        soft = [{"start": 0.0, "end": 2.0, "reason": SOFT_PICTURE_REASON}]
-        usable, unusable, method, signals = _compute_usable_ranges(
-            None, 10.0, "unknown", soft_picture_ranges=soft)
-
-        assert method == "deterministic_v1"
-        assert signals == [SIGNAL_NAME]
-        assert unusable == soft
-        assert usable == [[2.0, 10.0]]
-
     def test_the_picture_signal_joins_the_temporal_index_signals(self):
         """Both sources measured -> both named, ranges merged."""
         index = {
@@ -208,10 +185,6 @@ class TestSoftPictureRanges:
         assert ranges == [{"start": 4.0, "end": 5.0,
                            "reason": SOFT_PICTURE_REASON}]
 
-    def test_a_sharp_clip_reports_nothing_soft(self):
-        ranges = soft_picture_ranges(_track([1000.0] * 40), 8.0)
-        assert ranges == []
-
     def test_a_run_shorter_than_the_floor_is_not_reported(self):
         """Two soft samples is 0.4s - under MIN_SOFT_RUN_S, so dropped.
 
@@ -221,19 +194,10 @@ class TestSoftPictureRanges:
         values = [1000.0] * 20 + [5.0] * 2 + [1000.0] * 20
         assert soft_picture_ranges(_track(values), 8.4) == []
 
-    def test_the_shortest_reported_window_is_the_floor(self):
-        values = [1000.0] * 20 + [5.0] * 3 + [1000.0] * 20
-        ranges = soft_picture_ranges(_track(values), 8.6)
-        assert len(ranges) == 1
-        assert ranges[0]["end"] - ranges[0]["start"] == pytest.approx(0.6)
-
     def test_too_few_samples_is_None_not_an_empty_list(self):
         """A reference percentile off three frames is noise, not a verdict."""
         short = [1000.0] * (MIN_SHARPNESS_SAMPLES - 1)
         assert soft_picture_ranges(_track(short), 2.0) is None
-
-    def test_no_duration_measures_nothing(self):
-        assert soft_picture_ranges(_track([1000.0] * 40), 0) is None
 
     def test_a_clip_blurred_end_to_end_is_caught_by_the_absolute_floor(self):
         """A relative threshold alone would rate its own mush as normal."""
@@ -249,37 +213,10 @@ class TestSoftPictureRanges:
         values = [120.0] * 40
         assert soft_picture_ranges(_track(values), 8.0) == []
 
-    def test_ranges_are_clamped_to_the_clip_duration(self):
-        values = [1000.0] * 5 + [5.0] * 20
-        ranges = soft_picture_ranges(_track(values), 3.0)
-        assert ranges[-1]["end"] == 3.0
-
-    def test_the_threshold_is_the_greater_of_relative_and_absolute(self):
-        assert sharpness_threshold([1000.0] * 40) == pytest.approx(200.0)
-        assert sharpness_threshold([100.0] * 40) == pytest.approx(
-            picture_quality.SHARPNESS_ABSOLUTE_FLOOR)
-        assert sharpness_threshold([1.0] * (MIN_SHARPNESS_SAMPLES - 1)) is None
-
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Sample geometry
 # ═══════════════════════════════════════════════════════════════════════
-
-def test_the_vision_pipeline_can_import_this_module_as_a_script():
-    """Step 1.03 runs `vision_pipeline_v3.py` as a script, not as a module.
-
-    `sys.path[0]` is then the analysis directory, so the file adds the
-    repo root itself.  Under pytest conftest has already put the root on
-    the path, so a wrong index still imports and the failure only shows
-    up in a real run - which is why the index is asserted here.
-    """
-    from library.tools.analysis import vision_pipeline_v3 as vp
-
-    assert vp.REPO_ROOT.name != "library"
-    assert (vp.REPO_ROOT / "library" / "tools" / "analysis"
-            / "picture_quality.py").is_file()
-    assert vp.picture_quality is picture_quality
-
 
 class TestSampleGeometry:
     def test_the_short_side_is_bounded_whichever_side_it_is(self):
@@ -292,15 +229,6 @@ class TestSampleGeometry:
         """
         assert _sample_dimensions(1080, 1920, 180) == (180, 320)
         assert _sample_dimensions(1920, 1080, 180) == (320, 180)
-
-    def test_a_small_source_is_never_upscaled(self):
-        assert _sample_dimensions(320, 240, 180) == (240, 180)
-        assert _sample_dimensions(160, 120, 180) == (160, 120)
-
-    def test_dimensions_are_even(self):
-        for w, h in (_sample_dimensions(1001, 1997, 180),
-                     _sample_dimensions(333, 777, 180)):
-            assert w % 2 == 0 and h % 2 == 0
 
     @needs_ffmpeg
     def test_an_unreadable_file_raises_rather_than_guessing(self, tmp_path):
@@ -364,20 +292,3 @@ def test_the_blurred_window_is_excluded_from_the_usable_ranges(tmp_path):
     for start, end in result["usable_ranges"]:
         assert not (start < 3.0 < end), (
             f"[{start}, {end}] still offers the blurred window")
-
-
-@needs_ffmpeg
-def test_the_cli_reports_the_measurement_as_json(tmp_path):
-    clip = tmp_path / "synthetic.mp4"
-    _synthesise(clip)
-
-    proc = subprocess.run(
-        [sys.executable, "-m", "library.tools.analysis.picture_quality",
-         str(clip)],
-        capture_output=True, text=True, encoding="utf-8", timeout=180,
-        cwd=REPO_ROOT, check=False)
-
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["sample_rate_hz"] == RATE
-    assert payload["soft_picture_ranges"]

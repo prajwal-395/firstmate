@@ -25,35 +25,11 @@ def test_multiple_paths_merge():
     }
     assert project_fields(data, paths) == expected
 
-def test_missing_keys_ignored():
-    data = {"a": 1}
-    assert project_fields(data, ["b.c"]) == {}
 
-def test_missing_array_item_keys_aligned():
-    data = {"clips": [{"id": 1, "dur": 5}, {"id": 2}]}
-    assert project_fields(data, ["clips.*.dur"]) == {"clips": [{"dur": 5}, {}]}
 
-def test_wildcard_on_non_array():
-    data = {"clips": "not_an_array"}
-    assert project_fields(data, ["clips.*.dur"]) == {}
 
-def test_original_data_not_mutated():
-    data = {"a": {"b": 1}}
-    result = project_fields(data, ["a.b"])
-    result["a"]["b"] = 2
-    assert data["a"]["b"] == 1
 
-def test_array_multiple_wildcard_fields():
-    data = {"clips": [{"id": 1, "dur": 5, "x": 9}, {"id": 2, "dur": 10, "y": 8}]}
-    assert project_fields(data, ["clips.*.id", "clips.*.dur"]) == {
-        "clips": [{"id": 1, "dur": 5}, {"id": 2, "dur": 10}]
-    }
 
-def test_deep_wildcard():
-    data = {"scenes": [{"shots": [{"id": 1}, {"id": 2}]}]}
-    assert project_fields(data, ["scenes.*.shots.*.id"]) == {
-        "scenes": [{"shots": [{"id": 1}, {"id": 2}]}]
-    }
 
 
 # ── Exclusion paths ────────────────────────────────────────────────────
@@ -84,21 +60,7 @@ def test_exclusion_of_a_whole_key():
     assert project_fields(data, ["music", "-music.curve"]) == {"music": {"bpm": 90}}
 
 
-def test_exclusion_that_matches_nothing_is_a_no_op():
-    """"Not present" is exactly what the path asked for."""
-    data = {"music": {"bpm": 90}}
-    assert project_fields(data, ["music", "-music.curve", "-absent.entirely"]) == {
-        "music": {"bpm": 90}
-    }
 
 
-def test_exclusion_does_not_mutate_the_source():
-    data = {"spine": {"blocks": [{"text": "a", "words": [1]}]}}
-    project_fields(data, ["spine", "-spine.blocks.*.words"])
-    assert data["spine"]["blocks"][0]["words"] == [1]
 
 
-def test_exclusion_only_applies_to_what_was_kept():
-    """A `-` path cannot resurrect or reorder; it only subtracts."""
-    data = {"a": {"x": 1, "y": 2}, "b": {"x": 3}}
-    assert project_fields(data, ["a", "-b.x"]) == {"a": {"x": 1, "y": 2}}

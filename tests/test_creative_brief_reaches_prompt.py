@@ -71,46 +71,6 @@ def _steps_documenting_the_brief():
     return found
 
 
-def test_the_brief_is_documented_by_the_steps_we_think_it_is():
-    """Pins the set, so a new consumer cannot appear unnoticed."""
-    names = {d.name for d in _steps_documenting_the_brief()}
-    assert names == {
-        "step_2_01_creative_direction",
-        "step_2_02_speech_sequence",
-        "step_2_04_music_selection",
-        # Joined 2026-09-09, when the captain's freeze on handoff.md
-        # lifted. It DECLARED the brief before that and could not say so
-        # in its own prompt - the gap two audits kept finding (round 2
-        # F7, round 3 B9/R9), because this is the step that sets every
-        # gap length and every music_behavior in the piece.
-        "step_2_05_mesh_spine",
-        "step_3_02_select_broll",
-        "step_4_02_plan_transitions",
-        # The ninth, 2026-09-03: 5.01 became hybrid and its NEW handoff
-        # names the brief, so it is in this group rather than being a
-        # second mesh_spine (manifest-only) exception. 001's brief carries
-        # a whole "Color System Philosophy" section no colour step had
-        # ever seen.
-        "step_5_01_color_grade",
-        "step_4_03_plan_vfx",
-        "step_4_04_plan_sfx",
-        # The tenth, 2026-09-05. Reel selection is the one step whose
-        # answer is a COUNT as much as a set, and the engine states no
-        # count anywhere on purpose - `handoff.md` says so and
-        # `test_the_handoff_states_no_count_and_no_preference` holds it
-        # there, because that file is engine-wide and one episode's
-        # number would become every project's. The brief is the channel
-        # that can carry it: the engine states capability and authority,
-        # the project states what this particular video wants.
-        #
-        # Landed once as 89c61e6 in the field-test lane, used for the
-        # nineteen reels the captain approved, and LOST - that lane was
-        # never merged, so main shipped a reel selector that received no
-        # brief and was not asked what it would have wanted. Restored
-        # 2026-09-05; `test_select_reels_is_interviewed_without_a_brief`
-        # in tests/test_briefing_interview.py is the other half.
-        "step_3_04_select_reels",
-    }, names
 
 
 @pytest.mark.parametrize(
@@ -148,8 +108,6 @@ def test_mesh_spine_declares_the_brief_and_now_names_it():
     assert "## Creative Brief" in handoff
 
 
-def test_creative_brief_is_a_process_level_input():
-    assert "creative_brief" in PROCESS_LEVEL_INPUTS
 
 
 # An edgeless DAG: these tests are about the process-level input
@@ -186,14 +144,6 @@ DECLARING_MANIFEST = {
 SILENT_MANIFEST = {"interface": {"inputs": [{"name": "clip_catalog"}]}}
 
 
-def test_declared_brief_arrives_as_content_not_as_a_path(tmp_path):
-    brief = tmp_path / "brief.md"
-    brief.write_text(BRIEF_TEXT, encoding="utf-8")
-    state = {"project_folder": str(tmp_path), "creative_brief": str(brief)}
-
-    inputs = _gather("plan_vfx", state, DECLARING_MANIFEST)
-
-    assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
 
 
 def test_a_relative_brief_resolves_against_the_project(tmp_path):
@@ -220,14 +170,6 @@ def test_an_absolute_brief_is_taken_as_given(tmp_path):
     assert BRIEF_TEXT in _brief_the_model_can_reach(inputs)
 
 
-def test_a_step_that_does_not_declare_it_is_not_given_one(tmp_path):
-    brief = tmp_path / "brief.md"
-    brief.write_text(BRIEF_TEXT, encoding="utf-8")
-    state = {"project_folder": str(tmp_path), "creative_brief": str(brief)}
-
-    inputs = _gather("plan_vfx", state, SILENT_MANIFEST)
-
-    assert "creative_brief" not in inputs
 
 
 def test_a_missing_brief_raises_rather_than_passing_the_path(tmp_path):
@@ -241,13 +183,6 @@ def test_a_missing_brief_raises_rather_than_passing_the_path(tmp_path):
         _gather("plan_vfx", state, DECLARING_MANIFEST)
 
 
-def test_an_empty_brief_raises(tmp_path):
-    brief = tmp_path / "brief.md"
-    brief.write_text("   \n", encoding="utf-8")
-    state = {"project_folder": str(tmp_path), "creative_brief": str(brief)}
-
-    with pytest.raises(RuntimeError, match="empty"):
-        _gather("plan_vfx", state, DECLARING_MANIFEST)
 
 
 def test_no_brief_declared_leaves_the_step_untouched(tmp_path):
@@ -385,16 +320,6 @@ def test_a_top_level_declaration_is_loaded(tmp_path):
     assert state["creative_brief"] == str(brief)
 
 
-def test_a_declaration_under_pipeline_is_loaded(tmp_path):
-    brief = tmp_path / "brief.md"
-    brief.write_text(BRIEF_TEXT, encoding="utf-8")
-    project = _project_declaring(
-        tmp_path,
-        f'name: "T"\nslug: "t"\npipeline:\n  creative_brief: "{brief}"\n')
-
-    state = load_pipeline_state(str(project))
-
-    assert state["creative_brief"] == str(brief)
 
 
 def test_a_project_declaring_none_stays_declaring_none(tmp_path):

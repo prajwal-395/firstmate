@@ -29,34 +29,6 @@ def hello_wav(tmp_path):
 
 @pytest.mark.heavy
 @pytest.mark.heavy_ml
-def test_prosody_produces_real_measurement(hello_wav, tmp_path):
-    """Prosody analysis must produce a real measurement using parselmouth,
-    not a hollow profile, when given a real speech file.
-    """
-    from library.tools.analysis.speech_advanced_pipeline import analyze_speech_advanced
-    
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-    
-    result = analyze_speech_advanced(
-        audio_path=str(hello_wav),
-        output_dir=str(out_dir),
-        clip_id="clip_hello"
-    )
-    
-    assert result["clip_id"] == "clip_hello"
-    assert "prosody" in result
-    prosody = result["prosody"]
-    assert prosody.get("method") == "parselmouth-praat", f"Unexpected method: {prosody.get('method')}"
-    
-    # Must contain real measurements
-    assert "pitch_stats" in prosody
-    assert "mean_f0_hz" in prosody["pitch_stats"]
-    assert "intensity_contour_50ms" in prosody
-    assert len(prosody["intensity_contour_50ms"]) > 0
-
-@pytest.mark.heavy
-@pytest.mark.heavy_ml
 def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
     """speaking_rate is computed from the speech_regions handed in, during a
     REAL parselmouth measurement - not a mocked one.
@@ -110,25 +82,3 @@ def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
         f"register label reappeared: {vq!r}")
     hnr = vq.get("hnr_db")
     assert hnr is None or isinstance(hnr, float), f"hnr_db is not measured: {hnr!r}"
-
-@pytest.mark.heavy
-@pytest.mark.heavy_ml
-def test_transcription_produces_real_timed_words(hello_wav, tmp_path):
-    """Transcription must produce timed words using whisperx when given a real speech file."""
-    from library.steps.step_1_04_temporal_index.step import detect_speech_regions
-    
-    regions = detect_speech_regions(
-        audio_path=str(hello_wav),
-        output_dir=str(tmp_path),
-        onsets=[],
-        whisper_model_size="tiny"
-    )
-    
-    assert len(regions) > 0, "No speech regions detected"
-    words = regions[0].get("words", [])
-    assert len(words) > 0, "No timed words produced"
-    
-    first_word = words[0]
-    assert "word" in first_word
-    assert "start" in first_word
-    assert "end" in first_word

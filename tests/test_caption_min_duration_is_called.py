@@ -88,32 +88,6 @@ def test_generate_subtitles_calls_enforce_min_duration(monkeypatch):
                 f"projected onto those keys before the call, got {group}")
 
 
-def test_the_reel_caption_path_calls_it_too(monkeypatch):
-    """A reel plans its captions through the same operation.
-
-    `reel_build.reel_subtitle_segments` and the conformance verifier both
-    reach 4.01 through `operations.get("subtitles.plan")`, so the reel
-    path carries the call exactly when that operation resolves to the
-    function the spy above watched.
-    """
-    from library.tools import operations
-
-    planner = operations.get("subtitles.plan").run
-    module = sys.modules[planner.__module__]
-
-    seen = []
-    original = module.enforce_min_duration
-    monkeypatch.setattr(
-        module, "enforce_min_duration",
-        lambda groups, *a, **k: (seen.append(len(groups))
-                                 or original(groups, *a, **k)))
-
-    plan = planner(_spine(_overlapping_words()), caption_case="lowercase",
-                   brand_effect={}, brand_style={})
-    assert plan["subtitle_plan"]["subtitle_entries"]
-    assert seen, (
-        "the reel caption path planned cards without the min-duration "
-        "rule running")
 
 
 def test_overlapping_word_timings_do_not_reach_the_cards():

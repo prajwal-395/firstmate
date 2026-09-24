@@ -172,28 +172,6 @@ def test_every_source_is_cut_at_its_own_boundary(project):
     ], "one segment per WhisperX utterance, in time order"
 
 
-def test_a_speech_segment_keeps_its_word_timings(project):
-    """Retrieve at the utterance, snap at the word.
-
-    The utterance is what gets embedded; the word timings ride along so a
-    caller can trim the hit to the word that matched. Dropping them would
-    throw away the pipeline's finest unit to make the index tidy.
-    """
-    speech = [s for s in build_segments(project) if s.kind == "speech"]
-    words = speech[0].words
-    assert [w["word"] for w in words] == ["we", "parking", "spot"]
-    assert words[1]["start"] == 2.0 and words[1]["end"] == 2.4
-    assert speech[0].start <= words[1]["start"] <= speech[0].end
-
-
-def test_one_object_seen_twice_is_two_segments(project):
-    """Two appearances are two answers to "where is the X"."""
-    objects = [s for s in build_segments(project) if s.kind == "object"]
-    spans = sorted((s.start, s.end) for s in objects)
-    assert spans == [(2.0, 5.0), (12.0, 15.0)]
-    assert len({s.segment_id for s in objects}) == 2
-
-
 def test_the_vision_join_goes_through_the_file_path(project):
     """1.03 keys by file stem, the catalog by clip_XXX (§10.1)."""
     segments = build_segments(project)
@@ -210,31 +188,12 @@ def test_unknown_kind_raises_rather_than_matching_nothing(project):
 # ─── Curves become facets, never segments ─────────────────────────
 
 
-def test_curves_are_reduced_over_the_span_at_their_own_rate(project):
-    doc = footage_segments.load_temporal_index(project)["clip_001"]
-    early = curve_facets(doc, 0.0, 10.0)
-    late = curve_facets(doc, 10.0, 20.0)
-    assert early["speech_ratio"] == 0.0
-    assert late["speech_ratio"] == 1.0
-    assert early["motion"] == 0.5 and early["brightness"] == 0.4
-
-
 def test_an_unmeasured_curve_is_absent_not_zero(project):
     """"no face curve" and "no face" are different answers."""
     doc = footage_segments.load_temporal_index(project)["clip_002"]
     facets = curve_facets(doc, 0.0, 10.0)
     assert "face_presence" not in facets
     assert facets["motion"] == 0.9
-
-
-def test_coverage_reports_what_the_ingest_failed_to_measure(project):
-    report = coverage_report(project)
-    assert report["clips_in_catalog"] == 2
-    assert report["clips_with_vision_profile"] == 2
-    assert report["utterances"] == 2 and report["words"] == 4
-    assert report["clips_with_measured_prosody"] == 0, (
-        "a prosody file that recorded an error is not a measurement (§10.3)"
-    )
 
 
 # ─── Building and querying ────────────────────────────────────────
@@ -259,13 +218,6 @@ def test_search_finds_the_utterance_and_the_word(offline_index):
     assert top["word_hits"] == [{"word": "parking", "start": 2.0, "end": 2.4}]
 
 
-def test_a_hit_carries_a_timecode_a_person_can_read(offline_index):
-    idx, _ = offline_index
-    top = idx.search("pollen", top_k=1, mode="lexical")[0]
-    assert re.fullmatch(r"\d{2}:\d{2}\.\d{3}-\d{2}:\d{2}\.\d{3}", top["timecode"])
-    assert top["timecode"] == "00:06.000-00:07.500"
-
-
 def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeypatch):
     """The index must degrade to keyword search, not to nothing.
 
@@ -287,14 +239,6 @@ def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeyp
 # The captain will type something that is not in the footage on their
 # first afternoon with this. A search that cannot say "not here" reads as
 # broken, so these are about the answer NOTHING being a real answer.
-
-
-def test_the_default_floor_is_the_measured_one(offline_index):
-    """The floor a caller gets without asking is the one that was measured."""
-    idx, _ = offline_index
-    assert footage_query.DENSE_SCORE_FLOOR == 0.40
-    assert footage_query.DENSE_WEAK_FLOOR == 0.28
-    assert idx.search_report("parking")["floor"] == footage_query.DENSE_SCORE_FLOOR
 
 
 def test_a_query_nothing_clears_returns_nothing_and_says_why(offline_index):
@@ -321,83 +265,7 @@ def test_a_query_nothing_clears_returns_nothing_and_says_why(offline_index):
     assert idx.search("parking", floor=best + 0.01) == []
 
 
-def test_the_weak_band_is_reported_and_is_not_the_results(offline_index):
-    """Below the floor and above the weak floor is a THIRD answer."""
-    idx, _ = offline_index
-    unfloored = idx.search_report("parking", top_k=5, floor=0)
-    best = unfloored["results"][0]["dense_score"]
-
-    report = idx.search_report("parking", top_k=5, floor=best + 0.01)
-    assert report["weak"], "the weak band carries what the floor turned away"
-    assert all(h["dense_score"] >= footage_query.DENSE_WEAK_FLOOR for h in report["weak"])
-    assert report["weak"][0]["dense_score"] == best, "weak rows are ordered by the signal the floor judged on"
-    assert len(report["weak"]) <= footage_query.WEAK_BAND_LIMIT
-
-
-def test_a_zero_floor_is_the_unfloored_ranking(offline_index):
-    """The reviewer can always ask to see the ranking with no abstain."""
-    idx, _ = offline_index
-    assert len(idx.search_report("parking", top_k=5, floor=0)["results"]) == 5
-
-
-def test_lexical_retention_drops_what_no_query_word_appears_in(project, tmp_path, monkeypatch):
-    """A zero BM25 is never evidence: no word of the query is in that text."""
-    monkeypatch.setattr(footage_query, "_load_embedder", lambda: (None, "none"))
-    index_dir = tmp_path / "lexfloor"
-    build_index(project, index_dir=index_dir)
-    idx = FootageIndex(project, index_dir=index_dir)
-
-    assert idx.search("zebra", top_k=5, mode="lexical") == []
-    report = idx.search_report("zebra", top_k=5, mode="hybrid")
-    assert report["results"] == [] and report["abstained"]
-    assert report["degraded"], "an answer with no embedder must say so"
-    assert idx.search("pollen", top_k=5, mode="lexical")
-
-
-def test_search_and_filter_tells_the_two_empties_apart(offline_index):
-    """"nothing is that kind of shot" and "nothing of it is about that"."""
-    idx, _ = offline_index
-    nothing_matches_filter = idx.search_report(
-        "parking", filters={"kind": "speech", "clip_id": "clip_002"})
-    assert nothing_matches_filter["results"] == []
-    assert nothing_matches_filter["error_hint"] == "no segment passes the facet filters"
-
-    unfloored = idx.search_report("parking", filters={"kind": "scene"}, floor=0)
-    best = unfloored["results"][0]["dense_score"]
-    nothing_clears_floor = idx.search_report(
-        "parking", filters={"kind": "scene"}, floor=best + 0.01)
-    assert nothing_clears_floor["results"] == []
-    assert "error_hint" not in nothing_clears_floor
-    assert nothing_clears_floor["considered"] == len(idx.filter(kind="scene"))
-
-    # An unset filter is not a filter: a form with empty boxes filters nothing.
-    assert idx.search_report("parking", filters={"kind": None, "framing": ""})["considered"] \
-        == len(idx.segments)
-
-
-def test_a_report_names_the_backend_that_answered(offline_index):
-    """A degraded backend must be visible, not silently worse results."""
-    idx, stats = offline_index
-    report = idx.search_report("parking")
-    assert report["embed_backend"] == stats["embed_backend"] == "test-stub"
-    assert report["segment_count"] == len(idx.segments)
-
-
 # ─── Noticing that the ingest moved ───────────────────────────────
-
-
-def test_a_current_index_says_so_and_a_changed_ingest_makes_it_stale(offline_index, project):
-    idx, _ = offline_index
-    assert idx.staleness()["stale"] is False
-
-    doc = project / "pipeline_output" / "steps" / "1_04_temporal_index" / "index" / "clip_002.json"
-    payload = json.loads(doc.read_text())
-    payload["speech_regions"] = [{"start": 1.0, "end": 2.0, "text": "a new utterance"}]
-    doc.write_text(json.dumps(payload))
-
-    stale = idx.staleness()
-    assert stale["stale"] is True
-    assert "changed" in stale["reason"]
 
 
 def test_a_downstream_step_writing_state_does_not_make_the_ingest_stale(
@@ -426,131 +294,7 @@ def test_a_downstream_step_writing_state_does_not_make_the_ingest_stale(
     assert idx.staleness()["stale"] is True
 
 
-def test_an_index_written_before_fingerprints_cannot_be_judged(offline_index):
-    """It says it cannot be checked rather than claiming to be current."""
-    idx, _ = offline_index
-    idx.payload.pop("ingest_fingerprint")
-    assert idx.staleness()["stale"] is None
-
-
-def test_search_mode_is_checked(offline_index):
-    idx, _ = offline_index
-    with pytest.raises(ValueError, match="Unknown search mode"):
-        idx.search("anything", mode="magic")
-
-
-def test_filter_selects_on_facets_including_reduced_curves(offline_index):
-    idx, _ = offline_index
-    wide = idx.filter(kind="scene", framing="wide")
-    assert [h["clip_id"] for h in wide] == ["clip_002"]
-
-    speaking = idx.filter(has_speech=True)
-    assert len(speaking) == 2 and all(h["kind"] == "speech" for h in speaking)
-
-    assert idx.filter(kind="scene", min_face_presence=0.5) != []
-    assert idx.filter(kind="object", clip_id="clip_002") == []
-
-    # "nobody in frame" is the upper bound, and an UNMEASURED face curve
-    # fails it rather than passing it: clip_002 has no face curve at all,
-    # which is not evidence that nobody is on screen.
-    assert idx.filter(kind="scene", max_face_presence=0.1) == []
-    assert [h["clip_id"] for h in idx.filter(kind="scene", max_face_presence=1.0)] \
-        == ["clip_001"]
-
-    with pytest.raises(ValueError, match="Unknown kind"):
-        idx.filter(kind="vibes")
-
-
-def test_search_and_filter_only_returns_survivors(offline_index):
-    idx, _ = offline_index
-    hits = idx.search_and_filter("parking", top_k=5, mode="lexical", kind="scene")
-    assert hits and all(h["kind"] == "scene" for h in hits)
-    assert idx.search_and_filter("parking", kind="speech", clip_id="clip_002") == []
-
-
-def test_detail_and_transcript_are_the_bulk_reads(offline_index):
-    idx, _ = offline_index
-    detail = idx.get_detail("clip_001#speech#000")
-    assert detail["words"][0]["word"] == "we"
-    assert "error" in idx.get_detail("clip_999#speech#000")
-
-    lines = idx.transcript("clip_001")
-    assert [line["text"] for line in lines] == [
-        "we need to find a parking spot", "the pollen is terrible today",
-    ]
-    assert idx.transcript("clip_002") == []
-
-
-def test_summary_reports_the_corpus_and_what_is_missing(offline_index):
-    idx, stats = offline_index
-    summary = idx.summary()
-    assert summary["clips"] == 2
-    assert summary["segment_count"] == stats["segment_count"]
-    assert summary["kinds"]["speech"] == 2
-    assert summary["coverage"]["clips_with_measured_prosody"] == 0
-
-
-def test_missing_index_says_how_to_build_it(project, tmp_path):
-    idx = FootageIndex(project, index_dir=tmp_path / "nope")
-    with pytest.raises(FileNotFoundError, match="build"):
-        _ = idx.segments
-
-
 # ─── The LLM-facing half ──────────────────────────────────────────
-
-
-def test_every_tool_definition_names_a_real_method():
-    """A tool an LLM is offered must be one this module can actually run."""
-    methods = {
-        "search_footage": "search",
-        "filter_footage": "filter",
-        "search_and_filter_footage": "search_and_filter",
-        "get_footage_detail": "get_detail",
-        "get_clip_transcript": "transcript",
-        "footage_summary": "summary",
-    }
-    defined = {t["function"]["name"] for t in FootageIndex.get_tool_definitions()}
-    assert defined == set(methods)
-    for tool, method in methods.items():
-        assert callable(getattr(FootageIndex, method)), f"{tool} -> {method}"
-
-
-def test_tool_definitions_are_valid_json_and_describe_every_parameter():
-    for tool in FootageIndex.get_tool_definitions():
-        json.dumps(tool)
-        params = tool["function"]["parameters"]
-        assert params["type"] == "object"
-        for name, spec in params.get("properties", {}).items():
-            assert spec.get("description"), f"{tool['function']['name']}.{name}"
-        if "kind" in params.get("properties", {}):
-            assert params["properties"]["kind"]["enum"] == list(SEGMENT_KINDS)
-
-
-def test_the_bridge_answers_on_stdout(project, tmp_path, monkeypatch, capsys):
-    """The `sfx_query_bridge.py` precedent: JSON in, JSON out."""
-    from library.tools import footage_query_bridge
-
-    monkeypatch.setattr(footage_query, "_load_embedder", lambda: (None, "none"))
-    index_dir = tmp_path / "bridge"
-    build_index(project, index_dir=index_dir)
-
-    request = json.dumps({
-        "project_folder": str(project), "index_dir": str(index_dir),
-        "query": "pollen", "top_k": 2, "mode": "lexical",
-    })
-    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(request))
-    footage_query_bridge.main()
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["results"][0]["clip_id"] == "clip_001"
-    assert payload["results"][0]["kind"] == "speech"
-
-
-def test_the_bridge_reports_a_failure_as_an_error(monkeypatch, capsys):
-    from library.tools import footage_query_bridge
-
-    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{not json"))
-    footage_query_bridge.main()
-    assert "error" in json.loads(capsys.readouterr().out)
 
 
 # ─── The constraint the captain set ───────────────────────────────

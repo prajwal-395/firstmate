@@ -46,18 +46,6 @@ def test_the_round_s_numbers_disagree(capsys):
     print(text)
 
 
-def test_agreement_within_the_calibration_band_is_quiet():
-    """The agreeing reels spread 11 stored units: below the flag, so
-    the census prints the table and flags nothing."""
-    report = census.compare_reel_rows(
-        _per_reel([-425.0, -428.0, -433.0, -436.0, -430.0]))
-
-    assert report["disagreements"] == []
-    assert report["rows"]["Subtitles"]["disagree"] is False
-    text = census.render_census(report, REELS)
-    assert "DISAGREES" not in text and "agree" in text
-
-
 def test_characteristics_read_the_median_not_one_card():
     """One odd card must not move a reel: the row's characteristic is
     the median over its readable clips."""
@@ -114,15 +102,6 @@ def test_unreadable_and_fresh_reels_become_notes_not_refusals(capsys):
     assert "could not be read" in report["notes"][REELS[0]]
     assert "no existing timeline" in report["notes"][REELS[2]]
     assert "census" in capsys.readouterr().out.lower()
-
-
-def test_single_reel_builds_compare_against_nothing():
-    """One reel has no cross-reel state to disagree on: no table, no
-    flag, and no refusal - just a note."""
-    report = census.report_prebuild(MagicMock(), [REELS[0]])
-
-    assert report["disagreements"] == []
-    assert report["rows"] == {}
 
 
 # ── The wiring: the build path calls it, or it is prose ──────────

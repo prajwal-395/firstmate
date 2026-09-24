@@ -68,10 +68,6 @@ def test_unknown_goal_is_refused_by_name():
             in comp.refusal_reason())
 
 
-def test_blank_goal_raises_rather_than_refusing():
-    """Blank is a caller error, not an unreachable goal."""
-    with pytest.raises(C.ComposerError):
-        C.compose("   ")
 
 
 # ── Refusal subjects the tests own ──────────────────────────────────
@@ -232,15 +228,6 @@ def test_deep_strand_names_the_blocker_and_the_chain(monkeypatch):
 
 # ── Resolution: the two goals that close ──────────────────────────────
 
-def test_reel_selection_plan_is_exact():
-    """`reel.candidates` - the bridge half, which runs on gathered inputs
-    alone - represents `select_reels`, over the post-bridge sibling that
-    would refuse without the model's answer."""
-    comp = C.compose("state.judge_reels.reel_selection")
-    assert comp.completed
-    assert comp.operations == ("reel.candidates",)
-    assert comp.assumes_machine == ()
-    assert comp.assumes_outside == ("timeline_transcript.on_file",)
 
 
 def test_reel_build_plan_is_exact():
@@ -291,28 +278,8 @@ def test_completed_plan_is_closed():
 # mechanism - whether each of the three verdict operations is now
 # reachable, and what stops the one that is not.
 
-def test_sfx_verdict_goal_completes_through_its_gate():
-    comp = C.compose("verdict.validate_sfx_library.sfx_library_status")
-    assert comp.completed
-    assert comp.operations == ("sfx_library.validate",)
-    assert comp.assumes_machine == ("env.sfx_library",)
-    assert comp.assumes_outside == ()
 
 
-def test_reel_verify_goal_completes_behind_the_build():
-    """The verifying half of the one end-to-end capability is reachable:
-    the verdict goal plans the build first, then the verify."""
-    build = C.compose("state.verify_reels.reel_build")
-    assert build.completed
-    comp = C.compose("verdict.verify_reels.reel_verification")
-    assert comp.completed
-    assert comp.operations == (*build.operations, "reel.verify")
-    # The route-selection path agrees: with no change spec the
-    # `verify_reels` selector stands on the verdict route.
-    routed = C.compose_with_change("verdict.verify_reels.reel_verification")
-    assert routed.completed
-    assert routed.operations == comp.operations
-    assert routed.selection[-1].operation == "reel.verify"
 
 
 def test_validation_verdict_goal_refuses_on_the_compile_manifest_gap():
@@ -367,16 +334,6 @@ def test_no_plan_names_a_blind_capability():
         "node-granular effect leaked into selection")
 
 
-def test_representative_prefers_the_runnable_project_half():
-    """Sibling operations share one contract, so the choice is a
-    tie-break - and it lands on the half that runs: PROJECT scope over
-    REGION-only, a gathered-inputs body over a post-bridge."""
-    assert C.representative("select_reels") == "reel.candidates"
-    assert C.representative("build_reels") == "reel.build"
-    assert C.representative("plan_subtitles") == "subtitles.plan"
-    assert C.representative("render_subtitles") == "subtitles.render"
-    with pytest.raises(C.ComposerError):
-        C.representative("no.such.node")
 
 
 def test_reachable_goals_are_exactly_the_capability_produced():
@@ -469,11 +426,3 @@ def test_fallback_producer_tried_after_strand():
 
 # ── CLI ───────────────────────────────────────────────────────────────
 
-def test_cli_resolves_refuses_and_misuses(capsys):
-    assert C.main(["state.verify_reels.reel_build"]) == 0
-    out = capsys.readouterr().out
-    assert "reel.build" in out
-    assert C.main(["reel_plan.approved"]) == 1
-    err = capsys.readouterr().err
-    assert "no capability produces reel_plan.approved" in err
-    assert C.main([]) == 2

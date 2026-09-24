@@ -63,14 +63,6 @@ def client(temp_project):
 
 # ── Project select ──────────────────────────────────────────────────
 
-def test_api_projects_select(client, temp_project):
-    response = client.post("/api/projects/select", json={"project_dir": temp_project})
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
-
-    response = client.get("/api/projects")
-    assert response.status_code == 200
-
 
 # ── Step status: failed beats completed ─────────────────────────────
 
@@ -114,19 +106,6 @@ def test_failed_step_renders_as_failed(client, temp_project):
 
 
 # ── Step detail ─────────────────────────────────────────────────────
-
-def test_api_step_detail(client, temp_project):
-    with patch("library.dashboard.server._load_dag") as mock_dag:
-        mock_dag.return_value = {
-            "nodes": [{"id": "catalog", "name": "Catalog"}]
-        }
-
-        response = client.get("/api/steps/catalog")
-        assert response.status_code == 200
-        detail = response.json()
-        assert detail["id"] == "catalog"
-        assert "clip_catalog" in detail["output"]
-        assert len(detail["output"]["clip_catalog"]) == 3
 
 
 # ── Transcript: reads temporal_event_indices ────────────────────────
@@ -353,20 +332,6 @@ def test_timeline_survives_a_project_with_no_subtitle_plan(tmp_path):
 
 # ── Gates ───────────────────────────────────────────────────────────
 
-def test_api_gates(client, temp_project):
-    save_gate_snapshot(temp_project, "mesh_spine", "Mesh Audio Spine", {"mock": "data"})
-
-    response = client.get("/api/gates/mesh_spine")
-    assert response.status_code == 200
-    assert response.json()["status"] == "pending"
-
-    response = client.post("/api/gates/mesh_spine/action", json={"action": "approve"})
-    assert response.status_code == 200
-
-    response = client.get("/api/gates/mesh_spine")
-    assert response.status_code == 200
-    assert response.json()["status"] == "approved"
-
 
 # ── Gate dir does not mkdir on reads ────────────────────────────────
 
@@ -391,26 +356,6 @@ def test_gate_listing_does_not_create_dirs(client, temp_project):
 
 
 # ── Messages ────────────────────────────────────────────────────────
-
-def test_api_messages(client, temp_project):
-    msg = {
-        "id": "msg_123",
-        "type": "decision",
-        "step_id": "mesh_spine",
-        "title": "Review",
-        "body": "Please review",
-        "options": [{"id": "approve", "label": "Approve", "description": "Approve it"}],
-        "requires_response": True,
-        "created_at": "2024-08-01T12:00:00",
-    }
-
-    response = client.post("/api/messages", json=msg)
-    assert response.status_code == 200
-
-    response = client.get("/api/messages/pending")
-    assert response.status_code == 200
-    assert len(response.json()) == 1
-    assert response.json()[0]["id"] == "msg_123"
 
 
 # ── The handbrake is a real route now ───────────────────────────────

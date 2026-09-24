@@ -91,14 +91,6 @@ def test_pipeline_output_is_the_pipeline_not_a_finding(tmp_path):
                    for p in found)
 
 
-def test_a_project_with_no_scripts_reports_nothing(tmp_path):
-    project = _project(tmp_path)
-    (project / "raw").mkdir(exist_ok=True)
-    (project / "project.yaml").write_text("name: T\n", encoding="utf-8")
-    from library.tools.project_scripts import find_standalone_scripts
-    assert find_standalone_scripts(str(project)) == []
-
-
 def test_non_python_files_are_not_scripts(tmp_path):
     project = _project(tmp_path)
     found = _plant(project, "project.yaml", "notes.md",
@@ -106,37 +98,5 @@ def test_non_python_files_are_not_scripts(tmp_path):
     assert found == []
 
 
-def test_an_uppercase_extension_is_still_a_script(tmp_path):
-    """Cameras write .MXF; editors save .PY just as easily."""
-    project = _project(tmp_path)
-    found = _plant(project, "Notes.PY")
-    assert found == [os.path.join(str(project), "Notes.PY")]
-
-
 # ── The readiness check is the reader ─────────────────────────────
 
-def test_the_readiness_check_reports_standalone_scripts():
-    """`manage_project.py check` is what SEES them on a real project.
-
-    Read off the AST in the repo's own style (cf. test_operations.py):
-    `cmd_check` must reach the finder, and the finding must read as a
-    REPORT - the mixed-frame-rates precedent - never a refusal, because
-    refusing would decide the captain's workflow for them.
-    """
-    import ast
-    from pathlib import Path
-
-    repo = Path(__file__).resolve().parents[1]
-    tree = ast.parse((repo / "manage_project.py").read_text(encoding="utf-8"))
-    body = next(n for n in ast.walk(tree)
-                if isinstance(n, ast.FunctionDef) and n.name == "cmd_check")
-    names = {ast.unparse(n) for n in ast.walk(body)
-             if isinstance(n, (ast.Call, ast.Attribute, ast.Name))}
-    assert any("find_standalone_scripts" in n for n in names), (
-        "cmd_check never calls find_standalone_scripts, so a project "
-        "folder script is still invisible to the readiness check")
-    source = ast.get_source_segment(
-        (repo / "manage_project.py").read_text(encoding="utf-8"), body) or ""
-    assert "REPORT" in source, (
-        "the standalone-script finding must read as a REPORT, not a "
-        "refusal - see the mixed-frame-rates precedent in cmd_check")

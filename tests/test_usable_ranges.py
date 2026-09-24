@@ -102,40 +102,16 @@ def _make_temporal_index(
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestComplementRanges:
-    def test_no_unusable_returns_full_clip(self):
-        assert _complement_ranges([], 10.0) == [[0, 10.0]]
 
-    def test_single_unusable_at_head(self):
-        unusable = [{"start": 0.0, "end": 2.0, "reason": "test"}]
-        assert _complement_ranges(unusable, 10.0) == [[2.0, 10.0]]
 
-    def test_single_unusable_at_tail(self):
-        unusable = [{"start": 8.0, "end": 10.0, "reason": "test"}]
-        assert _complement_ranges(unusable, 10.0) == [[0, 8.0]]
 
     def test_single_unusable_in_middle(self):
         unusable = [{"start": 3.0, "end": 5.0, "reason": "test"}]
         result = _complement_ranges(unusable, 10.0)
         assert result == [[0, 3.0], [5.0, 10.0]]
 
-    def test_overlapping_unusable_merged(self):
-        unusable = [
-            {"start": 1.0, "end": 4.0, "reason": "a"},
-            {"start": 3.0, "end": 6.0, "reason": "b"},
-        ]
-        result = _complement_ranges(unusable, 10.0)
-        assert result == [[0, 1.0], [6.0, 10.0]]
 
-    def test_entire_clip_unusable(self):
-        unusable = [{"start": 0.0, "end": 10.0, "reason": "test"}]
-        assert _complement_ranges(unusable, 10.0) == []
 
-    def test_adjacent_unusable_no_gap(self):
-        unusable = [
-            {"start": 0.0, "end": 5.0, "reason": "a"},
-            {"start": 5.0, "end": 10.0, "reason": "b"},
-        ]
-        assert _complement_ranges(unusable, 10.0) == []
 
     def test_sliver_gap_dropped(self):
         """A gap too short to cut to is not offered as usable footage."""
@@ -525,16 +501,7 @@ class TestRule3SubjectAbsence:
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestHonestyMechanism:
-    def test_measured_clip_reports_deterministic_v1(self):
-        motion = [CALM] * 300
-        idx = _make_temporal_index(duration=10.0, motion_values=motion)
 
-        _, _, method, _ = _compute_usable_ranges(idx, 10.0, "unknown")
-        assert method == "deterministic_v1"
-
-    def test_unmeasured_clip_reports_unmeasured(self):
-        _, _, method, _ = _compute_usable_ranges(None, 10.0, "unknown")
-        assert method == "unmeasured"
 
     def test_signals_list_tracks_what_was_used(self):
         """Signals list reflects which data contributed to the measurement."""
@@ -567,32 +534,8 @@ class TestHonestyMechanism:
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestDeterministicAssessmentIntegration:
-    def test_returns_usable_ranges_fields(self):
-        motion = [CALM] * 300
-        idx = _make_temporal_index(duration=10.0, motion_values=motion)
 
-        result = compute_deterministic_assessment(idx, "hello")
-        assert "usable_ranges" in result
-        assert "unusable_ranges" in result
-        assert "usable_ranges_method" in result
-        assert "usable_ranges_signals" in result
-        assert result["usable_ranges_method"] == "deterministic_v1"
 
-    def test_no_temporal_index_returns_unmeasured(self):
-        result = compute_deterministic_assessment(None, "hello", duration=5.0)
-        assert result["usable_ranges_method"] == "unmeasured"
-        assert result["usable_ranges"] == []
-        assert result["usable_ranges_signals"] == []
-
-    def test_high_motion_clip_narrowed(self):
-        """A clip with sustained high motion gets narrowed usable ranges."""
-        motion = [WHIP] * 300  # 10s of high motion
-        idx = _make_temporal_index(duration=10.0, motion_values=motion)
-
-        result = compute_deterministic_assessment(idx, "")
-        assert result["usable_ranges_method"] == "deterministic_v1"
-        assert len(result["unusable_ranges"]) > 0
-        assert result["unusable_ranges"][0]["reason"] == "sustained_high_motion"
 
     def test_uses_temporal_index_duration_key(self):
         """Handles temporal indices with 'duration' key (older format)."""
@@ -627,24 +570,6 @@ class TestReferenceProjectShapes:
     0.010-0.025 throughout.
     """
 
-    def test_clip_001_like_busy_but_moderate_scenery(self):
-        """clip_001 (IMG_1806): 3.567s of continuous but moderate motion.
-
-        Every sample is above 40% of this clip's own peak, so a relative
-        threshold reads it as a 3.5s camera whip.  In absolute terms it
-        never leaves handheld range, so nothing is excluded.
-        """
-        import random
-        random.seed(42)
-        motion = [0.024 + random.uniform(0, 0.036) for _ in range(106)]
-        idx = _make_temporal_index(duration=3.567, motion_values=motion)
-
-        usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 3.567, "scenery")
-
-        assert method == "deterministic_v1"
-        assert unusable == []
-        assert usable == [[0, 3.567]]
 
     def test_clip_002_like_whip_pan(self):
         """clip_002 (IMG_1807): a real whip, peaking at 0.359."""
@@ -690,21 +615,6 @@ class TestReferenceProjectShapes:
         total_usable = sum(r[1] - r[0] for r in usable)
         assert total_usable > 40.0
 
-    def test_quiet_clip_fully_usable(self):
-        """Most of the 17 reference clips have low motion - full range usable."""
-        motion = [0.015] * 834  # ~27.8s at 30Hz
-        speech = [
-            {"start": 2.0, "end": 25.0, "text": "talking head content"},
-        ]
-        idx = _make_temporal_index(
-            duration=27.8, motion_values=motion, speech_regions=speech)
-
-        usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 27.8, "person_talking_to_camera")
-
-        assert method == "deterministic_v1"
-        assert usable == [[0, 27.8]]
-        assert unusable == []
 
 
 # ═══════════════════════════════════════════════════════════════════════

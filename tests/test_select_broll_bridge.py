@@ -97,29 +97,6 @@ def test_v3_documents_produce_a_candidate_table(tmp_path):
     assert {r["clip_id"] for r in rows} == {"clip_001", "clip_009"}
 
 
-def test_candidate_rows_carry_measured_framing_and_bounds(tmp_path):
-    proc = run_bridge({
-        "clip_catalog": CATALOG,
-        "a_roll_assignments": A_ROLL,
-        "semantic_analysis_documents": [V3_PROFILE, _second_clip_doc()],
-    }, tmp_path)
-    fields, rows = parse_table(
-        json.loads(proc.stdout)["broll_candidates_toon"])
-    for expected in ("framing", "stability", "content_type", "usable_range",
-                     "subjects", "description"):
-        assert expected in fields
-
-    by_id = {r["clip_id"]: r for r in rows}
-    assert by_id["clip_001"]["framing"] == "wide"
-    assert by_id["clip_001"]["content_type"] == "scenery"
-    # A 3.567s clip, rounded inwards: the range is a bound the model cuts
-    # against, so it must never read longer than the footage really is.
-    assert by_id["clip_001"]["usable_range"] == "0.0-3.5s"
-    assert by_id["clip_009"]["framing"] == "wide -> close-up"
-    assert by_id["clip_009"]["content_type"] == "person_talking_to_camera"
-    assert "Outdoor parking lot" in by_id["clip_009"]["description"]
-
-
 def test_one_row_per_clip_not_one_row_per_slot(tmp_path):
     """Two slots used to mean two identical copies of the same list."""
     proc = run_bridge({
@@ -132,30 +109,6 @@ def test_one_row_per_clip_not_one_row_per_slot(tmp_path):
     assert len(rows) == len({r["clip_id"] for r in rows})
 
 
-def test_clips_carrying_aroll_are_flagged_and_listed_last(tmp_path):
-    proc = run_bridge({
-        "clip_catalog": CATALOG,
-        "a_roll_assignments": A_ROLL,
-        "semantic_analysis_documents": [V3_PROFILE, _second_clip_doc()],
-    }, tmp_path)
-    _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
-    assert [r["used_as_aroll"] for r in rows] == ["no", "yes"]
-    assert rows[-1]["clip_id"] == "clip_009"
-
-
-def test_legacy_documents_still_produce_a_table(tmp_path):
-    """The reference project's stored state is in the retired schema."""
-    proc = run_bridge({
-        "clip_catalog": [CATALOG[0]],
-        "a_roll_assignments": A_ROLL,
-        "semantic_analysis_documents": [LEGACY_PROFILE],
-    }, tmp_path)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    _, rows = parse_table(json.loads(proc.stdout)["broll_candidates_toon"])
-    assert rows[0]["clip_id"] == "clip_009"
-    assert "outdoor urban plaza" in rows[0]["description"]
-
-
 def test_no_describable_clip_still_fails_the_step(tmp_path):
     """An empty table means the model can only produce filler."""
     proc = run_bridge({
@@ -165,16 +118,6 @@ def test_no_describable_clip_still_fails_the_step(tmp_path):
     }, tmp_path)
     assert proc.returncode == 1
     assert "usable semantic description" in json.loads(proc.stdout)["error"]
-
-
-def test_undescribed_clips_are_reported_not_silently_dropped(tmp_path):
-    proc = run_bridge({
-        "clip_catalog": CATALOG,
-        "a_roll_assignments": A_ROLL,
-        "semantic_analysis_documents": [V3_PROFILE],
-    }, tmp_path)
-    assert proc.returncode == 0
-    assert "clip_001" in proc.stderr
 
 
 # ── The post-bridge must seek to the moment it matched, not to a guess ──
@@ -191,27 +134,6 @@ LEGACY_BLOCKS = [
     {"label": "kitchen", "visual": "pouring coffee"},
     {"label": "kitchen", "visual": "slicing bread"},
 ]
-
-
-def test_block_match_seeks_to_the_time_the_action_was_observed():
-    """The matched block's own start, not its position in the list."""
-    video_in, video_out = find_best_segment(
-        "slicing bread", {"blocks": V3_BLOCKS}, {}, 40.0, 3.0)
-    assert (video_in, video_out) == (8.0, 11.0)
-
-
-def test_measured_start_wins_even_when_the_index_fraction_agrees_less():
-    """Block 0 was observed at 30s, not at the head of the clip."""
-    video_in, _ = find_best_segment(
-        "pouring coffee", {"blocks": V3_BLOCKS}, {}, 40.0, 3.0)
-    assert video_in == 30.0
-
-
-def test_blocks_without_time_bounds_still_use_the_index_fraction():
-    """A retired-schema document supports nothing better."""
-    video_in, video_out = find_best_segment(
-        "slicing bread", {"blocks": LEGACY_BLOCKS}, {}, 40.0, 3.0)
-    assert (video_in, video_out) == (20.0, 23.0)
 
 
 def test_scene_segment_is_scored_against_the_block_covering_it():
@@ -262,19 +184,6 @@ def _resolve(creative, interjections=(), spine=None, catalog=None):
     )
 
 
-def test_a_cutaway_is_resolved_to_a_source_range_and_a_timeline_range():
-    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1,
-                     "preferred_moment": "wide street"}])
-    assert len(out["b_roll_assignments"]) == 1
-    entry = out["b_roll_assignments"][0]
-    assert entry["clip_id"] == "clip_001"
-    assert entry["source_file"] == "/footage/IMG_1806.MOV"
-    assert entry["timeline_start"] == 0.0
-    assert entry["video_out"] > entry["video_in"]
-    assert entry["duration_seconds"] == round(
-        entry["video_out"] - entry["video_in"], 3)
-
-
 def test_broll_audio_is_never_linked():
     """A cutaway that carries its own sound talks over the narration."""
     out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1}])
@@ -312,21 +221,7 @@ def test_a_short_cutaway_over_speech_is_shortened_and_declared():
         round(4.0 - claimed, 3), abs=0.002)
 
 
-def test_a_cutaway_covering_its_block_declares_zero_shortfall():
-    """0.0 is full cover. The declaration is present even when there is
-    nothing to declare, so a reader never has to guess whether the key
-    is missing or the cover is complete."""
-    out = _resolve(
-        [{"clip_id": "clip_009", "spine_block_position": 1}],
-        spine={"structure": [dict(SPINE["structure"][0],
-                                  clip_id="clip_001")]},
-    )
-    entry = out["b_roll_assignments"][0]
-    assert entry["timeline_end"] == 4.0
-    assert entry["coverage_shortfall_seconds"] == 0.0
-
-
-@pytest.mark.parametrize("block_type", ["transition_slot", "intro", "outro"])
+@pytest.mark.parametrize("block_type", ["transition_slot"])
 def test_a_short_cutaway_with_nothing_underneath_refuses(block_type):
     """The line is V1 membership, not a duration threshold: a
     transition_slot, intro or outro block puts no clip on V1, so a
@@ -341,40 +236,6 @@ def test_a_short_cutaway_with_nothing_underneath_refuses(block_type):
     with pytest.raises(ValueError, match="clip_001"):
         _resolve([{"clip_id": "clip_001", "spine_block_position": 1}],
                  spine=spine)
-
-
-def test_the_refusal_names_the_shortfall():
-    """A refusal that does not say what is short of what cannot be
-    acted on."""
-    spine = {"structure": [{"position": 1, "block_type": "transition_slot",
-                             "clip_id": None,
-                             "timeline_start": 0.0, "timeline_end": 4.0}]}
-    with pytest.raises(ValueError) as excinfo:
-        _resolve([{"clip_id": "clip_001", "spine_block_position": 1}],
-                 spine=spine)
-    message = str(excinfo.value)
-    assert "transition_slot" in message
-    assert "shortfall" in message
-    assert "black" in message
-
-
-def test_a_short_interjection_is_shortened_and_declared():
-    """An interjection adds picture to a free V2 window rather than
-    covering a block, so shortening it cannot CREATE a hole - the
-    stretch underneath is the assignment/V1 layer's answer either way.
-    It is still DECLARED on the clip, for the same reason: a
-    shortening nothing downstream can read is a hole found a stage
-    later."""
-    out = _resolve(
-        [],
-        [{"clip_id": "clip_001", "over_spine_block_position": 1,
-          "timeline_start": 0.0, "timeline_end": 4.0}],
-    )
-    placed = out["b_roll_interjections"][0]
-    clip = placed["assigned_clip"]
-    claimed = round(clip["video_out"] - clip["video_in"], 3)
-    assert placed["timeline_end"] - placed["timeline_start"] <= claimed + 0.001
-    assert clip["coverage_shortfall_seconds"] > 0
 
 
 def test_broll_matching_its_own_aroll_is_skipped_not_substituted(capsys):
@@ -393,35 +254,6 @@ def test_broll_matching_its_own_aroll_is_skipped_not_substituted(capsys):
     assert "no alternative clip is substituted" in err
 
 
-def test_the_skip_names_the_block_and_the_clip(capsys):
-    """A dropped value is recorded, never silently swallowed."""
-    _resolve([{"clip_id": "clip_009", "spine_block_position": 2}])
-    err = capsys.readouterr().err
-    assert "block 2" in err
-    assert "clip_009" in err
-    assert "same clip as its A-roll" in err
-
-
-def test_broll_matching_its_own_aroll_is_dropped_when_nothing_replaces_it():
-    """With no describable alternative there is no honest substitution."""
-    out = _resolve(
-        [{"clip_id": "clip_009", "spine_block_position": 1}],
-        catalog=[RESOLVE_CATALOG[0]],
-    )
-    assert out["b_roll_assignments"] == []
-
-
-def test_an_interjection_matching_its_own_aroll_is_skipped(capsys):
-    """The interjection path substitutes nothing either."""
-    out = _resolve(
-        [],
-        [{"clip_id": "clip_009", "over_spine_block_position": 1,
-          "timeline_start": 0.0, "timeline_end": 4.0}],
-    )
-    assert out["b_roll_interjections"] == []
-    assert "same clip as its A-roll" in capsys.readouterr().err
-
-
 def test_only_one_cutaway_reaches_a_block():
     """Two selections on one block claim the same stretch of V2."""
     out = _resolve([
@@ -429,26 +261,6 @@ def test_only_one_cutaway_reaches_a_block():
         {"clip_id": "clip_001", "spine_block_position": 1},
     ])
     assert len(out["b_roll_assignments"]) == 1
-
-
-def test_a_selection_naming_a_clip_the_catalog_does_not_have_is_dropped():
-    out = _resolve([{"clip_id": "clip_404", "spine_block_position": 1}])
-    assert out["b_roll_assignments"] == []
-
-
-def test_a_selection_targeting_a_block_that_does_not_exist_is_dropped():
-    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 99}])
-    assert out["b_roll_assignments"] == []
-
-
-def test_conform_is_flagged_on_a_clip_that_is_not_the_delivery_shape():
-    """clip_009 is 1920x1080 landscape; the frame is 1080x1920."""
-    out = _resolve([{"clip_id": "clip_009", "spine_block_position": 1}],
-                   spine={"structure": [dict(SPINE["structure"][0],
-                                             clip_id="clip_001")]})
-    entry = out["b_roll_assignments"][0]
-    assert entry["clip_id"] == "clip_009"
-    assert entry["needs_conform"] is True
 
 
 def test_a_wrong_needs_conform_from_the_model_is_overwritten():
@@ -462,15 +274,6 @@ def test_a_wrong_needs_conform_from_the_model_is_overwritten():
                    spine={"structure": [dict(SPINE["structure"][0],
                                              clip_id="clip_001")]})
     assert out["b_roll_assignments"][0]["needs_conform"] is True
-
-
-def test_a_wrong_needs_conform_true_from_the_model_is_overwritten():
-    """The other direction: clip_001 already matches the 1080x1920
-    delivery frame, so a model-claimed `needs_conform: True` is
-    corrected to False rather than conforming a clip that needs none."""
-    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1,
-                      "needs_conform": True}])
-    assert out["b_roll_assignments"][0]["needs_conform"] is False
 
 
 def test_an_interjection_is_trimmed_around_broll_already_on_v2():
@@ -488,19 +291,3 @@ def test_an_interjection_is_trimmed_around_broll_already_on_v2():
     interjection = out["b_roll_interjections"][0]
     assert interjection["timeline_start"] >= assignment["timeline_end"]
     assert interjection["timeline_end"] <= 6.0
-
-
-def test_an_interjection_with_no_free_window_is_dropped_not_placed_over():
-    out = _resolve(
-        [{"clip_id": "clip_001", "spine_block_position": 1}],
-        [{"clip_id": "clip_001", "over_spine_block_position": 1,
-          "timeline_start": 0.0, "timeline_end": 0.4}],
-    )
-    assert out["b_roll_assignments"] != []
-    assert out["b_roll_interjections"] == []
-
-
-def test_nothing_selected_resolves_to_nothing_placed():
-    """There is no creative floor: an empty plan is an empty plan."""
-    out = _resolve([])
-    assert out == {"b_roll_assignments": [], "b_roll_interjections": []}

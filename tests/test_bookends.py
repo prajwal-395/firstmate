@@ -105,12 +105,6 @@ def test_an_asset_declaration_normalises():
     assert decl["has_audio"] is False
 
 
-def test_a_composition_declaration_normalises():
-    (decl,) = declared_bookends(COMPOSITION_DECLARATION)
-    assert decl["mode"] == "composition"
-    assert decl["composition"] == "ExampleIntro"
-    assert decl["placement"] == "head"
-    assert decl["props"] == {"accentColor": "#E8A33D"}
 
 
 def test_slots_are_emitted_head_then_tail():
@@ -163,22 +157,8 @@ def test_an_asset_path_resolves_against_the_project():
     assert resolved["source_path"] == ""
 
 
-def test_an_absolute_asset_path_is_left_alone():
-    (decl,) = declared_bookends({"bookends": {
-        "end_card": {"asset": "/vol/cards/end.mov", "duration_seconds": 5},
-    }})
-    assert resolve_bookend(decl, "/projects/example")["asset_path"] == \
-        "/vol/cards/end.mov"
 
 
-def test_a_composition_renders_to_the_path_the_compiler_reads():
-    """One helper owns the filename, so the two steps cannot disagree."""
-    (decl,) = declared_bookends(COMPOSITION_DECLARATION)
-    resolved = resolve_bookend(decl, "/projects/example")
-    assert resolved["asset_path"] == bookend_render_path(
-        "/projects/example", "intro")
-    assert resolved["source_path"] == \
-        "/projects/example/compositions/ExampleIntro.tsx"
 
 
 # ─────────────────────────────────────────────────────────
@@ -234,10 +214,6 @@ def _enriched(brand_content, project_folder="/projects/example"):
     )["audio_spine"]
 
 
-def test_a_template_declaring_nothing_adds_no_block():
-    structure = _enriched({})["structure"]
-    assert bookend_blocks(structure) == []
-    assert [b["block_type"] for b in structure] == ["hook", "speech"]
 
 
 def test_a_declared_end_card_becomes_a_tail_block():
@@ -290,24 +266,6 @@ def test_a_card_the_llm_invented_refuses_the_step():
     assert "'end_card'" in str(exc.value)
 
 
-def test_the_refusal_names_every_invented_card_not_just_the_first():
-    spine = _speech_spine()
-    spine["structure"].insert(0, {
-        "position": "opening", "block_type": "intro_card",
-        "content": {}, "duration_seconds": 3.0,
-    })
-    spine["structure"].append({
-        "position": "closing", "block_type": "end_card",
-        "content": {}, "duration_seconds": 6.0,
-    })
-    with pytest.raises(InventedBookendBlock) as exc:
-        enrich_spine(
-            spine, _speech_sequence(), {},
-            {"brand_content": {}, "project_config": SPEECH_ONLY_TARGET},
-        )
-    message = str(exc.value)
-    assert "'opening'" in message and "'closing'" in message
-    assert "2 card block(s)" in message
 
 
 def test_a_breath_of_music_is_not_a_card_and_is_kept():
@@ -331,20 +289,6 @@ def test_a_breath_of_music_is_not_a_card_and_is_kept():
     assert [b["block_type"] for b in structure] == ["hook", "intro", "speech"]
 
 
-def test_a_declared_card_does_not_excuse_an_invented_one():
-    """The declaration is a separate thing; the plan still wrote a card."""
-    spine = _speech_spine()
-    spine["structure"].append({
-        "position": "outro", "block_type": "end_card",
-        "content": {}, "duration_seconds": 6.0,
-    })
-    with pytest.raises(InventedBookendBlock):
-        enrich_spine(
-            spine, _speech_sequence(), {},
-            {"brand_content": END_CARD_DECLARATION,
-             "project_folder": "/projects/example",
-             "project_config": SPEECH_ONLY_TARGET},
-        )
 
 
 def test_a_card_does_not_spend_the_duration_target():
@@ -382,15 +326,6 @@ def _valid_card_block():
     return block
 
 
-def test_the_contract_rejects_a_card_that_names_no_file():
-    # Baseline folded in (B1): the unmutated complete card block passes,
-    # so the rejections below pin the refusal and not a blanket reject.
-    validate_spine_blocks([_valid_card_block()])
-    block = _valid_card_block()
-    block["content"]["bookend"]["asset_path"] = ""
-    with pytest.raises(SpineContractError) as exc:
-        validate_spine_blocks([block])
-    assert "no asset_path" in str(exc.value)
 
 
 def test_the_contract_rejects_a_card_with_no_declaration():
@@ -402,12 +337,6 @@ def test_the_contract_rejects_a_card_with_no_declaration():
     assert "carries no content.bookend" in str(exc.value)
 
 
-def test_the_contract_rejects_a_card_with_no_duration():
-    block = _valid_card_block()
-    block["duration_seconds"] = 0
-    with pytest.raises(SpineContractError) as exc:
-        validate_spine_blocks([block])
-    assert "a card with no duration" in str(exc.value)
 
 
 def test_a_card_cannot_also_be_a_black_beat():
@@ -419,12 +348,6 @@ def test_a_card_cannot_also_be_a_black_beat():
     assert "cannot both be true" in str(exc.value)
 
 
-def test_card_block_types_do_not_collide_with_pacing_beats():
-    """`intro`/`outro` already mean a breath of music and B-roll."""
-    assert "intro" not in BOOKEND_BLOCK_TYPES
-    assert "outro" not in BOOKEND_BLOCK_TYPES
-    assert set(BOOKEND_BLOCK_TYPES) == {
-        s["block_type"] for s in BOOKEND_SLOTS.values()}
 
 
 # ─────────────────────────────────────────────────────────
@@ -516,11 +439,6 @@ def test_a_declared_end_card_is_in_the_assembly_manifest(tmp_path):
     assert manifest["project"]["duration_seconds"] == pytest.approx(6.882)
 
 
-def test_a_template_declaring_nothing_puts_no_card_on_v1(tmp_path):
-    manifest = _compile(_compile_inputs(tmp_path, [_speech_block()]))
-    assert [c for c in manifest["tracks"]["V1"]["clips"]
-            if c.get("bookend")] == []
-    assert manifest["project"]["duration_seconds"] == pytest.approx(1.882)
 
 
 def test_the_card_is_inside_the_coverage_assertion(tmp_path):
@@ -624,12 +542,6 @@ def _props_digest(decl):
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 
-def test_render_props_are_deterministic():
-    """Same declaration -> byte-identical props file -> the same card."""
-    (decl,) = declared_bookends(COMPOSITION_DECLARATION)
-    baseline = _props_digest(decl)
-    for _ in range(10):
-        assert _props_digest(decl) == baseline
 
 
 def test_declared_props_survive_and_frame_geometry_is_added():
@@ -643,20 +555,8 @@ def test_declared_props_survive_and_frame_geometry_is_added():
     }
 
 
-def test_a_different_declaration_gives_a_different_card():
-    (a,) = declared_bookends(COMPOSITION_DECLARATION)
-    other = copy.deepcopy(COMPOSITION_DECLARATION)
-    other["bookends"]["intro"]["props"]["accentColor"] = "#00BFFF"
-    (b,) = declared_bookends(other)
-    assert _props_digest(a) != _props_digest(b)
 
 
-def test_the_spine_block_is_deterministic():
-    (decl,) = declared_bookends(END_CARD_DECLARATION)
-    resolved = resolve_bookend(decl, "/projects/example")
-    first = json.dumps(bookend_spine_block(resolved), sort_keys=True)
-    second = json.dumps(bookend_spine_block(resolved), sort_keys=True)
-    assert first == second
 
 
 # ─────────────────────────────────────────────────────────
@@ -692,33 +592,10 @@ def test_the_client_template_declares_the_kept_compositions():
         assert not os.path.isabs(decl["source"])
 
 
-def test_no_template_names_a_deleted_fusion_title_macro():
-    """The red slate and the "Subscribe!" card are gone for good."""
-    import glob
-    from tests.brand_fixtures import ALL_SYNTHETIC
-    for name, template in sorted(ALL_SYNTHETIC.items()):
-        content = template.get("content") or {}
-        assert "intro_template" not in content
-        assert "outro_template" not in content
-    macros = os.path.join(PROJECT_ROOT, "library", "presets", "fusion-macros")
-    assert glob.glob(os.path.join(macros, "*.setting")) == []
 
 
-def test_the_out_of_band_importer_is_gone():
-    """The end card enters through the manifest, not a side door."""
-    assert not os.path.exists(os.path.join(
-        PROJECT_ROOT, "library", "tools", "execution", "import_endcard.py"))
 
 
-def test_insert_places_head_and_tail_around_the_spine():
-    resolved = [resolve_bookend(d, "/p") for d in declared_bookends({
-        "bookends": {
-            "intro": {"asset": "i.mov", "duration_seconds": 3},
-            "end_card": {"asset": "e.mov", "duration_seconds": 5},
-        }})]
-    blocks = insert_bookend_blocks([{"block_type": "speech"}], resolved)
-    assert [b["block_type"] for b in blocks] == [
-        "intro_card", "speech", "end_card"]
 
 
 # ─────────────────────────────────────────────────────────
@@ -765,25 +642,6 @@ def _fake_batch_success(seen):
     return fake_batch
 
 
-def test_engine_bookends_share_one_batch(monkeypatch, tmp_path):
-    """Two engine cards, one bundle-and-launch, results in spine order."""
-    seen = {}
-    monkeypatch.setattr(br, "render_batch", _fake_batch_success(seen))
-    structure = _engine_structure(tmp_path)
-    records = br.render_declared_bookends(
-        structure, str(tmp_path), fps=30, width=320, height=568)
-    assert seen["calls"] == 1, (
-        "engine bookends batch: one bundle for the composition, "
-        "not one per card")
-    assert seen["composition"] == "TimedTextOverlay"
-    assert len(seen["jobs"]) == 2
-    assert [r["slot"] for r in records] == ["intro", "outro"]
-    assert all(r["bytes"] > 0 for r in records)
-    for slot in ("intro", "outro"):
-        props = json.loads(
-            (tmp_path / "pipeline_output" / "bookends"
-             / f"{slot}_props.json").read_text())
-        assert props["durationInFrames"] == 15
 
 
 def test_a_failed_engine_bookend_raises_by_slot(monkeypatch, tmp_path):

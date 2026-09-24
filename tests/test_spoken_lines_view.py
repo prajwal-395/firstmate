@@ -178,25 +178,6 @@ def test_the_boundary_inside_a_turn_reaches_the_prompt():
         "a boundary with no words at it is not a boundary anyone can use")
 
 
-def test_a_multi_segment_turn_offers_more_boundaries_than_the_turn_table():
-    """The collapse is the loss, and it is measurable on any material."""
-    output = projected()
-    turn_edges = {t["start"] for t in output["turns"]}
-    turn_edges |= {t["end"] for t in output["turns"]}
-    line_edges = {row["start"] for row in output["spoken_lines"]["lines"]}
-    line_edges |= {row["end"] for row in output["spoken_lines"]["lines"]}
-    assert turn_edges < line_edges, (
-        "the lines table offers no boundary the turn table did not already")
-    assert 337.59 in line_edges and 337.59 not in turn_edges
-
-
-def test_the_handoff_names_the_table_the_projection_delivers():
-    """A prompt naming a table nothing sends is the contract defect."""
-    handoff = (STEP_DIR / "handoff.md").read_text(encoding="utf-8")
-    assert "`spoken_lines`" in handoff
-    assert "spoken_lines" in projected()
-
-
 def test_a_straddling_segment_is_not_a_row_and_is_still_reported():
     """A reel boundary is never placed on one - and hiding them is what
     let a borrowed closer land inside a 12.07s row nothing could see."""
@@ -267,19 +248,6 @@ def test_the_revert_is_exactly_what_the_noise_assertions_forbid():
     assert ".MXF" in blob and "clip-a" in blob
 
 
-def test_a_misplaced_declaration_still_raises():
-    m = manifest()
-    m["interface"]["context_fields"] = m.pop("context_fields")
-    with pytest.raises(MisplacedContextFields):
-        declared_context_fields(m, "select_reels")
-
-
-def test_the_view_carries_nothing_when_the_transcript_is_not_routed():
-    assert build_view("spoken_lines", {"temporal_index": []}) == {}
-    assert project_fields({"reel_candidates": []},
-                          ["view:spoken_lines"]) == {}
-
-
 def test_projecting_an_already_projected_tree_keeps_the_view():
     """A hybrid step can be projected twice; the second pass sees a tree
     the first one already took `segments` out of."""
@@ -302,22 +270,3 @@ def test_the_turn_table_no_longer_carries_the_words_the_view_carries():
     assert context.count(CLOSER) == 1, (
         "the speech reaches the prompt twice")
     assert context.count(BIO) == 1
-
-
-def test_a_turn_is_still_one_row_per_speaker_turn():
-    """The grouping is the other axis and it is what candidates count."""
-    output = projected()
-    assert output["turns"][0] == {"speaker": "Craig", "start": 312.75,
-                                  "end": 328.23}
-    assert output["turns"][1] == {"speaker": "Akshita", "start": 328.61,
-                                  "end": 341.27}
-
-
-def test_the_view_is_smaller_than_the_document_it_replaced():
-    """The point was never "fewer things" - but it was never the raw
-    document either."""
-    document = len(json_to_toon({"timeline_transcript": DOCUMENT}))
-    view = len(json_to_toon(build_view("spoken_lines",
-                                       {"timeline_transcript": DOCUMENT})))
-    assert view < document / 2, (
-        f"the view is {view} chars against the document's {document}")

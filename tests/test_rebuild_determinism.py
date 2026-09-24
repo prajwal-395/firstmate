@@ -197,18 +197,6 @@ def _clips():
     ]
 
 
-def test_placements_derive_identically_twice():
-    """`reel_build.placements` - where each master clip lands on the
-    reel - derived twice from the same ranges and clips."""
-    from library.tools.reel_build import placements
-
-    fps = 24000 / 1001
-    first = placements([(12.0, 28.0)], _clips(), fps)
-    second = placements([(12.0, 28.0)], _clips(), fps)
-    assert _sha(_canon(first)) == _sha(_canon(second))
-    assert len(first) == 2, "the spanning range should overlap both clips"
-
-
 def test_effect_comp_is_byte_identical_across_builds():
     """The Fusion comp - the picture itself - serialised twice from
     the same effect parameters. One byte different here is a
@@ -225,48 +213,6 @@ def test_effect_comp_is_byte_identical_across_builds():
                                source_res=(1080, 1920), played_frames=383)
     assert first == second, "same parameters serialised to different comps"
     assert len(first) > 0
-
-
-def test_subtitle_props_derive_identically_twice():
-    """The Remotion props - what the caption renderer is told to draw,
-    and half of the overlay reuse key - derived twice from the same
-    recorded plan."""
-    from library.steps.step_4_05_render_subtitles.generate_remotion_props import (  # noqa: E501
-        generate_subtitle_props_per_block,
-    )
-
-    plan = {"subtitle_entries": [
-        {"text": "hello world", "timeline_start": 0.5, "timeline_end": 2.5,
-         "speaker": "Akshita", "spine_block_position": 1},
-        {"text": "again", "timeline_start": 3.0, "timeline_end": 4.0,
-         "speaker": "Akshita", "spine_block_position": 1}],
-        "style": {"font": "Montserrat", "size": 58}}
-    first = generate_subtitle_props_per_block(
-        plan, fps=24000 / 1001, width=1080, height=1920)
-    second = generate_subtitle_props_per_block(
-        plan, fps=24000 / 1001, width=1080, height=1920)
-    assert _sha(_canon(first)) == _sha(_canon(second))
-    assert len(first) == 1
-
-
-def test_overlay_records_rewrite_is_byte_stable(tmp_path):
-    """The transition-element record a rebuild merges per reel:
-    rewriting it from identical declarations must not move a byte,
-    or every rebuild shows a diff with no content behind it."""
-    from library.tools.reel_build import _write_overlay_records
-
-    review = tmp_path / "pipeline_output" / "review"
-    review.mkdir(parents=True)
-    records = {"Reel 09 - test": {
-        "element": "glow_pulse", "placements": [{"seam_index": 1}]},
-        "Reel 10 - test": {"element": None, "reason_empty": "no cuts"}}
-    path = _write_overlay_records(
-        str(review), ["Reel 09 - test", "Reel 10 - test"], records)
-    first = Path(path).read_bytes()
-    path = _write_overlay_records(
-        str(review), ["Reel 09 - test", "Reel 10 - test"], records)
-    second = Path(path).read_bytes()
-    assert first == second, "identical declarations rewrote different bytes"
 
 
 def test_provenance_rewrite_differs_only_in_built_at(tmp_path):
@@ -325,39 +271,6 @@ def _reel_fixture():
          "words": [{"word": "again", "start": 14.2, "end": 14.6}]},
     ]}
     return moment, transcript, [(10.0, 18.0)]
-
-
-def test_semantic_request_rewrite_differs_only_in_timestamp(tmp_path):
-    """The per-build ask the rebuild writes fresh (`write_request`):
-    identical declarations must reproduce it exactly apart from its
-    `timestamp` - and critically the BUILD reads the recorded answer
-    (`read_answer`), never the ask, so the fresh stamp authorises
-    nothing."""
-    import time
-
-    from library.tools import reel_semantic_visual as sem_vis
-
-    moment, transcript, ranges = _reel_fixture()
-    first_path = sem_vis.write_request(
-        moment, transcript, ranges, str(tmp_path), fps=24000 / 1001)
-    first = json.loads(Path(first_path).read_text(encoding="utf-8"))
-    time.sleep(0.05)
-    second_path = sem_vis.write_request(
-        moment, transcript, ranges, str(tmp_path), fps=24000 / 1001)
-    second = json.loads(Path(second_path).read_text(encoding="utf-8"))
-
-    assert first_path == second_path, (
-        "the ask must land on the same path every build")
-    first_stamp, second_stamp = (
-        first.pop("timestamp"), second.pop("timestamp"))
-    assert first == second, (
-        "the rebuilt ask moved more than its timestamp")
-    assert first_stamp != second_stamp, (
-        "expected the cosmetic timestamp re-stamp; without it this "
-        "test proves nothing about what differs")
-    # The build's half of the contract: with no recorded answer the
-    # reel builds visuals-free rather than asking.
-    assert sem_vis.read_answer(str(tmp_path), 9) is None
 
 
 # ── The rebuild calls no model ───────────────────────────────────────

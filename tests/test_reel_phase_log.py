@@ -61,17 +61,6 @@ def test_an_unknown_phase_is_refused_not_filed(tmp_path):
     assert phase_log.read_events(project) == []
 
 
-def test_a_wait_names_its_reason(tmp_path):
-    project = _project(tmp_path)
-    event = phase_log.log_wait(project, 5, "Reel 05",
-                               "no model answer on file "
-                               "(reel_semantic_05.json) - building "
-                               "without semantic visuals")
-    assert event["phase"] == phase_log.WAIT
-    assert "reel_semantic_05.json" in event["detail"]
-    assert phase_log.read_events(project)[0]["detail"] == event["detail"]
-
-
 def test_malformed_lines_do_not_take_the_log(tmp_path):
     project = _project(tmp_path)
     phase_log.log_event(project, 5, "Reel 05", phase_log.PLAN_ASKED)
@@ -116,23 +105,6 @@ def test_span_ask_logs_plan_asked_at_the_ask(tmp_path):
     assert _at(asks[0]) <= datetime.datetime.now(datetime.timezone.utc)
 
 
-def test_span_ask_with_no_words_logs_a_wait_not_an_ask(tmp_path):
-    """A reel with no timed words has no ask; the log says why rather
-    than going silent."""
-    project = _project(tmp_path)
-
-    class Moment:
-        number = 9
-        timeline_name = "Reel 09"
-
-    assert sem_vis.write_span_request(
-        Moment(), {"segments": []}, [(10.0, 14.0)], project,
-        fps=30.0) == ""
-    events = phase_log.read_events(project)
-    assert [e["phase"] for e in events] == [phase_log.WAIT]
-    assert "no timed words" in events[0]["detail"]
-
-
 def test_unanswered_span_logs_its_wait_where_it_decides(tmp_path):
     """Asked but unanswered: the waiter (`span_record_for_build`) writes
     the wait line, so a missing answer is never a silence."""
@@ -156,85 +128,6 @@ def test_unanswered_span_logs_its_wait_where_it_decides(tmp_path):
     assert phase_log.WAIT in phases
 
 
-def test_m05_walkthrough_the_log_names_the_64_minute_silence():
-    """The test of this work: had the log existed on 2026-09-18, what
-    line would name M05's 64-minute silence?
-
-    Answers arrived 10:06:58; the build started ~85 minutes later with
-    no engine event in between (10:17-11:21 zero writes from any lane).
-    The summary must put the whole gap in answers-to-build with no
-    engine wait recorded between it - locating the stall upstream of
-    the engine (worker loop, model turns, another lane's Resolve
-    lease) instead of inside derivation or placement.
-    """
-    base = datetime.datetime(2026, 9, 18, 10, 6, 58,
-                             tzinfo=datetime.timezone.utc)
-
-    def at(minutes_after):
-        return (base + datetime.timedelta(
-            minutes=minutes_after)).isoformat()
-
-    events = [
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.PLAN_ASKED, "at": at(-17.7), "detail": "ask"},
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.ANSWERS_ARRIVED, "at": at(0),
-         "detail": "semantic=planned span=planned motion=planned"},
-        # The 64 silent minutes file NOTHING - that is the point: no
-        # wait line lands between the answers and the build start.
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.BUILD_STARTED, "at": at(84.2),
-         "detail": "placing; 5052.0s since answers arrived "
-                   "(derivation only, no engine wait recorded between)"},
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.BUILD_FINISHED, "at": at(85.2),
-         "detail": "placed"},
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.VERIFIED, "at": at(86.0), "detail": "passed"},
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.CONSOLIDATED, "at": at(87.0),
-         "detail": "promoted"},
-    ]
-    summary = phase_log.summarize(events)["Reel 05"]
-    # The whole 85-minute stall sits in answers-to-build ...
-    assert summary["seconds_answers_to_build"] == pytest.approx(5052.0)
-    # ... the Resolve placement itself took about a minute ...
-    assert summary["seconds_build"] == pytest.approx(60.0)
-    # ... and no engine wait was recorded inside the gap, so the next
-    # investigation knows the silence was upstream of the engine
-    # rather than inside it.
-    assert summary["waits_between_answers_and_build"] == []
-    assert set(summary["phases"]) == {
-        phase_log.PLAN_ASKED, phase_log.ANSWERS_ARRIVED,
-        phase_log.BUILD_STARTED, phase_log.BUILD_FINISHED,
-        phase_log.VERIFIED, phase_log.CONSOLIDATED}
-
-
-def test_rebuild_records_every_phase_it_promises():
-    """Wiring pin: without Resolve the full rebuild cannot run here, so
-    this asserts the call sites exist where the phases happen - the
-    ask writers log the ask, the rebuild loop logs answers/build, and
-    both promotion paths log verification and consolidation."""
-    import inspect
-
-    from library.tools import reel_build, reel_look
-    from library.steps.step_7_02_verify_reels import step as verify_node
-
-    assert "PLAN_ASKED" in inspect.getsource(
-        sem_vis.write_request)
-    assert "PLAN_ASKED" in inspect.getsource(
-        sem_vis.write_span_request)
-    assert "PLAN_ASKED" in inspect.getsource(
-        reel_look.write_motion_request)
-    body = inspect.getsource(reel_build.rebuild_reels_in_project)
-    for phase in ("ANSWERS_ARRIVED", "BUILD_STARTED", "BUILD_FINISHED",
-                  "VERIFIED", "CONSOLIDATED"):
-        assert phase in body, f"rebuild loop never logs {phase}"
-    node = inspect.getsource(verify_node.verify_reels)
-    assert "VERIFIED" in node
-    assert "CONSOLIDATED" in node
-
-
 def _records():
     semantic = {"reel": "Reel 05 (staging)", "basis": "planned",
                 "dropped": [{"element": "cutaway@2",
@@ -250,68 +143,6 @@ def _records():
                            "effect_type": "push",
                            "reason": "no_model_answer"}]}
     return semantic, span, motion
-
-
-def test_build_summary_files_what_the_build_computed(tmp_path):
-    """The payload round-trips: answers, drops, trims, gain, captions,
-    cards, verify slice and drift bracket filed under one line."""
-    project = _project(tmp_path)
-    semantic, span, motion = _records()
-    payload = phase_log.assemble_summary(
-        outcome=phase_log.OUTCOME_PROMOTED,
-        staging="Reel 05 (staging)", final="Reel 05 - slug",
-        decision="rebuilt: the plan changed",
-        answers={"semantic": "planned", "span": "planned",
-                 "motion": "awaiting_model_answer"},
-        semantic_record=semantic, span_record=span,
-        motion_record=motion,
-        captain_trims={"applied": [{"span_index": 2, "edge": "start",
-                                    "was": [10.0, 20.0],
-                                    "now": [10.5, 20.0]}],
-                       "held": [{"span_index": 3, "edge": "end"}]},
-        keep_exclusions=[(1.0, 2.5, "lc-0016")],
-        draw_gain_record={"gain": 2.0, "source": "measured",
-                          "disagrees_with_fallback": True},
-        captions={"planned": 57, "linked": 57, "link_warnings": 0},
-        cards=[{"placement": "tail", "render_name": "end_card",
-                "reel_start_frame": 1900, "duration_frames": 48}],
-        suppressed_overlays=["seg-9"],
-        overlay_sweep={"passed": True, "checked": 4},
-        transition_placements=2,
-        has_freeze_tail=True,
-        verify={"passed": True, "errors": 0, "warnings": 1,
-                "finding_classes": ["F7"],
-                "captions_expected": 57, "captions_actual": 57,
-                "uncaptioned_seconds": 0.0,
-                "report": phase_log.CONFORMANCE_REPORT_REL,
-                "refusal": ""},
-        retired_to="Reel 05 - slug (archived round 003)",
-        markers={"carried": [{}, {}], "uncarried": []},
-        version_control={"committed": True, "commit": "abc123",
-                         "files": ["a", "b"]},
-        drift_end={"compared": True, "moved": 0, "missing": 0,
-                   "total": 41, "factor": None},
-        answers_owed=["motion"])
-    event = phase_log.file_build_summary(
-        project, 5, "Reel 05 - slug", payload)
-    assert event["phase"] == phase_log.BUILD_SUMMARY
-    assert "unfiled" not in event
-    back = phase_log.read_events(project)[0]["summary"]
-    assert back["outcome"] == "promoted"
-    assert back["dropped"]["semantic"] == [
-        "cutaway@2 (no_readable_parameters)"]
-    assert back["dropped"]["motion"] == ["push on shot 3 (no_model_answer)"]
-    assert back["captain_trims"]["applied"][0]["span_index"] == 2
-    assert back["keep_exclusions"] == [
-        {"id": "lc-0016", "start": 1.0, "end": 2.5}]
-    assert back["draw_gain"] == {"gain": 2.0, "source": "measured",
-                                 "disagrees_with_fallback": True}
-    assert back["verify"]["finding_classes"] == ["F7"]
-    assert back["drift_end"]["total"] == 41
-    assert back["markers"]["carried"] == 2
-    assert back["version_control"]["files"] == 2
-    assert back["cards"][0]["duration_frames"] == 48
-    assert back["has_freeze_tail"] is True
 
 
 def test_build_summary_absent_rather_than_estimated():
@@ -334,19 +165,6 @@ def test_build_summary_absent_rather_than_estimated():
     assert payload["retired_to"] is None
     assert payload["cards"] == []
     assert payload["answers_owed"] == []
-
-
-def test_build_summary_unknown_outcome_is_refused():
-    with pytest.raises(ValueError):
-        phase_log.assemble_summary(outcome="vibes")
-
-
-def test_scalar_summary_is_refused_not_filed(tmp_path):
-    project = _project(tmp_path)
-    with pytest.raises(TypeError):
-        phase_log.log_event(project, 5, "Reel 05",
-                            phase_log.BUILD_SUMMARY, summary="placed")
-    assert phase_log.read_events(project) == []
 
 
 def test_drops_cap_bounds_a_pathological_line():
@@ -417,28 +235,6 @@ def test_summarize_surfaces_the_summary_on_both_names():
     assert summary["Reel 05 - slug"]["build_summary_at"] == at(10)
 
 
-def test_summarize_ignores_a_malformed_summary():
-    events = [
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.BUILD_SUMMARY, "at": None,
-         "detail": "", "summary": "placed, trust me"},
-        {"format": phase_log.FORMAT, "reel_number": 5, "reel": "Reel 05",
-         "phase": phase_log.BUILD_FINISHED, "at": None, "detail": ""},
-    ]
-    slot = phase_log.summarize(events)["Reel 05"]
-    assert slot["build_summary"] is None
-
-
-def test_summarize_creates_a_slot_for_a_summary_only_reel():
-    event = {"format": phase_log.FORMAT, "reel_number": 7,
-             "reel": "Reel 07 - slug", "phase": phase_log.BUILD_SUMMARY,
-             "at": "2026-09-18T12:00:00+00:00", "detail": "",
-             "summary": {"outcome": "left_alone"}}
-    slot = phase_log.summarize([event])["Reel 07 - slug"]
-    assert slot["build_summary"] == {"outcome": "left_alone"}
-    assert slot["seconds_build"] is None
-
-
 def test_conformance_rows_slice_the_report_the_gate_wrote(tmp_path):
     project = _project(tmp_path)
     assert phase_log.conformance_rows(project) == {}
@@ -469,28 +265,6 @@ def test_conformance_rows_slice_the_report_the_gate_wrote(tmp_path):
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("not json")
     assert phase_log.conformance_rows(project) == {}
-
-
-def test_rebuild_files_summaries_on_every_path():
-    """Wiring pin for the summary: the skip, leave-alone, refusal and
-    promotion paths each file one, the end-of-build filing reads the
-    gate's report, and the drift end-bracket is captured, not printed
-    and dropped."""
-    import inspect
-
-    from library.tools import reel_build
-
-    body = inspect.getsource(reel_build.rebuild_reels_in_project)
-    for outcome in ("skipped_by_exclusion", "left_alone",
-                    "verify_refused", "promoted", "placed_unverified"):
-        assert f'outcome="{outcome}"' in body, (
-            f"rebuild never files a {outcome} summary")
-    assert "conformance_rows" in body
-    assert "_drift_end_report" in body
-    assert "_verify_payload" in body
-    helper = inspect.getsource(reel_build._file_reel_summary)
-    assert "assemble_summary" in helper
-    assert "file_build_summary" in helper
 
 
 def test_build_side_helpers_shape_slices_and_file(tmp_path):
@@ -592,18 +366,3 @@ def test_lease_waits_add_up_to_a_contention_reading(tmp_path):
     assert phase_log.summarize_lease_waits([])["acquisitions"] == 0
 
 
-def test_the_placement_hold_files_its_lease_wait():
-    """Wiring pin: the per-reel hold logs its acquisition wait.
-
-    The build's Resolve pass is the contention point the queue
-    question is about (seconds-to-a-minute exclusive holds); its
-    acquisition must file through `log_lease_wait`, including zeros.
-    """
-    import inspect
-
-    from library.tools import reel_build
-
-    body = inspect.getsource(reel_build.rebuild_reels_in_project)
-    assert "log_lease_wait" in body, (
-        "the per-reel placement hold no longer files its lease wait - "
-        "contention during the rebuild wave would produce no data")

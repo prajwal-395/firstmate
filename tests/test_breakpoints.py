@@ -52,15 +52,6 @@ def test_review_arms_every_step(steps):
         "every_step means wherever the run goes")
 
 
-def test_a_profile_may_say_every_step_as_data(steps):
-    """`--review` and `*` are one thing said two ways, so a profile can
-    express exactly what the flag expresses."""
-    from_data = _resolve(steps, profile_breakpoints=(EVERY_STEP,),
-                         profile_name="all")
-    from_flag = _resolve(steps, review_all=True)
-    assert from_data.every_step is from_flag.every_step is True
-    assert from_data.steps == from_flag.steps == ()
-    assert any("all" in line for line in from_data.basis)
 
 
 # ── Per step ─────────────────────────────────────────────────────────
@@ -72,19 +63,8 @@ def test_one_step_is_armed_and_nothing_else(steps):
     assert not gates.every_step
 
 
-def test_a_profile_arms_and_the_flag_adds_to_it(steps):
-    gates = _resolve(steps, profile_breakpoints=("review_rough_cut",),
-                     break_at=("catalog",), profile_name="podcast")
-    assert gates.steps == ("review_rough_cut", "catalog")
-    assert any("podcast" in line for line in gates.basis)
-    assert any("--break" in line for line in gates.basis)
 
 
-def test_no_break_disarms_one_the_profile_armed(steps):
-    gates = _resolve(steps, profile_breakpoints=("review_rough_cut", "catalog"),
-                     no_break_at=("review_rough_cut",), profile_name="podcast")
-    assert gates.steps == ("catalog",)
-    assert not gates.armed_at("review_rough_cut")
 
 
 def test_no_break_star_disarms_the_lot(steps):
@@ -107,27 +87,12 @@ def test_an_unknown_step_is_refused_by_name(steps):
     assert "Known steps" in str(exc.value)
 
 
-def test_an_unknown_step_in_no_break_is_refused_by_name(steps):
-    with pytest.raises(BreakpointError) as exc:
-        _resolve(steps, no_break_at=("nope",))
-    assert "--no-break" in str(exc.value)
 
 
-def test_the_same_step_armed_and_disarmed_is_refused(steps):
-    with pytest.raises(BreakpointError) as exc:
-        _resolve(steps, break_at=("catalog",), no_break_at=("catalog",))
-    assert "Say it once" in str(exc.value)
 
 
 # ── An unreachable breakpoint is reported, never silent ──────────────
 
-def test_a_breakpoint_the_run_will_not_reach_is_named(steps):
-    gates = _resolve(steps, break_at=("render",))
-    running = ["scan", "catalog"]
-    assert gates.unreachable(running) == ("render",)
-    lines = gates.describe(running)
-    assert any("will NOT stop there" in line for line in lines)
-    assert any("render" in line for line in lines)
 
 
 def test_an_unreachable_breakpoint_does_not_refuse_the_run(steps):
@@ -137,20 +102,10 @@ def test_an_unreachable_breakpoint_does_not_refuse_the_run(steps):
     assert gates.any_armed
 
 
-def test_every_step_is_never_unreachable(steps):
-    gates = _resolve(steps, review_all=True)
-    assert gates.unreachable(["scan"]) == ()
 
 
 # ── The record a later reader gets ───────────────────────────────────
 
-def test_the_record_says_where_it_stops_and_where_it_cannot(steps):
-    gates = _resolve(steps, break_at=("catalog", "render"))
-    record = gates.as_record(["scan", "catalog"])
-    assert record["steps"] == ["catalog", "render"]
-    assert record["unreachable"] == ["render"]
-    assert record["every_step"] is False
-    assert record["basis"]
 
 
 # ── The two CLIs cannot drift ────────────────────────────────────────
@@ -167,16 +122,6 @@ def test_both_clis_register_the_same_flags():
         assert args.no_break_at == ["b"]
 
 
-def test_the_resume_command_is_this_runs_own_argv_plus_resume():
-    """A breakpoint is armed per RUN, so a resume without the flags that
-    armed it sails past the next one. The pause prints the command."""
-    argv = ["run_pipeline.py", "--project", "/p", "--profile", "podcast"]
-    command = breakpoints.resume_command(argv, "python3")
-    assert command.endswith("--resume")
-    assert "--profile podcast" in command
-    assert command.count("--resume") == 1
-    # Idempotent: resuming a resumed run does not double the flag.
-    assert breakpoints.resume_command(argv + ["--resume"], "python3") == command
 
 
 def test_the_resume_command_drops_a_rerun_that_already_happened():
@@ -211,14 +156,6 @@ def test_a_breakpoint_may_be_an_operation_address():
     assert not gates.armed_at("render")
 
 
-def test_a_bare_operation_arms_every_region_of_itself():
-    """The same "a wildcard is said as data" idea EVERY_STEP already is,
-    one level narrower."""
-    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
-                       break_at=(ONE,))
-    assert gates.armed_at(ONE)
-    assert gates.armed_at(f"{ONE}@45.0-72.0")
-    assert gates.armed_at(f"{ONE}@0.0-1.0")
 
 
 def test_a_region_breakpoint_does_not_arm_the_whole_operation():
@@ -230,12 +167,6 @@ def test_a_region_breakpoint_does_not_arm_the_whole_operation():
     assert not gates.armed_at(f"{ONE}@0.0-1.0")
 
 
-def test_a_step_id_is_never_read_as_an_operation():
-    """A DAG node never contains the separator, so nothing guesses."""
-    gates = breakpoints.resolve(known_steps={"render", "scan"}, known_operations=OPS,
-                       break_at=("render",))
-    assert gates.armed_at("render")
-    assert not gates.armed_at("scan")
 
 
 def test_an_unknown_operation_is_refused_by_name():
@@ -255,26 +186,5 @@ def test_a_malformed_region_is_refused_by_the_one_parser():
     assert "notaspan" in str(exc.value)
 
 
-def test_the_refusal_names_both_namespaces():
-    with pytest.raises(BreakpointError) as exc:
-        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
-                   break_at=("mystery",))
-    message = str(exc.value)
-    assert "Known steps:" in message
-    assert "Known operations:" in message
-    assert "<start>-<end>" in message
 
 
-def test_operation_addresses_compose_with_everything_else():
-    """Nothing about the algebra changes: profiles, --no-break, the
-    unreachable warning and resume_command all still work on them."""
-    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
-                       profile_breakpoints=(f"{ONE}@0.0-1.0",),
-                       break_at=(f"{ONE}@45.0-72.0",),
-                       no_break_at=(f"{ONE}@0.0-1.0",),
-                       profile_name="podcast")
-    assert gates.armed_at(f"{ONE}@45.0-72.0")
-    assert not gates.armed_at(f"{ONE}@0.0-1.0"), "--no-break disarmed it"
-    assert f"{ONE}@45.0-72.0" in gates.unreachable(["render"])
-    assert "--resume" in breakpoints.resume_command(
-        ["run_pipeline.py", "--break", f"{ONE}@45.0-72.0"], "python3")

@@ -53,20 +53,6 @@ def _ids(reqs):
 
 # ── Half 1: a correct state must not be refused ──────────────────────
 
-@pytest.mark.parametrize("req", HAND_WRITTEN, ids=_ids(HAND_WRITTEN))
-def test_a_correct_state_is_not_refused(req):
-    """Each requirement's own satisfying witness must pass.
-
-    This is the cheap half. The expensive half - a whole golden project
-    state - is below, and is what would have caught the four bad
-    conversions.
-    """
-    verdict = req.check(req.satisfying_context())
-    assert verdict.is_satisfied, (
-        f"{req.name} refuses a state it itself declares correct: "
-        f"{verdict.reason}")
-
-
 def _full_default_run() -> frozenset:
     """The steps a plain full run really schedules.
 

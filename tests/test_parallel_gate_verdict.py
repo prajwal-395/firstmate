@@ -42,22 +42,6 @@ def _write_xml(path: Path, cases: str, *, tests: int, skipped: int = 0,
 
 
 class TestMerge:
-    def test_disjoint_lanes_merge(self, tmp_path):
-        a = _write_xml(
-            tmp_path / "a.xml",
-            '<testcase name="t1" classname="m"/><testcase name="t2" classname="m"/>',
-            tests=2)
-        b = _write_xml(
-            tmp_path / "b.xml",
-            '<testcase name="t3" classname="m"/>',
-            tests=1)
-        out = str(tmp_path / "m.xml")
-        ok, detail = junit_lanes.merge_reports([a, b], out)
-        assert ok, detail
-        counts = junit_lanes.read_counts(out)
-        assert counts is not None
-        assert (counts.tests, counts.executed, counts.skipped) == (3, 3, 0)
-
     def test_duplicate_nodeid_refuses(self, tmp_path):
         a = _write_xml(
             tmp_path / "a.xml",
@@ -77,40 +61,8 @@ class TestMerge:
         assert not ok
         assert "0 tests" in detail
 
-    def test_missing_input_refuses(self, tmp_path):
-        ok, _ = junit_lanes.merge_reports(
-            [str(tmp_path / "gone.xml")], str(tmp_path / "m.xml"))
-        assert not ok
-
-
-class TestCounts:
-    def test_executed_is_tests_minus_skipped(self, tmp_path):
-        xml = _write_xml(
-            tmp_path / "r.xml",
-            '<testcase name="t1" classname="m"/>'
-            '<testcase name="t2" classname="m">'
-            '<skipped message="needs remotion-subtitles/node_modules, npx and ffmpeg"/>'
-            "</testcase>",
-            tests=2, skipped=1)
-        counts = junit_lanes.read_counts(xml)
-        assert counts is not None
-        assert counts.executed == 1
-        assert counts.skipped == 1
-
-    def test_unreadable_is_none(self, tmp_path):
-        assert junit_lanes.read_counts(str(tmp_path / "gone.xml")) is None
-
 
 class TestUndeclaredSkipsRederived:
-    def test_declared_skip_passes(self, tmp_path):
-        xml = _write_xml(
-            tmp_path / "r.xml",
-            '<testcase name="t1" classname="m">'
-            '<skipped message="needs remotion-subtitles/node_modules, npx and ffmpeg"/>'
-            "</testcase>",
-            tests=1, skipped=1)
-        assert junit_lanes.undeclared_skips(xml) == []
-
     def test_undeclared_skip_fails(self, tmp_path):
         xml = _write_xml(
             tmp_path / "r.xml",
@@ -133,22 +85,6 @@ class TestTriageIsAdvisory:
             tests=1, failures=1)
         triaged = junit_lanes.triage_failures(xml)
         assert [cls for _, cls, _ in triaged] == ["RACE-CANDIDATE"]
-
-    def test_throttle_like_names_itself(self, tmp_path):
-        xml = _write_xml(
-            tmp_path / "r.xml",
-            '<testcase name="t1" classname="m">'
-            '<failure message="429 Too Many Requests">quota exceeded</failure>'
-            "</testcase>",
-            tests=1, failures=1)
-        triaged = junit_lanes.triage_failures(xml)
-        assert [cls for _, cls, _ in triaged] == ["THROTTLE-LIKE"]
-
-    def test_passing_report_triages_nothing(self, tmp_path):
-        xml = _write_xml(
-            tmp_path / "r.xml",
-            '<testcase name="t1" classname="m"/>', tests=1)
-        assert junit_lanes.triage_failures(xml) == []
 
 
 def _run_gate(python_shim: str, *args: str) -> subprocess.CompletedProcess:

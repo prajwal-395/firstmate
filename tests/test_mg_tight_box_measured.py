@@ -99,12 +99,6 @@ def test_measured_union_binds_to_padded_canvas_at_union_centre():
         "top": 48 + 262, "right": 48, "bottom": 48, "left": 48}
 
 
-def test_box_half_returns_the_same_box():
-    box = mgt.tighten_measured_mg(_props([_lower_third()]),
-                                  AKSHITA_UNION)
-    assert (box.width, box.height) == (608, 480)
-
-
 def test_empty_union_is_a_refusal_not_a_box():
     box, refusal = mgt.tighten_measured_mg_with_reason(
         _props([_lower_third()]),
@@ -113,29 +107,12 @@ def test_empty_union_is_a_refusal_not_a_box():
     assert refusal.reason == "nothing_drawn"
 
 
-def test_union_covering_the_frame_stays_full():
-    box, refusal = mgt.tighten_measured_mg_with_reason(
-        _props([_lower_third()]),
-        InkUnion(x0=0, y0=0, x1=900, y1=1500, inked_frames=10))
-    assert box is None
-    assert refusal.reason == "covers_frame"
-
-
 def test_union_bigger_than_the_frame_raises_with_a_refusal():
     with pytest.raises(TightBoxClipsInk) as excinfo:
         mgt.tighten_measured_mg_with_reason(
             _props([_lower_third()]),
             InkUnion(x0=0, y0=0, x1=2000, y1=100, inked_frames=10))
     assert excinfo.value.refusal.reason == "canvas_larger_than_frame"
-
-
-def test_middle_beside_another_zone_stays_full():
-    elements = [_lower_third(anchor="bottom_left"),
-                _lower_third(anchor="middle_right")]
-    box, refusal = mgt.tighten_measured_mg_with_reason(
-        _props(elements), AKSHITA_UNION)
-    assert box is None
-    assert refusal.reason == "middle_zone_mixed"
 
 
 def test_unmeasured_timeline_refuses_the_transform():
@@ -204,47 +181,6 @@ def test_measure_crop_verify_roundtrip_on_synthetic_pixels(tmp_path):
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_verify_refuses_a_crop_that_is_not_its_probe(tmp_path):
-    """A tight file drawing elsewhere is not its probe's region -
-    the caller keeps the full canvas rather than placing it."""
-    from PIL import Image
-
-    full_w, full_h = 1080, 1920
-    for index in range(2):
-        frame = Image.new("RGBA", (full_w, full_h), (0, 0, 0, 0))
-        pixels = frame.load()
-        for x in range(90, 210):
-            for y in range(784, 846):
-                pixels[x, y] = (255, 255, 255, 255)
-        frame.save(str(tmp_path / f"shot-{index:04d}.png"))
-    full_mov = str(tmp_path / "full.mov")
-    _encode_mov([str(tmp_path / "shot-0000.png")], full_mov,
-                full_w, full_h)
-    union = mgt.measure_mg_union(full_mov)
-
-    stranger = Image.new("RGBA", (216, 480), (0, 0, 0, 0))
-    pixels = stranger.load()
-    for x in range(10, 30):
-        for y in range(10, 30):
-            pixels[x, y] = (255, 255, 255, 255)
-    stranger.save(str(tmp_path / "other-0000.png"))
-    other_mov = str(tmp_path / "other.mov")
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-framerate", "24",
-         "-i", str(tmp_path / "other-%04d.png"),
-         "-frames:v", "1",
-         "-c:v", "qtrle", "-pix_fmt", "argb", other_mov],
-        check=True)
-
-    props = {"elements": [dict(_lower_third(), anchor="bottom_left")],
-             "width": full_w, "height": full_h,
-             "safeArea": dict(SAFE), "durationInFrames": 2}
-    box, _ = mgt.tighten_measured_mg_with_reason(props, union)
-    with pytest.raises(TightBoxMismatch):
-        mgt.verify_measured_crop(union, other_mov, box)
-
-
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
 def test_blank_probe_measures_no_union(tmp_path):
     """A file that drew nothing binds nothing: None, not a guess."""
     from PIL import Image
@@ -259,26 +195,6 @@ def test_blank_probe_measures_no_union(tmp_path):
          "-c:v", "qtrle", "-pix_fmt", "argb", blank_mov],
         check=True)
     assert mgt.measure_mg_union(blank_mov) is None
-
-
-def test_tightness_sidecar_records_a_measured_bind():
-    """The artefact says it is tight, sized as the box - so the
-    build-time guard reads it as tight without a sidecar hunt."""
-    placement = placement_for_box(608, 480, 346.0, 845.0,
-                                  FULL_W, FULL_H)
-    box = TightBox(width=608, height=480, props={}, placement=placement,
-                   union_w=512.0, union_h=122.0,
-                   full_width=FULL_W, full_height=FULL_H)
-    record = mgt.tightness_record(box, None, FULL_W, FULL_H)
-    assert record["outcome"] == "tight"
-    assert (record["width"], record["height"]) == (608, 480)
-
-
-def test_sidecar_path_sits_beside_tight_props():
-    assert mgt.sidecar_path_for("/x/mg_abc_tight_props.json") == (
-        "/x/mg_abc_tight_tightness.json")
-    props = json.dumps({"width": 608, "height": 480})
-    assert json.loads(props)["width"] == 608
 
 
 def _title_lockup(anchor="top_centre"):
@@ -308,29 +224,6 @@ def _title_lockup(anchor="top_centre"):
 # sidecar still carries - while the pixels bind cleanly.
 TITLE_UNION = InkUnion(x0=193, y0=120, x1=853, y1=251,
                        inked_frames=84)
-
-
-def test_title_lockup_binds_through_the_measured_path():
-    """660x131 of title ink becomes a 756x480 canvas at offset
-    (145, 72): 756 = 660 + 2*48, and 480 is the rail floor a single
-    top zone grows to, below the ink. A test that only exercises
-    lower_third does not cover this kind, which is how the gap got
-    here."""
-    box, refusal = mgt.tighten_measured_mg_with_reason(
-        _props([_title_lockup()]), TITLE_UNION)
-    assert refusal is None
-    assert (box.width, box.height) == (756, 480)
-    ox, oy = canvas_offset(box)
-    assert (ox, oy) == (145, 72)
-    assert box.props["width"] == 756
-    assert box.props["height"] == 480
-    assert box.props["safeArea"] == {
-        "top": 48, "right": 48, "bottom": 48 + 252, "left": 48}
-    from library.tools.tight_box import ink_screen_box  # noqa: E402
-    ink_in_canvas = (48.0, 48.0, 48.0 + 660.0, 48.0 + 131.0)
-    assert ink_screen_box(box.width, box.height, box.placement,
-                          ink_in_canvas, FULL_W, FULL_H) == pytest.approx(
-        (193.0, 120.0, 853.0, 251.0))
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)

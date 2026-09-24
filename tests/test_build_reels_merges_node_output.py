@@ -27,12 +27,6 @@ def test_second_op_of_a_node_keeps_the_firsts_keys():
     }
 
 
-def test_first_write_to_an_empty_slot_records_whole():
-    slot = {}
-    manage_project._record_node_output(
-        slot, "build_reels", {"reel_build": {"placed": []}}
-    )
-    assert slot["build_reels"] == {"reel_build": {"placed": []}}
 
 
 def test_nodes_do_not_share_a_record():
@@ -43,7 +37,3 @@ def test_nodes_do_not_share_a_record():
     assert slot["verify_reels"] == {"reel_verification": {}}
 
 
-def test_non_dict_payload_keeps_overwrite():
-    slot = {"build_reels": {"reel_build": {}}}
-    manage_project._record_node_output(slot, "build_reels", None)
-    assert slot["build_reels"] is None

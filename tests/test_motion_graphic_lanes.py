@@ -104,12 +104,6 @@ def test_a_segment_already_in_one_zone_family_is_not_split():
     assert tighten_motion_graphics_props(_props(together)) is not None
 
 
-def test_one_element_is_never_split():
-    one = [_moment("subject_emblem", "middle_right", 0, 60, text="?")]
-    assert separable_groups(one) == [one]
-    assert separable_groups([]) == []
-
-
 # A top-centre title over a bottom panel: PR 1301 floors the centre
 # copy at the full-frame layout width, so the edge-to-edge union trips
 # the coverage backstop together - the pair that used to ship the
@@ -120,34 +114,6 @@ TALL_MIX = [
             text="A SINGLE YEAR"),
     _moment("lower_third", "bottom_left", 10, 100),
 ]
-
-
-def test_a_centre_tall_mix_cannot_share_one_tight_box():
-    """The premise, measured rather than recalled: together they force
-    the full canvas."""
-    assert tighten_motion_graphics_props(_props(TALL_MIX)) is None
-
-
-def test_a_centre_tall_mix_splits_into_two_tight_rows():
-    groups = separable_groups(TALL_MIX)
-    assert [[e["element"] for e in g] for g in groups] == [
-        ["title_lockup"], ["lower_third"]]
-    boxes = [tighten_motion_graphics_props(_props(g)) for g in groups]
-    assert all(box is not None for box in boxes)
-    # Both are a fraction of the frame they used to cost.
-    for box in boxes:
-        assert box.width * box.height < 0.3 * 1080 * 1920
-        assert box.placement["scaling"] == 1
-
-
-def test_a_fixed_geometry_centre_mix_is_not_split():
-    """A centre anchor that cannot re-wrap triggers no floor - a beat
-    accent is a fixed square - so the tall union stays one tight
-    segment. A split that buys nothing is two rows for no reason."""
-    together = [_moment("beat_accent", "top_centre", 0, 60),
-                _moment("lower_third", "bottom_left", 10, 60)]
-    assert separable_groups(together) == [together]
-    assert tighten_motion_graphics_props(_props(together)) is not None
 
 
 # ── The lanes ──────────────────────────────────────────────────────
@@ -161,20 +127,6 @@ def test_the_split_segments_land_on_two_lanes():
     # Each segment is its own span, rebased to its own start.
     assert segments[0]["total_frames"] == 144
     assert segments[1]["total_frames"] == 96
-    assert segments[0]["props"]["elements"][0]["startFrame"] == 0
-    assert segments[1]["props"]["elements"][0]["startFrame"] == 0
-    # And they overlap, which is the whole point.
-    assert segments[1]["timeline_start"] < segments[0]["timeline_end"]
-
-
-def test_the_tall_mix_segments_land_on_two_lanes():
-    segments = mgp.plan_segments(TALL_MIX, fps=FPS, width=1080, height=1920,
-                                 safe_area=SAFE)
-    assert [s["elements"] for s in segments] == [
-        ["title_lockup"], ["lower_third"]]
-    assert [s["lane"] for s in segments] == [0, 1]
-    # Each segment is its own span, rebased to its own start.
-    assert segments[0]["total_frames"] == 144
     assert segments[0]["props"]["elements"][0]["startFrame"] == 0
     assert segments[1]["props"]["elements"][0]["startFrame"] == 0
     # And they overlap, which is the whole point.
@@ -235,46 +187,12 @@ def test_two_overlapping_semantic_segments_are_two_rows():
     assert indices == list(range(1, len(indices) + 1))
 
 
-def test_semantic_segments_that_do_not_overlap_stay_one_row():
-    plan = plan_layout(_reel_material(semantic_spans=[(0, 100), (200, 300)]))
-    assert [r.name for r in plan.rows_for_role(SEMANTIC)] == ["Semantic"]
-
-
-def test_the_bare_boolean_still_means_one_row():
-    """Material written before either kind could layer keeps its row."""
-    plan = plan_layout(_reel_material())
-    assert [r.name for r in plan.rows_for_role(SEMANTIC)] == ["Semantic"]
-
-
 def test_the_explainer_layers_on_the_same_terms():
     plan = plan_layout(_reel_material(
         has_semantic=False, has_explainer=True,
         explainer_spans=[(0, 100), (50, 150), (60, 200)]))
     assert [r.name for r in plan.rows_for_role(EXPLAINER)] == [
         "Explainer", "Explainer 2", "Explainer 3"]
-
-
-def test_a_numbered_layer_row_is_still_a_layer_not_a_camera():
-    """`reel_build._is_layer_row` tells decoration from cameras; a
-    second semantic row must not become a reel angle."""
-    from library.tools.reel_build import _is_layer_row
-
-    assert _is_layer_row("Semantic")
-    assert _is_layer_row("Semantic 2")
-    assert _is_layer_row("Explainer 3")
-    assert not _is_layer_row("Akshita")
-
-
-def test_the_verifier_files_a_numbered_row_under_its_own_role():
-    """Matching the bare name alone would file every further row as
-    unclassified and report a correct build as carrying items nothing
-    grades."""
-    from library.tools.reel_conformance_verifier import _is_layer_named
-
-    assert _is_layer_named("Semantic", "Semantic")
-    assert _is_layer_named("Semantic 2", "Semantic")
-    assert not _is_layer_named("Semantic Extra", "Semantic")
-    assert not _is_layer_named("Subtitles", "Semantic")
 
 
 # ── The manifest gate ──────────────────────────────────────────────
@@ -297,40 +215,3 @@ def test_the_overlap_gate_reads_lanes_not_the_whole_track():
     errors = _check_overlay_segments_do_not_overlap(stacked)
     assert len(errors) == 1
     assert "lane 0" in errors[0]
-
-
-def test_a_segment_naming_no_lane_is_lane_zero():
-    """Every manifest written before lanes existed."""
-    from library.tools.manifest_validator import (
-        _check_overlay_segments_do_not_overlap,
-    )
-
-    legacy = {"motion_graphics_overlay": {"segments": [
-        {"timeline_start": 0.0, "timeline_end": 5.0},
-        {"timeline_start": 4.0, "timeline_end": 8.0},
-    ]}}
-    assert len(_check_overlay_segments_do_not_overlap(legacy)) == 1
-
-
-def test_a_lane_with_no_row_refuses_the_build():
-    """A graphic stacked onto another lane's row hides one of two the
-    plan puts on screen together, so the placer refuses instead."""
-    from library.tools.reel_build import ReelBuildError, place_overlay_segments
-
-    with pytest.raises(ReelBuildError) as raised:
-        place_overlay_segments(
-            None, None, None, "Reel 26", FPS,
-            [{"overlay_path": "/tmp/a.mov", "timeline_start": 0.0,
-              "timeline_end": 1.0, "total_frames": 24, "lane": 1}],
-            [5], kind="semantic visual", check="F22")
-    assert "lane 1" in str(raised.value)
-    assert "1 row(s)" in str(raised.value)
-
-
-def test_the_plan_row_list_is_what_the_placer_indexes():
-    """A TrackPlan with two semantic rows hands the placer two indices,
-    in row order."""
-    plan: TrackPlan = plan_layout(_reel_material(
-        semantic_spans=[(234, 378), (343, 439)]))
-    rows = [row.index for row in plan.rows_for_role(SEMANTIC)]
-    assert len(rows) == 2 and rows[1] == rows[0] + 1

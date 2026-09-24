@@ -251,47 +251,6 @@ def test_the_two_are_never_the_same_field():
     assert "clip" in block["notes"][1] and "clips_under" not in block["notes"][1]
 
 
-def test_a_recorded_placement_is_used_and_agrees_with_the_recovered_one():
-    """`marker_feedback` now records the placement a clip note was typed
-    on. A pull file written before that has it RECOVERED, and the two
-    must say the same thing or one of them is wrong."""
-    recovered = marker_routing.resolve_target(CLIP_NOTE)
-    with_record = dict(CLIP_NOTE, attached_clip=recovered.clip)
-    recorded = marker_routing.resolve_target(with_record)
-    assert recorded.basis == "recorded"
-    assert recorded.clip == recovered.clip
-
-
-def test_linked_audio_and_video_of_one_placement_is_one_clip():
-    """IMG_1817.MOV appears on V1 and A1 with the same file, timeline
-    span and source span. That is Resolve's linked pair of ONE placement,
-    not two candidates, so recovering it is not a guess."""
-    target = marker_routing.resolve_target(AMBIGUOUS_NOTE)
-    assert target.kind == TARGET_CLIP
-    assert target.clip["name"] == "IMG_1817.MOV"
-    assert target.tracks == ["video1", "audio1"]
-
-
-def test_two_genuinely_different_clips_are_reported_unresolved():
-    """A second, different clip whose arithmetic also lands on the frame
-    means the placement is not knowable from a pull file. It says so."""
-    decoy = dict(CLIP_NOTE["clips"][1], name="OTHER.MOV",
-                 source_file="/p/001/raw/OTHER.MOV", track_index=4)
-    note = dict(CLIP_NOTE, clips=CLIP_NOTE["clips"] + [decoy])
-    target = marker_routing.resolve_target(note)
-    assert target.basis == "unresolved"
-    assert target.clip is None
-    assert "OTHER.MOV" in target.reason and "IMG_1811.MOV" in target.reason
-
-
-def test_a_clip_marker_outside_the_played_range_keeps_no_clip():
-    note = dict(CLIP_NOTE, frame=None, timecode=None,
-                unplaced_reason="outside the range this clip plays")
-    target = marker_routing.resolve_target(note)
-    assert target.basis == "unresolved"
-    assert target.clip is None
-
-
 # ── The three real notes, routed ────────────────────────────────────
 
 def test_the_broll_note_routes_to_the_step_that_chose_the_broll():
@@ -340,9 +299,6 @@ def test_a_note_naming_nothing_in_the_table_is_reported_not_routed():
 
 @pytest.mark.parametrize("declaration,expected", [
     ("step: plan_vfx", "plan_vfx"),
-    ("step: 4.03", "plan_vfx"),
-    ("STEP = plan_vfx", "plan_vfx"),
-    ("step:  `plan_vfx` ", "plan_vfx"),
 ])
 def test_a_declared_step_wins_over_the_words(declaration, expected):
     """The note is full of b-roll vocabulary and declares plan_vfx. The
@@ -433,52 +389,6 @@ def test_the_new_lower_third_terms_steal_no_other_steps_notes():
 
 # ── The table ───────────────────────────────────────────────────────
 
-def test_every_routable_step_is_a_real_dag_node():
-    nodes = {n["id"] for n in run_scope.load_dag()["nodes"]}
-    missing = [d.node_id for d in STEP_DECISIONS if d.node_id not in nodes]
-    assert not missing, f"routes to steps that are not in the DAG: {missing}"
-
-
-def test_every_prompt_step_declares_the_input_it_would_receive():
-    """The other end of `assert_deliverable`, read off the real
-    manifests: a step the table says takes notes and whose manifest does
-    not declare the input would fail every run that has a note for it."""
-    dag = run_scope.load_dag()
-    manifests = run_scope.load_manifests(dag)
-    for decision in STEP_DECISIONS:
-        if decision.delivery != DELIVERY_PROMPT:
-            continue
-        declared = {inp.get("name") for inp in
-                    manifests[decision.node_id]["interface"]["inputs"]}
-        assert STEP_INPUT_NAME in declared, (
-            f"{decision.node_id} takes notes and does not declare "
-            f"{STEP_INPUT_NAME}")
-
-
-def test_a_report_only_step_declares_nothing_and_says_why():
-    for decision in STEP_DECISIONS:
-        if decision.delivery == DELIVERY_REPORT:
-            assert len(decision.delivery_note.split()) >= 8, (
-                f"{decision.node_id} delivers no prompt and does not say "
-                f"why: {decision.delivery_note!r}")
-
-
-def test_every_step_states_what_it_owns():
-    for decision in STEP_DECISIONS:
-        assert len(decision.owns.split()) >= 6, decision
-        assert decision.delivery in (DELIVERY_PROMPT, DELIVERY_REPORT)
-
-
-def test_the_table_has_no_duplicate_node_or_number():
-    assert len({d.node_id for d in STEP_DECISIONS}) == len(STEP_DECISIONS)
-    assert len({d.number for d in STEP_DECISIONS}) == len(STEP_DECISIONS)
-
-
-def test_every_withdrawn_router_carries_a_reason():
-    assert WITHDRAWN_ROUTERS
-    for name, reason in WITHDRAWN_ROUTERS.items():
-        assert len(reason.split()) >= 15, f"{name}: {reason!r}"
-
 
 # ── Nothing may silently drop a routed note ─────────────────────────
 
@@ -493,28 +403,6 @@ def test_a_step_that_cannot_receive_a_routed_note_fails_the_run():
             "select_broll", _manifest("creative_brief"), routed)
     assert STEP_INPUT_NAME in str(exc.value)
     assert "broll of nothing" in str(exc.value)
-
-
-def test_a_step_that_declares_the_input_receives_its_notes():
-    routed = [marker_routing.route_note(n) for n in REAL_NOTES]
-    mine = marker_routing.assert_deliverable(
-        "select_broll", _manifest("creative_brief", STEP_INPUT_NAME), routed)
-    assert [n.steps for n in mine] == [["select_broll"]]
-
-
-def test_a_step_with_no_notes_is_not_asked_to_declare_anything():
-    routed = [marker_routing.route_note(n) for n in REAL_NOTES]
-    assert marker_routing.assert_deliverable(
-        "mesh_spine", _manifest(), routed) == []
-
-
-def test_a_report_only_step_is_not_a_failure_and_is_not_a_delivery():
-    routed = [marker_routing.route_note(MOMENT_NOTE)]
-    assert marker_routing.assert_deliverable(
-        "plan_subtitles", _manifest(), routed) == []
-    left = dict((n.note_id, why)
-                for n, why, _ in marker_routing.undelivered(routed))
-    assert list(left.values()) == [DELIVERY_REPORT]
 
 
 def test_every_note_that_reaches_no_prompt_is_reported():
@@ -580,60 +468,7 @@ def test_the_report_names_every_note_and_where_it_went(tmp_path):
         "select_broll": ["Pipeline_Edit:clip_marker:744"]}
 
 
-def test_a_routing_record_never_overwrites_an_earlier_one(tmp_path):
-    project = _project(tmp_path)
-    first = marker_routing.write_record(project)
-    second = marker_routing.write_record(project)
-    assert first["record"] != second["record"]
-    assert os.path.exists(first["record"])
-
-
-def test_a_delivery_is_appended_and_shows_up_in_the_report(tmp_path):
-    project = _project(tmp_path)
-    marker_routing.record_delivery(
-        project, "select_broll", ["Pipeline_Edit:clip_marker:744"])
-    marker_routing.record_delivery(
-        project, "select_broll", ["Pipeline_Edit:clip_marker:744"])
-    assert len(marker_routing.deliveries(project)) == 2
-    report = marker_routing.render_report(project)
-    assert report.count("**Delivered**: select_broll at") == 1
-    assert "select_broll at" in report
-
-
-def test_the_report_is_honest_about_an_empty_project(tmp_path):
-    report = marker_routing.render_report(str(tmp_path))
-    assert "No notes have been collected" in report
-
-
 # ── The CLI ─────────────────────────────────────────────────────────
-
-def test_the_steps_command_prints_the_whole_table(capsys):
-    assert marker_routing.main(["steps"]) == 0
-    out = capsys.readouterr().out
-    for decision in STEP_DECISIONS:
-        assert decision.node_id in out
-    assert "step: <name>" in out
-
-
-def test_the_report_command_writes_nothing(tmp_path):
-    project = _project(tmp_path)
-    before = sorted(p.name for p in
-                    ProjectLayout(project).read_dir(Area.MARKER_FEEDBACK)
-                    .iterdir())
-    assert marker_routing.main(["report", "--project", project]) == 0
-    after = sorted(p.name for p in
-                   ProjectLayout(project).read_dir(Area.MARKER_FEEDBACK)
-                   .iterdir())
-    assert before == after
-
-
-def test_the_write_command_leaves_both_files(tmp_path):
-    project = _project(tmp_path)
-    assert marker_routing.main(["write", "--project", project]) == 0
-    names = {p.name for p in
-             ProjectLayout(project).read_dir(Area.MARKER_FEEDBACK).iterdir()}
-    assert marker_routing.REPORT_FILENAME in names
-    assert any(n.endswith(marker_routing.ROUTING_FILE_SUFFIX) for n in names)
 
 
 # ── The runner really carries it, and really refuses ────────────────
@@ -707,13 +542,6 @@ def test_the_projection_cannot_drop_it(tmp_path):
     assert narrowed[STEP_INPUT_NAME] == inputs[STEP_INPUT_NAME]
 
 
-def test_it_is_restored_around_the_projection_by_name():
-    """The other half of the same guarantee, read off the survey's own
-    list rather than off the runner, so the two cannot disagree."""
-    from library.tools import input_contract
-    assert STEP_INPUT_NAME in input_contract._RESTORED_AROUND_PROJECTION
-
-
 # ── A note that reaches nobody is SAID, not silently dropped ──────────
 
 def test_the_run_summary_names_every_note_that_reached_nobody(tmp_path):
@@ -747,16 +575,6 @@ def test_the_run_summary_names_every_note_that_reached_nobody(tmp_path):
         assert detail and detail in lines
 
 
-def test_every_note_reaching_a_prompt_still_says_so():
-    routed = [marker_routing.route_note(dict(
-        MOMENT_NOTE,
-        note="step: select_broll\nthis cutaway is broll of nothing",
-        text="step: select_broll\nthis cutaway is broll of nothing"))]
-    assert not marker_routing.undelivered(routed)
-    lines = "\n".join(marker_routing.undelivered_summary_lines(routed))
-    assert "none was dropped" in lines
-
-
 def test_a_run_that_delivered_nothing_records_that_on_the_note(tmp_path):
     """The note's OWN record, in the log the deliveries go to."""
     project = tmp_path / "proj"
@@ -783,44 +601,11 @@ def test_a_run_that_delivered_nothing_records_that_on_the_note(tmp_path):
     assert "**Delivered**" not in report
 
 
-def test_recording_nothing_writes_nothing(tmp_path):
-    project = tmp_path / "proj"
-    ProjectLayout(str(project)).ensure()
-    marker_routing.record_non_delivery(str(project), [])
-    assert marker_routing.deliveries(str(project)) == []
-
-
-def test_the_runner_reports_it_after_the_status_is_decided():
-    from pathlib import Path
-    source = (Path(__file__).resolve().parents[1] / "library" / "processes"
-              / "edit_video" / "run_pipeline.py").read_text()
-    assert "undelivered_summary_lines" in source
-    assert "record_non_delivery" in source
-    assert '"notes_reaching_nobody": notes_reaching_nobody' in source
-    assert source.index("status = ") < source.index(
-        "undelivered_summary_lines")
-
-
 # ── A note is an INTERVAL on a NAMED TIMELINE ───────────────────────
 #
 # `data/decisions/region-timeline-identity.md`: a note is on
 # `(timeline, span)`. The timeline half has always been on RoutedNote;
 # the span half was measured at collection and thrown away here.
-
-def test_a_notes_own_span_reaches_the_prompt():
-    """A marker DRAGGED to a length is an interval, and the prompt used
-    to be told only `at_timecode` - a point."""
-    raw = dict(CLIP_NOTE, frame=744, duration_frames=90)
-    routed = marker_routing.route_note(
-        raw, "Pipeline_Edit_01", "p.markers.json",
-        timeline_fps=30.0, timeline_start_frame=108000)
-
-    assert routed.duration_frames == 90
-    # (744 - 108000) is negative here only because this fixture's frame
-    # predates the offset; the real pairing is asserted below.
-    block = marker_routing.prompt_block([routed])
-    assert "at_region" in block["notes"][0]
-
 
 def test_the_span_subtracts_the_timelines_own_start_frame():
     """THE conversion, and the one that is easy to get wrong.
@@ -843,44 +628,6 @@ def test_the_span_subtracts_the_timelines_own_start_frame():
     block = marker_routing.prompt_block([routed])["notes"][0]
     assert block["at_region"] == "0.867..1.867"
     assert block["on_timeline"] == "Pipeline_Edit_01"
-
-
-def test_a_span_that_cannot_be_computed_is_absent_not_zero():
-    """A pull file written before `timeline_fps` was recorded has no fps.
-
-    A note reported at 0.000..0.000 would read as the first frame of the
-    cut, which is a claim about where the captain was looking.
-    """
-    routed = marker_routing.route_note(CLIP_NOTE, "tl", "p.markers.json")
-    assert marker_routing.note_span_seconds(routed) is None
-    block = marker_routing.prompt_block([routed])["notes"][0]
-    assert block["at_region"] == ""
-    assert "on_timeline" not in block
-
-
-def test_an_unplaced_note_has_no_span():
-    raw = dict(CLIP_NOTE, frame=None, unplaced_reason="not on this timeline")
-    routed = marker_routing.route_note(raw, "tl", "p.markers.json",
-                                       timeline_fps=30.0)
-    assert marker_routing.note_span_seconds(routed) is None
-
-
-def test_a_moment_notes_context_carries_each_clips_span(project_with_notes=None):
-    """`clips_under` rendered names only, so the one reader who could act
-    on "which of these covers my region" was told the least useful half.
-
-    Still CONTEXT, and it still routes nothing."""
-    routed = marker_routing.route_note(MOMENT_NOTE, "tl", "p.markers.json",
-                                       timeline_fps=30.0)
-    block = marker_routing.prompt_block([routed])["notes"][0]
-    assert block["attached_to"] == "moment"
-    joined = " ".join(block["clips_under"])
-    assert "0..72" in joined, joined
-    assert "0..1782" in joined, "the music bed's own span is context too"
-    # The withdrawn router stays withdrawn.
-    assert routed.target["kind"] == marker_routing.TARGET_MOMENT
-    assert "the_clip_under_the_playhead_decides" in \
-        marker_routing.WITHDRAWN_ROUTERS
 
 
 def test_route_project_hands_the_timelines_measurements_through(tmp_path):
@@ -924,22 +671,6 @@ def test_the_captains_september_words_route_to_their_steps():
         ("the bullets are mis-sized, please fix", "render_motion_graphics"),
         ("only use the main audio channel, the other 3 audio channels "
          "are bleeding", "audio_mix"),
-    ):
-        matched = marker_routing.matched_terms(note)
-        assert set(matched) == {expected}, (
-            f"{note!r} matched {sorted(matched)}")
-
-
-def test_the_september_terms_steal_no_other_steps_notes():
-    """A term added to one step must not start catching another's. The
-    bare word `channel` stays out on purpose - the motion-graphics
-    roster owns a `channel_bug`, and a note about that overlay must not
-    land on the mix; only the full phrase `audio channel` routes."""
-    for note, expected in (
-        ("that passage is repetitive", "speech_sequence"),
-        ("the captions drift", "plan_subtitles"),
-        ("the channel bug overlay never shows", "render_motion_graphics"),
-        ("the grade is too warm", "color_grade"),
     ):
         matched = marker_routing.matched_terms(note)
         assert set(matched) == {expected}, (

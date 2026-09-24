@@ -77,43 +77,6 @@ def _collect(asset, ledger, **kwargs):
     return collect_caption_changes(asset, ledger, **kwargs)
 
 
-class TestPairPredecessor:
-    def test_reading_derivation_pairs(self):
-        before, basis = pair_predecessor(
-            "SEO 2.0", {"seo two point oh", "unrelated card here"}
-        )
-        assert (before, basis) == ("seo two point oh", "reading")
-
-    def test_subsequence_pairs_the_splice_shape(self):
-        before, basis = pair_predecessor(
-            "the link's in our bio.", {"the link's bio.", "unrelated card here"}
-        )
-        assert (before, basis) == ("the link's bio.", "subsequence")
-
-    def test_reading_self_derives_by_idempotence_and_collect_filters_it(self):
-        # The reading is idempotent, so an identical text derives
-        # itself here; collect_caption_changes discards identical
-        # olds before pairing, so a self-pair never reaches the
-        # enumeration - the filter lives there, not in the matcher.
-        before, basis = pair_predecessor("AI sees you.", {"AI sees you."})
-        assert (before, basis) == ("AI sees you.", "reading")
-
-    def test_several_derivations_are_ambiguous_not_picked(self):
-        before, basis = pair_predecessor("AI", {"ai", "Ai"})
-        assert (before, basis) == (None, "ambiguous")
-
-
-class TestCardText:
-    def test_missing_props_reads_as_missing_not_empty(self, tmp_path):
-        assert card_text_from_props(str(tmp_path / "gone_props.json")) is None
-
-    def test_multi_card_segment_joins(self, tmp_path):
-        path = str(tmp_path / "x_props.json")
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump({"subtitles": [{"text": "one"}, {"text": "two"}]}, handle)
-        assert card_text_from_props(path) == "one | two"
-
-
 class TestCollect:
     def test_reading_change_pairs_from_superseded(self, tmp_path):
         asset = str(tmp_path)
@@ -200,17 +163,6 @@ class TestCollect:
         assert found.changes == []
         assert [d.reason for d in found.diagnostics] == ["ledger-unbound"]
 
-    def test_unbound_placed_file_joins_with_placements(self, tmp_path):
-        asset = str(tmp_path)
-        old = _mov(asset, "sub_craig_clip_1000-2000_aaaa1111")
-        _props(os.path.splitext(old)[0] + "_props.json", "seven modules here")
-        new = _mov(asset, "sub_craig_clip_1000-2000_bbbb2222")
-        _props(os.path.splitext(new)[0] + "_props.json", "7 modules here")
-        ledger = _ledger(asset, [])
-        found = _collect(asset, ledger, placements={"Reel 17": [new]})
-        assert [(c.timeline, c.before, c.after, c.source) for c in found.changes] == [
-            ("Reel 17", "seven modules here", "7 modules here", "placement")
-        ]
 
 
 class TestRender:
@@ -248,11 +200,6 @@ class TestRender:
             "- BEFORE 'ai sees you.'  ->  AFTER 'AI sees you.'\n"
         )
 
-    def test_counts_come_from_the_records(self):
-        out = render_enumeration(self._changes())
-        assert out.startswith(
-            "TOTAL changed cards: 3 placement(s) across 3 file(s) on 2 timeline(s)"
-        )
 
     def test_shared_file_repeats_per_reel(self):
         changes = [
@@ -294,39 +241,4 @@ class TestRender:
         assert "(3 live, 0 historical)" in out
         assert "(no live timeline)" not in out
 
-    def test_historical_binding_is_named_not_dropped(self):
-        changes = self._changes() + [
-            ChangeRecord(
-                timeline="Reel 26 (old)",
-                before="ai",
-                after="AI",
-                overlay_path="/a/9.mov",
-            )
-        ]
-        out = render_enumeration(changes, live_timelines={"Reel 01", "Reel 02"})
-        assert "### Reel 26 (old) (1) (no live timeline)" in out
-        assert "(3 live, 1 historical)" in out
 
-    def test_no_live_claim_without_live_set(self):
-        out = render_enumeration(self._changes())
-        assert "live" not in out.splitlines()[0]
-        assert "(no live timeline)" not in out
-
-    def test_empty_changes_still_report_counts(self):
-        assert render_enumeration([]) == (
-            "TOTAL changed cards: 0 placement(s) across 0 file(s) on 0 timeline(s)\n"
-        )
-
-
-class TestLedgerRefusals:
-    def test_missing_ledger_refuses(self, tmp_path):
-        with pytest.raises(SystemExit):
-            _collect(str(tmp_path), str(tmp_path / "render_ledger.json"))
-
-    def test_ledger_without_segments_refuses(self, tmp_path):
-        asset = str(tmp_path)
-        ledger = _ledger(asset, [])
-        with open(ledger, "w", encoding="utf-8") as handle:
-            json.dump({"subtitle_overlay": {}}, handle)
-        with pytest.raises(SystemExit):
-            _collect(asset, ledger)

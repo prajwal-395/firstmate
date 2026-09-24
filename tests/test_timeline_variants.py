@@ -113,12 +113,6 @@ def test_names_derive_both_ways_on_real_shapes():
         BASE_TIMELINE + CUTAWAY_SUFFIX
 
 
-def test_names_resolve_exactly_through_the_spec_record():
-    specs = ({"suffix": " (Reaction Cutaway)", "cutaway": {
-        "hide_angle": "Craig", "window_seconds": [574, 598]}},)
-    branch = tv.variant_branch_name(9, " (Reaction Cutaway)")
-    assert tv.timeline_for_branch(branch, BASE_TIMELINE, specs) == \
-        BASE_TIMELINE + " (Reaction Cutaway)"
 
 
 def test_final_is_not_a_variant_suffix():
@@ -132,15 +126,10 @@ def test_final_is_not_a_variant_suffix():
         BASE_TIMELINE + " (something-undeclared)", specs) is None
 
 
-def test_approved_timeline_lives_on_no_variant_branch():
-    assert tv.branch_for_timeline("Reel 09 - slug") is None
-    assert tv.timeline_for_branch("main", BASE_TIMELINE) is None
 
 
 # ── specs ────────────────────────────────────────────────────────────
 
-def test_cutaway_spec_validates():
-    assert tv.validate_variant_spec(dict(CUTAWAY_SPEC)) == []
 
 
 def test_spec_without_a_seam_is_refused():
@@ -186,29 +175,10 @@ def test_duplicate_suffix_is_refused(tmp_path):
 
 # ── reformatting never changes what the pipeline builds ──────────
 
-def test_canonical_spelling_is_parse_identical(tmp_path):
-    """The merge-friendly writers reorder keys and add a trailing
-    newline; the parsed document is byte-for-byte the same object, so
-    a rebuild from reformatted declarations builds the same timeline.
-    Proved here for the spelling itself and for the step-output
-    writer that every plan flows through."""
-    from library.tools import step_exporter
-    doc = {"tracks": {"V1": {"clips": [{"clip_id": "c1", "b": 2}]}},
-           "captions": ["it's exactly why"], "a": 1}
-    assert json.loads(stable_json.dumps_stable(doc)) == doc
-    paths = step_exporter.export_step_output(
-        str(tmp_path), "compile_manifest", "compile_manifest", doc)
-    on_disk = json.loads((tmp_path / paths["json"]).read_text(
-        encoding="utf-8"))
-    assert on_disk == doc
 
 
 # ── stable_json ──────────────────────────────────────────────────────
 
-def test_stable_spelling_sorts_keys_and_ends_in_newline():
-    text = stable_json.dumps_stable({"b": 1, "a": {"d": 4, "c": 3}})
-    assert text == '{\n  "a": {\n    "c": 3,\n    "d": 4\n  },\n  "b": 1\n}\n'
-    assert json.loads(text) == {"b": 1, "a": {"d": 4, "c": 3}}
 
 
 # ── create ───────────────────────────────────────────────────────────

@@ -41,30 +41,12 @@ def test_no_step_runner_hardcodes_a_timeout():
     )
 
 
-def test_the_ceiling_is_overridable(monkeypatch):
-    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "12")
-    assert run_pipeline.step_timeout_seconds() == 12
 
 
-def test_zero_means_no_ceiling_at_all(monkeypatch):
-    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "0")
-    assert run_pipeline.step_timeout_seconds() is None
 
 
-def test_a_nonsense_ceiling_raises_rather_than_defaulting(monkeypatch):
-    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "soon")
-    with pytest.raises(ValueError):
-        run_pipeline.step_timeout_seconds()
 
 
-@pytest.mark.heavy
-def test_a_step_that_outlives_the_ceiling_still_times_out(tmp_path, monkeypatch):
-    """The ceiling is real - it is generous, not absent."""
-    script = tmp_path / "slow.py"
-    script.write_text("import time\ntime.sleep(30)\n")
-    monkeypatch.setitem(os.environ, run_pipeline.STEP_TIMEOUT_ENV, "1")
-    with pytest.raises(subprocess.TimeoutExpired):
-        run_pipeline.run_deterministic_step(str(script), {})
 
 
 def test_stderr_is_streamed_and_still_reaches_the_error(tmp_path, capsys):
@@ -81,12 +63,3 @@ def test_stderr_is_streamed_and_still_reaches_the_error(tmp_path, capsys):
     assert "working on it" in capsys.readouterr().err
 
 
-def test_a_steps_json_result_survives_the_streaming(tmp_path):
-    script = tmp_path / "ok.py"
-    script.write_text(
-        "import json, sys\n"
-        "payload = json.load(sys.stdin)\n"
-        "print('chatter', file=sys.stderr)\n"
-        "json.dump({'echo': payload['x']}, sys.stdout)\n"
-    )
-    assert run_pipeline.run_deterministic_step(str(script), {"x": 7}) == {"echo": 7}

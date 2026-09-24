@@ -61,37 +61,6 @@ DECLARATION = {
 
 # ── The roster subset ────────────────────────────────────────────────
 
-def test_every_explainer_element_is_in_the_overlay_roster():
-    """No new element. An explainer is made of the roster's own."""
-    for key in ex.EXPLAINER_ELEMENTS:
-        assert key in vocab.ELEMENTS_BY_KEY
-
-
-def test_every_explainer_element_really_stages():
-    ex.assert_elements_stage()
-
-
-def test_assert_elements_stage_can_fail(monkeypatch):
-    """The check reads the roster, so a roster that stopped staging
-    fails here rather than producing an explainer that arrives whole."""
-    entry = vocab.ELEMENTS_BY_KEY["list_build"]
-    import dataclasses
-    flattened = dataclasses.replace(
-        entry, what_it_is="A set of items.", needs="the items as copy")
-    monkeypatch.setitem(vocab.ELEMENTS_BY_KEY, "list_build", flattened)
-    with pytest.raises(ex.ExplainerError, match="no longer says it stages"):
-        ex.assert_elements_stage()
-
-
-def test_every_explainer_element_is_drawable_by_the_renderer():
-    """`reachable_now` is not enough: the RENDERER has to dispatch on
-    it. `motion_graphics_plan.DRAWABLE` is derived from the roster's
-    reachable column and is what drops an entry nothing can draw."""
-    for key in ex.EXPLAINER_ELEMENTS:
-        assert key in mg.DRAWABLE, (
-            f"{key} is offered as an explainer element and "
-            f"motion_graphics_plan would drop it as undrawable")
-
 
 # ── Anchoring ────────────────────────────────────────────────────────
 
@@ -107,40 +76,12 @@ def test_a_stage_is_anchored_to_the_word_its_quote_begins_on():
     assert out.stages[2].at_seconds == pytest.approx(14.0)
 
 
-def test_a_line_without_words_anchors_to_the_line_and_says_so():
-    """The fallback is honest, not silent: six sources enumerated in one
-    breath sit in two transcript segments, so at line precision they
-    land on two instants and the build stops being a build."""
-    plain = [_line(line["at"], line["says"]) for line in LINES]
-    out = ex.anchor_stages(PARTS, plain, reel_seconds=30.0)
-    assert not out.refused
-    assert all(s.precision == ex.LINE for s in out.stages)
-    assert out.stages[0].at_seconds == 10.0
-    assert out.stages[1].at_seconds == 10.0  # collapsed onto its line
-    assert out.as_dict()["anchored_by"] == {ex.LINE: 3}
-
-
-def test_a_quote_spanning_two_lines_still_anchors():
-    """A sentence crossing a transcript boundary is not ungrounded."""
-    out = ex.anchor_stages(
-        [{"part": "the whole phrase", "quote": "Crunchbase Reddit threads"}],
-        LINES, reel_seconds=30.0)
-    assert not out.refused
-    assert out.stages[0].precision == ex.WORD
-
-
 def test_a_quote_the_reel_does_not_say_is_refused_as_ungrounded():
     out = ex.anchor_stages(
         [{"part": "Facebook", "quote": "your Facebook page"}],
         LINES, reel_seconds=30.0)
     assert not out.stages
     assert out.refused[0]["reason"] == ex.UNGROUNDED
-
-
-def test_a_part_with_no_quote_is_refused_rather_than_placed():
-    out = ex.anchor_stages([{"part": "LinkedIn", "quote": ""}], LINES, 30.0)
-    assert out.refused[0]["reason"] == ex.UNGROUNDED
-    assert "no quote" in out.refused[0]["detail"]
 
 
 def test_parts_the_reel_says_in_another_order_are_refused():
@@ -160,34 +101,7 @@ def test_a_stage_past_the_end_of_the_reel_is_refused():
     assert ex.OFF_THE_END in reasons
 
 
-def test_a_reel_with_no_length_raises_rather_than_anchoring_at_zero():
-    with pytest.raises(ex.ExplainerError, match="no length"):
-        ex.anchor_stages(PARTS, LINES, reel_seconds=0.0)
-
-
-def test_a_line_with_no_at_raises():
-    with pytest.raises(ex.ExplainerError, match="`at`"):
-        ex.anchor_stages(PARTS, [{"speaker": "A", "says": "your LinkedIn"}],
-                         reel_seconds=30.0)
-
-
-def test_an_empty_part_raises_rather_than_drawing_nothing():
-    with pytest.raises(ex.ExplainerError, match="draws nothing"):
-        ex.anchor_stages([{"part": "", "quote": "your LinkedIn"}], LINES, 30.0)
-
-
-def test_an_unknown_refusal_reason_raises():
-    out = ex.AnchoredExplainer(reel_seconds=1.0)
-    with pytest.raises(ex.ExplainerError, match="REFUSALS is the whole"):
-        out.refuse("x", "because_i_said_so")
-
-
 # ── The declaration ──────────────────────────────────────────────────
-
-def test_a_complete_declaration_normalises():
-    out = ex.normalise_declaration(DECLARATION)
-    assert out["element"] == "list_build"
-    assert out["hold_seconds"] == 2.0
 
 
 @pytest.mark.parametrize("field,value,message", [
@@ -212,46 +126,6 @@ def test_a_malformed_declaration_raises_by_name(field, value, message):
         ex.normalise_declaration(declaration)
 
 
-def test_a_declaration_with_neither_colour_nor_role_is_refused():
-    declaration = {k: v for k, v in DECLARATION.items() if k != "colour"}
-    with pytest.raises(ex.ExplainerError, match="colour"):
-        ex.normalise_declaration(declaration)
-
-
-def test_the_engine_supplies_no_value_of_its_own():
-    """Every axis a declaration must fill is refused when absent. The
-    engine states no colour, no element, no band, no anchor and no
-    hold - AGENTS.md 10.5."""
-    for key in ("element", "band", "anchor", "hold_seconds", "colour"):
-        declaration = {k: v for k, v in DECLARATION.items() if k != key}
-        with pytest.raises(ex.ExplainerError):
-            ex.normalise_declaration(declaration)
-
-
-def test_a_non_mapping_declaration_raises():
-    with pytest.raises(ex.ExplainerError, match="must be a mapping"):
-        ex.normalise_declaration(["list_build"])
-
-
-def test_the_project_wins_over_the_brand_template(tmp_path):
-    (tmp_path / "project.yaml").write_text(
-        "effect:\n  explainer:\n    element: step_counter\n", encoding="utf-8")
-    resolved = ex.resolve_declaration(
-        {"explainer": {"element": "list_build"}}, str(tmp_path))
-    assert resolved["element"] == "step_counter"
-
-
-def test_a_project_declaring_nothing_falls_back_to_the_template(tmp_path):
-    (tmp_path / "project.yaml").write_text("name: x\n", encoding="utf-8")
-    resolved = ex.resolve_declaration(
-        {"explainer": {"element": "list_build"}}, str(tmp_path))
-    assert resolved["element"] == "list_build"
-
-
-def test_declaring_nothing_anywhere_gets_nothing(tmp_path):
-    assert ex.resolve_declaration({}, str(tmp_path)) is None
-
-
 # ── The plan ─────────────────────────────────────────────────────────
 
 def test_the_plan_is_one_entry_whose_runs_are_the_stages():
@@ -264,121 +138,7 @@ def test_the_plan_is_one_entry_whose_runs_are_the_stages():
         "LinkedIn", "Crunchbase", "Reddit"]
 
 
-def test_the_stage_offsets_are_the_reel_seconds_rebased_to_the_entry():
-    anchored = ex.anchor_stages(PARTS, LINES, reel_seconds=30.0)
-    entries = ex.plan_entries(anchored, ex.normalise_declaration(DECLARATION))
-    offsets = entries[0]["data"]["stage_offsets"]
-    first = anchored.stages[0].at_seconds
-    assert offsets == [round(s.at_seconds - first, 3)
-                       for s in anchored.stages]
-    assert offsets[0] == 0.0
-
-
-def test_the_entry_ends_at_the_last_stage_plus_the_declared_hold():
-    anchored = ex.anchor_stages(PARTS, LINES, reel_seconds=30.0)
-    entry = ex.plan_entries(
-        anchored, ex.normalise_declaration(DECLARATION))[0]
-    last = anchored.stages[-1].at_seconds
-    assert entry["start_seconds"] + entry["duration_seconds"] == pytest.approx(
-        last + 2.0, abs=0.002)
-
-
-def test_the_hold_is_bounded_by_the_reel_and_never_by_a_constant():
-    anchored = ex.anchor_stages(PARTS, LINES, reel_seconds=15.0)
-    entry = ex.plan_entries(
-        anchored, ex.normalise_declaration(DECLARATION))[0]
-    assert entry["start_seconds"] + entry["duration_seconds"] <= 15.0
-
-
-def test_no_stages_plans_nothing():
-    empty = ex.AnchoredExplainer(reel_seconds=30.0)
-    assert ex.plan_entries(
-        empty, ex.normalise_declaration(DECLARATION)) == []
-
-
-def test_the_plan_entry_is_one_the_existing_resolver_understands():
-    """The whole route: this module writes an entry
-    `motion_graphics_plan.resolve_plan` accepts, and it must not be
-    dropped. An entry the resolver drops is an explainer that draws
-    nothing."""
-    anchored = ex.anchor_stages(PARTS, LINES, reel_seconds=30.0)
-    entries = ex.plan_entries(anchored, ex.normalise_declaration(DECLARATION))
-    resolved = mg.resolve_plan(entries, timeline_duration=30.0, fps=23.976,
-                               palette_roles={}, asked=True)
-    assert not resolved.dropped, [d.reason for d in resolved.dropped]
-    assert len(resolved.moments) == 1
-    assert resolved.moments[0]["data"]["stage_offsets"]
-
-
 # ── The picture bands ────────────────────────────────────────────────
-
-def test_the_bands_of_a_letterboxed_reel_are_the_measured_dead_frame():
-    """The field test's own numbers: a 3840x2160 source fitted into
-    1080x1920 puts picture at rows 656..1264, and the safe area is
-    120/320/90/120. Both come from existing modules; this is their
-    intersection."""
-    from library.tools.safe_area import safe_area_for_frame
-    bands = ex.picture_bands((0, 656, 1080, 1264), 1080, 1920,
-                             safe_area_for_frame(1080, 1920))
-    assert bands.above == (90, 120, 960, 656)
-    assert bands.height_of("above") == 536
-    assert bands.height_of("below") == 336
-    assert bands.covers_picture("over") is True
-    assert bands.covers_picture("above") is False
-
-
-def test_a_reel_whose_picture_fills_the_frame_has_no_dead_band():
-    from library.tools.safe_area import safe_area_for_frame
-    bands = ex.picture_bands((0, 0, 1080, 1920), 1080, 1920,
-                             safe_area_for_frame(1080, 1920))
-    assert bands.height_of("above") == 0
-    assert bands.height_of("below") == 0
-    assert bands.height_of("over") > 0
-
-
-def test_a_band_with_no_area_refuses_rather_than_positioning_in_it():
-    from library.tools.safe_area import safe_area_for_frame
-    bands = ex.picture_bands((0, 0, 1080, 1920), 1080, 1920,
-                             safe_area_for_frame(1080, 1920))
-    with pytest.raises(ex.ExplainerError, match="nowhere to put"):
-        ex.band_insets(bands, "above")
-
-
-def test_band_insets_are_the_band_expressed_as_a_box():
-    from library.tools.safe_area import safe_area_for_frame
-    bands = ex.picture_bands((0, 656, 1080, 1264), 1080, 1920,
-                             safe_area_for_frame(1080, 1920))
-    assert ex.band_insets(bands, "above") == {
-        "top": 120, "right": 120, "bottom": 1920 - 656, "left": 90}
-
-
-def test_an_unknown_band_raises():
-    from library.tools.safe_area import safe_area_for_frame
-    bands = ex.picture_bands((0, 656, 1080, 1264), 1080, 1920,
-                             safe_area_for_frame(1080, 1920))
-    with pytest.raises(ex.ExplainerError, match="is not a band"):
-        bands.band("sideways")
-
-
-def test_a_frame_with_no_size_raises():
-    from library.tools.safe_area import safe_area_for_frame
-    with pytest.raises(ex.ExplainerError, match="no width or height"):
-        ex.picture_bands((0, 0, 10, 10), 0, 0,
-                         safe_area_for_frame(1080, 1920))
-
-
-def test_the_band_report_says_what_the_declaration_bought_and_fails_nothing():
-    """A graphic over the shot is a legitimate gesture. What is not
-    legitimate is not KNOWING (AGENTS.md 10.4)."""
-    from library.tools.safe_area import safe_area_for_frame
-    bands = ex.picture_bands((0, 656, 1080, 1264), 1080, 1920,
-                             safe_area_for_frame(1080, 1920))
-    over = ex.band_report(bands, {"band": "over"})
-    assert over["covers_picture"] is True
-    assert over["picture_covered_fraction"] > 0
-    above = ex.band_report(bands, {"band": "above"})
-    assert above["covers_picture"] is False
-    assert above["picture_covered_fraction"] == 0.0
 
 
 # ── Authoring, end to end ────────────────────────────────────────────

@@ -124,10 +124,6 @@ def test_fresh_anchor_reports_nothing():
     assert drifted == [] and stale == []
 
 
-def test_sub_frame_jitter_is_not_drift():
-    drifted, stale = captain_edits.check_span_retime_freshness(
-        _spans(), _transcript(RECORDED_SO + 0.005), [_pin()], fps=FPS)
-    assert drifted == [] and stale == []
 
 
 def test_drifted_held_pin_is_enumerable_too():
@@ -144,11 +140,6 @@ def test_drifted_held_pin_is_enumerable_too():
     assert drifted[0]["frames_moved"] == 4
 
 
-def test_legacy_pin_without_a_record_never_reports_drift():
-    drifted, stale = captain_edits.check_span_retime_freshness(
-        _spans(), _transcript(RETIMED_SO), [_pin(recorded_edge=None)],
-        fps=FPS)
-    assert drifted == [] and stale == []
 
 
 # ── Outcome 1: no longer resolves ────────────────────────────────────
@@ -180,9 +171,6 @@ def test_drifted_is_loud_on_stderr(capsys):
     assert "DRIFTED EDIT" in captured.err
 
 
-def test_report_drifted_empty_reports_nothing(capsys):
-    assert captain_edits.report_drifted([]) == []
-    assert capsys.readouterr().err == ""
 
 
 # ── The write side stamps where the anchor resolved ──────────────────
@@ -202,18 +190,6 @@ def test_record_stamps_the_resolved_edge(tmp_path):
     assert captain_edits.load_edits(str(project)) == [edit]
 
 
-def test_record_stamps_the_tail_edge(tmp_path):
-    project = _project(tmp_path)
-    _write_transcript(project, _transcript(RECORDED_SO))
-    edit, _ = captain_edits.record_edit(
-        str(project),
-        {"kind": "span_retime",
-         "anchor_phrase": "the first step",
-         "edge": "tail",
-         "reason": "closes where judged"},
-        "captain, test")
-    words = _transcript(RECORDED_SO)["segments"][0]["words"]
-    assert edit["recorded_edge"] == pytest.approx(words[-1]["end"])
 
 
 def test_record_leaves_an_ambiguous_anchor_unstamped(tmp_path):

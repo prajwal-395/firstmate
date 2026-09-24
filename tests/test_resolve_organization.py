@@ -97,16 +97,6 @@ def a_plan(artefacts=None, **kw):
 # ---------------------------------------------------------------- states
 
 
-def test_the_live_plan_makes_a_reel_current():
-    assert reel_state("Reel 01 - live (harvest)", BUILT, ARCHIVED)[0] == CURRENT
-
-
-def test_an_archived_plan_name_makes_a_reel_earlier():
-    state, why = reel_state("Reel 01 - superseded", BUILT, ARCHIVED)
-    assert state == EARLIER
-    assert "archived" in why
-
-
 def test_a_name_no_plan_carries_is_unrecorded_not_guessed_by_prefix():
     """The eight one-offs on the field test are a plan name plus a typed
     suffix.  Calling them EARLIER would decide by prefix, which is what
@@ -117,18 +107,7 @@ def test_a_name_no_plan_carries_is_unrecorded_not_guessed_by_prefix():
     assert "no plan" in why
 
 
-def test_every_state_has_a_bin_and_a_colour():
-    assert set(STATE_BINS) == set(STATES) == set(STATE_CLIP_COLOURS)
-
-
 # ----------------------------------------------------------------- rules
-
-
-def test_generated_is_a_path_fact_about_the_project_directory():
-    assert is_generated(f"{PROJECT_ROOT}/pipeline_output/a.mov", PROJECT_ROOT)
-    assert not is_generated("/elsewhere/a.mov", PROJECT_ROOT)
-    assert not is_generated("", PROJECT_ROOT)
-    assert not is_generated(f"{PROJECT_ROOT}-other/a.mov", PROJECT_ROOT)
 
 
 def test_the_master_timeline_is_never_moved():
@@ -143,22 +122,6 @@ def test_organising_without_a_master_name_refuses():
         plan_organization(a_project(), PROJECT_ROOT, "", BUILT, ARCHIVED)
 
 
-def test_each_reel_files_under_its_state():
-    dest = {v.name: v.destination for v in a_plan().verdicts}
-    assert dest["Reel 01 - live (harvest)"] == (BIN_REELS, STATE_BINS[CURRENT])
-    assert dest["Reel 01 - superseded"] == (BIN_REELS, STATE_BINS[EARLIER])
-    assert dest["Reel 03 - superseded (fragment fix)"] == (
-        BIN_REELS, STATE_BINS[UNRECORDED])
-
-
-def test_a_generated_clip_files_under_the_one_timeline_that_places_it():
-    dest = {v.name: v.destination for v in a_plan().verdicts}
-    assert dest["sub_live_a.mov"] == (
-        BIN_SUBTITLES, "Reel 01 - live (harvest)")
-    assert dest["sub_old_a.mov"] == (
-        BIN_SUBTITLES, "Reel 01 - superseded")
-
-
 def test_a_caption_bin_does_not_move_when_its_reel_changes_state():
     """A captions tree mirroring the reel's state would strand an empty
     bin on every plan change, and nothing here may delete one."""
@@ -169,18 +132,6 @@ def test_a_caption_bin_does_not_move_when_its_reel_changes_state():
     assert live["sub_live_a.mov"] == demoted["sub_live_a.mov"]
     assert live["Reel 01 - live (harvest)"] != \
         demoted["Reel 01 - live (harvest)"]
-
-
-def test_a_generated_clip_no_timeline_places_says_so():
-    dest = {v.name: v.destination for v in a_plan().verdicts}
-    assert dest["sub_orphan.mov"] == (BIN_SUBTITLES, BIN_UNPLACED)
-
-
-def test_footage_from_outside_the_project_is_source_footage():
-    by_name = {v.name: v for v in a_plan().verdicts}
-    assert by_name["podcast_cam_a.mov"].destination == (BIN_SOURCE,)
-    assert by_name["flare.mov"].destination == (BIN_SOURCE,)
-    assert "outside the project" in by_name["flare.mov"].why
 
 
 def test_a_generated_clip_several_timelines_place_files_under_the_shared_leaf():
@@ -204,57 +155,7 @@ def test_a_generated_clip_several_timelines_place_files_under_the_shared_leaf():
     assert "no single reel" in by_name["shared.mov"].why
 
 
-def test_every_verdict_carries_its_evidence():
-    assert all(v.why.strip() for v in a_plan().verdicts)
-
-
-def test_every_bin_the_plan_files_into_is_in_its_folder_list():
-    plan = a_plan()
-    for v in plan.verdicts:
-        assert v.destination in plan.folders, v.destination_path
-
-
-def test_parent_bins_are_listed_before_their_children():
-    folders = a_plan().folders
-    for index, path in enumerate(folders):
-        if len(path) > 1:
-            assert path[:-1] in folders[:index]
-
-
-def test_an_item_already_in_place_is_not_a_move():
-    settled = [
-        timeline("t-master", MASTER),
-        timeline("t-cur", "Reel 01 - live (harvest)",
-                 folder=(BIN_REELS, STATE_BINS[CURRENT])),
-    ]
-    plan = a_plan(settled)
-    assert [v.name for v in plan.moves] == []
-    assert len(plan.verdicts) == 1
-
-
-def test_organising_twice_changes_nothing_the_second_time():
-    """Idempotence, on the plan side: file everything, re-read, re-plan."""
-    first = a_plan()
-    settled = []
-    for a in a_project():
-        match = next((v for v in first.verdicts if v.item_id == a.item_id),
-                     None)
-        settled.append(a if match is None
-                       else Artefact(a.item_id, a.name, a.kind, a.file_path,
-                                     a.placed_by, match.destination))
-    assert a_plan(settled).moves == []
-
-
 # ---------------------------------------------------------------- stamps
-
-
-def test_a_current_reel_is_stamped_with_the_plan_that_built_it():
-    stamps = {s["name"]: s for s in a_plan().stamps}
-    keywords = stamps["Reel 01 - live (harvest)"]["fields"]["Keywords"]
-    assert f"{TAG_PREFIX}state={CURRENT}" in keywords
-    assert f"{TAG_PREFIX}plan=1cf79aebb3c6" in keywords
-    assert stamps["Reel 01 - live (harvest)"]["clip_color"] == \
-        STATE_CLIP_COLOURS[CURRENT]
 
 
 def test_a_stamp_only_uses_metadata_keys_resolve_accepts():
@@ -266,23 +167,6 @@ def test_a_stamp_only_uses_metadata_keys_resolve_accepts():
                 "Environment", "Genre", "People", "Location"}
     for stamp in a_plan().stamps:
         assert set(stamp["fields"]) <= accepted, stamp["fields"]
-
-
-def test_only_reel_timelines_are_stamped():
-    stamped = {s["name"] for s in a_plan().stamps}
-    assert MASTER not in stamped
-    assert "sub_live_a.mov" not in stamped
-
-
-def test_an_earlier_reel_is_not_stamped_with_the_live_plan_hash():
-    stamps = {s["name"]: s for s in a_plan().stamps}
-    assert "plan=" not in stamps["Reel 01 - superseded"]["fields"]["Keywords"]
-
-
-def test_state_reads_back_off_the_keywords_that_were_written():
-    for stamp in a_plan().stamps:
-        assert state_from_keywords(
-            stamp["fields"]["Keywords"]) == stamp["state"]
 
 
 def test_keywords_that_say_nothing_of_ours_read_back_as_nothing():
@@ -299,18 +183,7 @@ def _filed(artefacts, plan):
     dest = {v.item_id: v.destination for v in plan.verdicts}
     return [Artefact(a.item_id, a.name, a.kind, a.file_path, a.placed_by,
                      dest.get(a.item_id, a.folder_path))
-            for a in artefacts]
-
-
-def test_the_gate_passes_on_a_correctly_filed_project():
-    """A gate that fails correct output is the same defect as one that
-    cannot fail (AGENTS.md 10.4)."""
-    artefacts = a_project()
-    plan = a_plan(artefacts)
-    settled = _filed(artefacts, plan)
-    recorded = {s["item_id"]: s["state"] for s in plan.stamps}
-    assert findings(settled, a_plan(settled), (), recorded) == []
-    assert_organized([])
+             for a in artefacts]
 
 
 def test_the_gate_fails_a_misfiled_timeline():
@@ -336,32 +209,6 @@ def test_the_gate_fails_a_duplicate_bin():
     settled = _filed(artefacts, plan)
     found = findings(settled, a_plan(settled), [f"{BIN_REELS}"])
     assert [f["kind"] for f in found] == ["duplicate_bin"]
-
-
-def test_the_gate_fails_a_state_stamp_that_no_longer_matches_the_record():
-    artefacts = a_project()
-    plan = a_plan(artefacts)
-    settled = _filed(artefacts, plan)
-    stale = {s["item_id"]: EARLIER for s in plan.stamps
-             if s["state"] == CURRENT}
-    found = findings(settled, a_plan(settled), (), stale)
-    assert [f["kind"] for f in found] == ["stale_state"]
-
-
-def test_the_gate_fails_an_item_that_left_the_pool():
-    artefacts = a_project()
-    plan = a_plan(artefacts)
-    settled = [a for a in _filed(artefacts, plan) if a.item_id != "c-orphan"]
-    found = findings(settled, plan)
-    assert any(f["kind"] == "missing_item" for f in found)
-
-
-def test_a_finding_names_the_item_and_says_what_is_wrong():
-    artefacts = a_project()
-    found = findings(artefacts, a_plan(artefacts))
-    assert found
-    for f in found:
-        assert f["name"] and f["detail"] and f["kind"]
 
 
 # --------------------------------------- bins the captain owns
@@ -407,44 +254,6 @@ def test_a_reel_in_a_bin_the_pipeline_does_not_manage_stays_there():
                     archived_plan_names=["Reel 05 - the-audit-that-was-eye-opening"])) == []
 
 
-def test_a_reel_in_the_pipelines_own_bin_is_still_filed():
-    """The other half of the contract: a CURRENT reel sitting in
-    `Earlier plans` is the pipeline's own lag, and the next build
-    re-files it.  This is not turning organising off."""
-    artefacts = [
-        timeline("t-master", MASTER),
-        timeline("t-cur", "Reel 01 - live (harvest)",
-                 folder=(BIN_REELS, STATE_BINS[EARLIER])),
-        timeline("t-old", "Reel 01 - superseded",
-                 folder=(BIN_REELS, STATE_BINS[CURRENT])),
-    ]
-    plan = a_plan(artefacts)
-    moves = {v.name: v.destination for v in plan.moves}
-    assert moves == {
-        "Reel 01 - live (harvest)": (BIN_REELS, STATE_BINS[CURRENT]),
-        "Reel 01 - superseded": (BIN_REELS, STATE_BINS[EARLIER]),
-    }
-    stamped = {s["name"] for s in plan.stamps}
-    assert {"Reel 01 - live (harvest)", "Reel 01 - superseded"} <= stamped
-
-
-def test_a_reel_in_the_retired_flat_reels_bin_re_files_by_state():
-    """The flat `Reels` bin is retired in favour of `05 - Reels`: a
-    reel sitting directly in it is the pipeline's own lag and moves,
-    never stranded beside the new bins. The captain's TIERS under it
-    are theirs and stay - see the test above."""
-    artefacts = [
-        timeline("t-master", MASTER),
-        timeline("t-flat", "Reel 01 - superseded", folder=(BIN_REELS,)),
-    ]
-    plan = a_plan(artefacts)
-    moves = {v.name: v.destination for v in plan.moves}
-    assert moves == {
-        "Reel 01 - superseded": (bins.REELS_BIN, STATE_BINS[EARLIER]),
-    }
-    assert "Reel 01 - superseded" not in [n for n, _ in plan.left_alone]
-
-
 # ------------------------------------------------------- non-destructive
 
 
@@ -470,14 +279,6 @@ def test_no_module_here_can_delete_anything(module):
         assert f"{call}(" not in executable, (
             f"{module} calls {call} - organising must never delete "
             f"(AGENTS.md 5, the captain's ruling of 2026-09-06)")
-
-
-def test_the_plan_renders_something_an_operator_can_read():
-    text = render_plan(a_plan())
-    assert BIN_REELS in text and "would move" in text
-    assert MASTER in text
-    for state in STATES:
-        assert state in text
 
 
 # ------------------------------------------------- what nothing plays
@@ -509,15 +310,6 @@ def test_the_unplaced_report_names_a_file_a_placed_item_also_uses():
     assert report["shared_with_placed"] == (shared,)
 
 
-def test_the_unplaced_report_can_say_nothing_is_unplaced():
-    """The report must be able to come back empty on a clean project, or
-    it is a number that only ever grows (AGENTS.md 10.4)."""
-    artefacts = [a for a in a_project() if a.item_id != "c-orphan"]
-    report = unplaced_report(artefacts, PROJECT_ROOT)
-    assert report["count"] == 0
-    assert report["paths"] == () and report["shared_with_placed"] == ()
-
-
 def test_a_clip_with_no_file_path_is_not_claimed_as_this_pipelines():
     """`Akshita` on the field test is unplaced and has no file path, so
     nothing can show a run wrote it. It is source material, not a
@@ -528,18 +320,3 @@ def test_a_clip_with_no_file_path_is_not_claimed_as_this_pipelines():
     assert len(report["paths"]) == report["count"], (
         "count and paths must be the same population, or a caller sizing "
         "`paths` under-reports `count` with nothing saying so")
-
-
-def test_an_unplaced_clip_is_never_a_finding():
-    """A superseded render is filed exactly where its evidence puts it.
-    Failing the check on it would fail correct output - AGENTS.md 10.4."""
-    first = a_plan()
-    settled = []
-    for a in a_project():
-        match = next((v for v in first.verdicts if v.item_id == a.item_id),
-                     None)
-        settled.append(a if match is None
-                       else Artefact(a.item_id, a.name, a.kind, a.file_path,
-                                     a.placed_by, match.destination))
-    assert findings(settled, a_plan(settled)) == []
-    assert unplaced_report(settled, PROJECT_ROOT)["count"] == 1

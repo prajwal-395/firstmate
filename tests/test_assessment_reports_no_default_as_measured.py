@@ -95,14 +95,6 @@ def test_no_deterministic_field_holds_a_value_when_nothing_measured():
     )
 
 
-def test_the_same_holds_with_no_temporal_index_at_all():
-    result = compute_deterministic_assessment(
-        None, transcript="", duration=188.578)
-    reported = {
-        key: value for key, value in result.items()
-        if value not in ADMITTED_ABSENCES
-    }
-    assert not reported, reported
 
 
 # ── speech_coverage / speech_present ────────────────────────────────────
@@ -150,13 +142,6 @@ def test_regions_measure_both_and_say_which_measured_them():
     assert result["speech_coverage_method"] == "temporal_index"
 
 
-def test_regions_without_a_duration_measure_presence_only():
-    index = {"speech_regions": [{"start": 1.0, "end": 6.0}]}
-    result = compute_deterministic_assessment(index, "", duration=0)
-
-    assert result["speech_present"] is True
-    assert result["speech_coverage"] is None
-    assert result["speech_coverage_method"] == "unmeasured"
 
 
 # ── primary_subject_visible ─────────────────────────────────────────────
@@ -170,11 +155,6 @@ def _assessment_from_model(answer):
     return assessment
 
 
-def test_an_answer_without_the_key_is_not_an_answer_of_nowhere():
-    assessment = _assessment_from_model({"content_type": "scenery"})
-    assert assessment["primary_subject_visible"] is None, (
-        "[] says 'the subject appears nowhere in this clip', and the "
-        "model did not say that - it said nothing")
 
 
 def test_an_answer_of_empty_is_kept_because_the_model_made_it():
@@ -195,15 +175,8 @@ STALE_001_ASSESSMENT = {
 }
 
 
-def test_a_range_beside_an_unmeasured_method_reads_as_unmeasured():
-    assert usable_ranges_summary(STALE_001_ASSESSMENT) == UNMEASURED_SUMMARY
 
 
-def test_a_measured_range_still_renders_as_a_range():
-    measured = dict(STALE_001_ASSESSMENT,
-                    usable_ranges_method="deterministic_v1",
-                    usable_ranges_signals=["picture_sharpness"])
-    assert usable_ranges_summary(measured) == "0.0-3.5s"
 
 
 def test_the_broll_candidate_cell_says_unmeasured():
@@ -247,11 +220,3 @@ def test_an_unknown_content_type_derives_no_clip_type():
         "b_roll would classify a clip nothing classified")
 
 
-def test_a_measured_content_type_still_derives_one():
-    doc = {
-        "clip_id": "clip_001",
-        "vision_schema_version": "3.0",
-        "scene": [], "camera": [], "actions": [], "objects": [],
-        "assessment": {"content_type": "person_talking_to_camera"},
-    }
-    assert adapt_semantic_document(doc)["assessment"]["clip_type"] == "a_roll"

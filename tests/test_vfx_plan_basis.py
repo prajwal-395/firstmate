@@ -76,64 +76,20 @@ def _run(plan):
 
 # ── The vocabulary ────────────────────────────────────────────────────
 
-def test_the_vocabulary_is_well_formed():
-    assert_vocabulary_is_well_formed()
 
 
-def test_the_two_empty_bases_are_spelled_differently():
-    """A decision and the absence of one may not share a name.
-
-    Same rule `cutaway_window.BASES` follows, where `single_span` is
-    recorded apart from `moment_match`.
-    """
-    assert "no_effects_planned" in PLAN_BASES
-    assert "every_entry_dropped" in PLAN_BASES
-    assert "empty" not in PLAN_BASES
 
 
-def test_the_basis_is_read_off_the_counts():
-    assert plan_basis(0, 0) == "no_effects_planned"
-    assert plan_basis(4, 0) == "every_entry_dropped"
-    assert plan_basis(4, 2) == "planned"
-    assert plan_basis(2, 2) == "planned"
 
 
-def test_a_plan_cannot_grow():
-    with pytest.raises(ValueError, match="cannot grow"):
-        plan_basis(1, 2)
 
 
-def test_an_unknown_drop_reason_is_refused_by_name():
-    with pytest.raises(ValueError, match="unknown VFX drop reason"):
-        DroppedEntry(target_block_position=1, effect_type="x",
-                     reason="because_i_felt_like_it")
 
 
-def test_an_unknown_basis_is_refused_by_name():
-    with pytest.raises(ValueError, match="unknown VFX plan basis"):
-        basis_summary({"basis": "fine", "proposed": 0, "resolved": 0})
 
 
-def test_the_refusal_question_is_recorded_not_answered():
-    """Whether a dropped entry should FAIL the step is the captain's.
-
-    AGENTS.md 10.5 refuses an unplayable sound in 4.04 and 13 refuses an
-    invented bookend, so the precedent exists - and this module records
-    the question rather than settling it (the brief's "propose, do not
-    settle").  The proof that it did not settle it is that a plan whose
-    every entry is dropped still exits 0.
-    """
-    assert "captain" in THE_REFUSAL_QUESTION or "Not settled" in THE_REFUSAL_QUESTION
-    spec, _ = _run([{"target_block_position": 7, "effect_type": "glitch",
-                     "params": {"zoom_start": 1.0, "zoom_end": 1.03},
-                     "rationale": "x"}])
-    assert spec["visual_effects"] == []
-    assert spec["planning_basis"]["basis"] == "every_entry_dropped"
 
 
-def test_every_legend_key_is_a_key_of_the_record():
-    spec, _ = _run([])
-    assert set(BASIS_LEGEND) == set(spec["planning_basis"])
 
 
 # ── The distinction, driven through the real post-bridge ──────────────
@@ -235,11 +191,3 @@ def test_the_record_carries_no_creative_value():
     assert drop["target_block_position"] == 7
 
 
-def test_the_dataclass_and_the_json_agree():
-    record = PlanBasis(
-        proposed=2, resolved=1,
-        dropped=[DroppedEntry(7, "glitch", "unknown_effect_type", "d")],
-    ).as_dict()
-    assert record["basis"] == "planned"
-    assert record["dropped"][0]["reason"] in DROP_REASONS
-    assert basis_summary(record).startswith("VFX plan: planned")

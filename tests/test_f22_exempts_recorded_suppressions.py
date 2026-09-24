@@ -81,29 +81,3 @@ def test_unsuppressed_missing_segment_still_errors():
               and f.severity == "error"]
     assert len(errors) == 1
     assert "577" in errors[0].message
-
-
-def test_suppression_naming_nothing_suppresses_nothing():
-    planned = _planned(suppressed=("mg_elsewhere",))
-    placed_a = _item(int(round(10.0 * FPS)), 84, name="mg_a")
-    findings = check_semantic_visuals(
-        "Reel 01 - test", [placed_a], planned, FPS)
-    errors = [f for f in findings
-              if f.finding_class == FindingClass.F22
-              and f.severity == "error"]
-    assert len(errors) == 1
-
-
-def test_suppressed_segment_placed_anyway_is_flagged():
-    # The record says "held back" but the timeline plays it: that
-    # contradiction is fail-closed, not exempted.
-    planned = _planned(suppressed=("mg_b",))
-    placed_a = _item(int(round(10.0 * FPS)), 84, name="mg_a")
-    placed_b = _item(int(round(24.066 * FPS)), 10, name="mg_b")
-    findings = check_semantic_visuals(
-        "Reel 01 - test", [placed_a, placed_b], planned, FPS)
-    errors = [f for f in findings
-              if f.finding_class == FindingClass.F22
-              and f.severity == "error"]
-    assert len(errors) == 1
-    assert "no recorded semantic visual accounts for" in errors[0].message

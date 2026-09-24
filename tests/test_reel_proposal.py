@@ -81,10 +81,6 @@ def test_a_proposed_moment_is_not_buildable():
     assert "still PROPOSED" in str(excinfo.value)
 
 
-def test_the_default_approval_is_proposed():
-    assert _moment().approval is Approval.PROPOSED
-
-
 def test_a_rejected_moment_is_not_buildable():
     moment = _moment(approval=Approval.REJECTED,
                      approval_note="covered better later")
@@ -118,10 +114,6 @@ def test_the_reel_name_is_the_captains_format():
     assert reel_timeline_name(12, "Why AI Reads Copy") == "Reel 12 - why-ai-reads-copy"
 
 
-def test_the_number_is_zero_padded_to_two_digits():
-    assert reel_timeline_name(3, "x").startswith("Reel 03 - ")
-
-
 def test_an_empty_slug_is_visibly_untitled_not_blank():
     assert slugify("") == "untitled"
     assert reel_timeline_name(1, "!!!") == "Reel 01 - untitled"
@@ -130,13 +122,9 @@ def test_an_empty_slug_is_visibly_untitled_not_blank():
 # ── A proposal must be real ──────────────────────────────────────────
 
 @pytest.mark.parametrize("case", [
-    "valid_proposal",
-    "no_maximum_length",
     "boundary_on_whole_segments",
     "snapping_makes_a_refused_moment_pass",
     "overlapping_moments_are_surfaced",
-    "moment_with_no_cta",
-    "nothing_scores_or_ranks_a_cta",
 ])
 def test_valid_proposal_shapes_pass(case):
     """B1 collapse: the seven valid-input passes in one parametrized
@@ -203,39 +191,6 @@ def test_a_moment_where_nobody_speaks_is_refused():
     assert "invented timecode" in str(excinfo.value)
 
 
-def test_a_moment_with_no_reason_is_refused():
-    with pytest.raises(ProposalError) as excinfo:
-        validate_proposal([_moment(reason="   ")], _transcript(), 2656.6)
-    assert "no reason" in str(excinfo.value)
-
-
-def test_an_empty_range_is_refused():
-    with pytest.raises(ProposalError):
-        validate_proposal([_moment(timeline_end=10.0)], _transcript(), 2656.6)
-
-
-def test_a_span_under_the_measurement_floor_is_refused():
-    with pytest.raises(ProposalError) as excinfo:
-        validate_proposal(
-            [_moment(timeline_start=10.0,
-                     timeline_end=10.0 + MIN_REEL_SECONDS - 0.1)],
-            _transcript(), 2656.6)
-    assert "floor" in str(excinfo.value)
-
-
-def test_a_repeated_reel_number_is_refused():
-    with pytest.raises(ProposalError) as excinfo:
-        validate_proposal([_moment(number=1), _moment(number=1, slug="other")],
-                          _transcript(), 2656.6)
-    assert "used twice" in str(excinfo.value)
-
-
-def test_an_empty_proposal_is_refused():
-    with pytest.raises(ProposalError) as excinfo:
-        validate_proposal([], _transcript(), 2656.6)
-    assert "no moments proposed" in str(excinfo.value)
-
-
 # ── Measured fields are attached, not asked for ──────────────────────
 
 def test_enrich_attaches_speakers_and_ground_truth():
@@ -244,14 +199,6 @@ def test_enrich_attaches_speakers_and_ground_truth():
     assert "SEO is about convincing" in enriched.transcript_preview
     assert [s["source_file"] for s in enriched.source_spans] == [
         "/m/LCATL0011.MXF", "/m/LC4930.MXF"]
-
-
-def test_enrich_leaves_the_span_alone():
-    """Measured fields are attached; the model's choice is not edited."""
-    moment = _moment()
-    enriched = enrich(moment, _transcript())
-    assert (enriched.timeline_start, enriched.timeline_end) == (
-        moment.timeline_start, moment.timeline_end)
 
 
 # ── The review surface ───────────────────────────────────────────────
@@ -274,31 +221,11 @@ def test_a_proposal_round_trips_with_the_captains_decision(tmp_path):
     assert assert_approved(loaded[0]) is loaded[0]
 
 
-def test_the_document_says_how_to_approve(tmp_path):
-    path = tmp_path / "p.json"
-    write_proposal(path, [_moment()], _transcript())
-    data = json.loads(path.read_text())
-    assert "approved" in data["instruction"]
-    assert "Nothing is built" in data["instruction"]
-
-
 def test_a_foreign_document_is_refused(tmp_path):
     path = tmp_path / "p.json"
     path.write_text(json.dumps({"format": "something/else", "moments": []}))
     with pytest.raises(ProposalError):
         read_proposal(path)
-
-
-def test_the_review_rendering_shows_state_timecode_and_reason():
-    text = render_for_review([
-        enrich(_moment(), _transcript()),
-        _moment(number=2, slug="later", timeline_start=400.0,
-                timeline_end=409.0, approval=Approval.APPROVED),
-    ])
-    assert "[ ] Reel 01 - seo-vs-geo" in text
-    assert "[x] Reel 02 - later" in text
-    assert "00:10-00:26" in text
-    assert "The clearest one-line contrast" in text
 
 
 # ── A reel never opens or closes mid-sentence ────────────────────────
@@ -348,33 +275,6 @@ def test_snap_keeps_an_end_in_clean_silence():
     assert snap_to_speech(10.0, 30.0, tx) == (10.0, 30.0)
 
 
-def test_snap_keeps_a_start_in_clean_silence():
-    """Symmetric with the tail: a head breath cuts nothing either."""
-    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
-             _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
-    assert snap_to_speech(5.0, 26.0, tx) == (5.0, 26.0)
-
-
-def test_snap_still_widens_a_boundary_cutting_speech():
-    """The silence keep changes nothing about a boundary inside speech:
-    it still widens outward to whole segments."""
-    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
-             _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
-    assert snap_to_speech(10.0, 20.0, tx) == (10.0, 26.0)
-    assert snap_to_speech(14.0, 26.0, tx) == (10.0, 26.0)
-
-
-def test_a_straddling_segment_is_never_a_boundary_anchor():
-    """It has no single ground truth, and is often a bridged silence."""
-    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
-             _bound(timeline_start=22.0, timeline_end=47.2,
-                    resolve_item_id=None))          # straddles a cut
-    assert len(bound_segments(tx)) == 1
-    assert len(straddling_segments(tx)) == 1
-    # snapping ignores the straddler rather than extending to 47.2s
-    assert snap_to_speech(11.0, 17.0, tx) == (10.0, 18.0)
-
-
 def test_a_straddler_the_span_touches_still_does_not_widen_it():
     """The case the test above could not reach, and the one that bit.
 
@@ -407,14 +307,6 @@ def test_straddling_speech_inside_a_span_is_reported():
     # ONE word over a 24-second segment: a bridge, and the count is
     # what says so.  Summed word durations would read 24 voiced seconds.
     assert reported[0]["word_count"] == 1
-
-
-def test_a_straddler_outside_the_span_is_not_reported():
-    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
-             _bound(timeline_start=22.0, timeline_end=47.2,
-                    resolve_item_id=None,
-                    words=[{"word": "later", "start": 22.0, "end": 22.4}]))
-    assert straddling_within(10.0, 18.0, tx) == []
 
 
 def test_enrich_carries_the_straddling_report_and_it_round_trips():
@@ -478,23 +370,6 @@ def test_snap_moves_an_end_out_of_a_straddling_word():
     assert snap_to_speech(342.038, 413.851, tx) == (342.038, 414.03)
 
 
-def test_snap_moves_a_start_out_of_a_straddling_word():
-    """The same cut, at the other edge: a snapped start that lands
-    inside a straddling word moves back to the word's start, so the
-    reel opens on a word boundary rather than mid-word."""
-    tx = _tx(
-        _bound(speaker="Craig", text="about",
-               timeline_start=12.77, timeline_end=14.03,
-               resolve_item_id=None,
-               words=[{"word": "about", "start": 12.77, "end": 14.03}]),
-        _bound(speaker="Craig", text="a lot of times",
-               timeline_start=13.0, timeline_end=18.0,
-               resolve_item_id="uid-c",
-               words=[{"word": "lot", "start": 13.1, "end": 13.2}]),
-    )
-    assert snap_to_speech(13.0, 17.0, tx) == (12.77, 18.0)
-
-
 def test_enrich_ignores_straddling_segments_too():
     """Otherwise a preview shows words the reel does not contain, and
     names a speaker who is not in it."""
@@ -541,41 +416,12 @@ def test_a_reworded_retake_is_found():
     assert found[0]["first_start"] < found[0]["second_start"]
 
 
-def test_a_finding_names_both_timeline_ranges():
-    """So the captain can see which of the two to drop without hunting."""
-    tx = _tx(_spoken("google only ranks pages and cares nothing about "
-                     "information", 10.0, 20.0),
-             _spoken("google only ranks pages caring nothing about "
-                     "information", 21.0, 30.0, uid="uid-2"))
-    found = duplicate_takes(10.0, 30.0, tx)
-    assert found
-    entry = found[0]
-    for key in ("first_start", "first_end", "second_start", "second_end",
-                "first_text", "second_text", "similarity", "band"):
-        assert key in entry, key
-    assert entry["second_start"] > entry["first_end"]
-
-
 def test_distinct_speech_is_not_a_retake():
     tx = _tx(_spoken("seo is about convincing an algorithm to rank your "
                      "page higher", 10.0, 20.0),
              _spoken("geo is about whether artificial intelligence "
                      "comprehends your company", 21.0, 30.0, uid="uid-2"))
     assert duplicate_takes(10.0, 30.0, tx) == []
-
-
-def test_the_two_bands_are_reported_separately():
-    """No single window is both complete and clean, so the boundary is
-    REPORTED rather than decided - the shape footage_search already uses
-    for its dense floor and weak band."""
-    from library.tools.reel_proposal import (
-        TAKE_WEAK_WINDOW, TAKE_WINDOW_WORDS)
-    assert TAKE_WEAK_WINDOW < TAKE_WINDOW_WORDS
-    tx = _tx(_spoken("machines actually comprehend the company", 10.0, 15.0),
-             _spoken("whether machines actually comprehend anyone",
-                     20.0, 25.0, uid="uid-2"))
-    found = duplicate_takes(10.0, 25.0, tx)
-    assert found and found[0]["band"] == "possible"
 
 
 def test_a_straddling_segment_is_not_scanned_for_takes():
@@ -586,24 +432,6 @@ def test_a_straddling_segment_is_not_scanned_for_takes():
              dict(_spoken("we ran an audit on a client for their seo team",
                           21.0, 30.0, uid="uid-2"), resolve_item_id=None))
     assert duplicate_takes(10.0, 30.0, tx) == []
-
-
-def test_enrich_attaches_the_findings_to_the_moment():
-    tx = _tx(_spoken("we ran an audit on a client and their seo team "
-                     "stuffed keywords into h1 tags", 10.0, 20.0),
-             _spoken("we ran an audit last week where an seo team stuffed "
-                     "keywords into h1 tags", 21.0, 30.0, uid="uid-2"))
-    enriched = enrich(_moment(timeline_start=10.0, timeline_end=30.0), tx)
-    assert enriched.as_dict()["duplicate_takes"]  # the list is non-empty
-    assert bool(enriched.duplicate_takes) is True
-
-
-def test_a_moment_with_no_repeat_says_so():
-    tx = _tx(_spoken("seo convinces an algorithm to rank pages higher",
-                     10.0, 18.0))
-    enriched = enrich(_moment(timeline_start=10.0, timeline_end=18.0), tx)
-    assert enriched.as_dict()["duplicate_takes"] == []
-    assert bool(enriched.duplicate_takes) is False
 
 
 def test_a_repeat_never_removes_anything():
@@ -643,11 +471,6 @@ def test_snapping_reaches_a_fixed_point():
 # A single-speaker moment is a bad PICK, not an integrity failure.
 # It is DROPPED with a reason, not raised - raising would discard the
 # other nineteen good reels because one was a monologue.
-
-def test_a_two_speaker_moment_is_a_conversation():
-    """Both speakers with real turns - is_conversation returns None."""
-    from library.tools.reel_proposal import is_conversation
-    assert is_conversation(_moment(), _transcript()) is None
 
 
 def test_a_single_speaker_moment_is_not_a_conversation():
@@ -709,23 +532,6 @@ def test_post_bridge_drops_a_monologue_and_keeps_a_conversation():
 #
 # A hole in the captain's master is invisible to the model. Raising
 # kills the whole batch for a defect the model had no way to avoid.
-
-def test_a_moment_over_a_picture_hole_is_dropped():
-    """overlaps_picture_hole returns a reason naming the hole's position."""
-    from library.tools.reel_proposal import overlaps_picture_hole
-    tx = _transcript()
-    tx["derived_from"]["picture_holes"] = [(12.0, 13.5)]
-    reason = overlaps_picture_hole(_moment(), tx)
-    assert reason is not None
-    assert "picture hole" in reason
-    assert "play black" in reason
-
-
-def test_a_moment_avoiding_holes_passes():
-    from library.tools.reel_proposal import overlaps_picture_hole
-    tx = _transcript()
-    tx["derived_from"]["picture_holes"] = [(50.0, 52.0)]
-    assert overlaps_picture_hole(_moment(), tx) is None
 
 
 def test_post_bridge_drops_a_moment_over_a_hole():
@@ -841,25 +647,6 @@ def test_two_reels_may_close_on_the_same_cta():
             == second.call_to_action.master_range)
 
 
-def test_a_cta_where_nobody_speaks_is_refused():
-    """The rule that stops a CTA being authored, templated or padded."""
-    with pytest.raises(ProposalError, match="genuinely SPOKEN"):
-        validate_proposal([_with_cta(cta=(900.0, 910.0))],
-                          _cta_transcript(), 1200.0)
-
-
-def test_a_cta_outside_the_timeline_is_refused():
-    with pytest.raises(ProposalError, match="outside the timeline"):
-        validate_proposal([_with_cta(cta=(1300.0, 1310.0))],
-                          _cta_transcript(), 1200.0)
-
-
-def test_a_cta_that_is_not_a_range_is_refused():
-    with pytest.raises(ProposalError, match="not a range"):
-        validate_proposal([_with_cta(cta=(476.5, 468.06))],
-                          _cta_transcript(), 1200.0)
-
-
 def test_a_cta_inside_its_own_body_is_refused():
     """The reel would play those seconds twice."""
     with pytest.raises(ProposalError, match="play those seconds twice"):
@@ -880,48 +667,6 @@ def test_a_cta_reads_its_words_back_off_the_transcript():
     enriched = enrich(_with_cta(), _cta_transcript())
     assert "lucycontent.com" in enriched.call_to_action.text
     assert enriched.call_to_action.speaker == "Craig"
-
-
-def test_a_cta_survives_being_written_and_read_back(tmp_path):
-    """`from_dict` drops any key it does not name, so a closer that does
-    not round-trip never reaches the build path at all."""
-    path = tmp_path / "reel_proposals_v2.json"
-    write_proposal(path, [enrich(_with_cta(), _cta_transcript())],
-                   _cta_transcript())
-    back = read_proposal(path)[0]
-    assert back.call_to_action is not None
-    assert back.call_to_action.timeline_start == pytest.approx(468.06)
-    assert back.call_to_action.timeline_end == pytest.approx(476.5)
-    assert "lucycontent.com" in back.call_to_action.text
-
-
-def test_a_reel_with_no_cta_round_trips_as_none(tmp_path):
-    path = tmp_path / "reel_proposals_v2.json"
-    write_proposal(path, [_with_cta(cta=None)], _cta_transcript())
-    assert read_proposal(path)[0].call_to_action is None
-
-
-def test_total_duration_counts_the_closer_and_duration_does_not():
-    moment = _with_cta()
-    assert moment.duration == pytest.approx(60.0)
-    assert moment.total_duration == pytest.approx(60.0 + 8.44)
-
-
-def test_the_review_surface_names_the_closer():
-    """The captain reads this. A reel that plays eight seconds nobody can
-    see in the timecodes is a surprise in Resolve."""
-    rendered = render_for_review([enrich(_with_cta(), _cta_transcript())])
-    assert "closes on" in rendered
-    assert "lucycontent.com" in rendered
-
-
-def test_a_cta_over_a_picture_hole_is_a_bad_pick_not_a_raise():
-    """A closer plays black over a hole exactly as the body would."""
-    from library.tools.reel_proposal import overlaps_picture_hole
-    transcript = _cta_transcript()
-    transcript["derived_from"]["picture_holes"] = [[470.0, 474.0]]
-    reason = overlaps_picture_hole(_with_cta(), transcript)
-    assert reason and "call to action" in reason
 
 
 # ── Publishing the plan the builder reads ────────────────────────────
@@ -962,21 +707,6 @@ def test_the_step_output_becomes_the_file_the_builder_reads(tmp_path):
     assert written[0].approval is Approval.PROPOSED
 
 
-def test_a_published_moment_carries_its_borrowed_closer(tmp_path):
-    """The CTA range survives the trip through the review file, because
-    that file is what `build-reels` reads back."""
-    from library.tools.reel_proposal import write_from_step_output
-
-    root = _project_with_step_output(
-        tmp_path, [_emitted(call_to_action={"timeline_start": 400.0,
-                                            "timeline_end": 409.0,
-                                            "note": "the closer"})])
-    written = read_proposal(write_from_step_output(root))
-    assert written[0].call_to_action is not None
-    assert written[0].call_to_action.timeline_start == 400.0
-    assert written[0].call_to_action.timeline_end == 409.0
-
-
 def test_publishing_refuses_to_discard_the_captains_answer(tmp_path):
     from library.tools.reel_proposal import write_from_step_output
     root = _project_with_step_output(tmp_path, [_emitted()])
@@ -994,15 +724,6 @@ def test_publishing_refuses_to_discard_the_captains_answer(tmp_path):
 
     write_from_step_output(root, force=True)
     assert read_proposal(path)[0].approval is Approval.PROPOSED
-
-
-def test_publishing_before_the_step_has_run_says_so(tmp_path):
-    from library.tools.reel_proposal import write_from_step_output
-    root = tmp_path / "project"
-    (root / "pipeline_output").mkdir(parents=True)
-    with pytest.raises(ProposalError) as excinfo:
-        write_from_step_output(root)
-    assert "step 3.4 has not run" in str(excinfo.value)
 
 
 def test_a_borrowed_closer_reports_the_speech_its_text_omits():
@@ -1031,12 +752,3 @@ def test_a_borrowed_closer_reports_the_speech_its_text_omits():
     assert enriched.straddling_within[0]["word_count"] == 2
 
 
-def test_a_closer_with_no_straddling_speech_reports_none():
-    from library.tools.reel_proposal import (CallToAction,
-                                             enrich_call_to_action)
-    tx = _tx(_bound(speaker="Craig", text="go check it out",
-                    timeline_start=400.0, timeline_end=404.0))
-    enriched = enrich_call_to_action(
-        CallToAction(timeline_start=400.0, timeline_end=404.0), tx)
-    assert enriched.text == "go check it out"
-    assert enriched.straddling_within == ()

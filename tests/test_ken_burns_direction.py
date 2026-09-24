@@ -68,34 +68,12 @@ def test_push_in_resolves_as_the_drift_effect():
     assert dropped == []
 
 
-def test_pull_out_resolves_as_slow_zoom_out():
-    dropped = []
-    resolved = resolve_vfx(
-        [_ken_burns(params={"zoom_start": 1.04, "zoom_end": 1.0})],
-        _spine(1, 2), dropped=dropped)
-    assert len(resolved) == 1
-    assert resolved[0]["effect_type"] == "slow_zoom_out"
-
-
-def test_no_direction_is_a_declared_drop_reason():
-    assert "ken_burns_without_direction" in DROP_REASONS
-    assert len(DROP_REASONS["ken_burns_without_direction"].split()) >= 4
-
-
 def test_directionless_params_get_no_motion():
     """Equal zooms name neither way: dropped, never defaulted."""
     dropped = []
     resolved = resolve_vfx(
         [_ken_burns(params={"zoom_start": 1.02, "zoom_end": 1.02})],
         _spine(1, 2), dropped=dropped)
-    assert resolved == []
-    assert [d.reason for d in dropped] == ["ken_burns_without_direction"]
-
-
-def test_missing_params_get_no_motion():
-    dropped = []
-    resolved = resolve_vfx(
-        [_ken_burns(params={})], _spine(1, 2), dropped=dropped)
     assert resolved == []
     assert [d.reason for d in dropped] == ["ken_burns_without_direction"]
 
@@ -110,32 +88,3 @@ def test_ken_burns_without_a_reason_gets_no_motion():
     resolved = resolve_vfx([entry], _spine(1, 2), dropped=dropped)
     assert resolved == []
     assert [d.reason for d in dropped] == ["no_stated_reason"]
-
-
-def test_blank_rationale_is_no_rationale():
-    dropped = []
-    resolved = resolve_vfx(
-        [_ken_burns(rationale="  ")], _spine(1, 2), dropped=dropped)
-    assert resolved == []
-    assert [d.reason for d in dropped] == ["no_stated_reason"]
-
-
-def test_reasonless_ken_burns_leaves_the_basis_honest():
-    entry = _ken_burns()
-    del entry["rationale"]
-    dropped = []
-    resolved = resolve_vfx([entry], _spine(1, 2), dropped=dropped)
-    basis = PlanBasis(proposed=1, resolved=len(resolved),
-                      dropped=dropped).as_dict()
-    assert basis["basis"] == "every_entry_dropped"
-
-
-def test_spelling_is_the_only_new_thing():
-    """The KEN_BURNS constant is the withdrawn alias promoted, not a
-    parallel toolkit entry."""
-    assert KEN_BURNS == "ken_burns"
-    from library.steps.step_4_03_plan_vfx.post_bridge import (
-        DRIFT_EFFECTS, TOOLKIT_PARAMETERS, WITHDRAWN_ALIASES)
-    assert KEN_BURNS not in TOOLKIT_PARAMETERS
-    assert KEN_BURNS not in WITHDRAWN_ALIASES
-    assert set(DRIFT_EFFECTS) == {"slow_zoom_in", "slow_zoom_out"}

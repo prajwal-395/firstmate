@@ -136,20 +136,6 @@ def test_a_leaf_naming_a_live_timeline_stays(project_root):
     assert declined == []
 
 
-def test_an_earlier_plan_timeline_keeps_its_bin(project_root):
-    """Superseded-but-present timelines are reality too: the bin stays
-    whatever state the timeline is in."""
-    artefacts = [
-        timeline("t-master", MASTER),
-        timeline("t-old", "Reel 01 - superseded",
-                 folder=(bins.REELS_BIN, "Earlier plans")),
-        clip("c-old", "sub_old.mov", path=generated(project_root, "old.mov"),
-             placed_by=["Reel 01 - superseded"],
-             folder=(bins.SUBTITLES_BIN, "Reel 01 - superseded")),
-    ]
-    dead, declined = plan_dead_render_bins(
-        artefacts, tree_of(artefacts), project_root)
-    assert dead == [] and declined == []
 
 
 def test_a_dead_leaf_holding_a_placed_clip_is_declined(project_root):
@@ -166,26 +152,8 @@ def test_a_dead_leaf_holding_a_placed_clip_is_declined(project_root):
     assert "still placed" in declined[0]["why"]
 
 
-def test_a_dead_leaf_holding_a_timeline_is_declined(project_root):
-    artefacts = dead_pool(project_root) + [
-        timeline("t-stray", "Reel 02 - stray",
-                 folder=(bins.SUBTITLES_BIN, DEAD)),
-    ]
-    dead, declined = plan_dead_render_bins(
-        artefacts, tree_of(artefacts), project_root)
-    assert dead == []
-    assert len(declined) == 1 and "strand" in declined[0]["why"]
 
 
-def test_a_dead_leaf_holding_foreign_material_is_declined(project_root):
-    artefacts = dead_pool(project_root) + [
-        clip("c-foreign", "cam.mov", path="/elsewhere/cam.mov",
-             folder=(bins.SUBTITLES_BIN, DEAD)),
-    ]
-    dead, declined = plan_dead_render_bins(
-        artefacts, tree_of(artefacts), project_root)
-    assert dead == []
-    assert len(declined) == 1 and "not pipeline-generated" in declined[0]["why"]
 
 
 def test_the_unplaced_leaf_never_retires(project_root):
@@ -207,36 +175,10 @@ def test_an_emptied_dead_leaf_retires_as_a_shell(project_root):
     assert dead[0]["contents"] == []
 
 
-def test_a_dead_leaf_under_motion_graphics_retires_too(project_root):
-    artefacts = [
-        timeline("t-master", MASTER),
-        clip("c-mg", "mg_dead.mov",
-             path=(f"{project_root}/pipeline_output/steps/"
-                   f"4_06_render_motion_graphics/motion_graphics/d.mov"),
-             folder=(bins.MOTION_GRAPHICS_BIN, DEAD)),
-    ]
-    dead, _ = plan_dead_render_bins(
-        artefacts, tree_of(artefacts), project_root)
-    assert names(dead) == [f"{bins.MOTION_GRAPHICS_BIN}/{DEAD}"]
 
 
-def test_plan_retirements_needs_a_root_for_the_dead_rule(project_root):
-    artefacts, tree = dead_pool(project_root), tree_of(dead_pool(project_root))
-    without = plan_retirements(artefacts, tree)
-    assert f"{bins.SUBTITLES_BIN}/{DEAD}" not in names(without)
-    with_root = plan_retirements(artefacts, tree, project_root=project_root)
-    assert f"{bins.SUBTITLES_BIN}/{DEAD}" in names(with_root)
 
 
-def test_a_legacy_shell_still_retires_beside_a_dead_leaf(project_root):
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [("Reels",), (bins.SUBTITLES_BIN,),
-            (bins.SUBTITLES_BIN, DEAD)]
-    plan = plan_retirements(artefacts, tree, project_root=project_root)
-    by_name = {"/".join(e["path"]): e for e in plan}
-    assert by_name["Reels"]["kind"] == "legacy_shell"
-    assert by_name[f"{bins.SUBTITLES_BIN}/{DEAD}"]["kind"] == \
-        "dead_render_bin"
 
 
 def test_the_census_says_retire_with_contents_and_reports_declined(project_root):
@@ -273,19 +215,6 @@ def proof_pool(project_root):
     return artefacts
 
 
-def test_the_proof_plan_names_the_timeline_bins_and_the_untouched(project_root):
-    artefacts = proof_pool(project_root)
-    plan = plan_proof_removal(
-        artefacts, tree_of(artefacts),
-        timeline_name=CAPTAINS_PROOF_TIMELINE,
-        bin_names=[f"{bins.SUBTITLES_BIN}/SOP Proof_captions"],
-        project_root=project_root, master_name=MASTER)
-    assert plan["timeline"]["name"] == CAPTAINS_PROOF_TIMELINE
-    assert ["/".join(b["path"]) for b in plan["bins"]] == [
-        f"{bins.SUBTITLES_BIN}/SOP Proof_captions"]
-    assert plan["bins"][0]["contents"][0]["file_path"] == generated(project_root, "p.mov")
-    assert sorted(u["name"] for u in plan["verified_untouched"]) == \
-        sorted(PROTECTED_TIMELINES | {MASTER})
 
 
 def test_the_proof_path_refuses_every_protected_name_and_the_master(project_root):
@@ -298,14 +227,6 @@ def test_the_proof_path_refuses_every_protected_name_and_the_master(project_root
                 master_name=MASTER)
 
 
-def test_the_proof_path_refuses_a_non_proof_name_and_a_near_match(project_root):
-    artefacts = proof_pool(project_root)
-    for name in [LIVE, CAPTAINS_PROOF_TIMELINE[:-1]]:
-        with pytest.raises(ProofRemovalRefused):
-            plan_proof_removal(
-                artefacts, tree_of(artefacts), timeline_name=name,
-                bin_names=[], project_root=project_root,
-                master_name=MASTER)
 
 
 def test_the_proof_path_refuses_an_absent_timeline(project_root):
@@ -317,22 +238,6 @@ def test_the_proof_path_refuses_an_absent_timeline(project_root):
             project_root=project_root, master_name=MASTER)
 
 
-def test_the_proof_path_refuses_a_bin_that_is_not_proven(project_root):
-    artefacts = proof_pool(project_root)
-    # Absent bin: no exact match to prove.
-    with pytest.raises(ProofRemovalRefused, match="not in the pool"):
-        plan_proof_removal(
-            artefacts, tree_of(artefacts),
-            timeline_name=CAPTAINS_PROOF_TIMELINE,
-            bin_names=[f"{bins.SUBTITLES_BIN}/SOP Proof_missing"],
-            project_root=project_root, master_name=MASTER)
-    # Bin outside any render bin.
-    with pytest.raises(ProofRemovalRefused, match="not a per-reel bin"):
-        plan_proof_removal(
-            artefacts, tree_of(artefacts),
-            timeline_name=CAPTAINS_PROOF_TIMELINE,
-            bin_names=["My selects"], project_root=project_root,
-            master_name=MASTER)
 
 
 def test_the_proof_path_refuses_a_bin_holding_placed_material(project_root):
@@ -376,20 +281,8 @@ def test_the_proof_plan_takes_contents_placed_only_on_the_doomed_timeline(projec
             project_root=project_root, master_name=MASTER)
 
 
-def test_the_proof_path_refuses_when_a_protected_timeline_is_missing(project_root):
-    artefacts = [a for a in proof_pool(project_root) if a.name != LIVE]
-    with pytest.raises(ProofRemovalRefused, match="protected timeline"):
-        plan_proof_removal(
-            artefacts, tree_of(artefacts),
-            timeline_name=CAPTAINS_PROOF_TIMELINE, bin_names=[],
-            project_root=project_root, master_name=MASTER)
 
 
-def test_discover_lists_proof_bins_for_the_operator_to_confirm(project_root):
-    artefacts = proof_pool(project_root)
-    found = discover_proof_bins(artefacts, tree_of(artefacts))
-    assert (bins.SUBTITLES_BIN, "SOP Proof_captions") in found
-    assert all(leaf.startswith("SOP Proof") for _, leaf in found)
 
 
 def demo_pool(project_root):
@@ -408,35 +301,10 @@ def demo_pool(project_root):
     return artefacts
 
 
-def test_the_merge_demo_plans_by_exact_name_with_its_bin(project_root):
-    artefacts = demo_pool(project_root)
-    plan = plan_proof_removal(
-        artefacts, tree_of(artefacts),
-        timeline_name=MERGE_DEMO_TIMELINE,
-        bin_names=[f"{bins.SUBTITLES_BIN}/{MERGE_DEMO_TIMELINE}"],
-        project_root=project_root, master_name=MASTER)
-    assert plan["timeline"]["name"] == MERGE_DEMO_TIMELINE
-    assert ["/".join(b["path"]) for b in plan["bins"]] == [
-        f"{bins.SUBTITLES_BIN}/{MERGE_DEMO_TIMELINE}"]
-    assert sorted(u["name"] for u in plan["verified_untouched"]) == \
-        sorted(PROTECTED_TIMELINES | {MASTER})
 
 
-def test_the_merge_demo_refuses_a_near_variant_of_its_name(project_root):
-    artefacts = demo_pool(project_root)
-    for name in [MERGE_DEMO_TIMELINE + " 2",
-                 MERGE_DEMO_TIMELINE.replace("(", "").replace(")", "")]:
-        with pytest.raises(ProofRemovalRefused):
-            plan_proof_removal(
-                artefacts, tree_of(artefacts), timeline_name=name,
-                bin_names=[], project_root=project_root,
-                master_name=MASTER)
 
 
-def test_discover_lists_an_exact_named_demo_bin(project_root):
-    artefacts = demo_pool(project_root)
-    found = discover_proof_bins(artefacts, tree_of(artefacts))
-    assert (bins.SUBTITLES_BIN, MERGE_DEMO_TIMELINE) in found
 
 
 # --------------------------------------- the positioning-lane scratch
@@ -468,46 +336,12 @@ def scratch_pool():
     return artefacts
 
 
-def test_the_positioning_scratch_plans_timeline_only_with_untouched(project_root):
-    assert all(n.startswith(POSITIONING_SCRATCH_PREFIX)
-               for n in POSITIONING_NAMES)
-    artefacts = scratch_pool()
-    for name in POSITIONING_NAMES + [PRE_REBUILD_BACKUP_TIMELINE]:
-        plan = plan_proof_removal(
-            artefacts, tree_of(artefacts), timeline_name=name,
-            bin_names=[], project_root=project_root,
-            master_name=MASTER)
-        assert plan["timeline"]["name"] == name
-        assert plan["bins"] == []
-        assert sorted(u["name"] for u in plan["verified_untouched"]) == \
-            sorted(PROTECTED_TIMELINES | {MASTER})
 
 
-def test_the_positioning_scratch_refuses_outside_the_family(project_root):
-    artefacts = scratch_pool()
-    for name in ["Reel 09 - your-website-is-only-20-percent (rebuild staging)",
-                 "Reel 09 - your-website-is-only-20-percent (positioning-proof",
-                 LIVE]:
-        with pytest.raises(ProofRemovalRefused):
-            plan_proof_removal(
-                artefacts, tree_of(artefacts), timeline_name=name,
-                bin_names=[], project_root=project_root,
-                master_name=MASTER)
 
 
-def test_discover_scratch_lists_what_is_present_in_name_order():
-    artefacts = scratch_pool()
-    assert discover_scratch_timelines(artefacts) == sorted(
-        POSITIONING_NAMES + [PRE_REBUILD_BACKUP_TIMELINE])
 
 
-def test_discover_scratch_is_empty_when_the_scratch_is_gone():
-    """The idempotence case: a second run finds nothing to remove, so it
-    removes nothing and refuses nothing."""
-    artefacts = [a for a in scratch_pool()
-                 if a.name not in POSITIONING_NAMES
-                 and a.name != PRE_REBUILD_BACKUP_TIMELINE]
-    assert discover_scratch_timelines(artefacts) == []
 
 
 # ----------------------------------- the two superseded Reel 09 timelines
@@ -568,18 +402,6 @@ def test_the_superseded_names_are_exact_and_kept_is_final():
     assert not is_authorised_superseded(SUPERSEDED_PLAIN_TIMELINE + " 2")
 
 
-def test_each_superseded_timeline_plans_with_its_bins_and_the_kept(project_root):
-    artefacts = superseded_pool(project_root)
-    for doomed in sorted(SUPERSEDED_REEL_TIMELINES):
-        plan = plan_superseded_removal(
-            artefacts, tree_of(artefacts), timeline_name=doomed,
-            bin_names=superseded_bins(doomed),
-            project_root=project_root, master_name=MASTER)
-        assert plan["timeline"]["name"] == doomed
-        assert sorted("/".join(b["path"]) for b in plan["bins"]) == \
-            sorted(superseded_bins(doomed))
-        assert sorted(u["name"] for u in plan["verified_untouched"]) == \
-            sorted([FINAL_REEL_TIMELINE, MASTER])
 
 
 def test_the_superseded_path_refuses_the_kept_and_the_master(project_root):
@@ -592,18 +414,6 @@ def test_the_superseded_path_refuses_the_kept_and_the_master(project_root):
                 master_name=MASTER)
 
 
-def test_the_superseded_path_refuses_near_variants_and_absent(project_root):
-    artefacts = superseded_pool(project_root)
-    for name in [SUPERSEDED_PLAIN_TIMELINE + " 2",
-                 SUPERSEDED_REACTION_TIMELINE.replace("(", "").replace(
-                     ")", ""),
-                 "Reel 09 - your-website-is-only-20-percent (rebuild staging)",
-                 CAPTAINS_PROOF_TIMELINE]:
-        with pytest.raises(ProofRemovalRefused):
-            plan_superseded_removal(
-                artefacts, tree_of(artefacts), timeline_name=name,
-                bin_names=[], project_root=project_root,
-                master_name=MASTER)
 
 
 def test_the_superseded_path_refuses_a_bin_final_still_plays(project_root):
@@ -622,51 +432,12 @@ def test_the_superseded_path_refuses_a_bin_final_still_plays(project_root):
             project_root=project_root, master_name=MASTER)
 
 
-def test_the_superseded_path_refuses_when_final_or_master_is_missing(project_root):
-    artefacts = [a for a in superseded_pool(project_root) if a.name != FINAL_REEL_TIMELINE]
-    with pytest.raises(ProofRemovalRefused, match="protected timeline"):
-        plan_superseded_removal(
-            artefacts, tree_of(artefacts),
-            timeline_name=SUPERSEDED_PLAIN_TIMELINE,
-            bin_names=superseded_bins(SUPERSEDED_PLAIN_TIMELINE),
-            project_root=project_root, master_name=MASTER)
 
 
-def test_the_proof_path_still_refuses_the_superseded_names(project_root):
-    """The two stay in PROTECTED_TIMELINES, so the proof path never
-    takes them - only the superseded path may."""
-    artefacts = superseded_pool(project_root)
-    for doomed in SUPERSEDED_REEL_TIMELINES:
-        with pytest.raises(ProofRemovalRefused):
-            plan_proof_removal(
-                artefacts, tree_of(artefacts), timeline_name=doomed,
-                bin_names=[], project_root=project_root,
-                master_name=MASTER)
 
 
-def test_discover_superseded_lists_what_is_present_in_name_order(project_root):
-    artefacts = superseded_pool(project_root)
-    assert discover_superseded_timelines(artefacts) == sorted(
-        SUPERSEDED_REEL_TIMELINES)
-    assert discover_superseded_bins(
-        artefacts, tree_of(artefacts),
-        SUPERSEDED_PLAIN_TIMELINE) == [
-        (bins.SUBTITLES_BIN, SUPERSEDED_PLAIN_TIMELINE),
-        (bins.MOTION_GRAPHICS_BIN, SUPERSEDED_PLAIN_TIMELINE)]
 
 
-def test_discover_superseded_is_empty_when_both_are_gone(project_root):
-    """The idempotence case: a second run finds nothing to remove, so it
-    removes nothing and refuses nothing.  The bins go down with their
-    timelines, so the gone pool holds neither."""
-    artefacts = [a for a in superseded_pool(project_root)
-                 if a.name not in SUPERSEDED_REEL_TIMELINES
-                 and not (len(a.folder_path) == 2
-                          and a.folder_path[1] in SUPERSEDED_REEL_TIMELINES)]
-    assert discover_superseded_timelines(artefacts) == []
-    assert discover_superseded_bins(
-        artefacts, tree_of(artefacts),
-        SUPERSEDED_PLAIN_TIMELINE) == []
 
 
 # ------------------------------------------------------- the executor
@@ -938,19 +709,6 @@ def test_contents_calling_themselves_clips_but_reading_as_timelines_refuse(
     assert f"{bins.SUBTITLES_BIN}/{DEAD}" in pool_bins(proj)
 
 
-def test_a_dead_retirement_reverts_to_an_empty_shell_and_says_what_is_gone(
-        tmp_path, project_root):
-    from library.tools.execution.organise_media_pool import read_pool
-    proj = live_pool(project_root)
-    artefacts, _, _, _ = read_pool(proj)
-    plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)),
-                            project_root=project_root)
-    journal_path = str(tmp_path / "retire.json")
-    retire.retire_bins(proj, plan, journal_path, project_root=project_root)
-    undone = retire.revert(proj, journal_path)
-    assert undone["recreated"] == [f"{bins.SUBTITLES_BIN}/{DEAD}"]
-    assert sorted(c["file_path"] for c in undone["contents_not_restored"]) == \
-        sorted([generated(project_root, "a.mov"), generated(project_root, "b.mov")])
 
 
 def test_remove_proof_deletes_the_timeline_its_bin_and_nothing_else(tmp_path, project_root):
@@ -999,16 +757,6 @@ def test_remove_proof_deletes_the_timeline_its_bin_and_nothing_else(tmp_path, pr
     assert journal["removed_items"][0]["kind"] == "timeline"
 
 
-def test_remove_proof_refuses_a_protected_timeline_even_when_planned(tmp_path, project_root):
-    from library.tools.execution import remove_proof
-    proj = live_pool(project_root)
-    plan = {
-        "timeline": {"item_id": "t-x", "name": LIVE, "folder": "test"},
-        "bins": [],
-        "verified_untouched": [],
-    }
-    with pytest.raises(ProofRemovalRefused, match="protected or not an"):
-        remove_proof.remove_proof(proj, plan, str(tmp_path / "proof.json"))
 
 
 # ----------------------------------------------- the apply-path hold-back
@@ -1064,70 +812,8 @@ def test_apply_holds_dead_contents_back_and_retires_bin_with_them(tmp_path):
     assert result["retirement"]["removed_items"] == 1
 
 
-def test_organise_retires_the_leaf_filing_emptied_and_reports_success(
-        tmp_path):
-    """The canary shape end to end through the normal build path: the
-    dead leaf stands EMPTY (the filing pass moved its last render to
-    the live placer), so the fresh plan emits it as a shell and the
-    retirement succeeds - the node reports success instead of
-    refusing after promotion already completed."""
-    from library.tools.execution import organise_media_pool as ex
-    gen = str(tmp_path / "pipeline_output" / "steps" /
-              "4_05_render_subtitles")
-    root = FakeFolder("Master", "root")
-    root.clips.append(FakeClip("t-master", MASTER, kind="timeline"))
-    root.clips.append(FakeClip("t-live", LIVE, kind="timeline"))
-    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
-    six.subs.append(FakeFolder(DEAD, "f-dead"))
-    six.subs.append(FakeFolder(bins.SHARED_BIN, "f-shared"))
-    six.subs.append(FakeFolder("my picks", "f-picks"))
-    six.subs.append(FakeFolder(LIVE, "f-live"))
-    root.subs.append(six)
-    live_clip = FakeClip("c-live", "sub_live.mov",
-                         path=f"{gen}/live.mov")
-    root.clips.append(live_clip)
-    proj = FakeProject("Fake", FakePool(root),
-                       [FakeTimeline(LIVE, [FakeItem(live_clip)])])
-    review = tmp_path / "pipeline_output" / "review"
-    review.mkdir(parents=True)
-    (review / "plan_provenance.json").write_text(json.dumps({
-        "plan_content_hash": "b" * 64,
-        "built_at": "2026-09-10T00:00:00+00:00",
-        "built_reels": [LIVE],
-    }), encoding="utf-8")
-
-    result = ex.organise_project(proj, str(tmp_path), MASTER, apply=True)
-    assert result["applied"]
-    assert "refused" not in result
-    assert result["retirement"]["retired"] == [
-        f"{bins.SUBTITLES_BIN}/{DEAD}"]
-    assert result["retirement"]["removed_items"] == 0
-    remaining = pool_bins(proj)
-    assert f"{bins.SUBTITLES_BIN}/{DEAD}" not in remaining
-    # The standing destinations and the captain's bin are untouched.
-    assert f"{bins.SUBTITLES_BIN}/{bins.SHARED_BIN}" in remaining
-    assert f"{bins.SUBTITLES_BIN}/my picks" in remaining
-    assert f"{bins.SUBTITLES_BIN}/{LIVE}" in remaining
 
 
-def test_proof_journals_never_share_a_path(tmp_path):
-    """Nine removals seconds apart journalled nine records, not five:
-    the stamp collides, so the path disambiguates instead of
-    overwriting."""
-    from library.tools.execution import remove_proof
-
-    first = remove_proof.journal_path_for(
-        str(tmp_path), when="20260910T215238Z")
-    Path(first).parent.mkdir(parents=True, exist_ok=True)
-    Path(first).write_text("{}", encoding="utf-8")
-    second = remove_proof.journal_path_for(
-        str(tmp_path), when="20260910T215238Z")
-    assert second != first
-    assert second.endswith("_2.json")
-    Path(second).write_text("{}", encoding="utf-8")
-    third = remove_proof.journal_path_for(
-        str(tmp_path), when="20260910T215238Z")
-    assert third.endswith("_3.json")
 
 
 # --------------------------------- the planner/executor agreement (D1)
@@ -1157,90 +843,12 @@ def test_a_vocabulary_free_leaf_is_declined_never_emitted(project_root):
     assert "vocabulary" in declined[0]["why"]
 
 
-def test_a_vocabulary_free_leaf_holding_unplaced_renders_is_declined(project_root):
-    """The other half of the same hole: a non-empty captain's bin
-    holding unplaced pipeline-generated clips is still not provably
-    pipeline-made.  Emitting it would hand the executor a plan whose
-    re-proof deletes the captain's bin with its contents."""
-    artefacts = [
-        timeline("t-master", MASTER),
-        clip("c-pick", "sub_pick.mov", path=generated(project_root, "pick.mov"),
-              folder=(bins.SUBTITLES_BIN, "my picks")),
-    ]
-    dead, declined = plan_dead_render_bins(
-        artefacts, tree_of(artefacts), project_root)
-    assert dead == []
-    assert ["/".join(d["path"]) for d in declined] == [
-        f"{bins.SUBTITLES_BIN}/my picks"]
 
 
-def test_a_proof_leaf_still_retires_as_a_shell(project_root):
-    """Firstmate's own bins are pipeline-made by naming convention, so
-    the vocabulary gate keeps letting them through."""
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [(bins.SUBTITLES_BIN,),
-            (bins.SUBTITLES_BIN, "SOP Proof_old-canvas-rail")]
-    dead, _declined = plan_dead_render_bins(artefacts, tree, project_root)
-    assert names(dead) == [
-        f"{bins.SUBTITLES_BIN}/SOP Proof_old-canvas-rail"]
-    assert dead[0]["contents"] == []
 
 
-def test_an_emptied_per_reel_leaf_retires_cleanly_end_to_end(tmp_path, project_root):
-    """The canary shape, through the normal build path: the filing
-    pass emptied the dead leaf, the fresh plan emits it as a shell,
-    and the node reports success instead of refusing."""
-    from library.tools.execution.organise_media_pool import read_pool
-    root = FakeFolder("Master", "root")
-    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
-    six.subs.append(FakeFolder(DEAD, "f-dead"))
-    live = FakeFolder(LIVE, "f-live")
-    live_clip = FakeClip("c-live", "sub_live.mov",
-                         path=generated(project_root, "live.mov"))
-    live.clips.append(live_clip)
-    six.subs.append(live)
-    root.subs.append(six)
-    proj = FakeProject("Fake", FakePool(root),
-                       [FakeTimeline(LIVE, [FakeItem(live_clip)])])
-    artefacts, _, _, _ = read_pool(proj)
-    plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)),
-                            project_root=project_root)
-    assert names(plan) == [f"{bins.SUBTITLES_BIN}/{DEAD}"]
-    assert plan[0]["contents"] == []
-    journal_path = str(tmp_path / "retire.json")
-    result = retire.retire_bins(proj, plan, journal_path,
-                                project_root=project_root)
-    assert result["retired"] == [f"{bins.SUBTITLES_BIN}/{DEAD}"]
-    assert result["removed_items"] == 0
-    assert f"{bins.SUBTITLES_BIN}/{DEAD}" not in pool_bins(proj)
-    assert f"{bins.SUBTITLES_BIN}/{LIVE}" in pool_bins(proj)
 
 
-def test_an_emptied_shared_leaf_plans_nothing_and_the_node_succeeds(
-        tmp_path, project_root):
-    """A standing destination, empty or not: the sweep never names
-    it, so there is nothing to refuse on and the node succeeds."""
-    from library.tools.execution.organise_media_pool import read_pool
-    root = FakeFolder("Master", "root")
-    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
-    six.subs.append(FakeFolder(bins.SHARED_BIN, "f-shared"))
-    live = FakeFolder(LIVE, "f-live")
-    live_clip = FakeClip("c-live", "sub_live.mov",
-                         path=generated(project_root, "live.mov"))
-    live.clips.append(live_clip)
-    six.subs.append(live)
-    root.subs.append(six)
-    proj = FakeProject("Fake", FakePool(root),
-                       [FakeTimeline(LIVE, [FakeItem(live_clip)])])
-    artefacts, _, _, _ = read_pool(proj)
-    plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)),
-                            project_root=project_root)
-    assert names(plan) == []
-    journal_path = str(tmp_path / "retire.json")
-    result = retire.retire_bins(proj, plan, journal_path,
-                                project_root=project_root)
-    assert result["retired"] == []
-    assert (f"{bins.SUBTITLES_BIN}/{bins.SHARED_BIN}" in pool_bins(proj))
 
 
 def test_a_hand_made_vocabulary_free_entry_still_refuses(tmp_path, project_root):

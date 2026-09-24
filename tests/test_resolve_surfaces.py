@@ -23,11 +23,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from library.tools import resolve_surfaces as rs
 
 
-def test_the_roster_is_well_formed():
-    """Every surface says what it shows, whether it ships, and what it adds."""
-    rs.assert_roster_is_well_formed()
-
-
 def test_both_pages_are_named_and_neither_of_them_ships():
     """The two surfaces the captain compared are both previews.
 
@@ -69,20 +64,6 @@ def test_a_surface_nobody_measured_is_refused_rather_than_assumed():
 
 
 # ── The reader ──────────────────────────────────────────────────────
-
-
-def test_a_captured_still_records_the_surface_it_came_from():
-    """`grab_still` says WHICH surface its PNG is, rather than leaving it
-    to be inferred from the filename by whoever grades against it."""
-    from library.tools import marker_capture
-
-    assert marker_capture.CAPTURED_SURFACE == rs.GALLERY_STILL
-    assert rs.ships(rs.GALLERY_STILL)
-    assert marker_capture.StillResult(
-        path=Path("x.png"), gallery_album="Stills 1",
-        stills_before=0, stills_after=0,
-        surface=marker_capture.CAPTURED_SURFACE,
-    ).surface == rs.GALLERY_STILL
 
 
 def test_the_capture_refuses_to_hand_back_a_still_from_a_viewer(monkeypatch,

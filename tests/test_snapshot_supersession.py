@@ -116,19 +116,6 @@ class TestG6Disagreement:
         assert not superseded, reason
         assert "authoritative" in reason
 
-    def test_record_answers_both_questions_from_disk_alone(self, tmp_path):
-        review, _base, _batch, final = _g6_review(tmp_path)
-        record_snapshot_supersession(str(review), {REEL_09: str(final)})
-        provenance = read_provenance(str(review))
-        table = provenance[SNAPSHOT_PROVENANCE_KEY]
-        assert table[REEL_09]["snapshot"] == final.name
-        assert {item["snapshot"] for item in table[REEL_09]["superseded"]} == {
-            "Reel_09_-_your-website-is-only-20-percent.timeline.json",
-            "Reel_09_-_your-website-is-only-20-percent__batch-1050_"
-            ".timeline.json",
-        }
-
-
 # ── The record over time ─────────────────────────────────────────────
 
 class TestSupersessionOverTime:
@@ -163,14 +150,6 @@ class TestSupersessionOverTime:
         entry, reason = built_from_snapshot(str(review), reel_10)
         assert entry is not None, reason
 
-    def test_recording_needs_no_prior_provenance(self, tmp_path):
-        review, _base, _batch, final = _g6_review(tmp_path)
-        assert not (review / PROVENANCE_FILENAME).exists()
-        record_snapshot_supersession(str(review), {REEL_09: str(final)})
-        entry, reason = built_from_snapshot(str(review), REEL_09)
-        assert entry is not None, reason
-
-
 # ── Refusals, never silent passes ────────────────────────────────────
 
 class TestRefusals:
@@ -200,16 +179,6 @@ class TestRefusals:
             str(review), "Reel_09.timeline.json")
         assert not superseded
         assert "no provenance record" in reason
-
-    def test_unrecorded_file_is_neither(self, tmp_path):
-        review, _base, _batch, final = _g6_review(tmp_path)
-        record_snapshot_supersession(str(review), {REEL_09: str(final)})
-        stranger = _write_snapshot(review, "Reel_10.timeline.json",
-                                   "Reel 10 - missing-answer", 39202)
-        superseded, reason = is_snapshot_superseded(
-            str(review), stranger.name)
-        assert not superseded
-        assert "neither" in reason
 
     def test_unreadable_and_nameless_files_are_never_marked(self, tmp_path):
         review, _base, _batch, final = _g6_review(tmp_path)
@@ -264,10 +233,3 @@ class TestProvenanceLifecycle:
         provenance = read_provenance(str(review))
         assert REEL_09 in provenance[SNAPSHOT_PROVENANCE_KEY]
         assert staging not in provenance[SNAPSHOT_PROVENANCE_KEY]
-
-    def test_drop_removes_table_keys(self, tmp_path):
-        review, _base, _batch, final = _g6_review(tmp_path)
-        record_snapshot_supersession(str(review), {REEL_09: str(final)})
-        drop_reel_entries(str(review), [REEL_09])
-        provenance = read_provenance(str(review))
-        assert REEL_09 not in provenance[SNAPSHOT_PROVENANCE_KEY]

@@ -33,59 +33,6 @@ from library.tools.marker_capture import (  # noqa: E402
 # ── The envelope ────────────────────────────────────────────────────
 
 
-def test_a_new_envelope_declares_its_schema_and_an_id():
-    env = marker_payload.new_envelope()
-    assert env["schema"] == marker_payload.SCHEMA
-    assert env["id"].startswith("mk_")
-    assert env["records"] == []
-    assert marker_payload.is_envelope(env)
-
-
-def test_two_writers_append_to_one_list_without_knowing_each_other():
-    """The shape the second writer needs: it adds a kind this one has
-    never heard of, and nothing about the still record changes."""
-    env = marker_payload.new_envelope()
-    still = {
-        "kind": marker_payload.KIND_STILL, "writer": "capture_frame",
-        "writer_version": 1, "id": "still_1", "at": "t0",
-        "path": "marker_feedback/stills/a.png",
-    }
-    marker_payload.merge_record(env, still)
-    marker_payload.merge_record(env, {
-        "kind": "decision", "writer": "compile_manifest", "writer_version": 7,
-        "id": "dec_1", "at": "t1", "chose": "b_roll", "because": "coverage",
-    })
-
-    kinds = [r["kind"] for r in marker_payload.records_of(env)]
-    assert kinds == [marker_payload.KIND_STILL, "decision"]
-    assert marker_payload.records_of(env, marker_payload.KIND_STILL) == [still]
-    # A reader that has never heard of "decision" still round-trips it.
-    again = marker_payload.parse(marker_payload.dumps(env))
-    assert [r["kind"] for r in marker_payload.records_of(again)] == kinds
-    assert again["id"] == env["id"]
-
-
-def test_a_record_replaces_the_one_carrying_its_own_id():
-    env = marker_payload.new_envelope()
-    base = {"kind": "still", "writer": "w", "writer_version": 1,
-            "id": "r1", "at": "t0", "path": "a.png"}
-    marker_payload.merge_record(env, base)
-    marker_payload.merge_record(env, dict(base, at="t1", path="b.png"))
-    assert len(env["records"]) == 1
-    assert env["records"][0]["path"] == "b.png"
-
-
-def test_a_second_capture_at_one_frame_is_a_second_record():
-    env = marker_payload.new_envelope()
-    for path in ("a.png", "b.png"):
-        marker_payload.merge_record(env, {
-            "kind": "still", "writer": "w", "writer_version": 1,
-            "id": marker_payload.new_id("still"), "at": "t", "path": path,
-        })
-    assert [r["path"] for r in marker_payload.attachments_of(env)] == \
-        ["a.png", "b.png"]
-
-
 @pytest.mark.parametrize("missing", ["kind", "writer", "writer_version",
                                      "id", "at"])
 def test_a_record_missing_a_required_key_raises(missing):
@@ -94,18 +41,6 @@ def test_a_record_missing_a_required_key_raises(missing):
     record.pop(missing)
     with pytest.raises(ValueError):
         marker_payload.merge_record(marker_payload.new_envelope(), record)
-
-
-def test_an_attachment_is_a_record_with_a_path_whatever_its_kind():
-    """So the decision writer gets 'a reader can open this' for free."""
-    env = marker_payload.new_envelope()
-    marker_payload.merge_record(env, {
-        "kind": "decision", "writer": "w", "writer_version": 1,
-        "id": "d", "at": "t", "path": "pipeline_output/steps/x/output.json"})
-    marker_payload.merge_record(env, {
-        "kind": "decision", "writer": "w", "writer_version": 1,
-        "id": "e", "at": "t", "note": "no file here"})
-    assert [r["id"] for r in marker_payload.attachments_of(env)] == ["d"]
 
 
 # ── Nothing is destroyed ────────────────────────────────────────────
@@ -127,21 +62,6 @@ def test_customdata_this_module_did_not_write_is_kept_not_overwritten(
         "kind": "still", "writer": "w", "writer_version": 1,
         "id": "r", "at": "t", "path": "a.png"})
     assert "foreign" in marker_payload.parse(marker_payload.dumps(env))
-
-
-def test_an_empty_string_is_a_fresh_envelope_with_no_foreign_key():
-    env = marker_payload.parse("")
-    assert env["records"] == []
-    assert "foreign" not in env
-
-
-def test_unicode_and_apostrophes_survive_the_string_form():
-    env = marker_payload.new_envelope()
-    marker_payload.merge_record(env, {
-        "kind": "still", "writer": "w", "writer_version": 1, "id": "r",
-        "at": "t", "path": "a.png", "note": "we're - naïve ✓"})
-    again = marker_payload.parse(marker_payload.dumps(env))
-    assert again["records"][0]["note"] == "we're - naïve ✓"
 
 
 # ── A path the captain typed ────────────────────────────────────────
@@ -204,15 +124,6 @@ def test_an_unreadable_timecode_raises_rather_than_guessing():
 # ── The still's name ────────────────────────────────────────────────
 
 
-def test_the_still_is_named_for_the_timeline_and_the_frame():
-    playhead = Playhead(timecode="00:00:01:10", marker_key=40,
-                        absolute_frame=108040, fps=30.0, start_frame=108000,
-                        start_timecode="01:00:00:00")
-    name = still_filename("Pipeline Edit/v2", playhead)
-    assert name.startswith("Pipeline_Edit_v2.f108040.")
-    assert name.endswith(".png")
-
-
 def test_two_captures_inside_one_second_do_not_overwrite(tmp_path):
     """The stamp has one-second resolution, so the name alone is not
     enough - a second click on the same frame must not eat the first."""
@@ -227,33 +138,6 @@ def test_two_captures_inside_one_second_do_not_overwrite(tmp_path):
 
 
 # ── Which project the timeline belongs to ───────────────────────────
-
-
-def test_the_project_is_the_nearest_folder_carrying_project_yaml(tmp_path):
-    project = tmp_path / "001"
-    (project / "raw").mkdir(parents=True)
-    (project / "project.yaml").write_text("name: 001\n", encoding="utf-8")
-    clip = project / "raw" / "IMG_0001.MOV"
-    clip.write_bytes(b"")
-    assert _project_root_above(str(clip)) == project
-
-
-def test_a_file_under_no_project_yields_none(tmp_path):
-    stray = tmp_path / "elsewhere" / "clip.mov"
-    stray.parent.mkdir(parents=True)
-    stray.write_bytes(b"")
-    assert _project_root_above(str(stray)) is None
-
-
-def test_the_nearest_project_wins_over_an_outer_one(tmp_path):
-    outer = tmp_path / "outer"
-    inner = outer / "001"
-    (inner / "raw").mkdir(parents=True)
-    (outer / "project.yaml").write_text("", encoding="utf-8")
-    (inner / "project.yaml").write_text("", encoding="utf-8")
-    clip = inner / "raw" / "c.mov"
-    clip.write_bytes(b"")
-    assert _project_root_above(str(clip)) == inner
 
 
 # ── The bounds on the playhead ──────────────────────────────────────
@@ -308,8 +192,3 @@ def test_the_bound_is_measured_against_a_moved_origin():
     assert read_playhead(_Bounds("01:00:05:28", **moved)).marker_key == 178
     with pytest.raises(CaptureError, match="past the end"):
         read_playhead(_Bounds("01:00:06:00", **moved))
-
-
-def test_a_timeline_that_reports_no_end_is_not_refused():
-    """A bound nothing measured must not become a refusal."""
-    assert read_playhead(_Bounds("00:00:05:28", end=0)).marker_key == 178

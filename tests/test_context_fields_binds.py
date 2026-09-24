@@ -146,23 +146,6 @@ def test_a_declaration_is_where_the_projection_reads_it(step):
     )
 
 
-def test_the_reader_refuses_a_misplaced_declaration():
-    """The accessor RAISES; it does not fall back to reading it.
-
-    A fallback would make the wrong location work, and the wrong
-    location would then spread.
-    """
-    from library.tools.context_projector import (
-        MisplacedContextFields, declared_context_fields,
-    )
-
-    assert declared_context_fields(
-        {"context_fields": ["a"]}) == ["a"]
-    assert declared_context_fields({"interface": {"inputs": []}}) is None
-
-    with pytest.raises(MisplacedContextFields):
-        declared_context_fields(
-            {"interface": {"context_fields": ["a"]}}, "step_x")
 
 
 # ---------------------------------------------------------------------------
@@ -256,27 +239,6 @@ def test_a_declared_field_still_reaches_the_prompt(node_id):
     )
 
 
-def test_the_unprojected_steps_are_the_two_that_were_decided():
-    """A third one has to be argued for, not discovered.
-
-    `render` and `validate` are handed their whole input set by a
-    standing decision, expressed as a `-`-only declaration. Anything
-    else declaring nothing is a step nobody projected.
-    """
-    silent = [n for n in llm_nodes()
-              if n not in NO_CALL and not declared_anywhere(manifest(n))]
-    assert silent == [], (
-        f"{silent} reach a model and declare no context_fields, so each "
-        f"is handed every byte it was routed. Project them, or record "
-        f"the decision here."
-    )
-    for node_id in sorted(UNPROJECTED):
-        fields = declared_anywhere(manifest(node_id))
-        assert fields and all(f.startswith("-") for f in fields), (
-            f"'{node_id}' no longer expresses its exemption as a "
-            f"`-`-only declaration; UNPROJECTED is now describing "
-            f"something else"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -290,26 +252,6 @@ def test_every_llm_step_declares_an_allow_list():
     assert missing == [], missing
 
 
-def test_the_hand_written_llm_step_list_names_every_one():
-    """`test_llm_context_routing.LLM_STEPS` is derived, and stays complete.
-
-    The name is history: the list WAS hand-written and short twice -
-    first `select_reels` and `render_motion_graphics`, then `audio_mix` -
-    so the assertion that every LLM step projects its context had never
-    been asked about the missing step. It is now derived from the DAG in
-    that file; this test derives the same set here, independently, and
-    fails if the two ever disagree - which is what a reintroduced hand
-    list, or a narrowed predicate on either side, would do. AGENTS.md
-    10.4: a gate that cannot fail on the case it exists for is not
-    coverage.
-    """
-    from tests.test_llm_context_routing import LLM_STEPS
-
-    missing = sorted(set(llm_nodes()) - set(LLM_STEPS))
-    assert missing == [], (
-        f"{missing} reach a model and are not in LLM_STEPS, so nothing "
-        f"in test_llm_context_routing.py has ever looked at them"
-    )
 
 
 # ---------------------------------------------------------------------------

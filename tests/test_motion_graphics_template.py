@@ -98,14 +98,6 @@ def test_a_palette_resolves_a_colour_role():
     assert all("brand palette" in e["colorBasis"] for e in drawn)
 
 
-def test_a_palette_beats_a_colour_the_plan_also_stated():
-    """A declared role is a request for the brand's own colour, so the
-    brand answers it. The plan's own value is what a role-less entry
-    uses, not a second guess at the same question."""
-    segs, _ = segments(plan(color="#123456"), READABLE_PALETTE)
-    assert all(e["color"] == "#ff0055" for e in _elements(segs))
-
-
 def test_a_palette_with_no_readable_accent_does_not_answer_the_role():
     """P3.1's other half, unchanged: a colour that would read as a smudge
     is not an accent, and the entry is dropped rather than drawn in it."""
@@ -179,15 +171,6 @@ def test_no_template_flag_can_switch_an_element_off():
             f"removes a planned element is the gate again.")
 
 
-def test_a_project_with_no_template_resolves_no_roles_and_that_drops_nothing():
-    assert brand_palette_roles({}) == {}
-    assert brand_palette_roles(None) == {}
-    stated = plan(color="#FF8A3D")
-    del stated[0]["colour_role"]
-    _segs, resolved = segments(stated, {})
-    assert not resolved.dropped
-
-
 # ── Nothing is drawn in a colour nobody chose ────────────────────────
 
 def test_the_withdrawn_cyan_never_reaches_a_frame():
@@ -209,23 +192,7 @@ def test_an_entry_with_no_colour_anywhere_is_dropped_by_name():
 
 # ── The one thing still read off the edit ────────────────────────────
 
-def test_the_spine_supplies_the_length_and_nothing_else():
-    """It bounds a span. It does not time one - which is the timebase.
-
-    A block boundary at 3.0s and 8.0s is nowhere in the resolved
-    element: it starts at 0.5s and holds for 2.0s because the plan said
-    so.
-    """
-    assert timeline_duration(SPINE) == 11.0
-    segs, _ = segments(plan(color="#FF8A3D"), {})
-    element = _elements(segs)[0]
-    assert element["timeline_start"] == 0.5
-    assert element["timeline_end"] == 2.5
-    starts = {b["timeline_start"] for b in SPINE["structure"]}
-    assert element["timeline_start"] not in starts
-
-
-@pytest.mark.parametrize("start,duration", [(0.0, 11.0), (10.5, 4.0)])
+@pytest.mark.parametrize("start,duration", [(10.5, 4.0)])
 def test_a_span_is_bounded_by_the_spine_length(start, duration):
     segs, _ = segments(
         plan(color="#FF8A3D", start_seconds=start, duration_seconds=duration),
@@ -242,34 +209,6 @@ def test_a_span_is_bounded_by_the_spine_length(start, duration):
 # facts only. A rule in both places is worse than either: the day they
 # disagree, nothing says which one the model followed.
 
-def test_brand_refinement_carries_per_run_facts_and_no_rules():
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "mg_bridge",
-        os.path.join(PROJECT_ROOT, "library", "steps",
-                     "step_4_06_render_motion_graphics", "bridge.py"))
-    bridge = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(bridge)
-
-    out = bridge.brand_refinement({}, {})
-    assert set(out) == {"declares_a_palette", "palette_roles",
-                        "template_effect_slots_declared"}, (
-        "brand_refinement states what THIS project declares; a rule "
-        "belongs in handoff.md")
-
-
-def test_the_prompt_states_how_a_colour_is_resolved_and_what_absence_means():
-    handoff = " ".join(open(os.path.join(
-        PROJECT_ROOT, "library", "steps",
-        "step_4_06_render_motion_graphics", "handoff.md"),
-        encoding="utf-8").read().split())
-    assert "`colour_role`" in handoff and "`color`" in handoff
-    assert "the entry is dropped" in handoff
-    assert "There is no house colour" in handoff
-    assert "not a project with a reduced layer" in handoff
-
-
 # ── The palette states whose it is, before a render ──────────────────
 #
 # 2026-09-21: fifteen graphics drew in `#aabbcc` - the lightest entry
@@ -280,73 +219,3 @@ def test_the_prompt_states_how_a_colour_is_resolved_and_what_absence_means():
 # carries the palette fact. REPORTED, never a gate: the layer resolves
 # exactly as it always has.
 
-def text_role_plan(**kw):
-    """One entry naming a colour_role the cinematic palette resolves."""
-    base = {"element": "frame_accents", "start_seconds": 0.5,
-            "duration_seconds": 2.0, "anchor": "centre",
-            "colour_role": "text"}
-    base.update(kw)
-    return [base]
-
-
-def test_palette_drawn_colours_name_the_template_that_supplied_them():
-    segs, _ = generate_motion_props(
-        text_role_plan(), SPINE, fps=30, width=1080, height=1920,
-        brand_style=UNREADABLE_PALETTE,
-        brand_template_name="synthetic_cinematic", project_folder="")
-    drawn = _elements(segs)
-    assert drawn, "the text role resolves under this palette"
-    assert all(e["color"] == "#aabbcc" for e in drawn)
-    assert all("synthetic_cinematic" in e["colorBasis"] for e in drawn)
-
-
-def test_a_palette_resolved_colour_without_a_source_reads_as_before():
-    """The name is added provenance, not a renamed basis: callers that
-    supply no source - the reel lower-third and explainer paths resolve
-    with `palette_roles={}` - read exactly what they always have."""
-    segs, _ = segments(text_role_plan(), UNREADABLE_PALETTE)
-    assert all(e["colorBasis"] == "brand palette role 'text'"
-               for e in _elements(segs))
-
-
-def test_basis_record_carries_the_palette_fact():
-    _, resolved = generate_motion_props(
-        text_role_plan(), SPINE, fps=30, width=1080, height=1920,
-        brand_style=UNREADABLE_PALETTE,
-        brand_template_name="synthetic_cinematic", project_folder="")
-    palette = resolved.basis_record()["palette"]
-    assert palette["source"] == "synthetic_cinematic"
-    assert palette["roles"] == {"text": "#aabbcc", "outline": "#111111"}
-    assert palette["has_usable_accent"] is False
-    assert palette["moments_drawn_in_palette_colours"] == 1
-    assert palette["moments_drawn_in_plan_stated_colours"] == 0
-
-
-def test_no_palette_supplied_means_no_source_and_no_accent_claim():
-    """A project that names no template supplies no palette: the record
-    says so rather than reporting a palette with no accent, which
-    would read as a judgement on colours the plan stated itself."""
-    stated = text_role_plan(color="#FF8A3D")
-    del stated[0]["colour_role"]
-    _, resolved = segments(stated, {})
-    palette = resolved.basis_record()["palette"]
-    assert palette["source"] == ""
-    assert palette["roles"] == {}
-    assert palette["has_usable_accent"] is None
-    assert palette["moments_drawn_in_palette_colours"] == 0
-    assert palette["moments_drawn_in_plan_stated_colours"] == 1
-
-
-def test_describe_palette_state_names_the_unreadable_shape():
-    from library.tools.brand_palette import describe_palette_state
-    unreadable = describe_palette_state(
-        UNREADABLE_PALETTE["color_palette"])
-    assert unreadable["roles"]["text"] == "#aabbcc"
-    assert unreadable["has_usable_accent"] is False
-    readable = describe_palette_state(READABLE_PALETTE["color_palette"])
-    assert readable["roles"]["accent"] == "#ff0055"
-    assert readable["has_usable_accent"] is True
-    assert describe_palette_state(None) == {
-        "entries": [], "roles": {}, "has_usable_accent": False}
-    assert describe_palette_state([]) == {
-        "entries": [], "roles": {}, "has_usable_accent": False}

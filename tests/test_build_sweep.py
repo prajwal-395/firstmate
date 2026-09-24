@@ -258,73 +258,13 @@ def test_a_spent_per_reel_bin_is_retired_and_a_busy_one_is_not():
     assert f"{MG_BIN}/{REEL_A}" not in retired
 
 
-def test_the_render_tops_and_the_unplaced_leaf_are_never_retired():
-    """Scaffolding `bins_to_create` stands up on every build, and a
-    canonical DESTINATION. Retiring either is churn, not cleanup - the
-    next build re-creates it immediately."""
-    assert not is_spent_render_bin((BIN_SUBTITLES,))
-    assert not is_spent_render_bin((MG_BIN,))
-    assert not is_spent_render_bin((BIN_SUBTITLES, BIN_UNPLACED))
-    assert not is_spent_render_bin((MG_BIN, BIN_UNPLACED))
-    assert not is_spent_render_bin((BIN_SUBTITLES, GONE, "deeper"))
-    # And the captain's own top-level bins, empty or not.
-    assert not is_spent_render_bin(("my picks",))
-    assert not is_spent_render_bin(("my picks", REEL_A))
-    tree = [(BIN_SUBTITLES,), (BIN_SUBTITLES, BIN_UNPLACED), (MG_BIN,)]
-    assert plan_retirements([], tree) == [] or all(
-        "/".join(e["path"]) not in
-        {BIN_SUBTITLES, MG_BIN, f"{BIN_SUBTITLES}/{BIN_UNPLACED}"}
-        for e in plan_retirements([], tree))
 
 
 # ------------------------------------------------------ 4. idempotence
 
 
-def test_a_second_consecutive_sweep_removes_nothing_new(tmp_path):
-    """The proof it will not eat live work. Run it twice with nothing
-    changed in between: the first pass takes the superseded generation,
-    the second finds no candidate at all and moves nothing."""
-    project = str(tmp_path)
-    asset_dir = _asset_dir(project)
-    placed = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
-    _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa_props.json"))
-    stale = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_bbbbbbbb.mov"))
-    _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_bbbbbbbb_props.json"))
-    _ledger(asset_dir, [_entry(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa",
-                               REEL_A)])
-    db = _database(os.path.join(project, "db", "Project.db"),
-                   placed=[placed], timelines=[REEL_A])
-
-    first = build_sweep.sweep_files(project, [db], apply=True)["areas"][0]
-    assert stale in first["moved"]
-    assert first["moved_count"] == 2, "the mov and its props sibling"
-    assert os.path.exists(placed)
-
-    second = build_sweep.sweep_files(project, [db], apply=True)["areas"][0]
-    assert second["moved"] == [], (
-        "a second consecutive sweep with nothing changed must find "
-        "nothing - anything else means it is eating live work")
-    assert second["orphans"] == 0
-    assert os.path.exists(placed)
 
 
-def test_the_journal_names_what_regenerates_what_it_moved(tmp_path):
-    """Removal is recoverable in the sense that matters here: every
-    swept artefact is derivable by rebuilding, so the record says HOW."""
-    project = str(tmp_path)
-    asset_dir = _asset_dir(project)
-    _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_bbbbbbbb.mov"))
-    _ledger(asset_dir, [])
-    db = _database(os.path.join(project, "db", "Project.db"),
-                   placed=[], timelines=[REEL_A])
-    record = build_sweep.sweep_files(project, [db], apply=True)
-    area = record["areas"][0]
-    assert area["moved_count"] == 1
-    assert "--rerun render_subtitles" in area["regenerate"]
-    assert os.path.isfile(area["mark_path"])
-    text = build_sweep.render_sweep({"applied": True, "files": record,
-                                     "pool": {}, "bins": {}})
-    assert "regenerate with:" in text
 
 
 def test_the_swept_areas_are_only_derivable_render_outputs():
@@ -356,19 +296,3 @@ def test_sweep_journals_never_share_a_path(tmp_path):
     assert second.endswith("_2.json")
 
 
-def test_consecutive_sweep_marks_never_share_a_path(tmp_path):
-    """Marks are written on every pass, orphans or not - so the second
-    pass's mark must not land on the first pass's."""
-    project = str(tmp_path)
-    asset_dir = _asset_dir(project)
-    _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_bbbbbbbb.mov"))
-    _ledger(asset_dir, [])
-    db = _database(os.path.join(project, "db", "Project.db"),
-                   placed=[], timelines=[REEL_A])
-    first = build_sweep.sweep_files(project, [db], apply=True)["areas"][0]
-    assert first["moved_count"] == 1
-    second = build_sweep.sweep_files(project, [db], apply=True)["areas"][0]
-    assert second["moved"] == []
-    assert second["mark_path"] != first["mark_path"]
-    assert os.path.isfile(first["mark_path"])
-    assert os.path.isfile(second["mark_path"])

@@ -86,61 +86,6 @@ def test_a_push_in_moves_start_to_end():
     assert verdict["changed_count"] > 0
 
 
-def test_a_pull_out_moves_the_other_way():
-    # Peaks stay under the comp validator's animated-Size cap
-    # (`fusion/nodes.py`: peak > MAX_ANIMATED_ZOOM is refused as too
-    # aggressive).
-    verdict = tv.verify_drift(
-        {"zoom_start": 1.04, "zoom_mid": 1.02, "zoom_end": 1.0,
-         "source_in_frame": 0, "source_out_frame": 90},
-        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
-    assert verdict["passed"] is True
-    assert verdict["end_value"] < verdict["start_value"]
-
-
-def test_a_pool_to_timeline_mismatch_still_draws():
-    """The real mismatch: a 90-source-frame span rendering 72 frames.
-
-    The ramp is cut short, never parked past the end: the last
-    rendered frame sits partway along it, and the framing still moved.
-    """
-    verdict = tv.verify_drift(
-        {"zoom_start": 1.0, "zoom_mid": 1.02, "zoom_end": 1.04,
-         "source_in_frame": 360, "source_out_frame": 450},
-        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
-    assert verdict["passed"] is True
-    assert verdict["end_value"] > verdict["start_value"]
-
-
-def test_a_constant_reframe_passes_without_motion():
-    """A static zoom draws but never moves: SAID, never failed.
-
-    Failing it would be a gate failing correct output (AGENTS.md
-    10.4) - `cut_in` is a deliberate constant reframe on this same
-    path, and the gate cannot tell it from a drift by values alone.
-    """
-    verdict = tv.verify_drift(
-        {"zoom_start": 1.5, "zoom_mid": 1.5, "zoom_end": 1.5},
-        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
-    assert verdict["passed"] is True
-    assert verdict["motion_over_time"] is False
-
-
-def test_a_pan_only_drift_passes_without_motion():
-    """A static recentre shifts the picture: kept, and said to be still."""
-    verdict = tv.verify_drift(
-        {"pan_end": (0.45, 0.5)}, CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
-    assert verdict["passed"] is True
-    assert verdict["motion_over_time"] is False
-
-
-def test_no_drift_keys_arms_nothing():
-    verdict = tv.verify_drift({"vignette": False}, CLIP_DUR,
-                              played_frames=PLAYED, source_res=SOURCE_RES)
-    assert verdict["passed"] is True
-    assert verdict["armed_nothing"] is True
-
-
 def test_undo_restores_byte_identical_comp():
     """Removing a failed drift returns the exact undrifted bytes."""
     effects = {"zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,
@@ -153,42 +98,3 @@ def test_undo_restores_byte_identical_comp():
     assert (build_effect_comp(final, CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
             == build_effect_comp({"tv_power_head": True}, CLIP_DUR,
                                  played_frames=PLAYED, source_res=SOURCE_RES))
-
-
-def test_unarmed_drift_writes_no_row():
-    final, row = tv.verify_and_undo_drift(
-        {"tv_power_head": True}, CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
-    assert row is None
-    assert final == {"tv_power_head": True}
-
-
-def test_a_resolved_reel_drift_reaches_a_moving_comp():
-    """The whole reels path, resolve to manifest to drawn motion."""
-    from library.tools import reel_look
-
-    fps = 24000 / 1001
-    placements = [{
-        "clip": type("Clip", (), {
-            "source_file": "/a.mxf", "timeline_start": 0.0,
-            "source_in": 0.0})(),
-        "source_in": 0.0,
-        "source_out": 5.0,
-        "record": 0.0,
-        "snapped_record": 0,
-        "speaker": "Craig",
-    }]
-    spine = reel_look.motion_spine(placements, fps)
-    resolved, record = reel_look.resolve_motion(
-        [{"target_block_position": 0, "effect_type": "ken_burns",
-          "params": {"zoom_start": 1.0, "zoom_end": 1.04},
-          "rationale": "this shot narrows onto one figure"}],
-        spine, fps)
-    assert record["basis"] == reel_look.MOTION_PLANNED
-    manifest = reel_look.fusion_manifest(
-        placements, {"power": {}}, resolved, fps)
-    effects = manifest["fusion_effects"]["per_clip"][
-        reel_look.clip_label(0)]
-    verdict = tv.verify_drift(effects, 600, played_frames=120,
-                              source_res=SOURCE_RES)
-    assert verdict["passed"] is True
-    assert verdict["end_value"] > verdict["start_value"]

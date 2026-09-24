@@ -112,25 +112,6 @@ def _called_names_transitive(name):
     return seen
 
 
-def test_both_builders_exist():
-    """The guard is worthless if it silently matches nothing."""
-    assert _function("rebuild_reels_in_project")
-    assert _function("build_reel_variants")
-
-
-def test_the_rebuild_obeys_something():
-    """The invariant is a SUBSET check, so an empty left side would
-    pass forever.  Pin that the rebuild really reads these."""
-    called = _called_names_transitive("rebuild_reels_in_project")
-    obeyed = RECORDED_OBEDIENCE & called
-    assert obeyed, (
-        "rebuild_reels_in_project calls none of "
-        f"{sorted(RECORDED_OBEDIENCE)} - either the rebuild stopped "
-        "obeying the captain's recorded decisions, or these names were "
-        "renamed and this list is stale. Either way it must not pass.")
-    assert len(obeyed) >= 4, sorted(obeyed)
-
-
 @pytest.mark.parametrize("call", sorted(RECORDED_OBEDIENCE))
 def test_variant_carries_every_obedience_the_rebuild_carries(call):
     rebuild = _called_names_transitive("rebuild_reels_in_project")

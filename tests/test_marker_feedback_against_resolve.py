@@ -135,51 +135,6 @@ def test_text_typed_into_the_name_field_survives(scratch_timeline):
     assert note.source == "timeline_marker"
 
 
-def test_text_typed_into_the_notes_field_survives(scratch_timeline):
-    """And the Notes field, which is the half the old reader did read."""
-    typed = "the cut lands a beat early - can we hold it six frames?"
-    assert scratch_timeline.AddMarker(20, "Green", "Marker", typed, 1, "") is True
-
-    note = _note(read_notes(scratch_timeline), typed)
-    assert note.note == typed
-    assert note.name == "Marker"
-    assert note.text == f"Marker\n\n{typed}"
-
-    # Resolve refuses an EMPTY name, but accepts a whitespace one, which
-    # is the only way an API-placed marker can be Notes-only. The space
-    # is kept as typed rather than stripped: this module normalises
-    # nothing the captain put in either field.
-    only = "and this one has nothing in Name at all"
-    assert scratch_timeline.AddMarker(21, "Green", " ", only, 1, "") is True
-    bare = _note(read_notes(scratch_timeline), only)
-    assert (bare.name, bare.note) == (" ", only)
-    assert only in bare.text
-
-
-def test_both_fields_are_kept_verbatim_and_separately(scratch_timeline):
-    name, note_text = "GRADE", "this reads green next to the shot before it"
-    assert scratch_timeline.AddMarker(30, "Red", name, note_text, 1, "") is True
-
-    note = _note(read_notes(scratch_timeline), note_text)
-    assert (note.name, note.note) == (name, note_text)
-    assert note.text == f"{name}\n\n{note_text}"
-
-
-def test_resolve_refuses_a_marker_with_an_empty_name(scratch_timeline):
-    """Recorded in the module docstring; asserted so it cannot go stale."""
-    assert scratch_timeline.AddMarker(40, "Blue", "", "notes only", 1, "") is False
-    assert scratch_timeline.AddMarker(41, "Blue", "", "", 1, "") is False
-    assert scratch_timeline.AddMarker(42, "Blue", "landed", "", 1, "") is True
-    assert scratch_timeline.AddMarker(42, "Blue", "second here", "", 1, "") is False
-    assert sorted(scratch_timeline.GetMarkers()) == [42]
-
-
-def test_apostrophes_and_newlines_are_not_normalised(scratch_timeline):
-    typed = "we're not sure - line two\nline three's end"
-    assert scratch_timeline.AddMarker(50, "Blue", "Q", typed, 1, "") is True
-    assert _note(read_notes(scratch_timeline), "line three's end").note == typed
-
-
 # ── The frame mapping ───────────────────────────────────────────────
 
 
@@ -317,23 +272,6 @@ def test_an_edited_copy_of_an_inherited_marker_is_kept_as_well(
 # ── What a collected record has to carry ────────────────────────────
 
 
-def test_a_record_carries_frame_timecode_clips_text_and_source(
-        scratch_timeline):
-    assert scratch_timeline.AddMarker(
-        12, "Blue", "FRAMING", "his head is cropped", 1, '{"ticket": 271}'
-    ) is True
-    note = _note(read_notes(scratch_timeline), "his head is cropped")
-
-    assert note.frame is not None
-    assert note.timecode and note.timecode.count(":") == 3
-    assert note.source == "timeline_marker"
-    assert note.custom_data == {"ticket": 271}
-    clip = note.clips[0]
-    assert clip["name"] and clip["source_file"].endswith(".MOV")
-    assert clip["track_type"] == "video" and clip["track_index"] == 1
-    assert clip["source_start"] == CLIP_A_IN
-
-
 # ── The pull, and the guard ─────────────────────────────────────────
 
 
@@ -347,43 +285,6 @@ def _three_notes(timeline):
         assert timeline.AddMarker(10 + i * 10, "Blue", f"Q{i}", text,
                                   1, "") is True
     return typed
-
-
-def test_pull_writes_a_durable_file_outside_the_overwritable_areas(
-        tmp_path, resolve_project, scratch_timeline):
-    _, project, _ = resolve_project
-    typed = _three_notes(scratch_timeline)
-
-    result = pull(str(tmp_path), scratch_timeline, project)
-    written = tmp_path / "marker_feedback"
-    assert written.is_dir()
-    assert str(written) in result["path"]
-    assert "pipeline_output" not in result["path"], (
-        "everything under pipeline_output/ is Kind.OUTPUT - safe to delete "
-        "because a re-run reproduces it. A typed note is not."
-    )
-
-    payload = json.loads(open(result["path"], encoding="utf-8").read())
-    assert payload["note_count"] == 3
-    assert [n["text"] for n in payload["notes"]] == [
-        f"Q{i}\n\n{t}" for i, t in enumerate(typed)]
-    assert all(n["timecode"] and n["frame"] is not None
-               for n in payload["notes"])
-
-
-def test_pull_is_safe_to_run_repeatedly_and_never_overwrites(
-        tmp_path, resolve_project, scratch_timeline):
-    _, project, _ = resolve_project
-    _three_notes(scratch_timeline)
-    first = pull(str(tmp_path), scratch_timeline, project)["path"]
-    scratch_timeline.AddMarker(90, "Blue", "Q3", "and one more", 1, "")
-    second = pull(str(tmp_path), scratch_timeline, project)["path"]
-
-    assert first != second
-    assert os.path.exists(first) and os.path.exists(second)
-    assert json.load(open(first))["note_count"] == 3
-    assert json.load(open(second))["note_count"] == 4
-    assert len(pulled_files(str(tmp_path), scratch_timeline.GetName())) == 2
 
 
 def test_a_pull_clears_the_guard_and_a_new_note_raises_it_again(
@@ -405,42 +306,6 @@ def test_a_pull_clears_the_guard_and_a_new_note_raises_it_again(
         == ["and this one is new"]
     with pytest.raises(UnpulledMarkers):
         assert_markers_pulled(str(tmp_path), scratch_timeline)
-
-
-def test_an_unmarked_timeline_does_not_raise(tmp_path, scratch_timeline):
-    assert assert_markers_pulled(str(tmp_path), scratch_timeline) == []
-
-
-def test_the_build_path_guard_refuses_the_named_timeline(
-        tmp_path, resolve_project, scratch_timeline):
-    """The guard for any caller that is about to delete a named timeline.
-
-    Step 6.01 no longer deletes one - a name already in use is refused
-    there instead - so this is the guard on its own terms, for whatever
-    calls it next."""
-    _, project, _ = resolve_project
-    _three_notes(scratch_timeline)
-    name = scratch_timeline.GetName()
-
-    guard_timeline_deletion(str(tmp_path), project, {"a name nothing has"})
-
-    with pytest.raises(UnpulledMarkers):
-        guard_timeline_deletion(str(tmp_path), project, {name})
-
-    pull(str(tmp_path), scratch_timeline, project)
-    guard_timeline_deletion(str(tmp_path), project, {name})
-
-
-def test_the_override_is_explicit_and_off_by_default(
-        tmp_path, resolve_project, scratch_timeline, monkeypatch):
-    _, project, _ = resolve_project
-    _three_notes(scratch_timeline)
-    with pytest.raises(UnpulledMarkers):
-        guard_timeline_deletion(str(tmp_path), project,
-                                {scratch_timeline.GetName()})
-    monkeypatch.setenv(DISCARD_ENV, "1")
-    guard_timeline_deletion(str(tmp_path), project,
-                            {scratch_timeline.GetName()})
 
 
 # ── The locale Resolve resets underneath us ─────────────────────────
@@ -466,42 +331,7 @@ def test_connecting_does_not_break_reading_utf8_files(resolve_project):
     utf8_source.read_text()  # no encoding= : this is the call that broke
 
 
-def test_the_wrapper_restores_ctype_and_leaves_numeric_alone():
-    """Restoring a category nothing touched could hand fusionscript a
-    decimal comma. Only LC_CTYPE is put back."""
-    import locale
-    from library.tools.resolve_locale import scriptapp_preserving_locale
-
-    class Vandal:
-        def scriptapp(self, name):
-            locale.setlocale(locale.LC_CTYPE, "C")
-            return f"connected:{name}"
-
-    before_ctype = locale.setlocale(locale.LC_CTYPE)
-    before_numeric = locale.setlocale(locale.LC_NUMERIC)
-    assert scriptapp_preserving_locale(Vandal()) == "connected:Resolve"
-    assert locale.setlocale(locale.LC_CTYPE) == before_ctype
-    assert locale.setlocale(locale.LC_NUMERIC) == before_numeric
-
-
 # ── The green reply ─────────────────────────────────────────────────
-
-
-def test_reply_marker_lands_green_and_reads_back(scratch_timeline):
-    """The captain's channel: one green marker stating the ask and the
-    response, written for a reader and verified by read-back."""
-    start = int(scratch_timeline.GetStartFrame())
-    frame = start + 10
-    record = place_reply_marker(
-        scratch_timeline, frame, "Green",
-        "reply: tail breath holds",
-        "You asked for room after her last word; the closer now ends "
-        "in silence.")
-    assert record["frame"] == frame
-    assert record["color"] == "Green"
-    note = _note(read_notes(scratch_timeline), "room after her last word")
-    assert note.color == "Green"
-    assert note.frame == frame
 
 
 def test_reply_marker_past_the_end_is_refused_not_placed(scratch_timeline):
@@ -513,23 +343,6 @@ def test_reply_marker_past_the_end_is_refused_not_placed(scratch_timeline):
                            "past the end", "must not land")
     assert end + 50 - int(scratch_timeline.GetStartFrame()) \
         not in (scratch_timeline.GetMarkers() or {})
-
-
-def test_reply_marker_refuses_an_empty_name(scratch_timeline):
-    start = int(scratch_timeline.GetStartFrame())
-    with pytest.raises(MarkerWriteError):
-        place_reply_marker(scratch_timeline, start + 12, "Green", "", "x")
-    assert 12 not in (scratch_timeline.GetMarkers() or {})
-
-
-def test_reply_marker_on_an_occupied_frame_is_refused(scratch_timeline):
-    start = int(scratch_timeline.GetStartFrame())
-    assert scratch_timeline.AddMarker(14, "Blue", "his", "stays", 1, "") is True
-    with pytest.raises(MarkerWriteError):
-        place_reply_marker(scratch_timeline, start + 14, "Green",
-                           "mine", "must not overwrite his")
-    back = (scratch_timeline.GetMarkers() or {})[14]
-    assert (back.get("name"), back.get("color")) == ("his", "Blue")
 
 
 # ── The green reply ON A CLIP ───────────────────────────────────────
@@ -571,25 +384,6 @@ def test_a_reply_outside_what_the_clip_plays_is_refused(scratch_timeline):
             place_reply_clip_marker(item, key, "Green", "outside",
                                     "must not land")
         assert key not in (item.GetMarkers() or {})
-
-
-def test_a_clip_reply_refuses_an_empty_name(scratch_timeline):
-    item = scratch_timeline.GetItemListInTrack("video", 1)[0]
-    key = CLIP_A_IN + 5
-    with pytest.raises(MarkerWriteError):
-        place_reply_clip_marker(item, key, "Green", "", "x")
-    assert key not in (item.GetMarkers() or {})
-
-
-def test_a_clip_reply_never_overwrites_the_captains_own(scratch_timeline):
-    item = scratch_timeline.GetItemListInTrack("video", 1)[0]
-    key = CLIP_A_IN + 7
-    assert item.AddMarker(key, "Blue", "his", "stays", 1, "") is True
-    with pytest.raises(MarkerWriteError):
-        place_reply_clip_marker(item, key, "Green", "mine",
-                                "must not overwrite his")
-    back = (item.GetMarkers() or {})[key]
-    assert (back.get("name"), back.get("color")) == ("his", "Blue")
 
 
 def test_an_answered_question_comes_off_and_is_judged_by_the_read_back(

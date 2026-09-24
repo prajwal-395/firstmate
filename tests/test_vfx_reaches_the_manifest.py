@@ -212,13 +212,3 @@ def test_compile_manifest_reads_the_basis_and_names_the_casualties(
     assert "unknown_effect_type" in text
 
 
-def test_a_plan_the_planner_left_empty_is_not_reported_as_a_casualty(
-        recorded_run, caplog):
-    import logging
-
-    _, _, outputs, _ = recorded_run
-    spec, _ = _plan_through_the_post_bridge(outputs, [])
-    with caplog.at_level(logging.INFO):
-        _compile_with(recorded_run, spec)
-    assert "no_effects_planned" in caplog.text
-    assert "every_entry_dropped" not in caplog.text

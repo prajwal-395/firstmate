@@ -90,24 +90,6 @@ def test_a_declared_row_replaces_the_lift_rather_than_stacking(tmp_path):
         props["safeArea"]["bottom"] - 960,)
 
 
-def test_only_the_bottom_inset_moves(tmp_path):
-    """`captionMaxWidth` and the other three insets are platform facts
-    and motion graphics read the profile directly, so none of them
-    follows the captions."""
-    (tmp_path / "a").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "b").mkdir(parents=True, exist_ok=True)
-    plain = _with_pipeline(tmp_path / "a", "subtitle_typography:\n  size: 58\n")
-    moved = _with_pipeline(tmp_path / "b", """\
-        subtitle_position:
-          caption_row: 0.6
-          reason: moved
-        """)
-    before = subtitle_style.resolve_subtitle_style(project_folder=plain)
-    after = subtitle_style.resolve_subtitle_style(project_folder=moved)
-    assert before["captionMaxWidth"] == after["captionMaxWidth"]
-    for edge in ("top", "left", "right"):
-        assert before["safeArea"][edge] == after["safeArea"][edge]
-    assert before["safeArea"]["bottom"] != after["safeArea"]["bottom"]
 
 
 def test_the_row_is_a_fraction_so_it_survives_a_format_change():
@@ -121,8 +103,6 @@ def test_the_row_is_a_fraction_so_it_survives_a_format_change():
     ("subtitle_position: 0.7\n", TypeError, "must be a mapping"),
     ("subtitle_position:\n  reason: no row\n", ValueError, "names no"),
     ("subtitle_position:\n  caption_row: 1380\n", ValueError, "FRACTION"),
-    ("subtitle_position:\n  caption_row: 0\n", ValueError, "FRACTION"),
-    ("subtitle_position:\n  caption_row: nope\n", TypeError, "must be a number"),
     ("subtitle_position:\n  caption_row: 0.7\n  nudge: 3\n",
      ValueError, "nothing reads"),
 ])

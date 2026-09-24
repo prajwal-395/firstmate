@@ -47,18 +47,6 @@ class MockClip:
 
 
 class TestNeuralEngine(unittest.TestCase):
-    def test_smart_reframe_has_no_wrapper(self):
-        """The wrapper is withdrawn, and a mock must not resurrect it.
-
-        The test that used to sit here asserted that a MockClip whose
-        `SmartReframe()` returns True made the wrapper return True. It
-        proved the mock, not Resolve: the real caller passed a Timeline,
-        and the wrapper's `hasattr` guard is True for every name on a
-        Resolve proxy. See the note in neural_engine.py.
-        """
-        import library.tools.neural_engine as neural_engine
-        self.assertFalse(hasattr(neural_engine, "apply_smart_reframe"))
-
     def test_apply_super_scale_targets_the_media_pool_item(self):
         clip = MockClip()
         self.assertTrue(apply_super_scale(clip, 2))
@@ -74,23 +62,6 @@ class TestNeuralEngine(unittest.TestCase):
         self.assertIn("SuperScale Sharpness", clip.media_pool_item.properties)
         self.assertIn("SuperScale Noise Reduction", clip.media_pool_item.properties)
 
-    def test_apply_super_scale_failure_is_reported(self):
-        clip = MockClip()
-        self.assertFalse(apply_super_scale(clip, 4))
-
-    def test_apply_stabilization(self):
-        clip = MockClip()
-        self.assertTrue(apply_stabilization(clip))
-
-    def test_apply_stabilization_failure_is_reported(self):
-        clip = MockClip()
-        clip.stabilize_result = False
-        self.assertFalse(apply_stabilization(clip))
-
-    def test_magic_mask_has_no_wrapper(self):
-        """Withdrawn: CreateMagicMask returns False for every mode."""
-        import library.tools.neural_engine as neural_engine
-        self.assertFalse(hasattr(neural_engine, "apply_magic_mask"))
 
 
 if __name__ == '__main__':

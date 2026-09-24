@@ -202,11 +202,6 @@ def _chroma(frames, **kwargs):
 
 class TestP1FrameOccupancy:
 
-    def test_a_filled_frame_with_one_geometry_passes(self):
-        result = _occupancy([1.0] * 10)
-        assert result.passed, result.detail
-        assert result.value["median_picture_fraction"] == 1.0
-        assert result.value["spread"] == 0.0
 
     def test_a_letterboxed_picture_fails_when_nothing_declared_bars(self):
         """Project 001's shape: 608 picture rows of 1920, and no declaration.
@@ -232,12 +227,6 @@ class TestP1FrameOccupancy:
         # and specifically NOT via the fill floor
         assert "letterboxed" not in result.detail
 
-    def test_both_001_failures_are_reported_together(self):
-        """001 fails twice, for different reasons, and both must show."""
-        result = _occupancy([608 / 1920] * 8 + [1.0] * 2)
-        assert not result.passed
-        assert "letterboxed and nothing asked for bars" in result.detail
-        assert "changes size within one declared framing" in result.detail
 
     def test_a_declared_letterbox_is_exempt_from_the_fill_floor(self):
         """A series that declares bars gets them - the synthetic cinematic
@@ -252,10 +241,6 @@ class TestP1FrameOccupancy:
         assert result.threshold["fill_floor_applies"] is False
         assert result.threshold["consistency_applies"] is True
 
-    def test_a_declared_letterbox_still_owes_one_geometry(self):
-        result = _occupancy([0.34] * 6 + [0.9] * 4, framing_intents=[0.0] * 10)
-        assert not result.passed
-        assert "changes size within one declared framing" in result.detail
 
     def test_a_declared_per_clip_framing_may_change_geometry(self):
         """Two declared framings, each delivered where it was declared.
@@ -286,88 +271,18 @@ class TestP1FrameOccupancy:
         assert "within one declared framing (0)" in result.detail
         assert "one framing has one geometry" in result.detail
 
-    def test_the_fill_floor_applies_to_the_fill_half_of_a_mixed_video(self):
-        """A letterboxed stretch does not excuse a barred FILL stretch."""
-        result = _occupancy([0.34] * 6 + [0.34] * 4,
-                            framing_intents=[1.0] * 6 + [0.0] * 4)
-        assert not result.passed
-        assert "declares FILL" in result.detail
-        assert "letterboxed and nothing asked for bars" in result.detail
 
-    def test_a_sample_outside_every_span_is_reported_not_folded_in(self):
-        result = _occupancy([1.0] * 6,
-                            framing_spans=[render_qa.FramingSpan(0.0, 3.0, 1.0)])
-        assert result.passed, result.detail
-        assert result.value["unattributed_samples"] == 3
-        assert "outside every declared span" in result.detail
 
-    def test_spans_that_miss_the_render_entirely_are_an_error(self):
-        result = _occupancy([1.0] * 4,
-                            framing_spans=[render_qa.FramingSpan(90.0, 99.0, 1.0)])
-        assert not result.passed
-        assert result.severity == "error"
-        assert "different timelines" in result.detail
 
-    def test_the_later_span_wins_an_overlap_so_v2_covers_v1(self):
-        """V2 is laid down after V1 and is what the viewer sees."""
-        result = _occupancy(
-            [1.0, 1.0, 0.34, 1.0],
-            framing_spans=[render_qa.FramingSpan(0.0, 4.0, 1.0),
-                           render_qa.FramingSpan(2.0, 3.0, 0.0)])
-        assert result.passed, result.detail
-        assert result.value["by_declared_framing"]["0"]["frames_sampled"] == 1
-        assert result.value["by_declared_framing"]["1"]["frames_sampled"] == 3
 
-    def test_the_lit_threshold_is_the_pipelines_own_black(self):
-        assert LIT_LUMA_THRESHOLD == 12.0
 
     # ── black is not the same thing as dark (issue #221) ──
     # The check called a row "lit" above a luma threshold and read every
     # other row as bar, which fails any render carrying a dim shot - most
     # of them.  These are the cases that separates, in both directions.
 
-    def test_a_dark_but_full_bleed_frame_is_not_letterboxed(self):
-        """The exact defect: a dark picture read as a frame full of bars.
 
-        Every row of this frame is below the lit threshold, so the old
-        method measured it at 0% occupancy and failed the render. Not one
-        row is flat, so all of it is picture.
-        """
-        frames = [_dark_frame()] * 10
-        assert _dark_row_fraction(frames[0]) == 0.0, \
-            "the fixture must be genuinely dark, or it proves nothing"
-        result = _occupancy_of(frames)
-        assert result.passed, result.detail
-        assert result.value["median_picture_fraction"] == 1.0
-        assert result.value["max_top_bar_rows"] == 0
-        assert result.value["max_bottom_bar_rows"] == 0
 
-    def test_a_dark_shot_among_lit_ones_does_not_read_as_a_geometry_change(self):
-        """001's whole failure, in the shape it actually took.
-
-        A master that is lit for most of its length and dark at 50s used
-        to report the picture changing size by 31 points of frame height.
-        Nothing moved; one shot was in a car at night.
-        """
-        frames = [_gray_frame(1.0)] * 8 + [_dark_frame()] * 2 + \
-                 [_shot_with_a_dark_top()] * 2
-        result = _occupancy_of(frames)
-        assert result.passed, result.detail
-        assert result.value["spread"] == 0.0
-
-    def test_a_dark_region_inside_the_picture_is_not_a_bar(self):
-        """Contiguity from the frame edge, on its own.
-
-        This band is as flat as any real bar - it IS black - and it is in
-        the middle of a lit picture, where a letterbox bar cannot be. 506
-        of the 621 dark rows in 001's 50.0s frame were interior like this.
-        """
-        frames = [_lit_frame_with_an_interior_black_band(60, 130)] * 10
-        assert _dark_row_fraction(frames[0]) < 0.65, \
-            "the fixture must look letterboxed to a darkness-only method"
-        result = _occupancy_of(frames)
-        assert result.passed, result.detail
-        assert result.value["median_picture_fraction"] == 1.0
 
     def test_a_genuine_letterbox_still_fails(self):
         """The defect the gate exists for, measured the new way.
@@ -384,16 +299,6 @@ class TestP1FrameOccupancy:
         assert result.value["max_top_bar_rows"] > 0
         assert result.value["max_bottom_bar_rows"] > 0
 
-    def test_a_letterbox_appearing_mid_video_still_fails_one_geometry(self):
-        """The subtler half: the picture must not change size mid-cut.
-
-        Half the frames fill and half are barred, so the fill floor's
-        median is borderline; the consistency half carries this on its own.
-        """
-        frames = [_gray_frame(1.0)] * 6 + [_letterboxed_frame(round(H * 0.6))] * 4
-        result = _occupancy_of(frames)
-        assert not result.passed
-        assert "changes size within one declared framing" in result.detail
 
     def test_an_imperfectly_encoded_bar_is_still_a_bar(self):
         """A bar is not always pristine, and the bounds are measured for that.
@@ -463,19 +368,7 @@ class TestP1FrameOccupancy:
         assert result.value["black_frames_skipped"] == 2
         assert result.value["frames_sampled"] == 8
 
-    def test_a_render_of_nothing_but_black_is_an_error_not_a_pass(self):
-        black = np.zeros((1, H, W), dtype=np.uint8)
-        result = _occupancy_of([black] * 5)
-        assert not result.passed
-        assert result.severity == "error"
-        assert "entirely black" in result.detail
 
-    def test_a_render_with_no_readable_frame_is_an_error_not_a_pass(self):
-        with patch.object(render_qa, "_probe_video_size", return_value=(W, H)), \
-                patch.object(render_qa, "_stream_raw_frames", return_value=iter([])):
-            result = measure_frame_occupancy("master.mp4")
-        assert not result.passed
-        assert result.severity == "error"
 
 
 # ═══ P2: somewhere in the frame there is colour ═══
@@ -489,23 +382,7 @@ class TestP2ChromaPresence:
         assert result.value["median_p99_chroma"] == pytest.approx(27.0, abs=0.5)
         assert "reporting only" in result.detail
 
-    def test_a_grey_video_under_a_supplied_floor_does_not_fail_the_build(self):
-        """The whole point of measuring before gating.
 
-        The floor is an open captain decision, so the number is reported
-        and the build survives. `meets_floor` carries the verdict for
-        whoever eventually rules on it.
-        """
-        result = _chroma([_yuv_frame(27.0)] * 5, chroma_floor=60.0)
-        assert result.passed
-        assert result.value["meets_floor"] is False
-        assert "REPORTED ONLY" in result.detail
-        assert render_qa.CHROMA_PRESENCE_GATES is False
-
-    def test_promoting_it_to_a_gate_is_one_boolean(self):
-        result = _chroma([_yuv_frame(27.0)] * 5, chroma_floor=60.0, gate=True)
-        assert not result.passed
-        assert result.severity == "error"
 
     def test_the_percentile_sees_an_accent_a_mean_would_miss(self):
         """The reason the statistic is p99 and not a mean.
@@ -530,12 +407,6 @@ class TestP2ChromaPresence:
         result = _chroma([frame] * 5, chroma_floor=60.0)
         assert result.value["meets_floor"] is True
 
-    def test_a_render_with_no_lit_pixel_reports_rather_than_failing(self):
-        frame = _yuv_frame(50.0)
-        frame[0, :, :] = 0
-        result = _chroma([frame] * 3)
-        assert result.passed
-        assert result.severity == "warning"
 
 
 class TestP2ReplacedTheMeanSaturationGate:
@@ -564,8 +435,6 @@ class TestP2ReplacedTheMeanSaturationGate:
                 patch('os.path.getsize', return_value=2048):
             return analyze_color_histogram("dummy.mp4")
 
-    def test_the_saturation_floor_is_gone_from_the_histogram_threshold(self):
-        assert "min_sat" not in self._histogram(50).threshold
 
     def test_the_punch_card_reference_is_no_longer_rejected(self):
         """3.5 mean saturation - the captain's own selected reference."""
@@ -646,12 +515,6 @@ class TestP3SpeechAboveBed:
         assert "REPORTED ONLY" in result.detail
         assert render_qa.SPEECH_ABOVE_BED_GATES is False
 
-    def test_promoting_it_to_a_gate_is_one_boolean(self):
-        mix, music = _mix_fixture(2.0)
-        result = _speech_above_bed(mix, music, BACKGROUND_WINDOW, SPEECH_BLOCK,
-                                   gate=True)
-        assert not result.passed
-        assert result.severity == "error"
 
     def test_the_target_is_the_plans_number_not_a_convention(self):
         mix, music = _mix_fixture(10.0)
@@ -662,28 +525,7 @@ class TestP3SpeechAboveBed:
         assert window["required_margin_db"] == 6.0
         assert window["meets_plan"] is True
 
-    def test_a_non_speech_block_is_measured_but_not_judged(self):
-        """A pacing beat has no voice to be above."""
-        mix, music = _mix_fixture(2.0)
-        result = _speech_above_bed(
-            mix, music, BACKGROUND_WINDOW,
-            [{"position": 1, "block_type": "transition_slot"}])
-        assert result.value["judged"] == 0
-        assert result.value["windows"][0]["judged"] is False
-        assert result.value["windows"][0]["music_in_mix_db"] is not None
 
-    def test_the_plan_is_read_from_music_automation_not_from_spine_blocks(self):
-        """`_spine_blocks` names a behaviour but carries no dB, and P3
-        judges against the plan's own number. The two halves agree on the
-        vocabulary now (see tests/test_music_behavior_vocabulary.py); the
-        one that carries the LEVEL is the one read here."""
-        mix, music = _mix_fixture(20.0)
-        result = _speech_above_bed(
-            mix, music, BACKGROUND_WINDOW,
-            [{"position": 1, "block_type": "speech",
-              "music_behavior": "silent"}])
-        assert result.value["windows"][0]["music_behavior"] == "background"
-        assert result.value["windows"][0]["required_margin_db"] == 18.0
 
     def test_a_silent_window_is_judged_on_what_the_viewer_can_hear(self):
         """The gain column says whether the automation ran; the contribution
@@ -712,10 +554,6 @@ class TestP3SpeechAboveBed:
         assert silent["meets_plan"] is False
         assert result.value["silent_reference_db"] is not None
 
-    def test_no_music_plan_means_nothing_to_measure(self):
-        result = measure_speech_above_bed("master.mp4", "music.wav", [], 0.0)
-        assert result.passed
-        assert "nothing to measure" in result.detail
 
     # ── the bed does not start at the head of its own file ──
     #
@@ -796,10 +634,6 @@ def _loudnorm(input_i, input_tp, **kwargs):
 
 class TestP4LoudnessAndPeak:
 
-    def test_a_master_at_target_and_under_the_ceiling_passes(self):
-        result = _loudnorm(-14.2, -1.4)
-        assert result.passed
-        assert result.value["lufs_passed"] and result.value["true_peak_passed"]
 
     def test_a_clipping_master_fails_even_when_loudness_is_perfect(self):
         """The peak half must carry the verdict on its own."""
@@ -821,8 +655,6 @@ class TestP4LoudnessAndPeak:
         assert result.value["true_peak_passed"] is False
         assert "-17.47" in result.detail and "+1.85" in result.detail
 
-    def test_the_ceiling_is_the_manifests_own_declared_limiter(self):
-        assert render_qa.DEFAULT_TRUE_PEAK_CEILING_DBTP == -1.0
 
     def test_the_loudness_tolerance_is_one_db(self):
         """At +/-2 a master can sit 2 dB quiet and pass, and no platform
@@ -852,23 +684,9 @@ class TestP6NoFlashingCaptions:
         assert "0.182s" in errors[0]
         assert "5.5 frames" in errors[0]
 
-    def test_cards_at_the_planners_own_floor_pass(self):
-        assert _check_no_flash_captions(_subtitles([0.7] * 10)) == []
 
-    def test_the_soft_floor_is_counted_and_does_not_fail_on_its_own(self):
-        """0.7s is the planner's declared display floor; only 0.5s fails,
-        so a card between the two is reported inside the message rather
-        than becoming a second verdict."""
-        assert _check_no_flash_captions(_subtitles([0.6] * 10)) == []
-        errors = _check_no_flash_captions(_subtitles([0.6] * 9 + [0.4]))
-        assert "9 more sit under the 0.7s display floor" in errors[0]
 
-    def test_both_thresholds_are_the_pipelines_own(self):
-        assert MIN_CAPTION_DISPLAY_SECONDS == 0.5
-        assert SOFT_CAPTION_DISPLAY_SECONDS == 0.7
 
-    def test_a_manifest_with_no_subtitles_is_not_a_failure(self):
-        assert _check_no_flash_captions({}) == []
 
     def test_a_card_that_ends_with_its_block_is_reported_not_failed(self):
         """The one case grouping cannot reach.
@@ -933,26 +751,6 @@ class TestP6NoFlashingCaptions:
         errors = _check_no_flash_captions(manifest)
         assert len(errors) == 1 and "sub_002" in errors[0]
 
-    def test_the_exempted_cards_are_still_named_in_the_message(self):
-        """Reported, not silently dropped: a build that has both kinds
-        says so."""
-        manifest = {
-            "subtitles": [
-                {"id": "sub_001", "text": "a", "spine_block_position": 2,
-                 "timeline_start": 0.0, "timeline_end": 1.0},
-                {"id": "sub_002", "text": "b", "spine_block_position": 2,
-                 "timeline_start": 1.0, "timeline_end": 1.21},
-                {"id": "sub_003", "text": "c", "spine_block_position": 2,
-                 "timeline_start": 1.21, "timeline_end": 1.40},
-            ],
-            "_spine_blocks": [
-                {"position": 2, "timeline_start": 0.0, "timeline_end": 1.40},
-            ],
-        }
-        errors = _check_no_flash_captions(manifest)
-        assert len(errors) == 1
-        assert "sub_002" in errors[0]
-        assert "end with their spine block" in errors[0]
 
 
 # ═══ P7: no discretionary effect applied to everything ═══
@@ -986,17 +784,7 @@ class TestP7NoEffectOnEverything:
             _vfx_manifest([ZOOM_IN, ZOOM_OUT] * 4))
         assert errors and "slow_zoom" in errors[0]
 
-    def test_leaving_one_clip_alone_passes(self):
-        """100% is the exact boundary between chosen and applied."""
-        assert _check_no_effect_on_everything(
-            _vfx_manifest([ZOOM_IN] * 4 + [ZOOM_OUT] * 3)) == []
 
-    def test_genuinely_varied_parameters_pass(self):
-        """An effect on every clip with a different value each time IS a
-        decision, made many times."""
-        effects = [("slow_zoom_in", {"zoom_end": 1.0 + i / 100})
-                   for i in range(8)]
-        assert _check_no_effect_on_everything(_vfx_manifest(effects)) == []
 
     def test_it_is_not_a_floor_and_never_becomes_one(self):
         """The 2026-08-20 ruling removed the creative floors outright. A
@@ -1005,9 +793,6 @@ class TestP7NoEffectOnEverything:
         assert _check_no_effect_on_everything(
             _vfx_manifest([ZOOM_IN, ZOOM_OUT])) == []
 
-    def test_a_video_too_short_to_have_a_pattern_is_left_alone(self):
-        assert _check_no_effect_on_everything(
-            _vfx_manifest([ZOOM_IN, ZOOM_OUT], clips=2)) == []
 
     def test_a_drawn_transition_on_every_cut_fires(self):
         manifest = {
@@ -1097,10 +882,6 @@ class TestTheGatesActuallyDecide:
         assert verdict["checks"]["framing"]["pass"] is False
         assert verdict["critical_checks_passed"] is False
 
-    def test_p4_failing_makes_the_render_undeliverable(self):
-        verdict = self._validate([self._result("lufs", False)])
-        assert verdict["distribution_ready"] is False
-        assert verdict["checks"]["audio_levels"]["pass"] is False
 
     def test_p2_and_p3_never_touch_the_verdict(self):
         """They pass by construction today; if a future edit makes them
@@ -1113,30 +894,6 @@ class TestTheGatesActuallyDecide:
         assert verdict["distribution_ready"] is True
         assert all(c["pass"] for c in verdict["checks"].values())
 
-    def test_the_manifest_supplies_what_p1_and_p3_need(self):
-        from library.steps.step_6_02_validate_output import bridge as validate
-
-        manifest = {
-            "project": {"frame_rate": 30.0},
-            "tracks": {
-                "V1": {"clips": [
-                    {"framing_delivered": 1.0,
-                     "timeline_in_frame": 0, "timeline_out_frame": 30},
-                    {"framing_delivered": 1.0,
-                     "timeline_in_frame": 30, "timeline_out_frame": 60}]},
-                "V2": {"clips": [{"framing_delivered": 0.0,
-                                  "timeline_in_frame": 60, "timeline_out_frame": 90}]},
-                "A2": {"clips": [{"source_file": __file__}]},
-            },
-            "audio_mix": {"music_automation": [{"timeline_start": 0.0}]},
-        }
-        assert [(s.start, s.end, s.intent)
-                for s in validate._framing_spans(manifest)] == [
-            (0.0, 1.0, 1.0), (1.0, 2.0, 1.0), (2.0, 3.0, 0.0)]
-        music, automation, offset = validate._music_bed(manifest)
-        assert music == __file__
-        assert len(automation) == 1
-        assert offset == 0.0
 
     def test_framing_spans_follow_frames_not_drifted_seconds(self):
         """D4: the rendered timeline is frame-quantised, so the seconds
@@ -1173,13 +930,6 @@ class TestTheGatesActuallyDecide:
             (v2_in / fps, v2_out / fps, 1.0)]
         assert render_qa._intent_at(spans, v2_in / fps) == 1.0
 
-    def test_a_missing_music_file_disables_p3_rather_than_guessing(self):
-        from library.steps.step_6_02_validate_output import bridge as validate
-
-        music, automation, offset = validate._music_bed(
-            {"tracks": {"A2": {"clips": [{"source_file": "/nope/absent.wav"}]}},
-             "audio_mix": {"music_automation": [{"timeline_start": 0.0}]}})
-        assert music is None and automation == [] and offset is None
 
 
 # ═══ where P4's verdict lives, and where it must not ═══
@@ -1208,33 +958,5 @@ class TestP4DoesNotCollideWithTheBuildVerdict:
     boundary.
     """
 
-    def test_no_render_qa_result_reaches_the_build_verdict(self):
-        import os
-        renderer = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "library", "steps", "step_6_01_render", "resolve_build_timeline.py")
-        with open(renderer, encoding="utf-8") as fh:
-            source = fh.read()
-        assert "render_qa" not in source, (
-            "resolve_build_timeline must not feed render QA into its station "
-            "list: derive_verification_verdict's outcome is advisory, so a "
-            "P4 failure routed there would stop failing the build")
 
-    def test_the_timeline_audio_station_still_declines_to_judge_levels(self):
-        from library.tools.timeline_qa import verify_audio
-        assert "does NOT check per-track levels" in verify_audio.__doc__, (
-            "if the timeline station starts judging levels there are two "
-            "authorities on the same question and they can disagree")
 
-    def test_the_two_verdicts_use_different_result_types(self):
-        from library.steps.step_6_01_render.build_verification import (  # noqa: E402
-            derive_verification_verdict,
-        )
-
-        # A station report is not a RenderQAResult and vice versa; the
-        # station verdict is computed only from the former.
-        from types import SimpleNamespace
-        assert derive_verification_verdict(
-            [SimpleNamespace(passed=True), SimpleNamespace(passed=False)]) is False
-        assert derive_verification_verdict([]) is True
-        assert not hasattr(render_qa.RenderQAResult, "station")

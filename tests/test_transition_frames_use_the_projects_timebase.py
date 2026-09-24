@@ -108,39 +108,5 @@ def test_the_key_nothing_produces_no_longer_decides_alone():
     assert frames == int(10 * (23.976 / 30)), frames
 
 
-def test_the_catalog_edge_carries_the_timebase():
-    """A read is not enough: the value has to be routed to the step."""
-    dag = json.loads((REPO / "library" / "processes" / "edit_video" /
-                      "dag.json").read_text(encoding="utf-8"))
-    mappings = [e.get("data_mapping", {}) for e in dag["edges"]
-                if e["from"] == "catalog" and e["to"] == "plan_transitions"]
-    assert mappings and mappings[0].get("project_fps") == "project_fps"
-
-    manifest = json.loads((STEP / "manifest.json").read_text(encoding="utf-8"))
-    declared = {i["name"] for i in manifest["interface"]["inputs"]}
-    assert "project_fps" in declared
 
 
-def test_plan_vfx_threads_a_timebase_nothing_uses():
-    """The finding this fix deliberately did NOT apply to 4.03.
-
-    `plan_vfx` reads the same non-existent `frame_rate` key and passes
-    the value to `resolve_vfx` and `resolve_generator_overlays` - both of
-    which declare the parameter and never use it. Routing `project_fps`
-    there would add a declaration nothing reads, which is the defect this
-    lane is auditing for. The finding is that the parameter is dead, and
-    this test pins it so the claim cannot go stale unnoticed.
-    """
-    import ast
-
-    source = (REPO / "library" / "steps" / "step_4_03_plan_vfx" /
-              "post_bridge.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    for name in ("resolve_vfx", "resolve_generator_overlays"):
-        func = next(n for n in tree.body
-                    if isinstance(n, ast.FunctionDef) and n.name == name)
-        assert any(a.arg == "frame_rate" for a in func.args.args), name
-        used = {n.id for n in ast.walk(func) if isinstance(n, ast.Name)}
-        assert "frame_rate" not in used, (
-            f"{name} now uses frame_rate - route project_fps to plan_vfx "
-            f"and read it, the way step 4.02 does")

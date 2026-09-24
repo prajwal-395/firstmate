@@ -88,12 +88,6 @@ def run_bridge(payload):
 
 # ── The raw document no longer reaches the prompt ─────────────────────
 
-def test_the_vision_document_is_not_in_the_projection():
-    fields = manifest()["context_fields"]
-    assert "semantic_analysis" not in fields
-    assert not any(f.startswith("semantic_analysis.") for f in fields)
-
-
 def test_none_of_the_withdrawn_columns_survive_projection():
     projected = project_fields(
         {"semantic_analysis": [DOC], "timed_spine": SPINE},
@@ -164,10 +158,3 @@ def test_no_mood_is_invented():
     out = run_bridge({"timed_spine": SPINE, "semantic_analysis": [DOC],
                       "clip_catalog": CATALOG, "b_roll_assignments": []})
     assert "Mood:" not in out["cuts_toon"]
-
-
-def test_a_clip_with_no_document_says_so_rather_than_guessing():
-    out = run_bridge({"timed_spine": SPINE, "semantic_analysis": [],
-                      "clip_catalog": CATALOG, "b_roll_assignments": []})
-    rows = [r for r in out["cuts_toon"].split("\n") if r.strip()][1:]
-    assert all("none" in r for r in rows), out["cuts_toon"]

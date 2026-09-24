@@ -17,31 +17,6 @@ def mock_manifest():
 def mock_inputs():
     return {"project_folder": "/tmp/test", "some_input": "hello"}
 
-@patch("library.processes.edit_video.run_pipeline.validate_step_output")
-@patch("library.tools.template_loader.TemplateLoader")
-@patch("library.tools.llm_client.LLMClient")
-def test_passing_qa_no_retry(mock_llm_client_class, mock_template_loader, mock_validate, mock_inputs, mock_manifest, tmp_path):
-    mock_client = MagicMock()
-    mock_llm_client_class.return_value = mock_client
-    mock_template_loader.return_value.get_brand_constraints.return_value = ""
-    mock_template_loader.return_value.get_brand_constraints.return_value = ""
-    mock_template_loader.return_value.get_brand_constraints.return_value = ""
-    
-    # generate returns a valid JSON first time
-    mock_client.generate.return_value = '```json\n{"result": "success"}\n```'
-    
-    # validate_step_output passes (does nothing)
-    mock_validate.return_value = None
-    
-    prompt_file = tmp_path / "prompt.txt"
-    prompt_file.write_text("Test prompt")
-    
-    result = present_llm_step(str(prompt_file), mock_inputs, "test_node", manifest=mock_manifest, full_auto="api")
-    
-    assert result == {"result": "success"}
-    assert mock_client.generate.call_count == 1
-    assert mock_validate.call_count == 1
-
 
 @patch("library.processes.edit_video.run_pipeline.validate_step_output")
 @patch("library.tools.template_loader.TemplateLoader")

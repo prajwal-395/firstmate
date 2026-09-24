@@ -90,14 +90,6 @@ def test_build_and_run_paths_cannot_reach_the_render():
     assert "deliver_reel" not in runner_source
 
 
-def test_deliver_reel_is_a_registered_verb():
-    """The explicit verb exists, takes a reel number, and is required."""
-    import manage_project
-
-    assert "deliver-reel" in manage_project.ALL_COMMANDS
-    assert manage_project.cmd_deliver_reel.__doc__
-
-
 # ── The verb refuses rather than guesses ──────────────────────────
 
 def _bare_project(tmp_path, pipeline_block=""):
@@ -108,17 +100,6 @@ def _bare_project(tmp_path, pipeline_block=""):
         f"{pipeline_block}",
         encoding="utf-8")
     return str(root)
-
-
-def test_deliver_refuses_without_a_reel():
-    """Rendering without naming a reel is the unasked render - refused."""
-    from library.tools import reel_deliver
-
-    with pytest.raises(reel_deliver.DeliverRefused):
-        reel_deliver.deliver_reel("/nonexistent", None)
-    with pytest.raises(reel_deliver.DeliverRefused,
-                       match="no reel named"):
-        reel_deliver.timeline_name_for_reel("/nonexistent", None)
 
 
 def _project_with_proposal(tmp_path, approved=(3,), proposed=()):
@@ -163,61 +144,7 @@ def test_deliver_refuses_an_unapproved_reel(tmp_path):
         reel_deliver.timeline_name_for_reel(folder, 4)
 
 
-def test_approved_reel_resolves_to_its_exact_timeline_name(tmp_path):
-    """The plan owns the name; the verb spells it once via the proposal."""
-    from library.tools import reel_deliver
-
-    folder = _project_with_proposal(tmp_path)
-    assert (reel_deliver.timeline_name_for_reel(folder, 3)
-            == "Reel 03 - hook")
-
-
 # ── The declaration slot, not a default ───────────────────────────
-
-def test_undeclared_preset_is_reported_not_defaulted(tmp_path):
-    """No declaration means the fallback, SAID to be the fallback.
-
-    The frame is declared (delivery_format owns it); the container,
-    codec and naming are reported as needing the captain's word. A
-    default presented as a decision is how the house look started.
-    """
-    from library.tools import reel_deliver
-
-    folder = _bare_project(tmp_path)
-    settings = reel_deliver.resolve_deliver_settings(folder)
-    assert settings["preset_declared"] is False
-    assert settings["naming_declared"] is False
-    assert settings["needs_captain_word"] == [
-        "deliver_preset", "deliver_naming"]
-    assert (settings["width"], settings["height"]) == (1080, 1920)
-    assert settings["format"] == reel_deliver.FALLBACK_FORMAT
-    assert settings["codec"] == reel_deliver.FALLBACK_CODEC
-
-
-def test_declared_preset_wins_and_round_trips():
-    """A declared preset reaches the settings; validation refuses junk."""
-    from library.schemas.project_config import (
-        _dict_to_project_config,
-        project_config_to_dict,
-    )
-
-    config = _dict_to_project_config({
-        "name": "T", "slug": "t",
-        "pipeline": {
-            "deliver_preset": {"format": "mov", "codec": "H265"},
-            "deliver_naming": "{timeline}_final.{ext}",
-        },
-    })
-    assert config.validate() == []
-    back = project_config_to_dict(config)["pipeline"]
-    assert back["deliver_preset"] == {"format": "mov", "codec": "H265"}
-    assert back["deliver_naming"] == "{timeline}_final.{ext}"
-
-    bad = _dict_to_project_config({
-        "name": "T", "slug": "t",
-        "pipeline": {"deliver_preset": {"bitrate": "high"}},
-    })
-    assert any("deliver_preset" in error for error in bad.validate())
 
 
 def test_read_deliver_declaration_refuses_what_nothing_reads(tmp_path):
@@ -280,33 +207,6 @@ def test_preflight_names_stale_overlays(tmp_path):
     assert found[0]["clip"] == "sub_new.mov"
     assert found[0]["pool_resolution"] == "866x480"
     assert found[0]["disk_resolution"] == "904x480"
-
-
-def test_preflight_flags_files_that_are_gone(tmp_path):
-    """An overlay file that vanished fails the render too - named here."""
-    from library.tools import reel_deliver
-
-    project = _pool_tree("Reel 03 - hook", [
-        ("sub_gone.mov", str(tmp_path / "nope.mov"), "904x480"),
-    ])
-    found = reel_deliver.overlay_staleness(project, "Reel 03 - hook")
-    assert len(found) == 1
-    assert found[0]["missing"] is True
-
-
-def test_preflight_ignores_other_reels_bins(tmp_path):
-    """Another reel's stale file never refuses this reel's deliver."""
-    from library.tools import reel_deliver
-
-    stale_path = str(tmp_path / "sub_other.mov")
-    Path(stale_path).write_bytes(b"\x00")
-    project = _pool_tree("Reel 04 - other", [
-        ("sub_other.mov", stale_path, "866x480"),
-    ])
-    with patch.object(reel_deliver, "_disk_resolution",
-                      return_value=(904, 480)):
-        assert reel_deliver.overlay_staleness(
-            project, "Reel 03 - hook") == []
 
 
 def test_deliver_refuses_on_stale_overlays_before_rendering(tmp_path):

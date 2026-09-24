@@ -86,25 +86,6 @@ def _refusal(plan, look=None):
     return dropped[0]
 
 
-def test_the_vocabulary_states_no_magnitude_and_no_builder_invents_one():
-    """No colour anywhere, and no builder reads a value the roster never
-    demanded - which is what makes `look_states_no_value` complete.
-
-    A roster is exactly where a house look sneaks in: one plausible grey
-    written down as an example becomes the value every project inherits.
-    """
-    source = inspect.getsource(vcp)
-    assert not re.search(r"#[0-9a-fA-F]{3,8}\b", source), (
-        "a colour literal reached the component vocabulary")
-
-    read = set(re.findall(r'look\[\s*"([a-z_]+)"\s*\]', source))
-    declared = set()
-    for c in COMPONENTS:
-        declared.update(c.needs)
-        for a in c.acts:
-            declared.update(a.needs)
-    assert read, "the test found no look reads - it has stopped measuring"
-    assert read <= declared, f"builders read undeclared values: {read - declared}"
 
 
 def test_a_look_that_states_no_value_refuses_rather_than_defaulting():

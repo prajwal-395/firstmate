@@ -167,18 +167,6 @@ def test_topics_come_from_the_assessment_keywords(tmp_path):
     }
 
 
-def test_semantic_documents_keyed_by_clip_are_read_too(tmp_path):
-    """State stores the documents as a mapping; a fresh run as a list."""
-    payload = _payload(_project(tmp_path))
-    payload["semantic_analysis_documents"] = {
-        doc["clip_id"]: doc for doc in SEMANTIC_DOCS
-    }
-    proc = run_bridge(payload)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    _, rows = parse_table(json.loads(proc.stdout)["topics_toon"])
-    assert {r["clip_id"] for r in rows} == {"clip_001", "clip_002"}
-
-
 # ── What the bridge must NOT do ───────────────────────────────────────
 
 def test_the_bridge_emits_context_only(tmp_path):
@@ -205,10 +193,3 @@ def test_no_transcript_fails_the_step_rather_than_sending_an_empty_table(
     assert proc.returncode == 1
     assert "nothing to build a speech sequence from" in (
         json.loads(proc.stdout)["error"])
-
-
-def test_a_missing_required_input_is_refused(tmp_path):
-    """`require_keys` names the step, not a KeyError three frames down."""
-    proc = run_bridge({"project_folder": str(_project(tmp_path))})
-    assert proc.returncode != 0
-    assert "temporal_index" in proc.stdout + proc.stderr

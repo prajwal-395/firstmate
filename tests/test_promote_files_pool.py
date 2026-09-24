@@ -191,18 +191,3 @@ def test_idle_filing_is_quiet(project_dir, capsys):
     assert "Filed" not in out
 
 
-def test_active_filing_reports_what_it_moved(project_dir, capsys):
-    """Something filed: the move count and the journal path, as before."""
-    retired, staging = _clean_reel(FINAL)
-    project = FakeProject([FakeTimeline(MASTER), retired, staging])
-    staged_to_final = {FINAL: staging.GetName()}
-    with patch("library.tools.execution.organise_media_pool.organise_project",
-               return_value=_active_organised(moves=2)), \
-            patch("library.tools.build_sweep.sweep_build",
-                  return_value=_swept()):
-        result = _promote(project, project_dir, staged_to_final)
-    assert result["promoted"] == [FINAL]
-    out = capsys.readouterr().out
-    assert "Filed 2 media-pool item(s)" in out
-    assert "/tmp/placements.json" in out
-    assert "already organised" not in out

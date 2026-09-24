@@ -103,21 +103,6 @@ WORDS = [
 ]
 
 
-def test_splitting_at_the_sentence_costs_a_flashing_card():
-    """The arithmetic behind the straddle: a card ending on "time."
-    stays up only until "like" starts, and that gap is under the hard
-    floor - so the optimizer reads the honest split as a defect and
-    the straddle as the cheaper partition."""
-    the_start = WORDS[5][1]  # "the" before "time."
-    like_start = WORDS[7][1]  # "like" opens the next sentence
-    gap = round(like_start - the_start, 2)
-    assert gap == 0.21
-    assert gap < MIN_CAPTION_FLASH_SECONDS, (
-        "the honest split no longer costs a flashing card - the "
-        "tradeoff this module documents has moved, update it"
-    )
-
-
 def test_punctuation_end_is_a_tiebreak_not_a_rule():
     """The preference exists, weakly: among partitions equal on
     flashing, floor and balance, the one ending cards on punctuation

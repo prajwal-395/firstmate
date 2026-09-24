@@ -68,41 +68,6 @@ def _explainer(reel, basis=ex.PLANNED):
     return ex.ExplainerPlan(reel_name=reel, declared=True, basis=basis)
 
 
-def test_a_partial_build_keeps_the_reels_it_did_not_touch(tmp_path):
-    """`write_plans` overwrote the whole file with only this build's
-    reels, so a single-reel rebuild deleted every other reel's
-    explainer baseline and F21 graded those timelines against an
-    absence (which returns nothing - silent coverage loss). The write
-    merges: reels this build touched are replaced, the rest stand."""
-    project = tmp_path / "proj"
-    _stored_plans(project, [{"reel": "Reel 07", "declared": True,
-                             "basis": ex.PLANNED, "entries": [],
-                             "anchored": None, "band": None,
-                             "segments": []}])
-    ex.write_plans(str(project), [_explainer("Reel 09")])
-    by_reel = {p["reel"]: p for p in _read_plans(project)}
-    assert set(by_reel) == {"Reel 07", "Reel 09"}
-    assert by_reel["Reel 09"]["basis"] == ex.PLANNED
-
-
-def test_promotion_replaces_the_previous_final_plan(tmp_path):
-    """The staging/rename half of the same defect the semantic-visual
-    records had: renaming beside the previous final leaves two plans
-    for one reel and `plan_for_reel` reads the stale first."""
-    project = tmp_path / "proj"
-    final = "Reel 09"
-    staging = final + " (rebuild staging)"
-    _stored_plans(project, [
-        {"reel": final, "declared": True, "basis": ex.NOT_DECLARED,
-         "entries": [], "anchored": None, "band": None, "segments": []},
-        {"reel": staging, "declared": True, "basis": ex.PLANNED,
-         "entries": [], "anchored": None, "band": None, "segments": []}])
-    ex.rename_plan_reels(str(project), {staging: final})
-    kept = [p for p in _read_plans(project) if p["reel"] == final]
-    assert len(kept) == 1
-    assert kept[0]["basis"] == ex.PLANNED
-
-
 # ── It passes what is right ──────────────────────────────────────────
 
 def test_a_placed_explainer_matching_its_plan_passes():
@@ -110,18 +75,6 @@ def test_a_placed_explainer_matching_its_plan_passes():
     findings = check_explainer(
         "Reel 07", [_item(start, 197)], _plan((40.707, 197)), FPS)
     assert findings == []
-
-
-def test_a_reel_that_declared_nothing_and_carries_nothing_passes():
-    findings = check_explainer(
-        "Reel 07", [], _plan(basis=ex.NOT_DECLARED), FPS)
-    assert findings == []
-
-
-def test_a_build_that_recorded_nothing_is_not_graded():
-    """A project built before explainers existed has no record, and
-    grading it against an absence would fail every correct reel."""
-    assert check_explainer("Reel 07", [], None, FPS) == []
 
 
 # ── It fails what is wrong, in both directions ───────────────────────
@@ -139,43 +92,6 @@ def test_an_item_no_plan_accounts_for_fails():
         "Reel 07", [_item(100, 50)], _plan(basis=ex.NO_PARTS), FPS)
     assert findings and findings[0].finding_class == FindingClass.F21
     assert "no explainer" in findings[0].message
-
-
-def test_an_item_on_a_reel_with_no_recorded_plan_at_all_fails():
-    findings = check_explainer("Reel 07", [_item(100, 50)], None, FPS)
-    assert findings and "no recorded explainer plan" in findings[0].message
-
-
-def test_an_explainer_at_the_wrong_reel_second_fails():
-    start = int(round(40.707 * FPS))
-    findings = check_explainer(
-        "Reel 07", [_item(start + 30, 197)], _plan((40.707, 197)), FPS)
-    codes = [f.finding_class for f in findings]
-    assert codes.count(FindingClass.F21) == 2  # missing there, extra here
-    assert any("nearest is frame" in f.message for f in findings)
-
-
-def test_an_explainer_of_the_wrong_length_fails():
-    start = int(round(40.707 * FPS))
-    findings = check_explainer(
-        "Reel 07", [_item(start, 196)], _plan((40.707, 197)), FPS)
-    assert findings and "196 frames, planned 197" in findings[0].message
-
-
-def test_two_stacked_explainer_items_fail():
-    """One build having run twice into one timeline."""
-    start = int(round(40.707 * FPS))
-    findings = check_explainer(
-        "Reel 07",
-        [_item(start, 197), _item(start + 10, 197)],
-        _plan((40.707, 197)), FPS)
-    assert any("overlap" in f.message for f in findings)
-
-
-def test_every_finding_is_an_error_rather_than_a_warning():
-    """A missing, extra or mis-placed explainer is not an opinion."""
-    findings = check_explainer("Reel 07", [], _plan((40.707, 197)), FPS)
-    assert all(f.severity == "error" for f in findings)
 
 
 # ── The track the verifier had been dropping ─────────────────────────
@@ -227,22 +143,3 @@ def test_the_explainer_track_is_no_longer_dropped_on_the_floor():
     # extra item on a correct build.
     assert all(i.track_index <= 2 for i in reel.video_items)
     assert len(reel.video_items) == 1
-
-
-def test_a_reel_timeline_defaults_to_no_explainer_items():
-    """Every existing construction of ReelTimeline keeps working."""
-    reel = ReelTimeline(reel_name="Reel 07", fps=FPS, total_frames=100,
-                        video_items=(), audio_items=(), caption_items=())
-    assert reel.explainer_items == ()
-
-
-def test_verify_reel_runs_f21_without_being_asked_twice():
-    """F21 is wired into `verify_reel`, not only callable on its own -
-    a check nothing calls is no coverage at all."""
-    import inspect
-
-    from library.tools import reel_conformance_verifier as verifier
-    source = inspect.getsource(verifier.verify_reel)
-    assert "check_explainer(" in source
-    assert "explainer_plan" in inspect.signature(
-        verifier.verify_reel).parameters

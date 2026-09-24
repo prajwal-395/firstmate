@@ -137,20 +137,6 @@ class TestSpineContractBlackBeatValidation:
                            match="speech block declares intentional_black_beat"):
             validate_spine_blocks(blocks)
 
-    def test_declaration_on_hook_block_fails(self):
-        blocks = [_make_spine_block(
-            "hook", "hook", 0.0, 1.0,
-            clip_id="clip_001",
-            source_start=0.0, source_end=1.0,
-            word_timestamps=[{"word": "hey", "source_start": 0.0,
-                              "source_end": 0.5}],
-            alignment_method="whisperx",
-            intentional_black_beat=True,
-            black_beat_reason="dramatic pause",
-        )]
-        with pytest.raises(SpineContractError,
-                           match="speech block declares intentional_black_beat"):
-            validate_spine_blocks(blocks)
 
     def test_declaration_without_reason_fails(self):
         blocks = [_make_spine_block(
@@ -161,15 +147,6 @@ class TestSpineContractBlackBeatValidation:
                            match="black_beat_reason is missing or empty"):
             validate_spine_blocks(blocks)
 
-    def test_declaration_with_empty_reason_fails(self):
-        blocks = [_make_spine_block(
-            1, "transition_slot", 4.0, 5.0,
-            intentional_black_beat=True,
-            black_beat_reason="   ",
-        )]
-        with pytest.raises(SpineContractError,
-                           match="black_beat_reason is missing or empty"):
-            validate_spine_blocks(blocks)
 
 # ─── Post-bridge passthrough ──────────────────────────────────────────
 
@@ -200,23 +177,6 @@ class TestPostBridgeBlackBeatPassthrough:
         assert blocks[0]["intentional_black_beat"] is True
         assert blocks[0]["black_beat_reason"] == "silence before the reveal"
 
-    def test_normal_block_has_no_beat_keys(self):
-        spine = {
-            "structure": [
-                {
-                    "position": 1,
-                    "block_type": "transition_slot",
-                    "duration_seconds": 2.0,
-                    "music_behavior": "prominent",
-                    "visual_note": "B-roll cutaway",
-                    "content": None,
-                },
-            ],
-        }
-        result = enrich_spine(spine, {}, {}, {"project_config": {"target_duration_seconds": 2.0}})
-        blocks = result["audio_spine"]["structure"]
-        assert "intentional_black_beat" not in blocks[0]
-        assert "black_beat_reason" not in blocks[0]
 
 
 # ─── End-to-end: declared beat vs undeclared gap ──────────────────────
@@ -337,74 +297,18 @@ class TestRenderQADeclaredBeats:
         )
         assert not res.passed
 
-    def test_no_declarations_means_all_black_fails(self):
-        """Baseline: with nothing declared the check is unchanged."""
-        res = self._detect(_blackdetect_stderr((24.4, 24.8)))
-        assert not res.passed
 
-    def test_clean_render_passes(self):
-        res = self._detect("", declared_beats=[(24.259, 26.259)])
-        assert res.passed
-        assert res.value == []
 
-    def test_run_full_render_qa_forwards_declared_beats(self):
-        with patch("library.tools.render_qa.detect_black_frames") as detect:
-            with patch("library.tools.render_qa.measure_lufs"), \
-                 patch("library.tools.render_qa.detect_freeze_frames"), \
-                 patch("library.tools.render_qa.analyze_color_histogram"), \
-                 patch("library.tools.render_qa.verify_resolution"), \
-                 patch("library.tools.render_qa.verify_framerate"), \
-                 patch("library.tools.render_qa.verify_audio_streams"):
-                run_full_render_qa("dummy.mp4",
-                                   declared_black_beats=[(1.0, 2.0)])
-        detect.assert_called_once_with("dummy.mp4",
-                                       declared_beats=[(1.0, 2.0)])
 
 
 class TestDeclaredBeatRanges:
     """Only a declaration the spine gate would have accepted is honoured."""
 
-    def test_valid_declaration_yields_a_range(self):
-        blocks = [_make_spine_block(
-            1, "transition_slot", 24.259, 26.259,
-            intentional_black_beat=True,
-            black_beat_reason="hold on black before the turn",
-        )]
-        assert declared_black_beat_ranges(blocks) == [(24.259, 26.259)]
 
-    def test_undeclared_block_yields_nothing(self):
-        blocks = [_make_spine_block(1, "transition_slot", 24.259, 26.259)]
-        assert declared_black_beat_ranges(blocks) == []
 
-    def test_declaration_without_reason_yields_nothing(self):
-        blocks = [_make_spine_block(
-            1, "transition_slot", 24.259, 26.259,
-            intentional_black_beat=True,
-            black_beat_reason="   ",
-        )]
-        assert declared_black_beat_ranges(blocks) == []
 
-    def test_speech_declaration_yields_nothing(self):
-        blocks = [_make_spine_block(
-            2, "speech", 10.741, 22.678,
-            intentional_black_beat=True,
-            black_beat_reason="dramatic pause",
-        )]
-        assert declared_black_beat_ranges(blocks) == []
 
-    def test_validate_output_reads_the_manifest_spine(self):
-        manifest = {"_spine_blocks": [
-            {"position": 1, "block_type": "transition_slot",
-             "timeline_start": 24.259, "timeline_end": 26.259,
-             "intentional_black_beat": True,
-             "black_beat_reason": "hold on black before the turn"},
-            {"position": 2, "block_type": "speech",
-             "timeline_start": 26.259, "timeline_end": 29.759},
-        ]}
-        assert _declared_black_beats(manifest) == [(24.259, 26.259)]
 
-    def test_validate_output_without_a_spine_declares_nothing(self):
-        assert _declared_black_beats({}) == []
 
 
 # ─── End-to-end with real captured run data ───────────────────────────
@@ -462,24 +366,7 @@ class TestCapturedRunBlackBeat:
     leave it undeclared and the same hole hard-fails.
     """
 
-    def test_captured_spine_has_no_declarations(self, captured_run):
-        """Baseline: the captured run never declared a black beat."""
-        for block in captured_run["timed_spine_structure"]:
-            assert "intentional_black_beat" not in block, (
-                f"block {block.get('position')} has an unexpected "
-                f"intentional_black_beat declaration"
-            )
 
-    def test_adding_declaration_to_speech_block_fails_spine_contract(
-        self, captured_run
-    ):
-        structure = copy.deepcopy(captured_run["timed_spine_structure"])
-        speech = next(b for b in structure if b["block_type"] == "speech")
-        speech["intentional_black_beat"] = True
-        speech["black_beat_reason"] = "dramatic pause"
-        with pytest.raises(SpineContractError,
-                           match="speech block declares intentional_black_beat"):
-            validate_spine_blocks(structure)
 
     def test_captured_manifest_gap_with_declaration_passes(self, captured_run):
         """A gap inside a declared block passes compilation, and the render

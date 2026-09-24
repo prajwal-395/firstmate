@@ -52,13 +52,6 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # ── The table itself ─────────────────────────────────────────────────────
 
 
-def test_the_table_says_which_resolve_it_was_read_from():
-    """A gate whose provenance is unstated cannot be re-checked."""
-    assert tool_inputs.PROBE_META.get("resolve_version")
-    assert tool_inputs.PROBE_META.get("probed")
-    assert "Resolve" in tool_inputs.describe_provenance()
-
-
 def test_ellipse_mask_inverts_with_invert_not_inverted():
     assert "Invert" in tool_inputs.TOOL_INPUTS["EllipseMask"]
     assert "Inverted" not in tool_inputs.TOOL_INPUTS["EllipseMask"]

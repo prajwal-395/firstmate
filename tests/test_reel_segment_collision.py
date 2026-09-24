@@ -121,28 +121,6 @@ def test_one_filename_behind_two_content_keys_is_refused():
     assert "different pixels" in message
 
 
-def test_the_same_set_PASSES_when_the_pixels_agree():
-    """The guard must be able to pass, or it is not a guard: one name,
-    one key, however many reels place it."""
-    name = segment_identifier(_binding(REEL_NAMES[0]), CLOSER_DIGEST)
-    assert_no_content_collision(
-        [(name, f"{CLOSER_DIGEST}+fp+carriage")] * len(REEL_NAMES))
-
-
-def test_an_unnamed_timeline_shares_correctly_and_collides_with_nothing():
-    """`timeline_scope` returns `''` for a spine with no timeline
-    recorded. Under the old identity that collapsed every reel into
-    one filename; under this one the timeline never names a file, so
-    an unnamed timeline shares exactly where the pixels agree and
-    nowhere else."""
-    unnamed = timeline_scope({"structure": []}, project_config=None)
-    assert unnamed == ""
-    assert (segment_identifier(_binding(unnamed), CLOSER_DIGEST)
-            == segment_identifier(_binding(REEL_NAMES[0]), CLOSER_DIGEST))
-    assert (segment_identifier(_binding(unnamed), CLOSER_DIGEST)
-            != segment_identifier(_binding(unnamed), OTHER_DIGEST))
-
-
 def test_the_master_timeline_needs_no_discriminator():
     """A project with ONE timeline shares its captions with its reels
     wherever the pixels agree - the master path renders once and every

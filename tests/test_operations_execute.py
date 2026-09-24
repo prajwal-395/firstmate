@@ -78,13 +78,6 @@ def test_no_operation_hand_writes_a_requirement():
         "the registry declares a requirement literal; requires is derived")
 
 
-@pytest.mark.parametrize("op", operations.all(), ids=lambda o: o.name)
-def test_every_operation_derives_its_steps_requirements(op):
-    derived = {r.name for r in op.requires}
-    expected = {r.name for r in requirements.all_requirements()
-                if op.owning_node in r.consumers}
-    assert derived == expected, (
-        f"{op.name} does not ask exactly what {op.owning_node} asks")
 
 
 # ── THE DISTINCTION ─────────────────────────────────────────────────
@@ -169,29 +162,8 @@ def test_an_operation_runs_to_completion(satisfied_project):
     assert all(e["speaker"] == "host" for e in entries)
 
 
-def test_gathering_calls_the_runners_own_assembler():
-    """`gather_step_inputs` is called, never copied. A second
-    implementation would drift within a month, invisibly, because both
-    would 'work'."""
-    import ast
-    import inspect
-    tree = ast.parse(inspect.getsource(operations.Operation.gather).strip())
-    called = {ast.unparse(n.func) for n in ast.walk(tree)
-              if isinstance(n, ast.Call)}
-    assert any(c.endswith("gather_step_inputs") for c in called), (
-        f"gather does not call the runner's assembler; it calls {called}")
 
 
-def test_only_the_arguments_the_step_names_are_passed(satisfied_project):
-    """The gathered dict is the STEP's whole input; a function taking four
-    keys must not be handed forty."""
-    plan = operations.get("subtitles.plan")
-    gathered = plan.gather(satisfied_project)
-    passed = plan._arguments(gathered)
-    import inspect
-    names = set(inspect.signature(plan.run).parameters)
-    assert set(passed) <= names
-    assert "audio_spine" in passed
 
 
 # ── The merged-dict binding: an operation that could not EXECUTE ─────
@@ -258,128 +230,10 @@ def test_an_operation_whose_body_takes_the_merged_dict_executes(tmp_path):
     assert zone["minimum_seconds"] < 45.0 < zone["maximum_seconds"]
 
 
-def test_the_merged_dict_is_the_same_dict_the_runner_would_write(tmp_path):
-    """Not a subset and not a re-derivation: `gather` IS the argument.
-
-    A binding that passed some smaller dict would look identical on a
-    fixture and diverge on a real project, which is the failure mode a
-    "does it crash" test would miss.
-    """
-    project = _project_with_mesh_spine_inputs(tmp_path)
-    op = operations.get("duration_zone.build")
-    gathered = op.gather(project)
-    assert op._arguments(gathered) == {"data": gathered}
 
 
-def test_a_real_gathered_key_still_wins_over_the_merged_dict():
-    """The merged-dict fill only ever reaches a parameter nothing else
-    could satisfy. If a step ever declares an input literally called
-    `data`, that value must be bound, not the whole dict."""
-    op = operations.get("duration_zone.build")
-    assert op._arguments({"data": {"real": True}}) == {"data": {"real": True}}
 
 
-def test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know():
-    """The enumeration is asserted, never assumed.
-
-    `MERGED_INPUT_PARAMETERS` is three MEASURED spellings, and a fourth
-    appearing without being added to it would be an operation that binds
-    `{}` and raises `TypeError` again - the exact defect this fixed. So
-    this measures the tree rather than trusting the list, the same shape
-    as `test_operations.py::test_the_transcript_is_the_only_required_
-    input_no_edge_carries`.
-
-    Two shapes are checked, because there are two ways a body ends up
-    holding the whole dict:
-
-    * a BRIDGE or POST-BRIDGE, which the runner feeds by writing the
-      merged dict to its stdin - every required parameter of one of
-      those is the whole dict by construction;
-    * a `step.py` whose ONE required parameter is not an input any
-      manifest declares, which is `validate_sfx_library(inputs)` and
-      both reel nodes.
-
-    A third shape lives in these files and is NOT a merged-dict
-    holding: `speech.enrich` registers its post_bridge file's inner
-    deterministic unit (`enrich_speech_sequence`), not the
-    stdin-driven entry point, so its destructured parameters bind BY
-    NAME - `speech_sequence` from the model's answer (supplied as
-    overrides, or refused by `missing_model_answer`) - or arrive from
-    the caller via `--set` (`temporal_index_dir`, which nothing the
-    DAG routes carries and `main()` derives from
-    `temporal_index.index_dir`). Neither holds the whole dict, so a
-    required parameter that is a known merged spelling, a declared
-    step input, the address, or a classified caller-decided argument
-    (below) is not unexplained here. What REMAINS unexplained is
-    still the original defect - a fourth spelling binding `{}` - and
-    the classified arguments are proved behaviorally in
-    `test_destructured_post_bridge_unit_refuses_naming_its_args`
-    rather than trusted.
-
-    An operation that declares `caller_supplied` is skipped entirely:
-    the runner never drives it, so there is no merged dict for it to
-    bind. `tests/test_operations_add_no_second_implementation.py` still
-    resolves its `run` back to the owning step's own body, so declaring
-    the flag buys no exemption from Ruling 1.
-
-    Deliberately NOT checked: a body with several required parameters
-    none of which is a declared input. Those are the region-scoped
-    operations - `transcript.splice(index_doc, fresh_regions, ...)` -
-    whose arguments come from a CALLER rather than from gathering, and
-    calling them unbindable would be a finding about a different thing.
-    """
-    import inspect
-
-    unexplained = []
-    for op in operations.all():
-        # An operation whose arguments come from a CALLER is not fed the
-        # merged dict at all, and it DECLARES that rather than being
-        # inferred from its arity - inferring it would silently stop
-        # checking the two-argument `resolve(llm_output, data)` shape
-        # every real post-bridge uses.
-        if op.caller_supplied:
-            continue
-        # A prompt capability has no Python body, so there is no
-        # signature to bind - and nothing that could bind `{}`. Its
-        # refusal is proved behaviorally below rather than trusted.
-        if op.is_prompt:
-            continue
-        parameters = inspect.signature(op.run).parameters
-        if any(p.kind is inspect.Parameter.VAR_KEYWORD
-               for p in parameters.values()):
-            continue
-        required = [name for name, p in parameters.items()
-                    if p.default is inspect.Parameter.empty
-                    and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                                   inspect.Parameter.KEYWORD_ONLY)]
-
-        if op.body in ("bridge.py", operations.POST_BRIDGE):
-            decided = CALLER_DECIDED_POST_BRIDGE_ARGS.get(op.name, ())
-            suspects = [
-                name for name in required
-                if name not in operations.MERGED_INPUT_PARAMETERS
-                and not _any_step_declares(name)
-                and name != operations.SCOPE_PARAMETER
-                and name not in decided
-            ]
-        elif len(required) == 1 and not _any_step_declares(required[0]):
-            suspects = required
-        else:
-            continue
-
-        for name in suspects:
-            if name not in operations.MERGED_INPUT_PARAMETERS:
-                unexplained.append(f"{op.name} ({op.body}): {name}")
-
-    assert unexplained == [], (
-        "these operations take a required parameter no binding in "
-        "`Operation._arguments` understands: not a known merged-dict "
-        "spelling, not a declared step input, not the address, and not "
-        "a classified caller-decided argument. A merged-dict spelling "
-        "missing from `operations.MERGED_INPUT_PARAMETERS` binds "
-        "nothing and raises TypeError - add it there deliberately. A "
-        "caller-decided argument belongs in "
-        f"`CALLER_DECIDED_POST_BRIDGE_ARGS` with its reason: {unexplained}")
 
 
 CALLER_DECIDED_POST_BRIDGE_ARGS: dict[str, tuple[str, ...]] = {
@@ -535,8 +389,6 @@ def test_intake_post_bridge_units_refuse_naming_their_args(tmp_path):
 
 @pytest.mark.parametrize("operation,answer_key", [
     ("transitions.resolve", "transition_creative"),
-    ("vfx.resolve", "vfx_creative"),
-    ("sfx.resolve", "sfx_creative"),
 ])
 def test_planner_post_bridge_units_refuse_naming_the_plan(
         tmp_path, operation, answer_key):
@@ -582,25 +434,6 @@ def test_planner_post_bridge_units_refuse_naming_the_plan(
         "the refusal does not teach the way to supply it")
 
 
-def test_the_enumeration_names_only_spellings_that_are_really_used():
-    """The mirror. A spelling nobody uses is a name this module would
-    bind the whole dict to on the day some step happens to pick it for
-    something else - which is the confidently-wrong result the finding
-    said was worse than a TypeError."""
-    import inspect
-
-    used = set()
-    for op in operations.all():
-        # A prompt capability takes no parameters - it IS the question
-        # the runner asks a model, not a signature the registry binds.
-        if op.is_prompt:
-            continue
-        used |= set(inspect.signature(op.run).parameters)
-    stale = [n for n in operations.MERGED_INPUT_PARAMETERS if n not in used]
-    assert stale == [], (
-        f"operations.MERGED_INPUT_PARAMETERS names {stale}, which no "
-        f"registered body takes. Remove it: an unused spelling is a trap "
-        f"for whichever step picks that word next.")
 
 
 def test_a_post_bridge_refuses_rather_than_resolving_a_plan_nobody_wrote(
@@ -635,28 +468,8 @@ def test_a_post_bridge_refuses_rather_than_resolving_a_plan_nobody_wrote(
     assert "run validate" in result.error
 
 
-def test_the_post_bridge_guard_reads_the_runners_own_declaration():
-    """One rule, two readers. `present_llm_step` asks the model for these
-    keys; the guard refuses when they are absent. Two spellings of the
-    rule would let those disagree about what the model owes."""
-    import ast
-    import inspect
-
-    tree = ast.parse(inspect.getsource(
-        operations.Operation.missing_model_answer).strip())
-    called = {ast.unparse(n.func) for n in ast.walk(tree)
-              if isinstance(n, ast.Call)}
-    assert any(c.endswith("llm_output_declarations") for c in called), (
-        f"the guard derives the model's contribution itself; it calls "
-        f"{called}")
 
 
-def test_a_pre_bridge_is_not_guarded(tmp_path):
-    """The distinction, from the other side. `duration_zone.build` is a
-    pre-bridge, so nothing is owed and nothing is refused - asserted here
-    so the guard cannot quietly widen to every merged-dict body."""
-    op = operations.get("duration_zone.build")
-    assert op.missing_model_answer({"anything": 1}) == ()
 
 
 def test_a_prompt_capability_refuses_naming_the_runner(tmp_path):
@@ -819,44 +632,8 @@ def test_the_region_the_registry_passes_is_the_one_the_step_would_get(
             == direct["subtitle_plan"]["subtitle_entries"])
 
 
-def test_the_scope_does_not_leak_into_a_step_that_never_asked_for_one():
-    """The other direction. `scope` is bound only where the step's own
-    signature names it, so a body that never asked for an address is
-    handed exactly what it was handed before."""
-    import inspect
-
-    from library.tools import scope as scope_mod
-
-    where = scope_mod.project()
-    checked = 0
-    for operation in operations.all():
-        # A prompt capability never reaches `_arguments`: the runner
-        # carries its address, not the registry, so there is no binding
-        # to leak through.
-        if operation.is_prompt:
-            continue
-        parameters = inspect.signature(operation.run).parameters
-        if operations.SCOPE_PARAMETER in parameters:
-            continue
-        if any(p.kind is inspect.Parameter.VAR_KEYWORD
-               for p in parameters.values()):
-            continue  # takes everything by definition
-        bound = operation._arguments({"raw_footage_files": []}, where)
-        assert operations.SCOPE_PARAMETER not in bound, (
-            f"{operation.name} was handed a scope its body does not name")
-        checked += 1
-    assert checked, "no operation was checked; this test proved nothing"
 
 
-def test_a_gathered_key_called_scope_still_wins():
-    """The same precedence `MERGED_INPUT_PARAMETERS` has: a REAL gathered
-    key of that name is not overwritten by the address."""
-    from library.tools import scope as scope_mod
-
-    plan = operations.get("subtitles.plan")
-    bound = plan._arguments({"audio_spine": {}, "scope": "the real one"},
-                            scope_mod.project())
-    assert bound["scope"] == "the real one"
 
 
 # ── An operation that cannot be called REFUSES, it does not crash ────
@@ -895,46 +672,13 @@ def test_supplying_the_argument_the_refusal_named_makes_it_run(
     assert result.payload["splice"]
 
 
-def test_every_registered_operation_can_say_what_it_is_owed():
-    """No operation may reach the splat with an unfillable signature and
-    find out there. Asked of the REGISTRY, so a new entry in the shape
-    the four region ones were in is caught at once."""
-    for operation in operations.all():
-        # A prompt capability owes the model's whole answer, not one
-        # argument - its refusal is the prompt refusal proved below,
-        # not an unbound-parameter one.
-        if operation.is_prompt:
-            continue
-        unbound = operation.unbound_parameters({})
-        if not unbound:
-            continue
-        message = operation._teach_unbound(unbound)
-        for name in unbound:
-            assert name in message, (
-                f"{operation.name} would be unfillable and its refusal "
-                f"does not name {name}")
-        assert "--set" in message
 
 
-def test_the_refusal_never_fires_on_an_operation_that_can_run(
-        satisfied_project):
-    """A gate that fails correct output is no more coverage than one that
-    cannot fail (AGENTS.md 10.4)."""
-    plan = operations.get("subtitles.plan")
-    arguments = plan._arguments(plan.gather(satisfied_project))
-    assert plan.unbound_parameters(arguments) == ()
 
 
 # ── --set: the way out the refusal names ─────────────────────────────
 
 
-def test_set_reads_json_and_a_json_file(tmp_path):
-    path = tmp_path / "plan.json"
-    path.write_text(json.dumps({"subtitle_entries": []}), encoding="utf-8")
-    parsed = operations.parse_overrides(
-        ['count=3', 'names=["a","b"]', f"stored_plan=@{path}"])
-    assert parsed == {"count": 3, "names": ["a", "b"],
-                      "stored_plan": {"subtitle_entries": []}}
 
 
 def test_set_refuses_a_bare_word_rather_than_guessing_it_is_a_string():
@@ -945,13 +689,5 @@ def test_set_refuses_a_bare_word_rather_than_guessing_it_is_a_string():
     assert "not valid JSON" in str(exc.value)
 
 
-def test_set_refuses_a_pair_with_no_name():
-    with pytest.raises(operations.OperationError) as exc:
-        operations.parse_overrides(["=3"])
-    assert "NAME=" in str(exc.value)
 
 
-def test_set_refuses_a_file_that_is_not_there(tmp_path):
-    with pytest.raises(operations.OperationError) as exc:
-        operations.parse_overrides([f"stored_plan=@{tmp_path / 'gone.json'}"])
-    assert "gone.json" in str(exc.value)

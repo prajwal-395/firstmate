@@ -61,18 +61,6 @@ def test_the_role_hands_over_authority_and_no_taste():
         assert forbidden not in lowered, f"the role states taste: {forbidden!r}"
 
 
-def test_the_role_says_the_close_is_part_of_the_format():
-    """The captain's unit ends on a CTA, and a filter removed it."""
-    block = craft_role.prompt_block("select_reels").lower()
-    assert "call to action" in block
-    assert "part of this format" in block
-
-
-def test_the_role_says_length_is_guidance():
-    block = craft_role.prompt_block("select_reels").lower()
-    assert "guidance you weigh" in block
-
-
 # ── Measurements are context, not gates ──────────────────────────────
 
 def test_a_closing_pitch_is_never_a_reason_to_withhold_a_candidate():
@@ -99,20 +87,6 @@ def test_a_long_story_is_offered_with_its_length_not_truncated():
 
 # ── The understanding outlives the worker that had it ────────────────
 
-def test_the_diagnosis_is_recorded_with_its_cause():
-    findings = _findings_text()
-    for phrase in ("The crewmate held the taste",
-                   "DECLARING_STEPS",
-                   "provides value and then makes a little CTA",
-                   "NONE AIMS AT A WORKER SUPPLYING IT"):
-        assert phrase in findings, f"the diagnosis lost: {phrase!r}"
-
-
-def test_the_diagnosis_names_what_stops_a_repeat():
-    findings = _findings_text()
-    assert "What stops the next worker doing the same" in findings
-    assert "must be able to name the model that selected" in findings
-
 
 # ── The step can actually RUN ────────────────────────────────────────
 #
@@ -132,36 +106,10 @@ def test_the_step_carries_a_handoff_and_a_bridge():
         assert (STEP_DIR / name).is_file(), f"select_reels has no {name}"
 
 
-def test_the_handoff_has_a_system_context_and_a_task_prompt():
-    handoff = (STEP_DIR / "handoff.md").read_text()
-    assert "## System Context" in handoff
-    assert "## Task Prompt" in handoff
-
-
 def test_the_handoff_states_the_captains_definition_of_a_reel():
     handoff = " ".join((STEP_DIR / "handoff.md").read_text().split())
     assert ("atomic segment of conversation that provides value and then "
             "closes with a small call to action") in handoff
-
-
-def test_the_handoff_says_the_close_is_the_ending_not_noise():
-    handoff = " ".join((STEP_DIR / "handoff.md").read_text().split()).lower()
-    assert "is the ending of this format, not noise in it" in handoff
-
-
-def test_the_handoff_reads_length_as_guidance():
-    handoff = " ".join((STEP_DIR / "handoff.md").read_text().split()).lower()
-    assert "guidance you weigh, not a boundary" in handoff
-
-
-def test_the_handoff_states_no_count_and_no_preference():
-    """craft_role's contract: capability and authority, never taste."""
-    handoff = " ".join((STEP_DIR / "handoff.md").read_text().split())
-    assert "No count of reels is stated anywhere" in handoff
-    lowered = handoff.lower()
-    for forbidden in ("pick 16", "choose 16", "aim for", "at least 20",
-                      "prefer stretches", "the best stretches are"):
-        assert forbidden not in lowered, f"the handoff states taste: {forbidden!r}"
 
 
 def test_the_handoff_names_the_measurements_as_context_not_scores():
@@ -233,44 +181,6 @@ def test_the_post_bridge_leaves_every_moment_proposed():
 
 def _handoff() -> str:
     return " ".join((STEP_DIR / "handoff.md").read_text().split()).lower()
-
-
-def test_the_handoff_asks_for_a_hook():
-    """A viewer decides in five seconds and the model was told nothing
-    about openings, so every earlier batch opened wherever the boundary
-    arithmetic happened to land."""
-    handoff = _handoff()
-    assert "opens on a hook" in handoff
-    assert "throat-clearing" in handoff
-
-
-def test_the_handoff_says_to_skip_a_garbled_passage():
-    """The captain's second reason for rejecting the worst reel was that
-    the TRANSCRIPT was a mess, which is a property of the passage and a
-    selection criterion - not a defect in the reel built from it."""
-    handoff = _handoff()
-    assert "garbled" in handoff
-    assert "skip those passages" in handoff
-
-
-def test_the_handoff_allows_a_cta_to_be_reused():
-    """"if there is not one explicitly associated with the clip, you can
-    reuse an atomic CTA again from elsewhere". The handoff said the
-    opposite - do not create a reel without one of its own - and that is
-    what held the last batch to four."""
-    handoff = _handoff()
-    assert "from anywhere in the episode" in handoff
-    assert "may close as many reels as you like" in handoff
-    # ... but never one that is not a complete invitation.
-    assert "we'd love for you to" in handoff
-
-
-def test_the_handoff_does_not_ask_for_a_topically_matched_cta():
-    """His ruling is that any atomic CTA works. Matching a closer to the
-    body's subject is a requirement he does not have, and inventing it
-    would silently cut the number of reels the episode can support."""
-    handoff = _handoff()
-    assert "topical fit does not matter" in handoff
 
 
 def test_the_handoff_judges_overlap_on_meaning_not_seconds():

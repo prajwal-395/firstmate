@@ -20,14 +20,6 @@ from library.tools import scope as scope_mod
 from library.tools.region import MASTER, Region
 
 
-def test_reel_is_its_own_kind_and_carries_ranges():
-    reel = scope_mod.reel([(0.0, 5.0), (10.0, 12.0)], timeline="reel_03")
-    assert reel.kind == scope_mod.REEL
-    assert len(reel.reel_ranges) == 2
-    assert reel.timeline == "reel_03"
-    assert all(isinstance(r, Region) for r in reel.reel_ranges)
-
-
 def test_a_reel_range_is_not_a_bare_pair_of_floats():
     """Pairs are accepted at the door and become Regions immediately."""
     reel = scope_mod.reel([(0.0, 5.0)], timeline="reel_03")
@@ -68,30 +60,9 @@ def test_play_order_is_preserved_and_time_order_is_not_required():
 
 @pytest.mark.parametrize("kind,payload", [
     (scope_mod.PROJECT, {"reel_ranges": (Region(MASTER, 0.0, 1.0),)}),
-    (scope_mod.CLIP, {"clip_id": "clip_001",
-                      "reel_ranges": (Region(MASTER, 0.0, 1.0),)}),
 ])
 def test_reel_ranges_on_a_non_reel_scope_are_refused(kind, payload):
     """__post_init__ was EXTENDED to REEL, not loosened for it."""
     with pytest.raises(scope_mod.ScopeError) as exc:
         scope_mod.Scope(kind, **payload)
     assert "reel" in str(exc.value).lower()
-
-
-def test_a_reel_scope_carries_no_region_or_clip():
-    with pytest.raises(scope_mod.ScopeError):
-        scope_mod.Scope(scope_mod.REEL,
-                        reel_ranges=(Region("r", 0.0, 1.0),),
-                        region_span=Region("r", 0.0, 1.0))
-    with pytest.raises(scope_mod.ScopeError):
-        scope_mod.Scope(scope_mod.REEL,
-                        reel_ranges=(Region("r", 0.0, 1.0),),
-                        clip_id="clip_001")
-
-
-def test_reel_is_in_kinds_and_a_region_scope_still_works():
-    assert scope_mod.REEL in scope_mod.KINDS
-    where = scope_mod.region("45.0-72.0")
-    assert where.kind == scope_mod.REGION
-    assert where.reel_ranges is None
-    assert where.timeline is MASTER

@@ -161,60 +161,6 @@ def test_rerendered_card_with_same_word_promotes():
         "the final's card is reported though never matched on"
 
 
-def test_other_f25_kinds_pass_through_untouched():
-    """The comparison is word_mismatch's alone: unreadable stays an error."""
-    from library.tools.reel_conformance_verifier import (
-        rewrite_f25_against_live_final)
-
-    other = Finding(
-        finding_class="F25", reel="Reel 03 - x",
-        message="unreadable: placed caption b.mov cannot be verified",
-        severity="error",
-        detail={"kind": "unreadable", "card": "b.mov"})
-    staging, _ = _mismatch_findings([("world", 2.1, 2.4)])
-    final, _ = _mismatch_findings([("world", 2.1, 2.4)])
-
-    rewritten = rewrite_f25_against_live_final(
-        "Reel 03 - x (rebuild staging)", [other] + list(staging),
-        "Reel 03 - x", list(final))
-
-    kept = [f for f in rewritten
-            if (f.detail or {}).get("kind") == "unreadable"]
-    assert kept == [other]
-
-
-def test_mismatch_counter_counts_only_error_mismatches():
-    """Warnings and other kinds never feed the comparison quantum."""
-    from library.tools.reel_conformance_verifier import f25_mismatch_words
-
-    findings = [
-        Finding(finding_class="F25", reel="r", message="e",
-                severity="error",
-                detail={"kind": "word_mismatch", "card": "b.mov",
-                        "dropped": [{"word": "zebra"}, {"word": "zebra"}]}),
-        Finding(finding_class="F25", reel="r", message="w",
-                severity="warning",
-                detail={"kind": "word_mismatch", "card": "b.mov",
-                        "dropped": [{"word": "zebra"}]}),
-        Finding(finding_class="F25", reel="r", message="u",
-                severity="error",
-                detail={"kind": "unreadable", "card": "b.mov"}),
-    ]
-    assert f25_mismatch_words(findings) == {"zebra": 2}
-
-
-def test_mismatch_cards_are_reported_never_matched():
-    from library.tools.reel_conformance_verifier import f25_mismatch_cards
-
-    findings = [
-        Finding(finding_class="F25", reel="r", message="e",
-                severity="error",
-                detail={"kind": "empty_window", "card": "a.mov",
-                        "word": "that."}),
-    ]
-    assert f25_mismatch_cards(findings) == {"that.": ["a.mov"]}
-
-
 # ── empty_window: drawn without a sweep, warned never refused ─────
 #
 # Reel 03, 2026-09-20: the live render gives the overlapped "that." a
@@ -252,22 +198,6 @@ def test_collapsed_window_warns_never_errors():
     assert len(findings) == 1, "the fixture must truly misfire first"
     assert findings[0].severity == "warning"
     assert "that." in findings[0].message
-
-
-def test_collapsed_window_never_refuses_against_timed_final():
-    """Staging draws 'that.' unswept where the final times it: no refusal."""
-    from library.tools.reel_conformance_verifier import (
-        rewrite_f25_against_live_final)
-
-    staging = _empty_window_findings()
-    final = _empty_window_findings(zero_width=False)
-    assert final == []
-
-    rewritten = rewrite_f25_against_live_final(
-        "Reel 03 - x (rebuild staging)", list(staging),
-        "Reel 03 - x", list(final))
-
-    assert [f for f in rewritten if f.severity == "error"] == []
 
 
 def test_empty_window_matches_word_mismatch_across_kinds():

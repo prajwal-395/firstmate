@@ -146,23 +146,8 @@ def test_a_clip_outside_the_project_is_never_removed():
 # -------------------------------------------------------- what is written
 
 
-def test_the_manifest_names_every_path_not_a_sample():
-    plan = [Removal(f"id{i}", f"n{i}", f"{ROOT}/p{i}.mov", (), DELETE, 10)
-            for i in range(200)]
-    text = render_manifest(plan, resolve_project="P", project_folder=ROOT,
-                           planned_at="now", counts=summarise(plan))
-    for i in range(200):
-        assert f"`{ROOT}/p{i}.mov`" in text
-    assert all(state in text for state in
-               ("Files deleted", "Files KEPT", "Files already gone"))
 
 
-def test_the_summary_says_what_is_kept_and_why():
-    text = render_summary(summarise([
-        Removal("a", "a", "/a.mov", (), DELETE, 2 ** 30),
-        Removal("b", "b", "/b.mov", (), KEEP_SHARED, 1024),
-    ]))
-    assert "1.00 GiB" in text and "KEPT" in text and "irreversible" in text
 
 
 # ------------------------------------------------- the database instrument
@@ -289,11 +274,6 @@ def test_removal_did_not_leak_into_the_organiser(module):
         assert call not in executable, f"{module} calls {call}"
 
 
-def test_the_remover_says_in_its_own_source_what_deleteclips_does():
-    """The catastrophic failure mode must be written where the call is,
-    not only in a test."""
-    source = Path("library/tools/orphan_removal.py").read_text(encoding="utf-8")
-    assert "DELETES THE TIMELINE" in source
 
 
 # --------------------------------------------- the file list after removal

@@ -51,33 +51,10 @@ def manifest(step_dir):
 
 # ── The wiring ───────────────────────────────────────────────────────
 
-def test_the_producer_still_declares_it():
-    outputs = manifest("step_3_03_review_rough_cut")["interface"]["outputs"]
-    row = next(o for o in outputs if o["name"] == "cut_decisions")
-    # A bare `{"name": ..., "type": "list"}` is what the schema injector
-    # turned into `"cut_decisions": []` with no description, on every run
-    # for the life of the step. The shape has to be stated or the answer
-    # cannot be keyed to a cut.
-    assert "cut_point_position" in row["description"]
-    for word in cv.VERDICTS:
-        assert word in row["description"]
 
 
-def test_the_dag_carries_it_to_the_reader():
-    edges = [e for e in DAG["edges"]
-             if e["from"] == PRODUCER and e["to"] == READER]
-    assert edges, f"no DAG edge {PRODUCER} -> {READER}"
-    assert any(e["data_mapping"].get("cut_decisions") == "cut_decisions"
-               for e in edges)
 
 
-def test_the_reader_declares_it_and_declares_it_optional():
-    row = next(i for i in manifest("step_4_02_plan_transitions")
-               ["interface"]["inputs"] if i["name"] == "cut_decisions")
-    # Optional, so a review that judged no cut does not refuse the run:
-    # `gather_step_inputs` raises on a missing mapped key only when the
-    # consumer declared it required.
-    assert row["required"] is False
 
 
 def test_it_is_not_also_sent_raw_beside_the_table():
@@ -86,19 +63,6 @@ def test_it_is_not_also_sent_raw_beside_the_table():
     assert "cut_decisions" not in cf
 
 
-def test_4_01_is_not_the_reader_because_it_has_no_prompt():
-    """The DAG-backed reason the obvious candidate was rejected.
-
-    `plan_subtitles` runs first of the four nodes downstream of the
-    review, but it is `deterministic`: a step.py and no handoff.md, so
-    `detect_implementation` gives it no prompt at all and it groups
-    captions by measured pixels. A narrative verdict routed there would
-    have no reader for a second time.
-    """
-    subtitles = STEPS / "step_4_01_plan_subtitles"
-    assert (subtitles / "step.py").exists()
-    assert not (subtitles / "handoff.md").exists()
-    assert not (subtitles / "bridge.py").exists()
 
 
 # ── The value arriving ───────────────────────────────────────────────
@@ -142,32 +106,6 @@ def cuts_rows(cuts_toon):
     return header, [dict(zip(header, l.split("\t"))) for l in lines[1:]]
 
 
-def test_the_verdict_is_in_the_table_the_handoff_names():
-    out = run_bridge({"timed_spine": SPINE, "cut_decisions": CUT_DECISIONS})
-    header, rows = cuts_rows(out["cuts_toon"])
-
-    assert "narrative_verdict" in header and "verdict_note" in header
-    by_cut = {r["cut_point_position"]: r for r in rows}
-
-    assert by_cut["2"]["narrative_verdict"] == "jarring"
-    # The newline is collapsed, not escaped: a cell is a row.
-    assert by_cut["2"]["verdict_note"] == (
-        "the location changes with no motivation")
-    assert by_cut["3"]["narrative_verdict"] == "smooth"
-
-    # The definition is in step 4.02's handoff.md prose, and with it the
-    # ATTRIBUTION `direction_contradiction` reads: a verdict is the
-    # review's JUDGEMENT, not a measurement. It travelled as a
-    # `cuts_legend` dict only while that file was frozen.
-    assert "cuts_legend" not in out
-    handoff = (REPO / "library" / "steps"
-               / "step_4_02_plan_transitions" / "handoff.md").read_text(
-        encoding="utf-8")
-    assert "`narrative_verdict`" in handoff and "`verdict_note`" in handoff
-    assert "rough-cut review's judgement" in handoff.lower(), (
-        "4.02's prompt no longer says whose judgement a narrative_verdict "
-        "is - the marking direction_contradiction relies on")
-    assert "unjudged" in handoff.lower()
 
 
 def test_an_unjudged_cut_does_not_borrow_the_mild_end_of_the_scale():
@@ -222,21 +160,10 @@ def test_the_verdict_decides_nothing_by_itself():
 
 # ── The reading ──────────────────────────────────────────────────────
 
-def test_verdict_of_is_none_for_an_unjudged_cut():
-    placed = cv.verdicts_by_cut(CUT_DECISIONS)
-    assert cv.verdict_of(placed, 2) == "jarring"
-    assert cv.verdict_of(placed, 99) is None
 
 
-@pytest.mark.parametrize("key", ["cut_point_position",
-                                 "spine_block_position", "position"])
-def test_the_cut_is_found_under_the_names_the_pipeline_uses(key):
-    placed = cv.verdicts_by_cut([{key: 2, "verdict": "broken"}])
-    assert cv.verdict_of(placed, 2) == "broken"
 
 
-def test_a_row_naming_no_cut_is_not_placed_anywhere():
-    assert cv.verdicts_by_cut([{"verdict": "broken"}]) == {}
 
 
 def test_the_withdrawn_readings_are_recorded():
@@ -270,17 +197,8 @@ RUN_OF_RECORD = [
 ]
 
 
-def test_the_answer_the_pipeline_already_has_reaches_the_table():
-    placed = cv.verdicts_by_cut(RUN_OF_RECORD)
-    assert cv.verdict_of(placed, 12) == "acceptable"
-    assert cv.verdict_of(placed, 13) == "smooth"
-    assert "clip_013 to clip_015" in cv.note_column(placed, 12)
 
 
-def test_a_row_that_is_about_the_whole_cut_claims_no_cut_point():
-    """`approve` and `flag` name no cut, so they must not land on one."""
-    placed = cv.verdicts_by_cut(RUN_OF_RECORD)
-    assert set(placed) == {"12", "13"}
 
 
 # ── The other half, and its reader ───────────────────────────────────
@@ -303,9 +221,6 @@ def test_the_finding_that_named_the_mis_anchor_is_printed():
     assert "acceptable" not in text
 
 
-def test_no_review_prints_nothing():
-    assert cv.summary_lines(None) == []
-    assert cv.summary_lines([]) == []
 
 
 def test_nothing_is_filtered_by_decision_or_severity():

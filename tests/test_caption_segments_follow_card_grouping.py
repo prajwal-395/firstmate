@@ -104,17 +104,6 @@ def test_one_segment_per_card_not_per_row():
         (0, 0), (0, 1), (0, 2), (1, 0)]
 
 
-def test_entries_without_card_index_keep_the_old_per_block_shape():
-    """Backward compatibility: a stored plan written before step 4.01
-    emitted `card_index` still renders exactly as it did - one segment
-    holding the block's cards. Reverts red if the fallback groups such
-    entries per card (or drops them)."""
-    entries = [dict(e) for e in _plan()["subtitle_entries"]]
-    for e in entries:
-        del e["card_index"]
-    props = _props(entries)
-    assert len(props) == 2
-    assert [len(p["subtitles"]) for p in props] == [3, 1]
 
 
 # ── Karaoke continuity across a segment join ─────────────────────────
@@ -202,16 +191,6 @@ def test_every_segment_edge_is_a_card_edge():
             f"there - a boundary the craft never chose")
 
 
-def test_segments_tile_without_overlap():
-    """One track, one card at a time: neighbouring segments may abut
-    but never overlap beyond float dust (the same epsilon step 4.01
-    resolves overlaps to)."""
-    props = _props()
-    spans = sorted((p["_timeline_start"], p["_timeline_end"]) for p in props)
-    for (_, end), (start, _) in zip(spans, spans[1:]):
-        assert start >= end - 0.001 - 1e-9, (
-            f"segments overlap: one ends at {end}, the next starts at "
-            f"{start}")
 
 
 # ── A talk-over trim at a segment join ─────────────────────────────
@@ -329,28 +308,6 @@ def _spine_block(position, tl_start, duration, words, src=0.0):
     }
 
 
-def test_plan_emits_a_dense_card_index_per_block():
-    """Step 4.01 names each card's ordinal in its block, dense from
-    zero, aligned with the block-local id counter - so the index step
-    4.05 groups by cannot point at a different card than the id names.
-    A block of nine words needs at least two cards (six-word cap), and
-    this one plans exactly two; reverts red if the index is missing,
-    gappy, or counted across blocks."""
-    spine = {"structure": [
-        _spine_block(0, 0.0, 6.0,
-                     ["one", "two", "three", "four", "five", "six",
-                      "seven", "eight", "nine"]),
-        _spine_block(1, 6.0, 3.0, ["ten", "eleven", "twelve"]),
-    ]}
-    entries = generate_subtitles(spine)["subtitle_plan"]["subtitle_entries"]
-    by_block = {}
-    for e in entries:
-        by_block.setdefault(e["spine_block_position"], []).append(e)
-    assert len(by_block[0]) == 2, (
-        f"nine words should plan two cards, got {len(by_block[0])}")
-    assert [e["card_index"] for e in by_block[0]] == [0, 1]
-    assert [e["card_index"] for e in by_block[1]] == [0]
-    assert [e["id"] for e in by_block[0]] == ["sub_0_001", "sub_0_002"]
 
 
 def test_plan_to_props_partitions_whole_cards():

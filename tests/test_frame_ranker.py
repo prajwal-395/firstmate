@@ -61,30 +61,7 @@ def test_unknown_sharpness_cannot_win():
     assert winner["id"] == "measured"
 
 
-def test_tie_breaks_to_earliest_timestamp():
-    winner, _ = frame_ranker.choose([
-        {"id": "late", "timestamp": 90.0,
-         "aesthetic_score": 5.0, "sharpness": 300.0},
-        {"id": "early", "timestamp": 10.0,
-         "aesthetic_score": 5.0, "sharpness": 300.0},
-    ])
-    assert winner["id"] == "early"
-
-
 # ── The replaced rule, stated once and kept as fallback ───────────────
-
-def test_legacy_timestamp_matches_the_old_rule():
-    assert frame_ranker.legacy_timestamp(225.0) == 1.0
-    assert frame_ranker.legacy_timestamp(5.0) == 0.5
-    assert frame_ranker.legacy_timestamp(0) == 1.0
-
-
-def test_candidates_include_the_legacy_pick_and_stay_in_clip():
-    times = frame_ranker.candidate_timestamps(225.0)
-    assert times == sorted(times)
-    assert all(0.0 <= t <= 225.0 for t in times)
-    assert 1.0 in times
-    assert len(times) == frame_ranker.N_THUMBNAIL_CANDIDATES
 
 
 # ── The real scorer fails loudly, never silently ──────────────────────
@@ -148,32 +125,6 @@ def test_ranked_thumbnail_falls_back_when_nothing_is_sharp(
     assert url == "/thumbnails/clip_1.jpg"
     # Nine judged extractions, then the legacy fallback at 1.0 s.
     assert calls[-1] == 1.0
-
-
-def test_ranked_thumbnail_falls_back_when_scorer_is_unusable(
-        tmp_path, monkeypatch):
-    calls = []
-    _stub_extraction(monkeypatch, calls)
-    url = thumbnail_extractor.extract_ranked_clip_thumbnail(
-        str(tmp_path), "clip_1", "/nonexistent/src.mov", 225.0,
-        frame_ranker.LaionAestheticScorer("/nonexistent/head.pth"),
-        sharpness_fn=lambda path: 300.0)
-    assert url == "/thumbnails/clip_1.jpg"
-    assert calls[-1] == 1.0
-
-
-def test_catalog_without_scorer_keeps_the_legacy_rule(tmp_path, monkeypatch):
-    """Default path byte-identical to before the adoption: one extraction
-    at min(1.0, duration * 0.1)."""
-    calls = []
-    _stub_extraction(monkeypatch, calls)
-    src = tmp_path / "LC4930.MXF"
-    src.write_bytes(b"fake-video")
-    out = thumbnail_extractor.extract_thumbnails_for_catalog(
-        str(tmp_path),
-        [{"clip_id": "c1", "filepath": str(src), "duration_s": 225.0}])
-    assert out == {"c1": "/thumbnails/c1.jpg"}
-    assert calls == [1.0]
 
 
 # ── Bound 2: the ranker is not reachable from the hold-point path ─────

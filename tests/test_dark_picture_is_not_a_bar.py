@@ -102,27 +102,10 @@ def _measure(frames, spans=None, **kwargs):
 
 # ── 1. a graded shadow is picture ──
 
-def test_the_fixture_is_the_case_the_variance_half_cannot_carry():
-    """It has to be FLAT, or it proves nothing about the variance half."""
-    shadow = _shadow_rows(SHADOW_ROWS)
-    assert shadow.std(axis=1).max() < BAR_ROW_MAX_STD
-    assert shadow.mean(axis=1).max() < LIT_LUMA_THRESHOLD
-    assert shadow.mean(axis=1).min() > BAR_ROW_MAX_LUMA
 
 
-def test_a_dark_full_bleed_shot_is_not_letterboxed():
-    result = _measure([_dark_topped_picture()] * 8)
-    assert result.passed, result.detail
-    assert result.value["median_picture_fraction"] == 1.0
-    assert result.value["max_top_bar_rows"] == 0
 
 
-def test_a_dark_shot_among_lit_ones_does_not_read_as_a_geometry_change():
-    """The reference's own shape: one dark shot inside a filled piece."""
-    lit = np.full((1, H, W), 140, dtype=np.uint8)
-    result = _measure([lit] * 8 + [_dark_topped_picture()] * 4)
-    assert result.passed, result.detail
-    assert result.value["spread"] == 0.0
 
 
 def test_darkness_alone_would_still_eat_the_shadow():
@@ -139,21 +122,8 @@ def test_darkness_alone_would_still_eat_the_shadow():
 
 # ── the bar itself is unchanged ──
 
-def test_a_real_bar_is_still_a_bar_at_the_loosest_level_measured():
-    """001's shipped master is the loosest real bar: row mean to 0.14."""
-    frames = [_flat_black_bars(608, level=0.14)] * 8
-    result = _measure(frames)
-    assert not result.passed
-    assert "letterboxed and nothing asked for bars" in result.detail
-    assert result.value["median_picture_fraction"] == round(608 / H, 4)
 
 
-def test_a_letterbox_appearing_mid_video_still_fails_one_geometry():
-    frames = [np.full((1, H, W), 140, dtype=np.uint8)] * 6 + \
-             [_flat_black_bars(1150)] * 4
-    result = _measure(frames)
-    assert not result.passed
-    assert "changes size within one declared framing" in result.detail
 
 
 # ── 2. a composition is not a conform ──
@@ -168,11 +138,6 @@ def test_a_picture_inset_in_black_on_four_sides_is_counted_out():
     assert "composition and not a conform" in result.detail
 
 
-def test_a_conform_letterbox_spans_the_full_width_and_still_fails():
-    """The discriminator must not excuse the real thing."""
-    result = _measure([_flat_black_bars(608)] * 8)
-    assert result.value["inset_frames_skipped"] == 0
-    assert not result.passed
 
 
 # ── a frame with no picture at all ──

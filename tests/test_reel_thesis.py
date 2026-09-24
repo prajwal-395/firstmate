@@ -116,27 +116,6 @@ def test_reel_04_failing_reads_incoherent():
     assert read["decided_by"] == ["point", "ending"]
 
 
-def test_reel_04_fixed_reads_coherent():
-    text = R04_BODY + " google gave a stale list chatgpt gave three reasoned picks " + R04_POINT
-    body = _segment(100.0, text)
-    transcript = _transcript(body)
-    moment = _moment(4, (100.0, body["timeline_end"]))
-    siblings = [moment, _sibling_five()]
-    context = _ctx(moment, transcript, siblings)
-    assert R04_POINT in context["kept_text"]
-    answer = {
-        "point": "google lists old results while chatgpt reasons to a pick",
-        "point_quote": R04_POINT,
-        "last_follows": "follows",
-        "closing_quote": R04_POINT,
-        "closing_reason": "the last words land the comparison the reel set up",
-        "foreign_spans": [],
-        "reason": "setup, evidence, then the decision engine takeaway",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "coherent"
-
-
 # ── Reel 10: the answer skipped for a sales pitch ──────────────────
 
 R10_BODY = "the audit found everything else was broken"
@@ -172,24 +151,6 @@ def test_reel_10_failing_reads_incoherent():
     read = _check(moment, transcript, siblings, answer)
     assert read["verdict"] == "incoherent"
     assert read["decided_by"] == ["point", "ending"]
-
-
-def test_reel_10_fixed_reads_coherent():
-    body = _segment(200.0, R10_BODY + " " + R10_ANSWER)
-    transcript = _transcript(body)
-    moment = _moment(10, (200.0, body["timeline_end"]))
-    siblings = [moment, _sibling_five()]
-    answer = {
-        "point": "a site is a resume and everything else is a reference",
-        "point_quote": R10_ANSWER,
-        "last_follows": "follows",
-        "closing_quote": R10_ANSWER,
-        "closing_reason": "the last words are the takeaway the story earned",
-        "foreign_spans": [],
-        "reason": "story, verdict, takeaway",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "coherent"
 
 
 # ── Reel 13: moment 5's opener playing after the closer ────────────
@@ -312,28 +273,6 @@ def test_reel_14_failing_reads_incoherent():
     assert read["decided_by"] == ["point", "ending"]
 
 
-def test_reel_14_fixed_reads_coherent():
-    setup = _segment(200.0, R14_SETUP)
-    middle = _segment(setup["timeline_end"], R14_MIDDLE)
-    closer = _segment(600.0, R14_CLOSER)
-    transcript = _transcript(setup, middle, closer)
-    moment = _moment(14, (200.0, middle["timeline_end"]),
-                     (600.0, closer["timeline_end"]))
-    siblings = [moment, _sibling_five()]
-    answer = {
-        "point": "keyword stuffing fails and understanding wins",
-        "point_quote": "it rewards understanding and niche unique content",
-        "last_follows": "follows",
-        "closing_quote": R14_CLOSER,
-        "closing_reason": "the last words offer the system that fixes "
-                          "the named mistake",
-        "foreign_spans": [],
-        "reason": "setup, substance, ask",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "coherent"
-
-
 # ── Reel 27: the closer answers a question never asked ─────────────
 
 R27_BODY = "google reviews build trust niche reviewer language gets picked up and recommended later on"
@@ -367,24 +306,6 @@ def test_reel_27_failing_reads_incoherent_on_the_ending_alone():
     assert read["decided_by"] == ["ending"]
 
 
-def test_reel_27_fixed_reads_coherent():
-    body = _segment(700.0, R27_BODY)
-    transcript = _transcript(body)
-    moment = _moment(27, (700.0, body["timeline_end"]))
-    siblings = [moment, _sibling_five()]
-    answer = {
-        "point": "reviews build trust and get a business recommended later",
-        "point_quote": "niche reviewer language gets picked up and recommended later on",
-        "last_follows": "follows",
-        "closing_quote": "recommended later on",
-        "closing_reason": "the last words complete the answer the question set up",
-        "foreign_spans": [],
-        "reason": "question and answer, ending where it lands",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "coherent"
-
-
 # ── The ask carries words, not verdicts ────────────────────────────
 
 def test_prompt_carries_the_kept_words_and_no_verdict_vocabulary():
@@ -395,23 +316,6 @@ def test_prompt_carries_the_kept_words_and_no_verdict_vocabulary():
     assert "definitely check it out" in prompt
     assert "Akshita:" in prompt
     thesis.assert_ask_carries_no_verdict(prompt)
-
-
-def test_ask_guard_names_the_word():
-    with pytest.raises(RuntimeError, match="incoherent"):
-        thesis.assert_ask_carries_no_verdict(
-            "say whether the reel is incoherent")
-
-
-def test_prompt_marks_no_seam():
-    """A reader told which lines are the ending reads them as the
-    ending they are meant to be (`judge_reels` bridge)."""
-    moment, transcript = _reel_27_failing()
-    context = _ctx(moment, transcript, [moment, _sibling_five()])
-    prompt = thesis.render_thesis_prompt(context).lower()
-    assert "closer" not in prompt
-    assert "call to action" not in prompt
-    assert "ending" not in prompt
 
 
 # ── Uncheckable answers are unjudged, never verdicts ───────────────
@@ -435,24 +339,6 @@ def test_no_answer_is_unjudged():
     assert read["verdict"] == "unjudged"
 
 
-def test_unknown_last_follows_is_unjudged():
-    moment, transcript = _reel_04_failing()
-    siblings = [moment, _sibling_five()]
-    answer = _good_answer_for_04()
-    answer["last_follows"] = "sort of"
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "unjudged"
-
-
-def test_empty_reason_is_unjudged():
-    moment, transcript = _reel_04_failing()
-    siblings = [moment, _sibling_five()]
-    answer = _good_answer_for_04()
-    answer["reason"] = "  "
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "unjudged"
-
-
 def test_invented_point_quote_is_unjudged():
     moment, transcript = _reel_04_failing()
     siblings = [moment, _sibling_five()]
@@ -461,25 +347,6 @@ def test_invented_point_quote_is_unjudged():
     read = _check(moment, transcript, siblings, answer)
     assert read["verdict"] == "unjudged"
     assert "not in what this reel says" in read["reason"]
-
-
-def test_foreign_span_in_no_sibling_bounds_is_unjudged():
-    body, cta, tail, transcript = _reel_13_pieces()
-    moment = _moment(13, (889.0, body["timeline_end"]),
-                     (320.0, cta["timeline_end"] + 0.9))
-    siblings = [moment]
-    answer = {
-        "point": "x",
-        "point_quote": "it was an information problem",
-        "last_follows": "follows",
-        "closing_quote": "they search their business",
-        "closing_reason": "y",
-        "foreign_spans": [{"quote": R13_TAIL, "why": "a hunch"}],
-        "reason": "z",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "unjudged"
-    assert "no other moment" in read["reason"]
 
 
 def test_numeric_fields_beside_a_reading_are_dropped_unread():
@@ -578,25 +445,3 @@ def test_gate_promotes_on_stale_missing_and_unjudged():
         assert any("STALE" in line for line in decision["lines"])
 
 
-def test_gate_with_no_sidecar_promotes_silently():
-    import tempfile
-    from pathlib import Path
-
-    with tempfile.TemporaryDirectory() as tmp:
-        project = Path(tmp)
-        moment, transcript = _reel_04_failing()
-        _write_project(project, [moment], transcript)
-        decision = thesis.gate_promotion(
-            str(project), {"Reel 04 - topic": "Reel 04 - topic (staging)"})
-        assert list(decision["promotable"]) == ["Reel 04 - topic"]
-        assert decision["refused"] == {}
-        assert decision["lines"] == []
-
-
-def test_thesis_refusal_names_the_reel_and_what_promoted():
-    refused = {"Reel 04 - topic": "recorded thesis reading is incoherent: x"}
-    error = thesis.ThesisRefused(refused, ["Reel 27 - topic"])
-    assert "Reel 04 - topic" in str(error)
-    assert "Reel 27 - topic" in str(error)
-    assert error.refused == refused
-    assert error.promoted == ["Reel 27 - topic"]

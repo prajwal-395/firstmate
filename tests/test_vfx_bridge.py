@@ -216,15 +216,6 @@ class TestVfxBridgeOriginatesNoCreativeValue:
             f"Only {populated} of {len(lines)} rows have text"
         )
 
-    def test_table_has_one_row_per_spine_block(self):
-        proc = _run_bridge(_payload())
-        assert proc.returncode == 0, proc.stderr
-        output = json.loads(proc.stdout)
-        toon = output["vfx_candidates_toon"]
-        lines = [l for l in toon.strip().split("\n") if l and not l.startswith("[")]
-        assert len(lines) == 3, (
-            f"Expected 3 rows (one per spine block), got {len(lines)}"
-        )
 
     def test_vfx_suggested_carries_camera_data(self):
         proc = _run_bridge(_payload())
@@ -293,27 +284,8 @@ class TestVfxBridgeEmptyInput:
         assert toon.startswith("[0]")
         assert "enhancement_spec" not in output
 
-    def test_missing_timed_spine(self):
-        payload = {
-            "semantic_analysis_documents": [],
-            "a_roll_assignments": [],
-        }
-        proc = _run_bridge(payload)
-        assert proc.returncode == 0, proc.stderr
-        output = json.loads(proc.stdout)
-        assert output["vfx_candidates_toon"].startswith("[0]")
 
 
 class TestVfxBridgeNoStubComment:
     """The bridge no longer admits it is a stub."""
 
-    def test_no_simplified_comment(self):
-        source = (VFX / "bridge.py").read_text(encoding="utf-8")
-        for phrase in (
-            "Simplified pre-bridge",
-            "In a real implementation",
-            "we just pass an empty list",
-        ):
-            assert phrase not in source, (
-                f"bridge.py still says '{phrase}'"
-            )

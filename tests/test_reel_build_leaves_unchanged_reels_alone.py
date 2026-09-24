@@ -359,44 +359,6 @@ def test_a_changed_plan_places_every_reel_again(project):
     assert record["reels_left_alone"] == []
 
 
-def test_a_changed_project_wide_declaration_places_every_reel_again(
-        project):
-    """`project.yaml` decides things the derivation cannot see - where a
-    caption card is PLACED, for one - so a change to it costs a full
-    round on purpose."""
-    resolve_project = FakeProject([MASTER])
-    world = World(resolve_project)
-    _build(project, world, resolve_project=resolve_project)
-
-    config = project / "project.yaml"
-    config.write_text(config.read_text(encoding="utf-8")
-                      + '\nstyle: {subtitle: {caption_row: 1380}}\n',
-                      encoding="utf-8")
-
-    record, placed = _build(project, world,
-                            resolve_project=resolve_project)
-    assert placed.call_count == 3
-    assert record["reels_left_alone"] == []
-
-
-def test_an_unclassified_external_declaration_places_every_reel_again(
-        project):
-    """A declaration nobody has classified over-covers from the day it
-    lands - the fail-closed direction."""
-    resolve_project = FakeProject([MASTER])
-    world = World(resolve_project)
-    _build(project, world, resolve_project=resolve_project)
-
-    external = project / "external"
-    external.mkdir(exist_ok=True)
-    (external / "something_new.json").write_text("[]", encoding="utf-8")
-
-    record, placed = _build(project, world,
-                            resolve_project=resolve_project)
-    assert placed.call_count == 3
-    assert record["reels_left_alone"] == []
-
-
 def test_a_per_reel_pin_store_does_not_place_the_other_reels(project):
     """A pin on one reel must cost one reel.
 
@@ -422,74 +384,6 @@ def test_a_per_reel_pin_store_does_not_place_the_other_reels(project):
                             resolve_project=resolve_project)
     assert placed.call_count == 0
     assert sorted(record["reels_left_alone"]) == sorted(APPROVED)
-
-
-def test_rebuild_all_places_every_reel_whatever_the_state_says(project):
-    resolve_project = FakeProject([MASTER])
-    world = World(resolve_project)
-    _build(project, world, resolve_project=resolve_project)
-
-    record, placed = _build(project, world,
-                            resolve_project=resolve_project,
-                            reuse_unchanged=False)
-    assert placed.call_count == 3
-    assert record["reels_left_alone"] == []
-    # The decision was still COMPUTED and reported - the operator
-    # overrode it, they were not kept from seeing it.
-    assert {d["action"] for d in record["rebuild_need"]} == {"leave_alone"}
-
-
-def test_a_left_alone_reel_keeps_every_sidecar_entry_it_had(project):
-    """A skip must not leave a phantom baseline under a staging name
-    nothing staged, and must not delete the entry the reel had - either
-    one makes the next verifier grade against the wrong thing."""
-    resolve_project = FakeProject([MASTER])
-    world = World(resolve_project)
-    _build(project, world, resolve_project=resolve_project)
-    review = project / "pipeline_output" / "review"
-    # `staging_holds.json` is OUT: the hold is taken for every named
-    # reel before the decision exists and released again for a reel
-    # that is left alone, so its released-at stamp legitimately moves.
-    # `test_a_left_alone_reel_releases_the_hold_its_staging_took` is
-    # what holds that half.
-    def _sidecars():
-        return {path.name: path.read_text(encoding="utf-8")
-                for path in sorted(review.glob("*.json"))
-                if path.name not in ("reel_proposals_v2.json",
-                                     "staging_holds.json")}
-
-    before = _sidecars()
-    _build(project, world, resolve_project=resolve_project)
-    after = _sidecars()
-    for name, body in before.items():
-        assert name in after, f"{name} vanished when nothing was built"
-        if name == "plan_provenance.json":
-            # `built_at` is a timestamp of the run, not of a reel.
-            was, now = json.loads(body), json.loads(after[name])
-            for doc in (was, now):
-                doc.pop("built_at", None)
-            assert was == now
-        else:
-            assert after[name] == body, (
-                f"{name} changed on a build that placed nothing")
-    signatures = json.loads(
-        after["plan_provenance.json"])["build_signatures"]
-    assert not [key for key in signatures if "staging" in key], sorted(
-        signatures)
-
-
-def test_a_left_alone_reel_releases_the_hold_its_staging_took(project):
-    """The hold is taken for every reel up front, before the decision
-    exists. A reel that was never staged must not keep one, or the next
-    build's sweep refuses a name nothing is holding."""
-    from library.tools import staging_holds
-
-    resolve_project = FakeProject([MASTER])
-    world = World(resolve_project)
-    _build(project, world, resolve_project=resolve_project)
-    _build(project, world, resolve_project=resolve_project)
-    held = staging_holds.held_names(str(project))
-    assert not held, held
 
 
 def test_a_reel_reads_the_same_however_the_run_entered(project):

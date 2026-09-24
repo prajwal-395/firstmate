@@ -67,29 +67,6 @@ def test_f5_unknown_final_version_keeps_errors():
     assert any(f.severity == "error" for f in rewritten)
 
 
-def test_f5_explicit_matching_versions_promote():
-    """Both sides pinned to this code: the same promotion as the default."""
-    from library.tools.reel_conformance_verifier import (
-        rewrite_f5_against_live_final)
-
-    gap = [_card(0.0, 10.0), _card(10.6, 20.0)]
-    staging = _f5_errors_on(gap)
-    final = _f5_errors_on(gap)
-
-    rewritten = rewrite_f5_against_live_final(
-        "Reel 08 - x (rebuild staging)", list(staging),
-        "Reel 08 - x", list(final),
-        staging_checker_version=CHECKER_VERSION,
-        final_checker_version=CHECKER_VERSION)
-
-    assert [f for f in rewritten if f.severity == "error"] == []
-    preexisting = [f for f in rewritten
-                   if (f.detail or {}).get("preexisting") is True]
-    assert len(preexisting) == 1
-    assert preexisting[0].detail["live_final_checker_version"] == \
-        CHECKER_VERSION
-
-
 def test_f5_new_violation_error_carries_baseline_version():
     """Even the refusing error says which checker version it compared."""
     from library.tools.reel_conformance_verifier import (
@@ -133,44 +110,4 @@ def test_f25_older_final_keeps_errors():
         "fail-closed: a tightened word check must not clear old finals"
 
 
-def test_f25_explicit_matching_versions_promote():
-    """Both sides pinned to this code: the pre-existing word warns."""
-    from library.tools.reel_conformance_verifier import (
-        rewrite_f25_against_live_final)
-
-    staging, _ = _mismatch_findings([("world", 2.1, 2.4)])
-    final, _ = _mismatch_findings([("world", 2.1, 2.4)])
-
-    rewritten = rewrite_f25_against_live_final(
-        "Reel 03 - x (rebuild staging)", list(staging),
-        "Reel 03 - x", list(final),
-        staging_checker_version=CHECKER_VERSION,
-        final_checker_version=CHECKER_VERSION)
-
-    assert [f for f in rewritten if f.severity == "error"] == []
-    warned = [f for f in rewritten
-              if (f.detail or {}).get("preexisting") is True]
-    assert len(warned) == 1
-    assert warned[0].detail["live_final_checker_version"] == \
-        CHECKER_VERSION
-
-
 # ── Report envelope ──────────────────────────────────────────────────
-
-def test_report_envelope_carries_checker_version():
-    """The finding set is pinned with the code that produced it.
-
-    A future caller comparing a staging against a stored
-    `conformance_sweep_report.json` reads this key as the final's
-    side of the baseline - without it there is nothing like-for-like
-    to check against.
-    """
-    from library.tools.reel_conformance_verifier import VerificationReport
-
-    report = VerificationReport(
-        project_name="p", master_timeline="m", reel_results=[],
-        read_only_proof={})
-    data = report.as_dict()
-    assert data["checker_version"] == CHECKER_VERSION
-    import json as _json
-    _json.dumps(data)

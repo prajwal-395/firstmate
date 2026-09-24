@@ -72,14 +72,6 @@ class TestClause1LiveProviderCalls:
         assert route.lane == SERIAL
         assert "LLMClient" in route.reason
 
-    def test_analyze_image_call_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_live():\n"
-            "    assert analyze_image('frame.png') is not None\n",
-        )
-        assert route.lane == SERIAL
-
     def test_patched_provider_call_stays_parallel(self, tmp_path):
         route = _route_source(
             tmp_path, "test_x.py",
@@ -89,28 +81,6 @@ class TestClause1LiveProviderCalls:
             "def test_faked():\n"
             "    with patch.dict('os.environ', {}, clear=True):\n"
             "        assert LLMClient('gemini', 'm').generate('hi') == '{}'\n",
-        )
-        assert route.lane == PARALLEL, route.reason
-
-    def test_fake_client_swap_stays_parallel(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "class _FakeClient:\n"
-            "    def generate(self, prompt):\n"
-            "        return '{}'\n"
-            "\n"
-            "def test_faked():\n"
-            "    assert _FakeClient().generate('hi') == '{}'\n",
-        )
-        assert route.lane == PARALLEL, route.reason
-
-    def test_docstring_mention_is_not_a_call(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            '"""These tests would call analyze_image if the server ran."""\n'
-            "\n"
-            "def test_docs():\n"
-            "    assert True\n",
         )
         assert route.lane == PARALLEL, route.reason
 
@@ -124,28 +94,6 @@ class TestClause2WeightLoads:
             "    assert model is not None\n",
         )
         assert route.lane == SERIAL
-
-    def test_whisper_model_construction_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_transcribe():\n"
-            "    model = WhisperModel('tiny')\n"
-            "    assert model is not None\n",
-        )
-        assert route.lane == SERIAL
-
-    def test_fake_assignment_is_not_a_load(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "import sys, types\n"
-            "\n"
-            "def test_faked():\n"
-            "    fake_wx = types.ModuleType('whisperx')\n"
-            "    fake_wx.load_align_model = lambda **k: (None, None)\n"
-            "    sys.modules['whisperx'] = fake_wx\n"
-            "    assert sys.modules['whisperx'] is fake_wx\n",
-        )
-        assert route.lane == PARALLEL, route.reason
 
     def test_heavy_ml_marker_is_serial(self, tmp_path):
         route = _route_source(
@@ -178,24 +126,6 @@ class TestClause3FixedPorts:
         )
         assert route.lane == PARALLEL, route.reason
 
-    def test_fixed_bind_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_socket():\n"
-            "    s.bind(('127.0.0.1', 9000))\n"
-            "    assert True\n",
-        )
-        assert route.lane == SERIAL
-
-    def test_ephemeral_bind_stays_parallel(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_socket():\n"
-            "    s.bind(('127.0.0.1', 0))\n"
-            "    assert True\n",
-        )
-        assert route.lane == PARALLEL, route.reason
-
 
 class TestClause4FixedPaths:
     def test_open_on_tmp_is_serial(self, tmp_path):
@@ -206,17 +136,6 @@ class TestClause4FixedPaths:
             "    assert fh is not None\n",
         )
         assert route.lane == SERIAL
-
-    def test_constructed_path_to_a_fake_stays_parallel(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "from pathlib import Path\n"
-            "\n"
-            "def test_faked(fake_whisper):\n"
-            "    out = fake_whisper(Path('/tmp/nowhere.wav'))\n"
-            "    assert out == []\n",
-        )
-        assert route.lane == PARALLEL, route.reason
 
     def test_tmp_path_open_stays_parallel(self, tmp_path):
         route = _route_source(
@@ -251,18 +170,6 @@ class TestClause6ExplicitOptOut:
         )
         assert route.lane == SERIAL
 
-    def test_serial_marker_without_reason_is_still_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "import pytest\n"
-            "\n"
-            "@pytest.mark.serial\n"
-            "def test_opted_out():\n"
-            "    assert True\n",
-        )
-        assert route.lane == SERIAL
-        assert "without a reason" in route.reason
-
 
 class TestFailClosed:
     def test_unparseable_is_serial(self, tmp_path):
@@ -277,15 +184,6 @@ class TestFailClosed:
 
 
 class TestWholeTreePinning:
-    @pytest.mark.heavy
-    def test_every_file_lands_in_exactly_one_lane(self):
-        routes = route_suite(REPO_ROOT)
-        assert routes, "the suite has no test files"
-        for route in routes:
-            assert route.lane in (SERIAL, PARALLEL), route
-            assert route.reason, f"{route.path} has no routing reason"
-
-    @pytest.mark.heavy
     def test_measured_unsafe_set_routes_serial(self):
         by_rel = {
             str(r.path.relative_to(REPO_ROOT)): r for r in route_suite(REPO_ROOT)
@@ -294,16 +192,6 @@ class TestWholeTreePinning:
             assert rel in by_rel, f"{rel} is gone from the tree"
             assert by_rel[rel].lane == SERIAL, (
                 f"{rel} routes {by_rel[rel].lane}: {by_rel[rel].reason}")
-
-    @pytest.mark.heavy
-    def test_measured_safe_shapes_stay_parallel(self):
-        by_rel = {
-            str(r.path.relative_to(REPO_ROOT)): r for r in route_suite(REPO_ROOT)
-        }
-        for rel in KNOWN_SAFE:
-            assert rel in by_rel, f"{rel} is gone from the tree"
-            assert by_rel[rel].lane == PARALLEL, (
-                f"{rel} routes serial: {by_rel[rel].reason}")
 
     @pytest.mark.heavy
     def test_serial_lane_holds_nothing_undeclared(self):

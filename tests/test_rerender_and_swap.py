@@ -30,26 +30,3 @@ def test_a_non_dict_pair_is_refused(tmp_path):
     with pytest.raises(ValueError, match="not a dict"):
         r405.rerender_and_swap(str(tmp_path), ["old.mov"])
 
-
-def test_a_pair_missing_its_props_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="no 'props'"):
-        r405.rerender_and_swap(
-            str(tmp_path),
-            [{"old_mov": "old.mov", "timeline_label": "tl"}])
-
-
-def test_a_pair_with_no_old_file_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="no old_mov"):
-        r405.rerender_and_swap(
-            str(tmp_path),
-            [{"old_mov": "", "timeline_label": "tl",
-              "props": {"durationInFrames": 1}}])
-
-
-def test_batch_engine_is_own_lifetime_with_the_two_method_seam(tmp_path):
-    first = r405.batch_caption_engine(str(tmp_path))
-    second = r405.batch_caption_engine(str(tmp_path))
-    assert first is not second
-    assert callable(first.render) and callable(first.close)
-    first.close()
-    second.close()

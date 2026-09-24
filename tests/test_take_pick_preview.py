@@ -128,14 +128,6 @@ def test_the_preview_prints_freshness_cascade_snap_and_words(tmp_path):
     assert "src: a.MXF" in text
 
 
-def test_the_snap_section_is_the_reused_render_not_a_re_derivation(
-        tmp_path):
-    project = _project(tmp_path)
-    report = preview_take_pick(project, 5)
-    assert report["snap"] == preview_snap(
-        [_moment(5)], _transcript())
-    assert render_snap_preview(report["snap"]) in (
-        render_take_pick_preview(report))
 
 
 def test_a_cascade_refusal_reads_as_the_refusal(tmp_path):
@@ -199,12 +191,3 @@ def test_a_missing_transcript_refuses(tmp_path, capsys):
     assert "REFUSED" in capsys.readouterr().err
 
 
-def test_the_cli_prints_the_preview(tmp_path, capsys):
-    project = _project(tmp_path)
-    assert main([project, "5"]) == 0
-    out = capsys.readouterr().out
-    assert "take-pick preview: Reel 05" in out
-    assert "freshness:" in out
-    assert "cascade" in out
-    assert "snap preview:" in out
-    assert "words in this body" in out

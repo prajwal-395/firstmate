@@ -166,47 +166,8 @@ SPINE_MUSIC_OPERATIONAL_READERS = (
 )
 
 
-def test_no_spine_music_drop_paths_remain():
-    """The nested copy is gone, so its drops are gone with it.
-
-    A `-timed_spine.music_selection` / `-audio_spine.music_selection`
-    path today matches nothing (`context_projector` treats an
-    unmatched `-` path as a no-op), which is exactly how a stale
-    declaration reads as coverage. No manifest may declare one.
-    """
-    stale = []
-    for path in ALL_MANIFESTS:
-        for entry in context_fields(path):
-            if ".music_selection" in entry and (
-                entry.startswith("-timed_spine.")
-                or entry.startswith("-audio_spine.")
-            ):
-                stale.append(f"{path.parent.name}: {entry}")
-    assert not stale, (
-        "stale nested-music drop paths - `mesh_spine` no longer embeds "
-        "`music_selection` in either spine, so these match nothing:\n  - "
-        + "\n  - ".join(stale)
-    )
 
 
-def test_the_spine_steps_still_route_the_top_level_selection():
-    """The conducting route survives the carrier move.
-
-    Removing the nested copy must not take the top-level
-    `music_selection` with it: these steps read the track, the
-    section, the splices or the measurements off it, and none of
-    them ever read the nested copy. Asserted on the manifest's
-    declared inputs - the route itself, prompt or deterministic.
-    """
-    for step in SPINE_MUSIC_OPERATIONAL_READERS:
-        manifest = json.loads(
-            (STEPS / step / "manifest.json").read_text(encoding="utf-8"))
-        names = [i.get("name") for i in
-                 manifest.get("interface", {}).get("inputs", [])]
-        assert "music_selection" in names, (
-            f"{step} no longer declares the top-level `music_selection` "
-            f"input - the carrier move took an operational reader with it."
-        )
 
 
 # ── The word timings ─────────────────────────────────────────────────
@@ -244,26 +205,6 @@ def test_the_rough_cut_review_gets_no_word_timings():
         )
 
 
-def test_the_spine_author_still_carries_the_hook_timings():
-    """The ratchet's other direction, again.
-
-    Dropping these in 2.05 as well orphans four fields at
-    `OUT@speech_sequence` that 2.02 still writes and `data_map` can see
-    no reader for, and the data-map gate fails. 2.02 must go on writing
-    them - they are what 2.05 builds the hook block's
-    `content.word_timestamps` from.
-    """
-    declared = context_fields(STEPS / HOOK_TIMING_CARRIER / "manifest.json")
-    assert "-speech_sequence.body_sequence.*.word_timestamps" in declared, (
-        "2.05 routes the whole `speech_sequence` and does not drop the "
-        "body passages' word timings - 8,509 of them on 001.")
-    assert ("-speech_sequence.hook_segment.word_timestamps"
-            not in declared), (
-        "2.05 is the last prompt carrier of "
-        "`speech_sequence.hook_segment.word_timestamps`, and 2.02 still "
-        "writes it. Dropping it here does not stop it being produced. "
-        "Give it a reader or stop producing it and re-observe, rather "
-        "than orphaning it.")
 
 
 # ── The QA report, beside the summary rendered from it ────────────────

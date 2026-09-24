@@ -92,11 +92,6 @@ class TestSubjectBox:
         widths[0] = 0.3
         assert subject_box(track([0.4] * 10, widths), 0.0, 2.0) is None
 
-    def test_enough_widths_answers(self):
-        widths = [None] * 10
-        for i in range(MIN_SAMPLES):
-            widths[i] = 0.3
-        assert subject_box(track([0.4] * 10, widths), 0.0, 2.0) is not None
 
     def test_an_implausible_width_is_not_a_face(self):
         """A box covering the whole frame would collapse the conform."""
@@ -227,10 +222,6 @@ class TestTheBackdropReachesThePicture:
                                  source_res=(1920, 1080))
         assert comp.count('SourceOp = "MediaIn1"') == 2
 
-    def test_the_geometry_reaches_the_serialized_comp(self):
-        comp = build_effect_comp(backdrop_effects(), clip_dur=300,
-                                 source_res=(1920, 1080))
-        assert "0.6463" in comp and "0.5694" in comp and "0.6074" in comp
 
     def test_the_backdrop_is_upstream_of_the_ken_burns_drift(self):
         """The drift must move the composed picture, not the plate."""

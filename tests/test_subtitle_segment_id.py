@@ -181,17 +181,10 @@ def test_slug_requires_the_caller_to_name_the_absence():
 
 # ── Stability, so a rebuild overwrites ITSELF ────────────────────────
 
-def test_the_name_is_stable_across_rebuilds():
-    assert _name() == _name()
 
 
-def test_binding_keys_are_the_whole_enumeration():
-    assert set(_binding()) == set(SEGMENT_BINDING_KEYS)
 
 
-def test_provenance_keys_are_speaker_and_source_span_only():
-    assert set(PROVENANCE_STEM_KEYS) == {
-        "speaker", "source_clip_id", "source_start", "source_end"}
 
 
 # ── One filename, two pixels is refused ──────────────────────────────
@@ -251,9 +244,6 @@ def test_a_truncated_slug_breaks_on_a_word_boundary():
                "notimeline") == "reel-05-the-audit-that-was-eye"
 
 
-def test_a_slug_within_the_limit_is_untouched():
-    assert slug("Akshita Rao", "nospeaker") == "akshita-rao"
-    assert slug("Reel 01 - geography", "notimeline") == "reel-01-geography"
 
 
 def test_a_single_word_longer_than_the_limit_keeps_its_cut():

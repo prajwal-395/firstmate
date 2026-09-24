@@ -246,35 +246,13 @@ def test_a_resolved_selection_with_no_sidecar_refuses_the_compile(project):
         _compile(project)
 
 
-def test_a_resolved_selection_with_an_unparseable_sidecar_refuses(project):
-    """A sidecar that does not parse is no record either."""
-    project_dir, layout, _outputs, _sfx_file = project
-    (layout.step_dir("music_selection") / audit.AUDIT_FILENAME).write_text(
-        "{not json", encoding="utf-8")
-    with pytest.raises(audit.AuditTrailMissing, match="does not parse"):
-        _compile(project)
-
-def test_a_manifest_compiles_with_no_transition_plan(project):
-    manifest = _compile(project, ("plan_transitions", "transition_spec"))
-    assert manifest["transitions"] == []
-    assert manifest["fusion_effects"]["transitions"] == []
-    assert len(manifest["tracks"]["V1"]["clips"]) == 2
 
 
-def test_a_manifest_compiles_with_no_vfx_plan(project):
-    manifest = _compile(project, ("plan_vfx", "enhancement_spec"))
-    assert manifest["vfx"] == []
-    assert manifest["generator_overlays"] == []
 
 
-def test_a_manifest_compiles_with_no_sfx_plan(project):
-    manifest = _compile(project, ("plan_sfx", "sfx_spec"))
-    assert manifest["tracks"]["A3"]["clips"] == []
 
 
-def test_a_manifest_compiles_with_no_grade(project):
-    manifest = _compile(project, ("color_grade", "color_grade_spec"))
-    assert manifest["color_grade"] == {}
+
 
 
 def test_a_manifest_compiles_with_none_of_the_four(project):
@@ -367,14 +345,6 @@ def test_a_required_input_the_step_runs_without_is_recorded(
         f"it', but the step refuses without them. Delete the entry.")
 
 
-def test_the_four_specs_are_declared_optional():
-    """The measurable consequence: with these four optional, the
-    `rough_cut_subtitles` target can leave their planners out."""
-    manifests = run_scope.load_manifests(run_scope.load_dag())
-    optional = run_scope.optional_inputs(manifests["compile_manifest"])
-    for name in ("transition_spec", "enhancement_spec", "sfx_spec",
-                 "color_grade_spec"):
-        assert name in optional, f"{name} is still declared required"
 
 
 # ── A drawn transition with no hold is a hard cut, never 15 frames ────

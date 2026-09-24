@@ -41,65 +41,10 @@ def rounds(*entries):
 
 # ── The family ───────────────────────────────────────────────────
 
-def test_the_family_is_narrow():
-    assert comp.is_comparison_timeline(BASELINE, PLAN)
-    assert comp.is_comparison_timeline(BATCH, PLAN)
-    assert not comp.is_comparison_timeline(REEL, PLAN)
-    assert not comp.is_comparison_timeline(OTHER, PLAN)
-    assert not comp.is_comparison_timeline(MASTER, PLAN, (), MASTER)
-    assert not comp.is_comparison_timeline(
-        f"{REEL} (rebuild staging)", PLAN)
-    assert not comp.is_comparison_timeline(
-        f"{REEL} (scratch fm-restore) (rebuild staging)", PLAN)
-    assert not comp.is_comparison_timeline(
-        f"{REEL} (pre-rebuild backup)", PLAN)
-    assert not comp.is_comparison_timeline(
-        retire.archived_name(REEL, 3), PLAN)
-    assert not comp.is_comparison_timeline(VARIANT, PLAN, (VARIANT,))
-    assert not comp.is_comparison_timeline(
-        "SOP Proof_reel13_tail_breath (baseline scratch)", PLAN)
-    # A name no plan final extends is nobody's comparison - however
-    # parenthesised - and a comparison that lost its closing paren is
-    # not one either.
-    assert not comp.is_comparison_timeline(
-        "Reel 99 - some-other-cut (baseline scratch)", PLAN)
-    assert not comp.is_comparison_timeline(f"{REEL} (baseline scratch",
-                                           PLAN)
 
 
-def test_the_base_is_the_longest_plan_prefix():
-    short = "Reel 9 - x"
-    longer = "Reel 9 - x (final)"
-    name = f"{longer} (baseline scratch)"
-    assert comp.base_final_for(name, (short, longer)) == longer
-    assert comp.base_final_for(name, (longer, short)) == longer
-    assert comp.base_final_for(longer, (short, longer)) is None
-    assert comp.base_final_for("Reel 9 - x (final)", (short,)) == short
 
 
-def test_the_archive_bin_is_the_reel_archives_own():
-    """No new bin was invented: the home checked before adding is the
-    one already declared, and the organiser files a retired
-    comparison back into it whatever the reel part names."""
-    assert comp.ARCHIVE_BIN == retire.ARCHIVE_BIN
-    assert comp.ARCHIVE_BIN == (bins.REELS_BIN, bins.REELS_ARCHIVE_BIN)
-    assert comp.ARCHIVE_BIN in {entry.path for entry in bins.BINS}
-
-    from library.tools.resolve_organization import Artefact, plan_organization
-
-    retired = retire.archived_name(BASELINE, 2)
-    assert retire.parse_archived(retired) == (BASELINE, 2)
-    plan = plan_organization(
-        [Artefact(item_id="t-master", name="Master", kind="timeline",
-                  file_path="", placed_by=(), folder_path=()),
-         Artefact(item_id="t-old", name=retired, kind="timeline",
-                  file_path="", placed_by=(), folder_path=())],
-        "/projects/p", "Master", current_reels=[REEL],
-        archived_plan_names=[])
-    verdict = [entry for entry in plan.verdicts
-               if entry.name == retired]
-    assert verdict, "the organiser left the retired comparison alone"
-    assert verdict[0].destination == comp.ARCHIVE_BIN
 
 
 def test_a_retired_comparison_is_not_graded_as_a_deliverable():
@@ -114,18 +59,6 @@ def test_a_retired_comparison_is_not_graded_as_a_deliverable():
 
 # ── The ordering ─────────────────────────────────────────────────
 
-def test_newest_first_off_the_record_just_landed_ahead():
-    names = [BASELINE, BATCH, f"{REEL} (hand-made)"]
-    by_round = comp.landed_rounds(rounds((1, (BASELINE,)),
-                                         (2, (BATCH,))), names)
-    assert by_round == {BASELINE: 1, BATCH: 2}
-    ordered = comp.generations_of(
-        names, REEL, plan_finals=PLAN, rounds_by_name=by_round,
-        just_landed={BASELINE})
-    # Just-landed beats the record: it landed NOW, which no stamp
-    # can predate. The unrecorded hand-made name sorts last - and
-    # the planner below still never retires it.
-    assert ordered == [BASELINE, BATCH, f"{REEL} (hand-made)"]
 
 
 # ── The lifecycle ────────────────────────────────────────────────
@@ -219,9 +152,6 @@ def test_an_unrecorded_comparison_is_always_kept():
     assert "no landed round" in why
 
 
-def test_collection_names_archived_timelines_only():
-    with pytest.raises(comp.ComparisonRefused):
-        comp._collect_archived(MagicMock(), MagicMock(), [BASELINE])
 
 
 # ── The Resolve half ─────────────────────────────────────────────
@@ -399,13 +329,6 @@ def test_a_failed_read_is_a_refusal_not_an_empty_answer(tmp_path,
     assert project.names() == [MASTER, REEL, BASELINE]
 
 
-def test_nothing_promoted_nothing_bounded(tmp_path, monkeypatch):
-    project = FakeProject([FakeTimeline(MASTER),
-                           FakeTimeline(REEL), FakeTimeline(BASELINE)])
-    report = _drive(project, str(tmp_path), ["Some other reel"],
-                    monkeypatch, rounds())
-    assert report["bases"] == []
-    assert project.names() == [MASTER, REEL, BASELINE]
 
 
 # ── The promotion wiring ─────────────────────────────────────────

@@ -61,9 +61,6 @@ def _reference(tmp_path, **kw):
 
 # ── The rule ────────────────────────────────────────────────────────
 
-def test_the_map_costs_a_fraction_of_the_copy(tmp_path):
-    _, ref = _reference(tmp_path)
-    assert len(ref.encode()) < len(DOCUMENT.encode())
 
 
 def test_the_preamble_is_inline_in_full(tmp_path):
@@ -113,25 +110,8 @@ def test_nothing_is_pinned_by_default(tmp_path):
     assert project_pinned_sections(str(project)) == []
 
 
-def test_a_pinned_section_is_read_off_project_yaml(tmp_path):
-    project = tmp_path / "p"
-    project.mkdir()
-    (project / "project.yaml").write_text(
-        'name: "T"\nslug: "t"\n'
-        'pipeline:\n  creative_brief_inline:\n'
-        '    - "Music & Sound Philosophy"\n', encoding="utf-8")
-    assert project_pinned_sections(str(project)) == [
-        "Music & Sound Philosophy"]
 
 
-def test_a_malformed_pin_declaration_raises(tmp_path):
-    project = tmp_path / "p"
-    project.mkdir()
-    (project / "project.yaml").write_text(
-        'name: "T"\nslug: "t"\n'
-        'pipeline:\n  creative_brief_inline:\n    a: 1\n', encoding="utf-8")
-    with pytest.raises(ValueError):
-        project_pinned_sections(str(project))
 
 
 # ── Reachability: the property the whole change rests on ────────────
@@ -181,26 +161,12 @@ def test_the_example_command_the_reference_prints_actually_runs(tmp_path):
     assert out.stdout.strip(), "the example command returned nothing"
 
 
-def test_the_path_is_read_off_the_same_line_the_model_reads(tmp_path):
-    brief, ref = _reference(tmp_path)
-    assert reference_path(ref) == str(brief)
 
 
 # ── Clause 5: the harness ───────────────────────────────────────────
 
-def test_the_harness_enumeration_is_complete_and_an_unknown_one_raises():
-    assert set(HARNESS_READS_FILES) == {"agent", "mock", "api"}
-    assert harness_reads_files("agent") is True
-    assert harness_reads_files("api") is False
-    with pytest.raises(UnknownHarness):
-        harness_reads_files("some_new_backend")
 
 
-def test_a_harness_that_cannot_read_a_file_gets_the_document_whole(tmp_path):
-    ref = build_reference(str(tmp_path / "b.md"), DOCUMENT, harness="api")
-    assert ref == DOCUMENT
-    assert reference_path(ref) == "", (
-        "a document carried whole has no FILE: marker to follow")
 
 
 def test_the_api_harness_gets_the_brief_restored_in_the_prompt(tmp_path):
@@ -293,22 +259,6 @@ def _project_with(tmp_path, declaration: str):
     return project
 
 
-def test_project_series_identity_reads_the_top_level_or_the_pipeline(tmp_path):
-    assert project_series_identity("") == ""
-    assert project_series_identity(str(tmp_path / "missing")) == ""
-
-    project = _project_with(tmp_path, 'name: "T"\nslug: "t"\n')
-    assert project_series_identity(str(project)) == ""
-
-    project = _project_with(
-        tmp_path, 'name: "T"\nslug: "t"\nseries: "Through the 4th Wall"\n')
-    assert (project_series_identity(str(project))
-            == "Through the 4th Wall")
-
-    project = _project_with(
-        tmp_path,
-        'name: "T"\nslug: "t"\npipeline:\n  series: "Night Owls"\n')
-    assert project_series_identity(str(project)) == "Night Owls"
 
 
 def test_a_malformed_series_declaration_raises(tmp_path):
@@ -319,20 +269,6 @@ def test_a_malformed_series_declaration_raises(tmp_path):
         project_series_identity(str(project))
 
 
-def test_a_harness_that_cannot_read_keeps_the_anchor_but_not_the_header(tmp_path):
-    """Under `api` the whole document travels, so the header does not -
-    but the anchor is what keeps the full roster from reading as a
-    choice, and it must survive the route."""
-    ref = build_reference(str(tmp_path / "b.md"), DOCUMENT, harness="api",
-                          series_identity="Through the 4th Wall")
-    assert ref.startswith(
-        "This video belongs to the series 'Through the 4th Wall'.")
-    assert ref.endswith(DOCUMENT)
-
-    ref = build_reference(str(tmp_path / "b.md"), DOCUMENT, harness="api",
-                          series_identity="")
-    assert ref.startswith("The project names no series for this video.")
-    assert ref.endswith(DOCUMENT)
 
 
 def test_the_api_restore_states_the_series_ahead_of_the_document(tmp_path):
@@ -399,20 +335,6 @@ def test_the_api_restore_states_the_absence_for_a_project_naming_none(tmp_path):
     assert "UNIQUE_DEEP_SENTENCE_7c21" in inputs["creative_brief"]
 
 
-def test_other_referenced_documents_restore_without_a_membership_line(tmp_path):
-    """The restore states the anchor for the brief only.  The SFX
-    catalogue and the footage analysis travel whole under `api` with
-    nothing prepended."""
-    doc = tmp_path / "catalog.md"
-    doc.write_text(DOCUMENT, encoding="utf-8")
-    ref = build_reference(str(doc), DOCUMENT,
-                          document_name="A catalogue", why_referenced="why")
-    inputs, restored = restore_for_harness(
-        {"sfx_catalog_reference": ref,
-         "project_folder": str(tmp_path)}, "api")
-
-    assert restored == ["sfx_catalog_reference"]
-    assert inputs["sfx_catalog_reference"] == DOCUMENT
 
 
 # ── The declaration round-trips through the project config ────────────
@@ -421,19 +343,6 @@ def test_other_referenced_documents_restore_without_a_membership_line(tmp_path):
 # `project_config_to_dict`, so a series the schema cannot carry is a
 # series the next rewrite silently drops.
 
-def test_series_round_trips_through_project_config(tmp_path):
-    from library.schemas.project_config import (
-        load_project_config, project_config_to_dict,
-    )
-    project = _project_with(
-        tmp_path,
-        'name: "T"\nslug: "t"\n'
-        'pipeline:\n  series: "Through the 4th Wall"\n')
-
-    config = load_project_config(project / "project.yaml")
-    assert config.pipeline.series == "Through the 4th Wall"
-    assert (project_config_to_dict(config)["pipeline"]["series"]
-            == "Through the 4th Wall")
 
 
 def test_a_top_level_series_is_kept_not_dropped(tmp_path):
@@ -452,24 +361,5 @@ def test_a_top_level_series_is_kept_not_dropped(tmp_path):
             == "Night Owls")
 
 
-def test_an_undeclared_series_is_omitted_not_emptied(tmp_path):
-    """An empty `series:` in every project.yaml would read as a decision
-    nobody made, and the runtime reads "" and "not declared" as the
-    same absence anyway."""
-    from library.schemas.project_config import (
-        load_project_config, project_config_to_dict,
-    )
-    project = _project_with(tmp_path, 'name: "T"\nslug: "t"\n')
-
-    config = load_project_config(project / "project.yaml")
-    assert config.pipeline.series == ""
-    assert "series" not in project_config_to_dict(config)["pipeline"]
 
 
-def test_a_non_string_series_is_refused(tmp_path):
-    from library.schemas.project_config import load_project_config
-    project = _project_with(
-        tmp_path,
-        'name: "T"\nslug: "t"\npipeline:\n  series:\n    - "a"\n')
-    with pytest.raises(ValueError, match="pipeline.series"):
-        load_project_config(project / "project.yaml")

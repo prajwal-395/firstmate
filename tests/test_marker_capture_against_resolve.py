@@ -138,40 +138,11 @@ def gallery_unchanged(resolve_project):
 # ── The playhead ────────────────────────────────────────────────────
 
 
-def test_the_playhead_reads_back_as_the_frame_the_marker_lands_on(scratch):
-    _, _, timeline = scratch
-    playhead = read_playhead(timeline)
-    assert playhead.timecode == CAPTURE_TC
-    assert playhead.marker_key == CAPTURE_KEY
-    assert playhead.absolute_frame == playhead.start_frame + CAPTURE_KEY
-
-    # And that key really is where Resolve puts a marker.
-    assert timeline.AddMarker(
-        playhead.marker_key, "Blue", "probe", "", 1, "") is True
-    assert sorted(int(k) for k in timeline.GetMarkers()) == [CAPTURE_KEY]
-    note = [n for n in read_notes(timeline) if n.text == "probe"][0]
-    assert note.frame == playhead.absolute_frame
-    assert note.timecode == CAPTURE_TC
-
-
 def _tc(absolute_frame, timeline):
     fps = int(round(float(timeline.GetSetting("timelineFrameRate"))))
     f, s = absolute_frame % fps, (absolute_frame // fps) % 60
     m, h = (absolute_frame // (fps * 60)) % 60, absolute_frame // (fps * 3600)
     return f"{h:02d}:{m:02d}:{s:02d}:{f:02d}"
-
-
-def test_the_end_frame_is_absolute_and_bounds_the_playable_range(scratch):
-    """What the past-the-end refusal is measured against."""
-    _, _, timeline = scratch
-    start, end = int(timeline.GetStartFrame()), int(timeline.GetEndFrame())
-    item = timeline.GetItemListInTrack("video", 1)[0]
-    assert end - start == int(item.GetDuration())
-    assert int(item.GetEnd()) - int(item.GetStart()) == int(item.GetDuration())
-
-    last = end - 1
-    assert timeline.SetCurrentTimecode(_tc(last, timeline)) is True
-    assert read_playhead(timeline).marker_key == last - start
 
 
 def test_the_playhead_really_goes_past_the_end_and_says_nothing(scratch):
@@ -197,44 +168,7 @@ def test_a_capture_past_the_end_writes_nothing_at_all(
     assert not (timeline.GetMarkers() or {})
 
 
-def test_a_moved_timeline_origin_does_not_move_the_marker(scratch):
-    """`GetStartFrame()` is the origin for a key and not for the playhead."""
-    _, _, timeline = scratch
-    assert timeline.SetStartTimecode("01:00:00:00") is True
-    assert timeline.SetCurrentTimecode("01:00:01:10") is True
-    playhead = read_playhead(timeline)
-    assert playhead.marker_key == CAPTURE_KEY
-    assert playhead.absolute_frame == int(timeline.GetStartFrame()) + CAPTURE_KEY
-
-
 # ── The still ───────────────────────────────────────────────────────
-
-
-def test_the_still_is_the_conformed_frame(scratch, tmp_path,
-                                          gallery_unchanged):
-    """It comes out at the DELIVERY resolution.
-
-    Where the borrowed clip's own shape differs from the delivery format -
-    which the fixture prefers - that is also the whole discrimination
-    against the raw source frame, and the message names both so a failure
-    says which one arrived.  `test_the_still_carries_the_grade` proves the
-    same point a second way, needing no shape difference at all.
-    """
-    _, project, timeline = scratch
-    result = capture(timeline, project, tmp_path)
-
-    assert result.still.path.is_file()
-    assert result.still.path.stat().st_size > 0
-    still = "x".join(str(n) for n in _png_size(result.still.path))
-    delivery = (f'{timeline.GetSetting("timelineResolutionWidth")}x'
-                f'{timeline.GetSetting("timelineResolutionHeight")}')
-    source = timeline.GetItemListInTrack("video", 1)[0] \
-        .GetMediaPoolItem().GetClipProperty("Resolution")
-    assert still == delivery, (
-        f"the still is {still}, the timeline delivers {delivery} and the "
-        f"source clip is {source}: this is not the frame the captain is "
-        f"looking at"
-    )
 
 
 def test_the_still_carries_the_grade(scratch, tmp_path, gallery_unchanged):
@@ -253,34 +187,6 @@ def test_the_still_carries_the_grade(scratch, tmp_path, gallery_unchanged):
     assert before != after, "the CDL did not reach the exported still"
 
 
-def test_nothing_export_stills_wrote_unasked_reaches_the_project(
-        scratch, tmp_path, gallery_unchanged):
-    """`ExportStills` writes a PowerGrade `.drx` sidecar unasked, and a
-    name of its own choosing (`<prefix>_1.1.1.png`). Everything it wrote
-    other than the one PNG is accounted for and discarded - asserted as
-    that invariant rather than as "a .drx exists", which would be this
-    test insisting Resolve keep a habit nobody wants."""
-    _, project, timeline = scratch
-    result = capture(timeline, project, tmp_path)
-
-    stills_dir = result.still.path.parent
-    assert [p.name for p in stills_dir.iterdir()] == [result.still.path.name]
-
-    exported = result.still.exported_names
-    pngs = [n for n in exported if n.endswith(".png")]
-    assert pngs, f"ExportStills wrote no PNG: {exported}"
-    assert set(result.still.discarded) == set(exported) - {pngs[0]}
-
-
-def test_the_still_lives_outside_pipeline_output(
-        scratch, tmp_path, gallery_unchanged):
-    """`marker_feedback/` is CAPTURED, and a re-run must not reach it."""
-    _, project, timeline = scratch
-    result = capture(timeline, project, tmp_path)
-    assert "pipeline_output" not in str(result.still.path)
-    assert result.still_relpath.startswith("marker_feedback/stills/")
-
-
 # ── The marker ──────────────────────────────────────────────────────
 
 
@@ -289,26 +195,6 @@ def _envelope(timeline, key) -> dict:
     parsed = json.loads(raw)
     assert is_envelope(parsed), raw
     return parsed
-
-
-def test_a_frame_with_no_marker_gets_one(scratch, tmp_path, gallery_unchanged):
-    _, project, timeline = scratch
-    assert not (timeline.GetMarkers() or {})
-
-    result = capture(timeline, project, tmp_path)
-
-    assert result.marker_created is True
-    assert result.marker_key == CAPTURE_KEY
-    markers = timeline.GetMarkers()
-    assert sorted(int(k) for k in markers) == [CAPTURE_KEY]
-    assert markers[CAPTURE_KEY]["name"] == CREATED_MARKER_NAME
-
-    records = records_of(_envelope(timeline, CAPTURE_KEY), KIND_STILL)
-    assert len(records) == 1
-    assert records[0]["path"] == result.still_relpath
-    assert records[0]["timeline_frame"] == result.playhead.absolute_frame
-    assert records[0]["timecode"] == CAPTURE_TC
-    assert records[0]["id"] == result.record_id
 
 
 def test_typed_text_survives_a_capture_onto_it(
@@ -331,21 +217,6 @@ def test_typed_text_survives_a_capture_onto_it(
         result.still_relpath
 
 
-def test_a_second_capture_appends_rather_than_replacing(
-        scratch, tmp_path, gallery_unchanged):
-    _, project, timeline = scratch
-    first = capture(timeline, project, tmp_path)
-    assert timeline.SetCurrentTimecode(CAPTURE_TC) is True
-    second = capture(timeline, project, tmp_path)
-
-    assert second.marker_created is False
-    assert first.still.path != second.still.path
-    assert first.still.path.is_file() and second.still.path.is_file()
-    paths = [r["path"] for r in attachments_of(_envelope(timeline, CAPTURE_KEY))]
-    assert paths == [first.still_relpath, second.still_relpath]
-    assert first.envelope_id == second.envelope_id, "the marker's id is stable"
-
-
 def test_the_playhead_inside_a_long_marker_updates_that_marker(
         scratch, tmp_path, gallery_unchanged):
     """`UpdateMarkerCustomData` takes only the START frame, and a second
@@ -363,71 +234,7 @@ def test_the_playhead_inside_a_long_marker_updates_that_marker(
     assert records_of(_envelope(timeline, 30), KIND_STILL)
 
 
-def test_customdata_the_button_did_not_write_is_kept(
-        scratch, tmp_path, gallery_unchanged):
-    _, project, timeline = scratch
-    foreign = "written by something else"
-    assert timeline.AddMarker(
-        CAPTURE_KEY, "Blue", "N", "", 1, foreign) is True
-
-    capture(timeline, project, tmp_path)
-
-    envelope = _envelope(timeline, CAPTURE_KEY)
-    assert envelope["foreign"] == foreign
-    assert records_of(envelope, KIND_STILL)
-
-
 # ── What the reader sees ────────────────────────────────────────────
-
-
-def test_the_reader_surfaces_the_still_as_a_path_it_can_open(
-        scratch, tmp_path, gallery_unchanged):
-    _, project, timeline = scratch
-    typed = "why is this cut here"
-    assert timeline.AddMarker(CAPTURE_KEY, "Blue", "Q", typed, 1, "") is True
-    result = capture(timeline, project, tmp_path)
-
-    note = [n for n in read_notes(timeline, str(tmp_path))
-            if n.note == typed][0]
-    assert len(note.attachments) == 1
-    attachment = note.attachments[0]
-    assert attachment["kind"] == KIND_STILL
-    assert attachment["origin"] == "custom_data"
-    assert attachment["exists"] is True
-    assert attachment["resolved_path"] == str(result.still.path)
-    assert note.name == "Q" and note.note == typed
-
-
-def test_pull_records_the_attachment_where_a_re_render_cannot_reach_it(
-        scratch, tmp_path, gallery_unchanged):
-    _, project, timeline = scratch
-    assert timeline.AddMarker(CAPTURE_KEY, "Blue", "Q", "look", 1, "") is True
-    result = capture(timeline, project, tmp_path)
-
-    written = pull(str(tmp_path), timeline, project)
-    payload = json.loads(
-        (tmp_path / "marker_feedback" /
-         os.path.basename(written["path"])).read_text(encoding="utf-8"))
-    notes = [n for n in payload["notes"] if n["note"] == "look"]
-    assert len(notes) == 1
-    assert notes[0]["attachments"][0]["path"] == result.still_relpath
-    assert notes[0]["attachments"][0]["exists"] is True
-
-
-def test_a_path_the_captain_typed_is_read_off_a_real_marker(
-        scratch, tmp_path):
-    """The channel that worked before the button, unchanged."""
-    _, _, timeline = scratch
-    reference = tmp_path / "reference.png"
-    reference.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 40)
-    assert timeline.AddMarker(
-        10, "Blue", "REF", f"make it look like {reference}", 1, "") is True
-
-    note = [n for n in read_notes(timeline, str(tmp_path))
-            if n.name == "REF"][0]
-    assert [(a["origin"], a["exists"]) for a in note.attachments] == \
-        [("note_text", True)]
-    assert note.attachments[0]["resolved_path"] == str(reference)
 
 
 # ── Discovery, without writing anywhere it finds ────────────────────

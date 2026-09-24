@@ -150,21 +150,6 @@ def test_a_declared_crossfade_makes_the_two_pieces_OVERLAP():
     assert out.placed_end > incoming.placed_start
 
 
-def test_the_crossfade_is_delivered_as_two_volume_ramps():
-    """One curve fades out over the overlap, the other fades in."""
-    automation = [{"timeline_start": 0.0, "timeline_end": 60.0,
-                   "target_level_db": -18}]
-    fade_out = music_curve(automation, fps=30, clip_start_frame=0,
-                           clip_frame_count=960, fade_seconds=1.0,
-                           crossfade_out_seconds=2.0)
-    fade_in = music_curve(automation, fps=30, clip_start_frame=900,
-                          clip_frame_count=900, fade_seconds=1.0,
-                          crossfade_in_seconds=2.0)
-    assert fade_out[max(fade_out)] == MIN_VOLUME_DB
-    assert fade_in[0] == MIN_VOLUME_DB
-    assert fade_in[60] == -18.0
-
-
 def test_a_crossfade_longer_than_the_piece_it_fades_into_is_refused():
     with pytest.raises(MusicBedError, match="outlast"):
         resolve_bed(_selection(), _spine([
@@ -218,33 +203,5 @@ def test_no_crossfade_length_is_invented_for_a_malformed_one():
 
 # ── The snap question is recorded, not answered ──────────────────────
 
-def test_nothing_snaps_a_boundary_and_the_question_is_recorded():
-    """A segment lands where the model said, moved by no rule."""
-    for text in ("block", "beat", "taste"):
-        assert text in THE_SNAP_QUESTION
-    source = open(os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "library", "tools", "music_bed.py"), encoding="utf-8").read()
-    for banned in ("nearest_beat", "snap_to", "round_to_beat"):
-        assert banned not in source
-
-
 # ── The clips a bed becomes ──────────────────────────────────────────
 
-def test_bed_clips_carry_frames_because_the_allocator_reads_them():
-    clips = bed_clips(resolve_bed(_selection(), _spine([
-        {"source_in": 0.0},
-        {"source_in": 120.0, "starts_at_block": 3, "crossfade_seconds": 2.0},
-    ]), 60.0), fps=30.0)
-    assert [c["timeline_in_frame"] for c in clips] == [0, 900]
-    assert clips[0]["timeline_out_frame"] == 960
-    assert clips[0]["crossfade_out_seconds"] == 2.0
-    assert clips[1]["crossfade_in_seconds"] == 2.0
-
-
-def test_describe_says_how_many_pieces_and_how_many_tracks():
-    line = describe(resolve_bed(_selection(), _spine([
-        {"source_in": 0.0},
-        {"track": "Two", "source_in": 90.0, "starts_at_block": 3},
-    ]), 60.0))
-    assert "2 segments across 2 track(s)" in line

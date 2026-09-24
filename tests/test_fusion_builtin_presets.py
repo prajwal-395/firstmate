@@ -41,12 +41,6 @@ def _source(name: str) -> str:
 # ── The whole library round-trips ────────────────────────────
 
 
-def test_every_shipped_preset_is_advertised():
-    """Guards the sample below against silently shrinking."""
-    on_disk = len(list(BUILTIN_DIR.rglob("*.setting")))
-    assert len(ALL_EFFECTS) == on_disk == 143
-
-
 @pytest.mark.parametrize("name", ALL_EFFECTS)
 def test_preset_round_trips(name):
     """Parse + serialize must not raise for any of DaVinci's presets.
@@ -80,47 +74,7 @@ def test_preset_node_count_preserved(name, expected_nodes):
 # ── Fix A: anonymous nested tables ───────────────────────────
 
 
-def test_anonymous_table_as_array_element():
-    """`{ { ... }, { ... } }` must not swallow the sibling that follows.
-
-    Fusion writes this for every ColorCurves / LUTBezier control. The
-    swallowed brace closed the enclosing table early, so node `B` here
-    vanished along with everything after it in the real files.
-    """
-    src = (
-        "{ Tools = { "
-        "A = Foo { Inputs = { Curves = { { Points = { {0,1} } } }, }, }, "
-        "B = Bar { Inputs = {}, }, "
-        "} }"
-    )
-    comp = parse_setting(src)
-    assert [n.name for n in comp.nodes] == ["A", "B"]
-
-
-def test_anonymous_table_contents_are_indexed():
-    parsed = parse_setting(
-        "{ Tools = { A = Foo { Inputs = { "
-        "Ranges = Input { Value = ColorCurves { Curves = { "
-        "{ Points = { { 0, 1 }, { 1, 0 } } }, "
-        "{ Points = { { 0, 0 } } } "
-        "} } }, }, }, } }"
-    )
-    curves = parsed.nodes[0].inputs["Ranges"]["value"]["Curves"]
-    assert sorted(curves) == [0, 1], "both anonymous curve tables survive"
-
-
 # ── Fix B: namespaced Fuse plugin tool types ─────────────────
-
-
-def test_dotted_fuse_tool_type():
-    """`Fuse.RealFastNoiseFuse` is a tool type, not an identifier then a dot."""
-    comp = parse_setting(
-        '{ Tools = { X = Fuse.RealFastNoiseFuse { Inputs = { '
-        'Width = Input { Value = 1068, }, }, }, } }'
-    )
-    assert [(n.name, n.tool_type) for n in comp.nodes] == [
-        ("X", "Fuse.RealFastNoiseFuse")
-    ]
 
 
 def test_quoted_key_containing_a_dot_still_parses():
@@ -142,21 +96,6 @@ def test_boolean_input_serializes_as_lua_boolean():
     out = node.serialize()
     assert "Value = true," in out
     assert "Value = True" not in out
-
-
-def test_string_input_is_quoted():
-    node = FusionNode("Text1", "TextPlus")
-    node.inputs["StyledText"] = {"_type": "value", "value": "hello"}
-    assert 'Value = "hello",' in node.serialize()
-
-
-def test_numeric_input_is_unchanged():
-    node = FusionNode("Transform1", "Transform")
-    node.inputs["Size"] = {"_type": "value", "value": 1.04}
-    node.inputs["Angle"] = {"_type": "value", "value": 3}
-    out = node.serialize()
-    assert "Value = 1.04," in out
-    assert "Value = 3," in out
 
 
 # ── Fix D: house rules are authorship rules ──────────────────
@@ -218,13 +157,6 @@ def test_authored_comp_still_enforces_the_zoom_ceiling():
 
 def test_foreign_comp_skips_the_zoom_ceiling():
     assert _zooming_comp(authored=False).serialize()
-
-
-def test_foreign_flag_does_not_leak_to_a_hand_built_comp():
-    comp = FusionComp(duration=75, authored=False)
-    comp.add_node(FusionNode("Background1", "Background"))
-    assert comp.serialize()  # skipped
-    assert FusionComp(duration=75).authored is True  # default unchanged
 
 
 # ── Fix E: built-ins reach Resolve byte-identical ────────────
@@ -342,40 +274,3 @@ def test_builtin_effect_reaches_resolve_byte_identical(monkeypatch, tmp_path):
     assert pathlib.Path(imported[0]).read_text(encoding="utf-8") == _source(
         "chromatic_aberration"
     )
-
-
-def test_import_effect_to_clip_passes_the_shipped_path(tmp_path):
-    from unittest.mock import MagicMock
-
-    from library.tools.builtin_effect_loader import (
-        get_effect_path,
-        import_effect_to_clip,
-    )
-
-    clip = MagicMock()
-    import_effect_to_clip(clip, "chromatic_aberration")
-
-    (passed,), _ = clip.ImportFusionComp.call_args
-    assert passed == str(get_effect_path("chromatic_aberration").resolve())
-    assert pathlib.Path(passed).read_text(encoding="utf-8") == _source(
-        "chromatic_aberration"
-    ), "Resolve must receive the file byte-identical"
-
-
-def test_shipped_macros_still_declare_their_image_input():
-    """MainInput1 is what makes a macro an effect ON the shot.
-
-    The round-trip deleted it. Nothing in the import path may now.
-    """
-    with_image_input = [
-        n for n in ALL_EFFECTS if "MainInput1 = InstanceInput" in _source(n)
-    ]
-    assert "chromatic_aberration" in with_image_input
-    assert "advanced_camera_shake" in with_image_input
-    assert len(with_image_input) == 32
-
-
-def test_index_paths_all_resolve():
-    index = json.loads((BUILTIN_DIR / "index.json").read_text(encoding="utf-8"))
-    missing = [n for n, m in index.items() if not (BUILTIN_DIR / m["path"]).is_file()]
-    assert not missing

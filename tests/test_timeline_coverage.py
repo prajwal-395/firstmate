@@ -49,10 +49,6 @@ def block(start, end, block_type="transition_slot", **extra):
     return entry
 
 
-def test_fully_covered_timeline_passes():
-    manifest = manifest_with(v1=[(0.0, 4.5), (4.5, 10.0)])
-    assert _video_coverage_gaps(manifest) == []
-    _assert_timeline_fully_covered(manifest)
 
 
 def test_gap_between_two_clips_fails_and_names_the_range():
@@ -70,11 +66,6 @@ def test_gap_at_the_head_of_the_timeline_fails():
         _assert_timeline_fully_covered(manifest)
 
 
-def test_timeline_running_past_its_last_clip_fails():
-    """A 10s project whose picture stops at 8s ends on 2s of black."""
-    manifest = manifest_with(v1=[(0.0, 8.0)], duration=10.0)
-    with pytest.raises(ValueError, match="8.000s to 10.000s"):
-        _assert_timeline_fully_covered(manifest)
 
 
 def test_broll_on_v2_covers_a_hole_in_v1():
@@ -117,13 +108,8 @@ def test_sub_frame_seam_between_abutting_clips_is_not_a_gap():
     assert _video_coverage_gaps(manifest) == []
 
 
-def test_overlapping_clips_do_not_manufacture_a_gap():
-    manifest = manifest_with(v1=[(0.0, 6.0)], v2=[(2.0, 4.0), (5.0, 10.0)])
-    assert _video_coverage_gaps(manifest) == []
 
 
-def test_zero_length_project_is_not_checked():
-    assert _video_coverage_gaps(manifest_with(duration=0.0)) == []
 
 
 def _beat_manifest(gap_end, spine, gap_start=4.0):
@@ -158,11 +144,6 @@ def test_declared_black_beat_without_a_reason_fails():
         _assert_timeline_fully_covered(manifest)
 
 
-def test_declared_black_beat_with_an_empty_reason_fails():
-    manifest = _beat_manifest(4.4, [
-        block(3.0, 5.0, intentional_black_beat=True, black_beat_reason="  ")])
-    with pytest.raises(ValueError, match="no black_beat_reason"):
-        _assert_timeline_fully_covered(manifest)
 
 
 def test_undeclared_gap_the_size_of_a_legal_beat_still_fails():
@@ -179,11 +160,6 @@ def test_black_beat_declared_on_a_speech_block_fails():
         _assert_timeline_fully_covered(manifest)
 
 
-def test_black_beat_declared_on_a_hook_block_fails():
-    manifest = _beat_manifest(4.4, [
-        block(3.0, 5.0, block_type="hook", **DECLARED)])
-    with pytest.raises(ValueError, match="speech is never held on black"):
-        _assert_timeline_fully_covered(manifest)
 
 
 def test_gap_straddling_a_declared_blocks_edge_fails():

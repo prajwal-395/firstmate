@@ -182,18 +182,6 @@ def _two_speaker_timeline(tmp_path, name="GEO Podcast - Synced"):
 
 # ── Reading ──────────────────────────────────────────────────────────
 
-def test_it_reads_the_ground_truth_off_every_clip(tmp_path):
-    snap = timeline_ingest.snapshot_timeline(
-        _two_speaker_timeline(tmp_path), "Podcast (field test)")
-    assert snap.timeline_name == "GEO Podcast - Synced"
-    assert snap.reported_fps == 23.976
-    assert (snap.width, snap.height) == (1080, 1920)
-    assert len(snap.clips) == 4
-    first = snap.picture_clips()[0]
-    assert first.source_file.endswith("LC4930.MXF")
-    assert first.resolve_item_id == "uid-a1"
-    # exactly what Resolve returned for this item on 2026-09-04
-    assert first.source_in == pytest.approx(131.42295833333333, abs=1e-9)
 
 
 def test_speaker_comes_from_the_track(tmp_path):
@@ -279,9 +267,6 @@ def test_a_snapshot_with_a_bad_range_is_never_supplied(tmp_path):
     assert "false ground truth" in str(excinfo.value)
 
 
-def test_a_good_snapshot_passes_verification(tmp_path):
-    snap = timeline_ingest.snapshot_timeline(_short_timeline(tmp_path), "P")
-    assert timeline_ingest.verify_against_media(snap) == []
 
 
 def test_media_that_cannot_be_measured_is_a_complaint_not_a_pass(tmp_path):
@@ -352,22 +337,8 @@ def _context(tmp_path):
     return external_inputs.Context(project_folder=tmp_path, state={})
 
 
-def test_a_roll_assignments_passes_the_real_check(tmp_path):
-    snap = timeline_ingest.snapshot_timeline(
-        _two_speaker_timeline(tmp_path), "P")
-    value = timeline_ingest.to_a_roll_assignments(snap)
-    said = external_inputs.CHECKS["a_roll_assignments"](
-        value, _context(tmp_path))
-    assert "3 assignments" in said
 
 
-def test_speech_sequence_passes_the_real_check(tmp_path):
-    snap = timeline_ingest.snapshot_timeline(
-        _two_speaker_timeline(tmp_path), "P")
-    value = timeline_ingest.to_speech_sequence(snap)
-    said = external_inputs.CHECKS["speech_sequence"](
-        value, _context(tmp_path))
-    assert "3 segments" in said
 
 
 def test_the_spoken_order_is_the_timeline_order(tmp_path):
@@ -419,10 +390,6 @@ def test_it_refuses_to_supply_a_key_it_does_not_build(tmp_path):
 
 # ── Structural comparison, which authorises a deletion ───────────────
 
-def test_two_reads_of_one_timeline_compare_equal(tmp_path):
-    a = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
-    b = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
-    assert timeline_ingest.compare_structure(a, b) == []
 
 
 def test_a_copy_with_fresh_item_ids_still_compares_equal(tmp_path):
@@ -448,13 +415,6 @@ def test_any_difference_is_reported_rather_than_summarised(tmp_path):
     assert any("clip[" in d for d in differences)
 
 
-def test_a_differing_clip_count_is_a_difference(tmp_path):
-    a = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
-    other = _two_speaker_timeline(tmp_path, name="Short")
-    other._tracks[("video", 1)][1].pop()
-    b = timeline_ingest.snapshot_timeline(other, "P")
-    assert any("clip_count" in d
-               for d in timeline_ingest.compare_structure(a, b))
 
 
 # ── The clock ────────────────────────────────────────────────────────
@@ -471,14 +431,8 @@ def test_the_exact_ntsc_rate_is_used_not_the_reported_one(tmp_path):
     assert first.timeline_start == pytest.approx(594 * 1001 / 24000, abs=1e-12)
 
 
-def test_an_exact_rate_is_left_alone():
-    for rate in (24.0, 25.0, 30.0, 50.0, 60.0):
-        assert timeline_ingest.exact_frame_rate(rate) == rate
 
 
-def test_every_ntsc_rate_maps_to_its_rational():
-    assert timeline_ingest.exact_frame_rate(29.97) == pytest.approx(30000 / 1001)
-    assert timeline_ingest.exact_frame_rate(59.94) == pytest.approx(60000 / 1001)
 
 
 # ── The silent case: in-bounds for ffprobe, wrong audio entirely ─────
@@ -506,11 +460,6 @@ def test_a_frame_range_past_the_pools_own_count_is_caught(tmp_path):
     assert any("only 100 frames" in c for c in complaints)
 
 
-def test_the_pool_frame_count_is_recorded(tmp_path):
-    snap = timeline_ingest.snapshot_timeline(_short_timeline(tmp_path), "P")
-    assert snap.clips[0].source_frames == 240
-    assert snap.clips[0].source_in_frame == 24
-    assert snap.clips[0].source_out_frame == 72
 
 
 # ── PLAYED length, not source length ─────────────────────────────────

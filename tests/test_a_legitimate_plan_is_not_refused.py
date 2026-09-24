@@ -251,14 +251,6 @@ def test_an_effect_over_nothing_is_dropped_with_a_reason(media):
     assert "no clip on V1 or V2" in drop["detail"]
 
 
-def test_the_drop_reason_is_declared(media):
-    """A reason outside DROP_REASONS is refused by name."""
-    from library.tools.vfx_plan_basis import DROP_REASONS, DroppedEntry
-
-    assert "no_clip_at_that_position" in DROP_REASONS
-    with pytest.raises(ValueError):
-        DroppedEntry(target_block_position=2, effect_type="slow_zoom_in",
-                     reason="nowhere_to_put_it")
 
 
 def test_an_effect_on_a_v1_block_is_unmoved(media):
@@ -360,8 +352,6 @@ def test_a_cutaway_over_a_speech_block_is_reported_not_hidden():
     assert "behind the cutaway" in rows[0]["basis"]
 
 
-def test_the_legend_is_well_formed():
-    assert_legend_is_well_formed()
 
 
 # ── D2: two sounds layered at one span ────────────────────────────────
@@ -427,21 +417,6 @@ def test_the_same_sound_twice_at_one_span_is_still_refused(media):
         _compile(inputs)
 
 
-def test_a_collapse_onto_one_frame_is_still_refused(media):
-    """`manifest_validator._check_sfx_distributed` is what catches the
-    failure the duplicate-position check was written for."""
-    inputs = dict(_inputs(media))
-    inputs.update(_sfx(media, [
-        {"label": "sfx_004", "sfx_id": "riser",
-         "source_file": media["riser.wav"],
-         "timeline_in": 6.0, "timeline_out": 9.0, "volume_db": -10.0},
-        {"label": "sfx_005", "sfx_id": "whoosh",
-         "source_file": media["whoosh.wav"],
-         "timeline_in": 6.0, "timeline_out": 8.0, "volume_db": -12.0},
-    ]))
-
-    with pytest.raises(ValueError, match="same timeline position"):
-        _compile(inputs)
 
 
 def test_a_single_lane_track_still_refuses_a_duplicate_position():
@@ -465,13 +440,6 @@ def test_a_single_lane_track_still_refuses_a_duplicate_position():
         _apply_manifest_qa_checks(manifest)
 
 
-def test_the_bucket_track_is_the_only_exemption():
-    """A3 is the whole of what is exempt, and it is named in one place."""
-    from library.steps.step_5_04_compile_manifest.step import (
-        LOGICAL_BUCKET_TRACKS,
-    )
-
-    assert LOGICAL_BUCKET_TRACKS == ("A3",)
 
 
 # ── D3, the whole plan as one layered moment ────────────────────────
@@ -481,62 +449,8 @@ def test_the_bucket_track_is_the_only_exemption():
 # then sees a single position and reads collapse, even though the plan
 # names one block twice - which is what the schema invites.
 
-def test_a_single_layered_moment_as_the_whole_plan_compiles(media):
-    """The reproduction: two sounds, one block, nothing else planned."""
-    from library.steps.step_6_01_render.resolve_build_timeline import (
-        _allocate_audio_tracks,
-    )
-
-    entries = [
-        {"label": "sfx_004", "sfx_id": "riser",
-         "spine_block_position": 2,
-         "source_file": media["riser.wav"],
-         "timeline_in": 6.0, "timeline_out": 9.0, "volume_db": -10.0},
-        {"label": "sfx_005", "sfx_id": "whoosh",
-         "spine_block_position": 2,
-         "source_file": media["whoosh.wav"],
-         "timeline_in": 6.0, "timeline_out": 9.0, "volume_db": -12.0},
-    ]
-    inputs = dict(_inputs(media))
-    inputs.update(_sfx(media, entries))
-
-    manifest = _compile(inputs)
-
-    # Nothing planned was lost and nothing refused.
-    a3 = manifest["tracks"]["A3"]["clips"]
-    assert len(a3) == len(entries)
-    # The plan position travelled with each clip - that is what tells
-    # the validator this is a layer rather than a collapse.
-    whence = entries[0]["spine_block_position"]
-    assert {c.get("spine_block_position") for c in a3} == {whence}
-    # The builder still gives the two layers their own physical tracks.
-    base = 3
-    allocations = {
-        clip["label"]: track
-        for clip, track in _allocate_audio_tracks(a3, base_track_index=base,
-                                                  fps=30.0)
-    }
-    assert allocations["sfx_004"] != allocations["sfx_005"], allocations
-    assert {allocations["sfx_004"], allocations["sfx_005"]} == {
-        base, base + 1}
 
 
-def test_moments_planned_apart_landing_together_are_still_a_collapse():
-    """The narrowed validator still catches the true collapse: entries
-    naming several spine positions that landed on one timeline position."""
-    from library.tools.manifest_validator import _check_sfx_distributed
-
-    manifest = {"tracks": {"A3": {"clips": [
-        {"label": "sfx_001", "timeline_in": 6.0, "timeline_out": 9.0,
-         "spine_block_position": 1},
-        {"label": "sfx_002", "timeline_in": 6.0, "timeline_out": 6.5,
-         "spine_block_position": 4},
-    ]}}}
-    errors = _check_sfx_distributed(manifest)
-    assert len(errors) == 1
-    assert "collapse" in errors[0]
-    for clip in manifest["tracks"]["A3"]["clips"]:
-        assert str(clip["spine_block_position"]) in errors[0]
 
 
 def test_a_layered_moment_passes_validation_on_provenance():

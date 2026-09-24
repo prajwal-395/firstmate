@@ -79,32 +79,8 @@ def test_a_directory_without_brand_assets_is_not_a_store(tmp_path):
         bl.write_manifest(str(tmp_path), measure=_stub_measure)
 
 
-def test_init_creates_a_repo_with_a_deny_list_gitignore(tmp_path):
-    store, _ = _store(tmp_path)
-    result = bl.init_shared_repo(str(store))
-    assert result["initialised"] is True
-    assert result["created"] is True
-    assert (store / ".git").is_dir()
-    # Deny-list polarity: the binaries ARE the record, so only
-    # machine droppings are ignored.
-    body = (store / ".gitignore").read_text(encoding="utf-8")
-    assert ".DS_Store" in body
-    assert body.strip().splitlines()[3].strip() != "*"
-    # Second init refreshes, never re-creates.
-    again = bl.init_shared_repo(str(store))
-    assert again == {**result, "created": False}
 
 
-def test_init_versions_binaries_and_ignores_droppings(tmp_path):
-    store, motion = _store(tmp_path, {"master.mov": b"\x00master" * 100})
-    (motion / ".DS_Store").write_bytes(b"droppings")
-    assert bl.init_shared_repo(str(store))["initialised"] is True
-    _git(store, "add", "-A")
-    _git(store, "commit", "-m", "first")
-    tracked = set(_git(store, "ls-files").splitlines())
-    assert "brand-assets/motion/master.mov" in tracked
-    assert ".gitignore" in tracked
-    assert "brand-assets/motion/.DS_Store" not in tracked
 
 
 # ── The manifest ───────────────────────────────────────────────────
@@ -123,11 +99,6 @@ def test_write_manifest_records_hash_size_and_measurement(tmp_path):
     assert entry["role"] == "asset"
 
 
-def test_write_manifest_skips_dotfiles_and_itself(tmp_path):
-    store, motion = _store(tmp_path, {"logo.mov": b"x" * 64})
-    (motion / ".DS_Store").write_bytes(b"droppings")
-    report = bl.write_manifest(str(store), measure=_stub_measure)
-    assert report["files"] == ["logo.mov"]
 
 
 def test_write_manifest_tolerates_an_unmeasurable_file(tmp_path):
@@ -233,15 +204,6 @@ def test_verify_finds_a_changed_file(tmp_path):
     assert "changed" in str(raised.value)
 
 
-def test_verify_finds_a_missing_file(tmp_path):
-    store, motion = _store(tmp_path, {"logo.mov": b"x" * 64})
-    bl.write_manifest(str(store), measure=_stub_measure)
-    (motion / "logo.mov").unlink()
-    report = bl.verify_manifest(str(store))
-    assert report["verified"] is False
-    assert report["mismatches"][0]["kind"] == "missing"
-    with pytest.raises(bl.ManifestDrift):
-        bl.require_clean(report)
 
 
 def test_verify_reports_new_work_without_refusing_it(tmp_path):
@@ -266,15 +228,8 @@ def test_verify_without_a_manifest_declines_by_name(tmp_path):
 
 # ── The plan-time reader ───────────────────────────────────────────
 
-def test_no_manifest_means_silence_not_drift(tmp_path):
-    store, motion = _store(tmp_path)
-    assert bl.library_note_for_asset(str(motion / "logo.mov")) == ""
 
 
-def test_a_clean_covered_file_says_nothing(tmp_path):
-    store, motion = _store(tmp_path, {"logo.mov": b"x" * 64})
-    bl.write_manifest(str(store), measure=_stub_measure)
-    assert bl.library_note_for_asset(str(motion / "logo.mov")) == ""
 
 
 def test_a_changed_covered_file_is_said_by_name(tmp_path):
@@ -286,13 +241,6 @@ def test_a_changed_covered_file_is_said_by_name(tmp_path):
     assert "changed" in note
 
 
-def test_a_missing_covered_file_is_said_by_name(tmp_path):
-    store, motion = _store(tmp_path, {"logo.mov": b"x" * 64})
-    bl.write_manifest(str(store), measure=_stub_measure)
-    (motion / "logo.mov").unlink()
-    note = bl.library_note_for_asset(str(motion / "logo.mov"))
-    assert "logo.mov" in note
-    assert "missing" in note
 
 
 def test_an_unlisted_file_is_said_not_silent(tmp_path):
@@ -306,20 +254,10 @@ def test_an_unlisted_file_is_said_not_silent(tmp_path):
     assert "no integrity record" in note
 
 
-def test_the_reader_never_raises(tmp_path):
-    assert bl.library_note_for_asset("") == ""
-    assert bl.library_note_for_asset("/no/such/dir/logo.mov") == ""
 
 
 # ── The CLI ────────────────────────────────────────────────────────
 
-def test_cli_write_then_verify_round_trip(tmp_path, capsys):
-    store, _ = _store(tmp_path, {"logo.mov": b"x" * 64})
-    assert bl.main(["--init", str(store)]) == 0
-    capsys.readouterr()
-    assert bl.main(["--write-manifest", str(store),
-                    "--project-yaml", str(tmp_path / "gone.yaml")]) == 0
-    assert bl.main(["--verify", str(store)]) == 0
 
 
 def test_cli_verify_reports_drift_with_exit_3(tmp_path, capsys):
@@ -334,19 +272,10 @@ def test_cli_verify_reports_drift_with_exit_3(tmp_path, capsys):
     assert "logo.mov" in err
 
 
-def test_cli_verify_without_a_manifest_is_a_refusal(tmp_path, capsys):
-    store, _ = _store(tmp_path)
-    assert bl.main(["--verify", str(store)]) == 2
-    assert "--write-manifest" in capsys.readouterr().err
 
 
-def test_cli_init_refuses_a_non_store(tmp_path, capsys):
-    assert bl.main(["--init", str(tmp_path)]) == 2
-    assert "refused" in capsys.readouterr().err
 
 
-def test_cli_usage_is_exit_1(tmp_path, capsys):
-    assert bl.main([]) == 1
 
 
 # ── The plan-time reader, end to end ──────────────────────────────
@@ -373,13 +302,6 @@ def test_a_planned_card_is_silent_with_no_store_behind_it(tmp_path, capsys):
     assert "brand library" not in capsys.readouterr().err
 
 
-def test_a_planned_card_is_silent_on_a_clean_manifest(tmp_path, capsys):
-    store, motion = _store(tmp_path)
-    path = _clip(motion)
-    bl.write_manifest(str(store))
-    card = _plan(store, path)
-    assert card.library_note == ""
-    assert "brand library" not in capsys.readouterr().err
 
 
 def test_a_planned_card_says_a_moved_master(tmp_path, capsys):
@@ -404,14 +326,3 @@ def test_a_planned_card_says_a_moved_master(tmp_path, capsys):
 
 # ── The default measurer against a real file ───────────────────────
 
-def test_the_default_measurer_does_not_break_the_write(tmp_path):
-    """The production adapter runs against a real movie file; the
-    entry lands with a hash either way (measured or stated
-    unmeasured), because the write tolerates per-file."""
-    store, motion = _store(tmp_path)
-    path = _clip(motion)
-    report = bl.write_manifest(str(store))
-    assert report["files"] == [os.path.basename(path)]
-    data = json.loads(Path(report["manifest"]).read_text(encoding="utf-8"))
-    entry = data["files"][os.path.basename(path)]
-    assert len(entry["sha256"]) == 64

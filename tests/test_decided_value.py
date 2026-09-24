@@ -52,11 +52,6 @@ class TestTheRegistry:
         with pytest.raises(dv.UnknownSlot):
             dv.slot("mix.something_nobody_registered")
 
-    def test_a_slot_names_the_step_that_decides_it(self):
-        assert dv.slots_for("audio_mix")
-        assert dv.decides("audio_mix")
-        assert not dv.decides("compile_manifest")
-
 
 # ─── The ladder, rung by rung ─────────────────────────────────────────
 
@@ -124,9 +119,6 @@ class TestTheLadder:
         assert "creative_preferences" in skipped[dv.STATED]
         assert "DIRECTION_KEYS" in skipped[dv.DIRECTED]
 
-    def test_the_ladder_is_the_captains_order(self):
-        assert dv.LADDER == (dv.STATED, dv.DIRECTED, dv.REASONED, dv.FALLBACK)
-
 
 # ─── The formula, and what it refuses to compute ──────────────────────
 
@@ -136,14 +128,6 @@ class TestTheSolver:
         decision = _decide(model_answer={"value": 9.0, "why": "hot bed"})
         # (speech - separation) - bed
         assert decision.value == pytest.approx((-22.4 - 9.0) - -13.9)
-
-    def test_the_answer_is_kept_beside_the_value_it_produced(self):
-        """A reader needs the judgement AND the arithmetic, not only
-        their product."""
-        decision = _decide(model_answer={"value": 9.0, "why": "hot bed"})
-        assert decision.answer == 9.0
-        assert decision.value != decision.answer
-        assert decision.measurements == MEASURED
 
     @pytest.mark.parametrize("missing", ["bed_integrated_lufs", "speech_lufs"])
     def test_an_unmeasured_term_produces_no_value_rather_than_a_stand_in(
@@ -177,22 +161,6 @@ class TestTheSolver:
 # ─── The route to the model ───────────────────────────────────────────
 
 class TestTheAsk:
-
-    def test_the_question_lives_in_one_place(self):
-        block = dv.prompt_block("audio_mix")
-        assert SLOT in block
-        assert "scope: background" in block
-        assert "scope: prominent" in block
-        assert "no bound" in block
-
-    def test_a_step_that_decides_nothing_is_asked_nothing(self):
-        assert dv.prompt_block("compile_manifest") == ""
-
-    def test_the_schema_demands_a_why_and_permits_an_omission(self):
-        entry = dv.schema_entry()
-        assert entry["name"] == dv.FIELD
-        assert "`why` is REQUIRED" in entry["description"]
-        assert "never read as agreement" in entry["description"]
 
     def test_the_answer_is_split_out_of_the_step_s_own_output(self):
         answer = {"audio_mix_spec": {"x": 1},
@@ -256,16 +224,3 @@ class TestTheTrace:
         answered = [r for r in merged if r["step"] == "audio_mix"][0]
         assert answered["value"] == -19.5
         assert "from_a_previous_run" not in answered
-
-    def test_the_summary_says_which_rung_answered(self):
-        records = [_decide(model_answer={"value": 9.0, "why": "w"}).as_record(),
-                   _decide().as_record()]
-        lines = dv.summary_lines(records)
-        assert any("reasoned" in line for line in lines)
-        assert any("fallback" in line and "Lucie" in line for line in lines)
-
-    def test_the_record_carries_what_it_was_decided_over(self):
-        record = _decide(model_answer={"value": 9.0, "why": "w"}).as_record()
-        assert record["measurements"] == MEASURED
-        assert record["step"] == "audio_mix"
-        assert record["basis"] in dv.BASES

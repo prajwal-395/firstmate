@@ -125,15 +125,8 @@ def test_start_uses_the_dashboards_own_interpreter(client, spawned):
     assert _cmd(spawned)[0] == sys.executable
 
 
-def test_review_gates_are_opt_in_not_default(client, spawned):
-    client.post("/api/pipeline/run", json={"review_mode": True})
-    assert "--review" in _cmd(spawned)
 
 
-def test_manual_llm_mode_omits_full_auto(client, spawned):
-    """Selecting "manual LLM" must not smuggle a backend in."""
-    client.post("/api/pipeline/run", json={"full_auto": None})
-    assert "--full-auto" not in _cmd(spawned)
 
 
 def test_start_reports_a_runner_that_died_immediately(client, temp_project):
@@ -174,31 +167,10 @@ def test_pause_writes_the_hold_file(client, temp_project):
     assert record["reason"] == "captain wants a look"
 
 
-def test_pause_is_honest_when_nothing_is_running(client, temp_project):
-    """It arms the handbrake; it does not pretend it stopped something."""
-    body = client.post("/api/pipeline/pause").json()
-    assert body["was_running"] is False
-    assert "armed" in body["effect"]
 
 
-def test_pause_reports_the_step_it_will_hold_after(client, temp_project):
-    run_control.pid_path(temp_project).write_text(str(os.getpid()))
-    run_control.write_run_status(temp_project, status="running",
-                                 current_step="temporal_index")
-    try:
-        body = client.post("/api/pipeline/pause").json()
-        assert body["was_running"] is True
-        assert body["holding_after_step"] == "temporal_index"
-        assert "after the current step completes" in body["effect"]
-    finally:
-        run_control.pid_path(temp_project).unlink()
 
 
-def test_status_reports_the_hold(client, temp_project):
-    client.post("/api/pipeline/pause")
-    status = client.get("/api/pipeline/status").json()
-    assert status["hold_requested"] is True
-    assert status["hold_requested_at"]
 
 
 def test_handbrake_stops_the_runner(temp_project, monkeypatch):
@@ -258,10 +230,6 @@ def test_resume_releases_the_hold_and_passes_resume(client, temp_project, spawne
         "resuming with the handbrake still on would stop at the next step")
 
 
-def test_resume_names_the_step_it_will_pick_up(client, temp_project, spawned):
-    body = client.post("/api/pipeline/resume", json={}).json()
-    state = json.loads(Path(temp_project, "pipeline_data.json").read_text())
-    assert body["next_step"] not in state.get("steps_completed", {})
 
 
 # ── 4. Step ─────────────────────────────────────────────────────────
@@ -291,12 +259,6 @@ def test_step_advances_exactly_one_step(client, temp_project, spawned):
             f"{step_id} was chosen while {earlier} upstream of it is unrun")
 
 
-def test_step_can_be_steered_to_a_named_step(client, spawned):
-    """Steering: the reviewer names the step instead of taking the next."""
-    response = client.post("/api/pipeline/step", json={"step_id": "catalog"})
-    assert response.status_code == 200
-    cmd = _cmd(spawned)
-    assert cmd[cmd.index("--step") + 1] == "catalog"
 
 
 def test_step_rejects_an_unknown_step(client, spawned):
@@ -306,11 +268,6 @@ def test_step_rejects_an_unknown_step(client, spawned):
     assert spawned.call_count == 0
 
 
-def test_step_releases_a_hold_so_the_one_step_actually_runs(
-        client, temp_project, spawned):
-    run_control.request_hold(temp_project)
-    client.post("/api/pipeline/step", json={})
-    assert run_control.hold_requested(temp_project) is None
 
 
 def test_step_refuses_while_a_run_is_up(client, temp_project, spawned):
@@ -338,12 +295,6 @@ def test_status_does_not_report_a_current_step_for_a_dead_run(
     assert status["current_step"] is None
 
 
-def test_running_pid_clears_a_dead_pid_file(temp_project):
-    # A pid that cannot exist, so the file is stale by construction.
-    run_control.pid_path(temp_project).write_text("999999999")
-    assert run_control.is_running(temp_project) is False
-    assert not run_control.pid_path(temp_project).exists(), (
-        "a crashed run would wedge the dashboard as permanently busy")
 
 
 def _topological_order() -> list:

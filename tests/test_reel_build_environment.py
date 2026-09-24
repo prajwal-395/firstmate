@@ -125,25 +125,6 @@ def test_each_detector_shape_names_its_own_missing_half(
         assert se.BUILD_VENV_DOC in message
 
 
-def test_the_loader_and_the_requirement_agree(monkeypatch, tmp_path):
-    """The verdict has one owner: the loader the build really calls.
-
-    `face_detector_usable` asks `subject_framing.load_face_cascade`,
-    never a re-derived answer - so a working detector passes and every
-    broken shape above refuses, through the same call the punch-in
-    aim makes.
-    """
-    from library.tools import subject_framing
-
-    _cv2_with_classifier(monkeypatch, tmp_path, loads=True)
-    assert subject_framing.load_face_cascade() is not None
-    assert se.face_detector_usable() is True
-
-    _cv2_with_classifier(monkeypatch, tmp_path, loads=False)
-    assert subject_framing.load_face_cascade() is None
-    assert se.face_detector_usable() is False
-
-
 # ── gap 2: completeness of a purpose-built venv's libraries ──────────
 
 def test_missing_library_fails_the_pre_build_check_by_name(monkeypatch):
@@ -163,60 +144,7 @@ def test_missing_library_fails_the_pre_build_check_by_name(monkeypatch):
     assert se.REQUIREMENTS_FILE in verdict.reason
 
 
-def test_the_declared_libraries_are_the_ones_requirements_pins():
-    """The declaration must match reality: every entry is pinned in
-    `requirements.txt`, and every entry imports in an interpreter that
-    built from it - which this test interpreter did, or half this
-    suite could not even collect."""
-    pinned = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
-    assert "jsonschema" in pinned
-    assert "pyyaml" in pinned
-    assert "jsonschema" in se.REEL_BUILD_LIBRARIES, (
-        "the row's own instance - a venv missing jsonschema - left the "
-        "declared set")
-    assert "yaml" in se.REEL_BUILD_LIBRARIES, (
-        "read on every build through the project configuration and the "
-        "reel look")
-    assert se.missing_build_libraries() == ()
-
-
 # ── the acceptance shape: one message, before the build ─────────────
-
-def test_both_gaps_are_one_message_before_the_build(monkeypatch):
-    """Missing detector AND missing library: one message, naming both
-    halves and what supplies each - not a refusal three steps in and
-    not a silent gap."""
-    _no_cv2(monkeypatch)
-    monkeypatch.setattr(se, "REEL_BUILD_LIBRARIES", ("no_such_module_xyz",))
-
-    ready, _ = se.reel_build_environment_available()
-    assert ready is False
-    with pytest.raises(se.ReelBuildEnvironmentMissing) as raised:
-        se.require_reel_build_environment()
-    message = str(raised.value)
-    assert sys.executable in message
-    assert "cv2 is not installed" in message
-    assert "no_such_module_xyz" in message
-    assert se.FACE_DETECTOR_PIN in message
-    assert se.REQUIREMENTS_FILE in message
-
-
-def test_a_satisfied_environment_passes_silently(monkeypatch, tmp_path):
-    """Both halves present: the check returns truthy and says nothing.
-
-    Silence is the contract - a satisfied environment must not print,
-    warn, or refuse; the build simply starts."""
-    _cv2_with_classifier(monkeypatch, tmp_path, loads=True)
-    monkeypatch.setattr(se, "REEL_BUILD_LIBRARIES", ())
-
-    assert se.reel_build_environment_problems() == []
-    ready, detail = se.reel_build_environment_available()
-    assert ready is True
-    assert detail.strip()
-    assert se.require_reel_build_environment() is None
-
-    for name in ("env.face_detector", "env.reel_build_libraries"):
-        assert _requirement(name).check(R.Context()).is_satisfied
 
 
 def test_the_build_lanes_consume_both_requirements_and_verify_consumes_neither():

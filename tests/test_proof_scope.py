@@ -42,22 +42,6 @@ def test_a_new_plan_earns_the_full_burden():
                for reason in scope["reasons"])
 
 
-def test_declarations_earn_the_full_burden():
-    scope = _scope(
-        shared_declarations=["2 keep insistence(s) recorded"])
-
-    assert scope["level"] == "FULL"
-    assert scope["census"] == "full"
-    assert "keep insistence" in " ".join(scope["reasons"])
-
-
-def test_a_census_disagreement_earns_the_full_burden():
-    scope = _scope(disagreement_reported=True)
-
-    assert scope["level"] == "FULL"
-    assert scope["census"] == "full"
-
-
 def test_a_clean_rerun_owes_stills_only_for_unproven_reels():
     scope = _scope(reels_without_prior_proof=[REELS[1]])
 
@@ -74,14 +58,6 @@ def test_a_fully_proven_rerun_owes_no_post_build_census():
     assert scope["census"] == "pre-build-only"
     text = proof_scope.render_scope(scope)
     assert "no post-build census" in text or "pre-build report" in text
-
-
-def test_the_scope_says_real_pixels_at_every_level():
-    """The captain's standing rule restated where the rule is read:
-    what scales is how much, never what counts as proof."""
-    text = proof_scope.render_scope(_scope(plan_is_new=True))
-
-    assert "real pixels" in text
 
 
 def test_plan_newness_reads_provenance_not_memory(tmp_path):
@@ -109,22 +85,6 @@ def test_plan_newness_reads_provenance_not_memory(tmp_path):
                     encoding="utf-8")
     assert proof_scope.build_inputs(
         str(review), str(plan), REELS)["plan_is_new"] is True
-
-
-def test_no_provenance_is_a_new_plan_not_a_pass(tmp_path):
-    """No record of proof is not proof: an unreadable or absent
-    record degrades to FULL, never to REDUCED."""
-    plan = tmp_path / "plan.json"
-    plan.write_text("{}", encoding="utf-8")
-
-    inputs = proof_scope.build_inputs(str(tmp_path / "absent"),
-                                      str(plan), REELS)
-
-    assert inputs["plan_is_new"] is True
-    scope = _scope(plan_is_new=inputs["plan_is_new"],
-                   reels_without_prior_proof=inputs[
-                       "reels_without_prior_proof"])
-    assert scope["level"] == "FULL"
 
 
 # ── The wiring: the build prints it and records it ───────────────

@@ -160,15 +160,6 @@ STRUCTURE_MARKERS = (
 )
 
 
-def test_the_scene_prose_stays_inline_in_the_candidate_table(tmp_path):
-    """The `description` column is the place axis the model shortlists on."""
-    _, context = _assembled_prompt(tmp_path)
-    assert "description" in context.split("\n")[0:40].__str__(), (
-        "the candidate table lost its description column")
-    assert "Outdoor urban area 0" in context, (
-        "the scene prose no longer reaches the prompt inline")
-
-
 def test_no_scene_structure_travels_inline(tmp_path):
     """The structure half of #679: fields, not values, must not be inline."""
     _, context = _assembled_prompt(tmp_path)

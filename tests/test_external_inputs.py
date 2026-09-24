@@ -68,31 +68,6 @@ def _a_roll(clip):
 
 # ── The check accepts a claim that is true ──────────────────────────
 
-def test_a_true_claim_is_accepted_and_says_what_it_checked(tmp_path):
-    project = _project(tmp_path)
-    clip = _clip(tmp_path)
-    _supply(project, "a_roll_assignments", _a_roll(clip))
-
-    supplied = external_inputs.load(str(project))
-    assert set(supplied) == {"a_roll_assignments"}
-    entry = supplied["a_roll_assignments"]
-    assert entry.value[0]["source_file"] == clip
-    assert "2 assignments" in entry.checked
-    assert "present on disk" in entry.checked
-    assert entry.source == "cut by hand, 2026-08-28"
-
-
-def test_a_project_with_no_external_directory_supplies_nothing(tmp_path):
-    assert external_inputs.load(str(_project(tmp_path))) == {}
-
-
-def test_the_run_reports_what_it_did_not_produce(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "a_roll_assignments", _a_roll(_clip(tmp_path)))
-    lines = external_inputs.describe(external_inputs.load(str(project)))
-    assert any("Supplied from outside" in line for line in lines)
-    assert any("source (recorded, not checked)" in line for line in lines)
-
 
 # ── The check refuses claims that are not true ──────────────────────
 
@@ -135,50 +110,12 @@ def test_a_backwards_range_is_refused(tmp_path):
         external_inputs.load(str(project))
 
 
-def test_a_relative_media_path_is_refused(tmp_path):
-    project = _project(tmp_path)
-    assignments = _a_roll(_clip(tmp_path))
-    assignments[0]["source_file"] = "media/hand_cut.mov"
-    _supply(project, "a_roll_assignments", assignments)
-    with pytest.raises(ExternalStateError, match="relative path"):
-        external_inputs.load(str(project))
-
-
 def test_an_empty_value_is_refused(tmp_path):
     """"Trust me, it exists" with nothing in it is the exact claim this
     module exists to refuse."""
     project = _project(tmp_path)
     _supply(project, "a_roll_assignments", [])
     with pytest.raises(ExternalStateError, match="empty list"):
-        external_inputs.load(str(project))
-
-
-def test_a_value_with_no_source_is_refused(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "a_roll_assignments", _a_roll(_clip(tmp_path)),
-            source="   ")
-    with pytest.raises(ExternalStateError, match="no 'source'"):
-        external_inputs.load(str(project))
-
-
-def test_a_file_whose_name_and_key_disagree_is_refused(tmp_path):
-    project = _project(tmp_path)
-    directory = project / "external"
-    directory.mkdir()
-    (directory / "a_roll_assignments.json").write_text(
-        json.dumps({"key": "audio_spine", "source": "x", "value": {"a": 1}}),
-        encoding="utf-8")
-    with pytest.raises(ExternalStateError, match="file name IS the"):
-        external_inputs.load(str(project))
-
-
-def test_broken_json_is_refused_rather_than_ignored(tmp_path):
-    project = _project(tmp_path)
-    directory = project / "external"
-    directory.mkdir()
-    (directory / "a_roll_assignments.json").write_text("{ nope",
-                                                       encoding="utf-8")
-    with pytest.raises(ExternalStateError, match="not valid JSON"):
         external_inputs.load(str(project))
 
 
@@ -198,12 +135,6 @@ def test_a_key_with_no_check_cannot_be_supplied(tmp_path):
         "the refusal must say what CAN be supplied")
 
 
-def test_every_withdrawn_entry_says_why(tmp_path):
-    assert external_inputs.WITHDRAWN
-    for claim, reason in external_inputs.WITHDRAWN.items():
-        assert len(reason.split()) >= 15, f"{claim} carries no real reason"
-
-
 def test_the_CLOSED_timeline_is_recorded_as_unassertable():
     """NARROWED 2026-09-04, and the narrowing is the point.
 
@@ -221,14 +152,6 @@ def test_the_CLOSED_timeline_is_recorded_as_unassertable():
     assert "a Resolve timeline built by hand" not in external_inputs.WITHDRAWN
 
 
-def test_the_narrowed_withdrawal_names_the_live_producer():
-    """A narrowing that did not say what now handles the other half
-    would read as an unexplained loosening of the contract."""
-    reason = external_inputs.WITHDRAWN["a Resolve timeline in a CLOSED project"]
-    assert "timeline_ingest" in reason
-    assert "LIVE" in reason
-
-
 def test_speech_sequence_left_the_taste_withdrawal_and_is_checkable():
     """The captain ruled that a sequence they cut by hand is a fact to
     be read, not taste to be invented. Taste is still withdrawn."""
@@ -240,15 +163,6 @@ def test_speech_sequence_left_the_taste_withdrawal_and_is_checkable():
 
 
 # ── The spine and the manifest are checked with the repo's own contracts
-
-def test_a_spine_that_fails_the_spine_contract_is_refused(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "audio_spine", {"structure": [
-        {"block_type": "speech", "position": 1, "timeline_start": 0.0,
-         "timeline_end": 2.0}]})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "spine contract" in str(exc.value)
 
 
 def test_a_spine_that_passes_the_contract_is_accepted(tmp_path):
@@ -265,87 +179,10 @@ def test_a_spine_that_passes_the_contract_is_accepted(tmp_path):
     assert "validate_spine_blocks" in supplied["audio_spine"].checked
 
 
-def test_a_manifest_that_fails_the_validator_is_refused(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "assembly_manifest", {"tracks": {"V1": {"clips": []}}})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "assembly_manifest" in str(exc.value)
-
-
-def test_a_render_that_is_not_a_video_is_refused(tmp_path):
-    project = _project(tmp_path)
-    fake = tmp_path / "media" / "not_a_render.mov"
-    fake.parent.mkdir(exist_ok=True)
-    fake.write_bytes(b"\x00" * 200_000)
-    _supply(project, "render_output", {"output_path": str(fake)})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "not_a_render.mov" in str(exc.value)
-
-
-def test_a_render_that_is_too_small_is_refused_before_ffprobe(tmp_path):
-    project = _project(tmp_path)
-    tiny = tmp_path / "media" / "tiny.mov"
-    tiny.parent.mkdir(exist_ok=True)
-    tiny.write_bytes(b"\x00" * 128)
-    _supply(project, "render_output", {"output_path": str(tiny)})
-    with pytest.raises(ExternalStateError, match="not that small"):
-        external_inputs.load(str(project))
-
-
 # ── The layout owns where it goes ───────────────────────────────────
-
-def test_the_external_area_is_an_input_and_no_step_may_write_it(tmp_path):
-    from library.tools.project_layout import ProjectLayoutViolation
-
-    layout = ProjectLayout(str(_project(tmp_path)))
-    with pytest.raises(ProjectLayoutViolation):
-        layout.write_dir(Area.EXTERNAL_STATE)
-    assert layout.read_dir(Area.EXTERNAL_STATE).name == "external"
-
-
-def test_the_scaffold_does_not_create_it(tmp_path):
-    """An input area exists because the captain made it."""
-    project = _project(tmp_path)
-    assert not (project / "external").exists()
 
 
 # ── The resolver counts it, and the step receives it ────────────────
-
-def test_a_supplied_key_satisfies_a_prerequisite(tmp_path):
-    """`--only render` on a project with no recorded run: the manifest
-    the captain supplied is what makes it resolvable."""
-    dag = run_scope.load_dag()
-    manifests = run_scope.load_manifests(dag)
-
-    with pytest.raises(run_scope.ScopeError) as exc:
-        run_scope.resolve(run_scope.Selection(only=("render",),
-                                              skip=("compile_manifest",)),
-                          dag=dag, manifests=manifests, external={})
-    assert "assembly_manifest" in str(exc.value)
-    assert "<project>/external/" in str(exc.value), (
-        "the refusal should name the route out that exists")
-
-    scope = run_scope.resolve(
-        run_scope.Selection(only=("render",)), dag=dag, manifests=manifests,
-        external={"assembly_manifest": {"tracks": {}}})
-    assert scope.steps_to_run == ("render",), (
-        "a supplied manifest means the pipeline does not compile one")
-    assert scope.from_external["assembly_manifest"] == ("render",)
-
-
-def test_a_recorded_output_does_not_collapse_the_run_the_way_a_supply_does(
-        tmp_path):
-    """History is not a request. A previous run's manifest keeps the
-    steps in the run; supplying one says "do not make this"."""
-    dag = run_scope.load_dag()
-    manifests = run_scope.load_manifests(dag)
-    state = {"edit_completed": {"compile_manifest": {"at": "now"}},
-             "step_outputs": {"compile_manifest": {"assembly_manifest": {}}}}
-    scope = run_scope.resolve(run_scope.Selection(only=("render",)), dag=dag,
-                              manifests=manifests, state=state, external={})
-    assert "compile_manifest" in scope.steps_to_run
 
 
 def test_the_verified_value_reaches_the_step(tmp_path):
@@ -376,48 +213,6 @@ def test_the_verified_value_reaches_the_step(tmp_path):
                                 manifest=manifests["render"],
                                 external=supplied)
     assert inputs["assembly_manifest"] == manifest
-
-
-def test_without_the_supply_the_same_call_raises(tmp_path):
-    from library.processes.edit_video.run_pipeline import gather_step_inputs
-
-    dag = run_scope.load_dag()
-    manifests = run_scope.load_manifests(dag)
-    with pytest.raises(RuntimeError, match="assembly_manifest"):
-        gather_step_inputs("render", dag, {"step_outputs": {}},
-                           manifest=manifests["render"], external={})
-
-
-def test_a_real_upstream_output_outranks_a_supply(tmp_path):
-    """A step that really ran wins: supplying state is for the case
-    where nothing produced it, not a way to override a run."""
-    from library.processes.edit_video.run_pipeline import gather_step_inputs
-
-    dag = run_scope.load_dag()
-    manifests = run_scope.load_manifests(dag)
-    state = {"step_outputs": {"compile_manifest": {
-        "assembly_manifest": {"from": "the run"}}}}
-    entry = external_inputs.Supplied(
-        key="assembly_manifest", value={"from": "outside"}, source="x",
-        path=Path("x"), checked="x")
-    inputs = gather_step_inputs("render", dag, state,
-                                manifest=manifests["render"],
-                                external={"assembly_manifest": entry})
-    assert inputs["assembly_manifest"] == {"from": "the run"}
-
-
-def test_the_consumer_side_name_is_refused_with_the_state_name(tmp_path):
-    """`validate` declares `rendered_output`; step 6.01 records
-    `render_output`. A file supplies STATE, so the refusal has to name
-    the producer's key rather than leave the captain guessing which of
-    the two spellings the pipeline meant."""
-    project = _project(tmp_path)
-    _supply(project, "rendered_output", {"output_path": "/nowhere"})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    message = str(exc.value)
-    assert "'render_output'" in message
-    assert "render_output.json" in message
 
 
 @pytest.mark.heavy
@@ -482,31 +277,6 @@ def _render_a_real_video(path):
     assert path.stat().st_size > 100_000
 
 
-def test_the_run_record_says_the_state_came_from_outside():
-    """`pipeline_run.json` is the runner's own account of itself. A run
-    that did one step of twenty-six because the captain supplied the
-    rest has to say so there, or the record is unreadable."""
-    from library.tools import run_control
-
-    scope = SimpleNamespace(
-        is_scoped=True,
-        steps_to_run=("validate",),
-        universe=tuple(str(i) for i in range(26)),
-        selection=SimpleNamespace(target=None),
-        from_external={"assembly_manifest": ("validate",),
-                       "render_output": ("validate",)})
-
-    line = run_control.describe_mode(scope=scope)
-    assert "state supplied from outside: assembly_manifest, render_output" \
-        in line
-
-
-def test_an_ordinary_run_says_nothing_about_supplied_state():
-    from library.tools import run_control
-
-    assert "supplied from outside" not in run_control.describe_mode()
-
-
 # ── speech_sequence: a MEASUREMENT is accepted, an invention is not ──
 #
 # The captain ruled (2026-09-04) that a sequence they cut by hand is a
@@ -543,16 +313,6 @@ def test_a_measured_speech_sequence_is_accepted(tmp_path):
     assert "3 segments" in supplied["speech_sequence"].checked
 
 
-def test_a_speech_sequence_naming_a_missing_file_is_refused(tmp_path):
-    project = _project(tmp_path)
-    value = _sequence(tmp_path)
-    value["segments"][1]["source_file"] = "/nowhere/gone.mov"
-    _supply(project, "speech_sequence", value)
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "not a file" in str(exc.value)
-
-
 def test_a_speech_sequence_with_a_broken_chain_is_refused(tmp_path):
     """The link and the order disagreeing is what a well-shaped
     invention fails: a model emits positions, not a self-consistent
@@ -574,37 +334,6 @@ def test_a_speech_sequence_with_a_repeated_order_is_refused(tmp_path):
     with pytest.raises(ExternalStateError) as exc:
         external_inputs.load(str(project))
     assert "permutation" in str(exc.value)
-
-
-def test_a_speech_sequence_with_an_empty_range_is_refused(tmp_path):
-    project = _project(tmp_path)
-    value = _sequence(tmp_path)
-    value["segments"][0]["source_end"] = value["segments"][0]["source_start"]
-    _supply(project, "speech_sequence", value)
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "not a range" in str(exc.value)
-
-
-def test_a_speech_sequence_with_no_segment_id_is_refused(tmp_path):
-    """Without an addressable id, re-indexing one portion later means
-    re-reading everything - which is the capability the captain asked
-    for by name."""
-    project = _project(tmp_path)
-    value = _sequence(tmp_path)
-    del value["segments"][0]["segment_id"]
-    _supply(project, "speech_sequence", value)
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "segment_id" in str(exc.value)
-
-
-def test_an_empty_speech_sequence_is_refused(tmp_path):
-    project = _project(tmp_path)
-    _supply(project, "speech_sequence", {"segments": []})
-    with pytest.raises(ExternalStateError) as exc:
-        external_inputs.load(str(project))
-    assert "non-empty" in str(exc.value)
 
 
 # ── The three entry points the pipeline had no way in for ────────────

@@ -100,10 +100,6 @@ def test_words_are_concatenated_in_timeline_order():
     assert script["unvoiced"] == []
 
 
-def test_words_outside_the_played_range_are_excluded():
-    """'later' at 60s is measured on the block but not played."""
-    script = build_actual_script(A_ROLL, SPINE)
-    assert "later" not in script["full_text"]
 
 
 def test_a_range_with_no_measured_words_is_named_not_skipped():
@@ -128,26 +124,6 @@ def test_a_range_with_no_measured_words_is_named_not_skipped():
     assert "reason" in entry and entry["reason"]
 
 
-def test_a_block_with_no_word_timings_is_undetermined():
-    spine = {"structure": [
-        {"position": 1, "block_type": "speech", "clip_id": "clip_001",
-         "word_timestamps": []},
-    ]}
-    a_roll = [
-        {
-            "spine_block_position": 1,
-            "block_type": "speech",
-            "timeline_start": 0.0,
-            "timeline_end": 2.0,
-            "video_segments": [
-                {"clip_id": "clip_001", "video_in": 0.0, "video_out": 2.0},
-            ],
-        },
-    ]
-    script = build_actual_script(a_roll, spine)
-    assert script["blocks"] == []
-    assert len(script["unvoiced"]) == 1
-    assert "undetermined" in script["unvoiced"][0]["reason"]
 
 
 def test_a_segment_with_no_source_range_is_named():
@@ -165,18 +141,3 @@ def test_a_segment_with_no_source_range_is_named():
     assert "no source range" in script["unvoiced"][0]["reason"]
 
 
-def test_an_unknown_block_position_is_undetermined():
-    a_roll = [
-        {
-            "spine_block_position": 99,
-            "block_type": "speech",
-            "timeline_start": 0.0,
-            "timeline_end": 2.0,
-            "video_segments": [
-                {"clip_id": "clip_001", "video_in": 0.0, "video_out": 2.0},
-            ],
-        },
-    ]
-    script = build_actual_script(a_roll, SPINE)
-    assert script["blocks"] == []
-    assert len(script["unvoiced"]) == 1

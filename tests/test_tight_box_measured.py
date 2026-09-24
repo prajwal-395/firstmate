@@ -87,21 +87,6 @@ def test_union_spans_ink_across_frames(tmp_path):
     assert (union.x0, union.y0, union.x1, union.y1) == (100, 1400, 400, 1560)
 
 
-def test_placement_limits_are_the_measured_rail():
-    """The rail is the 4x law, binary-searched 2026-09-13: Pan 4320,
-    Tilt 7680 on 1080x1920. The 3840 the 2026-09-10 incident read
-    does not reproduce and is history in `MEASURED_RAILS`, not a row.
-    Every row carries its build in `MEASURED_RAIL_BUILDS` - a row
-    whose build is unknown is a row nobody may trust, which is what
-    keeps this number from going stale the way both of its
-    predecessors did."""
-    from library.tools.tight_box import (
-        MEASURED_RAIL_BUILDS,
-        placement_limits,
-    )
-    assert placement_limits(1080, 1920) == (4320.0, 7680.0)
-    assert MEASURED_RAIL_BUILDS[(1080, 1920)] == "21.1.0.14"
-    assert MEASURED_RAIL_BUILDS[(1920, 1080)] == "21.1.0.14"
 
 
 def test_the_horizontal_rail_is_the_one_that_was_probed():

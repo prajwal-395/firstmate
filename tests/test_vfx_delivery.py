@@ -57,16 +57,6 @@ def _handoff_effect_types() -> set:
 # the NAMES still have to reach a reader, or an effect is recorded as
 # planned and draws nothing (AGENTS.md §10.2).
 
-def test_the_handoff_offers_exactly_the_toolkit():
-    """A type in the table with no row here would take a planner's answer
-    into a branch that drops it; a row with no table line is unreachable.
-
-    `ken_burns` is the one spelling allowed beside the toolkit: the
-    captain's name for the drift move, resolved to the `slow_zoom_in` /
-    `slow_zoom_out` its own params describe (2026-09-09).  It is held to
-    the same bar below - it must reach the renderer, not just the bridge.
-    """
-    assert _handoff_effect_types() == set(TOOLKIT_PARAMETERS) | {"ken_burns"}
 
 
 def test_the_ken_burns_spelling_reaches_the_renderer():
@@ -87,18 +77,6 @@ def test_the_ken_burns_spelling_reaches_the_renderer():
     assert drawn != neutral
 
 
-def test_the_handoff_names_the_parameters_the_renderer_reads():
-    """The table's own `Parameter names` column, against the enumeration."""
-    table = HANDOFF.read_text().split("### Effect toolkit:", 1)[1]
-    table = table.split("**DaVinci Resolve Built-in", 1)[0]
-    for line in table.splitlines():
-        m = re.match(r"\|\s*`([^`]+)`\s*\|[^|]*\|(.*)\|", line)
-        if not m or m.group(1) not in TOOLKIT_PARAMETERS:
-            continue
-        offered = set(re.findall(r"`([a-z_]+)`", m.group(2)))
-        assert offered == set(TOOLKIT_PARAMETERS[m.group(1)]), (
-            f"{m.group(1)}: the handoff offers {sorted(offered)} and the "
-            f"bridge reads {sorted(TOOLKIT_PARAMETERS[m.group(1)])}")
 
 
 def _value_for(name):

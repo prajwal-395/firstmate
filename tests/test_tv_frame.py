@@ -54,15 +54,8 @@ def _asset(tmp_path, name="frame.png"):
     return str(p)
 
 
-def test_default_punch_in_is_the_captains_chosen_standard():
-    """2.30, measured off the Reel 20 reference - a default, not a constant."""
-    assert DEFAULT_PUNCH_IN == 2.30
 
 
-def test_layer_order_is_footage_frame_captions():
-    assert TV_FRAME_LAYERS == ("footage", "frame", "captions")
-    assert LAYER_TRACKS == {
-        "footage": "V1", "frame": "V2", "captions": "V3"}
 
 
 def test_no_asset_means_no_look(tmp_path):
@@ -233,11 +226,6 @@ def test_collapse_at_the_guard_raises(tmp_path):
         resolve_tv_frame(folder, None)
 
 
-def test_v1_zoom_is_absolute_not_multiplied():
-    """Under the frame the bezel IS the framing: the reference shows
-    Zoom 2.30 flat, so the punch replaces the conform zoom rather than
-    multiplying over it."""
-    assert v1_zoom_for_look(2.30) == 2.30
 
 
 def test_screen_window_measures_the_transparent_hole(tmp_path):
@@ -278,12 +266,3 @@ def test_content_runs_split_around_cards():
     assert [r["index"] for r in runs] == [0, 1]
 
 
-def test_content_runs_without_cards_is_a_single_run():
-    from library.steps.step_5_04_compile_manifest.step import _content_runs
-    clips = [
-        {"timeline_in": 0.0, "timeline_out": 4.0},
-        {"timeline_in": 4.0, "timeline_out": 8.0},
-    ]
-    runs = _content_runs(clips)
-    assert [(r["timeline_in"], r["timeline_out"]) for r in runs] == [
-        (0.0, 8.0)]

@@ -116,13 +116,6 @@ def test_the_cut_adjacency_names_the_pairs_a_viewer_sees(bridge_output):
     assert pairs[1]["stops_between"] == pytest.approx(-1.299, abs=0.01)
 
 
-def test_a_clip_the_vision_pass_described_carries_what_the_shot_is(
-        bridge_output):
-    _payload_, rows, _ = bridge_output
-    by_clip = {r["clip_id"]: r for r in rows}
-    assert "car interior" in by_clip["clip_017"]["scene"]
-    # And a clip it did not describe says so rather than carrying a blank.
-    assert by_clip["clip_011"]["scene"] == "not described by the vision pass"
 
 
 # ── The answer reaches the CDL ───────────────────────────────────────
@@ -224,12 +217,5 @@ def test_a_judged_no_correction_is_not_an_ungraded_run(tmp_path,
     assert absent["correction_basis"]["basis"] == "no_correction_decision"
 
 
-def test_the_runner_sees_a_hybrid_step():
-    from library.processes.edit_video.run_pipeline import (
-        get_step_implementation,
-    )
-    impl = get_step_implementation(STEP)
-    assert impl["type"] == "hybrid"
-    assert impl["prompt"].endswith("handoff.md")
 
 

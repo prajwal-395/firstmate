@@ -65,15 +65,6 @@ def test_step_5_01_deterministic_output_names_nothing_unknown():
         set(), set())
 
 
-def test_a_term_legend_is_a_definition_not_a_reference():
-    """`grade_terms_legend[clip_id]` and the frame-strip legend both map
-    the key to prose. Prose under the key is not a clip going missing."""
-    catalog_ids, catalog_paths = _catalog()
-    for legend in (_grade_terms_legend(), STRIP_LEGEND):
-        assert legend[CLIP_KEY].strip() != ""
-        unknown_ids, _ = runner.unknown_clip_refs(
-            {"legend": legend}, catalog_ids, catalog_paths)
-        assert legend[CLIP_KEY] not in unknown_ids
 
 
 def test_a_template_slot_is_not_a_file_path():

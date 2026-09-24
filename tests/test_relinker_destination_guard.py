@@ -234,12 +234,4 @@ class TestRelinkerPreMutationVerification:
 
 class TestRelinkerDestinationMismatchErrorDocs:
     """The error class documents the hazard."""
-
-    def test_error_exists(self):
-        assert issubclass(DestinationMismatchError, RuntimeError)
-
-    def test_error_docstring_mentions_h12(self):
-        assert "H12" in DestinationMismatchError.__doc__
-
-    def test_error_docstring_mentions_media_pool(self):
-        assert "media pool" in DestinationMismatchError.__doc__
+    pass

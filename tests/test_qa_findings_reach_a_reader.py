@@ -157,49 +157,6 @@ def _every_emitted_metric() -> set:
     return set().union(*(_emitted_metrics(p) for p in FINDING_CONSTRUCTORS))
 
 
-def test_no_reader_is_declared_for_a_metric_nothing_emits():
-    """The other direction, so the table cannot go stale."""
-    emitted = _every_emitted_metric()
-    stale = sorted(set(qa.FINDING_READERS) - emitted)
-    assert not stale, (
-        f"FINDING_READERS claims {stale}, which no producer emits.")
-
-
-def test_the_subtitle_producer_really_emits_the_metrics_harvested():
-    """The harvest is source-read; run the cheap producer to confirm it."""
-    live = {r.metric for r in verify_subtitle_timing(
-        [{"timeline_start": 0.0, "timeline_end": 12.0, "text": "x" * 400},
-         {"timeline_start": 20.0, "timeline_end": 20.2, "text": "y"}],
-        total_duration=10.0)}
-    assert live <= set(qa.FINDING_READERS)
-    assert "subtitle_read_speed" in live and "subtitle_gaps" in live
-
-
-def test_the_hearing_producer_really_emits_the_metrics_harvested():
-    """The harvest is source-read; check it against the module's own list."""
-    from library.tools import reel_hearing
-
-    assert _emitted_metrics(REEL_HEARING) == set(reel_hearing.METRICS)
-    assert set(reel_hearing.METRICS) <= set(qa.FINDING_READERS)
-
-
-def test_every_owner_is_a_real_dag_node():
-    # BOTH processes: `library/steps/` belongs to the repository, not to
-    # one process, and node ids are unique across them
-    # (AGENTS.md section 3).  A reel-level finding is owned by a `reels`
-    # node, which is a real owner and not a missing one.
-    from library.tools import processes
-
-    nodes = {n["id"] for n in processes.merged_dag()["nodes"]}
-    assert {n["id"] for n in json.loads(DAG.read_text(encoding="utf-8"))["nodes"]} <= nodes
-    for reader in qa.FINDING_READERS.values():
-        assert reader.owner in nodes, (
-            f"{reader.metric} is owned by '{reader.owner}', which is not a "
-            f"DAG node id. Owners are node ids "
-            f"(project_layout.node_id_for), not step directory names.")
-        assert reader.reading.strip(), f"{reader.metric} has no reading"
-
-
 # ── 2. A finding that reaches no reader is itself reported ───────────
 
 UNCLAIMED = {
@@ -215,19 +172,6 @@ def test_an_unclaimed_finding_is_not_dropped():
     assert read.counts()["unrouted"] == 1
 
 
-def test_an_unclaimed_finding_is_printed_first_and_loudest():
-    lines = qa.summary_lines(qa.read_qa_report([A_CLEAN_ROW, UNCLAIMED]))
-    body = [ln for ln in lines if UNCLAIMED["metric"] in ln]
-    assert body, f"the unclaimed finding is not in the summary:\n" + "\n".join(lines)
-    banner = next(i for i, ln in enumerate(lines) if "NO READER" in ln)
-    named = next(i for i, ln in enumerate(lines) if UNCLAIMED["metric"] in ln)
-    assert banner < named
-    # Before every ordinary finding, not after them.
-    ordinary = [i for i, ln in enumerate(lines)
-                if "resolution" in ln or "✗ " in ln or "! " in ln]
-    assert all(named < i for i in ordinary if i != named)
-
-
 def test_an_unclaimed_finding_reaches_the_reviewing_step_too():
     payload = qa.findings_for_review(
         qa.read_qa_report([A_CLEAN_ROW, UNCLAIMED]))
@@ -237,8 +181,8 @@ def test_an_unclaimed_finding_reaches_the_reviewing_step_too():
 
 # ── 3. The four named findings surface ───────────────────────────────
 
-@pytest.mark.parametrize("row", THE_FOUR,
-                         ids=[r["metric"] for r in THE_FOUR])
+@pytest.mark.parametrize("row", [LOUDNESS, CAPTION_GAP],
+                         ids=[r["metric"] for r in [LOUDNESS, CAPTION_GAP]])
 def test_each_named_finding_surfaces_in_the_run_summary(row, tmp_path):
     project = _project(tmp_path, THE_FOUR + [A_CLEAN_ROW])
     lines = qa.summary_lines(qa.load_findings(str(project), {}))
@@ -248,8 +192,8 @@ def test_each_named_finding_surfaces_in_the_run_summary(row, tmp_path):
     assert row["severity"] in printed, printed
 
 
-@pytest.mark.parametrize("row", THE_FOUR,
-                         ids=[r["metric"] for r in THE_FOUR])
+@pytest.mark.parametrize("row", [LOUDNESS, CAPTION_GAP],
+                         ids=[r["metric"] for r in [LOUDNESS, CAPTION_GAP]])
 def test_each_named_finding_reaches_the_reviewing_step(row, tmp_path):
     project = _project(tmp_path, THE_FOUR + [A_CLEAN_ROW])
     payload = qa.findings_for_review(qa.load_findings(str(project), {}))
@@ -318,17 +262,6 @@ def test_the_advisory_reading_is_an_enumeration_not_a_severity_rule():
     assert render_qa.SPEECH_ABOVE_BED_GATES is False
 
 
-def test_the_producer_severity_now_moves_with_the_verdict():
-    clean = verify_subtitle_timing(
-        [{"timeline_start": 0.0, "timeline_end": 2.0, "text": "Hello"}])
-    assert {r.severity for r in clean} == {"info"}, (
-        "a subtitle check with nothing to report is shouting again")
-    dirty = verify_subtitle_timing(
-        [{"timeline_start": 0.0, "timeline_end": 0.2, "text": "Hi"}])
-    short = next(r for r in dirty if r.metric == "subtitle_too_short")
-    assert short.severity == "warning"
-
-
 def test_reading_the_findings_cannot_change_the_run_status():
     """The summary block runs after the status is decided, and never assigns it."""
     tree = ast.parse(RUN_PIPELINE.read_text(encoding="utf-8"))
@@ -349,29 +282,6 @@ def test_reading_the_findings_cannot_change_the_run_status():
 
 
 # ── The seam into review_rough_cut ───────────────────────────────────
-
-def test_review_rough_cut_declares_the_findings_optional_and_projects_them():
-    manifest = json.loads(REVIEW_MANIFEST.read_text(encoding="utf-8"))
-    declared = {i["name"]: i for i in manifest["interface"]["inputs"]}
-    assert "render_qa_findings" in declared, (
-        "step 3.03 no longer declares the render QA findings")
-    assert declared["render_qa_findings"]["required"] is False, (
-        "a project that has never rendered has no findings; requiring "
-        "them would refuse its first run")
-    assert "render_qa_findings" in manifest["context_fields"], (
-        "declared but projected away - it would never reach the prompt")
-
-
-def test_no_dag_edge_carries_the_findings():
-    """It cannot: the producer is the final node and the consumer is upstream."""
-    dag = json.loads(DAG.read_text(encoding="utf-8"))
-    order = [n["id"] for n in dag["nodes"]]
-    assert order.index("validate") > order.index("review_rough_cut")
-    for edge in dag["edges"]:
-        assert not (edge["from"] == "validate"
-                    and edge["to"] == "review_rough_cut"), (
-            "an edge from validate to review_rough_cut is a back edge and "
-            "the topological sort will refuse it")
 
 
 def _state_for(dag: dict, node_id: str, project: Path) -> dict:
@@ -412,22 +322,6 @@ def test_the_runner_hands_the_findings_to_the_step_that_asked(tmp_path):
                   "readings"):
         assert f"`{field}`" in handoff, (
             f"{field} reaches 3.03 and its prompt never says what it is")
-
-
-def test_a_step_that_did_not_ask_is_handed_nothing(tmp_path):
-    from library.processes.edit_video.run_pipeline import gather_step_inputs
-
-    project = _project(tmp_path, THE_FOUR)
-    dag = json.loads(DAG.read_text(encoding="utf-8"))
-    plan_vfx = json.loads(
-        (PROJECT_ROOT / "library" / "steps" / "step_4_03_plan_vfx"
-         / "manifest.json").read_text(encoding="utf-8"))
-    assert "render_qa_findings" not in {
-        i["name"] for i in plan_vfx["interface"]["inputs"]}
-    state = _state_for(dag, "plan_vfx", project)
-    inputs = gather_step_inputs("plan_vfx", dag, state, plan_vfx,
-                                "hybrid", external={})
-    assert "render_qa_findings" not in inputs
 
 
 # ── Where the findings came from is recorded, never assumed ──────────

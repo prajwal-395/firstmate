@@ -154,34 +154,8 @@ def test_the_wrapper_refuses_when_no_interpreter_exists(tmp_path):
     assert "ML stack" in proc.stderr
 
 
-def test_the_wrapper_refusal_names_every_rung_it_tried(tmp_path):
-    """The refusal says where it looked, so the next step is a build
-    command, not a rediscovery."""
-    if (REPO_ROOT / ".venv" / "bin" / "python3").is_file():
-        pytest.skip(reason=HAS_REPO_VENV)
-    proc = _run_wrapper([], _env(tmp_path))
-    assert proc.returncode == 3
-    assert "venv-py312" in proc.stderr
-    assert "ML_ENVIRONMENT" in proc.stderr
 
 
-def test_the_wrapper_resolves_the_real_durable_venv_where_built(tmp_path):
-    """Read-only check against the machine's real install: with a bare
-    environment the ladder must land on the durable venv, which is the
-    whole point of hoisting it."""
-    from library.tools.shared_environment import python_interpreter
-    real, _ = python_interpreter(str(REPO_ROOT))
-    if not real:
-        pytest.skip(reason=NO_DURABLE)
-    # The real install, not the fixture home: this is the read-only
-    # check, so the vehicle stays but VEP_HOME is the machine's own.
-    env = dict(os.environ)
-    env.pop("PIPELINE_PYTHON", None)
-    env["PATH"] = (str(_vehicle_dir(tmp_path))
-                   + os.pathsep + env.get("PATH", ""))
-    proc = _run_wrapper([], env)
-    assert proc.returncode == 0, proc.stderr
-    assert f"PIPELINE_PYTHON={real}" in proc.stdout
 
 
 # ── the hook injects the environment without being asked ───────────

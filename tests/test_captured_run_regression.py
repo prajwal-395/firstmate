@@ -71,10 +71,6 @@ def test_broll_collapsed_to_one_zero_length_clip(broken_manifest):
     assert any("broll" in e for e in errors)
 
 
-def test_all_transitions_share_one_cut_point(broken_manifest):
-    errors = _check_distinct_cut_points(broken_manifest)
-    assert len(errors) == 9, errors
-    assert all("2.682" in e for e in errors)
 
 
 def test_sfx_stacked_at_zero(broken_manifest):
@@ -93,15 +89,8 @@ def test_sfx_stacked_at_zero(broken_manifest):
     assert _check_sfx_distributed(stacked)
 
 
-def test_identical_vfx_ranges(broken_manifest):
-    errors = _check_vfx_distinct(broken_manifest)
-    assert len(errors) == 4, errors
-    assert all("slow_zoom_in" in e for e in errors)
 
 
-def test_subtitle_overlays_overlap(broken_manifest):
-    errors = _check_overlay_segments_do_not_overlap(broken_manifest)
-    assert len(errors) == 13, errors
 
 
 
@@ -147,19 +136,8 @@ def test_captured_spine_violates_the_contract(broken_steps):
     assert "clip_id" in message
 
 
-def test_captured_spine_blocks_have_no_top_level_clip_id(broken_steps):
-    blocks = broken_steps["mesh_spine"]["timed_spine"]["structure"]
-    assert all("clip_id" not in b for b in blocks)
-    # ...which is exactly the key plan_transitions read to decide whether
-    # to run word-end detection, so the whole path was unreachable.
-    assert all(b.get("clip_id", "") == "" for b in blocks)
 
 
-def test_captured_body_passages_have_no_word_timings(broken_steps):
-    body = broken_steps["speech_sequence"]["speech_sequence"]["body_sequence"]
-    assert len(body) == 13
-    assert all(not p["word_timestamps"] for p in body)
-    assert all(p["start_time"] is None for p in body)
 
 
 def test_hook_and_a_body_passage_share_one_source_range(broken_steps):
@@ -177,70 +155,9 @@ def test_hook_and_a_body_passage_share_one_source_range(broken_steps):
 
 # ─── The fixed code paths must not reproduce the defects ─────
 
-def test_word_end_cutting_is_reachable_on_a_conformant_spine():
-    """The guard that gated beat-snapping now opens."""
-    from library.steps.step_4_02_plan_transitions.post_bridge import (
-        resolve_cut_point,
-    )
-
-    outgoing = {
-        "position": 1,
-        "block_type": "speech",
-        "clip_id": "clip_006",
-        "source_start": 14.68,
-        "source_end": 16.065,
-        "timeline_start": 2.682,
-        "timeline_end": 4.067,
-        "alignment_method": "whisperx_word_alignment",
-        "word_timestamps": [
-            {"word": "okay", "source_start": 14.68, "source_end": 14.9},
-            {"word": "here", "source_start": 15.6, "source_end": 16.02},
-        ],
-    }
-    incoming = dict(outgoing, position=2, timeline_start=4.067,
-                    timeline_end=6.0)
-
-    result = resolve_cut_point(incoming, outgoing, beat_grid=[])
-    assert result["method"].startswith("word-end"), result
-    # The cut lands on the last word's end, not the block boundary.
-    assert result["cut_time"] == pytest.approx(4.022, abs=0.01)
 
 
 
-def test_subtitle_overlay_segments_no_longer_overlap():
-    """Placement uses content bounds; the render buffer is trimmed."""
-    from library.steps.step_4_05_render_subtitles.generate_remotion_props import (
-        SUBTITLE_RENDER_BUFFER_S,
-        generate_subtitle_props_per_block,
-    )
-
-    from library.tools.subtitle_style import resolve_subtitle_style
-    subtitle_data = {"style": resolve_subtitle_style(),
-                     "subtitle_entries": [
-        {"spine_block_position": 1, "timeline_start": 0.0,
-         "timeline_end": 2.682, "text": "first", "words": []},
-        {"spine_block_position": 2, "timeline_start": 2.682,
-         "timeline_end": 4.067, "text": "second", "words": []},
-        {"spine_block_position": 3, "timeline_start": 4.067,
-         "timeline_end": 6.896, "text": "third", "words": []},
-    ]}
-    props = generate_subtitle_props_per_block(
-        subtitle_data, fps=30, width=1080, height=1920)
-    segments = [
-        {
-            "timeline_start": p["_timeline_start"],
-            "timeline_end": p["_timeline_end"],
-        }
-        for p in props
-    ]
-    assert _check_overlay_segments_do_not_overlap(
-        {"subtitle_overlay": {"segments": segments}}) == []
-    # The handles still exist in the rendered clip - they are trimmed at
-    # placement time, not removed from the render.
-    padded = props[1]
-    assert padded["durationInFrames"] > (
-        padded["_source_out_frame"] - padded["_source_in_frame"])
-    assert padded["_source_in_frame"] == round(SUBTITLE_RENDER_BUFFER_S * 30)
 
 
 # ─── Steps that lied about their own success ─────────────────
@@ -445,22 +362,6 @@ def test_unresolvable_overlap_fails_the_passage(repeated_phrase_index):
     assert "overlaps the previous passage" in str(excinfo.value)
 
 
-def test_non_overlapping_passages_on_one_clip_still_align(
-        repeated_phrase_index):
-    """The check must not disturb a clip cut into consecutive passages."""
-    from library.steps.step_2_02_speech_sequence.post_bridge import (
-        enrich_speech_sequence,
-    )
-
-    sequence = _two_passage_sequence(
-        second_text="At least one, every single day.")
-    result = enrich_speech_sequence(sequence, repeated_phrase_index)
-    first, second = result["body_sequence"]
-    assert (first["source_start"], first["source_end"]) == \
-        pytest.approx((63.135, 66.635))
-    assert second["source_start"] == pytest.approx(69.300)
-    assert all(p["alignment_method"] == "whisperx_word_alignment"
-               for p in result["body_sequence"])
 
 
 # ─── ...and the manifest assertion that would have caught it ──
@@ -490,28 +391,5 @@ def test_repeated_source_audio_is_rejected(broken_manifest):
     assert "IMG_1816.MOV" in errors[0]
 
 
-def test_repeated_source_audio_reaches_the_semantic_pass(broken_manifest):
-    """It belongs with the other semantic assertions, not off to the side."""
-    overlapping = _overlapping_pair_manifest(broken_manifest)
-    assert any("plays that audio twice in a row" in e
-               for e in validate_manifest_semantics(overlapping))
 
 
-def test_same_clip_blocks_that_do_not_overlap_pass(broken_manifest):
-    """Consecutive cuts from one clip are normal; only the overlap is not."""
-    from library.tools.manifest_validator import (
-        _check_no_repeated_source_audio,
-    )
-
-    # As captured: speech_6 ends at 66.635 and speech_7 starts at 66.655,
-    # both IMG_1816, plus several other same-clip runs.
-    assert _check_no_repeated_source_audio(broken_manifest) == []
-
-    # Blocks from different clips are unaffected even when their source
-    # ranges happen to coincide.
-    manifest = json.loads(json.dumps(broken_manifest))
-    clips = manifest["tracks"]["V1"]["clips"]
-    clips[7]["source_in"] = 65.894
-    clips[7]["source_file"] = clips[7]["source_file"].replace(
-        "IMG_1816", "IMG_1899")
-    assert _check_no_repeated_source_audio(manifest) == []

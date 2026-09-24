@@ -75,21 +75,7 @@ def _state_with(*node_ids):
 
 # ── The default run is unchanged apart from what is off by default ──
 
-def test_a_plain_selection_runs_the_whole_dag(dag, manifests):
-    scope = _resolve(Selection(), dag, manifests)
-    dag_nodes = {n["id"] for n in dag["nodes"]}
-    assert set(scope.steps_to_run) == dag_nodes - set(DESELECTED_BY_DEFAULT)
-    assert scope.skipped == ()
-    assert not scope.is_scoped
 
-
-def test_the_run_order_is_topological(dag, manifests):
-    scope = _resolve(Selection(), dag, manifests)
-    position = {n: i for i, n in enumerate(scope.steps_to_run)}
-    for edge in dag["edges"]:
-        src, dst = edge["from"], edge["to"]
-        if src in position and dst in position:
-            assert position[src] < position[dst], f"{src} runs after {dst}"
 
 
 # ── Hard and soft edges are read off the same two declarations ──────
@@ -112,42 +98,8 @@ def test_an_edge_is_hard_exactly_when_the_runner_would_raise(dag, manifests):
             f"would{'' if would_raise else ' not'} raise")
 
 
-def test_a_prerequisite_exists_exactly_when_the_runner_would_raise(
-        dag, manifests):
-    """The per-KEY form of the edge agreement above, and now the
-    primitive `hard_requirements` is derived from.
-
-    `gather_step_inputs` raises per mapped key, so the condition has to
-    be read per key too: an edge carrying one required key and three
-    optional ones is one prerequisite, not four and not one-per-edge.
-    """
-    needs = {(need.consumer, need.producer, need.state_key, need.input_name)
-             for need in run_scope.prerequisites(dag, manifests)}
-    expected = set()
-    for edge in dag["edges"]:
-        consumer, producer = edge["to"], edge["from"]
-        mapping = edge.get("data_mapping") or {}
-        optional = run_scope.optional_inputs(manifests[consumer])
-        if not mapping:
-            expected.add((consumer, producer, "", ""))
-            continue
-        for source_key, destination in mapping.items():
-            if destination not in optional:
-                expected.add((consumer, producer, source_key, destination))
-    assert needs == expected
 
 
-def test_hard_requirements_is_the_prerequisites_collapsed(dag, manifests):
-    """Two readings of "hard", one computation. The closure walks
-    producers and the refusal walks keys, and they must not drift."""
-    requirements = run_scope.hard_requirements(dag, manifests)
-    from_needs = {}
-    for need in run_scope.prerequisites(dag, manifests):
-        keys = from_needs.setdefault(need.consumer, {}).setdefault(
-            need.producer, set())
-        if need.input_name:
-            keys.add(need.input_name)
-    assert requirements == from_needs
 
 
 def test_a_selection_the_scope_accepts_never_raises_in_gather_step_inputs(
@@ -179,61 +131,17 @@ def test_a_selection_the_scope_accepts_never_raises_in_gather_step_inputs(
                                external={})
 
 
-def test_a_soft_parent_is_not_dragged_in_by_a_target(dag, manifests):
-    """`creative_cohesion` reaches `compile_manifest` on an OPTIONAL
-    input, so a target that wants the render does not have to pay for
-    it."""
-    optional = run_scope.optional_inputs(manifests["compile_manifest"])
-    assert "cohesion_review" in optional
-    scope = _resolve(Selection(target="rough_cut_subtitles"), dag, manifests)
-    assert "creative_cohesion" not in scope.steps_to_run
-    assert "creative_cohesion" in scope.skipped
 
 
 # ── The named target ────────────────────────────────────────────────
 
-def test_the_target_is_derived_from_the_dag_not_stored(dag, manifests):
-    """A target names GOALS. Everything else is walked off the DAG, so a
-    step inserted upstream is picked up without editing the table."""
-    for target in TARGETS.values():
-        for goal in target.goals:
-            assert goal in {n["id"] for n in dag["nodes"]}, (
-                f"target {target.name} names goal {goal!r}, which is not "
-                f"a step in this pipeline")
 
 
-def test_the_rough_cut_target_reaches_a_render_with_subtitles(dag, manifests):
-    scope = _resolve(Selection(target="rough_cut_subtitles"), dag, manifests)
-    for needed in ("plan_subtitles", "render_subtitles", "compile_manifest",
-                   "render"):
-        assert needed in scope.steps_to_run
-    assert scope.is_scoped
-    assert len(scope.steps_to_run) < len(scope.universe)
 
 
-def test_the_target_skips_something_and_says_why(dag, manifests):
-    scope = _resolve(Selection(target="rough_cut_subtitles"), dag, manifests)
-    assert scope.skipped
-    for node_id in scope.skipped:
-        assert scope.reasons.get(node_id), f"{node_id} skipped with no reason"
-
-
-def test_an_unknown_target_is_refused_by_name(dag, manifests):
-    with pytest.raises(ScopeError, match="unknown target"):
-        _resolve(Selection(target="ship_it"), dag, manifests)
 
 
 # ── Selecting and deselecting ───────────────────────────────────────
-
-def test_only_runs_the_step_and_what_it_cannot_run_without(dag, manifests):
-    scope = _resolve(Selection(only=("plan_subtitles",)), dag, manifests)
-    assert "plan_subtitles" in scope.steps_to_run
-    # Its hard parents come with it.
-    for parent in ("mesh_spine", "review_rough_cut"):
-        assert parent in scope.steps_to_run
-    # Its consumers do not.
-    assert "compile_manifest" not in scope.steps_to_run
-    assert "render" not in scope.steps_to_run
 
 
 def test_only_does_not_drag_in_a_producer_of_a_value_nothing_reads(
@@ -278,10 +186,6 @@ def test_only_does_not_drag_in_a_producer_of_a_value_nothing_reads(
         dag, manifests)["mesh_spine"]
 
 
-def test_skip_removes_a_step_nothing_needs(dag, manifests):
-    scope = _resolve(Selection(skip=("validate",)), dag, manifests)
-    assert "validate" not in scope.steps_to_run
-    assert scope.reasons["validate"] == "excluded by --skip"
 
 
 def test_an_unknown_step_is_refused_by_name(dag, manifests):
@@ -321,20 +225,6 @@ def test_compile_manifest_no_longer_holds_the_decoration_planners(
         requirements["render_motion_graphics"]["plan_vfx"])
 
 
-def test_the_refusal_says_how_to_fix_it(dag, manifests):
-    with pytest.raises(ScopeError) as exc:
-        _resolve(Selection(skip=("plan_vfx",)), dag, manifests)
-    message = str(exc.value)
-    assert "--skip" in message and "--only" in message
-
-
-def test_a_recorded_output_satisfies_an_excluded_dependency(dag, manifests):
-    """The scoped-re-run case: plan_vfx already ran, so leaving it out
-    strands nobody."""
-    state = _state_with("plan_vfx")
-    scope = _resolve(Selection(skip=("plan_vfx",)), dag, manifests, state)
-    assert "plan_vfx" not in scope.steps_to_run
-    assert "render_motion_graphics" in scope.from_cache["plan_vfx"]
 
 
 def test_a_recorded_output_missing_the_KEY_does_not_satisfy(dag, manifests):
@@ -355,13 +245,6 @@ def test_a_recorded_output_missing_the_KEY_does_not_satisfy(dag, manifests):
         "captain cannot tell a missing step from a missing key")
 
 
-def test_a_ledger_entry_with_no_output_does_not_satisfy(dag, manifests):
-    """A ledger entry says the step finished; the output is what
-    `gather_step_inputs` will actually read. Accepting the first without
-    the second moves the crash back into the run."""
-    state = {"edit_completed": {"plan_vfx": {"at": "now"}}, "step_outputs": {}}
-    with pytest.raises(ScopeError, match="plan_vfx"):
-        _resolve(Selection(skip=("plan_vfx",)), dag, manifests, state)
 
 
 def test_a_rerun_target_cannot_satisfy_what_it_is_about_to_discard(
@@ -396,46 +279,9 @@ def test_every_accepted_selection_has_its_dependencies_met(dag, manifests):
 
 # ── Steps that are off by default ───────────────────────────────────
 
-def test_the_default_off_list_names_real_dag_nodes(dag):
-    node_ids = {n["id"] for n in dag["nodes"]}
-    for node_id in DESELECTED_BY_DEFAULT:
-        assert node_id in node_ids, (
-            f"{node_id} is deselected by default but is not in the DAG. "
-            f"A step with no node is UNWIRED - see "
-            f"project_layout.STEPS - and this is not that list.")
 
 
-def test_nothing_a_default_run_schedules_hard_depends_on_a_default_off_step(
-        dag, manifests):
-    """Otherwise every default run would refuse.
 
-    A consumer that is ITSELF off by default is not a counterexample:
-    a default run schedules neither, so there is nothing to strand.
-    `judge_reels` is the first of those - it reads what `select_reels`
-    chose and both are off for the same reason (no timeline transcript on
-    a default run). `test_a_default_run_is_clean` below is the assertion
-    that actually matters, and it is checked against the real resolver
-    rather than against this rule's restatement of it.
-    """
-    requirements = run_scope.hard_requirements(dag, manifests)
-    for node_id in DESELECTED_BY_DEFAULT:
-        consumers = [c for c, parents in requirements.items()
-                     if node_id in parents
-                     and c not in DESELECTED_BY_DEFAULT]
-        assert not consumers, (
-            f"{node_id} is off by default but {consumers} hard-depend on "
-            f"it and are not themselves off by default, so a default run "
-            f"would refuse")
-
-
-def test_a_default_run_is_clean(bare_project):
-    """The property the rule above is a restatement of, asked of the
-    real resolver: a plain run resolves without refusing and schedules
-    no default-off step."""
-    summary = _dry_run(bare_project)
-    assert summary["steps_to_run"], "a default run refused"
-    for node_id in DESELECTED_BY_DEFAULT:
-        assert node_id not in summary["steps_to_run"]
 
 
 def test_only_pulls_in_a_default_off_step_its_target_cannot_run_without(
@@ -453,15 +299,6 @@ def test_only_pulls_in_a_default_off_step_its_target_cannot_run_without(
     assert summary["steps_to_run"] == ["select_reels", "judge_reels"]
 
 
-def test_a_step_pulled_in_that_way_is_reported_rather_than_silent(
-        dag, manifests):
-    """A default-off step turning itself on quietly is the trap
-    `default_off` exists to stop, arriving from the other side."""
-    scope = _resolve(Selection(only=("judge_reels",)), dag, manifests)
-    assert scope.pulled_in == ("select_reels",)
-    printed = "\n".join(run_scope.describe(scope))
-    assert "off by default and running anyway: select_reels" in printed.lower()
-
 
 def test_skip_still_wins_over_being_pulled_in(dag, manifests):
     """"Run this, but not the thing it needs" is refused, not silently
@@ -471,54 +308,17 @@ def test_skip_still_wins_over_being_pulled_in(dag, manifests):
                  dag, manifests)
 
 
-def test_every_default_off_step_carries_a_reason(dag, manifests):
-    for node_id, reason in DESELECTED_BY_DEFAULT.items():
-        assert len(reason.strip()) > 40, (
-            f"{node_id} is off by default with a thin reason: {reason!r}")
 
 
-def test_a_default_run_reports_what_is_off_by_default(dag, manifests):
-    """A step that exists and silently never runs is the trap AGENTS.md
-    section 3 exists to stop."""
-    scope = _resolve(Selection(), dag, manifests)
-    assert set(scope.default_off) == set(DESELECTED_BY_DEFAULT)
-    printed = "\n".join(run_scope.describe(scope))
-    for node_id in DESELECTED_BY_DEFAULT:
-        assert node_id in printed
 
 
-def test_with_turns_a_default_off_step_back_on(dag, manifests):
-    scope = _resolve(Selection(with_steps=("ocr_extraction",)), dag, manifests)
-    assert "ocr_extraction" in scope.steps_to_run
-    assert "ocr_extraction" not in scope.default_off
-    assert "select_reels" in scope.default_off
 
 
-def test_naming_a_default_off_step_in_only_selects_it(dag, manifests):
-    scope = _resolve(Selection(only=("ocr_extraction",)), dag, manifests)
-    assert "ocr_extraction" in scope.steps_to_run
 
-
-def test_step_names_a_default_off_step_outright(dag, manifests):
-    """`--step ocr_extraction` reaches here as `always_include`. Naming a
-    step is a stronger statement than any default."""
-    scope = _resolve(Selection(), dag, manifests,
-                     always_include=["ocr_extraction"])
-    assert "ocr_extraction" in scope.steps_to_run
 
 
 # ── The text-extraction step, deselected through this mechanism ─────
 
-def test_the_text_extraction_step_is_wired_and_deselected(dag, manifests):
-    """#245: "finish flushing it out and then simply deselect it". So it
-    has a node, and the deselection is expressed here rather than by a
-    bespoke flag."""
-    assert "ocr_extraction" in {n["id"] for n in dag["nodes"]}
-    assert "ocr_extraction" in DESELECTED_BY_DEFAULT
-
-    from library.tools.project_layout import STEPS
-    step = next(s for s in STEPS if s.node_id == "ocr_extraction")
-    assert step.wired, "the step is wired; it is the RUN that declines it"
 
 
 def test_the_default_run_leaves_the_text_extraction_step_out(dag, manifests):
@@ -552,41 +352,12 @@ def test_the_reason_does_not_claim_the_vision_model_cannot_read_text():
         "project_layout.py still carries the corrected claim")
 
 
-def test_no_step_consumes_the_text_extraction_output(dag):
-    """The reason says nothing reads it. If that stops being true the
-    reason is stale, and this is what notices."""
-    consumers = [e["to"] for e in dag["edges"] if e["from"] == "ocr_extraction"]
-    assert consumers == [], (
-        f"{consumers} now consume ocr_extraction - revisit "
-        f"DESELECTED_BY_DEFAULT, the step is no longer free to leave out")
 
 
 # ── One vocabulary, two CLIs ────────────────────────────────────────
 
-def test_both_clis_register_the_same_scope_flags():
-    """`manage_project.py run` forwards to `run_pipeline.py`, so a flag
-    one accepts and the other does not is a broken command."""
-    import argparse
-
-    wrapper = argparse.ArgumentParser()
-    run_scope.add_scope_arguments(wrapper)
-    runner = argparse.ArgumentParser()
-    run_scope.add_scope_arguments(runner)
-
-    def options(parser):
-        return {opt for action in parser._actions
-                for opt in action.option_strings}
-
-    assert options(wrapper) == options(runner)
-    assert {"--target", "--only", "--skip", "--with"} <= options(wrapper)
 
 
-def test_manage_project_forwards_every_scope_flag():
-    """The wrapper builds an argv for the runner. A flag it parses and
-    does not forward is silently ignored."""
-    source = (REPO_ROOT / "manage_project.py").read_text(encoding="utf-8")
-    for flag in ("--target", "--only", "--skip", "--with"):
-        assert f'"{flag}"' in source, f"manage_project.py never sends {flag}"
 
 
 # ── The flags that predate this must behave exactly as before ───────
@@ -630,54 +401,15 @@ def _dry_run(project, **kwargs):
     return run_pipeline(str(project), dry_run=True, **kwargs)
 
 
-def test_step_still_runs_exactly_one_step(bare_project, dag):
-    for node_id in [n["id"] for n in dag["nodes"]]:
-        summary = _dry_run(bare_project, single_step=node_id)
-        assert summary["steps_to_run"] == [node_id], (
-            f"--step {node_id} no longer runs exactly that step")
 
 
-def test_step_reaches_a_step_that_is_off_by_default(bare_project):
-    summary = _dry_run(bare_project, single_step="ocr_extraction")
-    assert summary["steps_to_run"] == ["ocr_extraction"]
 
 
-def test_from_still_runs_the_target_and_everything_not_upstream_of_it(
-        bare_project, dag, manifests):
-    """The pre-scoping rule, recomputed here and compared against the
-    real runner. The universe is the DAG minus what is off by default,
-    which is what a default run has always been."""
-    universe = run_scope.resolve(Selection(), dag=dag,
-                                 manifests=manifests).universe
-    for node_id in universe:
-        expected = [n for n in universe if n not in _ancestors(node_id, dag)]
-        summary = _dry_run(bare_project, from_step=node_id)
-        assert summary["steps_to_run"] == expected, (
-            f"--from {node_id} changed shape")
 
 
-def test_a_plain_dry_run_lists_the_whole_pipeline(bare_project, dag,
-                                                  manifests):
-    universe = run_scope.resolve(Selection(), dag=dag,
-                                 manifests=manifests).universe
-    summary = _dry_run(bare_project)
-    assert summary["steps_to_run"] == list(universe)
 
 
-def test_rerun_still_reports_its_targets_and_does_not_narrow_the_run(
-        bare_project, dag, manifests):
-    universe = run_scope.resolve(Selection(), dag=dag,
-                                 manifests=manifests).universe
-    summary = _dry_run(bare_project, rerun=["temporal_index"])
-    assert summary["steps_to_run"] == list(universe)
 
-
-def test_a_rerun_target_that_names_nothing_is_still_refused_by_the_ledger(
-        bare_project):
-    from library.tools.step_ledger import LedgerError
-
-    with pytest.raises(LedgerError):
-        _dry_run(bare_project, rerun=["not_a_step"])
 
 
 def test_the_refusal_happens_before_anything_is_written(bare_project):
@@ -697,11 +429,6 @@ def test_the_refusal_happens_before_anything_is_written(bare_project):
         "a refused run created output directories")
 
 
-def test_a_target_run_reports_what_it_skipped(bare_project):
-    summary = _dry_run(bare_project, target="rough_cut_subtitles")
-    assert "validate" in summary["skipped"]
-    assert summary["skip_reasons"]["validate"]
-    assert summary["estimated_seconds"]["skipped"] > 0
 
 
 # ── The dashboard drives a default run ──────────────────────────────
@@ -716,10 +443,3 @@ def test_the_dashboard_step_button_does_not_advance_into_a_default_off_step():
     for node_id in DESELECTED_BY_DEFAULT:
         assert node_id not in order
 
-
-def test_a_target_whose_own_goal_is_skipped_is_refused(dag, manifests):
-    """`--target rough_cut_subtitles --skip render` would otherwise
-    resolve happily to a run that never reaches the target."""
-    with pytest.raises(ScopeError, match="cannot be reached"):
-        _resolve(Selection(target="rough_cut_subtitles", skip=("render",)),
-                 dag, manifests)

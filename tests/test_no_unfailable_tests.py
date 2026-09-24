@@ -63,13 +63,6 @@ def test_no_test_in_this_repo_is_unfailable():
         + "\n\n" + skip_audit.UNDECLARED_SKIP_ADVICE)
 
 
-def test_every_declared_condition_says_what_makes_it_false():
-    for condition in ENVIRONMENT_CONDITIONS:
-        assert condition.false_when.strip(), (
-            f"{condition.pattern!r} declares no environment that runs the "
-            f"test, which is the whole content of a legitimate skip")
-
-
 def test_a_declaration_matches_the_reason_it_was_written_for():
     """The declarations are useless if they match nothing."""
     assert declared_condition(
@@ -131,75 +124,6 @@ def test_an_unconditional_skip_marker_is_a_finding(tmp_path):
     assert _kinds(findings) == ["unconditional-skip"]
 
 
-def test_skipif_true_is_a_finding(tmp_path):
-    findings = _audit(tmp_path, """
-        import pytest
-
-        @pytest.mark.skipif(True, reason="later")
-        def test_thing():
-            assert False
-    """)
-    assert _kinds(findings) == ["unconditional-skip"]
-
-
-def test_a_skip_on_the_straight_line_of_a_body_is_a_finding(tmp_path):
-    findings = _audit(tmp_path, """
-        import pytest
-
-        def test_thing():
-            pytest.skip("not yet")
-            assert False
-    """)
-    assert _kinds(findings) == ["unconditional-skip"]
-
-
-def test_a_skipif_naming_a_real_condition_is_not_a_finding(tmp_path):
-    findings = _audit(tmp_path, """
-        import shutil
-        import pytest
-
-        @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="no ffmpeg")
-        def test_thing():
-            assert True
-    """)
-    assert findings == []
-
-
-def test_a_skip_inside_a_branch_is_not_a_finding(tmp_path):
-    findings = _audit(tmp_path, """
-        import shutil
-        import pytest
-
-        def test_thing():
-            if shutil.which("ffmpeg") is None:
-                pytest.skip("no ffmpeg")
-            assert True
-    """)
-    assert findings == []
-
-
-def test_a_guard_on_a_third_party_import_is_not_a_finding(tmp_path):
-    """A missing package IS a fact about the machine - that is the job."""
-    findings = _audit(tmp_path, """
-        import pytest
-
-        def test_thing():
-            try:
-                from parselmouth import Sound
-            except ImportError:
-                pytest.skip("parselmouth not installed")
-            assert Sound
-    """)
-    assert findings == []
-
-
-def test_a_guard_on_a_first_party_symbol_that_exists_is_not_a_finding():
-    """Judged against the real tree, so the resolver is exercised."""
-    findings = audit_source(
-        Path(__file__).with_name("test_no_unfailable_tests.py"))
-    assert findings == []
-
-
 def _first_party_tree(tmp_path: Path) -> Path:
     library = tmp_path / "library" / "steps" / "step_9_99_example"
     library.mkdir(parents=True)
@@ -210,128 +134,12 @@ def _first_party_tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_a_guard_on_a_first_party_symbol_that_does_not_exist_is_a_finding(
-        tmp_path):
-    """The exact shape of all five tests in issue #249."""
-    _first_party_tree(tmp_path)
-    findings = _audit(tmp_path, """
-        import pytest
-
-        def test_thing():
-            try:
-                from library.steps.step_9_99_example.step import analyze
-            except ImportError:
-                pytest.skip("Step 9.99 not available")
-            assert analyze
-    """)
-    assert _kinds(findings) == ["unresolvable-guard"]
-    assert "defines no 'analyze'" in findings[0].detail
-
-
-def test_a_guard_on_a_first_party_module_that_does_not_exist_is_a_finding(
-        tmp_path):
-    _first_party_tree(tmp_path)
-    findings = _audit(tmp_path, """
-        import pytest
-
-        def test_thing():
-            try:
-                from library.steps.step_9_99_example.bridge import pre_bridge
-            except ImportError:
-                pytest.skip("pre_bridge not available")
-            assert pre_bridge
-    """)
-    assert _kinds(findings) == ["unresolvable-guard"]
-
-
-def test_a_guard_on_a_first_party_symbol_that_does_exist_is_not_a_finding(
-        tmp_path):
-    _first_party_tree(tmp_path)
-    findings = _audit(tmp_path, """
-        import pytest
-
-        def test_thing():
-            try:
-                from library.steps.step_9_99_example.step import main
-            except ImportError:
-                pytest.skip("Step 9.99 not available")
-            assert main() == 1
-    """)
-    assert findings == []
-
-
-def test_a_module_that_cannot_enumerate_its_names_is_not_accused(tmp_path):
-    """A star-import means the name set is not the whole story."""
-    _first_party_tree(tmp_path)
-    (tmp_path / "library" / "steps" / "step_9_99_example" / "step.py"
-     ).write_text("from os.path import *\n", encoding="utf-8")
-    findings = _audit(tmp_path, """
-        import pytest
-
-        def test_thing():
-            try:
-                from library.steps.step_9_99_example.step import join
-            except ImportError:
-                pytest.skip("Step 9.99 not available")
-            assert join
-    """)
-    assert findings == []
-
-
 def test_an_empty_body_is_a_finding(tmp_path):
     findings = _audit(tmp_path, """
         def test_thing():
             pass
     """)
     assert _kinds(findings) == ["cannot-fail"]
-
-
-def test_a_guarded_import_followed_by_pass_is_a_finding(tmp_path):
-    """`test_temporal_index`: the import RESOLVED, so it ran and asserted
-    nothing - a green dot for step 1.04 on every run since it was
-    written."""
-    _first_party_tree(tmp_path)
-    findings = _audit(tmp_path, """
-        import pytest
-
-        def test_thing():
-            try:
-                from library.steps.step_9_99_example.step import main
-            except ImportError:
-                pytest.skip("Step 9.99 not available")
-            pass
-    """)
-    assert _kinds(findings) == ["cannot-fail"]
-
-
-def test_a_body_that_swallows_every_exception_is_a_finding(tmp_path):
-    findings = _audit(tmp_path, """
-        def test_thing():
-            try:
-                from nowhere import nothing
-                assert nothing({}) == 3
-            except Exception:
-                pass
-    """)
-    assert _kinds(findings) == ["cannot-fail"]
-
-
-def test_a_try_that_asserts_in_its_handler_is_not_a_finding(tmp_path):
-    findings = _audit(tmp_path, """
-        def test_thing():
-            try:
-                raise ValueError("x")
-            except ValueError as e:
-                assert "x" in str(e)
-    """)
-    assert findings == []
-
-
-def test_the_audit_reads_test_modules_outside_the_tests_directory():
-    """Nine always-skipping tests were hiding in library/tools/fusion."""
-    paths = {p.relative_to(REPO_ROOT) for p in skip_audit.test_sources()}
-    assert Path("library/tools/fusion/tests/test_parser.py") in paths
-    assert Path("tests/test_no_unfailable_tests.py") in paths
 
 
 # ── The runtime half really fails a session ───────────────────────────

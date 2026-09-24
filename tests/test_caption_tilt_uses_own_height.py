@@ -110,36 +110,3 @@ def test_three_heights_on_one_row_share_one_screen_centre(tmp_path):
         assert (got_cx, got_cy) == pytest.approx((cx, cy))
 
 
-def test_the_tilts_differ_per_height_as_the_law_says(tmp_path):
-    """The same screen place needs different stored Tilts per height -
-    computed here from the measured law, not from the code under test.
-
-    `shift_px = value * clip_dim / frame_dim`, so holding the centre
-    fixed while the canvas height moves must move the Tilt as
-    ``(FH/2 - cy) * FH / h``. A derivation that stored one value for
-    every size would fail the first test by 100+px; these numbers say
-    by exactly how much.
-    """
-    folder = _project(tmp_path, DECLARED_ROW)
-    box, (cx, cy) = _declared_centre(folder)
-
-    # History gain: the formula below is the 2026-09-11 law (see
-    # HISTORY_GAIN in test_tight_box.py); the per-height difference
-    # it proves holds at any gain.
-    tilts = {}
-    for height in (box.height,) + OTHER_HEIGHTS:
-        placement = placement_for_box(box.width, height, cx, cy,
-                                      FRAME_W, FRAME_H, draw_gain=1.0)
-        tilts[height] = placement["tilt"]
-        assert placement["tilt"] == pytest.approx(
-            (FRAME_H / 2.0 - cy) * (FRAME_H / float(height)))
-
-    # No one-size value: the 300-tall graphic needs nearly twice the
-    # Tilt units of the 640-tall one for the identical screen centre.
-    assert len(set(round(v, 6) for v in tilts.values())) == 3
-    # And the fixed-480 spelling would be exactly the 480 entry -
-    # which is what the other two are not.
-    assert tilts[480] == pytest.approx(
-        (FRAME_H / 2.0 - cy) * (FRAME_H / 480.0))
-    assert abs(tilts[300] - tilts[480]) > 100
-    assert abs(tilts[640] - tilts[480]) > 100

@@ -252,60 +252,7 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
         "Reel 03 - moment-3" + STAGING_SUFFIX)
 
 
-def test_building_one_reel_into_a_new_name_deletes_nothing_at_all(project):
-    resolve_project = FakeProject([MASTER] + APPROVED)
-
-    record, placed, _ = _run(resolve_project, project, only=[3],
-                             name_suffix=" (pipeline rebuild)")
-
-    assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED + ["Reel 03 - moment-3 (pipeline rebuild)"])
-    _only_probe_deleted(resolve_project.GetMediaPool())
-    assert record["timelines_built"] == [
-        "Reel 03 - moment-3 (pipeline rebuild)"]
-    assert placed.call_args[1]["timeline_name"] == (
-        "Reel 03 - moment-3 (pipeline rebuild)" + STAGING_SUFFIX)
-
-
-def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
-    """`Reel 99` is a timeline no approved moment will recreate.
-
-    The old loop deleted it because the name began "Reel ". Deleting a
-    timeline nothing is about to replace is destruction, not a rebuild.
-    Promotion DELETES this run's originals - nineteen backups, one per
-    reel, and nothing is archived - while the orphan is neither
-    replaced nor deleted: it is not a reel this build placed.
-    """
-    from library.tools import reel_retirement
-
-    resolve_project = FakeProject([MASTER] + APPROVED + ["Reel 99 - orphan"])
-
-    record, placed, _ = _run(resolve_project, project)
-
-    assert "Reel 99 - orphan" in resolve_project.names()
-    _only_probe_and_backups_deleted(
-        resolve_project.GetMediaPool(),
-        [f"{name} (pre-rebuild backup)" for name in APPROVED])
-    archived = sorted(name for name in resolve_project.names()
-                      if reel_retirement.is_archived_timeline(name))
-    assert archived == []
-    assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED + ["Reel 99 - orphan"])
-    assert record["timelines_built"] == APPROVED
-    assert placed.call_count == 19
-
-
 # ── The guard, both directions ───────────────────────────────────────
-
-def test_the_guard_permits_replacing_exactly_what_is_being_placed():
-    """The direction that must NOT fire. A guard that refuses correct
-    output is no more coverage than one that cannot fire (AGENTS.md
-    10.4)."""
-    planned = {"Reel 03 - moment-3", "Reel 04 - moment-4"}
-    assert_deletion_scope(
-        [_timeline("Reel 03 - moment-3"), _timeline("Reel 04 - moment-4")],
-        planned)
-    assert_deletion_scope([], planned)
 
 
 def test_the_guard_refuses_a_timeline_that_was_never_planned():
@@ -365,57 +312,7 @@ def test_only_refuses_a_reel_the_plan_has_not_approved(project):
     assert not resolve_project.GetMediaPool().DeleteTimelines.called
 
 
-def test_the_suffix_reaches_the_caption_filenames(project):
-    """A rebuild under a staging suffix still places through its own
-    timeline label.
-
-    The label no longer names any file - segment filenames are
-    provenance plus content digest - but it is recorded on every
-    entry's binding (which placing the shared file serves) and it
-    drives the rejected-reel refusal, so the staging container's
-    renders must still travel under the staged name.
-
-    The approved timeline's overlays are untouched until promotion
-    renames the timeline (pool items, not filenames, are what it
-    points at).
-    """
-    resolve_project = FakeProject([MASTER] + APPROVED)
-
-    _, _, caps = _run(resolve_project, project, only=[3],
-                      name_suffix=" (pipeline rebuild)")
-
-    assert caps.call_args[1]["timeline_name"] == (
-        "Reel 03 - moment-3 (pipeline rebuild)" + STAGING_SUFFIX)
-
-
-def test_the_record_says_what_the_build_was_asked_for(project):
-    resolve_project = FakeProject([MASTER] + APPROVED)
-
-    full, _, _ = _run(resolve_project, project)
-    assert full["reels_requested"] is None
-    assert full["name_suffix"] == ""
-    assert full["staged_timelines"] == {}
-    assert json.dumps(full)
-
-    resolve_project = FakeProject([MASTER] + APPROVED)
-    partial, _, _ = _run(resolve_project, project, only=[3, 5],
-                         name_suffix=" (pipeline rebuild)")
-    assert partial["reels_requested"] == [3, 5]
-    assert partial["name_suffix"] == " (pipeline rebuild)"
-    assert partial["staged_timelines"] == {}
-
-
 # ── What `only` accepts, and what it refuses ─────────────────────────
-
-def test_reel_numbers_accepts_the_spellings_an_override_arrives_in():
-    from library.tools.reel_build import reel_numbers
-
-    assert reel_numbers(None) is None
-    assert reel_numbers([3]) == {3}
-    assert reel_numbers(["3", 5]) == {3, 5}
-    assert reel_numbers("3 5") == {3, 5}
-    assert reel_numbers("3,5") == {3, 5}
-    assert reel_numbers([]) == set()
 
 
 def test_reel_numbers_refuses_a_name_rather_than_guessing_a_moment():

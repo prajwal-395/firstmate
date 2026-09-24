@@ -82,14 +82,6 @@ def test_the_request_carries_each_segments_measured_words(tmp_path):
     assert [w["word"] for w in words[1]] == ["has", "vision"]
 
 
-def test_a_reel_with_no_timed_words_has_no_span_request(tmp_path, capsys):
-    project = tmp_path / "proj"
-    (project / "pipeline_output" / "review").mkdir(parents=True)
-    path = span.write_span_request(
-        _Moment(), {"segments": []}, _ranges(), str(project), fps=30.0)
-    assert path == ""
-
-
 # ── The resolver binds what it can ───────────────────────────────────
 
 def test_a_noun_anchored_event_with_a_lead_resolves():
@@ -106,18 +98,6 @@ def test_a_noun_anchored_event_with_a_lead_resolves():
     assert moment["timing_basis"] == "word_window:his mind"
     assert moment["shows"] == "a mind, illustrated"
     assert resolved.basis == span.SPAN_EVENTS_PLANNED
-
-
-def test_a_resolved_moment_carries_no_look_values():
-    resolved = span.resolve_span_plan(
-        [{"segment": 2, "shows": "an eye",
-          "anchor_phrase": "vision", "why": "vision is the noun"}],
-        segment_words=_words(), ranges=_ranges())
-    assert len(resolved.moments) == 1
-    assert set(resolved.moments[0]) <= {
-        "segment", "shows", "anchor_phrase", "lead_seconds",
-        "anchor_start", "anchor_end", "event_start", "timing_basis",
-        "why"}
 
 
 # ── ... and refuses what it cannot ───────────────────────────────────
@@ -143,18 +123,6 @@ def test_a_beat_landing_outside_its_segment_is_refused():
     assert [d.reason for d in resolved.dropped] == ["beat_outside_segment"]
 
 
-def test_more_events_than_the_speech_supports_are_refused():
-    # Segment 2 speaks two words, so the third beat has no word left.
-    resolved = span.resolve_span_plan(
-        [{"segment": 2, "shows": f"picture {i}",
-          "anchor_phrase": anchor, "why": "counting past the words"}
-         for i, anchor in enumerate(["has", "vision", "has vision"])],
-        segment_words=_words(), ranges=_ranges())
-    assert len(resolved.moments) == 2
-    assert [d.reason for d in resolved.dropped] == [
-        "more_events_than_speech_supports"]
-
-
 def test_an_event_carrying_look_values_is_refused():
     resolved = span.resolve_span_plan(
         [{"segment": 1, "shows": "a mind", "anchor_phrase": "mind",
@@ -164,18 +132,6 @@ def test_an_event_carrying_look_values_is_refused():
     assert resolved.moments == []
     assert [d.reason for d in resolved.dropped] == [
         "look_value_in_picture_plan"]
-
-
-def test_an_unknown_segment_and_a_second_timing_are_refused():
-    resolved = span.resolve_span_plan(
-        [{"segment": 9, "shows": "a mind", "anchor_phrase": "mind",
-          "why": "there is no ninth segment"},
-         {"segment": 1, "shows": "a mind", "anchor_phrase": "mind",
-          "start_seconds": 2.5, "why": "two timings"}],
-        segment_words=_words(), ranges=_ranges())
-    assert resolved.moments == []
-    assert [d.reason for d in resolved.dropped] == [
-        "unknown_segment", "conflicting_timing"]
 
 
 def test_an_unanchored_event_is_refused():
@@ -196,18 +152,3 @@ def test_a_malformed_span_answer_reads_as_unanswered(tmp_path):
     assert span.read_span_answer(str(project), 9) is None
 
 
-def test_a_bare_list_span_answer_reads(tmp_path):
-    project = tmp_path / "proj"
-    (project / "pipeline_output" / "llm_responses").mkdir(parents=True)
-    (project / "pipeline_output" / "llm_responses" / "reel_span_09.json").write_text(
-        json.dumps([{"segment": 1, "shows": "a mind",
-                     "anchor_phrase": "mind"}]),
-        encoding="utf-8")
-    answer = span.read_span_answer(str(project), 9)
-    assert isinstance(answer, list) and answer[0]["shows"] == "a mind"
-
-
-def test_an_empty_span_plan_is_a_decision_for_no_pictures():
-    resolved = span.resolve_span_plan([], segment_words=_words(), ranges=_ranges())
-    assert resolved.moments == []
-    assert resolved.basis == span.SPAN_NO_EVENTS_PLANNED

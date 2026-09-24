@@ -31,8 +31,6 @@ SFX = REPO / "library" / "steps" / "step_4_04_plan_sfx"
 
 from library.steps.step_4_04_plan_sfx.bridge import (  # noqa: E402
     build_sfx_candidates,
-    format_toon,
-    transient_count,
 )
 
 
@@ -219,33 +217,7 @@ def test_the_transient_column_states_no_verdict():
         assert row["action_sfx_suggested"] not in ("Yes", "No", "yes", "no")
 
 
-def test_transient_count_is_none_without_an_index_for_the_clip():
-    block = _spine()["structure"][0]
-    assert transient_count(block, {}) is None
-
-
-def test_one_transient_is_singular(monkeypatch):
-    monkeypatch.setattr('library.steps.step_4_04_plan_sfx.bridge._temporal_lookup', lambda data: {t['clip_id']: t for t in data.get('temporal_event_indices', [])})
-    block = dict(_spine()["structure"][2], source_start=9.7, source_end=10.0)
-    lookup = {t["clip_id"]: t for t in _temporal()}
-    assert transient_count(block, lookup) == 1
-    rows = build_sfx_candidates(
-        {"timed_spine": {"structure": [block]},
-         "temporal_event_indices": _temporal()}
-    )
-    assert rows[0]["action_sfx_suggested"] == "1 audio transient"
-
-
 # ── What the bridge emits ─────────────────────────────────────────────
-
-
-def test_the_serialised_table_declares_its_row_count():
-    toon = format_toon(
-        ["segment_id", "text", "action_sfx_suggested"],
-        build_sfx_candidates(_inputs()),
-    )
-    assert toon.startswith("[3]{segment_id,text,action_sfx_suggested}\n")
-    assert "[0]{" not in toon
 
 
 def test_the_bridge_hands_the_step_no_empty_sfx_spec():

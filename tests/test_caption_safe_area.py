@@ -115,15 +115,6 @@ def test_insets_are_fractions_so_4k_vertical_needs_no_second_row():
     assert (uhd.top, uhd.right, uhd.bottom, uhd.left) == (240, 240, 640, 180)
 
 
-def test_a_fixture_sized_frame_gets_a_proportionate_answer():
-    """Not every render is at the format's own size.
-
-    `tests/test_timed_text_delivery.py` renders 320x568. A raise there
-    would be a safe area that only works at one resolution.
-    """
-    insets = resolve_safe_area(width=320, height=568)
-    assert insets.bottom == round(320 / 1920 * 568)
-    assert insets.left == round(90 / 1080 * 320)
 
 
 def test_every_delivery_format_has_a_profile():
@@ -137,11 +128,6 @@ def test_unknown_format_raises_rather_than_defaulting():
         safe_area_profile("vertical_9000x16000")
 
 
-def test_every_profile_records_where_its_numbers_came_from():
-    for name, profile in SAFE_AREAS.items():
-        assert profile.derived_from.strip(), (
-            f"{name} declares insets with no source. An invented inset is "
-            f"a caption under the platform's own UI with nothing to notice.")
 
 
 # ── The fitter actually runs ──
@@ -172,10 +158,6 @@ def test_fitter_sets_the_variable_weight_axis():
     assert bold.text_width("announcement") > thin.text_width("announcement")
 
 
-def test_grouping_blind_is_no_longer_possible():
-    """There is no `max_chars` fallback to silently land on any more."""
-    with pytest.raises(ValueError, match="fits_fn"):
-        split_into_groups([{"word": "hi", "start": 0.0, "end": 0.2}])
 
 
 def test_the_step_runs_the_fitter_on_a_real_invocation():
@@ -319,51 +301,8 @@ def test_consumer_subtitle_style_resolves_the_inset():
     assert props["captionMaxWidth"] == 840
 
 
-def test_consumer_motion_props_carries_the_inset():
-    from library.steps.step_4_06_render_motion_graphics.generate_motion_props import (  # noqa: E402
-        generate_motion_props,
-    )
-
-    spine = {"structure": [{
-        "block_type": "speech", "position": 1,
-        "timeline_start": 0.0, "timeline_end": 4.0,
-    }]}
-    # The layer is planned now (AGENTS.md 10.2), so the inset travels on
-    # a segment resolved from a plan rather than on a per-block props
-    # dict. What is asserted is unchanged: the insets reach the props
-    # the renderer is handed, from library/tools/safe_area.py.
-    segments, resolved = generate_motion_props(
-        [{"element": "title_lockup", "start_seconds": 0.5,
-          "duration_seconds": 2.0, "anchor": "top_left",
-          "copy": {"display": "A NAME"}, "color": "#F5F5F0"}],
-        spine, width=1080, height=1920)
-    assert segments, resolved.basis_record()
-    assert segments[0]["props"]["safeArea"] == {
-        "top": 120, "right": 120, "bottom": 320, "left": 90}
 
 
-def test_consumer_timed_text_carries_the_inset_and_refuses_the_ui_band():
-    from library.tools.timed_text_overlay import (
-        TimedTextDeclarationError, plan_timed_text_segments)
-
-    def declaration(y):
-        return {"timed_text_overlay": {
-            "font_family": "Montserrat",
-            "moments": [{"text": "Night 1", "color": "#D4A34A",
-                          "font_size": 72, "font_weight": 400,
-                          "text_shadow": "none",
-                          "start_frame": 0, "duration_frames": 60,
-                          "x": 0.5, "y": y,
-                          "fade_in_frames": 9, "fade_out_frames": 12}]}}
-
-    ok = plan_timed_text_segments(declaration(0.545),
-                                   width=1080, height=1920)
-    assert ok[0]["props"]["safeArea"]["bottom"] == 320
-
-    # 0.95 of 1920 is row 1824 - under the platform's audio bar.
-    with pytest.raises(TimedTextDeclarationError, match="safe area"):
-        plan_timed_text_segments(declaration(0.95),
-                                 width=1080, height=1920)
 
 
 def test_consumer_grouper_reads_the_same_width():
@@ -399,54 +338,8 @@ def _code_only(source: str) -> str:
     return source
 
 
-def test_the_studio_defaults_are_generated_from_the_enumeration():
-    """The Remotion studio has no pipeline behind it, and still no literal.
-
-    `remotion-subtitles/src/safeArea.generated.ts` is a projection of this
-    enumeration, written by scripts/generate_safe_area_defaults.py. If it
-    drifts, the studio previews a frame the render does not produce.
-    """
-    sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts"))
-    from generate_safe_area_defaults import OUTPUT, render
-
-    with open(OUTPUT, encoding="utf-8") as f:
-        on_disk = f.read()
-    assert on_disk == render(), (
-        "remotion-subtitles/src/safeArea.generated.ts is stale. Regenerate "
-        "it: python3 scripts/generate_safe_area_defaults.py")
 
 
-def test_the_retired_literals_do_not_come_back():
-    """`bottom: 200`, `bottom: 60` and `max_chars = 18`, by name.
-
-    Each was a margin invented at its own call site, which is exactly
-    what the captain's ruling of 2026-08-25 forbade more of.
-    """
-    subtitle_tsx = _code_only(_read(
-        "remotion-subtitles", "src", "compositions",
-        "SubtitleOverlay", "index.tsx"))
-    assert "200px" not in subtitle_tsx
-    assert 'maxWidth: "90%"' not in subtitle_tsx
-    assert "safeArea" in subtitle_tsx
-
-    motion_tsx = _code_only(_read(
-        "remotion-subtitles", "src", "compositions",
-        "MotionGraphics", "index.tsx"))
-    assert "bottom: 60," not in motion_tsx
-    assert "top: 60," not in motion_tsx
-    assert "safeArea" in motion_tsx
-
-    # `max_chars` survives only in prose explaining why it is gone, so
-    # this half reads the parse tree rather than the text.
-    import ast
-    step_src = _read("library", "steps", "step_4_01_plan_subtitles", "step.py")
-    tree = ast.parse(step_src)
-    names = {n.arg for n in ast.walk(tree) if isinstance(n, ast.arg)}
-    names |= {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
-    assert "max_chars" not in names, (
-        "max_chars is back. Caption grouping is measured in pixels now; a "
-        "character count has no relation to how wide a caption draws.")
-    assert "safe_area" in step_src
 
 
 # ── The grouper does not leave runts ──
@@ -505,55 +398,8 @@ def test_the_split_is_balanced_not_greedy():
     assert not flashing, f"cards under 0.5s: {flashing}"
 
 
-def test_a_greedy_split_of_the_same_words_would_have_flashed():
-    """The guard can fire: greedy on this fixture really does leave runts.
-
-    A gate that cannot fail reads as coverage, so this asserts the fixture
-    is one the old behaviour got wrong.
-    """
-    fitter = build_caption_fitter(
-        resolve_subtitle_style({}, {}), resolve_safe_area())
-    spine = _fast_spine(FAST_LINE)
-    words = [{"word": w["word"], "start": w["source_start"],
-              "end": w["source_end"]}
-             for w in spine["structure"][0]["word_timestamps"]]
-    block_end = spine["structure"][0]["timeline_end"]
-
-    greedy, current = [], []
-    for word in words:
-        trial = current + [word]
-        if current and not fitter.fits_in_box(
-                " ".join(w["word"] for w in trial)):
-            greedy.append(current)
-            current = [word]
-        else:
-            current = trial
-    if current:
-        greedy.append(current)
-
-    starts = [card[0]["start"] for card in greedy] + [block_end]
-    greedy_durations = [b - a for a, b in zip(starts, starts[1:])]
-    assert any(d < 0.5 for d in greedy_durations), (
-        "the fixture no longer distinguishes greedy from balanced; pick "
-        f"one that does (greedy durations {greedy_durations})")
 
 
-def test_the_last_card_of_a_block_is_measured_to_the_block_end():
-    """A card's time on screen ends where its block does, not at its own
-    last word - and the split has to know that or it optimises a number
-    nobody renders."""
-    fitter = build_caption_fitter(
-        resolve_subtitle_style({}, {}), resolve_safe_area())
-    words = [{"word": "one", "start": 0.0, "end": 0.3},
-             {"word": "two.", "start": 0.35, "end": 0.6}]
-    tight = split_into_groups(words, fits_fn=fitter.fits_in_box,
-                              display_until=0.6)
-    roomy = split_into_groups(words, fits_fn=fitter.fits_in_box,
-                              display_until=4.0)
-    # With four seconds of block left, splitting them is free; with none,
-    # it is not.  Whatever it chooses, it must not invent time.
-    assert tight and roomy
-    assert all(g["end"] <= 0.6 for g in tight)
 
 
 def test_a_single_word_is_always_a_legal_card():

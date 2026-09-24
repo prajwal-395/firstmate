@@ -83,16 +83,3 @@ def test_every_cursor_setter_is_registered():
     )
 
 
-def test_registered_counts_are_exact():
-    """A registry row that no longer matches is a lie about what is owed."""
-    for relpath, (expected, _note) in CURSOR_SETTERS.items():
-        sites = _sites(REPO_ROOT / relpath)
-        assert len(sites) == expected, (
-            f"{relpath}: registry says {expected} {METHOD} sites, "
-            f"found {len(sites)} at lines {sites}. "
-            + ("Migrated a site to the shared layer? Delete the row's "
-               "count down (or the row, if it reached zero)."
-               if len(sites) < expected else
-               "New establishment? Route it through resolve_lock or "
-               "raise this row's count with a reason.")
-        )

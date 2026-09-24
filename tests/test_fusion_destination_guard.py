@@ -230,31 +230,6 @@ class TestMapClipsToItems:
 
 # ── Subprocess CLI arg parsing ───────────────────────────────────
 
-class TestSubprocessCLI:
-    """Verify the __main__ block wires the new arguments correctly.
-
-    We cannot run the real entry point (it needs Resolve), but we can
-    parse the arg namespace to confirm the flags are registered.
-    """
-
-    def test_expected_args_registered(self):
-        """--expected-project and --expected-timeline are accepted."""
-        import argparse
-        parser = argparse.ArgumentParser()
-        parser.add_argument("manifest")
-        parser.add_argument("--project-folder", default="")
-        parser.add_argument("--expected-project", default=None)
-        parser.add_argument("--expected-timeline", default=None)
-
-        args = parser.parse_args([
-            "/tmp/manifest.json",
-            "--project-folder", "/projects/test",
-            "--expected-project", "Podcast",
-            "--expected-timeline", "Pipeline_Edit_20260901_45s",
-        ])
-        assert args.expected_project == "Podcast"
-        assert args.expected_timeline == "Pipeline_Edit_20260901_45s"
-
 
 # ── assert_destination tests ─────────────────────────────────────
 

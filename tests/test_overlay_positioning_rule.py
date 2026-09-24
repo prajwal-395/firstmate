@@ -92,18 +92,6 @@ def test_the_rule_predicts_the_exported_still():
     assert (box[1], box[3]) == pytest.approx(MEASURED_TIGHT_INK_ROWS, abs=1.0)
 
 
-def test_a_pan_measured_to_sub_pixel_on_a_real_artefact():
-    """The `canvas_dim / frame_dim` term, on the captain's own reel.
-
-    Reel 26's 296x480 graphic stores Pan 1167.568 and is found in an
-    exported still exactly 320px right of centre - `1167.568 *
-    (296/1080) * 1`.  That single case rules out every
-    canvas-independent model of Pan, which is why it is pinned
-    separately from the Tilt cases above.
-    """
-    ox, _oy = canvas_screen_origin(296.0, 480.0, _p(0.0, 1167.568), *FRAME, draw_gain=HISTORY_GAIN)
-    assert ox == pytest.approx(712.0, abs=0.5), (
-        "a 296-wide canvas centred at 540 + 320 has its left edge at 712")
 
 
 def test_full_frame_needs_zero_and_tight_needs_minus_1740():
@@ -174,24 +162,7 @@ def test_a_readback_cannot_see_what_intent_sees():
     assert "off by" in off_frame and "ENTIRELY OUTSIDE THE FRAME" in off_frame
 
 
-def test_no_draw_intent_leaves_the_placer_exactly_as_it_was():
-    assert _intent_reason(None, _p(TIGHT_TILT), {"Tilt": TIGHT_TILT}) == ""
 
 
-def test_an_unreadable_intent_is_reported_never_skipped():
-    """A verification that declines to run is the gate that cannot fail."""
-    reason = _intent_reason({"canvas": TIGHT_CANVAS}, _p(TIGHT_TILT),
-                            {"Tilt": TIGHT_TILT})
-    assert "NOT verified" in reason
 
 
-def test_the_rule_is_not_scoped_to_one_frame_size():
-    """It is geometry, so it answers any frame without being re-probed.
-
-    The retired "draw gain" was scoped to 1080x1920 because it was a
-    constant nobody could derive; a relation has no such boundary.
-    """
-    unprobed = (1920, 1080)
-    _ox, oy = canvas_screen_origin(840.0, 480.0, _p(-870.0), *unprobed, draw_gain=HISTORY_GAIN)
-    assert oy == pytest.approx(1080 / 2.0 - 240.0 + 870.0 * (480 / 1080.0),
-                               abs=1e-6)

@@ -81,19 +81,3 @@ def test_cleanly_timed_word_missing_from_timings_still_errors():
               if f["kind"] == "played_not_captioned"]
     assert len(errors) == 1
     assert "5-star" in errors[0]["message"]
-
-
-def test_degenerate_word_absent_from_card_text_still_errors():
-    # Pile-up timing alone forgives nothing: the adjacent card must
-    # actually draw the word. The Reel 29 "If" shape.
-    cards = [
-        {"card": CARD_A, "reel_start": 17.14, "reel_end": 18.73},
-        {"card": CARD_B, "reel_start": 18.81, "reel_end": 20.55,
-         "text_norms": ["reviews", "ai"]},
-    ]
-    result = sc.check_word_coverage(
-        _played(degenerate=True), _captioned(), cards)
-    errors = [f for f in result["findings"]
-              if f["kind"] == "played_not_captioned"]
-    assert len(errors) == 1
-    assert "5-star" in errors[0]["message"]

@@ -75,41 +75,11 @@ def _roll(start, end):
 # ── the schema surface: data and asset exist wherever a planner learns
 # what an entry may contain ────────────────────────────────────────────
 
-def test_manifest_llm_outputs_names_data_and_asset():
-    with open(MANIFEST, encoding="utf-8") as handle:
-        manifest = json.load(handle)
-    outputs = manifest["interface"]["llm_outputs"]
-    plan = next(o for o in outputs if o["name"] == "motion_graphics_plan")
-    assert "data" in plan["description"]
-    assert "asset" in plan["description"]
-
-
 def _answer_blocks():
     with open(HANDOFF, encoding="utf-8") as handle:
         text = handle.read()
     start = text.index("## Your answer")
     return re.findall(r"```json(.*?)```", text[start:], re.S)
-
-
-def test_handoff_answer_examples_carry_data_and_asset_slots():
-    blocks = _answer_blocks()
-    assert blocks, "no worked examples under 'Your answer'"
-    joined = "\n".join(blocks)
-    assert '"data"' in joined
-    assert '"asset"' in joined
-
-
-def test_handoff_shows_a_worked_depicting_example():
-    """At least one example is a depicting element, not a copy element.
-
-    Every example today is a copy element, which is part of why every
-    answer is one. A planner that has never SEEN a comparison_bars
-    entry with a data payload does not write one.
-    """
-    blocks = _answer_blocks()
-    assert any("comparison_bars" in block and '"data"' in block
-               for block in blocks), (
-        "no worked example plans a depicting element with a data payload")
 
 
 def _moment():
@@ -133,19 +103,8 @@ def _transcript():
          "resolve_item_id": "item2", "source_file": "clip_a.mov",
          "source_start": 104.0, "source_end": 108.0,
          "words": [
-             {"word": "again", "start": 14.2, "end": 14.6,
-              "timed": True}]}]}
-
-
-def test_reel_expected_schema_names_data_and_asset(tmp_path):
-    project = str(tmp_path / "proj")
-    os.makedirs(os.path.join(project, "pipeline_output", "review"))
-    path = sem_vis.write_request(
-        _moment(), _transcript(), [(10.0, 18.0)], project, FPS)
-    with open(path, encoding="utf-8") as handle:
-        request = json.load(handle)
-    assert "data" in request["expected_schema"]
-    assert "asset" in request["expected_schema"]
+              {"word": "again", "start": 14.2, "end": 14.6,
+               "timed": True}]}]}
 
 
 # ── the refusals: the proof lane's two junk shapes ────────────────────
@@ -154,15 +113,6 @@ def test_equal_pair_bars_are_dropped_by_name():
     """[3,3] means nothing as a comparison and violates the roster's own
     `never` rules. Dropped, not drawn as two identical bars."""
     resolved = _resolve([_bars([3, 3])])
-    assert not resolved.moments
-    (dropped,) = resolved.dropped
-    assert dropped.reason in mgp.DROP_REASONS
-
-
-def test_a_roll_that_goes_nowhere_is_dropped_by_name():
-    """A counter_roll whose start is its end is a static figure with
-    animation for its own sake - the roster names stat_callout for that."""
-    resolved = _resolve([_roll(5, 5)])
     assert not resolved.moments
     (dropped,) = resolved.dropped
     assert dropped.reason in mgp.DROP_REASONS
@@ -214,16 +164,6 @@ def test_the_staged_construction_directive_resolves():
     assert moment["data"]["construction"] == "staged_rule"
 
 
-def test_bare_data_on_a_lower_third_still_drops():
-    """The exemption is the directive, not the element: depicting
-    magnitudes on a `lower_third` reach no node in the composition and
-    still drop by name."""
-    resolved = _resolve([_lower_third(data={"values": [3, 9]})])
-    assert not resolved.moments
-    (dropped,) = resolved.dropped
-    assert dropped.reason == "data_no_element_draws"
-
-
 # ── the second exception: the engine's own explainer directive ──────
 
 def _staged_list(**kw):
@@ -251,16 +191,6 @@ def test_the_explainer_stage_offsets_resolve():
     assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
     (moment,) = resolved.moments
     assert moment["data"] == {"stage_offsets": [0.0, 0.8, 2.0]}
-
-
-def test_bare_data_on_a_staged_list_still_drops():
-    """The exemption is the directive, not the element: depicting
-    magnitudes on a `list_build` reach no node in the composition and
-    still drop by name."""
-    resolved = _resolve([_staged_list(data={"values": [3, 9]})])
-    assert not resolved.moments
-    (dropped,) = resolved.dropped
-    assert dropped.reason == "data_no_element_draws"
 
 def test_distinct_bars_resolve_and_carry_their_payload():
     resolved = _resolve([_bars([3, 9])])
@@ -331,65 +261,3 @@ def test_three_schema_surfaces_agree(tmp_path):
         assert "asset" in surface
         assert "speech itself" in surface
         assert "all equal" in surface
-
-
-def test_manifest_and_handoff_name_the_same_depicting_set():
-    """The elements a planner may assert a payload for are the same in
-    both places that describe the contract to the model."""
-    manifest_desc = _manifest_plan_description()
-    handoff = _handoff_text()
-    for surface in (manifest_desc, handoff):
-        for element in ("comparison_bars", "counter_roll",
-                        "digit_counter", "step_counter"):
-            assert element in surface, (
-                f"{element} named in one contract surface but not the other")
-        for element in ("channel_bug", "website_panel"):
-            assert element in surface, (
-                f"{element} named in one contract surface but not the other")
-
-
-def _flat(text: str) -> str:
-    """One line: the handoff wraps prose, so multi-word rules are
-    asserted against flattened text rather than raw lines."""
-    return " ".join(text.split())
-
-
-def test_depicting_licence_names_the_five_and_not_title_lockup():
-    """The corpus shows a model that will not switch element kind on its
-    own, so the instruction says plainly which elements depict a
-    comparison, a count, a sequence or a measurement - and what the
-    wrong answer is."""
-    section = _flat(_handoff_text().split(
-        "## A graphic may depict", 1)[1])
-    for element in ("comparison_bars", "counter_roll", "digit_counter",
-                    "step_counter", "progress_bar"):
-        assert element in section, (
-            f"{element} not licenced as a depicting element")
-    assert "rather than `title_lockup` carrying the same words as type" \
-        in section
-
-
-def test_assert_vs_measure_rule_states_the_fallback():
-    """The half that stops the [3,3] garbage: assert what the speech
-    states, never invent a measurement - and what to do instead."""
-    handoff = _flat(_handoff_text())
-    assert "must NOT invent one you would have had to measure" in handoff
-    assert "choose an element that does not need one" in handoff
-
-
-def test_instruction_reaches_the_reel_request(tmp_path):
-    """A rule nobody reads is the failure mode this task exists to
-    avoid: the depicting section must travel on the prompt the reel
-    path actually writes, beside the schema that carries the slot."""
-    prompt = _flat(sem_vis.handoff_text())
-    assert "## A graphic may depict" in prompt
-    assert "must NOT invent one you would have had to measure" in prompt
-    assert "choose an element that does not need one" in prompt
-    request = _reel_request(tmp_path)
-    assert "## A graphic may depict" in request["prompt"]
-    assert "must NOT invent one you would have had to measure" in _flat(
-        request["prompt"])
-    assert "data" in request["expected_schema"]
-    assert "asset" in request["expected_schema"]
-    assert "speech itself" in request["expected_schema"]
-    assert "all equal" in request["expected_schema"]

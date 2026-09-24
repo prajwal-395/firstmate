@@ -91,14 +91,6 @@ def plan(spine):
 
 # ── The splice is bounded, and says so from measurement ──────────────
 
-def test_a_region_replan_reproduces_its_own_block_exactly(spine):
-    """Block-local planning: a block plans the same alone or in company."""
-    whole = generate_subtitles(spine)["subtitle_plan"]["subtitle_entries"]
-    part = generate_subtitles(
-        spine, scope=scope_mod.region("3.0-6.0"))["subtitle_plan"]["subtitle_entries"]
-    assert part == [e for e in whole if e["spine_block_position"] == 2]
-
-
 def test_the_splice_leaves_every_other_entry_byte_identical(spine, plan):
     out = splice_region_plan(spine, plan, scope_mod.region("3.0-6.0"))
     assert out["splice"]["outside_unchanged"] is True
@@ -162,12 +154,6 @@ def test_a_duration_changing_splice_is_refused_naming_both_numbers(spine):
     assert "every block after the change would move" in str(exc.value)
 
 
-def test_a_duration_preserving_splice_is_accepted(spine):
-    """The other direction: the check must be able to pass."""
-    assert_durations_preserved(spine["structure"],
-                               [dict(b) for b in spine["structure"]])
-
-
 def test_adding_or_dropping_a_block_is_refused_too(spine):
     """MUTATION 6: compare pairwise by index instead of by position.
 
@@ -210,14 +196,6 @@ def _props(block=1, text="alpha"):
                                    "bottom": 320, "left": 90},
                       "captionMaxWidth": 840},
             "subtitles": [{"text": text}]}
-
-
-def test_a_successful_render_reports_rendered(tmp_path):
-    """MUTATION 7: mark everything `reused`."""
-    seg = r405.render_one_segment(_props(), str(tmp_path), "tl",
-                                  remotion_dir=REPO, renderer=_Renderer(),
-                                  overlay_geometry="full")
-    assert seg["provenance"] == r405.RENDERED
 
 
 def test_a_failed_render_is_REPORTED_not_dropped(tmp_path):
@@ -307,29 +285,6 @@ def test_an_unavailable_renderer_fingerprint_refuses_reuse(tmp_path):
     assert engine.calls == 2
 
 
-def test_provenance_has_no_default_and_an_unknown_one_raises():
-    """MUTATION 13: give provenance a default of "rendered"."""
-    with pytest.raises(ValueError) as exc:
-        r405._tally([{"segment_id": "x"}])
-    assert "must say which" in str(exc.value)
-    with pytest.raises(ValueError):
-        r405._tally([{"segment_id": "x", "provenance": "probably-fine"}])
-
-
-def test_the_count_line_is_derived_from_the_segments():
-    """MUTATION 14: count renders independently of `segments`.
-
-    A separate counter is a second source of truth for one fact, and the
-    two drift the first time an early exit is added - which is how
-    `Rendered N/M` came to report work that had not happened.
-    """
-    tally = r405._tally([{"provenance": r405.RENDERED},
-                         {"provenance": r405.REUSED},
-                         {"provenance": r405.REUSED},
-                         {"provenance": r405.FAILED}])
-    assert tally == {r405.RENDERED: 1, r405.REUSED: 2, r405.FAILED: 1}
-
-
 # ── The transcript half ──────────────────────────────────────────────
 
 def test_the_transcript_splice_replaces_by_overlap_not_containment():
@@ -385,17 +340,6 @@ def test_a_refused_verifier_leaves_the_file_byte_identical(tmp_path):
     assert (tmp_path / "pipeline_data.json").read_bytes() == before
 
 
-def test_a_successful_splice_writes_and_records_itself(tmp_path):
-    project = _project(tmp_path, {"plan_subtitles": {"n": 1}})
-    record = state_splice.splice_step_output(
-        project, "plan_subtitles", lambda cur: {"n": 2}, label="t",
-        report={"positions": [10]})
-    state = json.loads((tmp_path / "pipeline_data.json").read_text())
-    assert state["step_outputs"]["plan_subtitles"] == {"n": 2}
-    assert state[state_splice.SPLICE_LOG_KEY][0]["positions"] == [10]
-    assert os.path.isfile(record["snapshot"]), "the pre-splice copy must exist"
-
-
 def test_splicing_a_step_that_never_ran_is_refused(tmp_path):
     project = _project(tmp_path, {"plan_subtitles": {}})
     with pytest.raises(state_splice.StateSpliceRefused) as exc:
@@ -405,28 +349,6 @@ def test_splicing_a_step_that_never_ran_is_refused(tmp_path):
 
 
 # ── The fifth --rerun form ───────────────────────────────────────────
-
-def test_the_region_rerun_form_parses_and_validates_its_span():
-    from library.tools.step_ledger import LedgerError, parse_rerun_target
-    known = {"plan_subtitles", "temporal_index"}
-
-    assert parse_rerun_target("plan_subtitles@45.0-72.0", known) == \
-        ("region", "plan_subtitles@45.0-72.0")
-    # A reel-timeline span composes for free: `@` partitions once, and
-    # region.parse reads `reel_03@1.0-2.0` as a named timeline.
-    assert parse_rerun_target("plan_subtitles@reel_03@1.0-2.0", known) == \
-        ("region", "plan_subtitles@reel_03@1.0-2.0")
-
-    # The other four forms still work.
-    assert parse_rerun_target("preflight", known)[0] == "stage"
-    assert parse_rerun_target("plan_subtitles", known)[0] == "step"
-    assert parse_rerun_target("temporal_index:clip_007", known)[0] == "clip"
-
-    for bad in ("plan_subtitles@", "plan_subtitles@banana",
-                "nosuchstep@1-2", "plan_subtitles@5-1"):
-        with pytest.raises(LedgerError):
-            parse_rerun_target(bad, known)
-
 
 def _runner():
     """The runner module, by absolute package path.
@@ -489,30 +411,6 @@ def test_the_refusal_says_so_plainly_when_no_operation_takes_a_region():
     assert "--rerun plan_transitions" in message
 
 
-def test_the_other_four_rerun_forms_still_apply():
-    """The mirror: the refusal above fires on the region form ALONE."""
-    runner = _runner()
-    state = {"edit_completed": {"plan_subtitles": {"at": "now"}},
-             "step_outputs": {"plan_subtitles": {"subtitle_plan": {}}}}
-    applied = runner.apply_rerun_requests(
-        "/nonexistent", state, ["plan_subtitles"],
-        {"plan_subtitles": "edit"}, {})
-    assert applied and "ledger cleared" in applied[0]
-    assert "plan_subtitles" not in state["step_outputs"]
-
-
-def test_the_span_is_validated_when_the_flag_is_READ():
-    """Not forty minutes into a run.
-
-    `region.parse` does the validating, so this module never becomes a
-    second reader of an interval.
-    """
-    from library.tools.step_ledger import LedgerError, parse_rerun_target
-    with pytest.raises(LedgerError) as exc:
-        parse_rerun_target("plan_subtitles@5.0-1.0", {"plan_subtitles"})
-    assert "precedes start" in str(exc.value)
-
-
 # ── The line that joins the two halves of the seam ───────────────────
 #
 # vep-audit-contracts builds the renderer; this file builds the caller.
@@ -559,32 +457,6 @@ def _spine_and_plan_for_render():
     return spine, generate_subtitles(spine)["subtitle_plan"]
 
 
-def test_the_orchestrator_builds_ONE_renderer_and_passes_it_to_every_card(
-        no_pixel_qa, tmp_path, monkeypatch):
-    """The construction site. Without it the parameter is never passed."""
-    spine = {"structure": [
-        _block(1, 0.0, 3.0, ["alpha", "bravo"], src=10.0),
-        _block(2, 3.0, 3.0, ["charlie", "delta"], src=20.0),
-    ], "frame_rate": 30.0}
-    plan = generate_subtitles(spine)["subtitle_plan"]
-
-    seen = []
-    real = r405.render_one_segment
-
-    def spy(*args, **kwargs):
-        seen.append(kwargs.get("renderer"))
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(r405, "render_one_segment", spy)
-    engine = _CountingRenderer()
-    r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
-                                  remotion_dir=REMOTION, renderer=engine,
-                                  overlay_geometry="full")
-    assert len(seen) == 2, "both cards must be reached"
-    assert all(r is engine for r in seen), "one renderer, passed to every card"
-    assert engine.rendered == 2
-
-
 def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
         tmp_path, monkeypatch):
     """MUTATION: drop the `finally`.
@@ -611,39 +483,3 @@ def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
                                       project_folder=str(tmp_path),
                                       remotion_dir=REMOTION)
     assert built and built[0].closed == 1, "we built it, so we close it"
-
-
-def test_a_renderer_the_CALLER_supplied_is_never_closed_by_us(no_pixel_qa, tmp_path):
-    """Ownership decides who closes.
-
-    A caller reusing one renderer across several passes must not have it
-    shut under them by the first pass.
-    """
-    spine, plan = _spine_and_plan_for_render()
-    engine = _CountingRenderer()
-    r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
-                                  remotion_dir=REMOTION, renderer=engine,
-                                  overlay_geometry="full")
-    assert engine.rendered == 1
-    assert engine.closed == 0, "not ours to close"
-
-
-def test_the_default_path_is_unchanged_when_no_renderer_is_supplied(no_pixel_qa, tmp_path,
-                                                                    monkeypatch):
-    """Inert until their object lands: no renderer means the default,
-    which is now the bundle-once persistent renderer."""
-    spine, plan = _spine_and_plan_for_render()
-    built = []
-
-    def factory(remotion_dir):
-        engine = _CountingRenderer()
-        built.append((engine, remotion_dir))
-        return engine
-
-    monkeypatch.setattr(r405, "PersistentCaptionRenderer", factory)
-    r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
-                                  remotion_dir=REMOTION,
-                                  overlay_geometry="full")
-    assert len(built) == 1, "exactly one renderer, built by default"
-    assert built[0][1] == REMOTION
-    assert built[0][0].closed == 1

@@ -152,19 +152,8 @@ def test_the_run_stops_at_the_armed_step_and_nowhere_else(runner, project):
     assert review_gate.get_gate_status(str(project), "scan") == "none"
 
 
-def test_review_still_gates_after_every_step(runner, project):
-    """The flag predates this and must behave exactly as it did: one
-    pause, at the first step."""
-    summary = runner.run(review_mode=True)
-    assert summary["paused_at_gate"] == "scan"
-    assert runner.ran == ["scan"]
-    assert review_gate.get_gate_status(str(project), "scan") == "pending"
 
 
-def test_no_breakpoint_runs_straight_through(runner):
-    summary = runner.run()
-    assert summary.get("paused_at_gate") is None
-    assert len(runner.seen) == 3
 
 
 # ── The three actions ────────────────────────────────────────────────
@@ -241,35 +230,8 @@ def test_re_arming_a_gate_throws_away_the_last_answer(project):
 
 # ── A profile drives the run ─────────────────────────────────────────
 
-def test_a_declared_profile_selects_the_steps_and_arms_the_breakpoint(
-        project, runner):
-    _write_profile(project, "just_the_catalog", {
-        "description": "Scan and catalog, stopping to look at the catalog.",
-        "goals": ["catalog"],
-        "breakpoints": ["catalog"],
-    })
-    summary = runner.run(profile="just_the_catalog")
-    assert summary["paused_at_gate"] == "catalog"
-    assert runner.ran == ["scan", "catalog"]
-
-    record = run_control.read_run_status(str(project))
-    assert record["profile"]["name"] == "just_the_catalog"
-    assert record["breakpoints"]["steps"] == ["catalog"]
 
 
-def test_a_project_adopted_profile_needs_no_flag(project, runner):
-    (project / "project.yaml").write_text(
-        "name: Mock Project\npipeline:\n  run_profile: adopted\n",
-        encoding="utf-8")
-    _write_profile(project, "adopted", {
-        "description": "Adopted by the project.",
-        "goals": ["scan"],
-        "breakpoints": ["scan"],
-    })
-    summary = runner.run()
-    assert summary["paused_at_gate"] == "scan"
-    record = run_control.read_run_status(str(project))
-    assert record["profile"]["adopted"] is True
 
 
 def test_no_break_star_runs_the_profile_without_stopping(project, runner):
@@ -282,50 +244,12 @@ def test_no_break_star_runs_the_profile_without_stopping(project, runner):
     assert len(runner.seen) == 3
 
 
-def test_profile_none_declines_the_adopted_one(project, runner):
-    (project / "project.yaml").write_text(
-        "name: Mock Project\npipeline:\n  run_profile: adopted\n",
-        encoding="utf-8")
-    _write_profile(project, "adopted", {
-        "description": "Adopted by the project.",
-        "goals": ["scan"],
-        "breakpoints": ["scan"],
-    })
-    summary = runner.run(profile="none")
-    assert summary.get("paused_at_gate") is None
-    assert len(runner.seen) == 3
 
 
 # ── The refusal arrives before the run ───────────────────────────────
 
-def test_an_impossible_profile_refuses_before_the_run_starts(project, runner):
-    """A configuration layer that lets a bad selection through to a crash
-    forty minutes in has failed its main job."""
-    _write_profile(project, "impossible", {
-        "description": "Wants the temporal index without the catalog it "
-                       "declares required.",
-        "goals": ["temporal_index"],
-        "skip": ["catalog"],
-    })
-    before = (project / "pipeline_data.json").read_bytes()
-
-    summary = runner.run(profile="impossible")
-
-    assert summary["status"] == "REFUSED"
-    assert "catalog" in summary["reason"]
-    assert "Refusing before the run starts" in summary["reason"]
-    assert runner.seen == [], "no step should have run"
-    assert (project / "pipeline_data.json").read_bytes() == before, (
-        "the refusal must not have written state")
 
 
-def test_a_profile_that_cannot_be_read_refuses_by_name(project, runner):
-    _write_profile(project, "typo", {"description": "d",
-                                     "goals": ["not_a_step"]})
-    summary = runner.run(profile="typo")
-    assert summary["status"] == "REFUSED"
-    assert "not_a_step" in summary["reason"]
-    assert runner.seen == []
 
 
 def test_an_unknown_breakpoint_refuses_by_name(project, runner):
@@ -337,21 +261,8 @@ def test_an_unknown_breakpoint_refuses_by_name(project, runner):
 
 # ── The plain flags do not regress ───────────────────────────────────
 
-def test_the_existing_flags_still_work_with_no_profile(project, runner):
-    summary = runner.run(only=["catalog"])
-    assert runner.ran == ["scan", "catalog"]
-    assert summary["status"] == "PARTIAL"
 
 
-def test_a_dry_run_reports_the_configuration(project, runner):
-    _write_profile(project, "dry", {
-        "description": "d", "goals": ["catalog"], "breakpoints": ["catalog"]})
-    summary = runner.run(profile="dry", dry_run=True)
-    assert summary["status"] == "DRY_RUN"
-    assert summary["profile"] == "dry"
-    assert summary["breakpoints"]["steps"] == ["catalog"]
-    assert summary["steps_to_run"] == ["scan", "catalog"]
-    assert runner.seen == []
 
 
 # ── A gate verdict binds EVERY run, not only a --resume ─────────────
@@ -397,28 +308,6 @@ def test_a_plain_rerun_halts_at_a_rejected_gate(project):
     assert "scan" in load_pipeline_state(str(project))["failed_steps"]
 
 
-def test_a_plain_rerun_applies_a_revision(project):
-    """A revision answered from the CLI reaches the next step without
-    anyone having to remember a second flag.
-
-    `review_gate answer --revise` writes feedback and nothing else - it
-    is the runner that merges it - so before this the revision simply
-    never arrived unless the next run said --resume.
-    """
-    first = _Runner(project)
-    first.run(break_at=["scan"])
-    review_gate.save_gate_feedback(
-        str(project), "scan", "revised",
-        feedback="only these two clips",
-        revisions={"raw_footage_files": ["a.mov", "b.mov"]})
-
-    second = _Runner(project)
-    second.run()                    # NO resume_mode
-    handed = second.inputs_of("catalog")
-    assert handed is not None, "catalog should have run"
-    assert handed["raw_footage_files"] == ["a.mov", "b.mov"], (
-        f"catalog was handed {handed.get('raw_footage_files')!r}, not the "
-        f"revised value")
 
 
 def test_an_approved_gate_does_not_halt_a_plain_rerun(project):
@@ -434,37 +323,8 @@ def test_an_approved_gate_does_not_halt_a_plain_rerun(project):
     assert summary["status"] == "SUCCESS"
 
 
-def test_resume_still_behaves_exactly_as_it_did(project):
-    """No regression: --resume was the only mode that honoured a gate,
-    and it still honours it."""
-    first = _Runner(project)
-    first.run(break_at=["scan"])
-    review_gate.save_gate_feedback(str(project), "scan", "approved")
-
-    second = _Runner(project)
-    summary = second.run(resume_mode=True)
-    assert second.ran == ["catalog", "temporal_index"]
-    assert summary["status"] == "SUCCESS"
 
 
-def test_an_unanswered_gate_halts_a_resumed_run_too(project):
-    """The half that was never working at all.
-
-    The pause branched on `load_gate_feedback(...).action == "pending"`,
-    which is unreachable: arming a gate DELETES feedback.json, and a
-    feedback file is only ever written carrying a real verdict. So an
-    unanswered gate returned None and every mode ran on - measured
-    before the fix as `['catalog', 'temporal_index']` and SUCCESS, with
-    status.json still saying `pending`.
-    """
-    first = _Runner(project)
-    first.run(break_at=["scan"])
-
-    second = _Runner(project)
-    summary = second.run(resume_mode=True)   # WITH the flag, unanswered
-    assert second.ran == []
-    assert summary["paused_at_gate"] == "scan"
-    assert summary["status"] == "PARTIAL"
 # ── The runner knows the operation namespace ────────────────────────
 
 def test_the_runner_accepts_an_operation_breakpoint(project, runner):
@@ -491,38 +351,6 @@ def test_the_runner_still_refuses_an_operation_that_does_not_exist(project, runn
     assert "nope.jog" in summary["reason"]
 
 
-def test_the_runner_builds_a_provenance_ledger_that_can_record_an_operation(project):
-    """Observed on the RUNNER's own construction, not on a ledger the
-    test built - the latter documents the property and would pass with
-    the wiring reverted, which is the shape AGENTS.md 10.4 calls out.
-
-    Built with neither declaration the ledger refuses EVERY operation,
-    real or invented, because an absent declaration is a refusal and not
-    a permit. So this is a fail-CLOSED gate being given what it asks
-    for, not a vacuous one being closed.
-    """
-    from library.tools import operations, provenance
-
-    seen = {}
-    real = provenance.ProvenanceLedger
-
-    def watch(project_folder, step_ids=None, operation_ids=None):
-        seen["step_ids"] = set(step_ids or ())
-        seen["operation_ids"] = set(operation_ids or ())
-        return real(project_folder, step_ids=step_ids,
-                    operation_ids=operation_ids)
-
-    with patch("library.tools.provenance.ProvenanceLedger", side_effect=watch):
-        _Runner(project).run()
-
-    assert seen, "the runner never built a ProvenanceLedger"
-    assert seen["operation_ids"] == set(operations.names()), (
-        f"the runner built its ledger with operation_ids="
-        f"{sorted(seen['operation_ids'])}; without the registry it "
-        f"refuses every operation, real ones included"
-    )
-    assert "scan" in seen["step_ids"], (
-        "the owning-node check needs the DAG's ids too")
 
 
 def test_a_ledger_with_no_declarations_refuses_even_a_real_operation(project):

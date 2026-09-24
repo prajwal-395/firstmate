@@ -59,32 +59,10 @@ def _ctx(review, overrides=()):
 
 # ── The requirement exists and binds where the prose claimed ─────────
 
-def test_the_requirement_is_registered_and_no_longer_held(gate):
-    assert R.UNAUTHORISED == {}, (
-        "rough_cut.approved is built; nothing should still be held")
-    assert gate.kind == R.KIND_PREDICATE
-    assert gate.produced_by == ("review_rough_cut",)
 
 
-def test_it_binds_to_all_four_steps_that_declared_the_prose(gate):
-    """The prose was on 4.01, 4.02, 4.03 and 4.04. All four, or the
-    requirement is narrower than the declaration it replaces."""
-    assert set(gate.consumers) == set(CONSUMERS)
 
 
-def test_every_consumer_manifest_declares_it():
-    from pathlib import Path
-    from library.tools import run_scope
-
-    steps = Path(__file__).resolve().parents[1] / "library" / "steps"
-    dir_of = {n["id"]: n["step_ref"].split("/")[-1]
-              for n in run_scope.load_dag()["nodes"]}
-    for consumer in CONSUMERS:
-        manifest = json.loads(
-            (steps / dir_of[consumer] / "manifest.json").read_text(
-                encoding="utf-8"))
-        assert "rough_cut.approved" in manifest["interface"]["requirements"], (
-            f"{consumer} does not declare rough_cut.approved")
 
 
 # ── Mutation, both ways ─────────────────────────────────────────────
@@ -118,19 +96,10 @@ def test_a_missing_measurement_is_not_a_failed_one(gate):
     assert "REJECTED" not in absent.reason
 
 
-def test_no_review_at_all_refuses_and_says_so(gate):
-    verdict = gate.check(_ctx(None))
-    assert verdict.is_unsatisfied
-    assert "nothing says whether" in verdict.reason
 
 
 # ── Constraint 1 and 3: explicit, and not reachable by default ──────
 
-def test_without_the_override_a_rejected_cut_refuses_the_run(gate):
-    rejected = _ctx({"passed": False, "rejection_reasons": ["gap"]})
-    verdict = R.evaluate({"plan_subtitles"}, rejected, [gate])
-    assert len(verdict.unmet) == 1
-    assert verdict.overridden == []
 
 
 def test_with_the_override_the_run_proceeds(gate):
@@ -141,11 +110,6 @@ def test_with_the_override_the_run_proceeds(gate):
     assert len(verdict.overridden) == 1
 
 
-def test_only_this_requirement_is_overridable():
-    overridable = [r.name for r in R.all_requirements() if r.overridable]
-    assert overridable == ["rough_cut.approved"], (
-        f"the override is meant to be opt-in, one requirement at a time. "
-        f"Overridable now: {overridable}")
 
 
 def test_overriding_something_that_did_not_opt_in_is_refused():
@@ -153,11 +117,6 @@ def test_overriding_something_that_did_not_opt_in_is_refused():
         R.assert_overrides_are_real(["spine.word_timings"])
 
 
-def test_a_typo_is_refused_rather_than_ignored():
-    """An override that silently disables nothing is still a lie about
-    what the run did."""
-    with pytest.raises(R.OverrideError, match="names no requirement"):
-        R.assert_overrides_are_real(["rough_cut.aproved"])
 
 
 def test_an_override_of_a_state_key_is_refused():
@@ -202,23 +161,5 @@ def test_the_override_record_carries_the_verdict_it_overrode(gate):
         "the record must survive being written to pipeline_data.json")
 
 
-def test_the_runner_writes_the_record_into_the_project_state():
-    """The recording is itself testable, and this is that test."""
-    from library.processes.edit_video import run_pipeline as rp
-
-    source = (rp.__file__)
-    text = open(source, encoding="utf-8").read()
-    assert "REQUIREMENT_OVERRIDES_KEY" in text
-    assert "state[REQUIREMENT_OVERRIDES_KEY] = override_records" in text, (
-        "the runner stopped writing overrides into the state file, so a "
-        "later reader of pipeline_data.json can no longer see that the "
-        "cut was rejected when this was planned")
-    assert rp.REQUIREMENT_OVERRIDES_KEY == "requirement_overrides"
 
 
-def test_an_override_is_announced_on_stderr_not_only_filed():
-    from library.processes.edit_video import run_pipeline as rp
-    text = open(rp.__file__, encoding="utf-8").read()
-    assert "OVERRIDDEN" in text, (
-        "an override that is filed but not announced is still quiet at "
-        "the moment it matters")

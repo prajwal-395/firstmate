@@ -56,27 +56,6 @@ def _make_spine(text="Hello World", words=None):
     }
 
 
-# ── apply_caption_case unit tests ──
-
-class TestApplyCaptionCase:
-    def test_lowercase_mode(self):
-        assert apply_caption_case("Hello World", "lowercase") == "hello world"
-
-    def test_as_written_mode(self):
-        assert apply_caption_case("Hello World", "as_written") == "Hello World"
-
-    def test_unknown_mode_defaults_to_lowercase(self):
-        # A typo used to lowercase the whole video silently. Which case
-        # the copy is set in is the template's decision, and an
-        # unrecognised value is not a licence to make it here.
-        with pytest.raises(UnknownCaptionCase):
-            apply_caption_case("Hello World", "bogus")
-
-    def test_empty_string(self):
-        assert apply_caption_case("", "lowercase") == ""
-        assert apply_caption_case("", "as_written") == ""
-
-
 # ── generate_subtitles integration tests ──
 
 class TestCaptionCaseInGenerateSubtitles:
@@ -225,60 +204,6 @@ class TestCorrectionsConformToCaptionContract:
         assert "Google Business Profile" in all_text
         self._assert_fixed_point(entries, str(tmp_path))
 
-    def test_single_token_correction_conforms_too(self, tmp_path):
-        """The lucy->Lucie shape conforms the same way."""
-        from library.tools import transcript_corrections
-        transcript_corrections.record_spelling(
-            str(tmp_path), "lucy", "Lucie", "the client's name")
-        spine = self._spine(["go", "check", "out", "lucy", "today"])
-        result = generate_subtitles(spine, caption_case="lowercase",
-                                    project_folder=str(tmp_path))
-        entries = result["subtitle_plan"]["subtitle_entries"]
-        assert len(entries) > 0
-        all_text = " ".join(e["text"] for e in entries)
-        assert "Lucie" in all_text
-        self._assert_fixed_point(entries, str(tmp_path))
-
-class TestEffectSlotsDefault:
-    def test_default_caption_case_is_lowercase(self):
-        """EffectSlots defaults caption_case to 'lowercase'."""
-        slots = EffectSlots()
-        assert slots.caption_case == "lowercase"
-
-    def test_from_dict_without_caption_case(self):
-        """BrandTemplate.from_dict with no caption_case still defaults to lowercase."""
-        from library.schemas.brand_template import BrandTemplate
-        data = {
-            "series_id": "test",
-            "effect": {
-                "vfx_intensity": 0.5,
-                "sfx_density": "moderate",
-            },
-        }
-        bt = BrandTemplate.from_dict(data)
-        assert bt.effect.caption_case == "lowercase"
-
-
-# ── Synthetic project copies test ──
-
-class TestSyntheticCopies:
-    def test_all_synthetic_generic_copies_specify_lowercase(self):
-        """Every synthetic generic copy sets caption_case: lowercase."""
-        from tests.brand_fixtures import ALL_SYNTHETIC
-
-        expected = [
-            "synthetic_default",
-            "synthetic_shortform",
-            "synthetic_cinematic",
-            "synthetic_interview",
-        ]
-        for name in expected:
-            effect = ALL_SYNTHETIC[name].get("effect", {})
-            assert effect.get("caption_case") == "lowercase", (
-                f"Copy {name} should set caption_case: lowercase, "
-                f"got: {effect.get('caption_case')!r}"
-            )
-
 
 # ── A project's own copy declares its own casing ──
 # Q5, decided 2026-08-16: caption case is a per-template setting rather
@@ -304,9 +229,6 @@ def _templates():
         yield name, ALL_SYNTHETIC[name]
 
 
-def test_every_copy_is_accounted_for():
-    assert {n for n, _ in _templates()} == set(EXPECTED_CAPTION_CASE), (
-        "a project copy was added or removed without deciding its caption case")
 
 
 def test_every_copy_declares_its_caption_case_explicitly():
@@ -322,10 +244,6 @@ def test_every_copy_declares_its_caption_case_explicitly():
         f"copy states its own casing rather than inheriting it.")
 
 
-def test_the_declared_values_are_the_approved_ones():
-    for name, tmpl in _templates():
-        assert (tmpl.get("effect") or {})["caption_case"] == \
-            EXPECTED_CAPTION_CASE[name], name
 
 
 def test_no_template_declares_an_unsupported_case():

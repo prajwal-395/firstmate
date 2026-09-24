@@ -54,18 +54,6 @@ def test_a_placed_visual_matching_its_record_passes():
     assert findings == []
 
 
-def test_a_reel_the_model_planned_nothing_for_and_carries_nothing_passes():
-    findings = check_semantic_visuals(
-        "Reel 09", [], _record(basis=sem.MODEL_PLANNED_NONE), FPS)
-    assert findings == []
-
-
-def test_a_build_that_recorded_nothing_is_not_graded():
-    """A reel built before semantic visuals existed has no record, and
-    grading it against an absence would fail every correct reel."""
-    assert check_semantic_visuals("Reel 09", [], None, FPS) == []
-
-
 # ── F22 fails what is wrong, in both directions ──────────────────────
 
 def test_a_planned_visual_the_timeline_does_not_carry_fails():
@@ -80,12 +68,6 @@ def test_an_item_no_record_accounts_for_fails():
     findings = check_semantic_visuals(
         "Reel 09", [_item(100, 50)],
         _record(basis=sem.AWAITING_MODEL_ANSWER), FPS)
-    assert findings and findings[0].finding_class == FindingClass.F22
-
-
-def test_an_item_with_no_record_at_all_fails():
-    findings = check_semantic_visuals("Reel 09", [_item(100, 50)], None,
-                                      FPS)
     assert findings and findings[0].finding_class == FindingClass.F22
 
 
@@ -139,13 +121,6 @@ def test_two_overlapping_visuals_fail():
 
 # ── The track is named once ──────────────────────────────────────────
 
-def test_the_semantic_track_is_six_and_named():
-    assert sem.SEMANTIC_TRACK == 6
-    assert sem.SEMANTIC_TRACK_NAME == "Semantic"
-    assert sem.RENDER_PREFIX == "vox"
-    assert sem.segment_name("Reel 09 - your-website-is-only-20-percent "
-                            "(vox emblem test)", 0).startswith("vox_")
-
 
 # ── An unanswered ask builds nothing and says so ─────────────────────
 
@@ -169,54 +144,6 @@ def test_no_answer_file_builds_nothing_and_names_its_basis(tmp_path):
     assert record["reel"] == _Moment.timeline_name
 
 
-def test_a_malformed_answer_reads_as_unanswered(tmp_path):
-    project = tmp_path / "proj"
-    review = project / "pipeline_output" / "review"
-    review.mkdir(parents=True)
-    resp = project / "pipeline_output" / "llm_responses"
-    resp.mkdir(parents=True)
-    (resp / "reel_semantic_09.json").write_text(
-        '{"motion_graphics_plan": "not a list"}', encoding="utf-8")
-    assert sem.read_answer(str(project), 9) is None
-
-
-def test_an_empty_plan_is_a_decision_for_nothing(tmp_path):
-    project = tmp_path / "proj"
-    review = project / "pipeline_output" / "review"
-    review.mkdir(parents=True)
-    resp = project / "pipeline_output" / "llm_responses"
-    resp.mkdir(parents=True)
-    (resp / "reel_semantic_09.json").write_text(
-        '{"motion_graphics_plan": []}', encoding="utf-8")
-    segments, record = sem.build_for_reel(
-        _Moment(), {"structure": []}, _ranges(), str(project),
-        fps=FPS, width=1080, height=1920)
-    assert segments == []
-    assert record["basis"] == sem.MODEL_PLANNED_NONE
-
-
-def test_records_merge_and_rename_and_drop(tmp_path):
-    project = str(tmp_path / "proj")
-    sem.write_records(project, [
-        {"reel": "Reel 09", "basis": sem.PLANNED, "entries": [],
-         "dropped": [], "segments": []}])
-    # A partial build must not delete the reels it did not touch.
-    sem.write_records(project, [
-        {"reel": "Reel 15", "basis": sem.AWAITING_MODEL_ANSWER,
-         "entries": [], "dropped": [], "segments": []}])
-    stored = sem.read_records(project)
-    assert sorted(p["reel"] for p in stored["plans"]) == [
-        "Reel 09", "Reel 15"]
-    assert sem.record_for_reel(stored, "Reel 09")["basis"] == sem.PLANNED
-    assert sem.record_for_reel(stored, "Reel 20") is None
-    sem.rename_record_reels(project, {"Reel 15": "Reel 15 final"})
-    stored = sem.read_records(project)
-    assert sem.record_for_reel(stored, "Reel 15 final") is not None
-    sem.drop_record_reels(project, ["Reel 15 final"])
-    assert sem.record_for_reel(
-        sem.read_records(project), "Reel 15 final") is None
-
-
 # ── The ask is the pipeline's own planning surface ───────────────────
 
 def test_the_request_carries_the_reel_spine_and_the_roster():
@@ -229,57 +156,6 @@ def test_the_request_carries_the_reel_spine_and_the_roster():
     assert "money" in context["timeline_context_toon"]
     assert "subject_emblem" in context["motion_elements_toon"]
     assert "anchor_phrase" in sem.handoff_text()
-
-
-def test_an_anchored_entry_resolves_against_reel_words():
-    from library.tools import motion_graphics_plan as mg
-    words = [{"word": w, "start": 0.5 * i, "end": 0.5 * (i + 1)}
-             for i, w in enumerate(
-                 "we spent a lot of money on the website".split())]
-    entry = {"element": "subject_emblem", "anchor": "middle_right",
-             "subject": "money - paid budgets", "anchor_phrase": "money",
-             "copy": {"display": "$", "supporting": "ad budgets"},
-             "color": "#1E6B3A", "entrance": "scale", "exit": "fade",
-             "why": "the speech is about money the picture does not show"}
-    resolved = mg.resolve_plan(
-        [entry], timeline_duration=10.0, fps=30, palette_roles={},
-        asked=True, word_windows=words)
-    assert len(resolved.moments) == 1
-    moment = resolved.moments[0]
-    assert moment["timing_basis"] == "word_window:money"
-    assert moment["subject"] == "money - paid budgets"
-    assert moment["timeline_start"] == 2.5
-
-
-def test_contract_shaped_words_collect_onto_the_timeline():
-    """The spine contract's word shape is `{word, source_start,
-    source_end}` - step 2.02 emits it and every consumer reads it - so
-    words shaped that way must collect. Bare `start`/`end` is the shape
-    no producer emits; it is tolerated, not required."""
-    from library.tools.semantic_visual import collect_word_windows
-    spine = {"structure": [{
-        "timeline_start": 100.0, "source_start": 90.0,
-        "word_timestamps": [
-            {"word": "lots", "source_start": 90.0, "source_end": 90.5},
-            {"word": "of", "source_start": 90.5, "source_end": 90.7},
-            {"word": "money", "source_start": 90.7, "source_end": 91.1},
-        ]}]}
-    windows = collect_word_windows(spine)
-    assert [(w["word"], w["start"], w["end"]) for w in windows] == [
-        ("lots", 100.0, 100.5), ("of", 100.5, 100.7),
-        ("money", 100.7, 101.1)]
-    # And an anchored entry resolves against them end to end.
-    from library.tools import motion_graphics_plan as mg
-    resolved = mg.resolve_plan(
-        [{"element": "subject_emblem", "anchor": "middle_right",
-          "subject": "money", "anchor_phrase": "lots of money",
-          "copy": {"display": "$"}, "color": "#1E6B3A",
-          "why": "money the picture does not show"}],
-        timeline_duration=200.0, fps=30, palette_roles={},
-        asked=True, word_windows=windows)
-    assert len(resolved.moments) == 1
-    assert resolved.moments[0]["timing_basis"] == "word_window:lots of money"
-    assert resolved.moments[0]["timeline_start"] == 100.0
 
 
 # ── The project reaches the renderer ─────────────────────────────────

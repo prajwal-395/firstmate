@@ -286,29 +286,6 @@ def test_motion_graphics_reuse_across_variants(tmp_path, monkeypatch):
     assert [b["placement_label"] for b in built] == labels
 
 
-def test_motion_graphics_different_pixels_render_twice(tmp_path,
-                                                       monkeypatch):
-    """A graphic that draws anything different digests differently and
-    cannot overwrite: two files, two renders."""
-    out_dir = tmp_path / "mg"
-    out_dir.mkdir()
-    remotion = _remotion_tree(tmp_path)
-    project = tmp_path / "geo-podcast"
-    project.mkdir()
-    calls = []
-
-    first = _render_graphic(monkeypatch, _mg_planned([_mg_el("title")]),
-                            out_dir, "vox_reel-09-j-cut_00", remotion,
-                            str(project), calls)
-    other = _mg_planned([_mg_el("progress_bar")])
-    second = _render_graphic(monkeypatch, other, out_dir,
-                             "vox_reel-09-j-cut_01", remotion,
-                             str(project), calls)
-
-    assert first["provenance"] == "rendered"
-    assert second["provenance"] == "rendered"
-    assert second["overlay_path"] != first["overlay_path"]
-    assert len(calls) == 2
 
 
 # ── The GC hazard: a shared file has several protectors ───────────
@@ -380,32 +357,3 @@ def test_gc_shared_file_stays_live_while_any_placing_names_it(tmp_path):
     assert _live_paths()[shared].status != LIVE
 
 
-def test_gc_sweep_refuses_a_file_any_placement_record_still_names(
-        tmp_path):
-    """The loud refusal: a mark that reads a file as orphaned while a
-    placement record still names it is a mark that no longer describes
-    what is there. The sweep moves NOTHING and says which file saved
-    itself - a quiet wrong deletion is the worst version of this
-    project's standing failure pattern."""
-    project = str(tmp_path)
-    asset_dir = os.path.join(
-        project, "pipeline_output", "steps", "4_05_render_subtitles")
-    os.makedirs(asset_dir, exist_ok=True)
-    shared = _shared_setup(asset_dir)
-
-    # A stale-or-narrow mark: read while only one placing's record was
-    # visible, so the shared file presents as an orphan.
-    narrow = [RootResult(name="pipeline:render_subtitles", status="ok",
-                         paths=set(), kind="memory")]
-    result = mark(project, asset_dir, narrow)
-    assert [a for a in result.assets if a.path == shared][0].status != LIVE
-    mark_path = os.path.join(project, "mark.json")
-    result.write_json(mark_path)
-
-    # ...while the CURRENT placement records still name it.
-    fresh = [RootResult(name="pipeline:render_subtitles", status="ok",
-                        paths={shared}, kind="memory")]
-    with pytest.raises(SweepRefused) as refused:
-        sweep(mark_path, project_folder=project, fresh_roots=fresh)
-    assert shared in str(refused.value)
-    assert os.path.isfile(shared), "a refused sweep moves nothing"

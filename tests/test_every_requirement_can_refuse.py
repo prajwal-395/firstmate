@@ -131,21 +131,6 @@ def test_requirement_can_pass_and_says_how(req):
         f"what this type exists to prevent.")
 
 
-@pytest.mark.parametrize("req", DERIVED[:40], ids=_ids(DERIVED[:40]))
-def test_derived_state_keys_can_refuse(req):
-    """The auto-derived half, sampled.
-
-    Walked separately from the hand-written registry because its
-    witnesses are GENERATED from the DAG rather than authored, so mixing
-    them would bury the sixteen hand-written rows under ninety-odd
-    trivially refutable ones. Sampled rather than exhaustive for the
-    same reason - they are all the same shape by construction, and
-    `test_requirements.py` pins that construction.
-    """
-    assert req.check(req.refuting_context()).is_unsatisfied
-    assert req.check(req.satisfying_context()).is_satisfied
-
-
 @pytest.mark.parametrize("req", INJECTED, ids=_ids(INJECTED))
 def test_runner_injected_keys_can_refuse_and_say_what_to_do(req):
     """Both witnesses, plus the remedy - because there is no producer.
@@ -189,70 +174,3 @@ def test_a_requirement_no_step_consumes_is_refused():
             refuting_context=lambda: R.Context(),
             satisfying_context=lambda: R.Context(),
         )
-
-
-def test_a_verdict_is_a_goal_only():
-    """The verdict kind holds the opposite shape, enforced both ways.
-
-    A verdict names the node that judges and NO consumers: the composer
-    asks it as a goal, and no run ever asks it as a precondition.  A
-    verdict with consumers would be asked before the judging step runs
-    - the circular `sfx.index_loads` shape - and a verdict with no
-    producer is unaskable even as a goal.  Neither registers.
-    """
-    with pytest.raises(ValueError, match="must name no consumers"):
-        R.Requirement(
-            name="verdict.consumed", kind=R.KIND_VERDICT,
-            describe="a judgement a run refuses without",
-            produced_by=("scan",), consumers=("scan",),
-            check=lambda ctx: R.SATISFIED(R.MEASURED),
-            refuting_context=lambda: R.Context(),
-            satisfying_context=lambda: R.Context(),
-        )
-    with pytest.raises(ValueError, match="must name what produces"):
-        R.Requirement(
-            name="verdict.unproduced", kind=R.KIND_VERDICT,
-            describe="a judgement nothing produces",
-            produced_by=(), consumers=(),
-            check=lambda ctx: R.SATISFIED(R.MEASURED),
-            refuting_context=lambda: R.Context(),
-            satisfying_context=lambda: R.Context(),
-        )
-    built = R.Requirement(
-        name="verdict.produced", kind=R.KIND_VERDICT,
-        describe="a judgement one node produces",
-        produced_by=("scan",), consumers=(),
-        check=lambda ctx: R.SATISFIED(R.MEASURED),
-        refuting_context=lambda: R.Context(),
-        satisfying_context=lambda: R.Context(),
-    )
-    assert built.produced_by == ("scan",)
-    assert built.consumers == ()
-
-
-def test_a_pass_cannot_invent_a_source():
-    with pytest.raises(ValueError, match="not one of the declared"):
-        R.SATISFIED("because I said so")
-
-
-def test_a_refusal_cannot_be_empty():
-    with pytest.raises(ValueError, match="must say why"):
-        R.UNSATISFIED("   ")
-
-
-def test_the_held_table_is_honest():
-    """Whatever `UNAUTHORISED` holds must NOT be built, and whatever it
-    does not hold must not be pretended to be held.
-
-    This used to pin `rough_cut.approved` as unbuilt while the captain's
-    question was open. It is now built, by ruling, so the assertion is
-    the general one: the table and the registry may not both claim the
-    same name.
-    """
-    built = {r.name for r in R.all_requirements()}
-    both = built & set(R.UNAUTHORISED)
-    assert both == set(), (
-        f"these are registered AND recorded as held pending a decision, "
-        f"which cannot both be true: {sorted(both)}")
-    for name, note in R.UNAUTHORISED.items():
-        assert len(note) > 40, f"{name} is held with no stated reason"

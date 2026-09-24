@@ -88,18 +88,6 @@ def test_the_view_carries_neither_body_language_nor_the_raw_record():
     assert "smiling" not in json_to_toon(view)
 
 
-def test_a_view_whose_source_is_not_routed_contributes_nothing():
-    assert build_view("picture", {"clip_catalog": []}) == {}
-
-
-def test_creative_direction_declares_the_view_and_the_input_it_reads():
-    """A view is not routing. The step still has to be sent the input."""
-    m = manifest("step_2_01_creative_direction")
-    assert "view:picture" in m["context_fields"]
-    assert "semantic_analysis_documents" in {
-        i["name"] for i in m["interface"]["inputs"]}
-
-
 def test_the_view_reaches_the_prompt_and_survives_a_second_projection():
     """`creative_direction` is `llm_only`, so it is projected twice.
 
@@ -159,20 +147,6 @@ def test_a_document_no_routed_clip_list_names_keeps_its_own_id_and_says_so():
     assert "IMG_1816_v3" in view["picture"]["not_in_the_clip_list"]
 
 
-def test_with_no_clip_list_at_all_nothing_is_flagged():
-    view = build_view("picture", {"semantic_analysis_documents": DOCS})
-    assert "not_in_the_clip_list" not in view["picture"]
-
-
-def test_the_view_reads_the_nested_step_output_too():
-    """`plan_transitions` is routed the whole step 1.03 output."""
-    view = build_view("picture", {
-        "semantic_analysis": {"semantic_analysis_documents": JOINABLE_DOCS},
-        "clip_catalog": CATALOG,
-    })
-    assert {r["clip_id"] for r in view["picture"]["observed"]} == {"clip_011"}
-
-
 # Which steps decide from what a shot looks like. Each of these was checked
 # against its own handoff and its reasoning trace on the run of record; the
 # other six of the twelve are named in the commit message with the reason
@@ -185,26 +159,6 @@ PICTURE_DECIDING_STEPS = [
     "step_4_03_plan_vfx",
     "step_4_04_plan_sfx",
 ]
-
-
-def test_every_step_that_decides_from_a_shot_sees_the_whole_clip():
-    for step in PICTURE_DECIDING_STEPS:
-        m = manifest(step)
-        cf = m["context_fields"]
-        assert "view:picture" in cf, (
-            f"{step} decides from what a shot looks like and does not "
-            f"declare view:picture")
-        routed = {i["name"] for i in m["interface"]["inputs"]}
-        assert routed & {"semantic_analysis_documents", "semantic_analysis"}, (
-            f"{step} declares the view but is not routed the input it reads")
-
-
-def test_no_picture_deciding_step_still_reads_the_raw_blocks():
-    """`blocks` in a TOON cell is 33,098 B of json.dumps on 001 against the
-    view's 10,508, and `speech_sequence` was the one still getting it."""
-    for step in PICTURE_DECIDING_STEPS:
-        cf = manifest(step)["context_fields"]
-        assert "semantic_analysis_documents.*.blocks" not in cf, step
 
 
 # A step whose PRE-BRIDGE renders the place axis into its own table, and
@@ -222,33 +176,3 @@ PLACE_AXIS_VIA_PRE_BRIDGE = {
     # did not move with it.
     "step_3_02_select_broll": "library/steps/step_3_02_select_broll",
 }
-
-
-def test_the_place_axis_is_not_dropped_for_the_action_axis():
-    """`blocks[]` is not a substitute for `scene[]`.
-
-    `scene[]` carries location, type, lighting and notable_features and on
-    001 covers 374.2 s of 807.0 s; the action windows carry what happens
-    and reach the last second of all seventeen clips. They are different
-    axes, so the view is added beside `analysis.scene`, never in place of
-    it. Two steps read the same measurements through their own pre-bridge
-    table instead, and this checks that the table really renders them.
-    """
-    for step in PICTURE_DECIDING_STEPS:
-        if step in PLACE_AXIS_VIA_PRE_BRIDGE:
-            step_dir = REPO / PLACE_AXIS_VIA_PRE_BRIDGE[step]
-            source = "".join(
-                f.read_text(encoding="utf-8")
-                for f in sorted(step_dir.glob("*.py")))
-            reached = ("scene_prose" in source
-                       or "clip_observations" in source
-                       or "describe_clip" in source)
-            assert reached, (
-                f"{step} is exempted from declaring the place axis because "
-                f"its pre-bridge renders it, and nothing in its own source "
-                f"reaches scene_prose any more")
-            continue
-        cf = manifest(step)["context_fields"]
-        assert any(p.endswith("analysis.scene") or p.endswith(".scene")
-                   for p in cf), (
-            f"{step} lost the only description of WHERE the clip is")

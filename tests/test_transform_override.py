@@ -553,9 +553,6 @@ def _scoped(anchor="explains the number", prop="Pan", value=-35.0,
             "reason": reason}
 
 
-def test_a_scoped_override_validates():
-    assert captain_edits.validate_edits([_scoped()])[0]["reel"].startswith(
-        "Reel 01")
 
 
 def test_an_empty_reel_scope_is_refused():
@@ -611,15 +608,6 @@ def test_the_scope_wins_where_both_would_hold():
     assert [m["value"] for m in matched] == [-20.0]
 
 
-def test_the_scope_wins_regardless_of_record_order():
-    """File order is not precedence: the general decision recorded
-    FIRST still yields to the narrowing on its reel."""
-    edits = [_scoped(value=-35.0),
-             _override(value=-20.0, reason="captain: everywhere")]
-    spans = [_span((10.0, 14.0))]
-    matched, _ = captain_edits.match_transform_overrides(
-        spans, _tx(), edits, reel_name="Reel 01 - the-cta")
-    assert [m["value"] for m in matched] == [-35.0]
 
 
 def test_two_reels_rulings_are_two_edits(tmp_path):

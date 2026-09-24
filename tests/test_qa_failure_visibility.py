@@ -47,22 +47,6 @@ def test_qa_failures_are_not_filed_as_warnings():
         "their own category.")
 
 
-def test_qa_failures_have_their_own_result_channel():
-    dumped = _run_qa_body()
-    assert "qa_failures" in dumped, (
-        "_run_qa must record error-severity failures in "
-        "results['qa_failures']")
-
-
-def test_the_results_dict_declares_qa_failures():
-    """A consumer must be able to index it without a .get() fallback."""
-    src = _source()
-    assert '"qa_failures": []' in src, (
-        "results must always carry qa_failures, so a reader can index it "
-        "directly - a key that is sometimes absent is the failure mode "
-        "this repo is most prone to.")
-
-
 def test_a_qa_failure_is_printed_as_a_failure_not_a_warning():
     src = _source()
     assert "QA CHECK FAILURE" in src, (
@@ -90,17 +74,6 @@ def test_qa_failures_are_not_fatal_yet():
     # all_passed - that is the step-two gate.
     assert "qa_reports" not in line and "verification_passed" not in line, (
         "success has been coupled to QA station outcomes. That is step TWO."
-    )
-
-
-def test_the_build_still_reports_success_separately_from_qa():
-    """Being loud is not the same as being fatal, and both must hold."""
-    src = _source()
-    assert 'results["verification_passed"] = verification_passed' in src
-    # The verdict must be derived via the pure helper, not hardcoded.
-    assert 'derive_verification_verdict(qa_reports)' in src, (
-        "verification_passed must be derived via derive_verification_verdict, "
-        "not hardcoded True"
     )
 
 

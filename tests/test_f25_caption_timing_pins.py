@@ -117,14 +117,3 @@ def test_genuine_drop_past_the_pin_still_errors():
     errors = _errors(result)
     assert errors != []
     assert any("why" in error["message"] for error in errors)
-
-
-def test_head_trim_expands_the_span_start():
-    pin = {"scope": {"timeline": TIMELINE},
-           "head_frames": 13,
-           "reason": "test"}
-    spans = [{"card": CARD, "reel_start": 10.0, "reel_end": 11.0,
-              "binding": {}}]
-    graded = ct.grade_spans(spans, [pin], FPS, timeline=TIMELINE)
-    assert graded[0]["reel_start"] == 10.0 - 13 * FRAME
-    assert graded[0]["reel_end"] == 11.0

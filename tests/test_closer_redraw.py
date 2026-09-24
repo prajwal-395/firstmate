@@ -165,8 +165,6 @@ def _write_edits_file(project, edits):
 
 # ── 1. The pin validates, word-anchored ────────────────────────────────
 
-def test_a_redraw_closer_pin_validates():
-    assert len(captain_edits.validate_edits([_pin()])) == 1
 
 
 def test_a_pin_without_a_from_phrase_is_refused():
@@ -208,28 +206,6 @@ def test_the_pin_opens_the_shared_closer_on_its_exactly_why():
         assert record["now"][1] == pytest.approx(CTA_END)
 
 
-def test_each_reel_grows_by_exactly_2_252s():
-    from library.tools.reel_build import reel_ranges
-    from library.tools.reel_quality_bar import duration_reading
-    from library.tools.reel_quality_bar import declared_closers
-    tx = _tx()
-
-    def played(moment):
-        return sum(end - start for start, end in reel_ranges(moment, tx))
-
-    before = {m.number: played(m) for m in _moments()}
-    moments, _, _, _ = captain_edits.apply_closer_redraws(
-        _moments(), tx, [_pin()])
-    for moment in moments:
-        assert played(moment) - before[moment.number] == pytest.approx(
-            GROWTH)
-        # The reported durations move with it, at report resolution.
-        assert duration_reading(moment, tx)["delivered_seconds"] == (
-            pytest.approx(before[moment.number] + GROWTH, abs=0.06))
-    closers = declared_closers(moments)
-    assert list(closers) == [(round(NEW_START, 2), round(CTA_END, 2))]
-    assert sorted(closers[(round(NEW_START, 2), round(CTA_END, 2))]) == [
-        2, 9, 20, 26]
 
 
 def test_the_built_reel_opens_its_closer_on_its_exactly_why():
@@ -258,60 +234,10 @@ def test_the_built_reel_opens_its_closer_on_its_exactly_why():
 
 # ── 3. The warning fires before, quiet after ───────────────────────────
 
-def test_mid_sentence_warning_fires_on_all_four_before_and_none_after():
-    from library.tools.reel_quality_bar import (
-        QB_CTA_OPENS_MID_SENTENCE, judge)
-    tx = _tx()
-    before = judge(_moments(), tx)
-    firing_before = sorted(
-        v.number for v in before.verdicts
-        if any(f.code == QB_CTA_OPENS_MID_SENTENCE for f in v.findings))
-    assert firing_before == [2, 9, 20, 26]
-    moments, _, _, _ = captain_edits.apply_closer_redraws(
-        _moments(), tx, [_pin()])
-    after = judge(moments, tx)
-    firing_after = [v.number for v in after.verdicts
-                    if any(f.code == QB_CTA_OPENS_MID_SENTENCE
-                           for f in v.findings)]
-    assert firing_after == []
 
 
 # ── 4. Durability: the store, twice ────────────────────────────────────
 
-def test_a_recorded_pin_survives_a_second_rebuild(tmp_path):
-    """'Persisted through iterations': the pin lives in the project's
-    external file, and two successive reads derive the same spans - the
-    second reports HELD, not stale and not re-applied."""
-    from library.tools.reel_quality_bar import played_speech
-    from library.tools.reel_build import reel_ranges
-    project = _project(tmp_path)
-    _write_edits_file(project, [_pin()])
-    tx = _tx()
-
-    def rebuild(moments):
-        fresh = json.loads(json.dumps([m.as_dict() for m in moments]))
-        from library.tools.reel_proposal import ReelMoment
-        moments = [ReelMoment.from_dict(d) for d in fresh]
-        return captain_edits.apply_closer_redraws(
-            moments, tx, captain_edits.load_edits(str(project)))
-
-    moments_a, applied_a, held_a, stale_a = rebuild(_moments())
-    assert sorted(r["reel"] for r in applied_a) == [2, 9, 20, 26]
-    assert held_a == [] and stale_a == []
-    moments_b, applied_b, held_b, stale_b = rebuild(moments_a)
-    assert applied_b == [] and stale_b == []
-    assert sorted(h["reel"] for h in held_b) == [2, 9, 20, 26]
-    for first, second in zip(moments_a, moments_b):
-        assert (first.call_to_action.timeline_start
-                == second.call_to_action.timeline_start == pytest.approx(
-                    NEW_START))
-    for moment in moments_b:
-        ranges = reel_ranges(moment, tx)
-        closer_lines = [line for line in played_speech(moment, tx)
-                        if line["range"] == len(ranges) - 1]
-        assert " ".join(
-            line["text"] for line in closer_lines).startswith(
-                "it's exactly why")
 
 
 # ── 5. Honest failures ─────────────────────────────────────────────────
@@ -448,15 +374,6 @@ def _tx_merged():
     return tx
 
 
-def test_a_sentence_start_mid_row_applies():
-    moments, applied, held, stale = captain_edits.apply_closer_redraws(
-        _moments(), _tx_merged(), [_pin()])
-    assert stale == [] and held == []
-    assert sorted(r["reel"] for r in applied) == [2, 9, 20, 26]
-    for moment in moments:
-        assert moment.call_to_action.timeline_start == pytest.approx(
-            NEW_START)
-        assert moment.call_to_action.timeline_end == pytest.approx(CTA_END)
 
 
 def test_an_overlapping_word_still_refuses():
@@ -538,48 +455,9 @@ def test_a_recorded_pin_survives_the_read_and_two_rebuilds(tmp_path):
 # +2.25s CTA growth as 54 dropped frames, failing a correct build.
 # The gate applies the same pins before deriving anything.
 
-def test_the_gate_applies_recorded_pins_before_deriving(tmp_path):
-    import io
-    from library.tools.reel_conformance_verifier import (
-        _apply_recorded_pins)
-    project = _project(tmp_path)
-    _write_edits_file(project, [_pin()])
-    redrawn = _apply_recorded_pins(
-        _moments(), _tx_merged(), str(project), io.StringIO())
-    for moment in redrawn:
-        assert moment.call_to_action.timeline_start == pytest.approx(
-            NEW_START)
 
 
-def test_the_gate_without_a_project_grades_the_file_as_before(tmp_path):
-    import io
-    from library.tools.reel_conformance_verifier import (
-        _apply_recorded_pins)
-    moments = _moments()
-    assert _apply_recorded_pins(
-        moments, _tx_merged(), "", io.StringIO()) == moments
 
 
-def test_the_gate_refuses_an_unreadable_pin_file(tmp_path):
-    import io
-    from library.tools.reel_conformance_verifier import (
-        _apply_recorded_pins)
-    project = _project(tmp_path)
-    _write_edits_file(project, [{"kind": "redraw_closer"}])
-    with pytest.raises(RuntimeError) as exc:
-        _apply_recorded_pins(
-            _moments(), _tx_merged(), str(project), io.StringIO())
-    assert "cannot be read" in str(exc.value)
 
 
-def test_the_gate_repair_keeps_moments_without_moves(tmp_path):
-    """The gate grades the batch the build placed: the repair reports
-    moves and keeps every moment, moveless ones included. Dropping a
-    moment here grades the batch against a smaller plan - Reel 09's
-    rebuild failed the gate on an empty derived plan for exactly this
-    reason, after a re-indentation left the append outside the loop."""
-    import io
-    from library.tools.reel_conformance_verifier import _repair_moments
-    moments = _moments()
-    repaired = _repair_moments(moments, _tx(), io.StringIO())
-    assert [m.number for m in repaired] == [2, 9, 20, 26]

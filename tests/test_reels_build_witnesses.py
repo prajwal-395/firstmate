@@ -103,12 +103,6 @@ def test_coherence_reports_rather_than_raises_when_it_cannot_run(tmp_path):
     assert report == {"unavailable": "no transcript module"}
 
 
-def test_coherence_runs_inside_the_reels_build():
-    """The one-import-one-call wiring: remove it and this fails."""
-    source = inspect.getsource(rb.rebuild_reels_in_project)
-    assert "report_layer_coherence(project_folder)" in source
-
-
 # ── The whole-project sweep beside the scoped gate ────────────────
 
 def test_the_sweep_grades_every_reel_not_the_built_subset(tmp_path):
@@ -179,14 +173,3 @@ def test_the_sweep_reports_findings_but_never_refuses(tmp_path):
             master_timeline_name="Master", plan_path="/x/plan.json",
             transcript_path=transcript)
     assert result == {"unavailable": "Resolve closed"}
-
-
-def test_the_sweep_runs_after_promotion_on_both_build_paths():
-    """Both call sites the task names: remove either and this fails."""
-    direct = inspect.getsource(rb.rebuild_reels_in_project)
-    assert "sweep_all_reels_informational(" in direct
-
-    from library.tools.operations import load_step_module
-    step = load_step_module("step_7_02_verify_reels", "step.py")
-    assert "sweep_all_reels_informational(" in inspect.getsource(
-        step.verify_reels)

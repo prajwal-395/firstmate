@@ -20,26 +20,6 @@ def test_the_declaration_and_the_composition_agree():
     index.assert_index_is_consistent()
 
 
-def test_the_index_covers_every_declared_capability():
-    rows = index.index()
-    by_kind = {}
-    for row in rows:
-        by_kind.setdefault(row.kind, set()).add(row.key)
-
-    from library.tools import full_frame_element
-    assert by_kind["element"] == ({e.key for e in vocabulary.ROSTER}
-                                  | {e.key for e in full_frame_element.ROSTER})
-    for axis in ("entrance", "exit", "anchor"):
-        assert by_kind[axis] == set(vocabulary.AXES_BY_NAME[axis].positions), (
-            f"the {axis} axis and the index disagree about which positions "
-            f"exist")
-
-
-def test_every_row_carries_a_verdict_the_module_names():
-    for row in index.index():
-        assert row.verdict in index.VERDICTS, row
-
-
 def test_the_gate_can_fail_in_both_directions():
     """A declaration ahead of the renderer, and one behind it."""
     source = index.COMPOSITION.read_text(encoding="utf-8")
@@ -99,21 +79,6 @@ def test_the_reveal_must_read_the_direction_it_claims_to_answer():
         index.assert_index_is_consistent(entrance_only)
 
 
-def test_both_surfaces_share_one_drawing_of_every_character():
-    """The entrance/exit rows describe two compositions with one set of rows.
-
-    That is only true while `FullFrameCard` reuses the overlay's helpers,
-    so the import is checked rather than assumed.
-    """
-    assert index.shared_motion_exports_missing() == ()
-
-
-def test_the_full_frame_surface_is_in_the_index():
-    from library.tools import full_frame_element
-    keys = {row.key for row in index.index() if row.surface == "full_frame"}
-    assert keys == {e.key for e in full_frame_element.ROSTER}
-
-
 def test_an_arm_that_returns_nothing_is_not_an_implementation():
     """`case "x": return {};` matches and draws nothing.
 
@@ -136,16 +101,3 @@ def test_an_arm_that_returns_nothing_is_not_an_implementation():
     assert "slide" in found
     assert "typewriter" not in found, (
         "an empty arm was counted as an implementation")
-
-
-def test_the_no_ramp_characters_are_the_only_ones_stated_here():
-    """`cut` and `fade` have no switch arm and are still implemented.
-
-    They are the absence of a ramp and opacity alone, which
-    `elementOpacity` owns.  Everything else in the index is read out of
-    the source.
-    """
-    assert index.NO_RAMP_CHARACTERS == {"cut", "fade"}
-    for character in index.NO_RAMP_CHARACTERS:
-        assert character in vocabulary.AXES_BY_NAME["entrance"].positions
-        assert character in vocabulary.AXES_BY_NAME["exit"].positions

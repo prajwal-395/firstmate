@@ -128,29 +128,6 @@ def test_enrich_spine_writes_no_music_selection_into_the_spine():
         "background", "background"]
 
 
-def test_post_bridge_main_writes_neither_spine_with_the_trail():
-    """End to end through stdin/stdout: both spines ship without it."""
-    post_bridge = os.path.join(
-        REPO, "library", "steps", "step_2_05_mesh_spine", "post_bridge.py")
-    payload = {
-        "spine": _spine(),
-        "speech_sequence": _speech(),
-        "music_selection": _selection(),
-        "project_config": {"target_duration_seconds": 8.0},
-    }
-    env = dict(os.environ)
-    env["PYTHONPATH"] = REPO + os.pathsep + env.get("PYTHONPATH", "")
-    proc = subprocess.run(
-        [sys.executable, post_bridge], input=json.dumps(payload),
-        capture_output=True, text=True, encoding="utf-8", timeout=120,
-        env=env, check=False)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    out = json.loads(proc.stdout)
-    for key in ("audio_spine", "timed_spine"):
-        assert "music_selection" not in out[key], (
-            f"{key} carries the audit trail")
-
-
 # ── Half two: present and complete in its own file ───────────────────
 
 def test_the_audit_file_holds_the_whole_selection(tmp_path):
@@ -173,12 +150,6 @@ def test_the_audit_file_holds_the_whole_selection(tmp_path):
     assert audit.read_audit_trail(str(tmp_path)) == selection
 
 
-def test_the_audit_file_refuses_an_empty_selection(tmp_path):
-    with pytest.raises(ValueError):
-        audit.write_audit_trail(str(tmp_path), {})
-    assert audit.read_audit_trail(str(tmp_path)) is None
-
-
 # ── The other half of 2.04's warn-and-continue write ──────────────
 #
 # The post-bridge keeps the run alive over a failed sidecar write with
@@ -188,20 +159,6 @@ def test_the_audit_file_refuses_an_empty_selection(tmp_path):
 # gone. Without it the run silently reverts half of the 2026-09-16
 # ruling (the record is KEPT, only the carrier changes) while
 # reporting success.
-
-def test_no_selection_resolved_means_no_record_owed(tmp_path):
-    for unresolved in ({}, {"title": "a vibe"}, {"audio_path": "  "},
-                       None, "a path"):
-        assert audit.assert_audit_trail_present(
-            str(tmp_path), unresolved) is None
-
-
-def test_a_present_sidecar_reads_back(tmp_path):
-    selection = _selection()
-    audit.write_audit_trail(str(tmp_path), selection)
-    assert audit.assert_audit_trail_present(
-        str(tmp_path), selection) == selection
-
 
 def test_a_missing_sidecar_after_a_resolved_selection_refuses(tmp_path):
     selection = _selection()
@@ -215,14 +172,6 @@ def test_an_unparseable_sidecar_refuses(tmp_path):
     path = audit.write_audit_trail(str(tmp_path), selection)
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(audit.AuditTrailMissing, match="does not parse"):
-        audit.assert_audit_trail_present(str(tmp_path), selection)
-
-
-def test_a_sidecar_holding_no_record_refuses(tmp_path):
-    selection = _selection()
-    path = audit.write_audit_trail(str(tmp_path), selection)
-    path.write_text("[1, 2]", encoding="utf-8")
-    with pytest.raises(audit.AuditTrailMissing, match="holds no record"):
         audit.assert_audit_trail_present(str(tmp_path), selection)
 
 

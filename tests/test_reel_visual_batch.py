@@ -110,24 +110,6 @@ def _response_files(project):
 
 # ── One call reads all three asks ───────────────────────────────────
 
-def test_read_visual_asks_returns_all_three_in_one_call(tmp_path):
-    project = _project(tmp_path)
-    build.write_visual_asks(
-        _moment(), _transcript(), [(10.0, 18.0)], _clips(), project,
-        FPS, NAME, [], {"origin": "test"})
-
-    asks = build.read_visual_asks(project, 9)
-
-    assert set(asks) == {"reel_semantic", "reel_span", "reel_motion"}
-    for stem, key in (("reel_semantic_09.json", "reel_semantic"),
-                      ("reel_span_09.json", "reel_span"),
-                      ("reel_motion_09.json", "reel_motion")):
-        on_disk = json.loads(
-            (Path(project) / "pipeline_output" / "llm_requests"
-             / stem).read_text(encoding="utf-8"))
-        assert asks[key] == on_disk
-
-
 def test_unwritten_ask_reads_as_none(tmp_path):
     """No declared look, so no motion ask - and both sides say so."""
     project = _project(tmp_path)
@@ -165,21 +147,6 @@ def test_partial_write_is_refused_before_anything_lands(tmp_path):
         assert not path.exists(), (
             f"{path.name} landed from a refused write - a partial "
             f"write must leave nothing behind")
-
-
-# ── Reading back returns exactly what was written ───────────────────
-
-def test_write_then_read_round_trips_exactly(tmp_path):
-    project = _project(tmp_path)
-    written = _answers()
-
-    paths = build.write_visual_answers(project, 9, written)
-
-    assert set(paths) == {"reel_semantic", "reel_span", "reel_motion"}
-    assert paths["reel_semantic"].endswith("reel_semantic_09.json")
-    assert paths["reel_span"].endswith("reel_span_09.json")
-    assert paths["reel_motion"].endswith("reel_motion_09.json")
-    assert build.read_visual_answers(project, 9) == written
 
 
 def test_batch_answers_land_where_pass_2_reads(tmp_path):

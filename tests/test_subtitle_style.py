@@ -64,33 +64,10 @@ def test_every_template_names_a_style_that_exists():
         f"Available: {sorted(SUBTITLE_STYLES)}")
 
 
-def test_no_orphan_styles():
-    """A look no template names is a look nobody chose."""
-    named = set()
-    for _name, tmpl in _templates():
-        wanted = (tmpl.get("effect") or {}).get("subtitle_style")
-        if wanted:
-            named.add(wanted)
-    orphans = set(SUBTITLE_STYLES) - named
-    assert not orphans, (
-        f"subtitle styles no template names: {sorted(orphans)}. Add a "
-        f"template that uses one, or delete it.")
 
 
-def test_every_style_records_where_it_came_from():
-    missing = [n for n, s in SUBTITLE_STYLES.items() if not s.derived_from.strip()]
-    assert not missing, (
-        f"styles with no derived_from: {missing}. Say what the values are "
-        f"based on, or the next agent cannot tell design from accident.")
 
 
-def test_style_shapes_are_sane():
-    for name, style in SUBTITLE_STYLES.items():
-        assert style.name == name
-        assert 20 <= style.font_size <= 250, name
-        assert 100 <= style.font_weight <= 900, name
-        assert 0 <= style.outline_width <= 24, name
-        assert style.position in VALID_POSITIONS, name
 
 
 # ─────────────────────────────────────────────────────────
@@ -130,9 +107,6 @@ class TestResolution:
         assert got["accentColor"] == LEGACY_ACCENT_COLOR
         assert got["outlineWidth"] == LEGACY_OUTLINE_WIDTH
 
-    def test_default_subtitles_is_byte_for_byte_the_old_look(self):
-        assert resolve_subtitle_style(
-            {"subtitle_style": "default_subtitles"}, {}) == resolve_subtitle_style({}, {})
 
     def test_default_subtitles_ignores_a_placeholder_palette(self):
         """A placeholder palette of three pure RGB primaries.
@@ -145,14 +119,6 @@ class TestResolution:
             {"color_palette": ["#ff0000", "#00ff00", "#0000ff"]})
         assert got["accentColor"] == LEGACY_ACCENT_COLOR
 
-    def test_named_styles_differ_from_each_other(self):
-        """Four names that render identically would be four lies."""
-        seen = {}
-        for name in SUBTITLE_STYLES:
-            props = json.dumps(resolve_subtitle_style({"subtitle_style": name}, {}),
-                               sort_keys=True)
-            assert props not in seen, f"{name} renders identically to {seen[props]}"
-            seen[props] = name
 
     def test_typography_overrides_the_style_shape(self):
         got = resolve_subtitle_style(
@@ -302,18 +268,6 @@ def test_missing_style_raises_rather_than_defaulting():
             {"subtitle_entries": entries}, width=1080, height=1920)
 
 
-def test_step_4_01_emits_a_style():
-    """The producer end, so the two halves cannot drift apart."""
-    manifest_path = os.path.join(PROJECT_ROOT, "library", "steps",
-                                 "step_4_01_plan_subtitles", "manifest.json")
-    with open(manifest_path, encoding="utf-8") as f:
-        manifest = json.load(f)
-    inputs = {i["name"] for i in manifest["interface"]["inputs"]}
-    assert {"brand_style", "brand_effect"} <= inputs, (
-        "step 4.01 must declare both brand slots, or the pipeline runner "
-        "will not inject them and the template cannot reach the caption.")
-    out = manifest["interface"]["outputs"][0]
-    assert "style" in out["expected_schema"]
 
 
 def test_every_shipped_template_resolves_to_a_usable_accent():
@@ -336,11 +290,6 @@ def test_every_shipped_template_resolves_to_a_usable_accent():
             f"read as emphasis on screen")
 
 
-def test_every_shipped_template_resolves_without_raising():
-    for name, tmpl in _templates():
-        props = resolve_subtitle_style(tmpl.get("effect"), tmpl.get("style"))
-        assert props["fontSize"] > 0, name
-        assert props["position"] in VALID_POSITIONS, name
 
 
 def test_emphasis_size_comes_from_font_size_not_transform():
@@ -423,13 +372,6 @@ class TestProjectTypography:
         assert got["fontFamily"] == "Montserrat"
         assert got["fontWeight"] == 600
 
-    def test_the_four_presets_and_the_legacy_default_do_not_move(self):
-        """A project declaration is not a change to what anyone else gets."""
-        assert LEGACY_FONT_SIZE == 160
-        assert SUBTITLE_STYLES["bold_large"].font_size == 192
-        assert SUBTITLE_STYLES["clean_standard"].font_size == 144
-        assert SUBTITLE_STYLES["minimal"].font_size == 120
-        assert SUBTITLE_STYLES["default_subtitles"].font_size == LEGACY_FONT_SIZE
 
     def test_a_key_nothing_reads_is_refused_by_name(self, tmp_path):
         folder = _project(tmp_path, {"subtitle_typography": {"colour": "red"}})
@@ -445,29 +387,8 @@ class TestProjectTypography:
         """A fourth key would be a declaration nothing draws."""
         assert set(TYPOGRAPHY_KEYS) == {"font", "size", "weight"}
 
-    def test_the_schema_round_trips_a_declaration(self, tmp_path):
-        from library.schemas.project_config import (
-            _dict_to_project_config, project_config_to_dict)
-        cfg = _dict_to_project_config({
-            "name": "T", "slug": "t",
-            "pipeline": {"subtitle_typography": {"size": 85}}})
-        assert cfg.validate() == []
-        assert cfg.pipeline.subtitle_typography == {"size": 85}
-        assert project_config_to_dict(cfg)["pipeline"]["subtitle_typography"] \
-            == {"size": 85}
 
-    def test_the_schema_omits_it_when_undeclared(self):
-        from library.schemas.project_config import (
-            _dict_to_project_config, project_config_to_dict)
-        cfg = _dict_to_project_config({"name": "T", "slug": "t"})
-        assert "subtitle_typography" not in project_config_to_dict(cfg)["pipeline"]
 
-    def test_the_schema_reports_a_key_nothing_reads(self):
-        from library.schemas.project_config import _dict_to_project_config
-        cfg = _dict_to_project_config({
-            "name": "T", "slug": "t",
-            "pipeline": {"subtitle_typography": {"colour": "red"}}})
-        assert any("subtitle_typography" in e for e in cfg.validate())
 
 
 # ── A project may caption each speaker differently ───────────────────

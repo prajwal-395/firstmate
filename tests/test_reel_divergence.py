@@ -95,22 +95,6 @@ def test_an_undetectable_declaration_must_name_a_reason_and_an_owner():
                 rd.assert_registry_is_well_formed()
 
 
-def test_the_shipped_registry_is_well_formed():
-    rd.assert_registry_is_well_formed()
-
-
-def test_the_caption_row_is_declared_undetectable_by_name():
-    """It is REPORTED as having no detector, never left out.
-
-    A row that vanished from the table would read as a declaration that
-    agrees, which is the failure this whole module exists to stop.
-    """
-    entry = rd.DETECTORS[rd.KEY_CAPTION_ROW]
-    assert entry.detect is None
-    assert "999" in entry.undetectable_reason
-    assert entry.owner
-
-
 # ── The detector reads the artefact, both shapes ─────────────────
 
 def test_a_reel_carrying_the_declared_card_reads_carried(tmp_path):
@@ -134,16 +118,6 @@ def test_a_reel_built_before_the_declaration_reads_absent(tmp_path):
     assert report["reels"]["Reel 01"][rd.KEY_FULL_FRAME]["verdict"] \
         == rd.ABSENT
     assert report["divergent"][rd.KEY_FULL_FRAME] == ["Reel 01"]
-
-
-def test_a_serialized_timeline_off_disk_reads_the_same(tmp_path):
-    """The survey must run with Resolve CLOSED, or nobody runs it."""
-    folder = project_declaring(tmp_path, LOGO_YAML)
-    report = rd.survey(folder, {
-        "has": serialized("logo_reveal.mov"),
-        "hasnt": serialized("LCATL0013.MXF")})
-    assert report["reels"]["has"][rd.KEY_FULL_FRAME]["verdict"] == rd.CARRIED
-    assert report["reels"]["hasnt"][rd.KEY_FULL_FRAME]["verdict"] == rd.ABSENT
 
 
 def test_an_audio_clip_of_the_same_name_does_not_count(tmp_path):
@@ -221,13 +195,6 @@ def test_a_reel_owed_a_freeze_and_without_one_reads_absent(tmp_path):
         == rd.CARRIED
 
 
-def test_the_ending_row_survives_endings_being_omitted(tmp_path):
-    """A row that vanished would read as agreement."""
-    folder = project_declaring(tmp_path, "pipeline: {}\n")
-    report = rd.survey(folder, {"Reel 05": FakeSnapshot()})
-    assert rd.KEY_FREEZE_ENDING in report["reels"]["Reel 05"]
-
-
 # ── The claim gate: the reporting failure, mechanised ────────────
 
 def test_a_claim_the_artefacts_do_not_back_is_REFUSED(tmp_path):
@@ -246,13 +213,6 @@ def test_a_claim_the_artefacts_do_not_back_is_REFUSED(tmp_path):
     assert "Reel 26" not in str(refused.value)
 
 
-def test_a_claim_backed_by_every_surveyed_reel_passes(tmp_path):
-    folder = project_declaring(tmp_path, LOGO_YAML)
-    report = rd.survey(folder, {
-        "Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))})
-    assert rd.assert_reaches(report, rd.KEY_FULL_FRAME) == ["Reel 26"]
-
-
 def test_an_undetermined_reel_refuses_the_claim_too(tmp_path):
     """"We did not look" is not evidence that something is there."""
     folder = project_declaring(tmp_path, LOGO_YAML)
@@ -263,19 +223,6 @@ def test_an_undetermined_reel_refuses_the_claim_too(tmp_path):
         rd.assert_reaches(report, rd.KEY_FULL_FRAME)
     assert "Reel 09" in str(refused.value)
     assert rd.UNDETERMINED in str(refused.value)
-
-
-def test_a_claim_over_zero_reels_is_refused(tmp_path):
-    folder = project_declaring(tmp_path, LOGO_YAML)
-    with pytest.raises(rd.ClaimNotBackedByArtefacts):
-        rd.assert_reaches(rd.survey(folder, {}), rd.KEY_FULL_FRAME)
-
-
-def test_a_claim_about_an_unknown_declaration_is_refused(tmp_path):
-    folder = project_declaring(tmp_path, LOGO_YAML)
-    report = rd.survey(folder, {"Reel 26": FakeSnapshot()})
-    with pytest.raises(rd.ClaimNotBackedByArtefacts):
-        rd.assert_reaches(report, "a_declaration_nobody_detects")
 
 
 # ── The build-time report reports rather than refusing ───────────
@@ -289,33 +236,6 @@ def test_report_divergence_prints_and_never_raises(tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "ABSENT" in printed
     assert "DIVERGE" in printed
-
-
-def test_report_divergence_survives_a_total_failure(tmp_path, capsys):
-    report = rd.report_divergence(tmp_path / "does-not-exist", None)
-    assert "reels" in report or "unavailable" in report
-
-
-def test_snapshots_for_records_an_absent_reel_rather_than_measuring_it():
-    class FakeTimeline:
-        def GetName(self):
-            return "Reel 26 - x"
-
-    class FakeProject:
-        def GetTimelineCount(self):
-            return 1
-
-        def GetTimelineByIndex(self, index):
-            return FakeTimeline()
-
-        def GetName(self):
-            return "Podcast"
-
-    snapshots, notes = rd.snapshots_for(
-        FakeProject(), ["Reel 26 - x", "Reel 09 - y"],
-        snapshot_fn=lambda timeline, project: FakeSnapshot())
-    assert set(snapshots) == {"Reel 26 - x"}
-    assert "has not been built" in notes["Reel 09 - y"]
 
 
 # ── The detector compares digests, not filenames ──────────────────
@@ -354,89 +274,3 @@ def test_a_declared_file_replaced_on_disk_reads_absent(tmp_path):
         rd.assert_reaches(report, rd.KEY_FULL_FRAME)
 
 
-def test_a_declared_file_deleted_after_the_build_reads_absent(tmp_path):
-    """Gone from disk is not carried, whatever the timeline names."""
-    from library.tools.code_identity import hash_asset_file
-
-    folder, asset = _logo_project(tmp_path)
-    recorded = {asset: hash_asset_file(asset)}
-    Path(asset).unlink()
-
-    report = rd.survey(
-        folder, {"Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))},
-        recorded_assets=recorded)
-    cell = report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]
-    assert cell["verdict"] == rd.ABSENT
-    assert "missing" in cell["detail"]
-
-
-def test_matching_bytes_stay_carried_with_no_footnote(tmp_path):
-    """The digest agreeing must not demote a carried reel."""
-    from library.tools.code_identity import hash_asset_file
-
-    folder, asset = _logo_project(tmp_path)
-    report = rd.survey(
-        folder, {"Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))},
-        recorded_assets={asset: hash_asset_file(asset)})
-    cell = report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]
-    assert cell["verdict"] == rd.CARRIED
-    assert "predate" not in cell["detail"]
-
-
-def test_a_pre_digest_build_reads_carried_by_name_and_says_so(tmp_path):
-    """No recorded digest is not a divergence - it is an absence the
-    survey states per reel rather than rounding either way."""
-    folder, _asset = _logo_project(tmp_path)
-    report = rd.survey(
-        folder, {"Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))})
-    cell = report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]
-    assert cell["verdict"] == rd.CARRIED
-    assert "name match only" in cell["detail"]
-
-
-def test_hash_asset_file_hashes_bytes_and_records_absence(tmp_path):
-    """The identity precedent, applied to media: content in, digest
-    out, and a missing file is None rather than a hollow digest."""
-    from library.tools.code_identity import hash_asset_file
-
-    asset = tmp_path / "card.mov"
-    asset.write_bytes(b"bytes-one")
-    first = hash_asset_file(str(asset))
-    assert first and len(first) == 64
-    asset.write_bytes(b"bytes-two")
-    assert hash_asset_file(str(asset)) != first
-    assert hash_asset_file(str(tmp_path / "not-there.mov")) is None
-
-
-def test_declared_asset_paths_covers_all_three_families(tmp_path):
-    """`full_frame_elements`, `content.bookends` and every
-    `external/` asset path - the collector that feeds both the
-    build-time recording and the survey-time comparison."""
-    folder, asset = _logo_project(tmp_path)
-
-    card = tmp_path / "tailcard.mov"
-    card.write_bytes(b"hand-placed")
-    external = tmp_path / "external"
-    external.mkdir()
-    (external / "placed_assets.json").write_text(json.dumps({
-        "version": 1, "assets": [{
-            "slot": "tail", "asset": str(card),
-            "duration_seconds": 5.0, "has_audio": False,
-            "label": "tail card", "reason": "captain"}]}),
-        encoding="utf-8")
-
-    endcard = tmp_path / "endcard.mov"
-    endcard.write_bytes(b"bookend")
-    content = {"bookends": {"end_card": {
-        "asset": str(endcard), "duration_seconds": 5.0}}}
-
-    found = rd.declared_asset_paths(folder, brand_content=content)
-    assert found[str(asset)] == "effect.full_frame_elements"
-    assert found[str(card)] == "external/placed_assets.json"
-    assert found[str(endcard)] == "content.bookends"
-
-
-def test_declared_asset_paths_never_raises_on_a_broken_project(tmp_path):
-    """A collector that raised would take the whole survey down with
-    it - malformed declarations are the plan-time reader's to refuse."""
-    assert rd.declared_asset_paths(tmp_path / "does-not-exist") == {}

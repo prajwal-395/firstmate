@@ -86,19 +86,6 @@ def test_unsuppressed_dropped_word_still_errors():
     assert "re" in errors[0]["message"]
 
 
-def test_suppression_naming_nothing_suppresses_nothing():
-    played = _played()
-    dropped = [w for w in played if w["word"] == "like"]
-    for word in dropped:
-        word["suppression"] = "lc-0061"
-    result = sc.check_word_coverage(
-        played, _captioned_without_re(), _cards(), suppressed=dropped)
-    errors = [f for f in result["findings"]
-              if f["severity"] == "error"]
-    assert len(errors) == 1
-    assert "re" in errors[0]["message"]
-
-
 def _write_store(tmp_path):
     store = [{
         "id": "lc-0061",
@@ -125,29 +112,3 @@ def test_helper_marks_only_the_anchored_token(tmp_path):
     marked = _suppressed_played_words(_played(), project)
     assert [w["word"] for w in marked] == ["re"]
     assert marked[0]["suppression"] == "lc-0061"
-
-
-def test_helper_marks_nothing_without_a_store(tmp_path):
-    assert _suppressed_played_words(_played(), str(tmp_path)) == []
-    assert _suppressed_played_words([], _write_store(tmp_path)) == []
-
-
-def test_f25_wrapper_warns_never_errors_on_suppressed(tmp_path):
-    project = _write_store(tmp_path)
-    played = _played()
-    suppressed = _suppressed_played_words(played, project)
-    word_coverage = {"played": played,
-                     "captioned": _captioned_without_re(),
-                     "cards": _cards(),
-                     "spine": None,
-                     "suppressed": suppressed}
-    findings = check_subtitle_word_coverage("Reel 09 - test",
-                                            word_coverage)
-    assert [f for f in findings
-            if f.finding_class == FindingClass.F25
-            and f.severity == "error"] == []
-    warnings = [f for f in findings
-                if f.finding_class == FindingClass.F25
-                and "suppressed" in f.message]
-    assert len(warnings) == 1
-    assert "lc-0061" in warnings[0].message

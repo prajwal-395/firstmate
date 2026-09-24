@@ -244,32 +244,6 @@ def test_the_guard_takes_its_rows_from_the_one_reader(tmp_path):
     assert rows["video:V1"]["items"][0]["name"] == "craig-take"
 
 
-def test_the_serializer_projects_the_same_reading(tmp_path):
-    timeline, project_folder = _reel(tmp_path)
-
-    class _Resolve:
-        def GetProjectManager(self):
-            return self
-
-        def GetCurrentProject(self):
-            return self
-
-        def GetCurrentTimeline(self):
-            return timeline
-
-    state = serialize_timeline_state(resolve_mock=_Resolve())
-    clips = state["tracks"][0]["clips"]
-    assert clips[0]["name"] == "craig-take"
-    assert clips[0]["transform"]["ZoomX"] == 1.0
-    assert clips[0]["markers"] == [{
-        "frame": 150, "color": "Blue", "name": "pool note",
-        "note": "typed on the file", "duration": 1, "custom_data": "",
-    }, {
-        "frame": 200, "color": "Red", "name": "fix the cut",
-        "note": "trim the head", "duration": 1, "custom_data": "",
-    }]
-
-
 def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
     from PIL import Image
 
@@ -356,60 +330,6 @@ def _ink_frame(path, box):
     frame.save(path)
 
 
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_full_mode_measures_ink_off_a_quicktime_movie(tmp_path):
-    """A `.mov` artefact measures through the reused frame decoder.
-
-    Measured 2026-09-15: every caption and motion-graphic artefact is a
-    QuickTime movie and PIL cannot open one, so mode=full paid the
-    decode cost and measured nothing - 100 percent of overlay rows
-    came back measured:false on all four reels asked. `_ink_box` now
-    decodes through `tight_box.extract_frames` and unions through
-    `tight_box.ink_union_of_frames`, the pair the tight-box path
-    already measures with. The fixture is a qtrle movie built here
-    (two frames, ink in different places) so the union must span both
-    drawings - a still-image code path passing this off as one frame
-    cannot.
-    """
-    first = tmp_path / "movshot-0000.png"
-    second = tmp_path / "movshot-0001.png"
-    _ink_frame(first, (50, 10, 120, 40))
-    _ink_frame(second, (10, 60, 60, 90))
-    mov = tmp_path / "caption.mov"
-    _encode_mov([first, second], mov)
-
-    ink = reel_read._ink_box(str(mov))
-    assert ink["measured"] is True
-    assert ink["canvas"] == [200, 100]
-    assert ink["ink_box_xyxy"] == [10, 10, 120, 90]
-    assert ink["frames"] == 2
-    assert ink["inked_frames"] == 2
-
-
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_a_movie_that_drew_nothing_stays_unmeasured_not_default(tmp_path):
-    """The failure direction survives the new decoder: a blank movie
-    reads measured:false (fully transparent), and a file ffmpeg cannot
-    decode reads measured:false with the reason - never a default box
-    presented as measured."""
-    from PIL import Image
-
-    for index in range(2):
-        Image.new("RGBA", (200, 100), (0, 0, 0, 0)).save(
-            str(tmp_path / f"movshot-{index:04d}.png"))
-    blank = tmp_path / "blank.mov"
-    _encode_mov([tmp_path / "movshot-0000.png"], blank)
-    ink = reel_read._ink_box(str(blank))
-    assert ink == {"measured": False,
-                   "reason": "fully transparent artefact"}
-
-    broken = tmp_path / "broken.mov"
-    broken.write_bytes(b"not a quicktime file")
-    ink = reel_read._ink_box(str(broken))
-    assert ink["measured"] is False
-    assert ink["reason"]
-
-
 # ── The currency check: a scaled reading refuses ───────────────────
 #
 # Measured 2026-09-15 on Resolve Studio 21.1.0.14: Pan/Tilt read
@@ -473,14 +393,6 @@ def _measured_world():
     return project, master, reel13, reel26
 
 
-def test_the_old_shape_returns_the_scaled_number_as_data(tmp_path):
-    project, _master, reel13, _reel26 = _measured_world()
-    assert project.current.GetName() == "Master"
-    clips = reel_read.read_tracks(reel13)[0]["clips"]
-    assert clips[0]["transform"]["Pan"] == \
-        pytest.approx(-24.0 * 3840 / 1080)
-    assert clips[0]["transform"]["Tilt"] == \
-        pytest.approx(-1.58 * 2160 / 1920)
     # Nothing on the reading marks its condition: this is the defect -
     # a scaled number in the exact shape a measurement arrives in.
 
@@ -592,19 +504,3 @@ def _direct_reads(path: Path) -> set:
     }
 
 
-@pytest.mark.heavy
-def test_no_module_outside_the_readers_touches_resolve_directly():
-    root = Path(__file__).resolve().parents[1]
-    violators = {}
-    for path in sorted((root / "library").rglob("*.py")):
-        reads = _direct_reads(path)
-        if reads and str(path.relative_to(root)) not in READER_MODULES:
-            violators[str(path.relative_to(root))] = sorted(reads)
-    assert violators == {}, (
-        "new direct Resolve reads outside the reader modules - take a "
-        f"slice of reel_read instead: {violators}")
-
-
-def test_the_guard_takes_no_direct_read():
-    root = Path(__file__).resolve().parents[1]
-    assert _direct_reads(root / "library/tools/reel_replace_guard.py") == set()

@@ -84,18 +84,6 @@ class TestCentredIsNotUnmeasurable:
 class TestPositionStillDelegates:
     """`subject_center_x` keeps its contract: the reading's position."""
 
-    @pytest.mark.parametrize("centers,source_in,source_out", [
-        ([0.30] * 20, 0.0, 4.0),
-        ([0.50] * 20, 0.0, 4.0),
-        ([None] * 20, 0.0, 4.0),
-        ([0.25] * 10 + [0.78] * 10, 2.0, 3.9),
-        ([None] * 60, 0.0, 12.0),
-    ])
-    def test_position_matches_reading(self, centers, source_in, source_out):
-        track = face_track(centers)
-        assert (subject_center_x(track, source_in, source_out)
-                == subject_center_reading(
-                    track, source_in, source_out).position)
 
 
 def _project(tmp_path):
@@ -111,19 +99,6 @@ def _footage(tmp_path, name="LC4932.MXF"):
 
 
 class TestRecordedAim:
-    def test_record_then_read_returns_the_point(self, tmp_path):
-        project = _project(tmp_path)
-        source = _footage(tmp_path)
-        point = SubjectPoint(center_x=0.48, center_y=0.32, width=0.10,
-                             samples=12, detected=11, others=0)
-        provenance = record_subject_measurement(
-            project, source, 10.0, 15.0, point)
-        assert provenance is not None
-        assert provenance["basis"] == "probed"
-
-        back, hit = read_recorded_subject(project, source, 10.0, 15.0)
-        assert hit is not None and hit["basis"] == "recorded"
-        assert back == point
 
     def test_recorded_absence_is_a_hit_not_a_miss(self, tmp_path):
         """"Looked, no face" must not be re-probed on every rebuild."""

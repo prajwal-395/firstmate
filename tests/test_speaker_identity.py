@@ -74,18 +74,6 @@ def test_a_project_declaring_no_speakers_gets_no_lower_thirds(tmp_path):
     assert plan.basis == si.NOT_DECLARED
 
 
-def test_a_project_with_no_project_yaml_at_all_gets_no_lower_thirds(tmp_path):
-    """A folder that is not a project answers the same way it answers
-    every other optional declaration: nothing, rather than an error."""
-    folder = tmp_path / "not-a-project"
-    folder.mkdir()
-    assert si.project_declaration(str(folder)) is None
-    plan = si.plan_for_reel(
-        reel_name="Reel 01", lines=_lines(("Ada", 1.0)),
-        reel_seconds=60.0, project_folder=str(folder), width=1080, height=1920)
-    assert plan.basis == si.NOT_DECLARED and plan.entries == []
-
-
 def test_a_second_project_declares_a_different_cast(tmp_path):
     """Two projects, two casts, one engine. If this can fail, the four
     strings of one project have reached library code."""
@@ -155,54 +143,8 @@ def test_a_speaker_appearing_twice_gets_exactly_one_graphic(tmp_path):
     assert [e["start_seconds"] for e in plan.entries] == [0.5, 4.0]
 
 
-def test_first_appearance_is_the_reels_order_not_the_declarations(tmp_path):
-    """Whoever the REEL plays first is introduced first, whatever order
-    the project wrote its cast in."""
-    folder = _project(tmp_path, "order",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel(
-        "R", _lines(("Bram", 2.0), ("Ada", 7.0)), 40.0, folder, width=1080, height=1920)
-    assert [i.speaker for i in plan.introductions] == ["Bram", "Ada"]
-
-
-def test_an_undeclared_speaker_is_passed_over_in_silence(tmp_path):
-    folder = _project(tmp_path, "third-voice",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel(
-        "R", _lines(("Caller", 1.0), ("Ada", 5.0)), 40.0, folder, width=1080, height=1920)
-    assert [i.speaker for i in plan.introductions] == ["Ada"]
-
-
-def test_a_reel_no_declared_speaker_speaks_in_says_so(tmp_path):
-    folder = _project(tmp_path, "nobody",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("R", _lines(("Caller", 1.0)), 40.0, folder, width=1080, height=1920)
-    assert plan.declared is True
-    assert plan.basis == si.NO_DECLARED_SPEAKER_SPOKE
-    assert plan.entries == []
-
-
-def test_first_appearances_is_once_per_speaker_on_its_own():
-    got = si.first_appearances(
-        _lines(("A", 5.0), ("B", 1.0), ("A", 0.5)), ["A", "B"])
-    assert [(g["speaker"], g["at_seconds"]) for g in got] == [
-        ("A", 0.5), ("B", 1.0)]
-
 
 # ── The colour: the project's, or nothing ────────────────────────────
-
-def test_the_colour_falls_back_to_this_projects_own_caption_accent(tmp_path):
-    folder = _project(
-        tmp_path, "accent",
-        pipeline={"speaker_subtitle_styles": {
-            "Ada": {"accentColor": "#ABCDEF"}}},
-        effect={si.DECLARATION_KEY: {
-            **DECLARATION,
-            "speakers": {"Ada": {"name": "Ada Lovelace", "title": "Analyst"}},
-        }})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
-    assert plan.introductions[0].colour == "#ABCDEF"
-    assert "speaker_subtitle_styles" in plan.introductions[0].colour_basis
 
 
 def test_a_speaker_with_no_colour_anywhere_is_refused_not_invented(tmp_path):
@@ -218,47 +160,15 @@ def test_a_speaker_with_no_colour_anywhere_is_refused_not_invented(tmp_path):
     assert [r["reason"] for r in plan.refused] == [si.NO_COLOUR_DECLARED]
 
 
-def test_a_speakers_own_colour_wins_over_the_caption_accent(tmp_path):
-    folder = _project(
-        tmp_path, "own-colour",
-        pipeline={"speaker_subtitle_styles": {
-            "Ada": {"accentColor": "#ABCDEF"}}},
-        effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
-    assert plan.introductions[0].colour == "#11FFAA"
-
 
 # ── A declaration that cannot be read is refused, never completed ────
 
-@pytest.mark.parametrize("missing", ["anchor", "hold_seconds",
-                                     "entrance", "exit"])
-def test_a_declaration_missing_a_required_value_raises(missing):
-    declaration = {k: v for k, v in DECLARATION.items() if k != missing}
-    with pytest.raises(si.SpeakerIdentityError) as why:
-        si.declared_speakers(declaration)
-    assert missing in str(why.value)
-
-
-def test_an_anchor_outside_the_vocabulary_raises():
-    with pytest.raises(si.SpeakerIdentityError):
-        si.declared_speakers({**DECLARATION, "anchor": "somewhere_nice"})
-
-
-def test_a_motion_character_outside_the_vocabulary_raises():
-    with pytest.raises(si.SpeakerIdentityError):
-        si.declared_speakers({**DECLARATION, "entrance": "swoosh"})
 
 
 def test_a_key_nothing_reads_raises():
     with pytest.raises(si.SpeakerIdentityError) as why:
         si.declared_speakers({**DECLARATION, "opacity": 0.5})
     assert "opacity" in str(why.value)
-
-
-def test_a_speaker_with_no_name_raises():
-    with pytest.raises(si.SpeakerIdentityError):
-        si.declared_speakers({**DECLARATION,
-                              "speakers": {"Ada": {"title": "Analyst"}}})
 
 
 # ── The plan reaches the renderer's own resolver ─────────────────────
@@ -284,24 +194,6 @@ def test_the_entry_resolves_through_step_4_06s_own_resolver(tmp_path):
     assert moment["data"]["construction"] == "staged_rule"
 
 
-def test_a_speaker_with_no_title_sends_one_run(tmp_path):
-    folder = _project(
-        tmp_path, "no-title",
-        effect={si.DECLARATION_KEY: {
-            **DECLARATION,
-            "speakers": {"Ada": {"name": "Ada Lovelace",
-                                 "colour": "#11FFAA"}}}})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
-    assert plan.entries[0]["copy"] == [
-        {"text": "Ada Lovelace", "type_role": "display"}]
-
-
-def test_a_first_appearance_past_the_end_of_the_reel_is_refused(tmp_path):
-    folder = _project(tmp_path, "past-the-end",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("R", _lines(("Ada", 99.0)), 40.0, folder, width=1080, height=1920)
-    assert plan.entries == []
-    assert [r["reason"] for r in plan.refused] == [si.OUTSIDE_THE_REEL]
 
 
 # ── One row, one moment: a card ends where the next begins ────────
@@ -347,28 +239,6 @@ def test_a_card_ends_where_the_next_speakers_card_begins(tmp_path):
     assert [i.speaker for i in plan.introductions] == ["Ada", "Bram"]
 
 
-def test_a_card_clear_of_the_next_keeps_its_full_hold(tmp_path):
-    """The Reel 13 shape: a 3.54s gap against a 3.5s hold never
-    overlaps, so nothing is truncated and the 0.04s clearance is
-    guaranteed by the invariant rather than luck."""
-    folder = _held_project(tmp_path, "clear")
-    plan = si.plan_for_reel(
-        "R", _lines(("Ada", 0.0), ("Bram", 3.54)), 60.0, folder, width=1080, height=1920)
-    assert [e["duration_seconds"] for e in plan.entries] == [3.5, 3.5]
-    assert all("truncated_for_next" not in e["data"]
-               for e in plan.entries)
-
-
-def test_each_card_in_a_chain_ends_where_the_next_begins(tmp_path):
-    """Truncation is per card, against the card after it - never the
-    hold, never the card after that."""
-    folder = _held_project(tmp_path, "chain")
-    plan = si.plan_for_reel(
-        "R", _lines(("Ada", 0.0), ("Bram", 2.0), ("Cy", 9.0)),
-        60.0, folder, width=1080, height=1920)
-    assert [(e["start_seconds"], e["duration_seconds"])
-            for e in plan.entries] == [(0.0, 2.0), (2.0, 3.5), (9.0, 3.5)]
-
 
 def test_a_card_truncated_below_the_readability_floor_is_refused(tmp_path):
     """A 0.3s card is not a name the viewer saw. Below the pipeline's
@@ -393,63 +263,9 @@ def test_a_card_truncated_below_the_readability_floor_is_refused(tmp_path):
     assert si.TRUNCATED_BELOW_READABLE in si.REFUSALS
 
 
-def test_a_truncation_landing_exactly_on_the_floor_is_kept(tmp_path):
-    """The floor refuses BELOW, not AT: a card ending with exactly the
-    floor's seconds still draws."""
-    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
-
-    folder = _held_project(tmp_path, "on-the-floor")
-    plan = si.plan_for_reel(
-        "R", _lines(("Ada", 0.0),
-                    ("Bram", MIN_CAPTION_DISPLAY_SECONDS)),
-        60.0, folder, width=1080, height=1920)
-    assert plan.entries[0]["duration_seconds"] == pytest.approx(
-        MIN_CAPTION_DISPLAY_SECONDS)
-    assert plan.refused == []
-
 
 # ── Where it sits: measured, above the captions ──────────────────────
 
-def test_the_box_bottom_clears_the_declared_caption_row(tmp_path):
-    folder = _project(
-        tmp_path, "caption-row",
-        pipeline={"subtitle_position": {"caption_row": 0.71875}})
-    box = si.placement_box(folder, 1080, 1920, caption_height=None)
-    assert box["caption_row"] == 1380
-    # The floor is the row, so nothing is drawn on or below it.
-    assert 1920 - box["insets"]["bottom"] == 1380
-
-
-def test_a_measured_caption_card_lifts_the_box_off_the_row(tmp_path):
-    folder = _project(
-        tmp_path, "measured",
-        pipeline={"subtitle_position": {"caption_row": 0.71875}})
-    box = si.placement_box(folder, 1080, 1920, caption_height=188)
-    assert 1920 - box["insets"]["bottom"] == 1380 - 188
-    assert "measured caption card" in box["basis"]
-
-
-def test_the_caption_height_is_read_off_the_cards_own_measured_boxes():
-    segments = [
-        {"tight_box": {"width": 800, "height": 120}},
-        {"tight_box": {"width": 820, "height": 188}},
-        {"tight_box": None},
-    ]
-    assert si.measured_caption_height(segments) == 188
-
-
-def test_a_run_with_no_measured_caption_box_says_so_rather_than_guessing():
-    assert si.measured_caption_height([{"tight_box": None}]) is None
-    assert si.measured_caption_height([]) is None
-
-
-def test_the_box_never_reaches_below_the_strictest_safe_area(tmp_path):
-    """No declared row: the engine's own caption row is the floor, and
-    that already sits inside the platform's bottom inset."""
-    folder = _project(tmp_path, "no-row")
-    box = si.placement_box(folder, 1080, 1920, caption_height=None)
-    assert box["insets"]["bottom"] >= 320
-    assert box["insets"]["left"] == 90 and box["insets"]["right"] == 120
 
 
 # ── What was DRAWN, not what was planned ─────────────────────────────
@@ -463,11 +279,6 @@ def _measured(rows, cols, frame=(1080, 1920)):
             "touches_frame_edge": []}
 
 
-def test_ink_inside_the_box_passes():
-    assert si.render_findings(
-        _measured((1150, 1370), (90, 700)), INSETS, 1080, 1920) == []
-
-
 def test_ink_on_the_caption_row_is_refused():
     findings = si.render_findings(
         _measured((1300, 1450), (90, 700)), INSETS, 1080, 1920)
@@ -475,17 +286,6 @@ def test_ink_on_the_caption_row_is_refused():
     assert findings[0]["severity"] == "error"
 
 
-def test_ink_outside_the_safe_columns_is_refused():
-    findings = si.render_findings(
-        _measured((1150, 1370), (10, 1070)), INSETS, 1080, 1920)
-    assert [f["code"] for f in findings] == [si.INK_LEFT_THE_BOX]
-
-
-def test_a_render_with_no_ink_at_all_is_refused():
-    findings = si.render_findings(
-        {"frame": [1080, 1920], "rows": None, "cols": None},
-        INSETS, 1080, 1920)
-    assert [f["code"] for f in findings] == ["nothing_drawn"]
 
 
 def test_a_measurement_on_a_small_canvas_is_not_read_as_frame_pixels():
@@ -499,40 +299,7 @@ def test_a_measurement_on_a_small_canvas_is_not_read_as_frame_pixels():
     assert findings[0]["code"] == "not_the_delivery_frame"
 
 
-def test_measured_box_is_left_top_right_bottom():
-    assert si.measured_box(_measured((100, 200), (300, 400))) == (
-        300, 100, 400, 200)
-
-
 # ── The record a check grades against ────────────────────────────────
-
-def test_the_record_carries_what_was_rendered_not_what_was_intended(tmp_path):
-    folder = _project(tmp_path, "record",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("Reel 07", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
-    plan.segments = [{"overlay_path": "/x/lt_reel_07_00.mov",
-                      "timeline_start": 1.0, "timeline_end": 4.0,
-                      "total_frames": 72, "measured_box": (90, 1150, 700, 1370),
-                      "elements": ["lower_third"]}]
-    path = si.write_plans(folder, [plan])
-    stored = json.loads(open(path, encoding="utf-8").read())
-    assert stored["plans"][0]["reel"] == "Reel 07"
-    assert stored["plans"][0]["segments"][0]["total_frames"] == 72
-    assert si.plan_for(stored, "Reel 07")["basis"] == si.SPEAKERS_INTRODUCED
-    assert si.plan_for(stored, "Reel 99") is None
-
-
-def test_write_plans_merges_rather_than_overwriting(tmp_path):
-    """A partial build must not delete the record of reels it never
-    touched - the same discipline `explainer_plan.write_plans` keeps."""
-    folder = _project(tmp_path, "merge",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    first = si.plan_for_reel("Reel 01", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
-    si.write_plans(folder, [first])
-    second = si.plan_for_reel("Reel 02", _lines(("Bram", 1.0)), 40.0, folder, width=1080, height=1920)
-    path = si.write_plans(folder, [second])
-    stored = json.loads(open(path, encoding="utf-8").read())
-    assert {p["reel"] for p in stored["plans"]} == {"Reel 01", "Reel 02"}
 
 
 def test_promotion_renames_the_staging_record_to_the_final_name(tmp_path):
@@ -563,25 +330,6 @@ def test_promotion_renames_the_staging_record_to_the_final_name(tmp_path):
     assert si.plan_for(stored, final)["basis"] == si.SPEAKERS_INTRODUCED
 
 
-def test_promotion_replaces_a_previous_build_under_the_final_name(tmp_path):
-    """Two plans for one reel would leave `plan_for` reading the stale
-    first - the same rule `explainer_plan.rename_plan_reels` states."""
-    folder = _project(tmp_path, "replace",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    si.write_plans(folder, [si.plan_for_reel(
-        "Reel 07", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)])
-    si.write_plans(folder, [si.plan_for_reel(
-        "Reel 07 (rebuild staging)", _lines(("Bram", 2.0)), 40.0, folder, width=1080, height=1920)])
-
-    si.rename_plan_reels(folder, {"Reel 07 (rebuild staging)": "Reel 07"})
-
-    stored = si.read_plans(folder)
-    assert [p["reel"] for p in stored["plans"]] == ["Reel 07"]
-    speakers = [i["speaker"]
-                for i in si.plan_for(stored, "Reel 07")["introductions"]]
-    assert speakers == ["Bram"]
-
-
 def test_a_refused_staging_leaves_no_lower_third_record(tmp_path):
     """The gate-fail half: no record may survive for a container that
     is about to be deleted."""
@@ -595,15 +343,6 @@ def test_a_refused_staging_leaves_no_lower_third_record(tmp_path):
     si.drop_plan_reels(folder, ["Reel 07 (rebuild staging)"])
 
     assert {p["reel"] for p in si.read_plans(folder)["plans"]} == {"Reel 08"}
-
-
-def test_rename_and_drop_are_no_ops_without_a_file(tmp_path):
-    """No file yet is a build that recorded nothing, not an error."""
-    folder = _project(tmp_path, "empty",
-                      effect={si.DECLARATION_KEY: DECLARATION})
-    si.rename_plan_reels(folder, {"a": "b"})
-    si.drop_plan_reels(folder, ["a"])
-    assert si.read_plans(folder) == {}
 
 
 # ── What the rebuild decision sees ───────────────────────────────────

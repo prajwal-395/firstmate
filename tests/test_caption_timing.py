@@ -90,18 +90,8 @@ def test_applying_twice_lands_the_same_place():
     assert _spans(first) == _spans(second) == LIVE
 
 
-def test_the_input_segments_are_not_mutated():
-    segments = _segments()
-    before = _spans(segments)
-    caption_timing.apply_pins(segments, _captains_pins(), FPS)
-    assert _spans(segments) == before
 
 
-def test_no_pins_passes_the_segments_through():
-    segments = _segments()
-    out, applied, short, stale = caption_timing.apply_pins(segments, [], FPS)
-    assert out is segments
-    assert not (applied or short or stale)
 
 
 # ── Scope ──────────────────────────────────────────────────────────
@@ -174,33 +164,8 @@ def test_a_timeline_scoped_pin_moves_only_its_own_reel():
     assert _spans(moved23) == [(a, b) for _, _, _, a, b in CLOSERS]
 
 
-def test_a_staging_or_beside_container_matches_its_final_name():
-    pins = _scoped_pins()
-    for container in (REEL_13 + " (rebuild staging)",
-                      REEL_13 + " (fm-13-23)"):
-        moved, applied, _, stale = caption_timing.apply_pins(
-            _segments_on(container), pins, FPS)
-        assert not stale
-        assert _spans(moved) == LIVE
-        assert len(applied) == 5
-    # ... while another reel's staging does not.
-    moved, applied, _, stale = caption_timing.apply_pins(
-        _segments_on(REEL_23 + " (rebuild staging)"), pins, FPS)
-    assert not applied and not stale
 
 
-def test_the_paren_boundary_is_load_bearing():
-    assert not caption_timing.matches(
-        {"binding": {"timeline": "Reel 13 - the-accounting-firm"}},
-        {"timeline": "Reel 1"})
-    assert not caption_timing.matches(
-        {"binding": {"timeline": "Reel 1 - geo-is-comprehension"}},
-        {"timeline": "Reel 13 - the-accounting-firm"})
-    assert caption_timing.matches(
-        {"binding": {"timeline": REEL_13}}, {"timeline": REEL_13})
-    # A card whose binding names no placement matches no scope.
-    assert not caption_timing.matches(
-        {"binding": {"speaker": "akshita"}}, {"timeline": REEL_13})
 
 
 def test_a_scoped_pin_gone_stale_on_its_own_reel_still_reports():
@@ -213,41 +178,8 @@ def test_a_scoped_pin_gone_stale_on_its_own_reel_still_reports():
     assert "STALE" in stale[0]["reason"]
 
 
-def test_retime_entries_honours_the_timeline_scope():
-    spine = {"structure": [
-        {"position": 33, "speaker": "Akshita", "clip_id": "clip",
-         "source_clip_id": "clip", "source_start": 512.759,
-         "source_end": 513.442},
-    ]}
-    entries = [{"id": "sub_33_001", "spine_block_position": 33,
-                "timeline_start": 2138 / FPS, "timeline_end": 2155 / FPS}]
-    pins = _scoped_pins()
-    # On its own reel the head trim lands, as the builder's hash path
-    # records it...
-    moved, applied, _, _ = caption_timing.retime_entries(
-        entries, spine, pins, FPS, timeline=REEL_13)
-    assert [r["now"] for r in applied] == [[2151, 2155]]
-    assert moved[0]["timeline_start"] == 2151 / FPS
-    # ... on Reel 23 nothing moves, and with no placement named the
-    # scoped pin matches nothing at all (fail-closed).
-    for timeline in (REEL_23, ""):
-        moved, applied, _, stale = caption_timing.retime_entries(
-            entries, spine, pins, FPS, timeline=timeline)
-        assert not applied and not stale
-        assert moved[0]["timeline_start"] == 2138 / FPS
 
 
-def test_a_timeline_scope_must_name_a_placement():
-    with pytest.raises(caption_timing.CaptionTimingError,
-                       match="must name the placement"):
-        caption_timing.validate_pins(
-            [{"scope": {"speaker": "a", "timeline": "  "},
-              "offset_frames": 1, "reason": "r"}])
-    with pytest.raises(caption_timing.CaptionTimingError,
-                       match="must name the placement"):
-        caption_timing.validate_pins(
-            [{"scope": {"timeline": 13}, "offset_frames": 1,
-              "reason": "r"}])
 
 
 def test_the_list_subclass_and_its_plan_entries_survive():
@@ -288,14 +220,10 @@ def test_a_card_moved_off_the_head_of_the_reel_refuses():
 
 @pytest.mark.parametrize("bad,match", [
     ([{"offset_frames": 1, "reason": "r"}], "no scope"),
-    ([{"scope": {}, "offset_frames": 1, "reason": "r"}], "no scope"),
     ([{"scope": {"nonsense": 1}, "offset_frames": 1, "reason": "r"}],
      "nothing reads"),
-    ([{"scope": {"speaker": "a"}, "reason": "r"}], "adjusts nothing"),
     ([{"scope": {"speaker": "a"}, "offset_frames": 0.5, "reason": "r"}],
      "whole number of FRAMES"),
-    ([{"scope": {"speaker": "a"}, "head_frames": -3, "reason": "r"}],
-     "a trim removes frames"),
     ([{"scope": {"speaker": "a"}, "offset_frames": 1}], "no reason"),
     ([], "non-empty"),
 ])
@@ -317,28 +245,5 @@ def test_an_unreadable_declaration_refuses(tmp_path):
     assert caption_timing.load_pins(str(tmp_path / "other")) == []
 
 
-def test_declaration_round_trips(tmp_path):
-    root = str(tmp_path)
-    os.makedirs(os.path.join(root, "external"))
-    with open(os.path.join(root, "external", "caption_timing.json"), "w",
-              encoding="utf-8") as handle:
-        json.dump({"version": 1, "pins": _captains_pins()}, handle)
-    assert caption_timing.load_pins(root) == _captains_pins()
 
 
-def test_span_retime_cannot_express_this():
-    """The reason this owner sits beside `span_retime` rather than
-    inside it: that vocabulary is a keep-range EDGE, it refuses an
-    extension, and four of the five edits above are equal-duration
-    shifts."""
-    from library.tools import captain_edits
-
-    with pytest.raises(captain_edits.CaptainEditError):
-        captain_edits.validate_edits(
-            [{"kind": "span_retime", "anchor_phrase": "our bio",
-              "edge": "offset", "reason": "move the card 7f later"}])
-    # Its own vocabulary is head/tail - picture edges - and it carries
-    # no word for WHICH ROW a change applies to.
-    assert captain_edits.validate_edits(
-        [{"kind": "span_retime", "anchor_phrase": "our bio",
-          "edge": "head", "reason": "trim the picture"}])

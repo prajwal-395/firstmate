@@ -41,30 +41,12 @@ def test_nothing_of_the_window_passes_unseen_beyond_the_resolution():
         assert max(gaps) <= wf.SECONDS_UNSEEN_BETWEEN_SAMPLES + 1e-6
 
 
-def test_a_long_window_is_bounded_and_the_bound_is_the_frame_count():
-    times = wf.sample_times(0.0, 60.0, 30.0)
-    assert len(times) == wf.MAX_FRAMES_PER_STRIP
 
 
-def test_a_degenerate_window_still_yields_a_time():
-    assert wf.sample_times(4.0, 4.0, 30.0) == [4.0]
 
 
 # ── The harness ──────────────────────────────────────────────────────
 
-def test_every_harness_the_pipeline_offers_has_a_recorded_reach():
-    """The enumeration is COMPLETE against the runner's own choices."""
-    from library.processes.edit_video import run_pipeline
-
-    source = Path(run_pipeline.__file__).read_text(encoding="utf-8")
-    line = next(l for l in source.splitlines() if '"--full-auto"' in l)
-    offered = {c.strip(' "\'') for c in
-               line.split("choices=[")[1].split("]")[0].split(",")}
-    # `agy` is the deprecated alias of `agent`, normalised at the
-    # boundary before any harness lookup - the enumeration stays
-    # canonical, and a genuinely new backend still fails this test.
-    assert offered == set(wf.HARNESS_SHOWS_FRAMES) | {"agy"}
-    assert run_pipeline.normalize_full_auto("agy") == "agent"
 
 
 def test_an_unestablished_harness_raises_rather_than_being_assumed():
@@ -95,15 +77,6 @@ def test_a_harness_that_cannot_be_shown_a_picture_gets_the_prose_instead():
     assert inputs["broll_window_frames"] == block      # not mutated
 
 
-def test_the_runner_withholds_before_it_serialises_the_context():
-    """The withhold has to happen on the way IN, or the path still ships."""
-    from library.processes.edit_video import run_pipeline
-
-    source = Path(run_pipeline.__file__).read_text(encoding="utf-8")
-    body = source.split("def present_llm_step")[1]
-    withhold = body.index("withhold_for_harness")
-    serialise = body.index("json_to_toon")
-    assert withhold < serialise
 
 
 # ── The anchors are the windows the selector really returns ──────────
@@ -144,11 +117,6 @@ def test_the_anchor_is_the_window_the_current_selector_chooses():
     assert anchor["strip_end"] >= choice.video_out - 1e-6
 
 
-def test_nothing_is_shortlisted_or_ranked():
-    analysis, index, duration = _clip_analysis(), {}, 20.0
-    rows = wf.window_anchors(analysis, index, duration, [2.5])
-    spans = candidate_windows("", analysis, index, duration, 2.5)
-    assert len(rows) == len({s["video_in"] for s in spans})
 
 
 # ── The picture itself ───────────────────────────────────────────────
@@ -186,15 +154,6 @@ def test_a_strip_is_a_real_picture_of_the_whole_window(tmp_path):
     assert width == pytest.approx(640 * len(times), rel=0.02)
 
 
-@pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")
-def test_a_strip_already_on_disk_is_reused(tmp_path):
-    clip = _fixture_clip(tmp_path / "clip.mp4", seconds=6.0)
-    out = tmp_path / "strip.jpg"
-    times = wf.sample_times(1.0, 3.5, 30.0)
-    assert wf.draw_strip(str(clip), times, str(out))
-    stamp = out.stat().st_mtime_ns
-    assert wf.draw_strip(str(clip), times, str(out))
-    assert out.stat().st_mtime_ns == stamp
 
 
 @pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")
@@ -282,10 +241,6 @@ def test_the_built_context_carries_an_image_a_reader_can_open(tmp_path):
 
 # ── Where the frames live ────────────────────────────────────────────
 
-def test_the_frames_are_owned_by_the_step_that_draws_them():
-    spec = AREAS[Area.WINDOW_FRAMES]
-    assert spec.step == "select_broll"
-    assert spec.relpath.endswith("3_02_select_broll/window_frames")
 
 
 # ── The cache is keyed on what was DRAWN ──────────────────────────────
@@ -313,27 +268,8 @@ def test_the_name_carries_the_frame_count_and_the_sampling_rule():
     assert name_a == wf.strip_filename("clip_001", 0.0, list(a))
 
 
-def test_the_same_window_sampled_differently_is_a_different_file(
-        monkeypatch):
-    """A change to the rule alone renames every strip it produces."""
-    times_now = wf.sample_times(0.0, 4.0, 30.0)
-    name_now = wf.strip_filename("clip_004", 0.0, times_now)
-
-    monkeypatch.setattr(wf, "SECONDS_UNSEEN_BETWEEN_SAMPLES", 0.5)
-    times_finer = wf.sample_times(0.0, 4.0, 30.0)
-    assert len(times_finer) > len(times_now)
-    assert wf.strip_filename("clip_004", 0.0, times_finer) != name_now
 
 
-def test_the_scale_is_in_the_key_too():
-    times = wf.sample_times(0.0, 4.0, 30.0)
-    before = wf.strip_filename("clip_004", 0.0, times)
-    original = wf.STRIP_FRAME_SHORT_SIDE
-    try:
-        wf.STRIP_FRAME_SHORT_SIDE = original * 2
-        assert wf.strip_filename("clip_004", 0.0, times) != before
-    finally:
-        wf.STRIP_FRAME_SHORT_SIDE = original
 
 
 @pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")

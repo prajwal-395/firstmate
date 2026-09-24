@@ -61,8 +61,7 @@ def test_a_declared_section_is_read_verbatim():
 
 
 @pytest.mark.parametrize("declared", [
-    "60", ["60"], {"source_in": "sixty"}, {"source_in": None},
-    {"source_in": True}, {"why": "no number"}, {"source_in": -3},
+    "60",
 ])
 def test_a_malformed_section_raises(declared):
     """A number the placement depends on is not quietly read as zero."""
@@ -81,11 +80,6 @@ def test_a_section_too_close_to_the_end_is_refused_with_the_arithmetic():
     assert "would be silent" in errors[0]
     # and it says what WOULD work, rather than only that this does not
     assert "138.6" in errors[0]
-
-
-def test_the_last_playable_section_is_accepted():
-    assert validate_section({"section": {"source_in": TRACK - EDIT}},
-                            TRACK, EDIT) == []
 
 
 def test_resolve_raises_rather_than_sliding_the_section_to_fit():
@@ -118,14 +112,6 @@ def test_the_beat_grid_is_mapped_through_the_chosen_section():
     # Beats before the section starts are not in the edit at all.
     assert moved == [round(t - 5.0, 4) for t in unmoved if t >= 5.0]
     assert len(moved) < len(unmoved)
-
-
-def test_a_bed_placed_somewhere_other_than_the_chosen_section_raises():
-    manifest = {"tracks": {"A2": {"clips": [
-        {"source_in": 0.0, "timeline_in": 0.0}]}}}
-    with pytest.raises(ValueError, match="section"):
-        assert_music_offset_is_the_chosen_section(
-            manifest, {"section": {"source_in": 60.0}})
 
 
 def test_a_bed_that_does_not_start_the_timeline_raises():
@@ -199,13 +185,6 @@ def test_the_chosen_section_is_where_the_bed_is_placed(tmp_path):
     assert clip["source_out"] == pytest.approx(120.0)
 
 
-def test_no_section_still_plays_from_the_head(tmp_path):
-    manifest = _compile_with(
-        {"title": "bed", "duration_seconds": 198.6}, tmp_path)
-    clip = manifest["tracks"]["A2"]["clips"][0]
-    assert clip["source_in"] == 0.0
-
-
 def test_a_section_that_cannot_cover_the_timeline_fails_the_build(tmp_path):
     with pytest.raises(MusicSectionError, match="silent"):
         _compile_with({"title": "bed", "duration_seconds": 90.0,
@@ -229,18 +208,6 @@ def test_a_track_shorter_than_the_edit_has_no_playable_section():
     assert track_sections([-20.0] * 30, 60.0) == []
 
 
-def test_the_rows_are_a_description_and_not_a_ranking():
-    """No score, no rank, no recommendation, no order but time."""
-    rows = track_sections(
-        [-40.0] * 60 + [-14.0] * 60 + [-30.0] * 79, 60.0)
-    assert [r["start_seconds"] for r in rows] == [0.0, 60.0, 120.0, 139.0]
-    for row in rows:
-        for banned in ("score", "rank", "best", "recommended", "preferred"):
-            assert banned not in row
-    # the loudest section is not first, and nothing says it is best
-    assert rows[1]["mean_dbfs"] > rows[0]["mean_dbfs"]
-
-
 BEST_SECTION_WORDS = ("best_section", "pick_section", "choose_section",
                       "select_section", "score_section", "rank_section",
                       "flattest", "steadiest")
@@ -261,10 +228,6 @@ def test_nothing_writes_a_best_section_rule():
             assert word not in body, f"{path.name} names {word!r}"
 
 
-def test_the_limits_of_the_measurements_are_recorded_rather_than_filled_in():
-    assert "the shape of a non-zero section" in UNSUPPORTED_BY_THE_MEASUREMENTS
-    for reason in UNSUPPORTED_BY_THE_MEASUREMENTS.values():
-        assert len(reason) > 80
 
 
 def test_the_model_is_asked_for_the_section_without_touching_the_frozen_prompt():

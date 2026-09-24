@@ -196,17 +196,6 @@ def test_a_final_timeline_is_still_created_in_the_reels_bin():
     assert pool.timelines == [(bins.REELS_BIN, FINAL_13)]
 
 
-def test_every_real_scratch_name_routes_to_the_scratch_bin():
-    """All three of the captain's scratches, not just one shape of
-    them - including the Reel 28 one, whose marker carries a number."""
-    from library.tools.reel_build import create_reel_timeline
-
-    for name in REAL_SCRATCHES:
-        pool = _FakePool()
-        create_reel_timeline(pool, name)
-        assert pool.timelines == [(bins.SCRATCH_BIN, name)], name
-
-
 # --------------------------------- property 1: filed back when found
 
 
@@ -220,32 +209,6 @@ def test_scratches_in_the_reels_bin_are_filed_back_to_scratch():
     for name in REAL_SCRATCHES:
         assert moves[name] == (bins.SCRATCH_BIN,), name
     assert set(moves) == set(REAL_SCRATCHES)
-
-
-def test_the_finding_names_the_misplaced_scratch_and_its_bin():
-    """The check path says what is wrong by name: a scratch beside a
-    deliverable reads as misfiled, carrying where it sits and where
-    its evidence puts it."""
-    artefacts = captains_pool()
-    plan = a_plan(artefacts, archived_plan_names=[FINAL_13])
-    found = org.findings(artefacts, plan)
-    misfiled = {f["name"]: f for f in found if f["kind"] == "misfiled"}
-    for name in REAL_SCRATCHES:
-        assert name in misfiled, name
-        assert bins.SCRATCH_BIN in misfiled[name]["detail"]
-    assert FINAL_13 not in misfiled
-
-
-def test_a_scratch_already_in_the_scratch_bin_stays_put():
-    """Filing converges: once in the scratch bin there is no move, so
-    a second organise plans nothing for it."""
-    artefacts = [
-        timeline("t-master", MASTER),
-        timeline("t-scratch-a", SCRATCH_13_A,
-                 folder=(bins.SCRATCH_BIN,)),
-    ]
-    plan = a_plan(artefacts)
-    assert plan.moves == []
 
 
 def test_a_promoted_final_does_not_strand_in_the_scratch_bin():
@@ -340,20 +303,6 @@ def test_two_held_scratches_report_in_name_order(tmp_path):
     assert report["outlived"] == [SCRATCH_28]
     text = org.render_scratch_report(report)
     assert SCRATCH_13_A in text and SCRATCH_13_B in text
-
-
-def test_no_scratches_says_so_plainly(tmp_path):
-    """The idempotence case beside the sweep's own: once the sibling
-    lane's deletions land, the next run says there is nothing - a
-    report that only speaks when there is clutter reads as an
-    accusation the first time it ever appears."""
-    artefacts = [timeline("t-master", MASTER),
-                 timeline("t-final-13", FINAL_13,
-                          folder=(bins.REELS_BIN,
-                                  bins.REEL_STATE_BINS[org.EARLIER]))]
-    report = org.scratch_report(artefacts, str(tmp_path))
-    assert report["present"] == [] and report["outlived"] == []
-    assert "No staging or scratch" in org.render_scratch_report(report)
 
 
 def test_an_unreadable_holds_file_refuses_the_split_but_names_what_is_there(

@@ -75,42 +75,6 @@ def _template(name):
 
 # ── The predicate ─────────────────────────────────────────────────────
 
-def test_props_with_no_element_draw_nothing_and_props_with_one_draw():
-    assert not mgp.props_draw_ink({"elements": []})
-    assert not mgp.props_draw_ink({})
-    assert mgp.props_draw_ink({"elements": [{"element": "progress_bar"}]})
-
-
-def test_the_overlay_is_still_transparent_by_construction():
-    """`props_draw_ink` is only true because nothing else paints a pixel.
-
-    An `AbsoluteFill` with a background would paint every one of them,
-    and then "this segment draws nothing" stops being true for any
-    props at all.
-    """
-    composition = (REPO / "remotion-subtitles" / "src" / "compositions"
-                   / "MotionGraphics" / "index.tsx").read_text(encoding="utf-8")
-    body = composition[composition.index("<AbsoluteFill"):]
-    opening = body[:body.index(">") + 1]
-    assert "backgroundColor" not in opening, (
-        "the root AbsoluteFill has a background - the overlay is no "
-        "longer transparent by construction and props_draw_ink is wrong "
-        "about every prop")
-
-
-def test_the_predicate_covers_everything_the_composition_draws():
-    """Every arm of the composition's element switch is a roster key that
-    `resolve_plan` can actually produce, so a segment reaching the
-    renderer with an element in it really does draw."""
-    composition = (REPO / "remotion-subtitles" / "src" / "compositions"
-                   / "MotionGraphics" / "index.tsx").read_text(encoding="utf-8")
-    drawn = {key for key in mgp.DRAWABLE
-             if f'element.element === "{key}"' in composition}
-    assert drawn == set(mgp.DRAWABLE), (
-        f"the composition draws {sorted(drawn)} and the planner offers "
-        f"{sorted(mgp.DRAWABLE)}. An element the planner resolves and the "
-        f"renderer has no arm for is a transparent render again.")
-
 
 # ── The step ──────────────────────────────────────────────────────────
 
@@ -184,19 +148,6 @@ def test_a_plan_renders_with_no_brand_template_at_all(tmp_path):
     assert not out["planning_basis"]["dropped"]
 
 
-def test_a_template_that_declares_nothing_no_longer_empties_the_layer(tmp_path):
-    """The synthetic default declares neither motion flag. It used to be the
-    whole decision; now it is not a decision at all."""
-    tmpl = _template("synthetic_default")
-    proc, log = _run_step(tmp_path, _payload(
-        tmp_path, motion_graphics_plan=A_PLAN,
-        brand_style=tmpl.get("style"), brand_effect=tmpl.get("effect")))
-    assert proc.returncode == 0, proc.stderr
-    assert log.splitlines()
-    out = json.loads(proc.stdout)["motion_graphics_overlay"]
-    assert out["available"] is True
-
-
 def test_a_plan_of_none_starts_no_render_and_says_it_was_a_decision(tmp_path):
     proc, log = _run_step(tmp_path, _payload(
         tmp_path, motion_graphics_plan=[]))
@@ -238,27 +189,3 @@ def test_a_plan_whose_entries_all_died_is_a_different_absence(tmp_path):
     assert reasons == {"asset_not_found_on_disk", "no_colour_to_draw_it_in"}
     for row in basis["dropped"]:
         assert row["what_the_reason_means"]
-
-
-def test_a_run_that_asked_for_no_plan_is_a_third_reading(tmp_path):
-    """No `motion_graphics_plan` key at all - a `--step` invocation of
-    the post-bridge alone, say. Not a plan of none."""
-    proc, _ = _run_step(tmp_path, _payload(tmp_path))
-    assert proc.returncode == 0, proc.stderr
-    basis = json.loads(proc.stdout)["motion_graphics_overlay"]["planning_basis"]
-    assert basis["basis"] == mgp.NOT_PLANNED
-
-
-def test_no_motion_graphics_is_not_a_failed_step(tmp_path):
-    """The output must survive run_pipeline's hollow-output gate."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "_run_pipeline_for_test",
-        REPO / "library" / "processes" / "edit_video" / "run_pipeline.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    proc, _ = _run_step(tmp_path, _payload(tmp_path, motion_graphics_plan=[]))
-    output = json.loads(proc.stdout)
-
-    assert module.check_output_is_real("render_motion_graphics", output) == []

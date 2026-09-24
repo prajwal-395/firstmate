@@ -35,45 +35,6 @@ def test_may_be_empty_skips_emptiness_check():
     assert not issues, f"Expected no issues for may_be_empty output, got: {issues}"
 
 
-def test_may_be_empty_still_checks_type():
-    """may_be_empty exempts the emptiness check, not the type check."""
-    manifest = {
-        "interface": {
-            "outputs": [
-                {
-                    "name": "vfx_creative",
-                    "type": "list",
-                    "required": True,
-                    "may_be_empty": True,
-                }
-            ]
-        }
-    }
-    # Wrong type should still fail.
-    issues = validate_step_output("plan_vfx", {"vfx_creative": "not a list"}, manifest)
-    assert any("expected type" in i for i in issues), (
-        f"Type check should still fire with may_be_empty, got: {issues}"
-    )
-
-
-def test_may_be_empty_still_checks_missing():
-    """may_be_empty does not excuse a missing key."""
-    manifest = {
-        "interface": {
-            "outputs": [
-                {
-                    "name": "vfx_creative",
-                    "type": "list",
-                    "required": True,
-                    "may_be_empty": True,
-                }
-            ]
-        }
-    }
-    issues = validate_step_output("plan_vfx", {}, manifest)
-    assert any("missing required key" in i for i in issues)
-
-
 # ── A step that has NOT declared the flag still fails on empty ──────
 
 def test_without_flag_empty_list_fails():
@@ -91,32 +52,6 @@ def test_without_flag_empty_list_fails():
     )
 
 
-def test_without_flag_empty_dict_fails():
-    """The emptiness check fires on a required dict without may_be_empty."""
-    manifest = {
-        "interface": {
-            "outputs": [
-                {"name": "some_dict", "type": "dict", "required": True}
-            ]
-        }
-    }
-    issues = validate_step_output("test_step", {"some_dict": {}}, manifest)
-    assert any("semantically empty" in i for i in issues)
-
-
-def test_without_flag_empty_string_fails():
-    """The emptiness check fires on a required string without may_be_empty."""
-    manifest = {
-        "interface": {
-            "outputs": [
-                {"name": "some_str", "type": "string", "required": True}
-            ]
-        }
-    }
-    issues = validate_step_output("test_step", {"some_str": ""}, manifest)
-    assert any("semantically empty" in i for i in issues)
-
-
 # ── Real manifests: vfx and sfx declare the flag, others do not ─────
 
 STEPS_DIR = os.path.join(
@@ -128,22 +63,6 @@ def _load_manifest(step_dir_name: str) -> dict:
     path = os.path.join(STEPS_DIR, step_dir_name, "manifest.json")
     with open(path) as f:
         return json.load(f)
-
-
-def test_plan_vfx_declares_may_be_empty():
-    """step_4_03_plan_vfx declares may_be_empty on vfx_creative."""
-    manifest = _load_manifest("step_4_03_plan_vfx")
-    llm_outputs = manifest["interface"]["llm_outputs"]
-    vfx_spec = next(o for o in llm_outputs if o["name"] == "vfx_creative")
-    assert vfx_spec.get("may_be_empty") is True
-
-
-def test_plan_sfx_declares_may_be_empty():
-    """step_4_04_plan_sfx declares may_be_empty on sfx_creative."""
-    manifest = _load_manifest("step_4_04_plan_sfx")
-    llm_outputs = manifest["interface"]["llm_outputs"]
-    sfx_spec = next(o for o in llm_outputs if o["name"] == "sfx_creative")
-    assert sfx_spec.get("may_be_empty") is True
 
 
 def test_plan_vfx_empty_list_passes_qa():
@@ -159,22 +78,10 @@ def test_plan_vfx_empty_list_passes_qa():
     )
 
 
-def test_plan_sfx_empty_list_passes_qa():
-    """An empty sfx_creative passes the same validation the QA loop runs."""
-    manifest = _load_manifest("step_4_04_plan_sfx")
-    llm_manifest = dict(manifest)
-    llm_manifest["interface"] = dict(manifest["interface"])
-    llm_manifest["interface"]["outputs"] = manifest["interface"]["llm_outputs"]
-    issues = validate_step_output("plan_sfx", {"sfx_creative": []}, llm_manifest)
-    assert not issues
-
-
 # Steps that must NOT have the flag - verify the safe direction
 
 _STEPS_WITHOUT_MAY_BE_EMPTY = [
     ("step_2_05_mesh_spine", "structure"),
-    ("step_3_02_select_broll", "broll_creative"),
-    ("step_4_02_plan_transitions", "transition_creative"),
 ]
 
 

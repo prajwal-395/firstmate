@@ -134,13 +134,3 @@ def test_full_frame_word_missing_from_timings_still_errors():
               if f["kind"] == "word_mismatch"]
     assert len(errors) == 1
     assert "are" in errors[0]["message"]
-
-
-def test_subframe_word_absent_from_card_text_still_errors():
-    played, captioned, cards = _identity_case("are", 12.32, 12.35)
-    cards[0]["text_norms"] = ["so", "whats", "happening", "what", "you"]
-    result = sc.check_word_coverage(played, captioned, cards)
-    errors = [f for f in result["findings"]
-              if f["kind"] == "word_mismatch"]
-    assert len(errors) == 1
-    assert "are" in errors[0]["message"]

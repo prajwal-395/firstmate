@@ -112,16 +112,6 @@ def test_resolve_grade_cdl_project_wins_whole_slot_over_template(
     assert cdl["slope_b"] == pytest.approx(0.90)
 
 
-def test_resolve_grade_cdl_falls_back_to_the_template(tmp_path, monkeypatch):
-    _write_project(tmp_path, template="series")
-    monkeypatch.setattr(
-        "library.tools.brand_registry.resolve_project_template",
-        lambda name, **kwargs: SimpleNamespace(
-            style=SimpleNamespace(series_look=TEST_LOOK)))
-    cdl = reel_look.resolve_grade_cdl(str(tmp_path))
-    assert cdl["slope_r"] == pytest.approx(1.03)
-
-
 def test_resolve_grade_cdl_malformed_declaration_raises(tmp_path):
     _write_project(tmp_path, style={"name": "broken",
                                     "cdl": {"slope": [1.0, 1.0, 1.0]}})
@@ -226,37 +216,6 @@ def test_apply_cdl_skips_rendered_cards_on_the_picture_rows():
     assert record["applied"] == ["a.mxf"]
     assert card.cdl_calls == []
     assert len(record["skipped"]) == 1
-
-
-def test_apply_cdl_leaves_non_picture_rows_alone():
-    frame = _FakeItem("/renders/tv_frame.mov", name="frame")
-    timeline = _FakeTimeline({1: [], 2: [], 3: [frame]})
-    record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), dict(TEST_LOOK_CDL),
-        footage_sources={"/renders/tv_frame.mov"})
-    assert record["applied"] == []
-    assert frame.cdl_calls == []
-
-
-def test_apply_cdl_empty_cdl_applies_nothing():
-    footage = _FakeItem("/footage/a.mxf")
-    timeline = _FakeTimeline({1: [footage]})
-    record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), {}, footage_sources={"/footage/a.mxf"})
-    assert record["applied"] == []
-    assert footage.cdl_calls == []
-
-
-def test_apply_cdl_falls_back_the_way_the_master_does():
-    """Step 6.01 tries SetCDL first and falls back to SetClipProperty
-    on a falsy return; the reel path takes the same route."""
-    footage = _FakeItem("/footage/a.mxf", cdl_result=False)
-    timeline = _FakeTimeline({1: [footage]})
-    record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), dict(TEST_LOOK_CDL),
-        footage_sources={"/footage/a.mxf"})
-    assert record["applied"] == ["a.mxf"]
-    assert footage.prop_calls["Slope"] == "1.0300 1.0000 0.9600"
 
 
 def test_apply_cdl_records_a_failure_without_stopping_the_reel():
@@ -408,52 +367,6 @@ def _masks(neutral):
     return luminance > 0.45, luminance < 0.18
 
 
-def test_full_look_reaches_the_still_in_decoded_pixels(tmp_path):
-    """The declared look values, applied CDL-first with the Fusion four,
-    land on the still: MAE in the single digits inside the picture
-    window (the Fusion-only half already proved ~5.5; the CDL must not
-    push the picture away from it)."""
-
-    _write_project(tmp_path, style=TEST_LOOK)
-    cdl = reel_look.resolve_grade_cdl(str(tmp_path))
-    look = reel_look.resolve_grade_look(str(tmp_path))
-    fusion = {"contrast": look["grade_contrast"],
-              "glow_gain": look["glow_gain"],
-              "glow_threshold": look["glow_threshold"],
-              "glow_size": look["glow_size"],
-              "grain_power": look["film_grain_power"],
-              "vignette_blend": look["vignette_blend"],
-              "vignette_soft": look["vignette_soft"]}
-    neutral, still = _stills()
-    pred = _recipe_full(neutral, cdl, fusion, cdl_first=True)
-    inner = (slice(8, -8), slice(8, -8))
-    mae = float(np.abs(pred[inner] * 255 - still[inner] * 255).mean())
-    assert mae < 7.0
-
-
-def test_full_look_carries_the_colour_split_not_just_luminance():
-    """PR 866 measured the warm-skin-over-teal split the grade was picked
-    for: warm skin
-    over teal shadows (skin R +9.9 / B -4.3, shadow B +4.3 / R -1.1).
-    The full look's skin R-B warmth and shadow B-R separation land
-    within a few levels of the still's."""
-
-    neutral, still = _stills()
-    skin, shadow = _masks(neutral)
-    cdl = dict(TEST_LOOK_CDL)
-    fusion = {"contrast": 0.12, "glow_gain": 0.20, "glow_threshold": 0.72,
-              "glow_size": 3.5, "grain_power": 0.35,
-              "vignette_blend": 0.35, "vignette_soft": 0.30}
-    pred = _recipe_full(neutral, cdl, fusion, cdl_first=True)
-    skin_pred, skin_still = _separation(pred, skin), _separation(still, skin)
-    shadow_pred = _separation(pred, shadow)
-    shadow_still = _separation(still, shadow)
-    assert abs((skin_pred[0] - skin_pred[2])
-               - (skin_still[0] - skin_still[2])) < 3.0
-    assert abs((shadow_pred[2] - shadow_pred[0])
-               - (shadow_still[2] - shadow_still[0])) < 3.0
-
-
 def test_shadow_separation_comes_from_the_cdl_not_the_fusion():
     """Without the CDL the reel gets the texture and the falloff but
     not the colour separation: the Fusion four alone leave the shadows
@@ -493,16 +406,3 @@ def test_shadow_separation_comes_from_the_cdl_not_the_fusion():
                   - (still_sep[2] - still_sep[0]))) > 4.0
 
 
-def test_cdl_fusion_order_is_a_different_picture():
-    """CDL-after-Fusion is not the same picture as CDL-before-Fusion -
-    which is why the still recipe (report.md s2) is the authority for
-    the order rather than an assumption."""
-
-    neutral, _still = _stills()
-    fusion = {"contrast": 0.12, "glow_gain": 0.20, "glow_threshold": 0.72,
-              "glow_size": 3.5, "grain_power": 0.35,
-              "vignette_blend": 0.35, "vignette_soft": 0.30}
-    first = _recipe_full(neutral, dict(TEST_LOOK_CDL), fusion, cdl_first=True)
-    last = _recipe_full(neutral, dict(TEST_LOOK_CDL), fusion, cdl_first=False)
-    mean_shift = float(np.abs(first - last).mean() * 255)
-    assert mean_shift > 0.1

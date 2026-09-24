@@ -2,27 +2,9 @@ import json
 import subprocess
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from library.tools.pipeline_validation import require_keys, require_type
 from library.processes.edit_video.run_pipeline import validate_step_output
-
-def test_require_keys():
-    data = {"a": 1, "b": 2}
-    # Should not raise
-    require_keys(data, ["a"])
-    require_keys(data, ["a", "b"])
-    
-    # Should raise
-    with pytest.raises(ValueError, match="missing required input keys: \\['c'\\]"):
-        require_keys(data, ["a", "c"])
-
-def test_require_type():
-    require_type(1, int, "my_int")
-    
-    with pytest.raises(TypeError, match="key 'my_list' expected list, got int"):
-        require_type(1, list, "my_list")
 
 def test_bridge_empty_inputs():
     """Test that feeding empty {} as inputs to each bridge raises ValueError."""

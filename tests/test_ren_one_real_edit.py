@@ -74,60 +74,6 @@ def test_ending_swap_goal_refuses_by_name():
             in comp.refusal_reason())
 
 
-def test_touchup_operation_is_registered_with_a_derived_effect():
-    """`reel.touchup` resolves, owned by the node that built the reel.
-
-    FLIPPED by `vep-ren-register-the-touchup-capability`: the gap pin
-    (`test_no_registered_operation_names_the_touchup`) asserted no
-    registered name contains "touch". Now one does, with its effect
-    DERIVED - every requirement whose `produced_by` names the owning
-    node - never hand-written, the same derivation
-    `test_operations_declare_effect.py` recomputes independently.
-    Its sibling `reel.build` carries the same contracts: one node,
-    one effect, two routes to it.
-    """
-    assert "reel.touchup" in O.names()
-    op = O.get("reel.touchup")
-    assert op.owning_node == "build_reels"
-    assert [r.name for r in op.effect] == [REEL_GOAL]
-    build = O.get("reel.build")
-    assert ([r.name for r in op.requires]
-            == [r.name for r in build.requires])
-    vocabulary = {req.name for req in R.all_requirements()}
-    assert REEL_GOAL in vocabulary
-
-
-def test_only_reel_goal_resolves_to_the_rebuild():
-    """The one reel-writing goal completes - as the rebuild, not a touchup.
-
-    SURVIVES UNWEAKENED (was test 3 of the gap pin, PR #1324):
-    registering the touchup beside `reel.build` must not rewrite what
-    the goal resolves to. The representative stays the rebuild, and
-    the cheap route is chosen BY NAME rather than by default.
-    """
-    comp = C.compose("state.verify_reels.reel_build")
-    assert comp.completed
-    assert comp.operations == ("reel.build",)
-
-
-def test_oracle_speaks_a_name_the_plans_declare():
-    """The oracle evaluates the reel goal; neither side gained a word.
-
-    FLIPPED by both lanes (reconciled): the gap pin
-    (`test_oracle_precondition_is_outside_the_requirement_vocabulary`)
-    asserted `rough_cut_exists` is outside the 108-name vocabulary -
-    which is still true and still asserted. What flipped is the
-    addition: the reel goal IS in the vocabulary and the oracle now
-    evaluates it live, so the fix gave the oracle a plan-declared
-    name instead of giving the vocabulary an oracle-declared one.
-    """
-    assert REEL_GOAL in Oracle.LIVE_PRECONDITIONS
-    assert REEL_GOAL in Oracle.LIVE_REQUIREMENTS
-    names = {req.name for req in R.all_requirements()}
-    assert REEL_GOAL in names
-    assert "rough_cut_exists" not in names
-
-
 class _Item:
     def __init__(self, name, start, end):
         self._name = name

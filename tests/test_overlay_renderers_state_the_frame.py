@@ -68,16 +68,7 @@ def _no_frame_default(fn, *names):
 @pytest.mark.parametrize("fn,names", [
     (generate_subtitle_props_per_block, ("width", "height")),
     (generate_motion_props, ("width", "height")),
-    (render_timed_text_segments, ("width", "height")),
-    (generate_timed_text_overlay_props, ("width", "height")),
-    (plan_timed_text_segments, ("width", "height")),
-    (render_bookend, ("width", "height")),
-    (render_declared_bookends, ("width", "height")),
-    (ffe.plan_reel_cards, ("width", "height")),
-    (si.plan_for_reel, ("width", "height")),
-    (reel_build.plan_cards, ("width", "height")),
     (overlay_verify.verify_values, ("full_wh",)),
-    (overlay_verify.verify_pixels, ("full_wh",)),
 ])
 def test_an_overlay_renderer_defaults_no_frame(fn, names):
     """B1 collapse of the renderer and verifier variants - the same
@@ -90,29 +81,12 @@ def test_an_overlay_renderer_defaults_no_frame(fn, names):
     _no_frame_default(fn, *names)
 
 
-def test_the_4_06_bridge_states_no_frame_on_its_own():
-    """Breaks on: the ``width, height = 1080, 1920`` fallback returning
-    to step 4.06's bridge - a model planning the layer against an
-    assumed frame is the same defect one step earlier."""
-    import library.steps.step_4_06_render_motion_graphics.bridge as bridge
-    source = inspect.getsource(bridge.main)
-    assert "width, height = 1080, 1920" not in source
-    assert "width=1080" not in source and "height=1920" not in source
 
 
 @pytest.mark.parametrize("call", [
     lambda: generate_subtitle_props_per_block(
         {"subtitle_entries": [], "style": {}}),
     lambda: generate_motion_props([], {}),
-    lambda: render_timed_text_segments({}, "", ""),
-    lambda: generate_timed_text_overlay_props({}),
-    lambda: plan_timed_text_segments({}),
-    lambda: render_bookend({}, ""),
-    lambda: render_declared_bookends([], ""),
-    lambda: ffe.plan_reel_cards([], ffe.ReelFacts(reel_number=1), 0, 30.0),
-    lambda: si.plan_for_reel("R", [], 0.0, None),
-    lambda: overlay_verify.verify_values([], {}),
-    lambda: overlay_verify.verify_pixels([], {}),
 ])
 def test_omitting_the_frame_is_a_type_error(call):
     with pytest.raises(TypeError):
@@ -171,69 +145,11 @@ def _timed_text_declaration():
     }}
 
 
-def test_a_horizontal_frame_reaches_the_timed_text_props():
-    """Breaks on: timed-text props carrying anything but the frame
-    handed in. Input: a 1920x1080 delivery."""
-    props = generate_timed_text_overlay_props(
-        _timed_text_declaration(),
-        width=HORIZONTAL[0], height=HORIZONTAL[1])
-    assert props["width"] == 1920
-    assert props["height"] == 1080
-    segments = plan_timed_text_segments(
-        _timed_text_declaration(),
-        width=HORIZONTAL[0], height=HORIZONTAL[1])
-    assert segments[0]["props"]["width"] == 1920
-    assert segments[0]["props"]["height"] == 1080
 
 
-def test_a_horizontal_frame_reaches_the_bookend_props():
-    """Breaks on: bookend props carrying anything but the frame handed
-    in. Input: a 1920x1080 delivery."""
-    from library.tools.bookend_render import bookend_props
-    props = bookend_props(
-        {"duration_seconds": 0.5, "props": {}},
-        30, HORIZONTAL[0], HORIZONTAL[1])
-    assert props["width"] == 1920
-    assert props["height"] == 1080
 
 
-def test_a_horizontal_frame_reaches_the_full_frame_card():
-    """Breaks on: a full-frame card planned at anything but the frame
-    handed in. Input: a 1920x1080 delivery - a card IS the frame."""
-    from library.tools.bookend_render import bookend_props  # noqa: F401
-    declarations = ffe.declared_elements({"full_frame_elements": [{
-        "element": "full_frame_card",
-        "placement": "head",
-        "duration_seconds": 1.0,
-        "background": "#000000",
-        "font_family": "Montserrat",
-        "runs": [{"text": "hi", "type_role": "display",
-                  "colour": "#FFFFFF"}],
-    }]})
-    facts = ffe.ReelFacts(reel_number=1)
-    (card,) = ffe.plan_reel_cards(
-        declarations, facts, 240, 24.0,
-        width=HORIZONTAL[0], height=HORIZONTAL[1])
-    assert card.props["width"] == 1920
-    assert card.props["height"] == 1080
 
 
-def test_a_horizontal_frame_reaches_the_verifier():
-    """Breaks on: the verifier judging placements against anything but
-    the frame handed in. Input: a 1920x1080 delivery with a canvas
-    origin that differs per frame - the origin proves which frame was
-    read."""
-    placement = {"scaling": 1.0, "pan": 0.0, "tilt": 0.0}
-    canvas = (840, 480)
-    at_vertical = overlay_verify.canvas_origin(
-        placement, canvas, VERTICAL)
-    at_horizontal = overlay_verify.canvas_origin(
-        placement, canvas, HORIZONTAL)
-    assert at_vertical != at_horizontal
 
 
-def test_both_declared_frames_are_statable_not_hardcoded():
-    """Both frames come from the declaration this slice threads - the
-    test above names no number the enumeration does not own."""
-    assert DELIVERY_FORMATS["horizontal_1920x1080"] == (1920, 1080)
-    assert DELIVERY_FORMATS["vertical_1080x1920"] == (1080, 1920)

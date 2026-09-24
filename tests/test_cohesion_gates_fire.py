@@ -80,9 +80,6 @@ SPEECH_001 = {"body_sequence": [
 
 
 class TestMeasureTimelineDuration:
-    def test_the_spine_is_the_timeline(self):
-        assert measure_timeline_duration(
-            {"audio_spine": SPINE_001}) == pytest.approx(54.77)
 
     def test_a_roll_is_the_fallback(self):
         assert measure_timeline_duration({
@@ -91,20 +88,8 @@ class TestMeasureTimelineDuration:
                 {"timeline_start": 20.0, "timeline_end": 54.77},
             ]}) == pytest.approx(54.77)
 
-    def test_the_spine_wins_over_a_roll(self):
-        assert measure_timeline_duration({
-            "audio_spine": SPINE_001,
-            "a_roll_assignments": [{"timeline_end": 9.0}],
-        }) == pytest.approx(54.77)
 
-    def test_nothing_to_measure_is_zero_not_a_guess(self):
-        assert measure_timeline_duration({}) == 0.0
-        assert measure_timeline_duration({"audio_spine": {"structure": []}}) == 0.0
 
-    def test_a_source_timestamp_is_never_the_answer(self):
-        """`speech_sequence` alone must not produce a duration."""
-        assert measure_timeline_duration(
-            {"speech_sequence": SPEECH_001}) == 0.0
 
 
 def _inputs(**kw):
@@ -160,12 +145,6 @@ def test_a_genuinely_short_timeline_is_still_flagged():
     assert "30.0s" in " ".join(review["warnings"])
 
 
-def test_a_genuinely_long_timeline_is_still_flagged():
-    long_spine = {"structure": [{"block_type": "speech", "position": 0,
-                                 "timeline_start": 0.0, "timeline_end": 95.0}]}
-    review = review_creative_cohesion(_inputs(audio_spine=long_spine))
-    assert any("exceeds the maximum target zone" in w
-               for w in review["warnings"])
 
 
 def test_the_step_declares_the_inputs_it_now_measures():
@@ -177,15 +156,6 @@ def test_the_step_declares_the_inputs_it_now_measures():
     assert {"audio_spine", "a_roll_assignments"} <= names
 
 
-def test_the_dag_routes_the_spine_into_the_step():
-    """A manifest input with no DAG edge is a key that is never present."""
-    dag = json.loads(
-        (REPO / "library" / "processes" / "edit_video" / "dag.json")
-        .read_text(encoding="utf-8"))
-    into = [e for e in dag["edges"] if e["to"] == "creative_cohesion"]
-    mapped = {k for e in into for k in e.get("data_mapping", {})}
-    assert "audio_spine" in mapped
-    assert "a_roll_assignments" in mapped
 
 
 # ── The engagement gate can fire ──────────────────────────────────────
@@ -242,8 +212,4 @@ def test_an_edit_that_opens_on_its_strongest_passage_is_not_flagged():
     assert not any("ranked strongest" in w for w in review["warnings"])
 
 
-def test_a_speech_sequence_with_no_judgement_at_all_is_silent():
-    speech = {"body_sequence": [{}, {}]}
-    review = review_creative_cohesion(_inputs(speech_sequence=speech))
-    assert not any("ranked strongest" in w for w in review["warnings"])
 

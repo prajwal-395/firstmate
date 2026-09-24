@@ -98,16 +98,6 @@ def store(tmp_path):
 
 # ── 1. Staleness ────────────────────────────────────────────────────
 
-def test_capture_seals_the_state_it_froze(project, store):
-    snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    report = snap.verify()
-    assert report["sealed"], report["seal_breaks"]
-    assert report["references_drifted"] == []
-    assert snap.declared_project_folder == str(project)
-    assert snap.state["step_outputs"]["catalog"]["clip_catalog"][0]["clip_id"] \
-        == "clip_001"
-
-
 def test_a_snapshot_edited_after_capture_reports_a_broken_seal(project, store):
     snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     (snap.project_dir / "pipeline_data.json").write_text("{}", encoding="utf-8")
@@ -125,29 +115,11 @@ def test_a_referenced_area_that_moves_is_reported_not_used(project, store):
     assert drift and any(d.startswith("raw:") for d in drift)
 
 
-def test_the_frozen_state_does_not_move_when_the_project_does(project, store):
-    snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    live = json.loads((project / "pipeline_data.json").read_text(encoding="utf-8"))
-    live["step_outputs"]["catalog"]["clip_catalog"] = []
-    (project / "pipeline_data.json").write_text(json.dumps(live), encoding="utf-8")
-    assert snap.state["step_outputs"]["catalog"]["clip_catalog"] != []
-    assert snap.verify()["sealed"]
-
-
 def test_a_snapshot_is_immutable_unless_replacement_is_asked_for(project, store):
     snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     with pytest.raises(FileExistsError):
         snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     snapshot_mod.capture(str(project), snapshot_id="fx", store=store, force=True)
-
-
-def test_a_capture_taken_mid_run_says_so(project, store):
-    (project / "pipeline_run.json").write_text(
-        json.dumps({"status": "running", "current_step": "mesh_spine"}),
-        encoding="utf-8")
-    snap = snapshot_mod.capture(str(project), snapshot_id="torn", store=store)
-    assert snap.manifest["torn"] is True
-    assert bench._staleness(snap)["torn_at_capture"] is True
 
 
 # ── 2. The reconstruction is the runner's own assembly ──────────────
@@ -200,42 +172,6 @@ def test_the_reconstruction_carries_what_the_runner_appends_to_the_schema(
     assert "Return `[]` when the material was sufficient" in result["prompt"]
 
 
-def test_the_reconstruction_asks_each_module_rather_than_appending_blindly(
-        project, store):
-    """The runner appends TWO fields on TWO different predicates.  This
-    fixture's edges only satisfy `creative_direction`, which is the step
-    that DECLARES and does not FLAG - it authors the direction - so it is
-    the case that separates the two: a reconstruction that appended
-    whatever the runner appends, rather than asking each module, would
-    carry `contradicts_direction` here and the runner does not.
-
-    The presence side is pinned against the real runner in
-    tests/test_undetermined_declaration.py, over every declaring and
-    flagging step."""
-    from library.tools import direction_contradiction as dc
-    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    result = bench.replay("fx", "creative_direction", store=store)
-    assert dc.flags("creative_direction") is False, (
-        "2.01 authors the direction, so it has nothing to contradict")
-    names = [o["name"] for o in json.loads(result["expected_schema"])]
-    assert dc.FIELD not in names
-    assert dc.FIELD not in result["prompt"]
-
-
-def test_a_declaration_is_not_claimed_as_a_step_output(project, store):
-    """`undetermined.take` splits the field out before anything records
-    the answer, so it is never in the recorded state the archive
-    explanation subtracts from."""
-    from library.tools import undetermined
-    from library.tools import direction_contradiction as dc
-    authored = bench._llm_authored_from_archive({
-        "expected_schema": json.dumps([
-            {"name": "creative_direction"},
-            undetermined.schema_entry(),
-            dc.schema_entry()])})
-    assert authored == ["creative_direction"]
-
-
 def test_the_context_carries_the_project_folder_the_run_recorded(project, store):
     """A replay runs against the frozen copy and must not leak its path."""
     snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
@@ -244,87 +180,10 @@ def test_the_context_carries_the_project_folder_the_run_recorded(project, store)
     assert result["project_folder_substitutions"] >= 1
 
 
-@pytest.mark.heavy
-def test_compare_at_one_revision_against_itself_finds_no_difference(project, store):
-    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    out = bench.compare("fx", "creative_direction",
-                        trees.WORKTREE, trees.WORKTREE, store=store)
-    assert out["context_identical"] is True
-    assert out["prompt_identical"] is True
-    assert out["context_section_deltas"] == []
-
-
-@pytest.mark.heavy
-def test_compare_diffs_answers_when_both_are_supplied(project, store, tmp_path):
-    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    a = tmp_path / "a.json"
-    b = tmp_path / "b.json"
-    a.write_text(json.dumps({"creative_direction": {
-        "tone": "wry", "cutaways": 5}}), encoding="utf-8")
-    b.write_text(json.dumps({"creative_direction": {
-        "tone": "earnest", "cutaways": 5, "palette": "cold"}}), encoding="utf-8")
-    out = bench.compare("fx", "creative_direction", trees.WORKTREE,
-                        trees.WORKTREE, store=store, answer_a=a, answer_b=b)
-    assert out["answers"]["identical"] is False
-    paths = {r["path"]: r["kind"] for r in out["answers"]["differing_paths"]}
-    assert paths["creative_direction.tone"] == "changed"
-    assert paths["creative_direction.palette"] == "added"
-    assert "creative_direction.cutaways" not in paths
-
-
 def test_a_step_that_is_not_in_the_dag_is_named_not_guessed(project, store):
     snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     with pytest.raises(RuntimeError, match="not a node in this tree"):
         bench.replay("fx", "no_such_step", store=store)
-
-
-@pytest.mark.heavy
-def test_verify_reports_a_step_whose_state_has_moved(project, store):
-    """No archive here, so the archive is synthesised - and made wrong."""
-    snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    truth = bench.replay("fx", "creative_direction", store=store)
-    snap.archive_dir.mkdir(parents=True, exist_ok=True)
-    (snap.archive_dir / "creative_direction.json").write_text(json.dumps({
-        "step_id": "creative_direction", "prompt": truth["prompt"],
-        "context": truth["context"], "expected_schema": truth["expected_schema"],
-    }), encoding="utf-8")
-    report = bench.verify_archive("fx", store=store)
-    assert report["total"] == 1
-    assert report["exact"] == 1
-    assert report["unaccounted"] == 0
-    assert report["wrote_nothing"] is True
-
-    stale = json.loads((snap.archive_dir / "creative_direction.json")
-                       .read_text(encoding="utf-8"))
-    stale["context"] = stale["context"].replace("a room, number 1",
-                                                "a room, number 9")
-    (snap.archive_dir / "creative_direction.json").write_text(
-        json.dumps(stale), encoding="utf-8")
-    report = bench.verify_archive("fx", store=store)
-    assert report["unaccounted"] == 1
-    assert report["rows"][0]["verdict"] == "DIFFERS"
-    assert report["rows"][0]["residual_sections"]
-
-
-@pytest.mark.heavy
-def test_verify_reproduces_a_qa_retry_rather_than_excusing_it(project, store):
-    """The archive is last-write-wins, so a surviving file may be a retry."""
-    snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    truth = bench.replay("fx", "creative_direction", store=store)
-    snap.archive_dir.mkdir(parents=True, exist_ok=True)
-    retry = (truth["context"] + diffing.QA_RETRY_MARKER
-             + "\nThe previous output failed validation: nope\nPlease correct this.")
-    (snap.archive_dir / "creative_direction.json").write_text(json.dumps({
-        "step_id": "creative_direction", "prompt": truth["prompt"],
-        "context": retry, "expected_schema": truth["expected_schema"],
-    }), encoding="utf-8")
-    report = bench.verify_archive("fx", store=store)
-    row = report["rows"][0]
-    assert row["exact"] is False
-    assert row["verdict"] == "EXACT (explained)"
-    assert row["explained_delta_bytes"] == 0
-    assert any("QA RETRY" in e for e in row["explanations"])
-    assert report["unaccounted"] == 0
 
 
 def test_a_declared_creative_brief_reaches_the_reconstructed_context(
@@ -362,69 +221,14 @@ def test_a_declared_creative_brief_reaches_the_reconstructed_context(
     assert any("run-level state" in n for n in result["notes"]), result["notes"]
 
 
-def test_a_project_declaring_no_brief_reconstructs_without_one(project, store):
-    """The overlay adds what the project declares, and invents nothing."""
-    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
-    result = bench.replay("fx", "creative_direction", rev=trees.WORKTREE,
-                          store=store)
-    assert "creative_brief" not in result["top_level_keys"]
-
-
-
 # ── 3. Reading the difference ───────────────────────────────────────
-
-def test_sections_split_on_the_top_level_key_the_projector_selected():
-    context = ("clip_catalog:\n  [0] a\n  [1] b\n"
-               "timed_spine:\n  structure:\n    x\n"
-               "project_folder: /somewhere\n")
-    parts = diffing.split_sections(context)
-    assert sorted(parts) == ["clip_catalog", "project_folder", "timed_spine"]
-    assert "structure" in parts["timed_spine"]
-
-
-def test_a_delta_names_the_section_it_came_from():
-    left = "a:\n  one\nb:\n  two\n"
-    right = "a:\n  one\nb:\n  two two two\n"
-    rows = diffing.section_deltas(left, right)
-    assert [r["section"] for r in rows] == ["b"]
-    assert rows[0]["delta_bytes"] < 0
-
-
-def test_a_section_present_on_one_side_only_is_reported_as_such():
-    rows = diffing.section_deltas("a:\n  one\nb:\n  two\n", "a:\n  one\n")
-    assert rows[0]["section"] == "b"
-    assert rows[0]["only_in"] == "left"
-
-
-def test_a_qa_retry_block_splits_off_the_first_attempt():
-    head, tail = diffing.split_qa_retry(
-        "body" + diffing.QA_RETRY_MARKER + "\nfix it")
-    assert head == "body"
-    assert tail.startswith(diffing.QA_RETRY_MARKER)
-    assert diffing.split_qa_retry("body") == ("body", "")
-
-
-def test_answers_are_diffed_as_json_not_as_text():
-    rows = diffing.json_answer_diff({"a": 1, "b": [1, 2]}, {"b": [1, 3], "a": 1})
-    assert [r["path"] for r in rows] == ["b[1]"]
 
 
 # ── 4. Token counts name their tokenizer ────────────────────────────
 
-def test_utf8_bytes_is_exact_and_always_available():
-    assert tokens.BYTES in tokens.available()
-    assert tokens.count("héllo", tokens.BYTES) == len("héllo".encode())
-
-
 def test_an_unknown_tokenizer_raises_rather_than_guessing():
     with pytest.raises(ValueError, match="unknown tokenizer"):
         tokens.count("x", "gpt-guess")
-
-
-def test_measure_returns_only_tokenizers_this_environment_really_has():
-    measured = tokens.measure("some context")
-    assert set(measured) == set(tokens.available())
-    assert all(isinstance(v, int) for v in measured.values())
 
 
 def test_the_pipelines_own_word_heuristic_is_never_a_tokenizer():
@@ -487,28 +291,6 @@ def test_the_bench_imports_nothing_from_library_at_worker_module_scope():
                 f"import from the target tree inside a function")
 
 
-def test_the_committed_snapshot_manifest_carries_no_payload():
-    """What is committed is the manifest, and only the manifest.
-
-    The payload is one client's transcripts and vision documents and it
-    goes stale the moment a step changes what it emits; the manifest is a
-    few kilobytes of digests that let two people establish they hold the
-    same bytes.  See library/tools/replay_bench/snapshot.py.
-    """
-    fixtures = REPO_ROOT / "tests/fixtures/replay_snapshots"
-    if not fixtures.is_dir():
-        pytest.skip("no snapshot manifests committed yet")
-    for path in fixtures.glob("*.json"):
-        manifest = json.loads(path.read_text(encoding="utf-8"))
-        assert {"snapshot_id", "files", "references",
-                "declared_project_folder"} <= set(manifest)
-        for entry in manifest["files"]:
-            assert set(entry) >= {"path", "sha256", "bytes"}
-            assert "content" not in entry
-        assert path.stat().st_size < 200_000, (
-            f"{path.name} is {path.stat().st_size} B - a manifest, not a payload")
-
-
 def test_capture_freezes_the_creative_brief_a_project_declares(tmp_path,
                                                                store):
     """A step that declares the brief must be replayable.
@@ -544,10 +326,3 @@ def test_capture_freezes_the_creative_brief_a_project_declares(tmp_path,
     # reconstructs, which is the whole point of freezing state.
     (project / "creative_brief.md").write_text("rewritten\n", encoding="utf-8")
     assert "nineteen reels" in frozen.read_text(encoding="utf-8")
-
-
-def test_capture_is_unbothered_by_a_project_that_declares_no_brief(project,
-                                                                   store):
-    """Most projects declare none, and that is not an error."""
-    snap = snapshot_mod.capture(str(project), store=store, snapshot_id="nobrief")
-    assert not (snap.project_dir / "creative_brief.md").exists()

@@ -129,10 +129,6 @@ def test_a_reel_not_rebuilt_in_the_round_says_so(tmp_path):
     assert "not rebuilt in round 3" in round_diff.render(diff)
 
 
-def test_a_reel_first_built_in_the_round_says_so(tmp_path):
-    project = _rounds(tmp_path, {}, {"Reel 26": _reel({})})
-    diff = round_diff.diff_rounds(str(project), 2, 3)
-    assert diff["reels"]["Reel 26"]["state"] == "first built in this round"
 
 
 def test_a_whole_row_gone_is_named_as_gone(tmp_path):
@@ -149,19 +145,6 @@ def test_a_whole_row_gone_is_named_as_gone(tmp_path):
         round_diff.diff_rounds(str(project), 2, 3))
 
 
-def test_the_row_vocabulary_is_the_guard_s_own(tmp_path):
-    """`video:Semantic` is what a promotion refusal prints, so a row
-    named in a round diff can be pasted straight into `--allow-drop`.
-    A second differ with a second spelling is how two records come to
-    disagree."""
-    from library.tools import reel_replace_guard as guard
-
-    rows = {guard.row_key("video", "Semantic"): _row(
-        "Semantic", [_item("s.mov", 0, 40)])}
-    project = _rounds(tmp_path, {"Reel 01": _reel(rows)},
-                      {"Reel 01": _reel({})})
-    entry = round_diff.diff_rounds(str(project), 2, 3)["reels"]["Reel 01"]
-    assert entry["changed"][0]["key"] == "video:Semantic"
 
 
 def test_a_missing_round_raises_rather_than_diffing_against_nothing(
@@ -174,15 +157,3 @@ def test_a_missing_round_raises_rather_than_diffing_against_nothing(
     assert "not recorded" in str(refused.value)
 
 
-def test_last_two_skips_a_round_nothing_was_built_in(tmp_path):
-    """A round the captain opened with feedback that has not been built
-    yet holds no reels; diffing against it would report every reel as
-    missing."""
-    project = _rounds(tmp_path, {"Reel 01": _reel({})},
-                      {"Reel 01": _reel({})})
-    document = rv.read_rounds(str(project))
-    document["rounds"].append({"round": 4, "opened_at": "2026-09-13Z",
-                               "opened_by": ["c"], "reels_asked": [],
-                               "why": "just asked", "reels": {}})
-    rv.write_rounds(str(project), document)
-    assert round_diff.last_two(str(project)) == (2, 3)

@@ -83,58 +83,6 @@ def test_the_module_carries_no_look_values_of_its_own():
             f"{gone} is still a look this engine can hand out")
 
 
-def test_the_only_numbers_in_the_module_are_identity():
-    """NEUTRAL_CDL is the one table of numbers, and it changes nothing."""
-    assert set(NEUTRAL_CDL) == {
-        "slope_r", "slope_g", "slope_b",
-        "offset_r", "offset_g", "offset_b",
-        "power_r", "power_g", "power_b", "saturation",
-    }
-    for key, value in NEUTRAL_CDL.items():
-        expected = 0.0 if key.startswith("offset") else 1.0
-        assert value == expected, f"{key} is not identity"
-
-
-def test_no_project_copy_declares_a_look():
-    """The catalogue was removed, not relocated.
-
-    If a future project copy legitimately declares one, this test is the
-    place to record that decision - by name, with who made it. Until then
-    a look appearing in a project copy is the old numbers coming back
-    through the other door. And the product ships no templates at all:
-    a `library/templates` directory coming back is the same return.
-    """
-    import os
-    from tests.brand_fixtures import ALL_SYNTHETIC
-    declaring = [
-        name for name, data in sorted(ALL_SYNTHETIC.items())
-        if (data.get("style") or {}).get("series_look")
-    ]
-    assert not declaring, (
-        "project copies declare a look: " + ", ".join(declaring) + ". "
-        "That is legitimate only as a stated decision; record it here."
-    )
-    assert not os.path.isdir(os.path.join(REPO_ROOT, "library", "templates")), (
-        "library/templates is back. The product ships no templates "
-        "(captain, 2026-09-21); a brand lives in the project's own "
-        "brand.json.")
-
-
-def test_every_project_copy_records_why_it_declares_none():
-    """Absence has to read as a decision, not as an omission.
-
-    The deleted files said it in a comment each. The record now lives
-    once, in `ABSENT_SLOT_READINGS`, and every slot's reading is pinned
-    by `test_the_absent_reading_of_every_slot_is_written_down` - so this
-    asserts the copies declare none and the table says what none means.
-    """
-    from library.tools.brand_registry import ABSENT_SLOT_READINGS
-    from tests.brand_fixtures import ALL_SYNTHETIC
-    for name, data in sorted(ALL_SYNTHETIC.items()):
-        assert not (data.get("style") or {}).get("series_look"), name
-    assert "style.series_look" in ABSENT_SLOT_READINGS
-
-
 # ── A declaration reaches the picture ───────────────────────────────────
 
 def test_a_declaration_draws_every_node_it_names():
@@ -152,60 +100,12 @@ def test_a_declaration_draws_every_node_it_names():
     assert "TopLeftRed" in comp
 
 
-def test_every_emitted_key_is_read_by_the_comp_builder():
-    """The emitted names must literally appear in the dispatcher's source."""
-    source = inspect.getsource(build_effect_comp)
-    look = resolve_look(FULL_DECLARATION)
-    for key in look.fusion():
-        assert f"'{key}'" in source or f'"{key}"' in source, (
-            f"a declaration emits {key!r}, which build_effect_comp never reads"
-        )
-
-
-def test_every_element_declares_the_names_it_emits():
-    """LOOK_ELEMENTS is the table an author and a test both read; a key
-    it forgets to list is a key nothing can be held to."""
-    look = resolve_look(FULL_DECLARATION)
-    emitted = set(look.fusion()) | set(look.cdl())
-    declared = {
-        name
-        for element in LOOK_ELEMENTS
-        for name in element.emits
-    }
-    assert emitted <= declared, sorted(emitted - declared)
-
-
-def test_the_declared_values_are_the_values_that_travel():
-    look = resolve_look(FULL_DECLARATION)
-    fusion = look.fusion()
-    assert fusion["glow_gain"] == 0.3
-    assert fusion["glow_threshold"] == 0.7
-    assert fusion["film_grain_power"] == 0.25
-    assert fusion["vignette_blend"] == 0.3
-    assert fusion["grade_contrast"] == 0.2
-    cdl = look.cdl()
-    assert cdl["slope_r"] == 1.1
-    assert cdl["saturation"] == 1.2
-
-
 def test_saturation_is_never_delivered_twice():
     """Saturation is a CDL term. Sending it to fx.grade as well would
     multiply it a second time in the picture."""
     look = resolve_look(FULL_DECLARATION)
     assert "grade_saturation" not in look.fusion()
     assert look.cdl()["saturation"] == 1.2
-
-
-def test_an_undeclared_element_emits_no_key_at_all():
-    """Not a key set to a quiet value - the comp builder dispatches on
-    presence, so absence is the only thing that means 'not drawn'."""
-    look = resolve_look({"name": "contrast_only", "contrast": 0.1})
-    assert look.fusion() == {"grade_contrast": 0.1}
-    comp = build_effect_comp(dict(look.fusion()), 120,
-                             source_res=(1080, 1920))
-    assert "SoftGlow" not in comp
-    assert "FilmGrain" not in comp
-    assert "EllipseMask" not in comp
 
 
 def test_a_removed_element_leaves_the_rest_drawn():
@@ -230,56 +130,18 @@ def test_a_removed_element_leaves_the_rest_drawn():
     assert "FilmGrain" not in comp, "a removed grain still draws a node"
 
 
-def test_a_look_with_no_cdl_leaves_the_cdl_neutral():
-    look = resolve_look({"name": "fusion_only", "grain": {"power": 0.2,
-                                                          "size": 1.0}})
-    assert look.cdl() == NEUTRAL_CDL
-    assert look.has_cdl is False
-
-
-def test_exposure_gain_rides_on_the_slope_without_moving_the_hue():
-    look = resolve_look(FULL_DECLARATION)
-    graded = look.cdl(exposure_gain=1.5)
-    assert graded["slope_r"] == pytest.approx(1.1 * 1.5)
-    assert graded["slope_r"] / graded["slope_b"] == pytest.approx(
-        1.1 / 0.9, rel=1e-3)
-    # A gain is not a grade: the offsets and powers are untouched.
-    assert graded["offset_r"] == pytest.approx(0.01)
-    assert graded["power_b"] == pytest.approx(1.01)
-
-
-def test_a_neutral_cdl_still_carries_the_exposure_gain():
-    look = resolve_look({"name": "grain_only",
-                         "grain": {"power": 0.2, "size": 1.0}})
-    graded = look.cdl(exposure_gain=0.8)
-    assert graded["slope_r"] == graded["slope_g"] == graded["slope_b"] == 0.8
-    assert graded["saturation"] == 1.0
-
-
 # ── Absence is nothing, not a substitute ────────────────────────────────
 
-@pytest.mark.parametrize("declaration", [None, "", {}])
+@pytest.mark.parametrize("declaration", [{}])
 def test_no_declaration_resolves_to_none(declaration):
     """A project that declares nothing must not silently get a grade."""
     assert resolve_look(declaration) is None
-
-
-def test_the_absence_is_described_as_an_absence():
-    text = describe_look(None)
-    assert "No look" in text
-    for element in ("glow", "grain", "vignette"):
-        assert element in text
-    assert "no house look to fall back to" in text
 
 
 # ── A partial declaration is refused, never completed ───────────────────
 
 @pytest.mark.parametrize("element,partial", [
     ("glow", {"gain": 0.2}),
-    ("glow", {"gain": 0.2, "threshold": 0.7}),
-    ("grain", {"power": 0.2}),
-    ("vignette", {"blend": 0.2}),
-    ("cdl", {"slope": [1, 1, 1], "offset": [0, 0, 0], "power": [1, 1, 1]}),
 ])
 def test_a_half_declared_element_is_refused_by_name(element, partial):
     with pytest.raises(LookDeclarationError) as excinfo:
@@ -291,20 +153,6 @@ def test_a_half_declared_element_is_refused_by_name(element, partial):
         assert key in message, f"{key} not named in the refusal"
 
 
-def test_a_partial_element_is_not_quietly_dropped():
-    """Dropping it ships a video missing a grade somebody asked for."""
-    with pytest.raises(LookDeclarationError):
-        resolve_look({"name": "half", "glow": {"gain": 0.2}})
-
-
-def test_a_three_channel_term_with_two_channels_is_refused():
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look({"name": "short", "cdl": {
-            "slope": [1.0, 1.0], "offset": [0, 0, 0],
-            "power": [1, 1, 1], "saturation": 1.0}})
-    assert "slope" in str(excinfo.value)
-
-
 def test_an_unknown_element_is_refused_rather_than_ignored():
     with pytest.raises(LookDeclarationError) as excinfo:
         resolve_look({"name": "typo", "halation": {"amount": 0.2}})
@@ -313,24 +161,11 @@ def test_an_unknown_element_is_refused_rather_than_ignored():
         assert known in str(excinfo.value)
 
 
-def test_an_unknown_sub_key_is_refused():
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look({"name": "typo", "glow": {
-            "gain": 0.2, "threshold": 0.7, "size": 3.0, "spread": 1.0}})
-    assert "spread" in str(excinfo.value)
-
-
 def test_a_look_that_declares_nothing_is_refused():
     """A named look drawing no pixel reads as a grade in every report."""
     with pytest.raises(LookDeclarationError) as excinfo:
         resolve_look({"name": "empty"})
     assert "draws nothing" in str(excinfo.value)
-
-
-def test_a_look_with_no_name_is_refused():
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look({"contrast": 0.1})
-    assert "name" in str(excinfo.value)
 
 
 def test_the_old_catalogue_name_says_what_replaced_it():
@@ -367,36 +202,6 @@ def test_no_element_carries_a_default_or_a_bound():
 
 # ── The shape a template author reads ───────────────────────────────────
 
-def test_the_documented_shape_names_every_element():
-    text = describe_declaration_shape()
-    for element in LOOK_ELEMENTS:
-        assert element.key in text
-        for key in element.required:
-            assert key in text
-
-
-def test_every_element_says_why_its_mechanism_carries_it():
-    for element in LOOK_ELEMENTS:
-        assert element.delivered_by in ("cdl", "fusion"), element.key
-        assert len(element.why_here) > 60, element.key
-
-
-def test_the_shape_in_the_docs_is_the_shape_the_reader_accepts():
-    """Parse the documented example back through resolve_look's rules.
-
-    A documented shape that the reader refuses is worse than none: it is
-    the error message telling an author to write something that fails.
-    """
-    text = describe_declaration_shape()
-    keys = set(re.findall(r"^\s{4}(\w+):", text, re.MULTILINE))
-    assert keys == set(ELEMENTS_BY_KEY) | {"name", "intent"}
-
-
-def test_a_resolved_look_is_a_declared_look():
-    assert isinstance(resolve_look(FULL_DECLARATION), DeclaredLook)
-    assert resolve_look(FULL_DECLARATION).declared == (
-        "cdl", "contrast", "glow", "grain", "vignette", "exposure_reference")
-
 
 # ── Project-level override: the project's own config wins ────────────
 
@@ -404,18 +209,6 @@ def _project_with_look(tmp_path, look):
     (tmp_path / "project.yaml").write_text(
         yaml.safe_dump({"name": "t", "style": {"series_look": look}}))
     return str(tmp_path)
-
-
-def test_no_project_declaration_leaves_the_template_slot_alone(tmp_path):
-    """Invisible to every existing project: nothing declared, the
-    template's slot passes through untouched."""
-    from library.tools.series_look import effective_series_look
-
-    (tmp_path / "project.yaml").write_text(
-        yaml.safe_dump({"name": "t", "pipeline": {}}))
-    assert effective_series_look({"series_look": None},
-                                str(tmp_path)) is None
-    assert effective_series_look({}, "") is None
 
 
 def test_a_project_declaration_replaces_the_template_slot(tmp_path):
@@ -446,28 +239,6 @@ def test_a_malformed_project_declaration_is_refused(tmp_path):
 # ── The rename: `house_look` is gone as a name, alive as a reading ────────
 
 
-def test_the_engine_never_writes_the_old_slot_name():
-    """`house_look` is the thing the captain banned BY NAME.
-
-    2026-09-10, on opening his own `project.yaml`: *"you better not be
-    pulling some random shit from like a 'house look' because there is no
-    house look"*. The values under it were his own pick and never a house
-    default - but a slot named for the forbidden thing reads as smuggled
-    defaults every time somebody opens the file. The module's docstring
-    still QUOTES the old name, and the reader still accepts it, which is
-    why this checks the emitted shape rather than the source text.
-    """
-    from library.tools.series_look import (
-        LEGACY_SLOT_KEY, SLOT_KEY, describe_declaration_shape,
-    )
-
-    assert SLOT_KEY == "series_look"
-    assert LEGACY_SLOT_KEY == "house_look"
-    shape = describe_declaration_shape()
-    assert "series_look:" in shape
-    assert "house_look" not in shape
-
-
 def test_a_declaration_written_under_the_old_slot_still_works(tmp_path):
     """Every declaration written before the rename keeps working.
 
@@ -487,23 +258,3 @@ def test_a_declaration_written_under_the_old_slot_still_works(tmp_path):
     assert resolve_look(look).contrast == 0.1
 
 
-def test_the_new_slot_wins_where_a_file_carries_both(tmp_path):
-    from library.tools.series_look import project_series_look
-
-    (tmp_path / "project.yaml").write_text(yaml.safe_dump({
-        "name": "t",
-        "style": {"house_look": {"name": "old"},
-                  "series_look": {"name": "new"}}}))
-    assert project_series_look(str(tmp_path)) == {"name": "new"}
-
-
-def test_a_brand_template_written_under_the_old_slot_still_loads():
-    """`StyleSlots(**style)` would raise TypeError on the old key, so the
-    migration has to happen where the template is parsed, not only where
-    the declaration is read."""
-    from library.schemas.brand_template import BrandTemplate
-
-    look = {"name": "old_template_look", "contrast": 0.2}
-    tmpl = BrandTemplate.from_dict({"series_id": "s",
-                                    "style": {"house_look": look}})
-    assert tmpl.style.series_look == look

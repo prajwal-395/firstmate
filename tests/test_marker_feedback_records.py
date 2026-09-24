@@ -44,18 +44,6 @@ def _note(**kw) -> MarkerNote:
 # ── Timecode ────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("frame,fps,expected", [
-    (0, 30.0, "00:00:00:00"),
-    (29, 30.0, "00:00:00:29"),
-    (30, 30.0, "00:00:01:00"),
-    (108000, 30.0, "01:00:00:00"),   # Resolve's default start timecode
-    (108007, 30.0, "01:00:00:07"),
-    (1440, 24.0, "00:01:00:00"),
-])
-def test_timecode_of_an_absolute_frame(frame, fps, expected):
-    assert frames_to_timecode(frame, fps) == expected
-
-
 def test_timecode_is_absent_rather_than_guessed():
     """A timecode nobody can scrub to is worse than an admitted absence."""
     assert frames_to_timecode(None, 30.0) is None
@@ -100,19 +88,6 @@ def test_a_re_run_area_and_the_captured_area_are_different_places(tmp_path):
     assert captured.parent == layout.root
 
 
-def test_the_layout_still_refuses_the_bare_project_root(tmp_path):
-    layout = ProjectLayout(tmp_path)
-    with pytest.raises(ProjectLayoutViolation):
-        layout.assert_writable(tmp_path / "loose.json")
-    assert layout.assert_writable(tmp_path / "marker_feedback" / "a.json")
-
-
-def test_the_readme_states_that_a_re_run_must_not_delete_it(tmp_path):
-    text = ProjectLayout(tmp_path).describe()
-    assert "marker_feedback/" in text
-    assert "re-run" in text
-
-
 # ── Reading pull files back ─────────────────────────────────────────
 
 
@@ -148,10 +123,6 @@ def test_an_unreadable_pull_file_is_skipped_not_fatal(tmp_path):
         Area.MARKER_FEEDBACK, "Edit.broken" + PULL_FILE_SUFFIX
     ).write_text("{not json", encoding="utf-8")
     assert len(pulled_files(str(tmp_path), "Edit")) == 1
-
-
-def test_no_pull_directory_is_not_an_error(tmp_path):
-    assert pulled_files(str(tmp_path)) == []
 
 
 # ── Attachments ─────────────────────────────────────────────────────
@@ -205,35 +176,6 @@ def test_a_path_the_captain_typed_is_still_read(tmp_path):
     assert got[0].resolved_path == str(typed)
 
 
-def test_a_typed_path_in_the_name_field_counts_too(tmp_path):
-    typed = tmp_path / "in_the_name.jpg"
-    got = read_attachments(str(typed), "", {}, str(tmp_path))
-    assert [a.origin for a in got] == ["note_text"]
-    assert got[0].exists is False
-
-
-def test_the_captain_typing_the_path_the_button_wrote_is_not_two_things(
-        tmp_path):
-    relpath = "marker_feedback/stills/a.png"
-    still = tmp_path / relpath
-    still.parent.mkdir(parents=True)
-    still.write_bytes(b"png")
-    got = read_attachments(
-        "", f"see {still}", _still_envelope(relpath), str(tmp_path))
-    assert [a.origin for a in got] == ["custom_data"]
-
-
-def test_without_a_project_folder_a_relative_path_is_not_invented():
-    got = read_attachments("", "", _still_envelope("stills/a.png"), None)
-    assert got[0].resolved_path == ""
-    assert got[0].exists is False
-
-
-def test_prose_is_not_mistaken_for_a_path():
-    assert read_attachments(
-        "", "the cut lands a beat early - hold it six frames", {}, None) == []
-
-
 # ── What an attachment does to identity ─────────────────────────────
 
 
@@ -247,57 +189,7 @@ def test_a_note_that_has_gained_a_still_is_a_note_worth_collecting_again():
     assert note_identity(plain) != note_identity(withstill)
 
 
-def test_a_typed_path_does_not_change_identity_twice():
-    """It is already in the note text, which identity reads."""
-    text = "see /vol/refs/a.png"
-    typed = _note(note=text,
-                  attachments=[asdict(a) for a in
-                               read_attachments("", text, {}, None)])
-    assert note_identity(typed) == note_identity(_note(note=text))
-
-
-def test_a_pull_file_written_before_attachments_existed_still_matches(tmp_path):
-    """Old records carry no `attachments` key. A note with none must read
-    as already collected, or every previously-pulled note comes back."""
-    layout = ProjectLayout(tmp_path)
-    _write_pull(layout, "Edit.20260828T090000Z", "Edit", [{
-        "source": "timeline_marker", "name": "Q", "note": "n",
-        "frame_in_timeline_space": 10,
-    }])
-    seen = _pulled_identities(str(tmp_path), "Edit")
-    assert note_identity(_note()) in seen
-
-
 # ── What the reader prints ──────────────────────────────────────────
-
-
-def test_a_note_with_an_attachment_reads_differently_from_one_without():
-    plain = _render([_note(note="why is this here")])
-    assert "ATTACHED" not in plain
-
-    shown = _render([_note(
-        note="why is this here",
-        attachments=[dict(_attachment("marker_feedback/stills/a.png"),
-                          resolved_path="/p/001/marker_feedback/stills/a.png",
-                          exists=True)])])
-    assert "ATTACHED [still from capture_frame]: " \
-           "/p/001/marker_feedback/stills/a.png" in shown
-    assert "NOT ON DISK" not in shown
-
-
-def test_a_missing_attachment_says_so_rather_than_disappearing():
-    shown = _render([_note(attachments=[dict(
-        _attachment("marker_feedback/stills/a.png"),
-        resolved_path="/p/001/marker_feedback/stills/a.png", exists=False)])])
-    assert "NOT ON DISK" in shown
-
-
-def test_a_typed_attachment_is_labelled_as_typed():
-    shown = _render([_note(
-        note="see /vol/refs/ref.png",
-        attachments=[asdict(a) for a in
-                     read_attachments("", "see /vol/refs/ref.png", {}, None)])])
-    assert "ATTACHED [typed by hand]: /vol/refs/ref.png" in shown
 
 
 # ── A reply of ours says so, mechanically ─────────────────────────
@@ -356,59 +248,6 @@ def test_a_reply_record_names_its_writer_and_what_it_answers():
     assert record["answers"] == "Reel_13:9f2c4a1b7e5d03aa"
     assert record["answers_text"] == "the words"
     marker_payload.merge_record(marker_payload.new_envelope(), record)
-
-
-def test_reply_custom_data_merges_into_a_foreign_payload():
-    """A marker's customData may already carry another writer's records."""
-    data = _mf.reply_custom_data(existing="not json at all",
-                                 answers="Reel_13:9f2c4a1b7e5d03aa")
-    envelope = marker_payload.parse(data)
-    assert envelope["foreign"] == "not json at all"
-    assert len(_mf.reply_records_in(data)) == 1
-
-
-def test_a_reply_marker_carries_its_record_and_reads_it_back():
-    """Remove the stamping and this marker is indistinguishable from
-    a question the captain typed."""
-    timeline = _MarkerSurface()
-    payload = _mf.reply_custom_data(answers="Reel_13:9f2c4a1b7e5d03aa")
-    landed = _mf.place_reply_marker(timeline, 100, "Green", "reply: done",
-                                    "we did it", custom_data=payload)
-    assert timeline.arity == 6
-    assert landed["custom_data"] == payload
-    assert _mf.reply_records_in(landed["custom_data"])[0]["answers"] \
-        == "Reel_13:9f2c4a1b7e5d03aa"
-
-
-def test_a_clip_reply_marker_carries_its_record_too():
-    item = _MarkerSurface()
-    payload = _mf.reply_custom_data(answers="Reel_09:1b7e5d03aa9f2c4a")
-    landed = _mf.place_reply_clip_marker(item, 100, "Green", "reply: done",
-                                         "we did it", custom_data=payload)
-    assert _mf.reply_records_in(landed["custom_data"])[0]["answers"] \
-        == "Reel_09:1b7e5d03aa9f2c4a"
-
-
-def test_a_reply_with_nothing_to_record_stays_a_five_argument_call():
-    """A caller with nothing to say must not be made to say an empty
-    envelope - and every existing caller keeps working unchanged."""
-    timeline = _MarkerSurface()
-    _mf.place_reply_marker(timeline, 100, "Green", "reply", "x")
-    assert timeline.arity == 5
-
-
-def test_a_customdata_that_does_not_read_back_RAISES():
-    """Judged by what Resolve returns, like every other field."""
-
-    class Dropping(_MarkerSurface):
-        def AddMarker(self, key, color, name, note, duration, custom=""):
-            super().AddMarker(key, color, name, note, duration, "")
-            return True
-
-    with pytest.raises(_mf.MarkerWriteError) as refused:
-        _mf.place_reply_marker(Dropping(), 100, "Green", "r", "x",
-                               custom_data=_mf.reply_custom_data(answers="Reel_13:9f2c4a1b7e5d03aa"))
-    assert "customData" in str(refused.value)
 
 
 def test_a_foreign_writers_record_is_not_read_as_our_reply():

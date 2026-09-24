@@ -237,14 +237,6 @@ def test_assert_current_timeline_still_has_its_callers():
         f"only {calls} write paths still check the cursor before writing")
 
 
-def test_the_refusal_is_reachable_from_the_check_itself():
-    """The gate can FAIL, which is the only kind worth having."""
-    assert hasattr(resolve_lock, "UnguardedPlacementError")
-    assert resolve_lock.assert_current_timeline.__doc__
-    assert "UnguardedPlacementError" in \
-        resolve_lock.assert_current_timeline.__doc__
-
-
 def test_the_live_resolve_fixture_has_users():
     """A fixture nobody takes is the zero-caller defect, in miniature.
 

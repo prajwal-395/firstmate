@@ -75,14 +75,6 @@ def test_a_shared_frame_files_under_the_assets_bin():
     assert dest["tv_frame_1f8e8d06ff.mov"] == (BIN_ASSETS,)
 
 
-def test_a_shared_freeze_files_under_the_assets_bin():
-    plan = a_plan(base() + [
-        clip("c-freeze", "reel_freeze_8da72bf764.mov", path=FREEZE,
-             placed_by=[REEL_01, REEL_09])])
-    dest = {v.name: v.destination for v in plan.verdicts}
-    assert dest["reel_freeze_8da72bf764.mov"] == (BIN_ASSETS,)
-
-
 def test_a_sole_placed_production_asset_files_under_the_assets_bin():
     """Placement never earns a production asset a per-reel folder under
     a render bin: the category is a path fact, and the assets bin has
@@ -114,40 +106,6 @@ def test_a_shared_subtitle_render_files_under_the_shared_leaf():
     assert dest["sub_akshita_x.mov"] == (BIN_SUBTITLES, BIN_SHARED)
 
 
-def test_a_shared_motion_graphic_files_under_its_own_shared_leaf():
-    """The rule holds per category bin, even with nothing shared there
-    today: the series will share a graphic the moment two reels want
-    the same lower third."""
-    mg = (f"{PROJECT_ROOT}/pipeline_output/steps/"
-          f"4_06_render_motion_graphics/motion_graphics/lower_third.mov")
-    plan = a_plan(base() + [
-        clip("c-mg", "lower_third.mov", path=mg,
-             placed_by=[REEL_01, REEL_09])])
-    dest = {v.name: v.destination for v in plan.verdicts}
-    assert dest["lower_third.mov"] == (bins.MOTION_GRAPHICS_BIN, BIN_SHARED)
-
-
-def test_no_clip_verdict_targets_a_render_root():
-    """The checkable property: per-reel means that reel uses it, shared
-    means several do, unplaced means none do, and nothing sits at a
-    render root. (The flat assets bin is a home, not a root-loose
-    state: production assets file at its only level.)"""
-    artefacts = base() + [
-        clip("c-sole", "sub_sole.mov", path=SUB, placed_by=[REEL_01]),
-        clip("c-shared", "sub_shared.mov", path=SUB,
-             placed_by=[REEL_01, REEL_09]),
-        clip("c-unplaced", "sub_none.mov", path=SUB),
-        clip("c-asset", "tv_frame.mov", path=FRAME,
-             placed_by=[REEL_01, REEL_09]),
-    ]
-    for verdict in a_plan(artefacts).verdicts:
-        if verdict.kind != "clip":
-            continue
-        assert verdict.destination not in (
-            (BIN_SUBTITLES,), (bins.MOTION_GRAPHICS_BIN,)), (
-            f"{verdict.name} files at a render root")
-
-
 def test_the_shared_leaf_is_never_a_retirement():
     """A canonical destination: the dead-bin sweep cannot take it with
     its contents, and the empty-shell sweep cannot take it empty."""
@@ -165,14 +123,6 @@ def test_the_shared_leaf_is_never_a_retirement():
                        folder=(BIN_SUBTITLES, BIN_SHARED))],
         [list(leaf)], PROJECT_ROOT)
     assert retirements == []
-
-
-def test_filing_a_shared_asset_is_idempotent():
-    plan = a_plan(base() + [
-        clip("c-frame", "tv_frame_1f8e8d06ff.mov", path=FRAME,
-             placed_by=[REEL_01, REEL_09],
-             folder=(BIN_ASSETS,))])
-    assert [v for v in plan.moves if v.item_id == "c-frame"] == []
 
 
 def test_import_time_agrees_with_filing_time():

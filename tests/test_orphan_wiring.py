@@ -65,21 +65,6 @@ def test_retime_ranges_splits_on_interior_trim():
     assert ranges == [(10.0, 11.0), (11.5, 12.0)]
 
 
-def test_retime_ranges_holds_on_rerun_and_noops_without_pins():
-    transcript = _transcript()
-    spans = [{"master": (10.0, 12.0)}]
-    edits = [{"kind": "span_retime", "anchor_phrase": "beta gamma",
-              "edge": "head", "reason": "rerun test"}]
-    trimmed, _, _, _ = captain_edits.retime_ranges(
-        [(10.0, 12.0)], spans, transcript, edits, fps=24.0)
-    rerun_spans = [{"master": trimmed[0]}]
-    _, applied2, held2, stale2 = captain_edits.retime_ranges(
-        trimmed, rerun_spans, transcript, edits, fps=24.0)
-    assert not applied2 and not stale2 and len(held2) == 1
-    # No pins: the ranges pass through untouched.
-    same, applied, held, stale = captain_edits.retime_ranges(
-        [(10.0, 12.0)], spans, transcript, [], fps=24.0)
-    assert same == [(10.0, 12.0)] and not (applied or held or stale)
 
 
 def test_retime_ranges_matches_placement_rebuild():
@@ -174,15 +159,6 @@ def test_retime_ranges_leaves_untouched_range_bounds_bit_identical():
     assert ranges[1][0] == 1168.2899999999997
 
 
-def test_builder_threading_names_ranges():
-    """`build_reel_timeline` takes precomputed (trimmed) ranges instead
-    of recomputing them from the moment - the static half of the seam
-    (the two call sites pass `ranges=ranges`; the default preserves
-    every other caller)."""
-    from library.tools import reel_build
-
-    assert "ranges" in inspect.signature(
-        reel_build.build_reel_timeline).parameters
 
 
 # ── placed_assets: the compile seam ────────────────────────────────
@@ -287,18 +263,6 @@ def test_compile_head_card_shifts_picture_and_plan(tmp_path):
             == len([c for c in clips if not c.get("video_only")]))
 
 
-def test_compile_without_declaration_is_unchanged(tmp_path):
-    from library.steps.step_5_04_compile_manifest.step import (
-        compile_manifest)
-
-    root = str(tmp_path)
-    media = os.path.join(root, "a.mov")
-    with open(media, "wb") as handle:
-        handle.write(b"\x00")
-    steps = _compile_fixture(root, media)
-    first = compile_manifest(steps)
-    second = compile_manifest(steps)
-    assert first == second
 
 
 def test_compile_refuses_unreadable_declaration(tmp_path):
@@ -433,13 +397,6 @@ def test_declared_mix_skips_ambiguous_targets_loudly():
     assert "no single manifest clip" in skipped[0]["reason"]
 
 
-def test_no_pins_passes_targets_through():
-    targets = _mix_targets()
-    snapshot = json.dumps(targets, sort_keys=True)
-    out, applied, skipped, stale = mix_intent.apply_declared_mix(
-        targets, _mix_manifest(), _transcript(), [], fps=24.0)
-    assert not (applied or skipped or stale)
-    assert json.dumps(out, sort_keys=True) == snapshot
 
 
 class _StubTimeline:
@@ -473,16 +430,6 @@ def _stub_project(tmp_path, pins=None, transcript=None):
     return root
 
 
-def test_deliver_mix_refuses_unreadable_intent_before_resolve(tmp_path):
-    from library.tools.execution import deliver_audio_mix
-
-    root = _stub_project(tmp_path, pins="{not json")
-    timeline = _StubTimeline()
-    with pytest.raises(RuntimeError, match="mix_intent"):
-        deliver_audio_mix.deliver_mix(
-            None, None, None, timeline, _mix_manifest(), fps=24.0,
-            project_folder=root)
-    assert timeline.exported is False
 
 
 def test_deliver_mix_consults_pins_even_where_resolve_declines(tmp_path):

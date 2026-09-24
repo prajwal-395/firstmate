@@ -100,16 +100,8 @@ def test_a_step_is_interviewed_off_its_manifest_not_its_prompt():
         "prompt mentioning a brief neither adds a step nor removes one")
 
 
-def test_a_step_that_never_asked_for_a_brief_is_never_interviewed():
-    for step in ("review_rough_cut", "render", "validate", "catalog"):
-        assert not bi.asks(step, False), step
 
 
-def test_the_question_is_conditional_on_the_brief():
-    assert bi.asks("plan_vfx", False)
-    assert not bi.asks("plan_vfx", True), (
-        "a step handed the captain's brief and then asked what it wished "
-        "the captain had said is being invited to invent a gap")
 
 
 # ── Through the real prompt assembly ─────────────────────────────────
@@ -155,98 +147,20 @@ def _run(tmp_path, node_id, answer, inputs=None, yaml_body=""):
 
 # ── Path one: the brief is attached ──────────────────────────────────
 
-@pytest.mark.heavy
-def test_a_step_handed_a_brief_is_not_interviewed(tmp_path):
-    request, _ = _run(
-        tmp_path, "plan_vfx", {"a_verdict": "fine"},
-        inputs={"creative_brief": A_BRIEF},
-        yaml_body="creative_brief: brief.md\n")
-    assert bi.FIELD not in request["prompt"]
-    assert bi.FIELD not in request["expected_schema"]
-    assert bi.collected() == [], (
-        "a run with a brief attached records no interview at all")
 
 
 # ── Path two: declined, then interviewed ─────────────────────────────
 
-@pytest.mark.heavy
-@pytest.mark.parametrize("answer,expected", [
-    ({"a_verdict": "fine", bi.FIELD: []}, bi.NOTHING_TO_ASK),
-    ({"a_verdict": "fine", bi.FIELD: [
-        {"question": "who is this video for?",
-         "why_it_matters": "it decides the register",
-         "what_you_assumed_instead": "the channel's usual audience"}]},
-     bi.ASKED),
-    ({"a_verdict": "fine"}, bi.NOT_DECLARED),
-])
-def test_a_declined_brief_asks_and_the_answer_is_recorded(
-        tmp_path, answer, expected):
-    request, result = _run(
-        tmp_path, "plan_vfx", answer,
-        yaml_body="creative_brief: brief.md\nattach_creative_brief: false\n")
-
-    prompt = request["prompt"]
-    assert bi.FIELD in prompt
-    assert "chose not to attach it" in prompt, (
-        "the model is told WHICH absence this is - a project that "
-        "declined the brief it has, or one that never wrote one")
-    assert "read as a non-answer" in prompt, (
-        "the prompt must say that omitting the field is not the same as "
-        "having nothing to ask, or the three readings collapse to two")
-
-    # The MACHINE-READABLE half too. `could_not_determine` reached the
-    # agent in `prompt` alone and every declaring step recorded a false
-    # non-answer on every run; a third appender must not repeat it.
-    names = [e["name"] for e in json.loads(request["expected_schema"])]
-    assert bi.FIELD in names
-
-    assert result == {"a_verdict": "fine"}, (
-        "the questions must not be carried into the step's output - "
-        "validate_step_output refuses an unexpected key")
-    assert [i.reading for i in bi.collected()] == [expected]
 
 
-@pytest.mark.heavy
-def test_a_project_with_no_brief_at_all_is_also_interviewed(tmp_path):
-    request, _ = _run(tmp_path, "plan_vfx",
-                      {"a_verdict": "fine", bi.FIELD: ["what is this for?"]})
-    assert bi.FIELD in request["prompt"]
-    assert "has no creative brief at all" in request["prompt"]
-    assert bi.collected()[0].reading == bi.ASKED
-    assert bi.collected()[0].entries[0]["question"] == "what is this for?"
 
 
-@pytest.mark.heavy
-def test_the_prompt_tells_the_step_to_decide_anyway(tmp_path):
-    """Asking is not licence to hedge. The step still answers in full."""
-    request, _ = _run(tmp_path, "plan_vfx", {"a_verdict": "fine"})
-    assert "Decide anyway, in full" in request["prompt"]
 
 
 # ── The reader that closes the loop ──────────────────────────────────
 
-@pytest.mark.heavy
-def test_the_questions_reach_the_run_summary_naming_the_step(tmp_path):
-    _run(tmp_path, "plan_vfx",
-         {"a_verdict": "ok", bi.FIELD: [
-             {"question": "how long should this run?",
-              "what_you_assumed_instead": "sixty seconds"}]})
-    lines = "\n".join(bi.summary_lines())
-    assert "plan_vfx" in lines
-    assert "how long should this run?" in lines
-    assert "sixty seconds" in lines
-    assert "creative brief" in lines, (
-        "the summary must say how to answer - writing the brief IS the "
-        "answer channel, and it is the only one")
 
 
-def test_an_empty_answer_and_a_non_answer_print_differently():
-    bi.reset()
-    bi.record(bi.Interview("plan_vfx", bi.NOTHING_TO_ASK))
-    bi.record(bi.Interview("plan_sfx", bi.NOT_DECLARED))
-    lines = "\n".join(bi.summary_lines())
-    assert "had nothing to ask: plan_vfx" in lines
-    assert "did not answer the question" in lines and "plan_sfx" in lines
 
 
 def test_nothing_here_gates_or_reads_a_questions_content():

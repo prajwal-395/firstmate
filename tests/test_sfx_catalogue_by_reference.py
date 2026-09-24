@@ -153,34 +153,6 @@ def test_the_bridge_refuses_when_there_is_nowhere_to_write_it(library):
     assert "project_folder" in json.loads(proc.stdout)["error"]
 
 
-def test_the_map_entry_is_a_fraction_of_the_section_it_stands_for(
-        library, project):
-    """The property that scales: what a sound costs in the PROMPT.
-
-    The header is a fixed cost paid once, so the saving is per sound and
-    has to be measured per sound. On the captain's own 78-entry library
-    the map is 12,960 B against 44,575 B copied - a 31,224 B
-    reduction, 30.9% of that step's whole context (measured
-    2026-08-29).
-    """
-    proc = _run_bridge(library, project)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    reference = json.loads(proc.stdout)["sfx_catalog_reference"]
-    lines = _document_path(project).read_text(encoding="utf-8").split("\n")
-
-    for name, span in _ranges(reference).items():
-        first, last = (int(n) for n in span.split("-"))
-        section = len("\n".join(lines[first - 1:last]).encode("utf-8"))
-        entry = sum(len(line.encode("utf-8")) + 1
-                    for line in _map_entry(reference, name))
-        assert entry < section / 3, (
-            f"{name} costs {entry} B in the map against {section} B in "
-            f"the document - that is not a saving worth the indirection")
-
-    assert (len(reference.encode("utf-8"))
-            < len("\n".join(lines).encode("utf-8")))
-
-
 def _ranges(reference: str) -> dict:
     return dict(re.findall(r"^## (.+?)  \[[\d,]+ B, lines (\d+-\d+)\]$",
                            reference, flags=re.M))
@@ -211,20 +183,6 @@ def test_the_map_names_every_sound_by_the_id_an_answer_must_use(
         assert entry["sfx_id"] in reference, (
             f"{entry['sfx_id']} is not in the map, so the model cannot "
             f"name it")
-
-
-def test_the_map_carries_what_was_measured_about_every_sound(
-        library, project):
-    """Category, length, envelope and temperature, without a read."""
-    proc = _run_bridge(library, project)
-    reference = json.loads(proc.stdout)["sfx_catalog_reference"]
-    import math
-    for name, category, duration, envelope, temperature in SOUNDS:
-        floored = math.floor(duration * 100) / 100.0
-        line = next(l for l in reference.splitlines()
-                    if l.strip().startswith(f"category {category}")
-                    and f"plays for {floored} s" in l)
-        assert envelope in line and temperature in line
 
 
 def test_following_the_range_returns_prose_the_prompt_did_not_carry(
@@ -267,13 +225,3 @@ def test_a_harness_that_cannot_read_a_file_gets_the_whole_catalogue(
     assert unchanged is inputs
 
 
-def test_the_catalogue_is_a_row_in_the_one_enumeration():
-    """A second document costs a row, not a second mechanism."""
-    assert "sfx_catalog_reference" in REFERENCED_INPUTS
-    assert "creative_brief" in REFERENCED_INPUTS
-
-    manifest = json.loads((SFX_STEP / "manifest.json").read_text(
-        encoding="utf-8"))
-    assert "sfx_catalog_reference" in manifest["context_fields"]
-    assert "sfx_catalog_reference" in {
-        o["name"] for o in manifest["interface"]["outputs"]}

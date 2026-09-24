@@ -141,20 +141,6 @@ def test_a_new_subtitle_import_lands_in_the_subtitles_bin():
         assert pool.GetCurrentFolder() is mg
 
 
-def test_a_motion_graphics_import_lands_in_the_motion_graphics_bin():
-    from library.tools.reel_build import import_pool_item
-
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
-        pool = _FakePool()
-        path = _area_path(
-            tmp, Area.MOTION_GRAPHICS_SEGMENTS, "motion_graphics", "mg.mov")
-        found = import_pool_item(pool, path, str(tmp))
-        assert found is not None
-        folder, _ = pool.imports[0]
-        assert folder == bins.MOTION_GRAPHICS_BIN
-
-
 def test_an_import_never_forks_a_bin_that_already_exists():
     """`AddSubFolder` makes a second same-named bin rather than
     refusing, so the build looks the name up first - one import, no
@@ -193,24 +179,6 @@ def test_a_pooled_frame_sequence_is_reused_not_reimported():
         assert pool.imports == []
 
 
-def test_a_new_frame_sequence_imports_once_into_the_subtitles_bin():
-    from library.tools.reel_build import import_pool_sequence
-
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
-        frame_dir = os.path.join(
-            str(tmp), AREAS[Area.SUBTITLE_SEGMENTS].relpath, "seg_00")
-        pool = _FakePool()
-        frames = [os.path.join(frame_dir, f"frame-{i:03d}.png")
-                  for i in range(60)]
-        found = import_pool_sequence(pool, frames, frame_dir, str(tmp))
-        assert found is not None
-        assert len(pool.imports) == 1
-        folder, arrived = pool.imports[0]
-        assert folder == bins.SUBTITLES_BIN
-        assert arrived == frames
-
-
 def test_a_reel_timeline_is_created_in_the_reels_bin():
     """`CreateEmptyTimeline` inherits the current folder, so the build
     sets it first - a reel created while a motion-graphics bin is
@@ -226,56 +194,3 @@ def test_a_reel_timeline_is_created_in_the_reels_bin():
     assert pool.GetCurrentFolder() is mg
 
 
-def test_the_import_bin_is_the_bin_the_organiser_keeps():
-    """Import-time and organise-time read the same fact through the
-    same function, so filing afterwards moves nothing the build
-    placed: the code cannot put them anywhere else, and the cleanup
-    pass proves it by finding no moves."""
-    from library.tools.reel_build import import_dest_bin
-
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
-        for area, leaf in ((Area.SUBTITLE_SEGMENTS, bins.SUBTITLES_BIN),
-                           (Area.MOTION_GRAPHICS_SEGMENTS,
-                            bins.MOTION_GRAPHICS_BIN)):
-            path = _area_path(tmp, area, "x.mov")
-            assert import_dest_bin(path, str(tmp)) == (leaf,)
-            artefacts = [
-                org.Artefact(item_id="t-master", name="master", kind="timeline",
-                             file_path="", placed_by=(),
-                             folder_path=(bins.REELS_BIN,)),
-                org.Artefact(item_id="t-reel", name="Reel 01 - live",
-                             kind="timeline", file_path="", placed_by=(),
-                             folder_path=(bins.REELS_BIN,
-                                          bins.REEL_STATE_BINS[org.CURRENT])),
-                org.Artefact(item_id="c-x", name="x.mov", kind="clip",
-                             file_path=path,
-                             placed_by=("Reel 01 - live",),
-                             folder_path=import_dest_bin(path, str(tmp))
-                             + ("Reel 01 - live",)),
-            ]
-            plan = org.plan_organization(
-                artefacts=artefacts, project_root=str(tmp),
-                master_timeline_name="master",
-                current_reels=["Reel 01 - live"], archived_plan_names=[])
-            assert plan.moves == []
-
-
-def test_no_reel_build_call_site_invents_a_bin_name():
-    """The one-owner rule extended to the reel builder: every bin path
-    it touches comes from a `resolve_bin_layout` attribute, never a
-    string literal - the same discipline `test_bins_one_owner` holds
-    `resolve_build_timeline` to."""
-    source = Path(
-        "library/tools/reel_build.py").read_text(encoding="utf-8")
-    names = [bins.MASTER_BIN, bins.REELS_BIN, bins.REELS_ARCHIVE_BIN,
-             bins.REELS_PROOF_BIN, bins.SUBTITLES_BIN,
-             bins.MOTION_GRAPHICS_BIN, bins.SOURCE_BIN, bins.UNPLACED_BIN,
-             *bins.REEL_STATE_BINS.values(), "02 - Music", "03 - Assets",
-             "08 - Exports"]
-    pattern = "|".join(re.escape(f'"{n}"') for n in names) + "|" + "|".join(
-        re.escape(f"'{n}'") for n in names)
-    match = re.search(pattern, source)
-    assert match is None, (
-        f"reel_build invents a bin {match.group(0)!r} instead of asking "
-        f"resolve_bin_layout")

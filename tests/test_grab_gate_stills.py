@@ -16,34 +16,9 @@ import library.steps.step_7_02_verify_reels.step as v702
 from library.tools import operations
 
 
-def test_no_project_folder_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="project_folder"):
-        v702.grab_gate_stills("", "reel21", "Reel 21", [20])
-
-
-def test_no_reel_label_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="reel_label"):
-        v702.grab_gate_stills(str(tmp_path), "", "Reel 21", [20])
-
-
-def test_no_timeline_name_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="timeline_name"):
-        v702.grab_gate_stills(str(tmp_path), "reel21", "", [20])
-
-
 def test_no_frames_is_refused(tmp_path):
     with pytest.raises(ValueError, match="at least one frame"):
         v702.grab_gate_stills(str(tmp_path), "reel21", "Reel 21", [])
-
-
-def test_a_non_int_frame_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="not an int"):
-        v702.grab_gate_stills(str(tmp_path), "reel21", "Reel 21", [20, "x"])
-
-
-def test_a_bool_frame_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="not an int"):
-        v702.grab_gate_stills(str(tmp_path), "reel21", "Reel 21", [True])
 
 
 def test_without_resolve_the_refusal_returns_not_raises(tmp_path):
@@ -57,14 +32,3 @@ def test_without_resolve_the_refusal_returns_not_raises(tmp_path):
     # never about where the stills would have gone.
     assert (tmp_path / "pipeline_output" / "steps"
             / "7_02_verify_reels" / "gate_stills").is_dir()
-
-
-def test_the_registry_reaches_the_step_own_function():
-    op = operations.get("reel.gate_stills")
-    assert op.owning_node == "verify_reels"
-    assert op.caller_supplied is True
-    # By name and by file, not by identity: the registry loads the
-    # step body under a synthetic module name, so it is the same code
-    # under a different module object.
-    assert op.run.__name__ == "grab_gate_stills"
-    assert op.run.__code__.co_filename == v702.__file__

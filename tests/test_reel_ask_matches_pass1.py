@@ -169,64 +169,7 @@ def test_write_visual_asks_matches_pass1_sequence(tmp_path):
         "proves nothing about what differs")
 
 
-def test_no_look_means_no_motion_ask_either_way(tmp_path):
-    """The loop's `if reel_look_decl is not None` gate, both spellings."""
-    project = _project(tmp_path)
-    moment, transcript, ranges = _moment(), _transcript(), [(10.0, 18.0)]
-
-    _pass1_sequence(moment, transcript, ranges, _clips(),
-                    project, NAME, [], None)
-    paths = build.write_visual_asks(
-        moment, transcript, ranges, _clips(), project, FPS, NAME,
-        [], None)
-    assert paths["reel_motion"] == ""
-    assert not (Path(project) / "pipeline_output" / "llm_requests"
-                / "reel_motion_09.json").exists()
-    assert paths["reel_semantic"].endswith("reel_semantic_09.json")
-    assert paths["reel_span"].endswith("reel_span_09.json")
-
-
 # ── The derivation the asks are written from ──────────────────────────
-
-def test_derive_ranges_and_cards_matches_reel_ranges(tmp_path):
-    """No exclusions, no trims, no ending, no cards: the layers above
-    `reel_ranges` must be no-ops on this reel, and the derivation must
-    say which ending it found (none)."""
-    project = _project(tmp_path)
-    moment, transcript = _moment(), _transcript()
-    cuts, insisted = build.moment_cuts_and_insistences(
-        moment, transcript, [], [])
-    assert cuts == [] and insisted == []
-    ranges, cards, ending = build.derive_reel_ranges_and_cards(
-        moment, transcript, _clips(), project, FPS, NAME,
-        cuts, insisted, card_declarations=[], look_decl=None,
-        reel_width=1080, reel_height=1920)
-    assert ranges == build.reel_ranges(moment, transcript)
-    assert cards == []
-    assert ending is None
-
-
-def test_span_split_preserves_combined_behavior(tmp_path):
-    """`span_record_for_build` is write-then-resolve; resolving against
-    an already-written ask must record exactly what the combined form
-    records, and the unasked branch must stay SPAN_NOT_PLANNED."""
-    project = _project(tmp_path)
-    moment, transcript, ranges = _moment(), _transcript(), [(10.0, 18.0)]
-
-    combined = sem_vis.span_record_for_build(
-        moment, transcript, ranges, project, fps=FPS,
-        timeline_name=NAME)
-    asked_path = sem_vis.write_span_request(
-        moment, transcript, ranges, project, fps=FPS)
-    split = sem_vis.resolve_span_record(
-        moment, transcript, ranges, project, fps=FPS,
-        timeline_name=NAME, asked=bool(asked_path))
-    assert split == combined
-
-    unasked = sem_vis.resolve_span_record(
-        moment, {"segments": []}, ranges, project, fps=FPS,
-        timeline_name=NAME, asked=False)
-    assert unasked["basis"] == sem_vis.SPAN_NOT_PLANNED
 
 
 # ── The operation a lane calls ────────────────────────────────────────

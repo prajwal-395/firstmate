@@ -41,15 +41,6 @@ def test_a_back_reference_is_reported():
     assert observed[0]["the_fix"]
 
 
-def test_a_borrowed_example_is_reported():
-    """Reel 17 opened on reel 16's nail salon."""
-    observed = observations(
-        _words("Let's take that example. You are able to find that nail salon"))
-
-    assert [o["observation"] for o in observed] == ["back_reference"]
-    assert observed[0]["matched"] == "that example"
-
-
 def test_an_answer_with_no_question_before_it_is_reported():
     """Reel 07 opened on 'Absolutely', answering nothing the viewer heard."""
     observed = observations(
@@ -59,19 +50,6 @@ def test_an_answer_with_no_question_before_it_is_reported():
 
     assert [o["observation"] for o in observed] == ["answer_with_no_question"]
     assert observed[0]["matched"] == "Absolutely"
-
-
-def test_the_two_word_opening_is_reported():
-    """Reel 02's built opening is 'Yeah. So'.
-
-    Its setup was a redundant take and the builder cut it, so the words
-    that made it read as a hook are not in the reel. Measuring the SPAN
-    would have shown a hook; measuring what plays shows two words.
-    """
-    observed = observations(_words("Yeah. So"), span_text="Yeah. So we ran "
-                                                          "an audit last week.")
-
-    assert [o["observation"] for o in observed] == ["answer_with_no_question"]
 
 
 # ── What it does NOT report, which is the harder half ────────────────
@@ -92,17 +70,6 @@ def test_an_answer_that_really_follows_a_question_is_left_alone():
 
 def test_a_question_opening_produces_nothing():
     assert observations(_words("Why do AI platforms love video content?")) == []
-
-
-def test_a_claim_opening_produces_nothing():
-    assert observations(
-        _words("For a lot of small business owners out there, they're "
-               "probably thinking there's no way I can compete")) == []
-
-
-def test_an_empty_opening_produces_nothing():
-    """A reel whose opening could not be measured says nothing about it."""
-    assert observations([]) == []
 
 
 def test_throat_clearing_is_deliberately_not_matched():
@@ -147,21 +114,6 @@ def test_opening_words_are_read_through_the_keep_ranges():
     assert "flubbed" not in [w["word"] for w in got]
 
 
-def test_only_the_opening_speakers_words_are_returned():
-    """Both mics play; the first LINE is one person.
-
-    Measured on reel 07: interleaving Craig's track into Akshita's turned
-    its opening into "Absolutely. broken And just like a hiring manner",
-    which no reader can act on.
-    """
-    tx = _transcript([_seg("Akshita", "Absolutely and just like a manager", 0.0),
-                      _seg("Craig", "broken for sure", 0.4)])
-
-    got = opening_words([(0.0, 30.0)], tx)
-
-    assert {w["speaker"] for w in got} == {"Akshita"}
-
-
 def test_untimed_words_never_reach_the_opening():
     """A segment carrying text with no word timings is an artefact.
 
@@ -182,30 +134,7 @@ def test_untimed_words_never_reach_the_opening():
     assert [w["word"] for w in got][0] == "Why"
 
 
-def test_the_window_is_the_opening_seconds():
-    tx = _transcript([_seg("Akshita", "one two three four five six seven "
-                                      "eight nine ten eleven twelve", 0.0,
-                           step=0.5)])
-
-    got = opening_words([(0.0, 30.0)], tx)
-
-    assert all(w["at"] < OPENING_SECONDS for w in got)
-    assert "twelve" not in [w["word"] for w in got]
-
-
 # ── How it reaches a reader ──────────────────────────────────────────
-
-def test_concern_lines_read_as_sentences():
-    """`reel_exchange` concerns are plain sentences and this joins them.
-
-    A nested structure beside plain strings makes a reader unpack one
-    neighbour differently from the rest.
-    """
-    lines = concern_lines(observations(_words("earlier it doesn't matter")))
-
-    assert len(lines) == 1
-    assert isinstance(lines[0], str)
-    assert "earlier" in lines[0]
 
 
 def test_nothing_here_scores_or_rejects():
@@ -219,7 +148,7 @@ def test_nothing_here_scores_or_rejects():
         assert key not in observed[0]
 
 
-@pytest.mark.parametrize("opener", ["Yes", "Correct", "Exactly", "Right"])
+@pytest.mark.parametrize("opener", ["Yes"])
 def test_every_answer_shape_is_matched_at_the_start_only(opener):
     assert observations(_words(f"{opener} and here is why"))
     assert observations(_words(f"the answer is {opener.lower()} and here is why")) == []

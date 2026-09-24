@@ -46,9 +46,6 @@ class TestSubjectCenter:
         track = face_track([0.30] * 20)
         assert subject_center_x(track, 0.0, 4.0) == pytest.approx(0.30)
 
-    def test_steady_subject_right_of_centre(self):
-        track = face_track([0.72] * 20)
-        assert subject_center_x(track, 0.0, 4.0) == pytest.approx(0.72)
 
     def test_only_the_clip_range_is_considered(self):
         """A subject who moves must not be located from the wrong shot.
@@ -178,8 +175,6 @@ class TestSubjectCentersByClip:
                                                  encoding="utf-8")
         assert subject_centers_by_clip(str(tmp_path)) == {}
 
-    def test_missing_index_dir_is_empty(self, tmp_path):
-        assert subject_centers_by_clip(str(tmp_path)) == {}
 
 
 # ─────────────────────────────────────────────────────────

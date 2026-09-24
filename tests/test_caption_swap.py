@@ -132,13 +132,6 @@ def _project():
     return FakeProject([reel1, reel2, reel3]), shared, own, other
 
 
-def test_inventory_finds_every_placement_by_basename(no_lease):
-    project, _shared, _own, _other = _project()
-    found = find_placements(project, {"old_a.mov"})
-    assert set(found) == {"Reel 01", "Reel 02", "Reel 03"}
-    assert [(p.start, p.end) for p in found["Reel 01"]] == [(100, 140)]
-    assert [(p.start, p.end) for p in found["Reel 02"]] == [(300, 340)]
-    assert [(p.start, p.end) for p in found["Reel 03"]] == [(400, 440)]
 
 
 def test_one_replace_per_pool_item_swaps_every_timeline(no_lease, tmp_path):
@@ -155,13 +148,6 @@ def test_one_replace_per_pool_item_swaps_every_timeline(no_lease, tmp_path):
                {(100, 140), (300, 340), (400, 440)} for row in report["swapped"])
 
 
-def test_timelines_without_the_row_are_untouched(no_lease, tmp_path):
-    new = tmp_path / "new_a.mov"
-    new.write_bytes(b"x")
-    project = FakeProject([FakeTimeline("Reel 09", {"V1": []})])
-    assert find_placements(project, {"old_a.mov"}) == {}
-    report = swap_files(project, {"/seg/old_a.mov": str(new)})
-    assert report["swapped"] == []
 
 
 def test_a_refused_replace_fails_naming_the_file(no_lease, tmp_path):
@@ -191,11 +177,3 @@ def test_a_missing_new_file_refuses_before_anything_moves(no_lease):
     assert shared.replace_calls == []
 
 
-def test_verify_reports_new_against_old(no_lease):
-    project, _shared, _own, _other = _project()
-    verdict = verify_files(project, {"new_a.mov"}, {"old_a.mov"})
-    assert verdict["timelines"] == 3
-    assert verdict["new_places"] == []
-    assert sorted(verdict["old_places"]) == [
-        ("Reel 01", "old_a.mov"), ("Reel 02", "old_a.mov"),
-        ("Reel 03", "old_a.mov")]

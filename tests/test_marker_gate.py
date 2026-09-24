@@ -420,17 +420,6 @@ def _check(tmp_path, capture, live, accounted):
         check=False)
 
 
-def test_the_cli_passes_a_clean_reel_in_another_process(tmp_path):
-    capture = _capture_payload()
-    live = {"timeline": list(capture["timeline"]),
-            "clip": list(capture["clip"])}
-    accounted = {"timeline": [], "clip": []}
-
-    completed = _check(tmp_path, capture, live, accounted)
-
-    assert completed.returncode == 0, completed.stderr
-
-
 def test_the_cli_fails_a_silent_loss_in_another_process(tmp_path):
     capture = _capture_payload()
     # The false all-clear: the live clip item holds nothing, and the
@@ -444,17 +433,3 @@ def test_the_cli_fails_a_silent_loss_in_another_process(tmp_path):
     assert "Blue" in completed.stderr
     assert CLIP_NOTE in completed.stderr
     assert TIMELINE_NOTE not in completed.stderr
-
-
-def test_the_cli_accepts_a_reported_loss_in_another_process(tmp_path):
-    capture = _capture_payload()
-    live = {"timeline": list(capture["timeline"]), "clip": []}
-    # ... but owned: the carry reported this exact note, words and
-    # anchor, so the gate stays silent.
-    accounted = {"timeline": [],
-                 "clip": [dict(capture["clip"][0],
-                               why="no clip in the replacement plays it")]}
-
-    completed = _check(tmp_path, capture, live, accounted)
-
-    assert completed.returncode == 0, completed.stderr

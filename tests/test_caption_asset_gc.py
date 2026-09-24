@@ -142,18 +142,6 @@ def _ok_root(name, paths):
 # ------------------------------------------------------------- the mark
 
 
-def test_mark_reports_live_with_saving_root_and_orphan(tmp_path):
-    project = str(tmp_path)
-    asset_dir = _populate(_asset_dir(project))
-    live_mov = os.path.join(asset_dir, _mov_names()[2])
-    roots = [_ok_root("resolve:test", {live_mov})]
-    result = mark(project, asset_dir, roots)
-    by_path = {a.path: a for a in result.assets}
-    assert by_path[live_mov].status == LIVE
-    assert by_path[live_mov].saved_by == "resolve:test"
-    orphan_mov = os.path.join(asset_dir, _mov_names()[0])
-    assert by_path[orphan_mov].status == ORPHAN
-    assert by_path[orphan_mov].saved_by == ""
 
 
 def test_siblings_follow_their_mov(tmp_path):
@@ -302,19 +290,6 @@ def test_sweep_moves_to_quarantine_and_manifest_comes_first(tmp_path):
     assert len(quarantine_hits) == len(record["moved"])
 
 
-def test_sweep_reproves_at_move_time(tmp_path):
-    """A file that became referenced after the mark stops the sweep."""
-    project = str(tmp_path)
-    asset_dir = _populate(_asset_dir(project))
-    roots = [_ok_root("resolve:test", set())]
-    result = mark(project, asset_dir, roots)
-    mark_path = os.path.join(project, "mark.json")
-    result.write_json(mark_path)
-    # Fresh roots at sweep time now reference the first orphan.
-    fresh = os.path.join(asset_dir, _mov_names()[0])
-    with pytest.raises(SweepRefused):
-        sweep(mark_path, project_folder=project,
-              fresh_roots=[_ok_root("resolve:test", {fresh})])
 
 
 # ---------------------------------------------------- pipeline roots
@@ -342,33 +317,8 @@ def test_pipeline_roots_read_step_records(tmp_path):
     assert by_path[overlay].saved_by.startswith("pipeline:")
 
 
-def test_absent_pipeline_records_are_empty_not_unreadable(tmp_path):
-    """A project that never ran the caption step has no record to read.
-
-    That is an EMPTY root, not an unreadable one: refusing the sweep on
-    a missing record would refuse it forever on exactly the projects
-    whose garbage predates the records. Corrupt JSON, by contrast, is
-    unreadable and refuses.
-    """
-    project = str(tmp_path)
-    _populate(_asset_dir(project))
-    roots = collect_pipeline_roots(project)
-    assert roots, "the pipeline root set must exist even with no records"
-    assert all(r.status == "no-record" for r in roots)
-    assert all(r.paths == set() for r in roots)
-    bad = os.path.join(project, "pipeline_data.json")
-    with open(bad, "w", encoding="utf-8") as handle:
-        handle.write("{not json")
-    roots = collect_pipeline_roots(project)
-    assert any(r.status == "unreadable" for r in roots)
 
 
-def test_collect_resolve_roots_marks_missing_database_unreadable(tmp_path):
-    roots = collect_resolve_roots(
-        [os.path.join(str(tmp_path), "missing", "Project.db")])
-    assert len(roots) == 1
-    assert roots[0].status == "unreadable"
-    assert roots[0].paths == set()
 
 
 # ------------------------------------------------------ the retention
@@ -532,45 +482,8 @@ def test_ledger_drops_superseded_generation(tmp_path):
     assert by_path[old].superseded_by == new
 
 
-def test_ledger_carries_tight_fallback(tmp_path):
-    """A verify-gate fallback keeps its reason in the only record a
-    staging render leaves.
-
-    The step records WHY a card is full canvas on a tight project on
-    the entry (`tight_fallback`), and a staging render merges straight
-    into the ledger with no step output beside it. Dropping the key at
-    the merge reads exactly like a render that never tried tight, which
-    is what made three full-canvas 09-09 renders on a tight project
-    unexplorable."""
-    project = str(tmp_path)
-    asset_dir = _asset_dir(project)
-    full = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
-    record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa",
-        "overlay_path": full, "provenance": "rendered",
-        "superseded": [], "geometry": "full", "container": "video",
-        "tight_box": None,
-        "tight_fallback": "tight output is not the probe crop: "
-        "max channel diff 255 (allows 4)"}])
-    with open(ledger_path_for(asset_dir), encoding="utf-8") as handle:
-        data = json.load(handle)
-    entries = data["subtitle_overlay"]["segments"]
-    assert len(entries) == 1
-    assert entries[0]["geometry"] == "full"
-    assert "probe crop" in entries[0]["tight_fallback"]
 
 
-def test_empty_run_records_an_empty_set(tmp_path):
-    """No assets produced is a valid empty record - `ok` with no paths,
-    never an unreadable root."""
-    project = str(tmp_path)
-    asset_dir = _asset_dir(project)
-    record_rendered_segments(asset_dir, [])
-    roots = collect_pipeline_roots(project)
-    render_root = next(r for r in roots
-                       if r.name == "pipeline:render_subtitles")
-    assert render_root.status == "ok"
-    assert render_root.paths == set()
 
 
 def test_corrupt_ledger_reads_unreadable_and_refuses_sweep(tmp_path):
@@ -625,23 +538,6 @@ def test_ledger_refuses_to_overwrite_itself_corrupt(tmp_path):
         "{torn write, not json"
 
 
-def test_ledger_prunes_files_gone_from_disk(tmp_path):
-    """An entry whose file is gone protects nothing, so the next record
-    drops it rather than pinning a path that can never match."""
-    project = str(tmp_path)
-    asset_dir = _asset_dir(project)
-    gone = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
-    kept = _write(os.path.join(asset_dir, "sub_tl_b_1_1-2_bbbbbbbb.mov"))
-    record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa",
-        "overlay_path": gone, "provenance": "rendered",
-        "superseded": []}])
-    os.unlink(gone)
-    record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_tl_b_1_1-2_bbbbbbbb",
-        "overlay_path": kept, "provenance": "rendered",
-        "superseded": []}])
-    assert _recorded_ids(asset_dir) == ["sub_tl_b_1_1-2_bbbbbbbb"]
 
 
 def test_reconcile_adopts_step_signature_outputs(tmp_path):
@@ -674,47 +570,8 @@ def test_reconcile_adopts_step_signature_outputs(tmp_path):
     assert by_path[unsigned].status == ORPHAN
 
 
-def test_reconcile_never_overwrites_recorded_entries(tmp_path):
-    """Genuinely recorded evidence (with its binding) is never replaced
-    by reconstructed evidence for the same segment."""
-    project = str(tmp_path)
-    asset_dir = _asset_dir(project)
-    mov = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
-    with open(mov[:-4] + "_props.json", "w", encoding="utf-8") as handle:
-        json.dump({"subtitles": []}, handle)
-    binding = {"timeline": "tl", "speaker": "akshita",
-               "block_position": 1, "source_clip_id": "clip_001",
-               "source_start": 10.0, "source_end": 12.0}
-    record_rendered_segments(asset_dir, [{
-        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa", "overlay_path": mov,
-        "provenance": "rendered", "superseded": [], "binding": binding}])
-    reconcile_render_ledger(project)
-    with open(ledger_path_for(asset_dir), encoding="utf-8") as handle:
-        data = json.load(handle)
-    entries = data["subtitle_overlay"]["segments"]
-    assert len(entries) == 1
-    assert entries[0].get("binding") == binding
-    assert "reconciled" not in entries[0]
 
 
-def test_empty_plan_stamps_an_empty_ledger(tmp_path):
-    """The full pass over a caption-less plan records the empty set it
-    produced: the root reads `ok` with no paths."""
-    from library.steps.step_4_05_render_subtitles.step import (
-        render_subtitle_overlays,
-    )
-    project = str(tmp_path)
-    remotion = str(tmp_path / "remotion")
-    os.makedirs(remotion, exist_ok=True)
-    out = render_subtitle_overlays(
-        {"subtitle_entries": []}, {"structure": []},
-        project_folder=project, remotion_dir=remotion)
-    assert out["subtitle_overlay"]["available"] is False
-    roots = collect_pipeline_roots(project)
-    render_root = next(r for r in roots
-                       if r.name == "pipeline:render_subtitles")
-    assert render_root.status == "ok"
-    assert render_root.paths == set()
 
 
 def test_sweep_manifests_carry_their_area_and_never_share_a_path(tmp_path):

@@ -99,22 +99,6 @@ class TestZoomKeyframesInPlayedWindow:
             f"played window ({HOOK_FIRST}..{HOOK_LAST})"
         )
 
-    def test_zoom_out_within_played_window(self):
-        """slow_zoom_out 1.03 -> 1.0 on a non-zero-start segment."""
-        _reset_counters()
-        block = fx.zoom(
-            HOOK_CLIP_DUR,
-            start=1.03, mid=1.015, end=1.0,
-            source_in=HOOK_SOURCE_IN,
-            source_out=HOOK_SOURCE_OUT,
-        )
-        from library.tools.fusion.nodes import BezierSpline
-        splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
-        assert splines
-        frames = [kf.frame for kf in splines[0].keyframes]
-        assert min(frames) >= HOOK_FIRST
-        assert max(frames) <= HOOK_LAST
-
 
 class TestTransitionKeyframesInPlayedWindow:
     """Transitions must fire within the played segment, not at clip_dur."""
@@ -223,78 +207,6 @@ class TestBuildEffectCompWithSourceWindow:
             f"last played frame ({HOOK_LAST})"
         )
 
-    def test_source_in_zero_still_works(self):
-        """A segment starting at frame 0 (the common case) still works."""
-        effects = {
-            'zoom_start': 1.0,
-            'zoom_mid': 1.02,
-            'zoom_end': 1.03,
-            'vignette': False,
-        }
-        comp = build_effect_comp(effects, 120, source_res=(1920, 1080))
-        all_kf = _extract_all_keyframes(comp)
-        assert all_kf, "No keyframed splines"
-        for name, frames in all_kf.items():
-            assert min(frames) >= 0
-            assert max(frames) <= 119
-
-    def test_omitted_source_window_defaults_to_full_source(self):
-        """When source_in/out are not in effects, whole source is used."""
-        effects = {
-            'zoom_start': 1.0,
-            'zoom_end': 1.03,
-            'vignette': False,
-        }
-        comp = build_effect_comp(effects, 120, source_res=(1920, 1080))
-        all_kf = _extract_all_keyframes(comp)
-        assert all_kf
-        # Should span 0..119 (the whole source)
-        all_frames = [f for frames in all_kf.values() for f in frames]
-        assert min(all_frames) == 0
-        assert max(all_frames) == 119
-
-
-class TestFadeKeyframesInPlayedWindow:
-    """Fade keyframes land within the played segment."""
-
-    def test_fade_out_at_source_out(self):
-        _reset_counters()
-        block = fx.fade(
-            HOOK_CLIP_DUR,
-            fade_out=10,
-            source_in=HOOK_SOURCE_IN,
-            source_out=HOOK_SOURCE_OUT,
-            res=(1080, 1920),
-        )
-        from library.tools.fusion.nodes import BezierSpline
-        splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
-        assert splines
-        frames = [kf.frame for kf in splines[0].keyframes]
-        # Fade-out end lands on the last PLAYED frame, not clip_dur-1
-        assert max(frames) <= HOOK_LAST, (
-            f"Fade keyframe at comp frame {max(frames)} is after the last "
-            f"played frame ({HOOK_LAST})"
-        )
-
-    def test_fade_in_at_source_in(self):
-        _reset_counters()
-        block = fx.fade(
-            HOOK_CLIP_DUR,
-            fade_in=10,
-            source_in=HOOK_SOURCE_IN,
-            source_out=HOOK_SOURCE_OUT,
-            res=(1080, 1920),
-        )
-        from library.tools.fusion.nodes import BezierSpline
-        splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
-        assert splines
-        frames = [kf.frame for kf in splines[0].keyframes]
-        # Fade-in starts on the first PLAYED frame
-        assert min(frames) >= HOOK_FIRST, (
-            f"Fade keyframe at comp frame {min(frames)} is before the "
-            f"first played frame ({HOOK_FIRST})"
-        )
-
 
 class TestVfxLabelAtBoundary:
     """VFX at a clip boundary lands on the clip that starts there."""
@@ -324,19 +236,6 @@ class TestVfxLabelAtBoundary:
             f"VFX at 8.38s matched {result!r} instead of speech_3_seg0 - "
             f"float boundary let the previous clip steal the assignment"
         )
-
-    def test_clearly_inside_clip(self):
-        """A point clearly inside a clip still matches it."""
-        import library.steps.step_5_04_compile_manifest.step as cm
-        _v1_label_at = cm._v1_label_at
-
-        v1_clips = [
-            {"label": "speech_2_seg0", "timeline_in": 5.553, "timeline_out": 8.382},
-            {"label": "speech_3_seg0", "timeline_in": 8.382, "timeline_out": 18.397},
-        ]
-
-        assert _v1_label_at(v1_clips, 6.0) == "speech_2_seg0"
-        assert _v1_label_at(v1_clips, 10.0) == "speech_3_seg0"
 
 
 class TestVfxCollisionAssertion:

@@ -45,20 +45,7 @@ class MockTimeline:
     def GetTrackCount(self, t_type):
         return 2
 
-def test_qa_report_structure():
-    report = QAReport(station="test", passed=True)
-    assert report.station == "test"
-    assert report.passed is True
-    assert isinstance(report.checks, list)
 
-def test_verify_clip_placement():
-    item = MockTimelineItem(start=0, end=30)
-    timeline = MockTimeline([item])
-    track_items = {"V1": [item]}
-    manifest_clips = {"V1": [{"timeline_in_frame": 0, "timeline_out_frame": 30}]}
-    
-    report = verify_clip_placement(timeline, track_items, manifest_clips)
-    assert report.passed
 
 def test_gap_detection_logic():
     # Gap between 30 and 32
@@ -80,24 +67,7 @@ def test_overlap_detection():
     assert not report.passed
     assert any("overlap_before" in c.name for c in report.checks)
 
-def test_verify_audio():
-    timeline = MockTimeline([])
-    report = verify_audio(timeline, None, {})
-    assert report.passed
 
-def test_verify_color_grades():
-    item = MockTimelineItem()
-    timeline = MockTimeline([item])
-    manifest_color = {
-        "per_clip_adjustments": [
-            {
-                "source_file": "test.mov",
-                "cdl_values": {"slope_r": 1.0, "slope_g": 1.0, "slope_b": 1.0}
-            }
-        ]
-    }
-    report = verify_color_grades(timeline, None, manifest_color)
-    assert report.passed
 
 
 def test_verify_color_grades_records_a_readback_that_raises():

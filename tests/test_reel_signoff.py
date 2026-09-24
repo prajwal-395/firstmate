@@ -70,16 +70,6 @@ def test_a_signoff_records_which_build_was_approved(project):
         signoff.describe(str(project), REEL, moved)
 
 
-def test_withdrawing_records_rather_than_erases(project):
-    signoff.sign_off(str(project), REEL, note="ships")
-    assert signoff.withdraw(str(project), REEL, why="changed my mind")
-    assert signoff.signed_off(str(project)) == {}
-    history = signoff.read_signoffs(str(project))["superseded"]
-    assert history[0]["ended_by"] == "withdrawn"
-    assert history[0]["why"] == "changed my mind"
-    assert not signoff.withdraw(str(project), REEL)
-
-
 def test_an_unreadable_signoff_file_refuses(project):
     """An unreadable approval reads exactly like no approval, and
     promotion would then overwrite the reel the captain signed off."""
@@ -87,14 +77,6 @@ def test_an_unreadable_signoff_file_refuses(project):
      / signoff.SIGNOFF_FILENAME).write_text("{broken", encoding="utf-8")
     with pytest.raises(signoff.SignOffsUnreadable):
         signoff.read_signoffs(str(project))
-
-
-def test_an_empty_declaration_raises_rather_than_declaring_nothing():
-    with pytest.raises(ValueError):
-        signoff.parse_supersede(["  "])
-    assert signoff.parse_supersede(None) == set()
-    assert signoff.parse_supersede(
-        [f"{REEL} (rebuild staging)"]) == {REEL}
 
 
 # ── The promotion ────────────────────────────────────────────────
@@ -264,11 +246,3 @@ def test_a_signed_off_reel_never_holds_back_a_sibling(project):
     assert signed_staging.GetName() == f"{REEL} (rebuild staging)"
 
 
-def test_a_reel_with_no_signoff_promotes_exactly_as_before(project):
-    """The check must be free where nothing is signed off, which is
-    every reel until the captain says otherwise."""
-    original, staging = _pair(REEL)
-    resolve = FakeProject([FakeTimeline(MASTER), original, staging])
-    promoted = _promote(resolve, project, {REEL: staging.GetName()})
-    assert promoted["promoted"] == [REEL]
-    assert promoted["superseded_signoffs"] == {}

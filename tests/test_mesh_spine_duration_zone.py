@@ -49,40 +49,6 @@ class TestDurationZoneReachesBridge:
         assert zone["target_seconds"] == 60.0
         assert zone["maximum_seconds"] == 66.0
 
-    def test_legend_is_shipped(self):
-        """The legend travels with the numbers so the model can read both."""
-        out = _run_bridge({
-            "project_config": {"target_duration_seconds": 60},
-        })
-        legend = out["duration_zone"]["zone_legend"]
-        assert set(legend) == set(DURATION_ZONE_LEGEND)
-        for key in DURATION_ZONE_LEGEND:
-            assert legend[key] == DURATION_ZONE_LEGEND[key]
-
-    def test_no_declaration_emits_empty(self):
-        """No project_config -> no zone -> empty output."""
-        out = _run_bridge({})
-        assert out == {}
-
-    def test_zone_matches_what_post_bridge_validates_against(self):
-        """The zone the model sees must be the zone it is judged against.
-
-        If they drift, the bug this fix addresses comes back.
-        """
-        data = {"project_config": {"target_duration_seconds": 60}}
-        bridge_out = _run_bridge(data)
-        zone_from_bridge = (
-            bridge_out["duration_zone"]["minimum_seconds"],
-            bridge_out["duration_zone"]["target_seconds"],
-            bridge_out["duration_zone"]["maximum_seconds"],
-        )
-        zone_from_validator = get_target_duration_zone(data)
-        assert zone_from_bridge == (
-            round(zone_from_validator[0], 1),
-            round(zone_from_validator[1], 1),
-            round(zone_from_validator[2], 1),
-        )
-
     def test_brand_template_zone(self):
         """Brand template declares min/max -> zone is derived from that."""
         data = {

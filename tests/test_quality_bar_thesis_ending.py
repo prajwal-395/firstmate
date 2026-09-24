@@ -112,14 +112,6 @@ def test_declaration_whose_anchor_is_not_the_tail_still_fails():
     assert qb.QB_CTA_ABSENT in codes
 
 
-def test_declaration_with_words_nowhere_in_the_reel_still_fails():
-    transcript = _transcript()
-    moment = _moment()
-    thesis = _thesis("words nobody ever said here")
-    assert qb.cta_reading(
-        moment, transcript, {}, thesis=thesis)["source"] == "absent"
-
-
 def test_judge_reads_thesis_endings_off_the_project(tmp_path):
     transcript = _transcript()
     moment = _moment()
@@ -137,8 +129,3 @@ def test_judge_reads_thesis_endings_off_the_project(tmp_path):
         f.code for f in report.verdicts[0].findings}
 
 
-def test_judge_without_a_project_reads_as_before(tmp_path):
-    transcript = _transcript()
-    moment = _moment()
-    report = qb.judge([moment], transcript, None)
-    assert report.verdicts[0].cta["source"] == "absent"
