@@ -1,7 +1,7 @@
 """No quoted speech out of a window the transcript gives nothing.
 
-Action windows carry their audio track, which the model hears
-(`extract_video_clips` keeps it and `analyze_actions` passes it as
+Folded windows carry their audio track, which the model hears
+(`extract_video_clips` keeps it and `analyze_windows` passes it as
 `audio=`). Delivery is heard; words still come only from the transcript
 text the prompt carries. Measured defect: on a window with no speech it
 invented a quotation and attributed it to the person on screen, and that
@@ -12,7 +12,7 @@ Two halves, matching the fix:
 1. `_strip_unheard_quotations` removes quoted spans the window's
    transcript cannot verify (straight apostrophes are kept - they are
    not quotes).
-2. `analyze_actions` strips them on windows the transcript gives no
+2. `analyze_windows` strips them on windows the transcript gives no
    words of its own, and records `speech_quote_stripped` on the window
    entry. Windows WITH word-timed speech may echo the transcript text
    they were given, which is attributed correctly by construction.
@@ -86,7 +86,7 @@ def test_untranscribed_window_quotation_is_stripped_and_recorded():
         "body_language": "seated, hands visible",
     }])
     clips = [{"index": 0, "start": 0.0, "end": 10.0, "path": "/tmp/w.mp4"}]
-    out = vp.analyze_actions(analyzer, clips, 10.0, None, "")
+    out = vp.analyze_windows(analyzer, clips, 10.0, None, "")
     assert len(out) == 1
     entry = out[0]
     assert entry.get("speech_quote_stripped") is True
@@ -109,6 +109,6 @@ def test_word_timed_window_may_echo_its_transcript():
     temporal = {"speech_regions": [
         {"start": 1.0, "end": 3.0, "text": "hello world"},
     ]}
-    out = vp.analyze_actions(analyzer, clips, 10.0, temporal, "")
+    out = vp.analyze_windows(analyzer, clips, 10.0, temporal, "")
     assert out[0].get("speech_quote_stripped") is None
     assert out[0]["actions"][0]["speech_cue"] == "mouth moving steadily"

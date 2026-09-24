@@ -40,11 +40,9 @@ import pytest
 
 try:
     from library.tools.analysis.vision_pipeline_v3 import (
-        analyze_assessment,
         compute_deterministic_assessment,
     )
 except ImportError:
-    analyze_assessment = None
     compute_deterministic_assessment = None
 
 from library.tools.semantic_index import clip_observations
@@ -53,11 +51,6 @@ from library.tools.vision_schema_adapter import (
     adapt_semantic_document,
     usable_ranges_summary,
 )
-
-try:                                              # analyze_assessment only
-    from unittest.mock import MagicMock
-except ImportError:                               # pragma: no cover
-    MagicMock = None
 
 pytestmark = pytest.mark.skipif(
     compute_deterministic_assessment is None,
@@ -147,12 +140,12 @@ def test_regions_measure_both_and_say_which_measured_them():
 # ── primary_subject_visible ─────────────────────────────────────────────
 
 def _assessment_from_model(answer):
-    analyzer = MagicMock()
-    analyzer.analyze_with_retry.return_value = (answer, "", 0.0)
-    assessment, _ = analyze_assessment(
-        analyzer, "clip.mov", 10.0,
-        {"speech_present": None, "camera_stability": "unknown"})
-    return assessment
+    from library.tools.analysis import vision_pipeline_v3 as vp
+    content_type, psv = vp._merge_assessment_votes(
+        [{"window": [0.0, 10.0], "assessment": answer}])
+    return vp._finish_assessment(
+        {"speech_present": None, "camera_stability": "unknown"},
+        content_type, psv, None, 10.0, [])
 
 
 

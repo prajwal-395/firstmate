@@ -62,18 +62,23 @@ def test_compute_deterministic_assessment(sample_temporal_index):
     assert assessment["usable_ranges_signals"] == []
 
 
-def test_a_failed_assessment_call_asserts_no_subject_visibility():
+def test_unparsed_windows_assess_as_unknown_with_no_subject_claim():
     """`[]` would say "the subject appears nowhere", and nothing looked.
 
     Same defect as `usable_ranges: [[0, duration]]`, inverted: an answer
-    written where the pass that would have produced it did not run.
+    written where the pass that would have produced it did not run. The
+    folded windows carry `assessment: None` when their call did not
+    parse, and the vote merge reads that as no vote.
     """
-    analyzer = MagicMock()
-    analyzer.analyze_with_retry.return_value = (None, "", 0.0)
+    windows = [{"window": [0.0, 10.0], "assessment": None,
+                "parse_error": True}]
+    content_type, psv = vp._merge_assessment_votes(windows)
+    assert content_type == "unknown"
+    assert psv is None
 
-    assessment, _ = vp.analyze_assessment(
-        analyzer, "clip.mov", 10.0,
-        {"speech_present": None, "camera_stability": "unknown"})
+    assessment = vp._finish_assessment(
+        {"speech_present": None, "camera_stability": "unknown"},
+        content_type, psv, None, 10.0, None)
 
     assert assessment["content_type"] == "unknown"
     assert assessment["primary_subject_visible"] is None
@@ -81,15 +86,17 @@ def test_a_failed_assessment_call_asserts_no_subject_visibility():
     assert assessment["usable_ranges"] == []
 
 
-def test_a_successful_assessment_call_keeps_the_model_ranges():
-    analyzer = MagicMock()
-    analyzer.analyze_with_retry.return_value = (
-        {"content_type": "scenery", "primary_subject_visible": [[0, 9]]},
-        "", 0.0)
+def test_a_successful_window_vote_keeps_the_model_ranges():
+    windows = [{"window": [0.0, 10.0],
+                "assessment": {"content_type": "scenery",
+                               "primary_subject_visible": [[0, 9]]}}]
+    content_type, psv = vp._merge_assessment_votes(windows)
+    assert content_type == "scenery"
+    assert psv == [[0, 9]]
 
-    assessment, _ = vp.analyze_assessment(
-        analyzer, "clip.mov", 10.0, {"camera_stability": "unknown"},
-        soft_picture_ranges=[])
+    assessment = vp._finish_assessment(
+        {"camera_stability": "unknown"},
+        content_type, psv, None, 10.0, [])
 
     assert assessment["content_type"] == "scenery"
     assert assessment["primary_subject_visible"] == [[0, 9]]
