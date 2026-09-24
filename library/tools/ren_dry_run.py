@@ -88,60 +88,31 @@ class DryRunFinding(RuntimeError):
 # itself addresses it by (row, position), the way `touch-reel` takes
 # `--edits`. Name-to-position happens here, once, from the same track
 # read the gate qualifies - so the position cannot disagree with the
-# qualification.
+# qualification. The row is LOCATED across the timeline's video rows,
+# never taken as given: `row` is an optional narrowing, and the search
+# itself lives in `reel_touchup.locate_named_clip` so the dry run and
+# the execute resolve a name to the same position.
 
 
 def build_change_spec(
-    tracks, *, reel: int, row: str, old_clip: str, new_media: str
+    tracks, *, reel: int, row: str = "", old_clip: str, new_media: str
 ) -> dict:
     """The `swap_pixels` spec for the ending swap. Pure over `tracks`.
 
-    Finds the ONE item named `old_clip` on `row` and addresses the edit
-    at its position. Zero matches: nothing to swap. More than one: the
-    spec would address one and mean another, so it refuses naming every
-    position rather than picking one.
+    Finds the ONE item named `old_clip` - on `row` when a narrowing is
+    given, across every video row otherwise. Zero matches, or more than
+    one, refuses naming which rows were searched and what was found, so
+    the model checks the ROW instead of re-checking a name that was
+    right all along.
     """
-    want = str(row).upper()
-    hits = []
-    for track in tracks or ():
-        try:
-            track_row = _track_row(track)
-        except (KeyError, TypeError, ValueError):
-            continue
-        if track_row != want:
-            continue
-        for index, clip in enumerate(track.get("clips") or ()):
-            if str((clip or {}).get("name") or "") == old_clip:
-                hits.append((index, clip))
-    if not hits:
-        raise DryRunRefused(
-            f"no item named {old_clip!r} on {want}: the ending swap "
-            f"names an item the live timeline does not have, so there "
-            f"is nothing to qualify - re-read the reel and state the "
-            f"clip by its current name."
-        )
-    if len(hits) > 1:
-        positions = ", ".join(
-            f"{want}[{index}] @{clip.get('record_in')}..{clip.get('record_out')}"
-            for index, clip in hits
-        )
-        raise DryRunRefused(
-            f"{old_clip!r} appears {len(hits)} times on {want} "
-            f"({positions}): one spec cannot mean {len(hits)} items - "
-            f"state which position the swap addresses."
-        )
-    (index, clip) = hits[0]
-    return {
-        "reel": int(reel),
-        "edits": [
-            {
-                "op": "swap_pixels",
-                "row": want,
-                "item": int(index),
-                "media": str(new_media),
-            }
-        ],
-    }
+    from library.tools import reel_touchup as touchup_mod
+
+    try:
+        return touchup_mod.swap_spec_for_tracks(
+            tracks, reel=int(reel), old_clip=old_clip,
+            new_media=new_media, row=row or "")
+    except touchup_mod.TouchupRefused as refused:
+        raise DryRunRefused(str(refused)) from refused
 
 
 def _track_row(track) -> str:
@@ -284,6 +255,31 @@ def load_tracks_file(path: str) -> list:
         f"--tracks-file {path} carries no `tracks` list; refusing "
         f"rather than qualifying against nothing."
     )
+
+
+def _load_tracks_dir(path: str):
+    """`{reel: tracks}` from `<REEL>.json` files under `path`.
+
+    Returns None after printing the refusal (the CLI's convention):
+    a directory that cannot be read refuses the batch rather than
+    live-reading reels the caller meant to replay.
+    """
+    try:
+        entries = sorted(Path(path).iterdir())
+    except OSError as exc:
+        print(f"REFUSED: cannot read --tracks-dir {path}: {exc}.",
+              file=sys.stderr)
+        return None
+    by_reel = {}
+    for entry in entries:
+        if entry.suffix != ".json" or not entry.stem.isdigit():
+            continue
+        try:
+            by_reel[int(entry.stem)] = load_tracks_file(str(entry))
+        except DryRunRefused as refused:
+            print(f"REFUSED: {refused}", file=sys.stderr)
+            return None
+    return by_reel
 
 
 def expected_rows_for(project_folder: str, timeline_name: str) -> tuple[dict, str]:
@@ -474,7 +470,7 @@ def dry_run(
     project_folder: str,
     project_label: str,
     reel: int = 26,
-    row: str = DEFAULT_ROW,
+    row: str = "",
     old_clip: str = DEFAULT_OLD_CLIP,
     new_media: str = "",
     timeline_name: str = "",
@@ -572,12 +568,14 @@ def dry_run(
 
     (selected_op,) = selected.operations
     edits_json = json.dumps(change_spec["edits"])
+    found_row = str((change_spec.get("edits") or [{}])[0].get("row")
+                    or "").upper()
     record = {
         "goal": REEL_GOAL,
         "reel": int(reel),
         "final": final,
         "change": {
-            "row": str(row).upper(),
+            "row": found_row,
             "old_clip": old_clip,
             "new_media": wanted_media,
             "target": target,
@@ -627,6 +625,142 @@ def dry_run(
         touchup_mod.COMPOSED_WITH_REDERIVATION,
     )
     return record
+
+
+# ── The batch: the same change on every reel ───────────────────────
+#
+# One reel's refusal never stops the rest: a refused reel is reported
+# with its reason alongside the records of the reels that hold
+# together. Still a dry run throughout - this loop plans, reads and
+# qualifies per reel and never executes.
+
+
+def dry_run_all_reels(
+    *,
+    project_folder: str,
+    project_label: str,
+    old_clip: str = DEFAULT_OLD_CLIP,
+    new_media: str = "",
+    row: str = "",
+    reels=None,
+    tracks_by_reel=None,
+    offline: bool = False,
+    expected_rows_by_reel=None,
+) -> dict:
+    """Dry-run the named-clip swap on every reel. Never executes."""
+    from library.tools import reel_touchup as touchup_mod
+
+    try:
+        numbers = ([int(entry) for entry in reels]
+                   if reels is not None
+                   else touchup_mod.reel_numbers(project_folder))
+    except Exception as exc:
+        raise DryRunRefused(
+            f"the plan names no reels to run ({exc}).") from exc
+    if not numbers:
+        raise DryRunRefused("the plan names no reels to run.")
+    per_reel = []
+    for number in numbers:
+        try:
+            final = touchup_mod.resolve_final_name(
+                project_folder, int(number))
+        except touchup_mod.TouchupRefused as refused:
+            per_reel.append({"reel": int(number), "final": "",
+                             "ok": False, "go": False,
+                             "refused": str(refused), "record": None})
+            continue
+        tracks = (tracks_by_reel or {}).get(int(number))
+        basis = ""
+        if tracks is not None:
+            basis = (f"batch: supplied off-disk tracks for reel "
+                     f"{int(number)} (no Resolve read)")
+        elif offline:
+            per_reel.append({
+                "reel": int(number), "final": final, "ok": False,
+                "go": False,
+                "refused": (f"no off-disk tracks for reel "
+                            f"{int(number)}: the batch was given "
+                            f"tracks for other reels but none for "
+                            f"this one, and offline means no live "
+                            f"read is attempted."),
+                "record": None})
+            continue
+        try:
+            record = dry_run(
+                project_folder=project_folder,
+                project_label=project_label,
+                reel=int(number),
+                row=row or "",
+                old_clip=old_clip,
+                new_media=new_media,
+                tracks=tracks,
+                tracks_basis=basis,
+                expected_rows=((expected_rows_by_reel or {}).get(
+                    int(number))
+                    if expected_rows_by_reel is not None else None),
+            )
+        except (DryRunRefused, DryRunFinding) as refused:
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False, "go": False,
+                             "refused": str(refused), "record": None})
+            continue
+        except touchup_mod.TouchupRefused as refused:
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False, "go": False,
+                             "refused": str(refused), "record": None})
+            continue
+        except Exception as exc:  # noqa: BLE001 - one reel never stops rest
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False, "go": False,
+                             "refused": f"the dry run failed ({exc!r})",
+                             "record": None})
+            continue
+        per_reel.append({"reel": int(number), "final": final,
+                         "ok": True, "go": bool(record.get("go")),
+                         "refused": "", "record": record})
+    go = all(entry["go"] for entry in per_reel) if per_reel else False
+    return {
+        "reels": per_reel,
+        "go": go,
+        "reels_go": sum(1 for entry in per_reel if entry["go"]),
+        "reels_refused": sum(1 for entry in per_reel
+                             if not entry["ok"]),
+        "reels_no_go": sum(1 for entry in per_reel
+                           if entry["ok"] and not entry["go"]),
+    }
+
+
+def render_batch_report(summary: dict) -> str:
+    """Every reel's verdict on one page, plus whether anything ran."""
+    lines = ["REN DRY RUN - all reels ending swap (no execution)", ""]
+    for entry in summary.get("reels") or ():
+        if not entry.get("ok"):
+            lines.append(f"Reel {entry['reel']} "
+                         f"({entry.get('final') or 'unnamed'}): "
+                         f"REFUSED - {entry.get('refused')}")
+            continue
+        record = entry.get("record") or {}
+        verdict = "GO" if entry.get("go") else "NO-GO"
+        detail = ""
+        if not entry.get("go"):
+            gate = (record.get("gate") or {}).get("refused") or ""
+            failed = ", ".join(record.get("preconditions_failed") or ())
+            detail = f" - {failed or gate or 'the gate refused'}"
+        target = ((record.get("change") or {}).get("target") or {})
+        where = (f" on {target.get('row')}[{target.get('item')}]"
+                 if target.get("name") else "")
+        lines.append(f"Reel {entry['reel']} "
+                     f"({entry.get('final') or 'unnamed'}): "
+                     f"{verdict}{where}{detail}")
+    lines.append("")
+    lines.append(
+        f"BATCH VERDICT: "
+        f"{summary.get('reels_go', 0)}/{len(summary.get('reels') or ())} "
+        f"reel(s) GO"
+        + (" - the batch holds together" if summary.get("go")
+           else " - refused or NO-GO reels are named above")
+        + ". Nothing executed.")
+    return "\n".join(lines)
 
 
 def _operation_attr(op_name: str) -> str:
@@ -823,7 +957,9 @@ def main(argv=None) -> int:
         help=f"The built reel number to change (default {DEFAULT_REEL})",
     )
     parser.add_argument(
-        "--row", default=DEFAULT_ROW, help=f"The overlay row (default {DEFAULT_ROW})"
+        "--row", default="",
+        help="Narrow the clip search to this overlay row "
+        "(default: search every video row)",
     )
     parser.add_argument(
         "--old-clip",
@@ -858,6 +994,21 @@ def main(argv=None) -> int:
         help="JSON file carrying the expected rows "
         "instead of the newest build snapshot",
     )
+    parser.add_argument(
+        "--all-reels",
+        action="store_true",
+        help="Run the same swap on every reel the plan names, "
+        "reporting per reel - one reel's refusal never stops the "
+        "rest. Still never executes.",
+    )
+    parser.add_argument(
+        "--tracks-dir",
+        default="",
+        help="Directory of per-reel JSON track reads named "
+        "<REEL>.json (as --tracks-file, one per reel) for an "
+        "--all-reels run without Resolve. A reel with no file is "
+        "reported refused, never live-read.",
+    )
     parser.add_argument("--out", default="", help="Write the JSON record here as well")
     args = parser.parse_args(argv)
 
@@ -883,6 +1034,47 @@ def main(argv=None) -> int:
             print(f"REFUSED: {refused}", file=sys.stderr)
             return 1
         tracks_basis = f"file:{args.tracks_file}"
+
+    if args.all_reels:
+        tracks_by_reel = None
+        offline = False
+        if args.tracks_dir:
+            tracks_by_reel = _load_tracks_dir(args.tracks_dir)
+            if tracks_by_reel is None:
+                return 2
+            offline = True
+        try:
+            summary = dry_run_all_reels(
+                project_folder=project_folder,
+                project_label=args.project,
+                old_clip=args.old_clip,
+                new_media=args.new_media,
+                row=args.row or "",
+                tracks_by_reel=tracks_by_reel,
+                offline=offline,
+            )
+        except DryRunFinding as finding:
+            print(f"FINDING: {finding}", file=sys.stderr)
+            return 3
+        except DryRunRefused as refused:
+            print(f"REFUSED: {refused}", file=sys.stderr)
+            return 1
+        except Exception as exc:  # noqa: BLE001 - fail closed, by name
+            print(f"FAILED: {exc!r}", file=sys.stderr)
+            return 1
+        if args.out:
+            try:
+                Path(args.out).write_text(
+                    json.dumps(summary, indent=2, sort_keys=True,
+                               default=str) + "\n",
+                    encoding="utf-8",
+                )
+            except OSError as exc:
+                print(f"Error: cannot write {args.out}: {exc}.",
+                      file=sys.stderr)
+                return 2
+        print(render_batch_report(summary))
+        return 0 if summary["go"] else 1
 
     expected_rows = None
     expected_basis = ""

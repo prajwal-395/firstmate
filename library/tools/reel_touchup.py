@@ -263,6 +263,251 @@ def _track_exists(tracks: Sequence[Mapping], row: str) -> bool:
     return any(_row_of(t["type"], int(t["index"])) == want for t in tracks)
 
 
+def _video_rows_of(tracks: Sequence[Mapping]) -> list:
+    """Every video row the track read carries, in track-index order."""
+    rows = []
+    for track in tracks or ():
+        try:
+            track_type = track["type"]
+            track_index = int(track["index"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not str(track_type).lower().startswith("v"):
+            continue
+        row = _row_of(track_type, track_index)
+        if row not in rows:
+            rows.append(row)
+    return rows
+
+
+def _named_hits_on_row(tracks: Sequence[Mapping], row: str,
+                       old_clip: str) -> list:
+    """`(item_index, clip)` pairs named `old_clip` on `row`, in order."""
+    hits = []
+    for track in tracks or ():
+        try:
+            track_row = _row_of(track["type"], int(track["index"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if track_row != str(row).upper():
+            continue
+        for index, clip in enumerate(track.get("clips") or ()):
+            if str((clip or {}).get("name") or "") == old_clip:
+                hits.append((index, clip))
+    return hits
+
+
+def locate_named_clip(tracks: Sequence[Mapping], old_clip: str,
+                      row: str = "") -> tuple:
+    """The ONE item named `old_clip`, found across the video rows.
+
+    `row` is an optional narrowing, never a requirement: empty means the
+    timeline's video rows are all searched. A narrowed row searches only
+    that row. Zero matches, or more than one, refuses naming which rows
+    were searched and what was found - so the caller checks the ROW
+    instead of re-checking a name that was right all along. Returns
+    `(found_row, item_index, clip)`.
+    """
+    video_rows = _video_rows_of(tracks)
+    if row:
+        want = str(row).upper()
+        searched = [want]
+        unsearched = [entry for entry in video_rows if entry != want]
+        hits = [(want, index, clip) for index, clip
+                in _named_hits_on_row(tracks, want, old_clip)]
+        if not hits:
+            elsewhere = sorted({entry for entry in video_rows
+                                if _named_hits_on_row(
+                                    tracks, entry, old_clip)})
+            hint = (f" the name does appear on "
+                    f"{', '.join(elsewhere)} - which is why the row, "
+                    f"not the name, is what to re-check."
+                    if elsewhere else " the name appears on none of "
+                    "them either, so re-check both the row and the "
+                    "name.")
+            raise TouchupRefused(
+                f"REFUSING: no item named {old_clip!r} on {want} "
+                f"(looked in {want}; did not search "
+                f"{', '.join(unsearched) or 'no other video row'})."
+                f"{hint}")
+        if len(hits) > 1:
+            positions = ", ".join(
+                f"{found}[{index}] @{clip.get('record_in')}.."
+                f"{clip.get('record_out')}"
+                for found, index, clip in hits
+            )
+            raise TouchupRefused(
+                f"REFUSING: {old_clip!r} appears {len(hits)} times on "
+                f"{want} ({positions}): one spec cannot mean "
+                f"{len(hits)} items - state which position the swap "
+                f"addresses.")
+        (found_row, index, clip) = hits[0]
+        return (found_row, int(index), clip)
+    searched = list(video_rows)
+    if not searched:
+        raise TouchupRefused(
+            f"REFUSING: no item named {old_clip!r} anywhere: the track "
+            f"read carries no video row to search, so there is "
+            f"nothing to address - re-check the reel's rows.")
+    hits = []
+    for entry in searched:
+        hits.extend((entry, index, clip) for index, clip
+                    in _named_hits_on_row(tracks, entry, old_clip))
+    if not hits:
+        raise TouchupRefused(
+            f"REFUSING: no item named {old_clip!r} on any of the "
+            f"searched video rows ({', '.join(searched)}): the swap "
+            f"names an item the live timeline does not have, so "
+            f"there is nothing to address - re-check the clip name.")
+    if len(hits) > 1:
+        positions = ", ".join(
+            f"{found}[{index}] @{clip.get('record_in')}.."
+            f"{clip.get('record_out')}"
+            for found, index, clip in hits
+        )
+        raise TouchupRefused(
+            f"REFUSING: {old_clip!r} appears {len(hits)} times across "
+            f"the searched video rows ({positions}): one spec cannot "
+            f"mean {len(hits)} items - narrow with `row` or state "
+            f"which position the swap addresses.")
+    (found_row, index, clip) = hits[0]
+    return (found_row, int(index), clip)
+
+
+def swap_spec_for_tracks(tracks: Sequence[Mapping], *, reel: int,
+                         old_clip: str, new_media: str,
+                         row: str = "") -> dict:
+    """The `swap_pixels` spec for a named clip, row located, not stated.
+
+    Name-to-position happens here, once, off the same track read the
+    gate qualifies - so the position cannot disagree with the
+    qualification.
+    """
+    (found_row, index, _clip) = locate_named_clip(
+        tracks, old_clip, row=row)
+    return {
+        "reel": int(reel),
+        "edits": [
+            {
+                "op": "swap_pixels",
+                "row": found_row,
+                "item": int(index),
+                "media": str(new_media),
+            }
+        ],
+    }
+
+
+def reel_numbers(project_folder: str) -> list:
+    """Every reel number the plan names, in plan order."""
+    from library.tools.reel_proposal import proposal_path, read_proposal
+
+    return [int(moment.number) for moment
+            in read_proposal(str(proposal_path(project_folder)))]
+
+
+def touchup_all_reels(project_folder: str, *, old_clip: str,
+                      new_media: str, row: str = "",
+                      reels=None, reader=None, applier=None,
+                      allow_drops=None, supersede=None) -> dict:
+    """The same named-clip swap on every reel, reporting per reel.
+
+    One reel's refusal never stops the rest: a refused reel is reported
+    with its reason alongside the receipts of the reels that landed.
+    `reader(reel, final_name) -> tracks` and
+    `applier(project_folder, spec) -> receipt` are seams for tests; the
+    defaults read the live timeline and execute the touchup for real.
+    """
+    numbers = ([int(entry) for entry in reels]
+               if reels is not None else reel_numbers(project_folder))
+    if reader is None:
+        def reader(number, final_name, _folder=project_folder):
+            return _live_tracks_for_reel(_folder, int(number),
+                                         final_name)
+    if applier is None:
+        def applier(folder, spec, _real=apply_touchup):
+            return _real(folder, spec)
+    per_reel = []
+    for number in numbers:
+        try:
+            final = resolve_final_name(project_folder, int(number))
+        except TouchupRefused as refused:
+            per_reel.append({"reel": int(number), "final": "",
+                             "ok": False, "refused": str(refused)})
+            continue
+        try:
+            tracks = reader(int(number), final)
+        except TouchupRefused as refused:
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False, "refused": str(refused)})
+            continue
+        except Exception as exc:  # noqa: BLE001 - one reel never stops rest
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False,
+                             "refused": f"the live read failed ({exc!r})"})
+            continue
+        try:
+            spec = swap_spec_for_tracks(
+                tracks, reel=int(number), old_clip=old_clip,
+                new_media=new_media, row=row)
+        except TouchupRefused as refused:
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False, "refused": str(refused)})
+            continue
+        spec = dict(spec)
+        if allow_drops is not None:
+            spec["allow_drops"] = list(allow_drops)
+        if supersede is not None:
+            spec["supersede"] = list(supersede)
+        try:
+            receipt = applier(project_folder, spec)
+        except (TouchupRefused, TouchupError) as refused:
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False, "refused": str(refused)})
+            continue
+        except Exception as exc:  # noqa: BLE001 - one reel never stops rest
+            per_reel.append({"reel": int(number), "final": final,
+                             "ok": False,
+                             "refused": f"the touchup failed ({exc!r})"})
+            continue
+        per_reel.append({"reel": int(number), "final": final,
+                         "ok": True, "refused": "",
+                         "receipt": receipt})
+    landed = sum(1 for entry in per_reel if entry["ok"])
+    return {"reels": per_reel, "landed": landed,
+            "refused": len(per_reel) - landed,
+            "ok": landed == len(per_reel)}
+
+
+def _live_tracks_for_reel(project_folder: str, reel: int,
+                          final_name: str) -> list:
+    """Tracks of the EXACT-named reel timeline, read live in Resolve."""
+    from library.tools import reel_read as _read
+    from library.tools.project_registry import get_project
+    from library.tools.reel_build import (
+        _connect_resolve_project as _connect)
+    from library.tools.reel_build import timelines_to_replace
+
+    try:
+        resolve_name = get_project(project_folder).resolve.project_name
+    except Exception:  # noqa: BLE001 - resolve the binding off disk instead
+        import yaml as _yaml
+
+        with open(os.path.join(project_folder, "project.yaml"),
+                  encoding="utf-8") as handle:
+            resolve_name = ((_yaml.safe_load(handle).get("resolve")
+                             or {}).get("project_name", ""))
+    project = _connect(resolve_name or "")
+    found = {timeline.GetName(): timeline for timeline
+             in timelines_to_replace(project, {final_name})}
+    if final_name not in found:
+        raise TouchupRefused(
+            f"REFUSING: no timeline called {final_name!r} is in the "
+            f"open Resolve project. A touchup edits the reel's "
+            f"existing timeline - build it with `build-reels` first.")
+    return _read.read_tracks(found[final_name])
+
+
 def _spans_of(tracks: Sequence[Mapping]) -> dict:
     """`{row: [(start, end)]}` for every row, off the full read."""
     spans: dict = {}
@@ -2056,9 +2301,13 @@ __all__ = [
     "TouchupRefused",
     "_NullRederiver",
     "apply_touchup",
+    "touchup_all_reels",
     "check_manifest_matches",
+    "locate_named_clip",
     "pool_item_for_path",
     "qualify",
     "recorded_fusion_manifest",
+    "reel_numbers",
     "resolve_final_name",
+    "swap_spec_for_tracks",
 ]

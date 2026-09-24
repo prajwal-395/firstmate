@@ -1851,6 +1851,44 @@ def cmd_touch_reel(args):
               f"a reel.", file=sys.stderr)
         sys.exit(1)
 
+    if args.all_reels:
+        if not args.new_media:
+            print("Error: --all-reels swaps a NAMED clip on every reel - "
+                  "pass --old-clip and --new-media (no --edits: each "
+                  "reel's position is located, not stated).",
+                  file=sys.stderr)
+            sys.exit(1)
+        try:
+            summary = _touchup.touchup_all_reels(
+                project_folder,
+                old_clip=args.old_clip,
+                new_media=args.new_media,
+                row=args.row or "",
+                allow_drops=args.allow_drop or None,
+                supersede=args.supersede or None)
+        except _touchup.TouchupRefused as refused:
+            print(f"REFUSED: {refused}", file=sys.stderr)
+            sys.exit(1)
+        except _touchup.TouchupError as failed:
+            print(f"FAILED: {failed}", file=sys.stderr)
+            sys.exit(1)
+        for entry in summary.get("reels") or ():
+            if entry.get("ok"):
+                print(f"Touched {entry['final']!r} "
+                      f"(reel {entry['reel']})")
+            else:
+                print(f"Reel {entry['reel']} "
+                      f"({entry.get('final') or 'unnamed'}): REFUSED - "
+                      f"{entry.get('refused')}")
+        print(f"touched {summary.get('landed', 0)}/"
+              f"{len(summary.get('reels') or ())} reel(s)")
+        sys.exit(0 if summary.get("ok") else 1)
+
+    if args.reel is None:
+        print("Error: pass the reel number, or --all-reels for every "
+              "reel.", file=sys.stderr)
+        sys.exit(1)
+
     if args.edits_file:
         try:
             with open(args.edits_file, encoding="utf-8") as handle:
@@ -1929,6 +1967,10 @@ def cmd_ren_dry_run(args):
             "--tracks-file", args.tracks_file,
             "--expected-rows", args.expected_rows,
             "--out", args.out]
+    if args.all_reels:
+        argv.append("--all-reels")
+    if args.tracks_dir:
+        argv.extend(["--tracks-dir", args.tracks_dir])
     sys.exit(_ren.main(argv))
 
 
@@ -2272,9 +2314,9 @@ def main():
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
     touch_reel_parser.add_argument(
-        "reel", type=int,
-        help="The built reel number to change. Required: an edit "
-             "without naming one is refused")
+        "reel", type=int, nargs="?", default=None,
+        help="The built reel number to change. Required unless "
+             "--all-reels: an edit without naming one is refused")
     touch_reel_parser.add_argument(
         "--edits", default="",
         help="The change as JSON: a list of edit objects (move, "
@@ -2295,6 +2337,25 @@ def main():
         help="A reel whose durable captain SIGN-OFF this touch-up may "
              "replace. Repeatable. Absent means a touch-up over a "
              "signed-off reel refuses by name")
+    touch_reel_parser.add_argument(
+        "--all-reels", action="store_true",
+        help="Swap the same NAMED clip on every reel the plan names "
+             "(--old-clip/--new-media, with --row as an optional "
+             "narrowing) instead of applying --edits to one reel. "
+             "One reel's refusal never stops the rest.")
+    touch_reel_parser.add_argument(
+        "--old-clip", default="logo_bulb_23976.mov",
+        help="With --all-reels: the clip name to swap out on each "
+             "reel (located across the video rows, not stated by "
+             "position)")
+    touch_reel_parser.add_argument(
+        "--new-media", default="",
+        help="With --all-reels: the replacement file's path on disk. "
+             "Required: a touchup never renders media")
+    touch_reel_parser.add_argument(
+        "--row", default="",
+        help="With --all-reels: narrow the clip search to this row "
+             "(default: search every video row)")
     touch_reel_parser.set_defaults(func=cmd_touch_reel)
 
     ren_dry_run_parser = sub.add_parser(
@@ -2308,8 +2369,9 @@ def main():
         "--reel", type=int, default=26,
         help="The built reel number to change (default 26)")
     ren_dry_run_parser.add_argument(
-        "--row", default="V7",
-        help="The overlay row the swap addresses (default V7)")
+        "--row", default="",
+        help="Narrow the clip search to this overlay row "
+             "(default: search every video row)")
     ren_dry_run_parser.add_argument(
         "--old-clip", default="logo_bulb_23976.mov",
         help="The clip name on the live timeline to swap out")
@@ -2336,6 +2398,15 @@ def main():
     ren_dry_run_parser.add_argument(
         "--out", default="",
         help="Write the JSON record here as well")
+    ren_dry_run_parser.add_argument(
+        "--all-reels", action="store_true",
+        help="Dry-run the same swap on every reel the plan names, "
+             "reporting per reel - one reel's refusal never stops "
+             "the rest. Still never executes.")
+    ren_dry_run_parser.add_argument(
+        "--tracks-dir", default="",
+        help="Directory of per-reel JSON track reads named "
+             "<REEL>.json for an --all-reels run without Resolve")
     ren_dry_run_parser.set_defaults(func=cmd_ren_dry_run)
 
     p_status = sub.add_parser("status", help="Show project status")
