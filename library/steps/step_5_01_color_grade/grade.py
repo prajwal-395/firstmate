@@ -31,20 +31,19 @@ import subprocess
 import sys
 
 from library.tools.color_correction import (
-    ASSESSMENT_FIELD,
     basis_record,
     compose_cdl,
     describe_correction,
     planning_basis,
 )
+from library.tools.project_layout import ProjectLayout
+from library.tools.semantic_index import build_semantic_lookup
 from library.tools.series_look import (
     NEUTRAL_CDL,
     describe_look,
     resolve_look,
 )
-from library.tools.project_layout import ProjectLayout
-from library.tools.semantic_index import build_semantic_lookup
-
+from library.tools.shot_colour import measure_shot_colour
 
 # The designed grade, as five nodes. Only the SHAPE lives here, and the
 # values live nowhere in this repository: each node names the brand
@@ -363,6 +362,13 @@ def measure_clips(entries: list, project_folder: str) -> list:
     Every clip is measured whether or not anything acts on it, because a
     measurement of the footage is not a decision about it and a reader
     asking "was this graded, and off what" needs the number either way.
+
+    Each row carries the luma half (`luma`, `luma_method`,
+    `luma_samples`) AND the chroma half (`mean_rgb`, `rb_all`,
+    `gb_all`, the neutral reading `neutral_rgb`/`neutral_rb`/
+    `neutral_gb`/`neutral_fraction` - library/tools/shot_colour.py).
+    Either half may be absent with its own stated reason; neither
+    borrows the other's.
     """
     rows, seen = [], {}
     for index in _placement_order(entries):
@@ -383,6 +389,20 @@ def measure_clips(entries: list, project_folder: str) -> list:
         }
         if measurement.get("reason"):
             row["luma_unmeasured_because"] = measurement["reason"]
+        colour = measure_shot_colour(
+            resolved_source(entry, project_folder))
+        row["mean_rgb"] = colour["mean_rgb"]
+        row["rb_all"] = colour["rb_all"]
+        row["gb_all"] = colour["gb_all"]
+        row["neutral_rgb"] = colour["neutral_rgb"]
+        row["neutral_rb"] = colour["neutral_rb"]
+        row["neutral_gb"] = colour["neutral_gb"]
+        row["neutral_fraction"] = colour["neutral_fraction"]
+        row["colour_method"] = colour["colour_method"]
+        row["colour_samples"] = colour["colour_samples"]
+        if colour.get("colour_unmeasured_because"):
+            row["colour_unmeasured_because"] = colour[
+                "colour_unmeasured_because"]
         seen[clip_id] = row
         rows.append(row)
     return rows

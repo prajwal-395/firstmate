@@ -372,6 +372,7 @@ class Area(str, Enum):
     TIMELINE_INTERCHANGE = "timeline_interchange"
     QA_FRAMES = "qa_frames"
     GATE_STILLS = "gate_stills"
+    SHOT_STILLS = "shot_stills"
 
     # Project-level, and deliberately NOT under steps/: nesting these
     # under a step would be a lie about who wrote them.
@@ -593,6 +594,12 @@ AREAS: dict[Area, AreaSpec] = {
         "gate - the `reel.gate_stills` entry point's stills, one file "
         "per named frame. See library/tools/gate_stills.py.",
         step="verify_reels"),
+    Area.SHOT_STILLS: AreaSpec(
+        _step_path("color_grade", "shot_stills"), Kind.OUTPUT,
+        "One representative still per graded shot, of the seconds the "
+        "shot-colour numbers describe, so the colourist sees the picture "
+        "beside the measurement. See library/tools/shot_colour.py.",
+        step="color_grade"),
 
     # ── Project-level: not a step's product ─────────────────────────
     Area.THUMBNAILS: AreaSpec(

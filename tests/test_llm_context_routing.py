@@ -275,7 +275,12 @@ BRIDGE_TABLES = {
     # 5.01 became hybrid on 2026-09-03. Its tables carry no `_toon`
     # suffix because they are lists the serialiser renders, not strings
     # the bridge formats - the stem check below is the same either way.
-    "color_grade": ("clip_exposure", "cut_adjacency"),
+    # Rung 4c added the picture and the match: the stills the colourist
+    # opens (`shot_stills`, a formatted string), what the still router
+    # saw in them (`still_colour_notes`), and the measured camera-match
+    # proposal (`camera_match`).
+    "color_grade": ("clip_exposure", "cut_adjacency", "shot_stills",
+                    "still_colour_notes", "camera_match"),
     # 3.04's two tables. The step reads `timeline_transcript` in its
     # bridge and the model reads `turns`, which is the summary the
     # bridge renders from it - so the projection dropping the raw

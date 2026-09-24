@@ -23,6 +23,31 @@ first play: the measured average luma, how it was measured, how many
 times the clip is placed, and the vision pass's own description of where
 the shot is and how it is lit.
 
+Each row also carries the CHROMA half - read it before the luma.
+`mean_rgb` is the per-channel mean with the whole-frame balance
+(`rb_all`, `gb_all`); `neutral_rgb` with `neutral_rb` / `neutral_gb` is
+the balance on the DETECTED NEUTRAL region, the grey the shot carries.
+The whole frame says what the picture contains, the neutral says what
+the camera did: a warm face on a neutral set reads warm in `rb_all`
+even when the camera is balanced. A null neutral with a
+`colour_unmeasured_because` means no grey cleared the floor - balance
+nothing off it.
+
+`shot_stills` shows one representative still per graded shot, drawn from
+the seconds the colour numbers describe. Open each still with your own
+vision and judge the cast against the numbers: where they disagree, say
+so in `grade_assessment`. `still_colour_notes` is what the still router
+saw in the same stills - a second reading beside yours, never a
+replacement for it.
+
+`camera_match` is the measured proposal that brings two angles covering
+one set onto one balance: per-camera neutral balances, the reference
+(nearest true neutral), one slope triple per other camera and the
+predicted after. The engine applies nothing on its own. To ACCEPT a
+slope, copy its three numbers into a `color_correction` entry with a
+`why`; to OVERRIDE, write your own. Verify the angles share the set
+before accepting - two angles that never meet cost nothing.
+
 The `cut_adjacency` table has one row per cut where the clip changes,
 with the gap between the two shots in stops. These are the pairs a
 viewer sees back to back.

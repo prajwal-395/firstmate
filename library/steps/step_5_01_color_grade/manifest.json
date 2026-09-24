@@ -77,7 +77,7 @@
       {
         "name": "clip_exposure",
         "type": "array",
-        "description": "Bridge output: one measured row per clip, in the order it first plays - average luma, the method, the sample count, how many placements it carries and the vision pass's description of the shot. It is the table the prompt reads AND the measurement post_bridge.py joins the answer to, so ffprobe runs once and the two halves of the step cannot disagree. Declared here because the bridge emits it on every run and validate_step_output would otherwise report it as an unexpected extra field."
+        "description": "Bridge output: one measured row per clip, in the order it first plays - average luma, the method, the sample count, how many placements it carries and the vision pass's description of the shot. Each row also carries the chroma half: per-channel mean_rgb with the whole-frame balance (rb_all, gb_all), and the detected-neutral reading (neutral_rgb, neutral_rb, neutral_gb, neutral_fraction) with the method - or a stated absence. It is the table the prompt reads AND the measurement post_bridge.py joins the answer to, so ffprobe runs once and the two halves of the step cannot disagree. Declared here because the bridge emits it on every run and validate_step_output would otherwise report it as an unexpected extra field."
       },
       {
         "name": "cut_adjacency",
@@ -93,6 +93,21 @@
         "name": "grade_terms_legend",
         "type": "object",
         "description": "Bridge output: what each correction term IS, what neutral is for it and the exact order it composes with a declared look in. The MEASUREMENT_LEGEND route - it defines the vocabulary and never says what to conclude. Declared for the same reason as clip_exposure."
+      },
+      {
+        "name": "shot_stills",
+        "type": "string",
+        "description": "Bridge output: one representative still per graded shot, drawn from the seconds the colour numbers describe, with the directory holding them. Prompt-only: it shows the colourist the picture beside the measurement. A clip whose still could not be drawn is NAMED in the block, never quietly absent. See library/tools/shot_colour.py."
+      },
+      {
+        "name": "still_colour_notes",
+        "type": "object",
+        "description": "Bridge output: what the still router saw in the shot stills - one white-balance line per file plus which vision answered (the driving LLM's own vision, or the gemma4 fallback), or a stated absence with the reason. A second reading beside the deterministic numbers, never a replacement for them. See library/tools/still_vision.py."
+      },
+      {
+        "name": "camera_match",
+        "type": "object",
+        "description": "Bridge output: the measured camera-match proposal - per-camera neutral balances on the shared set, the reference camera (nearest true neutral), one slope triple per other camera, the level half in stops and the predicted after. STATED, never applied: the colourist accepts by copying a slope into color_correction with a why, or overrides with their own. See library/tools/camera_match.py."
       },
       {
         "name": "color_grade_spec",
@@ -160,6 +175,9 @@
     "cut_adjacency",
     "declared_look",
     "grade_terms_legend",
+    "shot_stills",
+    "still_colour_notes",
+    "camera_match",
     "creative_direction"
   ]
 }
