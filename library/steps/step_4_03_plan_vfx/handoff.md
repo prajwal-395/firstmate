@@ -45,9 +45,22 @@ reason, rather than passed on to draw nothing.
 | `zoom_emphasis` | Key words/moments — punches in and settles back | `zoom_start`, `zoom_mid`, `zoom_end` (the mid point is the punch) |
 | `screen_shake` | Emphasis moments - an impact that settles | `shake_x`, `shake_y` (a FRACTION of frame width), `shake_decay_frames` (modifies the shake; draws nothing alone) |
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam | `zoom_start`, `zoom_mid`, `zoom_end` (all three equal holds the reframe) |
+| `speed_ramp` | A stepped speed change across the block — a montage ramp, a slow push into a moment | `segments`: a non-empty list of `percent` steps, each above 0 (e.g. `[{percent: 50}, {percent: 150}]`) |
+| `freeze_frame` | A held frame — time stops on the block or its anchored span | No params: the span is what freezes |
 
 A zoom value of `1.0` is the untouched frame; above it is tighter, below
 it is wider.
+
+`speed_ramp` and `freeze_frame` are TIMELINE operations, not Fusion
+comps: they reach the picture through Resolve's own
+`TimelineItem.SetSpeed`, one constant speed per step, each judged by a
+re-read. Resolve 21.1 carries no speed-curve API, so a ramp is stepped
+segments, never a curve - a `curve`/`easing`/`bezier` param refuses and
+you re-plan with `segments`. A freeze is spelled `freeze_frame`, never
+a 0% step. Each step lands on the timeline item spanning exactly that
+step; steps that subdivide one item refuse at build time (blading an
+item is a cut nobody planned), so keep one step per item or anchor the
+steps to item spans.
 
 One MECHANICAL refusal applies, and it is not a taste bound: the comp
 builder rejects an ANIMATED Transform Size whose peak exceeds 1.04
@@ -85,7 +98,9 @@ These produce content from nothing and have no image input. The post-bridge auto
   requirement, is what put one zoom on each of exactly eight clips,
   alternating direction, into the shipped project 001.)
 - Use only the type names above or an exact built-in effect name. Anything
-  else is dropped, not approximated.
+  else is dropped, not approximated. (`speed_ramp` needs `segments`;
+  an entry without them is dropped with the reason, and a `curve` param
+  refuses - nothing rounds a curve to constants on your behalf.)
 - A static talking-head shot held for a long time is where `slow_zoom_in` /
   `slow_zoom_out` earns its place - use it where it helps and leave it off
   where it does not.

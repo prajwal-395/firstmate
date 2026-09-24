@@ -25,6 +25,11 @@ from library.tools.vfx_plan_basis import (
     PlanBasis,
     basis_summary,
 )
+from library.tools.native_ops import (
+    NATIVE_SPEED_EFFECTS,
+    SPEED_RAMP_PARAM_KEYS,
+    refuse_speed_curve,
+)
 
 
 # The step's own effect toolkit, and the parameter NAMES each one is
@@ -136,6 +141,56 @@ DRIFT_EFFECTS = ("slow_zoom_in", "slow_zoom_out")
 # 2026-08-20, and it is the one that survived because
 # `tests/test_no_creative_floors.py` guarded only the PROMPTS.
 # See docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan.
+
+
+# Native speed effects: timeline operations, not Fusion comps. A ramp is
+# a SEQUENCE of constant-speed steps - Resolve 21.1 carries no
+# speed-curve API (measured 2026-09-24), so the plan names `segments`
+# and each step is one constant `SetSpeed` judged by `GetSpeed` during
+# the timeline build (`library/tools/native_ops_apply.py`). A freeze is
+# `freeze_frame`, never a 0% step. Entries resolve with
+# `"route": "native_resolve"` so `compile_manifest` carries them to the
+# build instead of the comp engine.
+def _validate_native_speed(raw_type, effect_type, params, pos, _drop):
+    """Check a native speed entry's params; return step percents or None.
+
+    Returns the list of step percents for `speed_ramp`, [] for
+    `freeze_frame`. Returns None when the entry is dropped (recorded).
+    A `curve`/`easing`/`bezier` param RAISES (`NativeSpeedRefused`):
+    rounding a curve to constants would invent pacing the plan declined
+    to step out, so the model re-plans with `segments`.
+    """
+    if effect_type == "freeze_frame":
+        # A freeze takes no params: the span (anchors or block) is what
+        # freezes. Anything carried is ignored, never read.
+        return []
+    for curve_key in ("curve", "easing", "bezier"):
+        if params.get(curve_key) is not None:
+            raise refuse_speed_curve(raw_type, pos)
+    segments = params.get("segments")
+    if not isinstance(segments, list) or not segments:
+        _drop(
+            pos, raw_type, "not_a_speed_step",
+            f"Dropped VFX {raw_type!r} on block {pos!r}: `speed_ramp` "
+            f"needs `params.segments`, a non-empty list of percents "
+            f"above 0 - Resolve 21.1 draws stepped constant segments, "
+            f"never a curve.",
+        )
+        return None
+    percents = []
+    for seg in segments:
+        pct = seg.get("percent") if isinstance(seg, dict) else seg
+        if (isinstance(pct, bool) or not isinstance(pct, (int, float))
+                or pct <= 0):
+            _drop(
+                pos, raw_type, "not_a_speed_step",
+                f"Dropped VFX {raw_type!r} on block {pos!r}: segment "
+                f"{seg!r} is not a percent above 0 - a freeze is "
+                f"`freeze_frame`, never a 0% step.",
+            )
+            return None
+        percents.append(float(pct))
+    return percents
 
 
 # The entry keys this step reads. Anything else on an entry is
@@ -340,7 +395,19 @@ def resolve_vfx(
                 continue
             effect_type = derived
 
-        if effect_type in _builtin_effect_names():
+        # Native speed effects travel the anchor path below (a ramp or a
+        # freeze may span a word, not the block) but NOT the Fusion param
+        # path: there is no comp to check names against. Validated here;
+        # the resolved entry is built after the span is known.
+        native_step_percents = None
+        is_native_speed = effect_type in NATIVE_SPEED_EFFECTS
+        if is_native_speed:
+            native_step_percents = _validate_native_speed(
+                raw_type, effect_type, params, pos, _drop)
+            if native_step_percents is None:
+                covered_positions.discard(str(pos))
+                continue
+        elif effect_type in _builtin_effect_names():
             # A built-in Fusion clip effect, imported whole by the renderer.
             # It is applied whole and takes no parameters.
             params = {}
@@ -402,8 +469,9 @@ def resolve_vfx(
                 f"Dropped VFX {raw_type!r} on block {pos!r}: "
                 + (f"{withdrawn}. " if withdrawn else "")
                 + f"not in the effect toolkit "
-                f"({', '.join(sorted(TOOLKIT_PARAMETERS))}) and not a "
-                f"built-in Fusion clip effect",
+                f"({', '.join(sorted(TOOLKIT_PARAMETERS))}), not a "
+                f"native speed effect ({', '.join(NATIVE_SPEED_EFFECTS)}) "
+                f"and not a built-in Fusion clip effect",
             )
             covered_positions.discard(str(pos))
             continue
@@ -463,6 +531,36 @@ def resolve_vfx(
                 )
                 continue
             covered_positions.add(span_key)
+
+        if is_native_speed:
+            # The steps divide the resolved span equally: a ramp is
+            # stepped segments, and the plan states the percents, not
+            # the split. A freeze carries no steps - the whole span
+            # freezes as one op.
+            steps = []
+            count = len(native_step_percents)
+            for i, pct in enumerate(native_step_percents):
+                step_start = span_start + (span_end - span_start) * i / count
+                step_end = (span_start + (span_end - span_start)
+                            * (i + 1) / count)
+                steps.append({
+                    "percent": pct,
+                    "timeline_start": round(step_start, 3),
+                    "timeline_end": round(step_end, 3),
+                })
+            resolved.append({
+                "vfx_id": f"vfx_{len(resolved)+1:03d}",
+                "target_block_position": block["position"],
+                "timeline_start": round(span_start, 3),
+                "timeline_end": round(span_end, 3),
+                "effect_type": effect_type,
+                "params": ({"segments": steps} if steps else {}),
+                "rationale": vfx.get("rationale", ""),
+                "route": "native_resolve",
+            })
+            if anchor_method is not None:
+                resolved[-1]["anchor_method"] = anchor_method
+            continue
 
         resolved.append({
             "vfx_id": f"vfx_{len(resolved)+1:03d}",

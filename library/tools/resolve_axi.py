@@ -3166,7 +3166,11 @@ def cmd_edit_speed(args) -> int:
 
     `SetSpeed` takes a constant percentage only (0.0 = freeze frame):
     the 21.1 stub carries no speed-curve API, so a ramp request is
-    refused rather than rounded to a constant. `--freeze` spells the
+    refused rather than rounded to a constant - a ramp reaches the
+    timeline as stepped constant-speed segments, one `SetSpeed` per
+    step, planned as `speed_ramp` with `params.segments` (step
+    4.03) and applied by the build's native applicator
+    (`library/tools/native_ops_apply.py`). `--freeze` spells the
     0.0 case out loud; `--percent 0` is refused so a freeze is never
     a typo. The read-back is `GetSpeed`'s Percentage, compared with
     a 1e-6 tolerance - a disagreeing re-read fails, and a build
@@ -3311,6 +3315,13 @@ def cmd_edit_transition(args) -> int:
     naming that. The drawn Fusion-comp transitions (fade_to_black
     and friends) still reach timelines through the pipeline build
     (compile_manifest + apply_fusion_comps), never through here.
+    The granted native transitions also reach timelines from the
+    plan: step 4.02 admits them by name, compile_manifest carries
+    them as `native_transitions`, and the build's native applicator
+    (`library/tools/native_ops_apply.py`) places each through this
+    same call with the same read-back. A measured-refused name
+    (Whip Pan, Dip, Push, Blur Dissolve) refuses at plan time
+    rather than here - it never arrives as a downgraded hard cut.
     """
     try:
         resolve = _connect()

@@ -90,15 +90,43 @@ def test_a_withdrawn_type_is_recorded_not_swapped():
     entry must say what happened - the rationale used to be carried
     through unchanged onto a transition it no longer described."""
     spec = resolve_transitions(
-        creative_plan=[{"cut_point_position": 2, "type": "cross_dissolve",
-                        "rationale": "time passing"}],
+        creative_plan=[{"cut_point_position": 2, "type": "wipe",
+                        "rationale": "graphic reveal"}],
         timed_spine=_spine((1, "clip_a"), (2, "clip_b")),
         music_selection={},
     )
     assert spec[0]["transition_type"] == "hard_cut"
     assert spec[0]["duration_frames"] == 0
-    assert spec[0]["requested_type"] == "cross_dissolve"
+    assert spec[0]["requested_type"] == "wipe"
     assert spec[0]["downgrade_reason"]
+
+
+def test_a_granted_native_type_resolves_to_the_native_route():
+    """`cross_dissolve` is drawn by Resolve itself (fidelity rung 3b),
+    not downgraded to a hard cut."""
+    spec = resolve_transitions(
+        creative_plan=[{"cut_point_position": 2, "type": "cross_dissolve",
+                        "duration_feel": "medium",
+                        "rationale": "time passing"}],
+        timed_spine=_spine((1, "clip_a"), (2, "clip_b")),
+        music_selection={},
+    )
+    assert spec[0]["transition_type"] == "cross_dissolve"
+    assert spec[0]["duration_frames"] == 10
+    assert spec[0]["requested_type"] == "cross_dissolve"
+    assert spec[0]["downgrade_reason"] == ""
+
+
+def test_a_measured_refusal_reaches_the_post_bridge_as_a_refusal():
+    """A whip refuses by name rather than shipping a hard cut."""
+    from library.tools.native_ops import NativeTransitionRefused
+    with pytest.raises(NativeTransitionRefused, match="whip_pan"):
+        resolve_transitions(
+            creative_plan=[{"cut_point_position": 2, "type": "whip_pan",
+                            "rationale": "energy"}],
+            timed_spine=_spine((1, "clip_a"), (2, "clip_b")),
+            music_selection={},
+        )
 
 
 

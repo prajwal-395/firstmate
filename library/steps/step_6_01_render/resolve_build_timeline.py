@@ -1698,7 +1698,65 @@ def build_timeline(
                 print(f"  ✗ [{ci}] {basename}: failed", file=sys.stderr)
 
         results["tracks"][f"V{_broll_row}"] = v2_count
-        
+
+    # ══════════════════════════════════════════════════════════
+    # NATIVE RESOLVE OPERATIONS (fidelity rung 3b)
+    # ══════════════════════════════════════════════════════════
+    # Speed ramps, freezes and Resolve's own transitions reach the
+    # timeline here - through `TimelineItem.SetSpeed` /
+    # `TimelineItem.AddTransition`, each judged by its read-back
+    # (`library/tools/native_ops_apply.py`). After picture placement
+    # (the ops address placed items by span) and before the Fusion
+    # pass (comps are keyed to the placed ranges; neither op moves a
+    # cut - plan speed ops never ripple, and a centered transition
+    # consumes handles, not timeline).
+    _native_speed_ops = manifest.get("native_speed_ops", []) or []
+    _native_trans = manifest.get("native_transitions", []) or []
+    if _native_speed_ops or _native_trans:
+        from library.tools import native_ops_apply as _native_apply
+        print(f"\n── Native Resolve ops: {len(_native_speed_ops)} speed, "
+              f"{len(_native_trans)} transition(s) ──", file=sys.stderr)
+        try:
+            assert_current_timeline(project, timeline)
+        except Exception as exc:
+            results["errors"].append(f"native ops refused: {exc}")
+        else:
+            if _native_speed_ops:
+                _speed_report = _native_apply.apply_native_speed_ops(
+                    timeline, _native_speed_ops, fps=fps)
+                results["native_speed_ops"] = _speed_report
+                for row in _speed_report["applied"]:
+                    print(f"  ✓ {row['op_id']} {row['item']!r}: "
+                          f"{row['percent']:g}% "
+                          f"({row['verified']})", file=sys.stderr)
+                for row in _speed_report["failed"]:
+                    msg = (f"native speed {row['op_id']}: {row['what']}")
+                    results["errors"].append(msg)
+                    print(f"  ✗ {msg}", file=sys.stderr)
+            if _native_trans:
+                try:
+                    _ordered_v1 = sorted(
+                        v1_timeline_items, key=lambda it: it.GetStart())
+                except Exception as exc:
+                    results["errors"].append(
+                        "native transitions refused: V1 items would not "
+                        f"order ({exc})")
+                    _ordered_v1 = None
+                if _ordered_v1 is not None:
+                    _trans_report = (
+                        _native_apply.apply_native_transitions(
+                            timeline, _ordered_v1, _native_trans, fps=fps))
+                    results["native_transitions"] = _trans_report
+                    for row in _trans_report["applied"]:
+                        print(f"  ✓ {row['transition_id']} "
+                              f"{row['type']!r} ({row['category']}) "
+                              f"({row['verified']})", file=sys.stderr)
+                    for row in _trans_report["failed"]:
+                        msg = (f"native transition "
+                               f"{row['transition_id']}: {row['what']}")
+                        results["errors"].append(msg)
+                        print(f"  ✗ {msg}", file=sys.stderr)
+
     # ══════════════════════════════════════════════════════════
     # PLACE CAPTIONS (plan row, video-only overlays)
     # ══════════════════════════════════════════════════════════

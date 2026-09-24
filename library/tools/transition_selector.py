@@ -3,10 +3,16 @@ import sys
 from library.tools.energy_reading import HIGH_ENERGY_WORDS, is_high_energy
 from library.tools.transition_vocabulary import (
     CUT_TYPES,
+    NATIVE_TYPES,
     PLANNABLE_TYPES,
     canonical_type,
     filter_allowed,
+    native_canonical_type,
     withdrawal_reason,
+)
+from library.tools.native_ops import (
+    refused_native_canonical,
+    refuse_native_transition,
 )
 
 # The energy vocabulary lives in ONE module, because two readers of the
@@ -86,16 +92,26 @@ def select_transition(
     brand_effect: dict,
     creative_direction: dict,
     requested_type: str = "",
+    fallback_type: str = "",
 ) -> dict:
     """
     Choose the transition to draw at one cut.
 
     - The type the creative plan explicitly requested wins, when it is
-      plannable and the brand allows it - the editor's call outranks the
-      heuristic.
-    - A requested type that is not plannable is downgraded to a hard cut
-      and the reason is recorded. It is never quietly swapped for a
-      different creative transition.
+      drawable and the brand allows it - the editor's call outranks the
+      heuristic. Drawable covers the per-clip Fusion route AND the
+      native Resolve route (`cross_dissolve`, `slide`, `smooth_cut`,
+      `spin` - the names PR 1376 measured as granted, drawn by Resolve
+      itself at the V1 cut).
+    - A requested type Resolve measured as refusing (Whip Pan, Dip,
+      Push, Blur Dissolve and the others `native_ops` lists) REFUSES by
+      name through `NativeTransitionRefused` - it is never downgraded to
+      a hard cut, and never swapped for the nearest granted native
+      transition unless the plan states one in `fallback_type`.
+    - A requested type that is neither drawable nor a measured refusal
+      (a typo, a withdrawn type) is downgraded to a hard cut and the
+      reason is recorded. It is never quietly swapped for a different
+      creative transition.
     - Otherwise nothing is drawn. A cut inside one take is labelled a
       jump cut; every other undecorated cut is a hard cut. This function
       never invents a DRAWN transition - see
@@ -118,14 +134,20 @@ def select_transition(
             f"renderer cannot draw: {reason}",
             file=sys.stderr,
         )
-    preferred_types = allowed or list(PLANNABLE_TYPES)
+    preferred_types = allowed or list(PLANNABLE_TYPES + NATIVE_TYPES)
     raw_duration = brand_effect.get("transition_duration_ms")
     duration_ms = brand_declared_duration_ms(raw_duration)
     bound_min, bound_max = brand_duration_bounds_ms(raw_duration)
 
     requested_raw = (requested_type or "").strip()
     # No request at all means nothing is drawn here.
+    # The Fusion route reads first: long-standing spellings keep their
+    # meaning (`blur_dissolve` is the Fusion `defocus`, not the refused
+    # ofx dissolve - see `native_ops`).
     requested = canonical_type(requested_raw) if requested_raw else None
+    native_requested = (
+        native_canonical_type(requested_raw) if requested_raw else None
+    )
     result = {
         "type": "hard_cut",
         "duration_ms": 0,
@@ -141,7 +163,24 @@ def select_transition(
         return result
 
     # 0. Honour an explicit creative choice.
-    if requested_raw and requested is None:
+    if requested_raw and requested is None and native_requested is None:
+        refused = refused_native_canonical(requested_raw)
+        if refused is not None:
+            # A measured refusal: Resolve answered this name empty, so
+            # shipping a hard cut would be a plan the picture disobeyed
+            # without saying so. Refuse by name - unless the plan states
+            # the granted native transition to ship instead.
+            fallback = (native_canonical_type(fallback_type)
+                        if (fallback_type or "").strip() else None)
+            if fallback is not None and fallback in preferred_types:
+                reason = (
+                    f"{requested_raw!r} refused by Resolve "
+                    f"(measured 2026-09-24); shipping the plan's stated "
+                    f"fallback {fallback!r}"
+                )
+                print(f"  Transition type {reason}", file=sys.stderr)
+                return settle(fallback, reason)
+            raise refuse_native_transition(requested_raw)
         reason = withdrawal_reason(requested_raw)
         print(
             f"  Transition type {requested_raw!r} downgraded to hard_cut: "
@@ -150,11 +189,12 @@ def select_transition(
         )
         return settle("hard_cut", reason)
 
-    if requested:
-        if requested in preferred_types:
-            return settle(requested)
+    if requested or native_requested:
+        chosen = requested or native_requested
+        if chosen in preferred_types:
+            return settle(chosen)
         reason = (
-            f"{requested!r} is drawable but the brand template allows only "
+            f"{chosen!r} is drawable but the brand template allows only "
             f"{preferred_types}"
         )
         print(f"  Transition type {reason}; using hard_cut", file=sys.stderr)

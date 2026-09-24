@@ -44,7 +44,11 @@ BEAT_COINCIDENCE_TOLERANCE = 0.05
 # (library/tools/sub_block_anchor.py): a word in the OUTGOING block, a
 # beat/downbeat/bar or a timeline frame the cut lands on EXACTLY,
 # winning over the word-end and beat-snap below. A cut is a point, so
-# `anchor_end` is refused on it.
+# `anchor_end` is refused on it. `fallback_type` is the granted native
+# transition to ship when the requested one is a measured refusal
+# (Whip Pan, Dip, Push, Blur Dissolve - see library/tools/native_ops.py):
+# a refused name is never downgraded or swapped unless the plan states
+# the substitute, and this key is how it states one.
 TRANSITION_ENTRY_KEYS = frozenset({
     "cut_point_position",
     "cut_point_original",
@@ -52,6 +56,7 @@ TRANSITION_ENTRY_KEYS = frozenset({
     "cut_time",
     "type",
     "transition_type",
+    "fallback_type",
     "duration_feel",
     "rationale",
 } | ANCHOR_ENTRY_KEYS)
@@ -289,6 +294,7 @@ def resolve_transitions(
             brand_effect=brand_effect,
             creative_direction=creative_direction,
             requested_type=trans.get("type", trans.get("transition_type", "")),
+            fallback_type=trans.get("fallback_type", ""),
         )
 
         ttype = selected_trans["type"]

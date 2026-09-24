@@ -110,7 +110,16 @@ from tools.subject_framing import (
     SUBJECT_HEADROOM, subject_box,
     subject_center_x, subject_centers_by_clip,
 )
-from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
+from tools.transition_vocabulary import (
+    canonical_type, is_cut, is_native, native_canonical_type,
+    refused_native_reason, withdrawal_reason,
+)
+from tools.native_ops import (
+    granted_categories,
+    refused_native_canonical,
+    refuse_native_transition,
+    resolve_transition_name,
+)
 from tools.vision_schema_adapter import camera_prose, stability_summary
 from tools.brand_registry import (
     project_template_name, resolve_project_template, project_timeline_name,
@@ -2014,7 +2023,31 @@ def compile_manifest(out_dir: str) -> dict:
     unplaced_vfx = []
     vfx_assigned_labels = set()
     vfx_collisions = []
+    # Native speed ops (fidelity rung 3b): timeline operations, not Fusion
+    # comps. They travel in `visual_effects` with
+    # `"route": "native_resolve"` and are carried here - to the build's
+    # native applicator - instead of the comp engine. A legacy entry
+    # naming a native effect without the route marker rides the same
+    # path: the effect type decides, never the marker alone.
+    native_speed_ops = []
     for v in vfx:
+        if (v.get("route") == "native_resolve"
+                or v.get("effect_type") in ("speed_ramp", "freeze_frame")):
+            label = _picture_label_at(v1_clips, v2_clips, v["timeline_start"])
+            if label is None:
+                unplaced_vfx.append(v)
+                continue
+            native_speed_ops.append({
+                "op_id": f"speed_{len(native_speed_ops)+1:03d}",
+                "effect_type": v.get("effect_type", ""),
+                "target_block_position": v.get("target_block_position"),
+                "label": label,
+                "timeline_start": v.get("timeline_start"),
+                "timeline_end": v.get("timeline_end"),
+                "segments": (v.get("params") or {}).get("segments", []),
+                "rationale": v.get("rationale", ""),
+            })
+            continue
         label = _picture_label_at(v1_clips, v2_clips, v["timeline_start"])
         if label is None:
             unplaced_vfx.append(v)
@@ -2187,13 +2220,85 @@ def compile_manifest(out_dir: str) -> dict:
 
     # Fusion transitions: convert step_4_02 transitions to .comp format.
     # `after_clip` is the index of the OUTGOING V1 clip - the one whose
-    # tail the transition sits on.
+    # tail the transition sits on. Native Resolve transitions (fidelity
+    # rung 3b) do NOT travel this path: they are carried in
+    # `native_transitions` for the build's native applicator, which
+    # places Resolve's own transition at the cut and judges it by the
+    # returned item.
     fusion_transitions = []
+    native_transitions = []
     transitions_downgraded = []
     for t in transitions:
         raw_type = t.get("transition_type", "hard_cut")
+        native_type = native_canonical_type(raw_type)
+        if native_type is not None:
+            # A drawn-by-Resolve transition. It still needs a hold
+            # nobody may invent (same honesty rule as the Fusion path),
+            # a V1 cut to sit on, and an incoming clip.
+            dur = t.get("duration_frames")
+            if (not isinstance(dur, (int, float)) or isinstance(dur, bool)
+                    or dur <= 0):
+                transitions_downgraded.append({
+                    "transition_id": t.get("transition_id", "?"),
+                    "requested_type": raw_type,
+                    "shipped_type": "hard_cut",
+                    "reason": (
+                        "the plan states no duration_feel and no selected "
+                        "brand template states a single transition "
+                        "duration, so nothing has said how long to hold it"
+                    ),
+                })
+                print(
+                    f"  Transition {t.get('transition_id', '?')} requested "
+                    f"{raw_type!r} with no duration, shipping a hard cut: "
+                    f"nothing stated how long to hold it",
+                    file=sys.stderr,
+                )
+                t["transition_type"] = "hard_cut"
+                t["duration_frames"] = 0
+                continue
+            cut_time = t.get("cut_point_timeline",
+                             t.get("cut_point_original"))
+            after_clip = _v1_index_ending_at(v1_clips, cut_time)
+            if after_clip is None:
+                raise ValueError(
+                    f"Transition {t.get('transition_id', '?')} at {cut_time}s "
+                    f"does not sit at the end of any V1 clip"
+                )
+            if after_clip + 1 >= len(v1_clips):
+                raise ValueError(
+                    f"Transition {t.get('transition_id', '?')} sits at the "
+                    f"end of the last V1 clip ({after_clip}); there is no "
+                    f"incoming clip for the transition"
+                )
+            # The first granted category is the default: for
+            # Cross Dissolve that is simple (both measured granted).
+            # The plan states no category - the measurement does.
+            category = granted_categories(native_type)[0]
+            native_transitions.append({
+                "transition_id": t.get("transition_id", "?"),
+                "transition_type": native_type,
+                "resolve_name": resolve_transition_name(native_type),
+                "category": category,
+                "after_clip": after_clip,
+                "duration_frames": t["duration_frames"],
+                "cut_point_timeline": cut_time,
+                "requested_type": t.get("requested_type", raw_type),
+                "downgrade_reason": t.get("downgrade_reason", ""),
+            })
+            continue
         comp_type = canonical_type(raw_type)
         if comp_type is None:
+            if refused_native_canonical(raw_type) is not None:
+                # A measured refusal reaching the compile (stale state, a
+                # revised review gate) refuses by name - a whip that ships
+                # as a hard cut is a plan the picture disobeyed without
+                # saying so. Step 4.02 refuses these at plan time; this is
+                # the same refusal for state that arrived some other way.
+                # It sits AFTER the Fusion check so long-standing
+                # spellings keep their meaning (`blur_dissolve` is the
+                # Fusion `defocus`, not the refused ofx dissolve).
+                raise refuse_native_transition(raw_type)
             # step_4_02 is the gate that enforces the vocabulary; state
             # written before it existed can still carry a withdrawn type.
             # Downgrade to the hard cut it will actually look like and put
@@ -2439,6 +2544,12 @@ def compile_manifest(out_dir: str) -> dict:
         # instead. Empty on any run whose plan came from step_4_02 at or
         # after the vocabulary was unified.
         "transitions_downgraded": transitions_downgraded,
+        # Native Resolve operations (fidelity rung 3b): speed ops and
+        # Resolve's own transitions, applied by the build's native
+        # applicator (`library/tools/native_ops_apply.py`) and judged by
+        # read-back. Read by the timeline build - see output_contract.
+        "native_speed_ops": native_speed_ops,
+        "native_transitions": native_transitions,
         "neural_engine_directives": neural_engine_directives,
         # The authoritative record of what creative_cohesion asked for and
         # what actually happened to each request.

@@ -1,5 +1,7 @@
 from library.tools.transition_selector import select_transition
-from library.tools.transition_vocabulary import PLANNABLE_TYPES
+from library.tools.transition_vocabulary import NATIVE_TYPES, PLANNABLE_TYPES
+from library.tools.native_ops import NativeTransitionRefused
+import pytest
 
 
 def test_same_source_clip_is_a_jump_cut():
@@ -51,15 +53,48 @@ def test_an_explicit_request_outranks_the_heuristic():
     assert res["downgrade_reason"] == ""
 
 
-def test_an_undrawable_request_becomes_a_hard_cut_with_a_reason():
-    """Never quietly swapped for a different creative transition."""
+def test_a_granted_native_request_resolves_to_the_native_route():
+    """`cross_dissolve` is drawn by Resolve itself, not downgraded."""
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
         {}, {}, requested_type="cross_dissolve",
     )
-    assert res["type"] == "hard_cut"
+    assert res["type"] == "cross_dissolve"
     assert res["requested_type"] == "cross_dissolve"
-    assert "cross_dissolve" in res["downgrade_reason"] or "mix" in res["downgrade_reason"]
+    assert res["downgrade_reason"] == ""
+
+
+def test_an_undrawable_request_becomes_a_hard_cut_with_a_reason():
+    """Never quietly swapped for a different creative transition."""
+    res = select_transition(
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+        {}, {}, requested_type="wipe",
+    )
+    assert res["type"] == "hard_cut"
+    assert res["requested_type"] == "wipe"
+    assert "wipe" in res["downgrade_reason"]
+
+
+def test_a_measured_refusal_is_refused_by_name_not_downgraded():
+    """A whip that ships as a hard cut is a plan the picture disobeyed
+    without saying so (measured empty on Resolve 21.1, 2026-09-24)."""
+    with pytest.raises(NativeTransitionRefused, match="whip_pan"):
+        select_transition(
+            {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+            {}, {}, requested_type="whip_pan",
+        )
+
+
+def test_a_measured_refusal_ships_the_stated_fallback_only():
+    """The nearest granted native transition ships only when the plan
+    states it in `fallback_type` - never substituted by the engine."""
+    res = select_transition(
+        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
+        {}, {}, requested_type="whip_pan",
+        fallback_type="cross_dissolve",
+    )
+    assert res["type"] == "cross_dissolve"
+    assert "fallback" in res["downgrade_reason"]
 
 
 def test_an_aliased_request_resolves_to_its_canonical_type():
@@ -70,17 +105,18 @@ def test_an_aliased_request_resolves_to_its_canonical_type():
     assert res["type"] == "fade_to_black"
 
 
-def test_brand_types_the_renderer_cannot_draw_are_rejected(capsys):
+def test_brand_types_no_route_can_draw_are_rejected(capsys):
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
         {"transition_types": ["cut", "dissolve", "wipe"]},
         {"target_energy": "high"},
     )
-    # Only "cut" survives the filter, so there is no creative transition
-    # this brand permits - and none is invented.
+    # "cut" and the native "dissolve" survive the filter; "wipe" is
+    # rejected loudly. No request means nothing is drawn either way -
+    # and none is invented.
     assert res["type"] == "hard_cut"
     err = capsys.readouterr().err
-    assert "dissolve" in err and "wipe" in err
+    assert "wipe" in err and "dissolve" not in err
 
 
 def test_a_brand_allowing_a_drawn_type_still_does_not_draw_it_unasked():
@@ -134,17 +170,27 @@ def test_no_brand_duration_invents_no_length():
     assert res["duration_bounds_ms"] == (None, None)
 
 
-def test_every_outcome_is_a_plannable_type():
+def test_every_outcome_is_a_drawable_type():
     cases = [
         ({}, {}, ""),
-        ({"transition_types": ["macro", "light_leak"]}, {}, "whip_pan"),
-        ({}, {"target_energy": "high"}, "j_cut"),
+        ({"transition_types": ["macro", "light_leak"]}, {}, "j_cut"),
         ({"transition_types": []}, {"target_energy": "calm"}, "nonsense_type"),
+        ({}, {}, "cross_dissolve"),
     ]
     for brand, creative, requested in cases:
         res = select_transition(
             {"clip_id": "a"}, {"clip_id": "b"}, brand, creative,
             requested_type=requested,
         )
-        assert res["type"] in PLANNABLE_TYPES, res
+        assert res["type"] in PLANNABLE_TYPES + NATIVE_TYPES, res
+
+
+def test_a_measured_refusal_never_lands_in_the_outcome_set():
+    """`whip_pan` is not an outcome at all - it refuses by name."""
+    with pytest.raises(NativeTransitionRefused):
+        select_transition(
+            {"clip_id": "a"}, {"clip_id": "b"},
+            {"transition_types": ["macro", "light_leak"]},
+            {"target_energy": "high"}, requested_type="whip_pan",
+        )
 

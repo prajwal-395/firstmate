@@ -43,18 +43,37 @@ nothing is offered that the finished video cannot show.
 | `zoom_blur` | duration_feel | Crash zoom. Energy spikes, punches into a line |
 | `defocus` | duration_feel | Blur through the cut. Mood shifts, soft scene changes |
 | `flash` | duration_feel | Brightness flash. Beat hits, hard energy changes |
+| `cross_dissolve` | duration_feel | True dissolve, mixed by Resolve itself at the cut. Time passing, soft scene changes |
+| `slide` | duration_feel | Incoming clip slides in. Playful moves, lists, reveals |
+| `smooth_cut` | duration_feel | Morph across the cut. Invisible joins inside one take |
+| `spin` | duration_feel | Spin across the cut. High-energy turns, drops |
 
 `duration_feel` is one of `instant`, `quick`, `medium`, `slow`.
 
+The last four are NATIVE transitions: Resolve draws them itself at the
+V1 cut (they are the only transitions that mix two pictures, which no
+per-clip effect can do), and each is judged by what Resolve hands back.
+The names are exactly what measured as granted on Resolve 21.1 - a
+dissolve by any other spelling is still this dissolve (`dissolve` means
+`cross_dissolve`).
+
 ### Not available — do not use:
 
-`cross_dissolve`, `dissolve` and `wipe` need the outgoing and incoming
-clips mixed in one composition. The renderer draws each clip's effects on
-that clip alone, so it cannot mix two. `fade_to_black` is a dip to black,
-not a dissolve — it is not a substitute, so do not ask for one expecting
+`wipe` needs the outgoing and incoming clips mixed in one composition
+the native route does not draw. `fade_to_black` is a dip to black, not
+a dissolve — it is not a substitute, so do not ask for one expecting
 the other.
 
-`whip_pan`, `light_leak`, `j_cut` and `l_cut` have no implementation.
+`whip_pan`, `dip`/`dip_to_color`, `push` and the ofx `Blur Dissolve`
+REFUSE the step by name: Resolve answered them empty when measured, so
+a whip that shipped as a hard cut would be a plan the picture disobeyed
+without saying so. Nothing is substituted on your behalf - re-plan the
+cut with a granted type, a drawn Fusion transition, or a `hard_cut`
+stated in the plan. The one exception is stated, not invented: a
+`fallback_type` on the entry names the granted native transition to
+ship instead, and only then is it shipped.
+
+`light_leak`, `j_cut` and `l_cut` have no implementation.
 J/L cuts are audio edits and are handled by the audio pass, not here.
 
 ### Rules:
@@ -180,4 +199,5 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 | Failure Mode | Action |
 |-------------|--------|
 | BPM data unavailable | Skip beat alignment, place at existing cut points |
-| A type outside the toolkit is requested | The bridge downgrades it to `hard_cut` and records `downgrade_reason` on the entry |
+| A Fusion type outside the toolkit is requested | The bridge downgrades it to `hard_cut` and records `downgrade_reason` on the entry |
+| A measured-refused native type (`whip_pan`, `dip`, `push`, ofx blur) is requested | The bridge REFUSES the step by name - re-plan with a granted type or a stated `fallback_type` |

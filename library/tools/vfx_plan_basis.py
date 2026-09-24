@@ -121,6 +121,13 @@ DROP_REASONS = {
         "`TOOLKIT_PARAMETERS`; what they are set TO is the plan's "
         "decision and nothing is substituted"
     ),
+    "not_a_speed_step": (
+        "the entry names a native speed effect but its `params` carry no "
+        "usable speed step: `speed_ramp` needs `segments`, a non-empty "
+        "list of percents above 0 - a freeze is `freeze_frame`, never a "
+        "0% step - and Resolve 21.1 draws no curve, only stepped "
+        "constant segments (measured 2026-09-24)"
+    ),
     "no_clip_at_that_position": (
         "no clip on V1 or V2 covers the block the entry names, so there "
         "is no picture to draw the effect on.  An effect is a per-clip "

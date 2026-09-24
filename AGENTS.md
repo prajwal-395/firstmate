@@ -208,7 +208,7 @@ Never create a timeline and use `ImportFusionComp` in the same Python process: `
 
 **Pan/Tilt is ONE model, and a unit is not a pixel.**: `library/tools/resolve_transform.py`.
 
-### Transitions go through Fusion. Both other routes are closed.
+### Transitions go through Fusion or Resolve itself.
 
 **Do not wire FCPXML or DRP project-file surgery back in.**: `library/tools/transition_vocabulary.py`.
 
