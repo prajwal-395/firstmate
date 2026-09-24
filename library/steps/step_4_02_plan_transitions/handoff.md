@@ -127,7 +127,10 @@ block's line (`anchor: {word: "quit", edge: end}` cuts right after
 "quit"); the beat forms address the measured grid (`{beat: 17}`,
 `{bar: 4, beat: 2}`, `{downbeat: 4}` - bars come from the `beatgrid`
 view in your context, and `grid: detected` demands the tracker-heard
-grid); the frame form names a timeline frame inside the outgoing
+grid); the section form lands on a musical span's first downbeat
+(`{section: "chorus"}` - labels come from the `sectiongrid` view, with
+`occurrence` for the nth span and `edge: end` for its end); the frame
+form names a timeline frame inside the outgoing
 block. Any form takes `offset_seconds` / `offset_frames`. An anchor
 that names nothing placeable REFUSES the step with the fix, and you
 re-plan. A cut is a point, so there is no `anchor_end` on it.

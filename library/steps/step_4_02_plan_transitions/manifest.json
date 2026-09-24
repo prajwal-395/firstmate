@@ -177,6 +177,7 @@
     "-music_analysis.tempo.beats",
     "-music_analysis.tempo.downbeats",
     "-music_analysis.energy_dynamics.energy_curve_1hz",
+    "-music_analysis.section_grid.sections",
     "rough_cut_review",
     "timed_spine",
     "-timed_spine.structure.*.word_timestamps",
@@ -185,6 +186,7 @@
     "view:picture",
     "view:stability",
     "view:beatgrid",
+    "view:sectiongrid",
     "view:emphasis"
   ]
 }

@@ -17,7 +17,11 @@ Consumed by step 4.04 (plan_sfx), which snaps SFX to bar boundaries
 (post_bridge.py:212-219) both read the real grid through
 `library/tools/beat_grid.py`. Step 2.05 (mesh_spine) declares the whole
 analysis in context minus the raw lists. `structure` and `key` are
-measured and carried, and no step reads them in code yet.
+measured and carried, and no step reads them in code yet. `section_grid`
+(bar-aligned functional labels from allin1) IS read: the `sectiongrid`
+context view carries it to mesh_spine and the cut planners, and the
+`section` anchor form in `library/tools/sub_block_anchor.py` resolves
+it to exact frames at post-bridge time.
 
 Classification: Deterministic / Data Transformation
 Idempotent: Yes (same track → same analysis)
@@ -104,7 +108,9 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
              "--output-dir", output_dir],
             capture_output=True,
             text=True, encoding="utf-8", errors="replace",
-            timeout=300,  # 5 min max
+            # allin1's section grid separates stems on CPU (~85 s for a
+            # 200 s track) on top of the beat/key/structure passes.
+            timeout=600,
         )
 
         if result.returncode != 0:

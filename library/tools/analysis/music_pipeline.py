@@ -3,20 +3,34 @@
 Music Analysis Pipeline — Deep Audio Feature Extraction
 
 Extracts comprehensive music features for video editing:
-- BPM/tempo tracking (beat_this detected beats+downbeats, madmom RNN+DBN,
-  or librosa fallback)
+- BPM/tempo tracking (beat_this detected beats+downbeats, or librosa fallback)
 - Beat grid with downbeat detection
 - Musical key detection (essentia KeyExtractor)
 - Song structure segmentation (energy-based)
+- Section grid with functional labels (allin1, bar-aligned)
 - Energy builds/drops detection
 - Stem separation (Demucs, optional)
 
-Beat/downbeat precedence: beat_this (CPJKU, MIT licence, `beat-this` on
-PyPI) detects both beats and bar starts from the audio and runs in ~3 s
-on CPU; where it is unavailable madmom's RNN+DBN is next; librosa's
-`beat_track` is last and only ever ESTIMATES downbeats as every 4th
-beat - the estimate is labelled `downbeat_source: "estimated"` wherever
-it travels, never presented as detected.
+Beat/downbeat precedence: beat_this (CPJKU, MIT code AND MIT weights -
+"the code and the published model weights are released under the MIT
+license", github.com/CPJKU/beat_this README) detects both beats and bar
+starts from the audio and runs in ~3 s on CPU; librosa's `beat_track`
+is the fallback and only ever ESTIMATES downbeats as every 4th beat -
+the estimate is labelled `downbeat_source: "estimated"` wherever it
+travels, never presented as detected.
+
+There is deliberately NO madmom fallback. madmom's library code is BSD
+but every model file it loads is CC-BY-NC-SA-4.0 ("you must not use
+the material for commercial purposes", CPJKU/madmom README, PyPI
+"License: BSD, CC BY-NC-SA"): `RNNBeatProcessor` and
+`RNNDownBeatProcessor` cannot run without those weights, so a madmom
+fallback is a non-commercial-weights path the pipeline must not adopt.
+beat_this's own `--dbn` post-processor imports only madmom's
+weight-free HMM (`DBNDownBeatTrackingProcessor`) and is licence-clean,
+but it is not wired here: the minimal post-processor is deterministic
+across runs and the DBN needs a git-built madmom this machine does not
+carry. allin1's spectrogram/DBN stage runs on `madmom-infer`, a
+from-scratch PyPI reimplementation that loads no madmom weights.
 
 Input:  { "music_file": "/path/to/track.wav", "output_dir": "/path/to/output" }
 Output: Comprehensive music_analysis.json
@@ -99,9 +113,11 @@ def _analyze_tempo_beat_this(audio_path: str) -> dict:
 def analyze_tempo_beats(audio_path: str) -> dict:
     """Extract BPM and beat grid.
 
-    beat_this first (detected beats AND downbeats), then madmom
-    (RNN+DBN, ±0.5 BPM accuracy), then librosa (±2-5 BPM, octave
-    errors possible, downbeats ESTIMATED as every 4th beat).
+    beat_this first (detected beats AND downbeats), then librosa
+    (±2-5 BPM, octave errors possible, downbeats ESTIMATED as every
+    4th beat). There is no madmom step: its RNN processors load
+    CC-BY-NC-SA weights (see the module docstring), so the chain goes
+    straight from the MIT grid to the labelled estimate.
     """
     result = {"method": None, "bpm": None, "beats": [], "downbeats": [],
               "downbeat_source": None}
@@ -114,61 +130,11 @@ def analyze_tempo_beats(audio_path: str) -> dict:
               file=sys.stderr)
         return result
     except ImportError:
-        print("  beat_this not available, falling back to madmom...",
+        print("  beat_this not available, falling back to librosa...",
               file=sys.stderr)
     except Exception as e:
-        print(f"  beat_this failed: {e}, falling back to madmom...",
+        print(f"  beat_this failed: {e}, falling back to librosa...",
               file=sys.stderr)
-
-    # Try madmom next (superior accuracy to librosa)
-    try:
-        from madmom.features.beats import RNNBeatProcessor, DBNBeatTrackingProcessor
-        from madmom.features.downbeats import (
-            RNNDownBeatProcessor, DBNDownBeatTrackingProcessor
-        )
-
-        print("  Using madmom RNN+DBN for beat tracking...", file=sys.stderr)
-
-        # Beat detection
-        beat_proc = RNNBeatProcessor()
-        beat_act = beat_proc(audio_path)
-        beat_tracker = DBNBeatTrackingProcessor(fps=100, transition_lambda=100)
-        beats = beat_tracker(beat_act)
-
-        # Downbeat detection
-        try:
-            db_proc = RNNDownBeatProcessor()
-            db_act = db_proc(audio_path)
-            db_tracker = DBNDownBeatTrackingProcessor(
-                beats_per_bar=[3, 4], fps=100
-            )
-            downbeat_result = db_tracker(db_act)
-            # downbeat_result is (time, beat_position) pairs
-            downbeats = [
-                round(float(t), 3)
-                for t, pos in downbeat_result if int(pos) == 1
-            ]
-            downbeat_source = "detected"
-            note = ""
-        except Exception as e:
-            print(f"  WARNING: downbeat detection failed: {e}", file=sys.stderr)
-            # Estimate downbeats from beats (every 4th beat)
-            downbeats = [round(float(beats[i]), 3) for i in range(0, len(beats), 4)]
-            downbeat_source = "estimated"
-            note = ("madmom's downbeat tracker failed, so bar starts are "
-                    "estimated as every 4th detected beat, not detected")
-
-        result = _finalize_tempo("madmom-rnn-dbn", beats, downbeats,
-                                 downbeat_source, note)
-        print(f"  madmom: {result['bpm']} BPM, {len(result['beats'])} beats, "
-              f"{len(result['downbeats'])} downbeats ({downbeat_source})",
-              file=sys.stderr)
-        return result
-
-    except ImportError:
-        print("  madmom not available, falling back to librosa...", file=sys.stderr)
-    except Exception as e:
-        print(f"  madmom failed: {e}, falling back to librosa...", file=sys.stderr)
 
     # Fallback: librosa. Beats are detected; downbeats are an
     # every-4th-beat ESTIMATE and travel labelled as one.
@@ -425,6 +391,189 @@ def analyze_structure(audio_path: str) -> dict:
         import traceback
         traceback.print_exc(file=sys.stderr)
         return {"method": None, "sections": [], "error": str(e)}
+
+
+# How many bars of slack the section-grid validation allows before the
+# first bar. allin1's own downbeats are the ruler: a grid whose first
+# bar starts further in than this dropped its opening (measured 2-in-5
+# on Sickick - Infected: first downbeat 16.31s, six bars gone, while
+# the sections stayed put) is re-run once, never adopted as-is. There
+# is deliberately NO closing check: a track may end in unmetered
+# material (the Infected outro, 185.83-198.60s, decodes no bars in most
+# runs) and that is musical reality, not a decode failure - every
+# section START still carries its bar, which is what anchors address.
+SECTION_GRID_START_SLACK_BARS = 3.0
+
+# How much of the metered span (first to last downbeat) must be covered
+# by bars before the interior counts as continuous. Catches a dropped
+# middle the opening check cannot see.
+SECTION_GRID_COVERAGE_FRACTION = 0.5
+
+# allin1's functional vocabulary (allin1_infer.HARMONIX_LABELS). What is
+# not in it - a drop, a phrase boundary - stays absent downstream and
+# says so; the pipeline never coins a label the model did not emit.
+SECTION_GRID_LABELS = (
+    "start", "end", "intro", "outro", "break", "bridge",
+    "inst", "solo", "verse", "chorus",
+)
+
+
+def _validate_section_grid(downbeats: list, duration: float) -> list:
+    """Everything wrong with an allin1 beat/downbeat run, as sentences."""
+    problems = []
+    if len(downbeats) < 2:
+        return [f"only {len(downbeats)} downbeat(s) - no bar ruler to snap to"]
+    ordered = sorted(float(d) for d in downbeats)
+    intervals = np.diff(ordered)
+    bar = float(np.median(intervals)) if len(intervals) else 0.0
+    if not bar or bar <= 0:
+        return ["downbeats carry no measurable bar interval"]
+    first, last = ordered[0], ordered[-1]
+    if first > SECTION_GRID_START_SLACK_BARS * bar:
+        problems.append(
+            f"first downbeat at {first:.2f}s, "
+            f"{first / bar:.1f} bars in - the opening bars did not decode")
+    # Interior continuity: the metered span must actually be metered.
+    # `duration` rides along for the validation sentence only; the
+    # trailing unmetered tail is not a defect (see the constant above).
+    expected = max(1, int(round((last - first) / bar)) + 1)
+    if len(ordered) < SECTION_GRID_COVERAGE_FRACTION * expected:
+        problems.append(
+            f"only {len(ordered)} bars over a {last - first:.1f}s metered "
+            f"span (~{expected} expected) - the middle did not decode")
+    return problems
+
+
+def _snap_to_downbeats(boundary: float, downbeats: list) -> tuple:
+    """The nearest downbeat to a section boundary, and how far it moved."""
+    nearest = min(downbeats, key=lambda d: abs(float(d) - boundary))
+    return round(float(nearest), 3), round(float(nearest) - boundary, 3)
+
+
+def analyze_section_grid(audio_path: str, duration: float = 0.0) -> dict:
+    """Section boundaries + functional labels from allin1, bar-aligned.
+
+    One offline run gives downbeats, bar phase and labels together
+    (allin1, MIT code, MIT weights at huggingface.co/taejunkim/allinone;
+    spectrogram/DBN stage via madmom-infer, which loads no madmom
+    weights; stems via demucs-infer, MIT). Measured on the captain's
+    machine (M4, CPU): ~85 s and ~4 GB peak for a 200 s track, cached
+    per track afterwards, so a re-run costs nothing.
+
+    Each boundary is snapped to the NEAREST DOWNBEAT OF THE SAME RUN -
+    the sections and the bars are jointly modelled, so snapping across
+    runs would mix two bar phases. `mean_label_activation` is the
+    model's own mean softmax for the winning label over the span, not
+    a calibrated confidence; where activations are unavailable it is
+    None and says so. Labels arrive verbatim from
+    SECTION_GRID_LABELS - no drop, no phrase, never guessed.
+
+    A run that fails validation (the measured dropped opening, 2-in-5)
+    is re-run ONCE; a second failure is a stated absence, never a grid
+    of guesses. Returns `{"available": bool, ...}` either way.
+    """
+    try:
+        import allin1_infer
+    except ImportError:
+        print("  all-in-one-infer not available, no section grid",
+              file=sys.stderr)
+        return {"available": False, "method": None, "sections": [],
+                "reason": "all-in-one-infer not installed"}
+
+    print("  Analyzing section grid with all-in-one (harmonix-all)...",
+          file=sys.stderr)
+    label_index = {label: i for i, label in
+                   enumerate(list(getattr(allin1_infer,
+                                          "HARMONIX_LABELS", []) or []))}
+    problems: list = []
+    for attempt in (1, 2):
+        try:
+            result = allin1_infer.analyze(
+                audio_path, out_dir=None, multiprocess=False,
+                include_activations=True)
+        except Exception as e:
+            problems = [f"analysis raised: {e}"]
+            print(f"  allin1 attempt {attempt} raised: {e}", file=sys.stderr)
+            continue
+
+        downbeats = [round(float(d), 3) for d in (result.downbeats or [])]
+        problems = _validate_section_grid(downbeats, duration)
+        if problems:
+            print(f"  allin1 attempt {attempt} failed validation: "
+                  f"{'; '.join(problems)}", file=sys.stderr)
+            continue
+
+        activations = getattr(result, "activations", None) or {}
+        label_act = activations.get("label") if isinstance(
+            activations, dict) else None
+        act_fps = getattr(result, "activation_fps", None) or 0.0
+
+        sections = []
+        for seg in (result.segments or []):
+            start = round(float(seg.start), 2)
+            end = round(float(seg.end), 2)
+            label = str(seg.label)
+            snapped, delta = _snap_to_downbeats(start, downbeats)
+            confidence = None
+            confidence_note = "model emits no per-section confidence"
+            if (label in label_index and label_act is not None
+                    and act_fps and len(label_act) > 0):
+                try:
+                    arr = np.asarray(label_act)
+                    # Activations are [class, time] (allin1 README):
+                    # axis 0 must be exactly the label vocabulary, or
+                    # the layout is not what was measured and no number
+                    # is derived from it.
+                    row = (arr[label_index[label]]
+                           if arr.ndim == 2
+                           and arr.shape[0] == len(label_index)
+                           and arr.shape[1] > 1
+                           else None)
+                    if row is not None:
+                        lo = max(0, int(start * act_fps))
+                        hi = min(len(row), max(lo + 1, int(end * act_fps)))
+                        confidence = round(float(row[lo:hi].mean()), 3)
+                        confidence_note = (
+                            "mean softmax of the winning label over the "
+                            "span - the model's own activation, not a "
+                            "calibrated confidence")
+                except Exception:
+                    pass
+            sections.append({
+                "label": label,
+                "start": start,
+                "end": end,
+                "start_bar_snapped": snapped,
+                "snap_delta_s": delta,
+                "first_downbeat": snapped,
+                "mean_label_activation": confidence,
+                "confidence_note": confidence_note,
+            })
+
+        present = sorted({s["label"] for s in sections})
+        print(f"  section grid: {len(sections)} sections "
+              f"({', '.join(present)}) in {attempt} attempt(s)",
+              file=sys.stderr)
+        return {
+            "available": True,
+            "method": "allin1-harmonix-all",
+            "licence": ("MIT code (mir-aidj/all-in-one), MIT weights "
+                        "(huggingface.co/taejunkim/allinone)"),
+            "attempts": attempt,
+            "validation": (
+                f"first downbeat {downbeats[0]:.2f}s, "
+                f"{len(downbeats)} bars over {duration:.1f}s"),
+            "sections": sections,
+            "labels_present": present,
+            "labels_absent_note": (
+                "the model emits no drop or phrase labels - a section "
+                "or drop it cannot give stays absent, never guessed"),
+        }
+
+    return {"available": False, "method": "allin1-harmonix-all",
+            "sections": [],
+            "reason": ("allin1 decoded no valid grid in 2 attempts: "
+                       + "; ".join(problems))}
 
 
 def analyze_energy_dynamics(audio_path: str) -> dict:
@@ -699,6 +848,7 @@ def analyze_music(music_file: str, output_dir: str = None, skip_stems: bool = Fa
     tempo = analyze_tempo_beats(music_file)
     key = analyze_key(music_file)
     structure = analyze_structure(music_file)
+    section_grid = analyze_section_grid(music_file, duration)
     dynamics = analyze_energy_dynamics(music_file)
     chords = analyze_chord_progression(music_file)
     
@@ -718,6 +868,7 @@ def analyze_music(music_file: str, output_dir: str = None, skip_stems: bool = Fa
         "tempo": tempo,
         "key": key,
         "structure": structure,
+        "section_grid": section_grid,
         "energy_dynamics": dynamics,
         "chords": chords,
         "stems": stems,

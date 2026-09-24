@@ -192,6 +192,7 @@
     "-music_analysis.tempo.beats",
     "-music_analysis.tempo.downbeats",
     "-music_analysis.energy_dynamics.energy_curve_1hz",
+    "-music_analysis.section_grid.sections",
     "semantic_analysis_documents.*.clip_id",
     "semantic_analysis_documents.*.analysis.scene",
     "semantic_analysis_documents.*.analysis.audio_prediction",

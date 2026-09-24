@@ -125,11 +125,16 @@ One address per anchor (exactly one):
   beat: 2}` is the 2nd beat of bar 4, `{downbeat: 4}` the 4th bar
   start. Bars come from the `beatgrid` view in your context. `grid:
   detected` demands the tracker-heard grid and refuses an estimated one.
+- `{section: "chorus"}` - the first downbeat of the chorus
+  (`occurrence: 2` for the second chorus span, `edge: end` for a
+  span's end). Labels come from the `sectiongrid` view in your
+  context; a label the grid did not measure refuses with what it has.
 - `{frame: 343}` - timeline frame 343. It must fall inside the block.
 
 Any form takes `offset_seconds` / `offset_frames` (applied after, and
 still inside the block). An anchor that names nothing placeable - a
-word the block does not say, a bar past the grid, a frame outside the
+word the block does not say, a bar past the grid, a section the grid
+did not measure, a frame outside the
 block, or an end at or before its start - REFUSES the step with the
 fix, and you re-plan; it never falls back to the block span.
 

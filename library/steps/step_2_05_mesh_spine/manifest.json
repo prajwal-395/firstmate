@@ -169,6 +169,7 @@
     "-music_analysis.tempo.beats",
     "-music_analysis.tempo.downbeats",
     "-music_analysis.energy_dynamics.energy_curve_1hz",
+    "-music_analysis.section_grid.sections",
     "brand_content",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename",
@@ -181,6 +182,7 @@
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.usable_ranges",
     "semantic_analysis_documents.*.assessment.usable_ranges_method",
-    "view:beatgrid"
+    "view:beatgrid",
+    "view:sectiongrid"
   ]
 }

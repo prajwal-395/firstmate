@@ -58,6 +58,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - `view:prosody` is what steps 2.01 and 2.02 read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through (minus the contour and per-word lists, which never reach a prompt); the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
 - `view:emphasis` is what the anchor-consuming planners (4.02, 4.03, 4.04) read instead of the per-word prosody table: three scored words per spine block, joinable by `block_position` and addressable through `anchor: {word}` with `occurrence`. The model still decides; the measurement is context.
 - `view:beatgrid` is what a step reads to address a beat by NUMBER instead of snapping to one in code: one row per bar (bar, downbeat seconds, beats in it) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions`, `plan_vfx` and `plan_sfx`; the per-beat series stays withheld and the post-bridge resolves every anchor to an exact frame (`library/tools/sub_block_anchor.py`).
+- `view:sectiongrid` is what a step reads to address a musical section by LABEL instead of by seconds: one row per measured section (label, span, first-downbeat seconds) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions` and `plan_vfx`; the boundary series stays withheld and the post-bridge resolves every `anchor: {section}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model - a section it cannot give stays absent, never guessed.
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
@@ -733,6 +734,90 @@ def _beatgrid(data: dict) -> dict:
     }}
 
 
+SECTIONGRID_LEGEND = {
+    "what_this_is": (
+        "One row per measured section of the chosen music: the model's "
+        "own functional label, the timeline seconds the span covers, "
+        "and the timeline second of its first downbeat - the "
+        "bar-aligned moment a cut or effect lands on."
+    ),
+    "basis": (
+        "Seconds are timeline seconds assuming the bed opens the reel "
+        "at the chosen section (file time minus source_in). "
+        "Boundaries are snapped to the nearest downbeat of the same "
+        "analysis run that labelled them. They address the music; the "
+        "post-bridge resolves them."
+    ),
+    "how_to_address_a_section": (
+        "By LABEL, never by seconds: a VFX/transition plan entry "
+        "carries anchor {section: <label>} with optional {occurrence} "
+        "(the nth span of that label, 1-based) and {edge: end} for "
+        "the span's end. Without edge it resolves to the span's FIRST "
+        "DOWNBEAT. (library/tools/sub_block_anchor.py). Seconds are "
+        "shown so a duration can be sanity-checked, not so an entry "
+        "can name one."
+    ),
+    "labels_are_measured": (
+        "Labels arrive verbatim from the section model (intro, verse, "
+        "chorus, bridge, solo, outro and what else it gives). A "
+        "section the model cannot give - a drop, a phrase, a chorus "
+        "on a track whose grid has none - stays absent and says so: "
+        "an anchor naming it refuses with what the grid carries. "
+        "`mean_label_activation` is the model's own mean softmax for "
+        "the winning label over the span, not a calibrated "
+        "confidence; null where the run carried no activations."
+    ),
+    "withheld": (
+        "The boundary series stays out of the prompt deliberately "
+        "(AGENTS.md 10.1): addressing by label is what this table is "
+        "for."
+    ),
+}
+
+
+def _sectiongrid(data: dict) -> dict:
+    """Measured sections and their first downbeats, for section anchors.
+
+    Fidelity rung 5c: plans cut on bars but no step could see the
+    sections - `mesh_spine` paced gaps from prose and the cut planners
+    counted bars from the track head. This view is the addressed
+    middle: labels with spans and first-downbeat seconds a plan entry
+    names through `anchor: {section}`, resolved to exact frames at
+    post-bridge time by `library/tools/sub_block_anchor.py`.
+
+    Empty (no view) when no usable section grid is routed. A view is
+    not routing: the step still declares `music_analysis` and
+    `music_selection`.
+    """
+    from library.tools.music_sections import sections_timeline
+
+    analysis = data.get("music_analysis")
+    if not isinstance(analysis, dict):
+        return {}
+    selection = data.get("music_selection")
+    rows = sections_timeline(analysis, selection)
+    if not rows:
+        return {}
+    grid = analysis.get("section_grid") or {}
+    return {"sectiongrid": {
+        "legend": SECTIONGRID_LEGEND,
+        "method": grid.get("method") or "unknown",
+        "validation": grid.get("validation") or "unrecorded",
+        "labels_absent_note": grid.get("labels_absent_note") or "",
+        "section_count": len(rows),
+        "sections": [
+            {
+                "label": r["label"],
+                "start_seconds": r["start_seconds"],
+                "end_seconds": r["end_seconds"],
+                "first_downbeat_seconds": r["first_downbeat_seconds"],
+                "mean_label_activation": r["mean_label_activation"],
+            }
+            for r in rows
+        ],
+    }}
+
+
 EMPHASIS_LEGEND = {
     "what_this_is": (
         "Per spine block, the three most emphasized spoken words, "
@@ -897,6 +982,7 @@ CONTEXT_VIEWS = {
     "stability": _stability,
     "alignment": _alignment,
     "beatgrid": _beatgrid,
+    "sectiongrid": _sectiongrid,
     "emphasis": _emphasis,
 }
 

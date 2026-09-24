@@ -39,15 +39,33 @@ pyyaml>=6.0
 # instead of falling back - that tradeoff is the PR body, not this pin.
 librosa>=0.10
 # Beat and downbeat detection (step 2.06 via music_pipeline, surfaced per
-# candidate at choice time in 2.04). beat_this (CPJKU, MIT licence -
-# LICENSE file at github.com/CPJKU/beat_this, Institute of Computational
-# Perception, JKU Linz) detects beats AND bar starts from the audio;
-# without it the pipeline falls back to madmom, then to librosa, whose
-# downbeats are an every-4th-beat estimate labelled "estimated" wherever
-# they travel. Measured on the captain's machine (M4, CPU): ~3 s for a
-# 200 s track after the first-run checkpoint download (~17 s), 283 beats
-# at 88.2 BPM on Sickick - Infected (Instrumental).
+# candidate at choice time in 2.04). beat_this (CPJKU, MIT code AND MIT
+# weights - "the code and the published model weights are released under
+# the MIT license", github.com/CPJKU/beat_this README) detects beats AND
+# bar starts from the audio; without it the pipeline falls back to
+# librosa, whose downbeats are an every-4th-beat estimate labelled
+# "estimated" wherever they travel. There is deliberately no madmom
+# fallback: its RNN processors load CC-BY-NC-SA weights (CPJKU/madmom
+# README, PyPI "License: BSD, CC BY-NC-SA"). Measured on the captain's
+# machine (M4, CPU): ~3 s for a 200 s track after the first-run
+# checkpoint download (~17 s), 283 beats at 88.2 BPM on Sickick -
+# Infected (Instrumental), deterministic across runs.
 beat-this==1.1.0
+# Section grid with functional labels (step 2.06 via music_pipeline,
+# read by mesh_spine and the cut planners through view:sectiongrid and
+# anchor {section}). all-in-one-infer (openmirlab, MIT) is the PyPI-only
+# vehicle for All-In-One (mir-aidj, MIT code, MIT weights at
+# huggingface.co/taejunkim/allinone): stock allin1 needs a git-built
+# madmom plus NATTEN compilation, this fork swaps in madmom-infer (a
+# from-scratch reimplementation loading no madmom weights) and a
+# pure-PyTorch attention with no NATTEN. Stems come from demucs-infer
+# (Demucs, MIT code and models per its README). Measured on the
+# captain's machine (M4, CPU): ~85 s and ~4 GB peak for a 200 s track
+# (demucs separation dominates), cached per track afterwards; sections
+# and labels stable across runs, beats re-validated with one retry.
+all-in-one-infer==3.1.0
+demucs-infer==4.2.2
+madmom-infer==0.2.0
 # Step 2.04 searches for music and fetches what it finds. It has shelled
 # out to yt-dlp since it was written and this file never carried it, so
 # `search_youtube.py` had no caller and no dependency and could never have

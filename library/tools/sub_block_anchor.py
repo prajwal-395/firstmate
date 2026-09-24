@@ -10,10 +10,11 @@ same defect; rung 1 (PR #1373) made unread keys refuse instead.
 
 This module is the vocabulary rung 2 adds: a word anchor (the word,
 resolved to its transcript word and occurrence), a beat or downbeat
-anchor (bar and beat on the detected grid), and a frame anchor
-(timeline frame), each with an optional offset, alongside the existing
-block reference. It is defined ONCE, here, and every placement-bearing
-post-bridge reads it from here:
+anchor (bar and beat on the detected grid), a section anchor (a
+functional label from the measured section grid, resolved to its
+first downbeat), and a frame anchor (timeline frame), each with an
+optional offset, alongside the existing block reference. It is defined
+ONCE, here, and every placement-bearing post-bridge reads it from here:
 
 - step 4.02 `plan_transitions` (cut points),
 - step 4.03 `plan_vfx` (effect spans),
@@ -23,10 +24,9 @@ Surveyed and NOT carrying anchors: step 4.06 `render_motion_graphics`
 has its own anchored-timing form already (`anchor`/`anchor_phrase` plus
 `start_seconds`/`duration_seconds`); step 4.01/4.05 subtitles are
 word-timed by construction; `mesh_spine` blocks are what anchors
-address INTO, not placed by them. No step emits speed or retime entries
-today - `speed_ramp` is dropped as `unknown_effect_type` (rung 3) - so
-there is no speed entry to carry one; the vocabulary is defined here so
-a future speed step inherits it instead of inventing a second one.
+address INTO, not placed by them. Native speed entries (`speed_ramp`,
+`freeze_frame`) inherit the vocabulary through 4.03's shared entry
+keys - a ramp step lands on an anchored span like any other effect.
 
 Resolution happens at post-bridge time, to an exact timeline frame, and
 an anchor that cannot resolve REFUSES in the `RenRefusal` shape - never
@@ -35,12 +35,19 @@ falls back to the block start silently:
 - word not in the block (or occurrence past its matches),
 - beat/downbeat asked of an empty grid,
 - `grid: detected` asked of an estimated grid,
+- section label not in the measured grid (or occurrence past its spans),
 - frame (or offset result) outside the block.
 
 Word timings are read through the spine contract - the block's own
 `word_timestamps`, mapped with `source_to_timeline` - which is the
 existing transcript interface. Nothing here touches step 1.04
 transcription (a concurrent lane owns it).
+
+The section grid is read through `library/tools/music_sections.py`,
+the one module that knows the producer's shape - the same position
+`beat_grid.py` holds for the beat series. A section anchor resolves to
+the section's FIRST DOWNBEAT (the bar-aligned moment the grid
+measured), or to its end with `edge: end`.
 
 The beat grid is read through `library/tools/beat_grid.py`, the one
 module that knows the producer's shape. Frame anchors are divided by
@@ -174,6 +181,70 @@ def _resolve_word(anchor: dict, block: dict, step: str, plan: str,
         f"(block {block.get('position')!r})")
 
 
+def _resolve_section(anchor: dict, music_analysis, music_selection,
+                     step: str, plan: str, index, end: str):
+    """A section anchor to the first downbeat of a measured span."""
+    from library.tools.music_sections import (
+        NON_ADDRESSABLE,
+        available,
+        find_sections,
+    )
+
+    raw = anchor.get("section")
+    if not isinstance(raw, str) or not raw.strip():
+        raise _refuse(step, plan, index, end,
+                      f"section {raw!r} names no section",
+                      f"re-plan entry {index} of `{plan}` with "
+                      f"`anchor: {{section: <label>}}` naming a label "
+                      f"from the `sectiongrid` view, or drop the anchor.")
+    label = raw.strip()
+    if not available(music_analysis):
+        raise _refuse(step, plan, index, end,
+                      "no usable section grid is routed",
+                      f"re-plan entry {index} of `{plan}` without "
+                      f"the section anchor, or drop the anchor.")
+    if label in NON_ADDRESSABLE:
+        raise _refuse(step, plan, index, end,
+                      f"section {label!r} is grid bookkeeping, not music",
+                      f"re-plan entry {index} of `{plan}` with a "
+                      f"musical section from the `sectiongrid` view, "
+                      f"or drop the anchor.")
+    matches, present = find_sections(music_analysis, music_selection,
+                                     label)
+    if not matches:
+        have = ", ".join(present) if present else "none"
+        raise _refuse(
+            step, plan, index, end,
+            f"section {label!r} is not in the measured grid "
+            f"(it carries: {have})",
+            f"re-plan entry {index} of `{plan}` with a section the "
+            f"grid measured - a section the model cannot give stays "
+            f"absent, never guessed - or drop the anchor.")
+    occurrence = anchor.get("occurrence", 1)
+    occurrence = _positive_int(occurrence, "occurrence",
+                               step, plan, index, end)
+    if occurrence > len(matches):
+        raise _refuse(
+            step, plan, index, end,
+            f"section {label!r} occurs {len(matches)} time(s) in the "
+            f"grid but occurrence {occurrence} was asked for",
+            f"re-plan entry {index} of `{plan}` with occurrence 1.."
+            f"{len(matches)}, or drop the anchor.")
+    span = matches[occurrence - 1]
+    edge = anchor.get("edge", EDGE_START)
+    if edge not in (EDGE_START, EDGE_END):
+        raise _refuse(step, plan, index, end,
+                      f"edge {edge!r} is not 'start' or 'end'",
+                      f"re-plan entry {index} of `{plan}` with edge "
+                      f"'start' (the section's first downbeat) or "
+                      f"'end', or drop it (start is the default).")
+    if edge == EDGE_END:
+        return (span["end_seconds"],
+                f"end of section {label!r} occurrence {occurrence}")
+    return (span["first_downbeat_seconds"],
+            f"first downbeat of section {label!r} occurrence {occurrence}")
+
+
 def _resolve_beat(anchor: dict, music_analysis, music_selection,
                   step: str, plan: str, index, end: str):
     """A beat/downbeat/bar anchor to timeline seconds on the grid."""
@@ -285,6 +356,9 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
         {"beat": 17}                              17th grid beat
         {"bar": 4, "beat": 2}                     2nd beat of bar 4
         {"downbeat": 4}                           4th bar start
+        {"section": "chorus"}                     first downbeat of the chorus
+        {"section": "verse", "occurrence": 2}     first downbeat of verse 2
+        {"section": "bridge", "edge": "end"}      the bridge's end
         {"frame": 343}                            timeline frame 343
 
     Any form takes `offset_seconds` and/or `offset_frames`, applied
@@ -301,8 +375,9 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
                       f"re-plan entry {index} of `{plan}` with an "
                       f"anchor object (one of word / beat / bar+beat / "
                       f"downbeat / frame), or drop the anchor.")
-    address = [k for k in ("word", "beat", "bar", "downbeat", "frame")
-               if k in anchor]
+    address = [k for k in ("word", "beat", "bar", "downbeat",
+                            "section", "frame")
+                if k in anchor]
     # `bar` without `beat` addresses the bar's downbeat; `beat` beside
     # `bar` is the beat inside it - one form, not two.
     forms = len(address) - (1 if ("bar" in anchor and "beat" in anchor)
@@ -313,12 +388,12 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
             f"anchor {anchor!r} names {forms} addresses "
             f"({', '.join(address) or 'none'})",
             f"re-plan entry {index} of `{plan}` with exactly one "
-            f"address - word, beat, bar (+ beat), downbeat or frame "
-            f"- or drop the anchor.")
+            f"address - word, beat, bar (+ beat), downbeat, section "
+            f"or frame - or drop the anchor.")
     known_modifiers = {"occurrence", "edge", "offset_seconds",
                        "offset_frames", "grid"}
     for key in anchor:
-        if key in ("word", "beat", "bar", "downbeat", "frame"):
+        if key in ("word", "beat", "bar", "downbeat", "section", "frame"):
             continue
         if key not in known_modifiers:
             raise _refuse(step, plan, index, end,
@@ -328,9 +403,10 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
                           f"edge, offset_seconds, offset_frames, grid), "
                           f"or drop the anchor.")
 
-    if (("word" in anchor or "frame" in anchor)
+    if (("word" in anchor or "frame" in anchor or "section" in anchor)
             and anchor.get("grid", GRID_ANY) not in (GRID_ANY,)):
-        which = "word" if "word" in anchor else "frame"
+        which = ("word" if "word" in anchor
+                 else "frame" if "frame" in anchor else "section")
         raise _refuse(step, plan, index, end,
                       f"grid applies to beat anchors, not {which} ones",
                       f"re-plan entry {index} of `{plan}` without "
@@ -340,6 +416,10 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
         source_time, method = _resolve_word(anchor, block, step, plan,
                                             index, end)
         moment = source_to_timeline(float(source_time), block)
+    elif "section" in anchor:
+        moment, method = _resolve_section(anchor, music_analysis,
+                                          music_selection, step, plan,
+                                          index, end)
     elif "frame" in anchor:
         number = anchor["frame"]
         if isinstance(number, bool) or not isinstance(number, int) \
