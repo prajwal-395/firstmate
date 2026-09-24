@@ -20,6 +20,32 @@ def main():
 
     require_keys(data, ["temporal_index", "semantic_analysis_documents"], "step_2_02_speech_sequence/bridge.py")
 
+    # Which catalogued audio files the voiceover/music spine may draw
+    # speech from. `audio_indices` is step 1.04's sound-only index, one
+    # entry per catalogued voiceover/music file - the transcript rows
+    # below already include those files (they sit in the same index
+    # directory under their own `audio_001` names), and this is what
+    # names them as voiceover rather than on-camera speech. Entries
+    # carrying an `error` failed to index: their speech is heard from
+    # nowhere, and the run says so here - at the step that selects
+    # speech - rather than failing a stage later on a passage nothing
+    # can align.
+    audio_indices = data.get("audio_indices") or []
+    audio_ids = set()
+    for entry in audio_indices:
+        if not isinstance(entry, dict):
+            continue
+        audio_id = entry.get("audio_id", "")
+        if audio_id:
+            audio_ids.add(audio_id)
+        if entry.get("error"):
+            print(
+                f"  WARNING: audio file {audio_id or '?'} failed to "
+                f"index ({entry['error']}) - its speech cannot be "
+                f"selected",
+                file=sys.stderr,
+            )
+
     # Bypass manifest filter and read directly from pipeline_data.json
     project_dir = data.get("project_folder", "")
     ti_dir = ""
@@ -54,6 +80,17 @@ def main():
                         })
     
     transcript_rows.sort(key=lambda r: (r["clip_id"], float(r["start"])))
+
+    voiceover_rows = sum(1 for r in transcript_rows
+                         if r["clip_id"] in audio_ids)
+    if voiceover_rows:
+        print(
+            f"  {voiceover_rows} voiceover region(s) from "
+            f"{len(audio_ids)} catalogued audio file(s) - their "
+            f"clip_ids name audio files, and a passage cut from one "
+            f"is voiceover over B-roll, not on-camera speech",
+            file=sys.stderr,
+        )
 
     # `clip_id, start, end, text`, once. The same 110 lines also reached
     # this step as `view:transcript`, in a different column order and a
@@ -119,6 +156,20 @@ def main():
                 "step": "2.02_bridge",
             }))
             sys.exit(1)
+        from library.tools.project_shape import declared_shape
+        from library.tools.project_shape import expects_speech
+        shape = declared_shape(project_dir)
+        if shape and expects_speech(shape):
+            reason_excluded = (
+                "no transcribed speech in the footage - zero speech "
+                "regions in the temporal index, although the project's "
+                f"declared shape ({shape}) expects speech"
+            )
+        else:
+            reason_excluded = (
+                "no transcribed speech in the footage - zero speech "
+                "regions in the temporal index"
+            )
         print(
             f"  No speech regions in {ti_dir!r} - emitting an empty "
             f"body_sequence; the edit is led by music or picture",
@@ -131,9 +182,7 @@ def main():
             "speech_sequence": {
                 "body_sequence": [],
                 "excluded_passages": [{
-                    "reason_excluded":
-                        "no transcribed speech in the footage - zero "
-                        "speech regions in the temporal index",
+                    "reason_excluded": reason_excluded,
                 }],
             },
         }))

@@ -49,6 +49,7 @@ from library.tools.footage_reference import (
 from library.tools.pipeline_validation import require_keys
 from library.tools.project_layout import Area, ProjectLayout, layout_for
 from library.tools.semantic_index import build_semantic_lookup, clip_observations
+from library.tools.transition_carriers import block_reaches_v1
 from library.tools import window_frames as wf
 
 # Upper bound on the candidate table. One row per clip, so this only binds
@@ -117,17 +118,19 @@ def cutaway_slot_seconds(timed_spine: dict) -> list:
 
     A window's length IS the slot's length (`post_bridge` passes
     `block_duration` straight to `choose_window`), so these come off the
-    spine rather than from a constant. Speech, hook and picture blocks
-    are left out: each already plays its own picture on V1 (a cutaway
-    there is an interjection over A-roll, not the cover the block
-    needs), and a cutaway covers a block with no V1 picture, which is
-    the coverage requirement
-    `compile_manifest._assert_timeline_fully_covered` enforces.
+    spine rather than from a constant. Blocks that already play their
+    own picture on V1 are left out: a cutaway there is an interjection
+    over A-roll, not the cover the block needs. A cutaway covers a
+    block with no V1 picture - including a voiceover-sourced speech
+    block, whose words play from the audio file - which is the coverage
+    requirement `compile_manifest._assert_timeline_fully_covered`
+    enforces. The line is `block_reaches_v1`, the one statement of V1
+    membership, so the two cannot drift.
     """
     blocks = timed_spine.get("structure") or []
     seconds = set()
     for block in blocks:
-        if block.get("block_type") in ("speech", "hook", "picture"):
+        if block_reaches_v1(block):
             continue
         start, end = block.get("timeline_start"), block.get("timeline_end")
         if isinstance(start, (int, float)) and isinstance(end, (int, float)):
@@ -233,6 +236,38 @@ def main():
     )
 
     slots = aroll if isinstance(aroll, list) else aroll.get("a_roll_assignments", [])
+
+    # Voiceover-sourced speech blocks carry no A-roll - their picture is
+    # this step's cover. A position claimed by BOTH a video assignment
+    # and a voiceover assignment would play two pictures at once, so it
+    # refuses here, where both assignments are in hand, rather than as
+    # an overlap downstream.
+    voiceover_positions = set()
+    for entry in data.get("voiceover_assignments") or []:
+        if isinstance(entry, dict) and entry.get("spine_block_position") is not None:
+            voiceover_positions.add(str(entry["spine_block_position"]))
+    aroll_positions = set()
+    for slot in slots:
+        if isinstance(slot, dict) and slot.get("spine_block_position") is not None:
+            aroll_positions.add(str(slot["spine_block_position"]))
+    doubly_claimed = sorted(voiceover_positions & aroll_positions)
+    if doubly_claimed:
+        print(json.dumps({
+            "error": (
+                f"Spine block(s) {doubly_claimed} carry both a video "
+                f"assignment and a voiceover assignment - one block "
+                f"cannot play footage and voiceover-over-B-roll at once"
+            ),
+            "step": "3.02_bridge",
+        }))
+        sys.exit(1)
+    if voiceover_positions:
+        print(
+            f"  {len(voiceover_positions)} voiceover block(s) "
+            f"({', '.join(sorted(voiceover_positions))}) need B-roll "
+            f"cover - their words play from audio, not footage",
+            file=sys.stderr,
+        )
 
     # Clips used anywhere as A-roll: usable as B-roll elsewhere, but they
     # are the least interesting choice, so rank them last.

@@ -150,8 +150,39 @@ def verify_timeline(timeline, plan=None) -> dict:
                 names[(media_type, index)] = ""
 
     # ── no_empty_tracks: an empty row is never kept ──
+    # Except a PLANNED-empty V1: a voiceover-led cut mints the legacy
+    # row with nothing to place (the picture rides V2 by design), and
+    # the build keeps it on the same flag rather than shifting every
+    # row above it down. The flag travels on the track plan's material,
+    # so a run without it still fails an empty V1 like before.
+    _material = {}
+    try:
+        _material = (plan.material or {}) if plan is not None else {}
+    except AttributeError:
+        _material = {}
+    _v1_may_be_empty = bool(
+        isinstance(_material, dict)
+        and _material.get("v1_intentionally_empty"))
+    _speech_may_be_empty = bool(
+        isinstance(_material, dict)
+        and _material.get("speech_row_intentionally_empty"))
+    _speech_rows = set()
+    try:
+        _plan_tracks = (getattr(plan, "audio_tracks", None)
+                        if plan is not None else None) or []
+        _speech_rows = {
+            ("audio", t.index) for t in _plan_tracks
+            if getattr(t, "role", "") == "speech"}
+    except (AttributeError, TypeError):
+        _speech_rows = set()
     for (media_type, index), name in names.items():
         if not _items(timeline, media_type, index):
+            if (_v1_may_be_empty and media_type == "video"
+                    and index == 1):
+                continue
+            if (_speech_may_be_empty
+                    and (media_type, index) in _speech_rows):
+                continue
             violations.append({
                 "check": "empty_track",
                 "track": f"{media_type}:{index}",
@@ -220,6 +251,36 @@ def verify_timeline(timeline, plan=None) -> dict:
                                f"{row.name} links to nothing: a-roll "
                                f"picture and its speech travel together."),
                 })
+
+    def _in_picture_led_span(item) -> bool:
+        """Whether this picture item plays a picture-led moment.
+
+        Timeline frames against the build's own spans off the track
+        plan's material. An item Resolve will not answer for is NOT
+        called picture-led - the caller's default is to treat it as
+        picture with speech, which is the safe way to be wrong.
+        """
+        try:
+            material = (plan.material or {}) if plan is not None else {}
+        except AttributeError:
+            return False
+        spans = (material.get("picture_led_spans") or []
+                 if isinstance(material, dict) else [])
+        if not spans:
+            return False
+        span = _span(item)
+        if span is None:
+            return False
+        for bounds in spans:
+            try:
+                start, end = bounds
+            except (TypeError, ValueError):
+                continue
+            if (isinstance(start, (int, float))
+                    and isinstance(end, (int, float))
+                    and start <= span[0] and span[1] <= end):
+                return True
+        return False
     for row in plan.aroll_rows():
         for item in _items(timeline, "video", row.index):
             if _is_held_frame(item):
@@ -233,6 +294,12 @@ def verify_timeline(timeline, plan=None) -> dict:
                 # Measured 2026-09-12 rebuilding Reel 09 through the
                 # variant path: the reel placed correctly and this
                 # check removed it, naming the freeze at 1650.
+                continue
+            if _in_picture_led_span(item):
+                # A picture-led moment says nothing: no words, no
+                # voiceover, no audio anywhere for it to link to. The
+                # spans ride the track plan's material off the build
+                # that placed them.
                 continue
             if not _linked_ids(item):
                 span = _span(item)

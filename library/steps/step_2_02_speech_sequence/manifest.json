@@ -43,6 +43,12 @@
         "description": "State input: temporal_index"
       },
       {
+        "name": "audio_indices",
+        "type": "array",
+        "required": false,
+        "description": "State input: audio_indices - step 1.04's sound-only index, one entry per catalogued voiceover/music file. The bridge reads which audio ids are voiceover and warns on entries that failed to index; the post-bridge refuses a voiceover passage naming a file that never indexed. Absent on runs whose temporal_index predates it."
+      },
+      {
         "name": "clip_catalog",
         "type": "array",
         "required": false,

@@ -369,7 +369,7 @@ def run_mechanical_checks(data: dict) -> dict:
     return result
 
 
-def build_actual_script(a_roll_assignments: list, audio_spine: dict) -> dict:
+def build_actual_script(a_roll_assignments: list, audio_spine: dict, voiceover_assignments: list = None) -> dict:
     """What the viewer HEARS, block by block, from measured words.
 
     Check 5 asks the model to look up the temporal index for each
@@ -387,6 +387,12 @@ def build_actual_script(a_roll_assignments: list, audio_spine: dict) -> dict:
     different job for a different input. Forcing this concatenation
     into it would be a second mechanism in the module, so it lives
     here, beside the mechanical checks whose inputs it shares.
+
+    `voiceover_assignments` is step 3.01's voiceover-sourced speech:
+    words from a catalogued audio file, with no A-roll segment. Each
+    contributes its block's words over its audio range, so the review
+    hears the narration rather than judging a script with the
+    voiceover missing. Absent means the run predates the edge.
 
     Returns {"blocks": [...], "full_text": str, "unvoiced": [...]}.
     A played range with no measured words is NAMED in `unvoiced`,
@@ -464,6 +470,70 @@ def build_actual_script(a_roll_assignments: list, audio_spine: dict) -> dict:
                 "text": text,
                 "word_count": len(spoken),
             })
+
+    for vo in sorted(voiceover_assignments or [],
+                     key=lambda v: (v.get("timeline_start", 0)
+                                    if isinstance(v, dict) else 0)):
+        if not isinstance(vo, dict):
+            continue
+        position = vo.get("spine_block_position", "?")
+        block = by_position.get(str(position), {})
+        words = block.get("word_timestamps") or []
+        audio_id = vo.get("audio_id", "?")
+        try:
+            lo = float(vo.get("audio_in"))
+            hi = float(vo.get("audio_out"))
+        except (TypeError, ValueError):
+            unvoiced.append({
+                "spine_block_position": position,
+                "clip_id": audio_id,
+                "reason": "the voiceover assignment names no audio "
+                          "range, so no words can be looked up for it",
+            })
+            continue
+        if not words:
+            unvoiced.append({
+                "spine_block_position": position,
+                "clip_id": audio_id,
+                "source_in": lo,
+                "source_out": hi,
+                "reason": "the spine block carries no word timings, "
+                          "so what this narration says is undetermined",
+            })
+            continue
+        spoken = [
+            w for w in words
+            if isinstance(w, dict)
+            and w.get("source_start") is not None
+            and w.get("source_end") is not None
+            and float(w["source_start"]) < hi
+            and float(w["source_end"]) > lo
+        ]
+        text = " ".join(
+            str(w.get("word", "")) for w in spoken).strip()
+        if not text:
+            unvoiced.append({
+                "spine_block_position": position,
+                "clip_id": audio_id,
+                "source_in": lo,
+                "source_out": hi,
+                "reason": "no measured words fall inside the played "
+                          "voiceover range - silence or an untranscribed "
+                          "stretch",
+            })
+            continue
+        blocks.append({
+            "spine_block_position": position,
+            "block_type": vo.get("block_type",
+                                block.get("block_type", "?")),
+            "clip_id": audio_id,
+            "timeline_start": vo.get("timeline_start", 0.0),
+            "source_in": lo,
+            "source_out": hi,
+            "text": text,
+            "word_count": len(spoken),
+        })
+    blocks.sort(key=lambda b: b.get("timeline_start", 0))
 
     return {
         "blocks": blocks,
@@ -646,7 +716,8 @@ def main():
     # Declared in manifest.json outputs and context_fields, so the
     # narrative review reads this rather than re-deriving it.
     out["actual_script"] = build_actual_script(
-        data.get("a_roll_assignments", []), data.get("audio_spine", {}))
+        data.get("a_roll_assignments", []), data.get("audio_spine", {}),
+        voiceover_assignments=data.get("voiceover_assignments", []))
     frames_block = build_review_frames(data)
     if frames_block:
         out[OUTPUT_KEY] = frames_block

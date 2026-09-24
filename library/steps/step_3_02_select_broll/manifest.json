@@ -13,6 +13,12 @@
         "description": "State input: a_roll_assignments"
       },
       {
+        "name": "voiceover_assignments",
+        "type": "array",
+        "required": false,
+        "description": "State input: voiceover_assignments - step 3.01's voiceover-sourced speech blocks (words from a catalogued audio file, no V1 picture). The bridge reads which positions those are: a position claimed by both a video and a voiceover assignment is refused, and the handoff tells the model a voiceover block needs B-roll cover like any block with no V1 picture. Absent on runs whose assign_aroll predates it; empty on runs with no voiceover."
+      },
+      {
         "name": "clip_catalog",
         "type": "array",
         "required": true,
@@ -100,7 +106,8 @@
         "name": "broll_creative",
         "type": "list",
         "required": true,
-        "description": "B-roll selections. Each: clip_id (from broll_candidates_toon), spine_block_position, preferred_moment, selection_rationale. NEVER select the clip the block's A-roll already shows"
+        "may_be_empty": true,
+        "description": "B-roll selections. Each: clip_id (from broll_candidates_toon), spine_block_position, preferred_moment, selection_rationale. NEVER select the clip the block's A-roll already shows. Empty is a legitimate answer when every block already plays its own picture and no interjection is earned (the handoff sets no required number, captain's ruling 2026-08-20); the post-bridge still refuses a block with no V1 picture left uncovered."
       },
       {
         "name": "b_roll_interjections",

@@ -23,6 +23,12 @@
         "type": "number",
         "required": true,
         "description": "Timebase from the catalog. Every consumer used to read its own 30.0 default because no edge carried it."
+      },
+      {
+        "name": "audio_catalog",
+        "type": "array",
+        "required": false,
+        "description": "State input: audio_catalog - step 1.02's voiceover/music files in audio_001 numbering. Read for the audio file a voiceover-sourced speech block's words play from; a voiceover block with no intake entry is refused by name. Absent on runs whose catalog predates it."
       }
     ],
     "outputs": [
@@ -30,6 +36,11 @@
         "name": "a_roll_assignments",
         "type": "array",
         "description": "State output: a_roll_assignments"
+      },
+      {
+        "name": "voiceover_assignments",
+        "type": "array",
+        "description": "State output: voiceover_assignments - one entry per voiceover-sourced speech block (words from a catalogued audio file, picture from B-roll cover): spine_block_position, block_type, audio_id, source_file, audio_in/audio_out, duration_seconds and the block's timeline range. Empty on runs with no voiceover, which is the normal case. Read by compile_manifest, which places the audio on A1."
       },
       {
         "name": "hook_assignment",

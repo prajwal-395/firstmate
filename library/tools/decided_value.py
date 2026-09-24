@@ -466,7 +466,14 @@ def schema_entry() -> dict:
         "name": FIELD,
         "type": "list",
         "required": True,
-        "may_be_empty": False,
+        # Empty is a legitimate answer, not a missing one: the prompt
+        # tells the model to leave a value out where the material does
+        # not let it decide one (a speechless edit has no voice to sit
+        # above the bed), and the ladder records the omission as a
+        # fallback or undetermined - never as agreement with a default.
+        # Refusing [] here failed correct output on exactly the runs the
+        # sentence above invites (AGENTS.md 10.4).
+        "may_be_empty": True,
         "description": (
             "One entry per value you were asked to decide above: "
             "{slot, scope, value, why}. `scope` is the name beside the "

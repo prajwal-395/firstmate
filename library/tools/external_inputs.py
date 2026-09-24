@@ -75,7 +75,7 @@ One enumeration, `library/tools/external_inputs.py`.
 - **The file is named for the STATE key, which is the PRODUCER's name for it.** Step 6.01 records `render_output`; step 6.02 calls the same value `rendered_output`. Offering the consumer's name is refused, naming the producer's.
 - **`CHECKS` is the whole of what can be supplied. A key that is not in it is refused by name**, because a check that does not exist is not a check that passes.
 - **A SUPPLIED value is a request; a recorded one is history.** A step every one of whose routed outputs is supplied does not run, on any run shape - `run_scope.supplied_producers` derives which, and naming such a step on the command line is REFUSED rather than silently overwriting what was handed in.
-- **An empty value is refused unless the key is in `EMPTY_IS_A_STATEMENT`**, which is `b_roll_interjections` alone: leaving a file out and supplying nothing are different requests, and only the second can stop `select_broll` inventing cutaways.  **A Resolve timeline in a CLOSED project is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.  A LIVE one IS readable - `library/tools/timeline_ingest.py` is the producer, and what it writes is verified here like anything else.  It is not skipped.
+- **An empty value is refused unless the key is in `EMPTY_IS_A_STATEMENT`**, which is `b_roll_interjections` and `voiceover_assignments`: leaving a file out and supplying nothing are different requests, and only the second can stop `select_broll` inventing cutaways - or stop `assign_aroll` re-running to produce voiceover placements a hand cut never had.  **A Resolve timeline in a CLOSED project is not one of them**: it is not refusable at resolve time, so supply the artifact that describes it instead.  A LIVE one IS readable - `library/tools/timeline_ingest.py` is the producer, and what it writes is verified here like anything else.  It is not skipped.
 - `tests/test_external_inputs.py`.
 """
 
@@ -535,6 +535,61 @@ def _check_b_roll_interjections(value, context: Context) -> str:
     return _check_v2_placements(value, context, "b_roll_interjections")
 
 
+def _check_voiceover_assignments(value, context: Context) -> str:
+    """Narration somebody placed elsewhere: which audio file speaks when.
+
+    The same standard `_check_a_roll_assignments` meets - every claim
+    is about a file on disk and a range inside it - plus the one
+    invariant specific to the layer: A1 speaks one voice at a time, so
+    two overlapping voiceover placements are refused here, naming both,
+    rather than reaching the mix as a pile-up. Whether an EMPTY list
+    may be supplied is not decided here (see `EMPTY_IS_A_STATEMENT`).
+    """
+    if not isinstance(value, list):
+        raise ExternalStateError("voiceover_assignments must be a list")
+    spans = []
+    for index, entry in enumerate(value):
+        where = f"voiceover_assignments[{index}]"
+        if not isinstance(entry, dict):
+            raise ExternalStateError(f"{where} is not an object")
+        source = _existing_file(entry.get("source_file"),
+                                f"{where}.source_file")
+        audio_in = _number(entry.get("audio_in"), f"{where}.audio_in")
+        audio_out = _number(entry.get("audio_out"), f"{where}.audio_out")
+        start = _number(entry.get("timeline_start"),
+                        f"{where}.timeline_start")
+        end = _number(entry.get("timeline_end"), f"{where}.timeline_end")
+        if audio_out <= audio_in:
+            raise ExternalStateError(
+                f"{where} plays {source.name} from {audio_in} to "
+                f"{audio_out}, which is not a range")
+        if end <= start:
+            raise ExternalStateError(
+                f"{where} occupies {start} to {end} on the timeline, "
+                f"which is not a range")
+        audio_id = entry.get("audio_id")
+        if not audio_id:
+            raise ExternalStateError(
+                f"{where} names no audio_id - a voiceover placement "
+                f"without its catalogued file is uncheckable")
+        spans.append((start, end, index))
+
+    spans.sort()
+    for (start, end, index), (next_start, _, next_index) in zip(spans,
+                                                                spans[1:]):
+        if next_start < end - 0.001:
+            raise ExternalStateError(
+                f"voiceover_assignments[{index}] runs to {end}s and "
+                f"voiceover_assignments[{next_index}] starts at "
+                f"{next_start}s. A1 speaks one voice at a time, so two "
+                f"overlapping placements are two descriptions of the "
+                f"same seconds.")
+
+    return (f"{len(value)} voiceover placement(s), none overlapping on "
+            f"A1, every source file present on disk and every range "
+            f"non-empty")
+
+
 def _check_music_selection(value, context: Context) -> str:
     """A bed the captain chose themselves, checked against the audio file.
 
@@ -774,6 +829,7 @@ CHECKS: Dict[str, Check] = {
     "timed_spine": _check_timed_spine,
     "b_roll_assignments": _check_b_roll_assignments,
     "b_roll_interjections": _check_b_roll_interjections,
+    "voiceover_assignments": _check_voiceover_assignments,
     "assembly_manifest": _check_assembly_manifest,
     "captain_edits": _check_captain_edits,
     "music_selection": _check_music_selection,
@@ -782,7 +838,8 @@ CHECKS: Dict[str, Check] = {
 }
 
 
-EMPTY_IS_A_STATEMENT: frozenset = frozenset({"b_roll_interjections"})
+EMPTY_IS_A_STATEMENT: frozenset = frozenset({
+    "b_roll_interjections", "voiceover_assignments"})
 """Keys where an EMPTY value is a decision, not the absence of one.
 
 The default is the other way and stays that way: "nothing is not a

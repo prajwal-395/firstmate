@@ -13,6 +13,12 @@
         "description": "State input: a_roll_assignments"
       },
       {
+        "name": "voiceover_assignments",
+        "type": "array",
+        "required": false,
+        "description": "State input: voiceover_assignments - step 3.01's voiceover-sourced speech blocks. Each becomes an A1 clip playing the catalogued audio file's span over its timeline range, while B-roll covers its picture. Absent on runs whose assign_aroll predates it; empty on runs with no voiceover."
+      },
+      {
         "name": "audio_mix_spec",
         "type": "object",
         "required": true,

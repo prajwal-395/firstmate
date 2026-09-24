@@ -113,7 +113,8 @@ from tools.subject_framing import (
 from tools.transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from tools.vision_schema_adapter import camera_prose, stability_summary
 from tools.brand_registry import (
-    project_template_name, resolve_project_template, project_timeline_name)
+    project_template_name, resolve_project_template, project_timeline_name,
+    resolve_project_name)
 from tools.framing_intent import (DEFAULT_FRAMING_INTENT, FILL,
                                   delivered_framing_intent,
                                   resolve_framing_intent, source_covers_frame,
@@ -2316,6 +2317,49 @@ def compile_manifest(out_dir: str) -> dict:
                     trimmed_from, last_picture_end, last_picture_end,
                 )
 
+    # ── A1 voiceover: words from the audio intake ──
+    # A voiceover-sourced speech block puts nothing on V1, so the V1
+    # mirror below carries none of its sound. Each voiceover assignment
+    # becomes an A1 clip playing the catalogued audio file's span over
+    # the block's timeline range, while B-roll covers its picture. The
+    # renderer places these like any other audio clip (the A2 music
+    # path it already walks for audio-only sources).
+    voiceover_clips = []
+    for assignment in aroll_data.get("voiceover_assignments", []):
+        if not isinstance(assignment, dict):
+            continue
+        source_file = (assignment.get("source_file") or "").strip()
+        if not source_file:
+            raise ValueError(
+                f"Voiceover assignment on block "
+                f"{assignment.get('spine_block_position', '?')} names no "
+                f"source_file - nothing names the audio this block speaks"
+            )
+        clip = {
+            "source_file": source_file,
+            "source_in": assignment.get("audio_in", 0.0),
+            "source_out": assignment.get("audio_out", 0.0),
+            "timeline_in": assignment.get("timeline_start", 0.0),
+            "timeline_out": assignment.get("timeline_end", 0.0),
+            "timeline_in_frame": assignment.get("timeline_start_frame"),
+            "timeline_out_frame": assignment.get("timeline_end_frame"),
+            "link_group_id": None,
+            "label": (f"voiceover_"
+                      f"{assignment.get('spine_block_position', '?')}"),
+            # Read by the renderer to skip the V1 placement, and by the
+            # A1/V1 parity check below to exempt the clip from the V1
+            # mirror count. Same shape as the `bookend` marker card
+            # clips carry.
+            "voiceover": True,
+            "audio_id": assignment.get("audio_id"),
+        }
+        if clip["timeline_in_frame"] is None:
+            convert_clip_to_frames(clip, fps)
+        voiceover_clips.append(clip)
+    if voiceover_clips:
+        print(f"  A1 (Voiceover): {len(voiceover_clips)} clip(s) from "
+              f"the audio intake", file=sys.stderr)
+
     # ── Compile ──
     manifest = {
         "project": {
@@ -2326,6 +2370,13 @@ def compile_manifest(out_dir: str) -> dict:
             # carried the name - including a timeline the captain had
             # been annotating.  See brand_registry.project_timeline_name.
             "name": project_timeline_name(_project_root),
+            # The Resolve PROJECT the timeline builds in - the exact
+            # listed name from resolve.project_name, never the timeline
+            # name above. Step 6.01 opened the timeline's name as a
+            # project on every run ("No project named exactly 'Main
+            # Edit'"), so a build with nowhere bound refuses here
+            # instead. See brand_registry.resolve_project_name.
+            "resolve_project_name": resolve_project_name(_project_root),
             "resolution": proj_res,
             "frame_rate": fps,
             # 3dp, matching clip precision. Rounding the authoritative
@@ -2347,9 +2398,12 @@ def compile_manifest(out_dir: str) -> dict:
                 # The audio that comes with the A-roll. A silent card -
                 # an end card, a logo animation - is deliberately absent:
                 # listing it here would claim an audio stream the file
-                # does not have.
+                # does not have. Voiceover clips ride beside the mirror:
+                # their words come from the audio intake, not from a V1
+                # clip, so no mirror entry exists for them.
                 "clips": sorted(
-                    (c for c in v1_clips if not c.get("video_only")),
+                    ([c for c in v1_clips if not c.get("video_only")]
+                     + voiceover_clips),
                     key=lambda c: c["timeline_in"]),
             },
             "A2": {
@@ -2451,8 +2505,10 @@ def compile_manifest(out_dir: str) -> dict:
                     f"{row.get('label', '?')}: {row.get('reason', '')}"
                     for row in _carry["refused"]))
         manifest["tracks"]["A1"]["clips"] = sorted(
-            (c for c in manifest["tracks"]["V1"]["clips"]
-             if not c.get("video_only")),
+            ([c for c in manifest["tracks"]["V1"]["clips"]
+              if not c.get("video_only")]
+             + [c for c in manifest["tracks"]["A1"]["clips"]
+                if c.get("voiceover")]),
             key=lambda c: c["timeline_in"])
 
     _apply_manifest_qa_checks(manifest)
@@ -2503,7 +2559,8 @@ def compile_manifest(out_dir: str) -> dict:
     A1_clips = manifest["tracks"]["A1"]["clips"]
     V1_clips = [c for c in manifest["tracks"]["V1"]["clips"]
                 if not c.get("video_only")]
-    assert len(A1_clips) == len(V1_clips), f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)}"
+    voiceover_count = sum(1 for c in A1_clips if c.get("voiceover"))
+    assert len(A1_clips) == len(V1_clips) + voiceover_count, f"A1/V1 parity failed: A1={len(A1_clips)} V1={len(V1_clips)} voiceover={voiceover_count}"
 
     assert_overlay_segments_on_disk(manifest)
 

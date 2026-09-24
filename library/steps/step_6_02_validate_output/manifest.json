@@ -39,7 +39,8 @@
       {
         "name": "render_watch_frames",
         "type": "string",
-        "description": "A map of the frame strips the deterministic half drew off the RENDERED FILE, with the directory holding them, the sampling resolution, the questions a still can answer and the boundary of what it cannot. Prompt-only: it is what makes this step's 'you are watching the rendered video' true. See library/tools/render_watch.build_watch_block. Absent on a run that drew none, and the handoff then says the picture was not seen rather than claiming it was. Withheld from a harness that cannot be shown a picture (window_frames.FRAME_INPUTS)."
+        "required": false,
+        "description": "A map of the frame strips the deterministic half drew off the RENDERED FILE, with the directory holding them, the sampling resolution, the questions a still can answer and the boundary of what it cannot. Prompt-only: it is what makes this step's 'you are watching the rendered video' true. See library/tools/render_watch.build_watch_block. Absent on a run that drew none (a sub-second render has no span to sample), and the handoff then says the picture was not seen rather than claiming it was. Withheld from a harness that cannot be shown a picture (window_frames.FRAME_INPUTS)."
       }
     ]
   },

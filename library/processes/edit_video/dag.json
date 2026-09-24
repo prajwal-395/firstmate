@@ -301,7 +301,8 @@
       "from": "temporal_index",
       "to": "speech_sequence",
       "data_mapping": {
-        "temporal_event_indices": "temporal_index"
+        "temporal_event_indices": "temporal_index",
+        "audio_indices": "audio_indices"
       }
     },
     {
@@ -316,6 +317,20 @@
       "to": "music_selection",
       "data_mapping": {
         "creative_direction": "creative_direction"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "music_selection",
+      "data_mapping": {
+        "audio_catalog": "audio_catalog"
+      }
+    },
+    {
+      "from": "temporal_index",
+      "to": "music_selection",
+      "data_mapping": {
+        "audio_indices": "audio_indices"
       }
     },
     {
@@ -351,14 +366,16 @@
       "to": "assign_aroll",
       "data_mapping": {
         "clip_catalog": "clip_catalog",
-        "project_fps": "project_fps"
+        "project_fps": "project_fps",
+        "audio_catalog": "audio_catalog"
       }
     },
     {
       "from": "assign_aroll",
       "to": "select_broll",
       "data_mapping": {
-        "a_roll_assignments": "a_roll_assignments"
+        "a_roll_assignments": "a_roll_assignments",
+        "voiceover_assignments": "voiceover_assignments"
       }
     },
     {
@@ -387,7 +404,8 @@
       "from": "assign_aroll",
       "to": "review_rough_cut",
       "data_mapping": {
-        "a_roll_assignments": "a_roll_assignments"
+        "a_roll_assignments": "a_roll_assignments",
+        "voiceover_assignments": "voiceover_assignments"
       }
     },
     {
@@ -564,7 +582,8 @@
       "from": "assign_aroll",
       "to": "compile_manifest",
       "data_mapping": {
-        "a_roll_assignments": "a_roll_assignments"
+        "a_roll_assignments": "a_roll_assignments",
+        "voiceover_assignments": "voiceover_assignments"
       }
     },
     {

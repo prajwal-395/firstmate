@@ -206,6 +206,29 @@ def test_a_real_step_output_is_not_flagged(broken_steps):
     assert check("select_broll", broken_steps["select_broll"]) == []
 
 
+def test_speechless_subtitle_absence_is_not_hollow():
+    """`available: false` with a reason is a considered answer.
+
+    Defect prevented: the honesty check failing a speechless edit's
+    correct render_subtitles output ("No subtitle entries found in
+    subtitle plan") as hollow - a gate failing correct output
+    (AGENTS.md 10.4). An absence recording an error, or nothing at
+    all, still fails.
+    """
+    check = _check_output_is_real()
+    considered = {"subtitle_overlay": {
+        "available": False, "segments": [],
+        "reason": "No subtitle entries found in subtitle plan"}}
+    assert check("render_subtitles", considered) == []
+    with_error = {"subtitle_overlay": {
+        "available": False, "segments": [],
+        "reason": "No subtitle entries found in subtitle plan",
+        "error": "LibsndfileError: Format not recognised"}}
+    assert check("render_subtitles", with_error) != []
+    silent = {"subtitle_overlay": {"available": False}}
+    assert check("render_subtitles", silent) != []
+
+
 # ─── A passage anchored onto its predecessor's tail ──────────
 #
 # The shipped export cut IMG_1816 63.135-66.635 as block 4 and then

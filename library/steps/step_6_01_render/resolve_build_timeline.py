@@ -77,6 +77,8 @@ for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
         sys.path.append(_p)
 
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+from library.tools.spine_contract import (  # noqa: E402
+    SPEECH_BLOCK_TYPES)
 from library.tools.overlay_carriage import (  # noqa: E402
     apply_clip_attributes,
 )
@@ -375,8 +377,20 @@ def _preflight_check(manifest):
 
     tracks = manifest.get('tracks', {})
     v1_clips = tracks.get('V1', {}).get('clips', [])
+    v2_clips = tracks.get('V2', {}).get('clips', [])
     if not v1_clips:
-        errors.append("No V1 (A-Roll) clips")
+        # A voiceover-over-B-roll cut has no V1 by design: its words
+        # play from the audio intake on A1 and B-roll covers its
+        # picture on V2. compile_manifest's coverage assertion already
+        # proved every frame shows a clip on V1 or V2, so this gate
+        # asks only that the picture exists somewhere - not that it
+        # sits on a particular row.
+        if not v2_clips:
+            errors.append("No V1 (A-Roll) clips and no V2 cover either - "
+                          "nothing names the picture")
+        else:
+            print("  Voiceover-led build: no V1 clips, picture rides "
+                  f"V2 ({len(v2_clips)} clip(s))", file=sys.stderr)
 
     for ci, clip in enumerate(v1_clips):
         src = clip.get('source_file', '')
@@ -714,6 +728,13 @@ def build_timeline(
     v1_clips = tracks.get('V1', {}).get('clips', [])
     v2_clips = tracks.get('V2', {}).get('clips', [])
     a2_clips = tracks.get('A2', {}).get('clips', [])
+    # Voiceover narration: manifest A1 clips carrying `voiceover: True`
+    # (placed by compile_manifest from step 3.01's voiceover
+    # assignments). The V1-mirror A1 clips beside them are NOT placed
+    # from here - their sound arrives linked under their own picture.
+    a1_voiceover_clips = [
+        c for c in tracks.get('A1', {}).get('clips', [])
+        if isinstance(c, dict) and c.get('voiceover')]
     # SFX live in exactly one place: tracks.A3.clips (see compile_manifest).
     a3_clips = tracks.get('A3', {}).get('clips', [])
     # Note: transitions are applied via fusion_effects.transitions, not
@@ -905,6 +926,12 @@ def build_timeline(
     total_imported += _import_to_folder(
         bin_layout.SOURCE_BIN,
         [c.get('source_file', '') for c in a2_clips + a3_clips])
+    # Voiceover narration rides no V1 carrier, so its files arrive
+    # through no other import: without this the A1 placement below
+    # finds nothing pooled and the words never reach the timeline.
+    total_imported += _import_to_folder(
+        bin_layout.SOURCE_BIN,
+        [c.get('source_file', '') for c in a1_voiceover_clips])
     # A sequence arrives as its frame files in one call, which is what
     # groups them into a single image-sequence pool item.
     sub_paths = [s.get('overlay_path', '') for s in sub_segments]
@@ -1109,9 +1136,54 @@ def build_timeline(
             "program_channel": _channel,
         })
 
+    # Whether any speech will ever be placed on a speech row: a
+    # speech/hook spine block, or voiceover narration. Picture-led and
+    # music-led cuts have neither, so their speech row stays empty BY
+    # DESIGN (not by failed placement) - the occupancy sweep keeps it
+    # and the SOP checker exempts it, off the material flags below.
+    _spine_blocks = manifest.get('_spine_blocks', []) or []
+    if _spine_blocks:
+        _spine_has_speech = (
+            any(isinstance(b, dict)
+                and b.get("block_type") in SPEECH_BLOCK_TYPES
+                for b in _spine_blocks)
+            or bool(a1_voiceover_clips))
+    else:
+        # A manifest predating the spine record: read the V1 mirror,
+        # which carries speech audio for speech/hook blocks, silent
+        # picture audio for picture-led blocks (marked `picture_led`),
+        # and nothing for bookend cards. Picture-led reads as
+        # speechless, as it is.
+        _spine_has_speech = (
+            any(not c.get("video_only") and not c.get("picture_led")
+                for c in v1_clips)
+            or bool(a1_voiceover_clips))
     _material = {
         "angles": _material_angles,
         "has_broll": bool(v2_clips),
+        # A voiceover-led cut mints the legacy V1 row with nothing to
+        # place on it: the picture rides V2 by design, not by failure.
+        # The occupancy sweep below keeps that row, and the SOP checker
+        # exempts it, off this flag - an empty V1 anywhere else is
+        # still a row that failed, and still goes.
+        "v1_intentionally_empty": not v1_clips,
+        # The same, for the speech row: a cut with no speech to place
+        # (music-led, or picture-led whose V1 carries picture but no
+        # words) mints it empty, and deleting it drops the rows above
+        # onto the wrong indices against the plan, the names and every
+        # check that reads them.
+        "speech_row_intentionally_empty": not _spine_has_speech,
+        # Where the picture leads with no words: timeline spans (in
+        # frames) of picture-led spine blocks. The SOP checker exempts
+        # items inside them from the picture-travels-with-speech rule -
+        # a picture-led moment carries no audio anywhere, so "could not
+        # be linked" is not "left unlinked" (the held-frame exemption
+        # beside it is the same shape).
+        "picture_led_spans": [
+            [round(float(b.get("timeline_start", 0)) * fps),
+             round(float(b.get("timeline_end", 0)) * fps)]
+            for b in _spine_blocks
+            if isinstance(b, dict) and b.get("block_type") == "picture"],
         "caption_spans": [_span_seconds(s.get("timeline_start"),
                                         s.get("timeline_end"))
                           for s in sub_segments],
@@ -2001,6 +2073,61 @@ def build_timeline(
     # ══════════════════════════════════════════════════════════
     # PLACE A2: Music
     # ══════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════
+    # PLACE VOICEOVER (manifest A1 voiceover clips onto a speech row)
+    # ══════════════════════════════════════════════════════════
+    # Words from the audio intake have no V1 carrier, so their sound
+    # does not arrive linked under a picture the way A-roll speech
+    # does. Each voiceover clip is placed audio-only on a speech row -
+    # the link pass below then joins it to the captions it spans, and
+    # the row's own speech item feeds the same checks A-roll speech
+    # feeds. The first speech row carries it: narration is not
+    # angle-bound, and one row is all a voiceover-led cut mints (a
+    # multi-angle piece with voiceover keeps the single narration row
+    # rather than duplicating the words per angle).
+    if a1_voiceover_clips:
+        _voice_rows = track_plan.speech_rows()
+        if not _voice_rows:
+            results["errors"].append(
+                "Voiceover narration to place and the track plan mints "
+                "no speech row; refusing to park words on an unnamed row.")
+            return results
+        _voice_row = _voice_rows[0].index
+        print(f"\n── A1 Voiceover: {len(a1_voiceover_clips)} clip(s) on "
+              f"A{_voice_row} ──", file=sys.stderr)
+        while timeline.GetTrackCount("audio") < _voice_row:
+            timeline.AddTrack("audio")
+        for ci, clip in enumerate(a1_voiceover_clips):
+            basename = os.path.basename(clip.get('source_file', ''))
+            pool_item = _find_pool_clip(clip.get('source_file', ''))
+            if not pool_item:
+                results["warnings"].append(
+                    f"Voiceover[{ci}] {basename} not in pool")
+                continue
+            tl_in_sec = clip.get('timeline_in', 0)
+            tl_out_sec = clip.get('timeline_out', total_duration)
+            src_fps = _source_fps(pool_item, fps)
+            src_dur_f = round((tl_out_sec - tl_in_sec) * src_fps)
+            src_in_f = round(clip.get('source_in', 0) * src_fps)
+            assert_current_timeline(project, timeline)
+            result = media_pool.AppendToTimeline([{
+                "mediaPoolItem": pool_item,
+                "startFrame": src_in_f,
+                "endFrame": src_in_f + src_dur_f,
+                "trackIndex": _voice_row,
+                "recordFrame": round(tl_in_sec * fps),
+                "mediaType": 2,  # audio-only placement
+            }])
+            if result:
+                placed = result[0] if isinstance(result, list) else result
+                print(f"  ✓ {basename}: {placed.GetDuration()}f on "
+                      f"A{_voice_row}", file=sys.stderr)
+                results["tracks"][f"A{_voice_row}"] = (
+                    results["tracks"].get(f"A{_voice_row}", 0) + 1)
+            else:
+                print(f"  ✗ {basename} on A{_voice_row}: failed",
+                      file=sys.stderr)
+
     if music_allocations:
         print(f"\n── A2+ Music: {len(a2_clips)} clips across "
               f"{len({t for _, t in music_allocations})} track(s) ──",
@@ -2731,6 +2858,12 @@ def build_timeline(
             _cap_items = timeline.GetItemListInTrack("video", _cap_row) or []
         except Exception:
             _cap_items = []
+        # One link call per host, joining EVERY caption it spans. A
+        # call per caption redefines the group each time, so only the
+        # last caption per host stayed linked while every earlier one
+        # read back linked at its own call - and the timeline checker
+        # then failed all but one caption per speech span as unlinked.
+        _caps_by_host = {}
         for _cap in _cap_items:
             _span = _safe_span(_cap)
             if _span is None:
@@ -2745,30 +2878,41 @@ def build_timeline(
                 continue
             _ss, _se, _host, _hkey = _hosts[0]
             _pic = _picture_at(_hkey, _ss)
+            _key = (_ss, _item_uid(_host))
+            _entry = _caps_by_host.setdefault(_key, {
+                "speech_start": _ss, "host": _host, "pic": _pic,
+                "caps": []})
+            _entry["caps"].append((_cs, _ce, _cap))
+        for _key in sorted(_caps_by_host):
+            _entry = _caps_by_host[_key]
+            _host, _pic = _entry["host"], _entry["pic"]
             _group = ([_pic] if _pic is not None and _pic is not _host
-                      else []) + [_host, _cap]
+                      else []) + [_host] + [c for _, _, c in _entry["caps"]]
             try:
                 ok = timeline.SetClipsLinked(_group, True)
             except Exception as exc:
                 results["warnings"].append(
-                    f"Caption link at {_cs} raised {exc!r}")
+                    f"Caption link at {_entry['caps'][0][0]} raised {exc!r}")
                 continue
             if not ok:
                 results["warnings"].append(
-                    f"Caption link at {_cs} declined")
+                    f"Caption link at {_entry['caps'][0][0]} declined")
                 continue
-            _have = _linked_ids(_cap)
-            _want = {_item_uid(m) for m in _group if m is not _cap}
-            _want.discard(None)
-            if _want and _want <= _have:
-                results["caption_links"].append(
-                    {"caption_start": _cs, "caption_end": _ce,
-                     "speech_start": _ss, "members": len(_group)})
-                print(f"  ✓ Caption {_cs}-{_ce} joins speech {_ss} "
-                      f"({len(_group)}-group)", file=sys.stderr)
-            else:
-                results["warnings"].append(
-                    f"Caption link at {_cs} read back unlinked")
+            for _cs, _ce, _cap in _entry["caps"]:
+                _have = _linked_ids(_cap)
+                _want = {_item_uid(m) for m in _group if m is not _cap}
+                _want.discard(None)
+                if _want and _want <= _have:
+                    results["caption_links"].append(
+                        {"caption_start": _cs, "caption_end": _ce,
+                         "speech_start": _entry["speech_start"],
+                         "members": len(_group)})
+                    print(f"  ✓ Caption {_cs}-{_ce} joins speech "
+                          f"{_entry['speech_start']} ({len(_group)}-group)",
+                          file=sys.stderr)
+                else:
+                    results["warnings"].append(
+                        f"Caption link at {_cs} read back unlinked")
 
     # ══════════════════════════════════════════════════════════
     print(f"\n── Track Labels ──", file=sys.stderr)
@@ -2806,6 +2950,17 @@ def build_timeline(
     # the record. Rows Resolve created on its own that the plan never
     # asked for go the same way when empty, and are errors when
     # occupied. Delete from the top down so indices below hold still.
+    # The one exception is a PLANNED-empty V1: a voiceover-led cut
+    # mints the legacy row with nothing to place (the picture rides
+    # V2 by design), and deleting it would shift every row above it
+    # down - B-roll onto V1, captions onto V2 - against the plan, the
+    # names and every check that reads them. The same holds for a
+    # PLANNED-empty speech row on a music-led cut (no A-roll words, no
+    # voiceover): deleting it drops the music row onto A1.
+    _keep_planned_empty_v1 = not v1_clips
+    _keep_planned_empty_speech = {
+        t.index for t in track_plan.speech_rows()
+    } if not _spine_has_speech else set()
     for _mt in ("video", "audio"):
         try:
             _count = timeline.GetTrackCount(_mt) or 0
@@ -2822,6 +2977,18 @@ def build_timeline(
                     results["errors"].append(
                         f"Unplanned {_mt} row {_idx} carries "
                         f"{len(_items)} item(s); refusing to keep it.")
+                continue
+            if (_keep_planned_empty_v1 and _mt == "video" and _idx == 1
+                    and _spec is not None):
+                print(f"  Keeping planned-empty V1 ({_spec}): "
+                      f"voiceover-led picture rides V2 by design",
+                      file=sys.stderr)
+                continue
+            if (_mt == "audio" and _idx in _keep_planned_empty_speech
+                    and _spec is not None):
+                print(f"  Keeping planned-empty {_spec} (A{_idx}): "
+                      f"music-led cut carries no speech by design",
+                      file=sys.stderr)
                 continue
             try:
                 _gone = timeline.DeleteTrack(_mt, _idx)

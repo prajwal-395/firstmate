@@ -31,6 +31,18 @@
         "description": "The project directory. The bridge reads target_duration_seconds off its project.yaml and scans its music/ folder."
       },
       {
+        "name": "audio_catalog",
+        "type": "array",
+        "required": false,
+        "description": "State input: audio_catalog - step 1.02's voiceover/music files in audio_001 numbering. The bridge catalogues them as choosing candidates under the `project` source label (a held music bed is measured like any other track), with step 1.04's measured speech noted per file. Absent on runs whose catalog predates it; empty on video-only projects."
+      },
+      {
+        "name": "audio_indices",
+        "type": "array",
+        "required": false,
+        "description": "State input: audio_indices - step 1.04's sound-only index. The bridge reads each catalogued file's measured speech (total_words) off it, so a voiceover take is catalogued as speech rather than mislabelled a music bed. Absent on runs whose temporal_index predates it."
+      },
+      {
         "name": "timeline_notes",
         "type": "object",
         "required": false,

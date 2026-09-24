@@ -595,11 +595,19 @@ def _report_anchor(label: str, clip_id: str, enrichment: dict,
 def enrich_speech_sequence(
     speech_sequence: dict,
     temporal_index_dir: str,
+    audio_index_errors: dict = None,
 ) -> dict:
     """Enrich all passages with word timestamps from temporal index.
 
     Uses timestamp-based lookup. Each passage must have start/end
     timestamps resolved from the temporal index.
+
+    `audio_index_errors` maps a catalogued `audio_001` id to the error
+    step 1.04 recorded indexing it. A voiceover passage naming one of
+    those files is refused by name here - at the step that aligns
+    speech - rather than failing downstream on a word timing nothing
+    can produce. Absent means the run predates the `audio_indices`
+    edge, and every audio passage aligns off its index file as before.
     """
     # The passage keys this step reads or forwards. Anything else on a
     # passage is REFUSED, never dropped: an unread key is how a probe's
@@ -661,6 +669,18 @@ def enrich_speech_sequence(
         clip_id = passage.get("clip_id")
         if not clip_id:
             raise PassageAlignmentError(f"{label}: passage has no clip_id")
+
+        # A voiceover passage reads its words off a catalogued audio
+        # file, and a file step 1.04 could not index has no words to
+        # give. The `audio_indices` edge carries that failure; without
+        # it this would surface as a generic "no speech regions" three
+        # calls down, naming the symptom rather than the file.
+        if audio_index_errors and clip_id in audio_index_errors:
+            raise PassageAlignmentError(
+                f"{label}: voiceover file {clip_id} failed to index "
+                f"({audio_index_errors[clip_id]}) - its speech cannot "
+                f"be aligned"
+            )
 
         if "source_start" not in passage or "source_end" not in passage:
             raise PassageAlignmentError(
@@ -878,7 +898,19 @@ def main():
                           "step": "2.02_bridge"}))
         sys.exit(1)
 
-    enriched = enrich_speech_sequence(speech_sequence, ti_dir)
+    # Which catalogued audio files failed to index, by audio id. Read
+    # off the `audio_indices` edge - the voiceover half of step 1.04's
+    # answer - so a passage cut from a voiceover take that never
+    # indexed is refused naming the file, not the alignment.
+    audio_index_errors = {}
+    for entry in data.get("audio_indices") or []:
+        if (isinstance(entry, dict) and entry.get("audio_id")
+                and entry.get("error")):
+            audio_index_errors[entry["audio_id"]] = entry["error"]
+
+    enriched = enrich_speech_sequence(
+        speech_sequence, ti_dir,
+        audio_index_errors=audio_index_errors)
 
     # No passage count check. How many passages the edit needs is a
     # creative decision driven by the duration target and the footage.

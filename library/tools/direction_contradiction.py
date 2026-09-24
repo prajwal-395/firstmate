@@ -354,6 +354,7 @@ DECLINED_OUTPUTS = {
     "total_indexed": "1.04 - a count",
     "total_reused": "1.04 - a count",
     "a_roll_assignments": "3.01 places what 2.02 already chose; a placement is not a measurement",
+    "voiceover_assignments": "3.01 - the same placement, for voiceover-sourced speech: which audio span plays where, not a measurement",
     "hook_assignment": "3.01 - the same placement, for the hook",
     "subtitle_plan": "4.01 renders decisions already taken into caption cards",
     "subtitle_overlay": "4.05 - a rendered artifact",

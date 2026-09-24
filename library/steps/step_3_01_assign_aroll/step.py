@@ -11,6 +11,12 @@ rather than left for B-roll.
 Classification: Deterministic / Data Transformation
 Input:  { "audio_spine": {...}, "clip_catalog": [...] }
 Output: { "a_roll_assignments": [...], "hook_assignment": {...} }
+
+A speech block sourced from a catalogued voiceover file (its `clip_id`
+is an `audio_001` id) carries words but no picture: it gets a
+VOICEOVER assignment - the audio span that plays on A1 - and no video
+assignment. Its picture is B-roll's job, placed by step 3.02 over the
+block's timeline range like any other block with no V1 picture.
 """
 import json
 import os
@@ -21,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
 from library.tools.duration_tolerance import DURATION_TOLERANCE  # noqa: E402
+from library.tools.footage_identity import is_audio_id  # noqa: E402
 from library.tools.spine_contract import PICTURE_BLOCK_TYPES, SPEECH_BLOCK_TYPES  # noqa: E402
 
 # TARGET_WIDTH / TARGET_HEIGHT / TARGET_FRAME_RATE were here, described as
@@ -55,18 +62,28 @@ def needs_conform(clip: dict, target_width: int, target_height: int, target_fps:
     return False
 
 
-def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, target_height: int, target_fps: float = 30.0) -> dict:
+def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, target_height: int, target_fps: float = 30.0, audio_catalog: list = None) -> dict:
     """
     Map speech blocks, hook and picture blocks to their A-roll video source files.
 
     The target frame is REQUIRED - the delivery format the caller
     resolved (`resolve_delivery_format`), never a shape literal here.
+
+    `audio_catalog` is step 1.02's voiceover/music intake. A speech
+    block whose `clip_id` names one of those files is voiceover: its
+    words play from the audio file on A1 (a `voiceover_assignments`
+    entry) and no video is placed here. Absent means the run predates
+    the edge, and a voiceover-sourced block is refused naming the
+    missing intake rather than misread as footage.
     """
     # Build clip lookup
     clip_lookup = {c["clip_id"]: c for c in clip_catalog}
+    audio_lookup = {a.get("audio_id"): a for a in (audio_catalog or [])
+                    if isinstance(a, dict) and a.get("audio_id")}
 
     structure = audio_spine.get("structure", [])
     a_roll_assignments = []
+    voiceover_assignments = []
     hook_assignment = None
 
     for block in structure:
@@ -83,6 +100,56 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
             raise ValueError(
                 f"{block_type} block {block['position']} has no clip_id"
             )
+
+        if is_audio_id(clip_id):
+            # Voiceover over B-roll: words from the audio file, picture
+            # from step 3.02's cover. A picture block naming an audio
+            # file has no picture to cut - that plan is refused here,
+            # where the cause is visible, not at compile as a hole.
+            if block_type in PICTURE_BLOCK_TYPES:
+                raise ValueError(
+                    f"picture block {block['position']} names audio file "
+                    f"'{clip_id}' - a picture-led moment with no picture "
+                    f"to cut: cut it from footage, not from a sound-only "
+                    f"file"
+                )
+            audio_entry = audio_lookup.get(clip_id)
+            if audio_entry is None:
+                raise ValueError(
+                    f"Block {block['position']} references audio file "
+                    f"'{clip_id}' not found in the audio catalog"
+                )
+            audio_in = float(block["source_start"])
+            audio_out = float(block["source_end"])
+            audio_duration = float(
+                audio_entry.get("duration_seconds") or 0.0)
+            if audio_duration and audio_out > audio_duration + 0.5:
+                raise ValueError(
+                    f"Block {block['position']}: source range "
+                    f"{audio_in:.3f}-{audio_out:.3f}s runs past the end "
+                    f"of {clip_id} ({audio_duration:.3f}s)"
+                )
+            voiceover_assignments.append({
+                "spine_block_position": block["position"],
+                "block_type": block_type,
+                "audio_id": clip_id,
+                "source_file": audio_entry.get("source_file")
+                or audio_entry.get("path", ""),
+                "audio_in": audio_in,
+                "audio_out": audio_out,
+                "duration_seconds": round(audio_out - audio_in, 3),
+                "timeline_start": block["timeline_start"],
+                "timeline_end": block["timeline_end"],
+                "timeline_start_frame": block.get("timeline_start_frame"),
+                "timeline_end_frame": block.get("timeline_end_frame"),
+                "duration_frames": block.get("duration_frames"),
+            })
+            if block_type == "hook":
+                hook_assignment = {
+                    "spine_block_position": block["position"],
+                    "clip_id": clip_id,
+                }
+            continue
 
         clip = clip_lookup.get(clip_id)
         if not clip:
@@ -136,12 +203,14 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
 
 
     # --- Verification ---
-    # Every speech, hook and picture block has a video assignment.
+    # Every speech, hook and picture block has a video assignment -
+    # unless it is voiceover-sourced, in which case it has a voiceover
+    # assignment instead and B-roll covers its picture.
     # Music blocks and transition slots carry no A-roll - their picture
     # is B-roll's job, placed by step 3.02.
     speech_blocks = [b for b in structure if b["block_type"] in SPEECH_BLOCK_TYPES + PICTURE_BLOCK_TYPES]
-    assert len(a_roll_assignments) == len(speech_blocks), \
-        f"Assignment count ({len(a_roll_assignments)}) != speech, hook and picture blocks ({len(speech_blocks)})"
+    assert len(a_roll_assignments) + len(voiceover_assignments) == len(speech_blocks), \
+        f"Assignment count ({len(a_roll_assignments)} video + {len(voiceover_assignments)} voiceover) != speech, hook and picture blocks ({len(speech_blocks)})"
 
     # Hook has a video assignment
     if any(b["block_type"] == "hook" for b in structure):
@@ -152,11 +221,19 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
     for asgn in a_roll_assignments:
         for vs in asgn["video_segments"]:
             all_clip_ids.add(vs["clip_id"])
-    if hook_assignment:
-        all_clip_ids.add(hook_assignment["clip_id"])
 
     for cid in all_clip_ids:
         assert cid in clip_lookup, f"clip_id '{cid}' not found in catalog"
+    if hook_assignment:
+        # A voiceover hook's words come from the audio intake, not
+        # from footage - its id lives in the other catalog.
+        hook_clip = hook_assignment["clip_id"]
+        if is_audio_id(hook_clip):
+            assert hook_clip in audio_lookup, f"audio_id '{hook_clip}' not found in audio catalog"
+        else:
+            assert hook_clip in clip_lookup, f"clip_id '{hook_clip}' not found in catalog"
+    for asgn in voiceover_assignments:
+        assert asgn["audio_id"] in audio_lookup, f"audio_id '{asgn['audio_id']}' not found in audio catalog"
 
     # --- Duration invariant ---
     # For each A-roll assignment, the total source duration of its video
@@ -183,10 +260,26 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
                 f"Fix in step 2.5 (mesh spine).",
                 file=sys.stderr,
             )
+    for asgn in voiceover_assignments:
+        tl_dur = round(
+            asgn.get("timeline_end", 0) - asgn.get("timeline_start", 0), 3
+        )
+        src_dur = round(asgn.get("duration_seconds", 0.0), 3)
+        delta = abs(src_dur - tl_dur)
+        if delta > DURATION_TOLERANCE:
+            print(
+                f"WARNING: Duration invariant violation in voiceover "
+                f"block {asgn['spine_block_position']}: "
+                f"source={src_dur}s, timeline={tl_dur}s, delta={delta}s. "
+                f"Speech will be truncated or have dead air. "
+                f"Fix in step 2.5 (mesh spine).",
+                file=sys.stderr,
+            )
 
     return {
         "a_roll_assignments": a_roll_assignments,
         "hook_assignment": hook_assignment,
+        "voiceover_assignments": voiceover_assignments,
     }
 
 
@@ -202,7 +295,7 @@ def main():
         input_data.get("project_folder"))
 
     try:
-        result = assign_a_roll(audio_spine, clip_catalog, target_width, target_height, target_fps)
+        result = assign_a_roll(audio_spine, clip_catalog, target_width, target_height, target_fps, audio_catalog=input_data.get("audio_catalog"))
     except ValueError as e:
         print(json.dumps({"error": str(e), "step": "3.1_assign_aroll"}))
         sys.exit(1)

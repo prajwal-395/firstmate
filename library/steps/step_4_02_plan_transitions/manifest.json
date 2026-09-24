@@ -123,7 +123,8 @@
         "name": "transition_creative",
         "type": "list",
         "required": true,
-        "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale, plus OPTIONAL anchor (the exact point of the cut: {word} in the OUTGOING block, {beat}/{bar+beat}/{downbeat} on the measured grid, or {frame}; with optional offset_seconds/offset_frames; no anchor_end on a cut). An anchored cut lands exactly where the anchor resolves, winning over the word-end and beat-snap; an unresolvable anchor refuses the step."
+        "may_be_empty": true,
+        "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale, plus OPTIONAL anchor (the exact point of the cut: {word} in the OUTGOING block, {beat}/{bar+beat}/{downbeat} on the measured grid, or {frame}; with optional offset_seconds/offset_frames; no anchor_end on a cut). An anchored cut lands exactly where the anchor resolves, winning over the word-end and beat-snap; an unresolvable anchor refuses the step. Empty is a legitimate answer on a cut-less edit - and where no cut earned a drawn gesture; the post-bridge carries no floor and adds none."
       }
     ],
     "requirements": [

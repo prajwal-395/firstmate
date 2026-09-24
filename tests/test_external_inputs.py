@@ -526,6 +526,57 @@ def test_an_empty_value_is_still_refused_for_every_other_key(tmp_path):
     assert "b_roll_interjections" in str(exc.value)
 
 
+def _voiceover(clip, timeline_start, timeline_end, audio_in=0.0):
+    return {"spine_block_position": 1, "block_type": "speech",
+            "audio_id": "audio_001", "source_file": clip,
+            "audio_in": audio_in,
+            "audio_out": audio_in + (timeline_end - timeline_start),
+            "timeline_start": timeline_start, "timeline_end": timeline_end}
+
+
+def test_voiceover_supplied_from_outside_is_accepted(tmp_path):
+    """A hand cut may carry its narration: the file, the span, one voice."""
+    project = _project(tmp_path)
+    clip = _clip(tmp_path, "vo.wav")
+    _supply(project, "voiceover_assignments",
+            [_voiceover(clip, 1.0, 2.5)])
+    entry = external_inputs.load(str(project))["voiceover_assignments"]
+    assert "none overlapping on A1" in entry.checked
+
+
+def test_an_empty_voiceover_supply_is_a_decision(tmp_path):
+    """`[]` voiceover_assignments says no narration, like `[]`
+    b_roll_interjections says no standalone cutaways - so a hand cut
+    without voiceover keeps assign_aroll from re-running to invent it."""
+    project = _project(tmp_path)
+    _supply(project, "voiceover_assignments", [])
+    entry = external_inputs.load(str(project))["voiceover_assignments"]
+    assert entry.value == []
+
+
+def test_two_voices_over_the_same_seconds_are_refused(tmp_path):
+    """A1 speaks one voice at a time."""
+    project = _project(tmp_path)
+    clip = _clip(tmp_path, "vo.wav")
+    _supply(project, "voiceover_assignments",
+            [_voiceover(clip, 1.0, 2.5), _voiceover(clip, 2.0, 3.0)])
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "one voice at a time" in str(exc.value)
+
+
+def test_voiceover_without_its_file_is_refused(tmp_path):
+    """A placement without audio_id is uncheckable."""
+    project = _project(tmp_path)
+    clip = _clip(tmp_path, "vo.wav")
+    entry = _voiceover(clip, 1.0, 2.5)
+    del entry["audio_id"]
+    _supply(project, "voiceover_assignments", [entry])
+    with pytest.raises(ExternalStateError) as exc:
+        external_inputs.load(str(project))
+    assert "audio_id" in str(exc.value)
+
+
 def test_the_second_name_the_spine_is_recorded_under_is_checkable(tmp_path):
     """`timed_spine` IS `audio_spine` (mesh_spine's post_bridge sets them
     equal), and four steps read one while three read the other. Supplying
@@ -552,6 +603,7 @@ def _rough_cut(project, tmp_path):
     _supply(project, "a_roll_assignments", _a_roll(clip))
     _supply(project, "b_roll_assignments", [_placement(clip, 1.0, 2.0)])
     _supply(project, "b_roll_interjections", [])
+    _supply(project, "voiceover_assignments", [])
     _supply(project, "speech_sequence", _sequence(tmp_path))
     return {k: v.value for k, v in
             external_inputs.load(str(project)).items()}

@@ -2552,11 +2552,21 @@ def check_output_is_real(node_id: str, output: dict) -> list:
         if not isinstance(value, dict):
             return
         if value.get("available") is False:
-            reason = value.get("error") or value.get("reason") or "no reason given"
-            problems.append(
-                f"{path} reports available=false: "
-                f"{str(reason).splitlines()[0][:200]}"
-            )
+            # An absence with a recorded ERROR is hollow (music_analysis
+            # around a captured traceback). An absence with only a
+            # REASON is a considered answer - render_subtitles on an
+            # empty plan returns available:false with why, which is what
+            # the step has always done, and a speechless edit has no
+            # subtitles to render. Flagging that fails correct output
+            # (AGENTS.md 10.4); an absence that records nothing stays
+            # flagged.
+            if value.get("error") or not value.get("reason"):
+                reason = (value.get("error") or value.get("reason")
+                          or "no reason given")
+                problems.append(
+                    f"{path} reports available=false: "
+                    f"{str(reason).splitlines()[0][:200]}"
+                )
         elif value.get("available") is True:
             payload = {
                 k: v for k, v in value.items()

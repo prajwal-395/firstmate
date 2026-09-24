@@ -228,6 +228,105 @@ def _duration_verdict(duration: float, target_duration: float,
     return True, ""
 
 
+def catalogue_project_audio(inputs: dict, target_duration: float,
+                            ceiling: float) -> list:
+    """Catalogued voiceover/music files as choosing candidates.
+
+    Step 1.02 catalogues what the project brings that carries no
+    picture into `audio_catalog` (`audio_001` numbering), and step 1.04
+    indexes each file's sound into `audio_indices`. A music bed the
+    captain already holds is a track like any other: it joins the
+    candidates under the `project` source label and is measured by the
+    same pass below, so the model chooses from it rather than around
+    it. Each row carries what step 1.04 MEASURED about speech in the
+    file - a voiceover take with minutes of words is catalogued, not
+    hidden, and the note says what it is so the choice is informed.
+
+    `audio_catalog` arrives on the DAG edge when the run carried it;
+    runs whose catalog predates it fall back to the state file, and a
+    run with neither catalogues nothing here rather than refusing -
+    an empty audio intake is the normal video-only project.
+    """
+    project_folder = inputs.get("project_folder", "") or ""
+    audio_catalog = inputs.get("audio_catalog")
+    # What step 1.04 measured about speech in each catalogued file, by
+    # audio id - read independently of where the catalog itself came
+    # from. An earlier shape read it only on the state-fallback path,
+    # so a run carrying `audio_catalog` on its edge labelled every
+    # voiceover take "no transcribed speech".
+    speech_by_id = {}
+    for entry in inputs.get("audio_indices") or []:
+        if isinstance(entry, dict) and entry.get("audio_id"):
+            speech_by_id[entry["audio_id"]] = entry
+    if audio_catalog is None and project_folder:
+        # A run whose catalog predates the `audio_catalog` edge still
+        # has the answer in its state file; a run with neither
+        # catalogues nothing here rather than refusing.
+        try:
+            from library.tools.project_layout import ProjectLayout
+            state_file = str(ProjectLayout(
+                project_folder).pipeline_data_path)
+            if os.path.isfile(state_file):
+                with open(state_file, encoding="utf-8") as handle:
+                    state_data = json.load(handle) or {}
+                outputs = state_data.get("step_outputs", {})
+                audio_catalog = (outputs.get("catalog", {}).get(
+                    "audio_catalog"))
+                for entry in (outputs.get("temporal_index", {}).get(
+                        "audio_indices") or []):
+                    if (isinstance(entry, dict)
+                            and entry.get("audio_id")):
+                        speech_by_id[entry["audio_id"]] = entry
+        except Exception as exc:
+            print(f"  WARNING: could not read audio_catalog from "
+                  f"state: {exc}", file=sys.stderr)
+            audio_catalog = []
+    if not isinstance(audio_catalog, list):
+        audio_catalog = []
+
+    candidates = []
+    for entry in audio_catalog:
+        if not isinstance(entry, dict):
+            continue
+        full_path = entry.get("path") or entry.get("source_file", "")
+        if not full_path or not os.path.isfile(full_path):
+            continue
+        if os.path.getsize(full_path) <= 0:
+            continue
+        if (os.path.splitext(
+                entry.get("filename") or full_path)[1].lower()
+                not in AUDIO_EXTENSIONS):
+            continue
+        duration = entry.get("duration_seconds") or _get_audio_duration(
+            full_path)
+        try:
+            duration = float(duration)
+        except (TypeError, ValueError):
+            duration = 0.0
+        ok, note = _duration_verdict(duration, target_duration, ceiling)
+        speech = speech_by_id.get(entry.get("audio_id", ""), {})
+        words = speech.get("total_words", 0) or 0
+        speech_note = (
+            f"catalogued voiceover take ({words} transcribed words)"
+            if words else "catalogued music bed (no transcribed speech)"
+        )
+        candidates.append({
+            "title": os.path.splitext(
+                entry.get("filename") or os.path.basename(full_path))[0],
+            "audio_path": full_path,
+            "duration_seconds": round(duration, 3),
+            "source": "project",
+            "duration_ok": ok,
+            "duration_note": note,
+            "catalog_note": (f"{speech_note}; held in the project's "
+                             f"own audio intake as {entry.get('audio_id')}."),
+        })
+    if candidates:
+        print(f"  project audio intake: {len(candidates)} catalogued "
+              f"file(s) join the candidates", file=sys.stderr)
+    return candidates
+
+
 def catalogue_music(project_folder: str, target_duration: float) -> dict:
     """Every local track, from every source, labelled. Not yet measured."""
     ceiling = max_track_duration_seconds(target_duration)
@@ -418,6 +517,17 @@ def run(inputs: dict) -> dict:
     creative_direction = inputs.get("creative_direction") or {}
     target_duration = _target_duration(inputs)
     catalogue = catalogue_music(project_folder, target_duration)
+    local_count = len(catalogue["candidates"])
+
+    # What the project itself brought: a catalogued music bed joins the
+    # candidates under the `project` label and is measured by the same
+    # pass, so the model chooses from it rather than around it.
+    for record in catalogue_project_audio(
+            inputs, target_duration,
+            catalogue["max_track_duration_seconds"]):
+        if record["audio_path"] not in {
+                c.get("audio_path") for c in catalogue["candidates"]}:
+            catalogue["candidates"].append(record)
     local_count = len(catalogue["candidates"])
 
     # Search is default-on (captain's ruling 2026-09-02).  When the

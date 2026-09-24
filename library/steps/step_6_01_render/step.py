@@ -113,6 +113,33 @@ def _visual_qa_prompt_addition(visual_qa) -> str:
     )
 
 
+def _resolve_build_project_name(manifest: dict) -> str:
+    """The Resolve PROJECT a build opens, off the manifest.
+
+    ``manifest.project.resolve_project_name`` - the exact listed name
+    from the project's ``resolve.project_name`` - never the timeline
+    name beside it. Passing the timeline's name opened a project of
+    that name on every run ("No project named exactly 'Main Edit'").
+    Empty refuses naming the declaration: a build with nowhere bound
+    must not open whatever project happens to be current.
+    """
+    from library.tools.ren_refusal import RenRefusal
+
+    name = ((manifest.get("project") or {}).get(
+        "resolve_project_name") or "").strip()
+    if not name:
+        raise RenRefusal(
+            what=("compile_manifest recorded no resolve_project_name, "
+                  "so the build has no Resolve project bound"),
+            why=("the project declares no resolve.project_name - and a "
+                 "build must not open whatever project happens to be "
+                 "current, least of all on the captain's machine"),
+            fix=("declare resolve.project_name in project.yaml (the "
+                 "exact name as Resolve's project list reports it) and "
+                 "recompile"))
+    return name
+
+
 def _render_output_payload(result: dict, export: dict,
                            resolve_project_name: str = "") -> dict:
     """The render record 6.02 validates, as the `render_output` state key.
@@ -247,8 +274,7 @@ def run(inputs: dict) -> dict:
             manifest=manifest,
             subtitle_overlay_path=inputs.get("subtitle_overlay_path"),
             motion_graphics_path=inputs.get("motion_graphics_path"),
-            project_name=manifest.get("project", {}).get(
-                "name", DEFAULT_TIMELINE_NAME),
+            project_name=_resolve_build_project_name(manifest),
             project_folder=inputs.get("project_folder", ""),
         )
         
@@ -263,7 +289,7 @@ def run(inputs: dict) -> dict:
             if os.path.join(PILOT_ROOT, "library") not in sys.path:
                 sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
             from tools.qa.timeline_sync_qa import run_timeline_sync_qa
-            run_timeline_sync_qa(manifest, manifest.get("project", {}).get("name", DEFAULT_TIMELINE_NAME), result.get("timeline_name"))
+            run_timeline_sync_qa(manifest, _resolve_build_project_name(manifest), result.get("timeline_name"), result.get("track_plan"))
         except Exception as e:
             raise RuntimeError(f"Timeline Sync QA Validation Failed: {str(e)}")
             
@@ -280,8 +306,7 @@ def run(inputs: dict) -> dict:
         output_payload = {
             "render_output": _render_output_payload(
                 result, export,
-                resolve_project_name=(manifest.get("project") or {}).get(
-                    "name", DEFAULT_TIMELINE_NAME)),
+                resolve_project_name=_resolve_build_project_name(manifest)),
         }
 
         if "visual_qa" in result and result["visual_qa"]:

@@ -33,6 +33,7 @@ import sys
 from library.tools.semantic_index import build_semantic_lookup
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.cutaway_window import choose_window
+from library.tools.spine_contract import declares_black_beat
 from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.transition_carriers import block_reaches_v1
 
@@ -473,19 +474,6 @@ def main():
     if not isinstance(broll_creative, list):
         broll_creative = []
 
-    if not broll_creative:
-        err_msg = json.dumps({
-            "error": (
-                "Missing: broll_creative. The B-roll selection step "
-                "produced no assignments; it must choose clips from "
-                "broll_candidates_toon."
-            ),
-            "step": "3.2_bridge",
-        })
-        print(err_msg, file=sys.stderr)
-        print(err_msg)
-        sys.exit(1)
-
     for broll in broll_creative:
         if not isinstance(broll, dict):
             raise ValueError("Items in broll_creative must be dictionaries")
@@ -518,6 +506,35 @@ def main():
     # The accepted consequence: a thin edit is no longer caught
     # mechanically. Do not reintroduce an equivalent check here or
     # elsewhere. Guarded by tests/test_no_creative_floors.py.
+    #
+    # What an empty plan must still not do is leave a block with no V1
+    # picture uncovered: with no A-roll underneath, the cutaway IS the
+    # picture, and the hole would otherwise fail a whole stage later at
+    # compile_manifest as undeclared black. That case refuses HERE,
+    # naming the block, through the post-bridge retry path back to the
+    # model that chose nothing for it. A deliberately declared black
+    # beat is covered by its declaration, not by a cutaway.
+    covered = {str(a.get("spine_block_position"))
+               for a in result.get("b_roll_assignments", [])
+               if isinstance(a, dict)}
+    uncovered = [
+        str(block.get("position"))
+        for block in timed_spine.get("structure", [])
+        if isinstance(block, dict)
+        and not block_reaches_v1(block)
+        and not declares_black_beat(block)
+        and str(block.get("position")) not in covered
+    ]
+    if uncovered:
+        from library.tools.ren_refusal import RenRefusal
+
+        raise RenRefusal(
+            what=(f"B-roll selection covers no picture for block(s) "
+                  f"{uncovered}"),
+            why=("each puts nothing on V1, so without a cutaway those "
+                 "ranges render black"),
+            fix=("select a clip covering each block, or declare the "
+                 "hole an intentional black beat on the spine block"))
 
     json.dump(result, sys.stdout, indent=2)
 

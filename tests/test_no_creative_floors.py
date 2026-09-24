@@ -273,6 +273,95 @@ def test_select_broll_accepts_a_single_cutaway():
         )
 
 
+def test_select_broll_accepts_an_empty_plan_when_nothing_needs_cover():
+    """Zero B-roll is a legitimate answer on an all-V1 spine.
+
+    Defect prevented: the post-bridge refusing an empty `broll_creative`
+    outright ("must choose clips"), which failed a correct all-speech
+    edit at validation as "semantically empty" - a gate failing correct
+    output, the same defect as one that cannot fail (AGENTS.md 10.4).
+    Coverage still refuses below: a block with no V1 picture left
+    uncovered names its block rather than sailing to black frames.
+    """
+    payload = {
+        "clip_catalog": [
+            {
+                "clip_id": "clip_001",
+                "source_file": "/tmp/a.mov",
+                "duration_seconds": 30.0,
+                "width": 1080,
+                "height": 1920,
+            },
+        ],
+        "semantic_analysis_documents": [],
+        "temporal_event_indices": [],
+        "timed_spine": {
+            "structure": [
+                {
+                    "position": 1,
+                    "block_type": "speech",
+                    "clip_id": "clip_001",
+                    "timeline_start": 0.0,
+                    "timeline_end": 4.0,
+                }
+            ]
+        },
+        "broll_creative": [],
+        "b_roll_interjections": [],
+    }
+    proc = _run_bridge(BROLL / "post_bridge.py", payload)
+    assert proc.returncode == 0, (
+        f"an empty plan on an all-V1 spine was rejected.\n"
+        f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+    )
+    result = json.loads(proc.stdout)
+    assert result["b_roll_assignments"] == []
+
+
+def test_select_broll_refuses_an_uncovered_music_block_by_name():
+    """An empty plan that leaves a music block bare fails naming it.
+
+    Defect prevented, the other direction: allowing the empty plan
+    above to sail through where cover IS required, failing a whole
+    stage later at compile_manifest as undeclared black with the
+    evidence about WHY gone.
+    """
+    payload = {
+        "clip_catalog": [
+            {
+                "clip_id": "clip_001",
+                "source_file": "/tmp/a.mov",
+                "duration_seconds": 30.0,
+                "width": 1080,
+                "height": 1920,
+            },
+        ],
+        "semantic_analysis_documents": [],
+        "temporal_event_indices": [],
+        "timed_spine": {
+            "structure": [
+                {
+                    "position": 1,
+                    "block_type": "music",
+                    "clip_id": None,
+                    "timeline_start": 0.0,
+                    "timeline_end": 4.0,
+                }
+            ]
+        },
+        "broll_creative": [],
+        "b_roll_interjections": [],
+    }
+    proc = _run_bridge(BROLL / "post_bridge.py", payload)
+    assert proc.returncode != 0, (
+        "an uncovered music block passed the post-bridge - the hole "
+        "would fail at compile as undeclared black."
+    )
+    assert "1" in (proc.stdout + proc.stderr), (
+        "the refusal names no block position."
+    )
+
+
 def _sfx_payload(n_sfx: int):
     spine = {
         "structure": [

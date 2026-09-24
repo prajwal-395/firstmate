@@ -49,7 +49,9 @@ already has one, select appropriate B-roll clips from the catalog.
 
 **1. B-roll Assignments (blocks with no V1 picture)**
 - Every block that puts nothing on V1 (intro, transition_slot, outro,
-  music) MUST have B-roll - the cutaway IS the picture there
+  music - and a speech block sourced from a voiceover file, whose
+  `clip_id` names `audio_001` rather than footage) MUST have B-roll -
+  the cutaway IS the picture there
 - These go on video track V2 (or V1 if no underlying A-roll)
 - B-roll clip duration must match or exceed the block duration
 - If longer, use only a portion (set video_in/video_out)
@@ -91,7 +93,8 @@ For each block, read its `visual_note` and the speech around it, then filter
   `unstable` and a moving camera read energetic. Match the creative
   direction's energy.
 - A clip whose `duration_s` is shorter than the block cannot cover it. On a
-  block with no A-roll underneath (intro, transition_slot, outro, music) the cutaway
+  block with no A-roll underneath (intro, transition_slot, outro, music,
+  voiceover-sourced speech) the cutaway
   IS the picture, so it must cover the block end to end: pick a clip at least
   as long as the block. One block takes one cutaway, so leaving it short
   leaves black on the timeline, which fails compilation unless the plan has

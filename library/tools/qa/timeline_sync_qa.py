@@ -58,7 +58,29 @@ def _verify_track_placement(track, expected_clips, timeline_items,
     return errors
 
 
-def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str) -> dict:
+def _caption_track_index(track_plan) -> int:
+    """The video row the build laid captions on, off its own track plan.
+
+    The builder places subtitle segments on `track_plan.caption_row()`,
+    whose index moves with the material (V2 with no B-roll row above
+    it, V3 with one). Reading a hardcoded V3 here failed every build
+    whose captions landed elsewhere. Absent plan means an older build
+    result: V3 is what those always used, so that stays the fallback
+    rather than a refusal.
+    """
+    try:
+        tracks = (track_plan or {}).get("video_tracks", []) or []
+        for track in tracks:
+            if isinstance(track, dict) and track.get("role") == "captions":
+                index = track.get("index")
+                if isinstance(index, int) and index >= 1:
+                    return index
+    except (AttributeError, TypeError):
+        pass
+    return 3
+
+
+def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str, track_plan: dict = None) -> dict:
     if os.environ.get("SKIP_QA_CHECKS") == "1":
         print("Skipping timeline sync QA check (SKIP_QA_CHECKS=1)", file=sys.stderr)
         return {"passed": True, "reason": "skipped"}
@@ -116,13 +138,15 @@ def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str) 
     ))
 
     
-    # Check V3 Subtitles
+    # Check the captions row: wherever the build's own track plan laid
+    # them, not a hardcoded V3 (see _caption_track_index).
     sub_overlay_info = manifest.get('subtitle_overlay', {})
     sub_segments = sub_overlay_info.get('segments', [])
-    v3_items = timeline.GetItemListInTrack("video", 3) or []
-    
+    caption_track = _caption_track_index(track_plan)
+    caption_items = timeline.GetItemListInTrack("video", caption_track) or []
+
     errors.extend(_verify_track_placement(
-        "V3", sub_segments, v3_items, TOLERANCE,
+        f"V{caption_track}", sub_segments, caption_items, TOLERANCE,
         expected_frame_of=lambda seg: round(seg.get('timeline_start', 0) * fps),
         name_of=lambda seg: os.path.basename(seg.get('overlay_path', '')),
     ))

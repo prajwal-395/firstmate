@@ -361,6 +361,22 @@ def enumerate_audio(project_folder: str) -> Tuple[List[dict], List[dict]]:
     return files, skipped
 
 
+def is_audio_id(value: object) -> bool:
+    """True when this id names a catalogued audio file, not footage.
+
+    The `audio_001` numbering is the whole of the answer: audio ids are
+    assigned centrally by `enumerate_audio`, video ids by
+    `enumerate_footage`, and the two spaces never mix - admitting a
+    voiceover wav into the video numbering would renumber every video
+    clip after it (see `SUPPORTED_AUDIO_EXTENSIONS`). A spine block or
+    passage carrying one of these as its `clip_id` is voiceover-sourced
+    speech: its words come from the audio file, and its picture - if it
+    has one - comes from B-roll, never from the id.
+    """
+    return (isinstance(value, str)
+            and value.startswith("audio_"))
+
+
 def fingerprints_for(raw_footage_files: List[dict]) -> Dict[str, dict]:
     """``{clip_id: {path, size_bytes, content_digest}}`` for a footage list.
 

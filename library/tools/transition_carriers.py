@@ -81,7 +81,7 @@ keeps the headline and points here.
 
 **A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**
 One enumeration, `library/tools/transition_carriers.py`.
-- `block_reaches_v1` is the single statement of V1 membership - a bookend card, a `speech`, `hook` or `picture` block - and `compile_manifest` builds its V1 track from that same predicate, so the two cannot drift.
+- `block_reaches_v1` is the single statement of V1 membership - a bookend card, a `speech`, `hook` or `picture` block cut from footage (a voiceover-sourced speech block puts nothing on V1: its words play from the audio file and B-roll covers its picture) - and `compile_manifest` builds its V1 track from that same predicate, so the two cannot drift.
 - Every B-roll placement goes on V2, so a cut whose OUTGOING block is a `transition_slot` has no V1 clip ending on it and `compile_manifest` refuses the transition by name. A cut whose outgoing clip is the LAST thing on V1 is refused too: the effect is a tail AND a head.
 - `cut_carriers` reads that off the spine before the run, and step 4.02's bridge puts it in `cuts_toon` as `can_carry_drawn_transition` / `carry_basis`. **Both columns are DEFINED in step 4.02's `handoff.md`**, under "Context data available". They travelled beside the table as a `CUTS_LEGEND` dict only while that file was under the captain's freeze; the freeze was lifted 2026-09-09 and the definition moved into the prose, because one living in two places is worse than either.
 - **The table is never filtered or re-ranked.** Every cut is still offered; the model is told the truth and still chooses (section 10.5).
@@ -89,6 +89,7 @@ One enumeration, `library/tools/transition_carriers.py`.
 """
 
 from library.tools.bookends import block_bookend
+from library.tools.footage_identity import is_audio_id
 from library.tools.spine_contract import PICTURE_BLOCK_TYPES, SPEECH_BLOCK_TYPES
 
 # Why a cut cannot carry a drawn transition, or why it can.  One string
@@ -117,12 +118,22 @@ def block_reaches_v1(block: dict) -> bool:
     V1 track from this, and :func:`cut_carriers` reads the same rule off
     the spine before the run, so a step planning transitions and the step
     compiling them cannot disagree about where the picture is.
+
+    A speech or hook block sourced from a catalogued voiceover file
+    (its `clip_id` is an `audio_001` id) puts NOTHING on V1: its words
+    play from the audio file on A1 and B-roll covers its picture, so
+    for V1 membership it reads like the music block beside it.
     """
     if not isinstance(block, dict):
         return False
     if block_bookend(block):
         return True
-    return block.get("block_type") in SPEECH_BLOCK_TYPES + PICTURE_BLOCK_TYPES
+    if block.get("block_type") not in (
+            SPEECH_BLOCK_TYPES + PICTURE_BLOCK_TYPES):
+        return False
+    if is_audio_id(block.get("clip_id")):
+        return False
+    return True
 
 
 def cut_carriers(structure: list) -> list[dict]:

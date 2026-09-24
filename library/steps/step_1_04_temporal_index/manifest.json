@@ -54,7 +54,7 @@
       {
         "name": "audio_indices",
         "type": "array",
-        "description": "State output: audio_indices - one sound-only index per cataloged audio file (speech regions in the project's language, energy, onsets, events). Empty on video-only projects, which is the normal case. Read by the voiceover/music spine; until that lane lands, the per-audio files beside the video indices are the artifact.",
+        "description": "State output: audio_indices - one sound-only index per cataloged audio file (speech regions in the project's language, energy, onsets, events). Empty on video-only projects, which is the normal case. Read by the voiceover/music spine: speech_sequence aligns voiceover passages off it, and music_selection catalogues held beds from it; the per-audio files beside the video indices are the artifact.",
         "may_be_empty": true,
         "required": false
       }

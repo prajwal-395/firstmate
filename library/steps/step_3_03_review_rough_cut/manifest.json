@@ -13,6 +13,12 @@
         "description": "State input: a_roll_assignments"
       },
       {
+        "name": "voiceover_assignments",
+        "type": "array",
+        "required": false,
+        "description": "State input: voiceover_assignments - step 3.01's voiceover-sourced speech. Check 5's actual_script reads their words over their audio ranges, so the narrative review hears the narration rather than a script with the voiceover missing. Absent on runs whose assign_aroll predates it; empty on runs with no voiceover."
+      },
+      {
         "name": "audio_spine",
         "type": "object",
         "required": true,
@@ -94,7 +100,8 @@
         "name": "cut_decisions",
         "type": "list",
         "required": true,
-        "description": "One record per CUT the model judges, in the shape the cut_decisions output declares. Judge a cut only where you have something to say."
+        "may_be_empty": true,
+        "description": "One record per CUT the model judges, in the shape the cut_decisions output declares. Judge a cut only where you have something to say. Empty is a legitimate answer on a cut-less edit - and where cuts exist but none earned a remark; the narrative review still judges the whole."
       },
       {
         "name": "rough_cut_review",

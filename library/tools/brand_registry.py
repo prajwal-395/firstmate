@@ -350,6 +350,33 @@ def project_timeline_name(project_folder: Optional[str]) -> str:
     return declared or DEFAULT_TIMELINE_NAME
 
 
+def resolve_project_name(project_folder: Optional[str]) -> str:
+    """The Resolve project name a project declares under ``resolve:``.
+
+    The EXACT name as Resolve's project list reports it - the address
+    ``timeline_ingest.resolve_project_exactly`` opens, never a prefix.
+    "" when the project declares none: a build with nowhere bound must
+    say so rather than open whatever project happens to be current, or
+    - as step 6.01 did - open the TIMELINE's name as though it were a
+    project and refuse on a listing that never contained it.
+    """
+    if not project_folder:
+        return ""
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return ""
+    if yaml is None:
+        raise ImportError("PyYAML is required to read project.yaml.")
+    with open(project_yaml, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    block = cfg.get("resolve") or {}
+    if not isinstance(block, dict):
+        return ""
+    declared = block.get("project_name") or ""
+    return declared.strip() if isinstance(declared, str) else ""
+
+
+
 # What a project's own project.yaml may declare about the PRODUCT, as
 # opposed to about a brand.  Only `target_duration_seconds` has a reader;
 # the other two are what step 1.01 has always emitted and are kept so the
