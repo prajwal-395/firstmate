@@ -169,6 +169,13 @@
       "estimated_duration_seconds": 120
     },
     {
+      "id": "object_segmentation",
+      "name": "Object Segmentation (matte trigger)",
+      "step_ref": "steps/step_1_06_object_segmentation",
+      "type": "step",
+      "estimated_duration_seconds": 120
+    },
+    {
       "id": "color_grade",
       "name": "Color Grade Spec",
       "step_ref": "steps/step_5_01_color_grade",
@@ -281,6 +288,56 @@
       "to": "creative_direction",
       "data_mapping": {
         "clip_catalog": "clip_catalog"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "object_segmentation",
+      "data_mapping": {
+        "clip_catalog": "clip_catalog"
+      }
+    },
+    {
+      "from": "temporal_index",
+      "to": "object_segmentation",
+      "data_mapping": {
+        "temporal_event_indices": "temporal_index"
+      }
+    },
+    {
+      "from": "assign_aroll",
+      "to": "object_segmentation",
+      "data_mapping": {
+        "a_roll_assignments": "a_roll_assignments"
+      }
+    },
+    {
+      "from": "select_broll",
+      "to": "object_segmentation",
+      "data_mapping": {
+        "b_roll_assignments": "b_roll_assignments",
+        "b_roll_interjections": "b_roll_interjections"
+      }
+    },
+    {
+      "from": "render_motion_graphics",
+      "to": "object_segmentation",
+      "data_mapping": {
+        "behind_subject_overlays": "behind_subject_overlays"
+      }
+    },
+    {
+      "from": "color_grade",
+      "to": "object_segmentation",
+      "data_mapping": {
+        "color_grade_spec": "color_grade_spec"
+      }
+    },
+    {
+      "from": "object_segmentation",
+      "to": "compile_manifest",
+      "data_mapping": {
+        "object_segmentation": "object_segmentation"
       }
     },
     {
@@ -504,7 +561,8 @@
       "to": "compile_manifest",
       "data_mapping": {
         "motion_graphics_overlay": "motion_graphics_overlay",
-        "timed_text_overlay": "timed_text_overlay"
+        "timed_text_overlay": "timed_text_overlay",
+        "behind_subject_overlays": "behind_subject_overlays"
       }
     },
     {

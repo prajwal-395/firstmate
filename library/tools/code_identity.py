@@ -95,12 +95,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # its only subprocess is the external ffprobe binary, which is not repo
 # code and has no content to hash).
 #
-# step_1_06_object_segmentation has no row on purpose: it is unwired, so
-# the runner never hashes it, and a declaration nothing reads is the
-# failure mode output_contract exists to stop.  Whoever wires it into
-# the DAG names library/tools/analysis/object_segmentation.py here, and
-# the coverage test below fails until they do.
 STEP_IMPLEMENTATION_DEPS = {
+    "step_1_06_object_segmentation": (
+        # The executed measurement: the SAM 2 tracker the step segments
+        # each triggered clip with.
+        "library/tools/analysis/object_segmentation.py",
+    ),
     "step_1_01_scan_project": (
         # enumerate_footage produces raw_footage_files, the step's output.
         "library/tools/footage_identity.py",

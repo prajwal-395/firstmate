@@ -1,8 +1,8 @@
 {
   "id": "step_1_06_object_segmentation",
   "name": "Object Segmentation",
-  "version": "1.0.0",
-  "description": "Performs object segmentation and tracking on video clips using SAM 2.",
+  "version": "2.0.0",
+  "description": "Tracks the subject on the clips a matte-needing plan names, with SAM 2 face-seeded from step 1.04's face boxes. Runs after the planning steps and segments ONLY those clips (the trigger is stated in step.py): subject_grades entries in color_grade_spec, and behind_subject_overlays segments resolved against a_roll/b_roll placement. A wanted clip with no face box is declined, never blob-seeded. Masks land as {area:segmentation}/{clip_id}_segmentation.json, where compile grounds subject grades and behind-subject composites through the Loader-matte path.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -11,13 +11,66 @@
         "type": "string",
         "required": false,
         "description": "State input: project_folder"
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "State input: clip_catalog from step 1.02. The paths the trigger's clips resolve against."
+      },
+      {
+        "name": "temporal_index",
+        "type": "object",
+        "required": false,
+        "description": "State input: temporal_event_indices from step 1.04. OPTIONAL: the per-clip face_presence face boxes seed the tracker; a clip with no located box is declined rather than seeded on an arbitrary region. An explicit face_boxes_by_clip map wins where one arrives."
+      },
+      {
+        "name": "face_boxes_by_clip",
+        "type": "object",
+        "required": false,
+        "description": "Explicit clip_id to normalized [x1, y1, x2, y2] first-frame face box map (issue #268). OPTIONAL: wins over temporal_index where present."
+      },
+      {
+        "name": "color_grade_spec",
+        "type": "object",
+        "required": false,
+        "description": "State input: color_grade_spec from step 5.01. OPTIONAL: its subject_grades entries name clips to segment. Absent on runs with no subject-grade plan."
+      },
+      {
+        "name": "behind_subject_overlays",
+        "type": "object",
+        "required": false,
+        "description": "State input: behind_subject_overlays from step 4.06. OPTIONAL: each segment's timeline span resolves to placed picture clips through a_roll/b_roll. Absent on runs with no behind-subject plan."
+      },
+      {
+        "name": "a_roll_assignments",
+        "type": "array",
+        "required": false,
+        "description": "State input: a_roll_assignments from step 3.01. OPTIONAL: resolves behind_subject spans to source clips."
+      },
+      {
+        "name": "b_roll_assignments",
+        "type": "array",
+        "required": false,
+        "description": "State input: b_roll_assignments from step 3.02. OPTIONAL: resolves behind_subject spans over cutaways."
+      },
+      {
+        "name": "b_roll_interjections",
+        "type": "array",
+        "required": false,
+        "description": "State input: b_roll_interjections from step 3.02. OPTIONAL: resolves behind_subject spans over interjections."
       }
     ],
     "outputs": [
       {
         "name": "object_segmentation",
         "type": "object",
-        "description": "State output: per-clip segmentation results"
+        "description": "State output: per-clip segmentation results for the triggered clips"
+      },
+      {
+        "name": "matte_trigger",
+        "type": "object",
+        "description": "State output: which clips the plans wanted mattes for and why, which segmented and which declined - the trigger stated on the run, not just in the module docstring."
       }
     ]
   },
@@ -31,7 +84,12 @@
     ]
   },
   "dependencies": [
-    "step_1_02_catalog_footage"
+    "step_1_02_catalog_footage",
+    "step_1_04_temporal_index",
+    "step_3_01_assign_aroll",
+    "step_3_02_select_broll",
+    "step_4_06_render_motion_graphics",
+    "step_5_01_color_grade"
   ],
   "tags": [
     "segmentation",
@@ -48,7 +106,7 @@
   "metadata": {
     "author": "firstmate",
     "created": "2026-08-08",
-    "last_modified": "2026-08-08",
+    "last_modified": "2026-09-24",
     "source_process": "video_editing_pipeline"
   }
 }

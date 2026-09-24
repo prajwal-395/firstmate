@@ -234,8 +234,8 @@ DOCUMENTS: Tuple[Document, ...] = (
         "analysis", "Area.PROSODY"),
     Document(
         "segmentation", ("_segmentation.json",),
-        "SAM 2 subject masks. Step 1.06 is UNWIRED - nothing consumes "
-        "them (AGENTS.md 3).",
+        "SAM 2 subject masks. Step 1.06 runs matte-triggered - only "
+        "the clips a subject grade or behind_subject plan names.",
         "library/steps/step_1_06_object_segmentation/step.py",
         "analysis", "Area.SEGMENTATION"),
     Document(
@@ -1677,8 +1677,8 @@ NOT_OBSERVED: Dict[str, str] = {
         "alone. The measurements themselves are mapped as "
         "`OUT@prosody_analysis`.",
     "segmentation":
-        "Step 1.06 is UNWIRED - nothing consumes masks (AGENTS.md 3), "
-        "so nothing runs it.",
+        "Step 1.06 runs matte-triggered (subject grades, "
+        "behind_subject plans) - see its matte_trigger record.",
     "footage_index":
         "Built ONLY when the reviewer presses the button (AGENTS.md 4). "
         "001's copy is under `archive/`, which `observe` skips.",

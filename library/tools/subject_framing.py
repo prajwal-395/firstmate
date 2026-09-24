@@ -55,7 +55,7 @@ is findable by its own words, and AGENTS.md 10.3 keeps the headline
 and points here.
 
 **Subject position comes from `face_center_x`, not from the vision pass.**
-`vision_pipeline_v3` measures shot size, identity and time ranges - never a position - and `object_segmentation`/`ocr_extraction` produce boxes but are not in the DAG.
+`vision_pipeline_v3` measures shot size, identity and time ranges - never a position - and `object_segmentation`/`ocr_extraction` produce boxes (1.06 runs matte-triggered; 1.07 is wired and deselected by default).
 `step_1_04_temporal_index.compute_face_presence` emits the horizontal centre of the largest detected face at 5Hz; `library/tools/subject_framing.py` reduces it per clip and returns a POSITION; `compile_manifest._conform_fields` owns the one copy of the geometry that turns it into a pan.
 - The join is `subject_centers_by_clip`, and it reads the per-clip index FILES, not pipeline state. An earlier spelling walked the in-state `full_indices` mapping while step 1.04 emits a LIST, so it returned `{}` on every real run while its tests - all fed invented mappings - passed. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
 - **None means "frame centred" - do not replace it with a fabricated 0.5.**

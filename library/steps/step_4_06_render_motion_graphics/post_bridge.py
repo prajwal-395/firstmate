@@ -244,6 +244,10 @@ MG_NON_DRAWING_ELEMENT_KEYS = frozenset((
     "colorBasis",
     "timelineProgressStart",
     "timelineProgressEnd",
+    # Above the picture or behind the segmented subject: where the
+    # build composites the file, not what pixels it carries. Two
+    # placings of the same graphic share the file.
+    "layer",
 ))
 """Element keys that must never decide motion-graphics reuse. Complete,
 and load-bearing."""
@@ -348,6 +352,65 @@ def _report_palette_state(template_name: str, palette: dict) -> None:
               f"any entry asking for colour_role 'accent' falls back to "
               f"its own stated colour or is dropped by name",
               file=sys.stderr)
+
+
+def _sequence_behind_segment(rendered: dict) -> dict:
+    """A behind title's .mov as a numbered PNG sequence, in place.
+
+    Rewrites `overlay_path` to the sequence's first frame and records
+    the sequence beside it. Refuses (rather than shipping the .mov a
+    Loader cannot resolve) where ffmpeg fails or the frame count is
+    not what the segment promised.
+    """
+    source = str(rendered.get("overlay_path", ""))
+    want = int(rendered.get("total_frames", 0) or 0)
+    if not source.endswith(".mov") or want <= 0:
+        raise MotionGraphicsRenderRefused({
+            "motion_graphics_overlay": {
+                "available": False,
+                "segments": [],
+                "error": (f"behind_subject segment {rendered.get('segment_id', '?')!r} "
+                          f"has no rendered .mov to sequence "
+                          f"({source!r})."),
+            }
+        })
+    stem = os.path.splitext(os.path.basename(source))[0]
+    pattern = os.path.join(os.path.dirname(source),
+                           f"{stem}_behind_%05d.png")
+    first = pattern % 0
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", source,
+         "-frames:v", str(want), "-start_number", "0", pattern],
+        capture_output=True, text=True, encoding="utf-8")
+    if proc.returncode != 0:
+        raise MotionGraphicsRenderRefused({
+            "motion_graphics_overlay": {
+                "available": False,
+                "segments": [],
+                "error": (f"behind_subject segment {rendered.get('segment_id', '?')!r} "
+                          f"would not sequence: {proc.stderr.strip()[:300]}"),
+            }
+        })
+    have = sum(1 for i in range(want)
+               if os.path.exists(pattern % i))
+    if not os.path.exists(first) or have != want:
+        raise MotionGraphicsRenderRefused({
+            "motion_graphics_overlay": {
+                "available": False,
+                "segments": [],
+                "error": (f"behind_subject segment {rendered.get('segment_id', '?')!r} "
+                          f"sequenced {have}/{want} frames - the Loader "
+                          f"would run dry mid-span."),
+            }
+        })
+    rendered["overlay_path"] = first
+    rendered["sequence"] = {
+        "pattern": pattern,
+        "first_frame": first,
+        "frame_count": want,
+    }
+    rendered["format"] = "PNG image sequence (RGBA)"
+    return rendered
 
 
 def render_one_segment(planned: dict, out_dir: str,
@@ -755,6 +818,7 @@ MG_PLAN_ENTRY_KEYS = frozenset({
     "colour_role",
     "color",
     "colour",
+    "layer",
 })
 
 
@@ -930,6 +994,11 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
         return {
             "motion_graphics_overlay": _nothing_to_draw_output(
                 basis["what_the_basis_means"], basis),
+            "behind_subject_overlays": {
+                "available": False,
+                "segments": [],
+                "total_segments": 0,
+            },
             "timed_text_overlay": timed_text_overlay,
         }
 
@@ -944,13 +1013,22 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
 
     segments = []
     for i, planned in enumerate(segments_plan):
+        # A behind_subject segment is composited 1:1 over the picture
+        # inside a per-clip Fusion comp, so it always renders full
+        # canvas - a tight canvas would need a transform nobody
+        # declared. The explicit 'full' writes the geometry_full_declared
+        # sidecar, which is what the tightness guard below asks for.
+        planned_geometry = (
+            "full" if planned.get("layer") == "behind_subject"
+            else geometry)
         rendered = render_one_segment(
             planned, mg_output_dir, remotion_dir=REMOTION_DIR,
             progress=f"[{i+1}/{len(segments_plan)}]",
-            overlay_geometry=geometry,
+            overlay_geometry=planned_geometry,
             project_folder=project_folder,
             reuse=reuse)
         if rendered is not None:
+            rendered["layer"] = planned.get("layer", "above")
             segments.append(rendered)
 
     print(f"\nRendered {len(segments)}/{len(segments_plan)} motion graphics "
@@ -998,14 +1076,37 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
             print(f"WARNING: QA Check 2.1 execution failed: {e}",
                   file=sys.stderr)
 
+    # Above-picture segments ride motion-graphics rows; behind_subject
+    # ones are composited under the subject's matte in Fusion and are
+    # never placed on a row - so they travel on their own output key,
+    # where compile grounds each against its matte
+    # (library/tools/behind_subject.py) and the row placer never sees
+    # them. A behind request with no usable matte refuses there, never
+    # silently rejoins this list.
+    #
+    # A behind title reaches Fusion as a PNG image sequence, not as the
+    # .mov it rendered as: TimelineItem.ImportFusionComp strips Loader
+    # nodes, and the locked delivery re-attaches them by first frame -
+    # and a Loader resolves a numbered PNG sequence (length reads back)
+    # where a qtrle .mov does not resolve at all (measured on Resolve
+    # Studio 21.1). The .mov stays on disk as provenance; the sequence
+    # is what the manifest names.
+    for seg in segments:
+        if seg.get("layer", "above") == "behind_subject":
+            _sequence_behind_segment(seg)
+    above_segments = [s for s in segments
+                      if s.get("layer", "above") != "behind_subject"]
+    behind_segments = [s for s in segments
+                       if s.get("layer", "above") == "behind_subject"]
+
     return {
         "motion_graphics_overlay": {
-            "available": len(segments) > 0,
-            "segments": segments,
+            "available": len(above_segments) > 0,
+            "segments": above_segments,
             "format": OVERLAY_FORMAT_NAME,
             "has_alpha": True,
             "fps": fps,
-            "total_segments": len(segments),
+            "total_segments": len(above_segments),
             "planning_basis": basis,
             # What this pass carried, so a reader knows without
             # re-deriving it per segment.
@@ -1013,6 +1114,14 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
             # The tight/refused census the guard computed above - the
             # same counts the conformance sweep surfaces per project.
             "tightness": tightness_census,
+        },
+        "behind_subject_overlays": {
+            "available": len(behind_segments) > 0,
+            "segments": behind_segments,
+            "format": "PNG image sequence (RGBA)",
+            "has_alpha": True,
+            "fps": fps,
+            "total_segments": len(behind_segments),
         },
         "timed_text_overlay": timed_text_overlay,
     }

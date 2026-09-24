@@ -62,6 +62,11 @@
         "description": "Per-segment overlay paths and metadata for Resolve placement, plus planning_basis - what was proposed, what resolved and every entry that was dropped with its reason."
       },
       {
+        "name": "behind_subject_overlays",
+        "type": "object",
+        "description": "Numbered PNG image sequences (RGBA) for entries planned with layer behind_subject, each with overlay_path naming the first frame plus timeline span. The segment renders as a full-canvas .mov (kept as provenance) and is sequenced because a Fusion Loader resolves a numbered PNG sequence where a qtrle .mov does not resolve at all. Compile composites each under the subject's tracked matte in Fusion instead of placing it on a motion-graphics row; a request with no usable matte refuses there. See library/tools/behind_subject.py."
+      },
+      {
         "name": "timed_text_overlay",
         "type": "object",
         "description": "Rendered timed text segments for the brand template's effect.timed_text_overlay declaration, or declared:false when the template declares none. See library/tools/timed_text_overlay.py."
@@ -102,7 +107,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "The motion graphics this video carries. Each entry: element (a key from the roster), anchor, row, copy, data, asset, color or colour_role, entrance, exit, why. `data` is the non-copy payload an element draws - labelled magnitudes for comparison_bars, start/end values for counter_roll, a stated end value for digit_counter, score/count/rows/palette for review_panel, position/total for step_counter, a frame position for pointer_annotation - asserted only from what the speech itself states, and only on an element whose roster axes include `data`. When the number is not in the speech, choose an element that needs none. `asset` names a file in the project's brand_assets/ and only on an element whose axes include `asset` (channel_bug, website_panel). A data payload whose values are all equal, or data on an element that draws none, drops the entry by name. A TIMED entry carries start_seconds and duration_seconds in TIMELINE seconds. An ANCHORED entry instead carries subject (free text saying what the span of speech is about, in your own words), anchor_phrase (words from timeline_context_toon the graphic arrives on) and optionally hold_seconds - and OMITS start_seconds and duration_seconds; naming both timings drops the entry as conflicting_timing. An empty list is a decision that the piece wants none."
+        "description": "The motion graphics this video carries. Each entry: element (a key from the roster), anchor, row, layer, copy, data, asset, color or colour_role, entrance, exit, why. `data` is the non-copy payload an element draws - labelled magnitudes for comparison_bars, start/end values for counter_roll, a stated end value for digit_counter, score/count/rows/palette for review_panel, position/total for step_counter, a frame position for pointer_annotation - asserted only from what the speech itself states, and only on an element whose roster axes include `data`. When the number is not in the speech, choose an element that needs none. `asset` names a file in the project's brand_assets/ and only on an element whose axes include `asset` (channel_bug, website_panel). A data payload whose values are all equal, or data on an element that draws none, drops the entry by name. A TIMED entry carries start_seconds and duration_seconds in TIMELINE seconds. An ANCHORED entry instead carries subject (free text saying what the span of speech is about, in your own words), anchor_phrase (words from timeline_context_toon the graphic arrives on) and optionally hold_seconds - and OMITS start_seconds and duration_seconds; naming both timings drops the entry as conflicting_timing. An empty list is a decision that the piece wants none. `layer` is above (the entry draws over the picture) or behind_subject (it composites under the tracked subject); unnamed draws above."
       }
     ]
   },

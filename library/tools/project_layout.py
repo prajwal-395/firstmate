@@ -148,10 +148,10 @@ class StepDir:
 
     wired: bool = True
     """False for a step that is implemented but that no DAG node runs.
-    `object_segmentation` (1.06) is the one (AGENTS.md section 3). Its
-    directory appears only if the step is ever run; a normal pipeline
-    run produces nothing there. (`prosody_analysis` (1.05) was re-wired
-    on 2026-09-01 and has a DAG node, so it is not listed here.)
+    Every step directory currently has a node (`prosody_analysis`
+    (1.05) was re-wired on 2026-09-01, `object_segmentation` (1.06)
+    on 2026-09-24) - so nothing is listed here, and the field stays
+    for the next step that needs it.
 
     Not to be confused with a step that IS wired and is DESELECTED BY
     DEFAULT - `ocr_extraction` (1.07). That step has a DAG node, runs
@@ -182,32 +182,7 @@ STEPS: tuple = (
     StepDir("semantic_analysis", "1_03_semantic_analysis"),
     StepDir("temporal_index", "1_04_temporal_index"),
     StepDir("prosody_analysis", "1_05_prosody_analysis"),
-    StepDir("object_segmentation", "1_06_object_segmentation", wired=False,
-            unwired_reason=(
-                "SAM 2.1 segmentation masks and bounding boxes have no "
-                "producer on a normal run: this step has no DAG node, so "
-                "no masks exist for the Loader-matte path to read - "
-                "`nodes.add_clip` points a Loader at a matte sequence "
-                "and compile grounds 5.01 subject grades against "
-                "`1_06_object_segmentation/<cid>_segmentation.json` when "
-                "present, but a run that never runs 1.06 presents "
-                "nothing, and those grades ground against nothing. "
-                "Planning steps operate on semantic "
-                "descriptions and time ranges, not spatial coordinates. "
-                "MEASURED on 001 (2026-08-28, #162, 17 clips / 807s): it "
-                "works better than assumed - all 10 clips with a person in "
-                "shot held that person for the WHOLE clip, including 188.5s "
-                "and 139.0s unbroken and the shakiest walking selfies; the 7 "
-                "with no person seed on arbitrary regions and lose them in a "
-                "median 3.5s. Cost is 6.1x realtime and 58.3 MB of masks for "
-                "807s, both at the 2 fps that would chatter on a 30 fps "
-                "timeline. So the blocker is no longer quality: it is that "
-                "no DAG node runs the producer (so the Loader-matte "
-                "consumer path has nothing to read on a normal run), and that "
-                "the tracker seeds on the ten largest blobs rather than on the "
-                "face box step 1.04 already measures. "
-                "docs/SUBJECT_MASKING_MEASURED.md has the per-clip numbers.")),
-    StepDir("ocr_extraction", "1_07_ocr_extraction"),
+    StepDir("object_segmentation", "1_06_object_segmentation"),    StepDir("ocr_extraction", "1_07_ocr_extraction"),
     StepDir("creative_direction", "2_01_creative_direction"),
     StepDir("speech_sequence", "2_02_speech_sequence"),
     StepDir("music_selection", "2_04_music_selection"),
@@ -507,8 +482,9 @@ AREAS: dict[Area, AreaSpec] = {
         step="prosody_analysis"),
     Area.SEGMENTATION: AreaSpec(
         _step_path("object_segmentation"), Kind.OUTPUT,
-        "Per-clip object masks. The step is implemented but NOT wired into "
-        "the DAG, so a run produces nothing here.",
+        "Per-clip object masks. The step runs matte-triggered, so a run "
+        "with no subject grade or behind_subject plan produces nothing "
+        "here.",
         step="object_segmentation"),
     Area.OCR: AreaSpec(
         _step_path("ocr_extraction"), Kind.OUTPUT,

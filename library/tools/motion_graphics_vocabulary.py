@@ -282,6 +282,22 @@ AXES: tuple[Axis, ...] = (
             "none."
         ),
     ),
+    Axis(
+        name="layer",
+        ranges_over=(
+            "whether the element draws above the picture or behind the "
+            "segmented subject"
+        ),
+        positions=("above", "behind_subject"),
+        resolved_against=(
+            "the subject matte step 1.06 measures for the clip the span "
+            "plays over. An entry naming no layer draws above the "
+            "picture, which is what every overlay has always done - that "
+            "is the absence of compositing, not a choice of it. "
+            "behind_subject without a usable matte is refused rather "
+            "than drawn on top."
+        ),
+    ),
 )
 
 AXES_BY_NAME: dict[str, Axis] = {a.name: a for a in AXES}
@@ -422,7 +438,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "where they are; it does not make them stay."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy"),
+              "emphasis", "colour_role", "type_role", "copy", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -460,7 +476,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "with one has to move up or not be drawn."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy"),
+              "emphasis", "colour_role", "type_role", "copy", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -500,7 +516,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "is an invention on screen."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy"),
+              "emphasis", "colour_role", "type_role", "copy", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note="Implemented as a translucent panel in the upper corner. It assumes the title safe band is clear of primary visual interest.",
@@ -539,7 +555,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "project asset, staged verbatim or not at all."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy"),
+              "emphasis", "colour_role", "type_role", "copy", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -577,7 +593,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "graphic asserts it, and nothing downstream checks it."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy"),
+              "emphasis", "colour_role", "type_role", "copy", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note="Implemented as a bold text graphic. It assumes the background provides sufficient contrast, as it currently lacks an opaque backplate.",
@@ -608,7 +624,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "measurements nobody took is a chart of nothing."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy", "data"),
+              "emphasis", "colour_role", "type_role", "copy", "data", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -646,7 +662,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "animation of nothing the viewer sees."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy", "data"),
+              "emphasis", "colour_role", "type_role", "copy", "data", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -680,7 +696,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "are the same kind of thing."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy", "data"),
+              "emphasis", "colour_role", "type_role", "copy", "data", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -723,7 +739,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "is title_lockup, not a list."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy"),
+              "emphasis", "colour_role", "type_role", "copy", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -757,7 +773,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "is left' is one answer too many in a frame this small."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy", "data"),
+              "emphasis", "colour_role", "type_role", "copy", "data", "layer"),
         copy="optional",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -794,7 +810,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "its own hold; that is tracked_label."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy", "data"),
+              "emphasis", "colour_role", "type_role", "copy", "data", "layer"),
         copy="optional",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -828,12 +844,14 @@ ROSTER: tuple[MotionElement, ...] = (
             "For a referent a viewer can already name.",
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy", "data"),
+              "emphasis", "colour_role", "type_role", "copy", "data", "layer"),
         copy="required",
         reachable=NEEDS_MEASUREMENT,
         reachability_note=(
             "No component, and no track. object_segmentation (1.06) is "
-            "in library/steps/ and not in the DAG, and "
+            "wired matte-triggered, but its masks are per-clip files "
+            "compile grounds against - not a per-frame track the "
+            "overlay layer reads. "
             "docs/SUBJECT_MASKING_MEASURED.md is what SAM 2.1 cost; "
             "compute_face_presence measures a horizontal centre at 5 Hz "
             "for one largest face, which is a track for a face and not "
@@ -867,7 +885,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "supplied - the card presents them as a quotation."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy"),
+              "emphasis", "colour_role", "type_role", "copy", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -906,7 +924,7 @@ ROSTER: tuple[MotionElement, ...] = (
              "chrome is declared as chrome."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role"),
+              "emphasis", "colour_role", "layer"),
         copy="none",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -941,7 +959,7 @@ ROSTER: tuple[MotionElement, ...] = (
             "(library/tools/timeline_duration.py); an anchor and a "
             "footprint"
         ),
-        axes=("anchor", "footprint", "emphasis", "colour_role"),
+        axes=("anchor", "footprint", "emphasis", "colour_role", "layer"),
         copy="none",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -972,7 +990,7 @@ ROSTER: tuple[MotionElement, ...] = (
         ),
         needs="an anchor set and a footprint; a colour role",
         axes=("anchor", "footprint", "emphasis", "colour_role",
-              "entrance", "exit"),
+              "entrance", "exit", "layer"),
         copy="none",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -1005,7 +1023,7 @@ ROSTER: tuple[MotionElement, ...] = (
             "an asset from the project's brand_assets/, staged "
             "verbatim; an anchor and a footprint"
         ),
-        axes=("anchor", "footprint", "emphasis", "asset"),
+        axes=("anchor", "footprint", "emphasis", "asset", "layer"),
         copy="none",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -1061,7 +1079,7 @@ ROSTER: tuple[MotionElement, ...] = (
             "set in, as data; an anchor and a timing"
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "type_role", "copy", "data"),
+              "emphasis", "type_role", "copy", "data", "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -1106,7 +1124,7 @@ ROSTER: tuple[MotionElement, ...] = (
             "role or a stated colour for the chrome"
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "copy", "asset"),
+              "emphasis", "colour_role", "copy", "asset", "layer"),
         copy="optional",
         reachable=REACHABLE_NOW,
         reachability_note=(

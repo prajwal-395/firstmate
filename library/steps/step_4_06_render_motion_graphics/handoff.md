@@ -186,6 +186,18 @@ width, so a centred element and a corner element in the same vertical band
 collide by construction. That one is reported too, and it is not a mistake if
 you meant it.
 
+## Above the picture, or behind the subject
+
+Every entry draws above the picture unless it says otherwise. An entry that
+declares `layer: behind_subject` is composited UNDER the tracked subject -
+a title the walker passes in front of - through the subject matte step 1.06
+measures. Only the clips that span plays over are segmented, so a behind
+declaration is also what triggers the measurement; declaring it where no
+person is tracked refuses by name at compile time and is never quietly
+drawn on top. A layer naming neither `above` nor `behind_subject` is
+dropped, because the engine may not choose which side of the subject a
+graphic plays on.
+
 ## Colour, and what the brand template does
 
 `brand_refinement` says whether this project's brand template declares a

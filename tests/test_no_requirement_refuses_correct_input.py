@@ -17,7 +17,9 @@ CORRECT run:
 * `review_rough_cut` / `color_grade: 'b_roll_interjections' exists in
   state` - both steps declare it OPTIONAL, and a cut with no cutaways is
   a legitimate run.
-* `object_segmentation`'s two - the step is UNWIRED and never runs.
+* `object_segmentation`'s two - written when the step was UNWIRED and
+  never ran; wired matte-triggered on 2026-09-24, and the prose pair
+  stays deleted while the DAG edges derive real ones.
 
 Each is recorded in `requirements.DELETED` with the reason, rather than
 silently dropped: a deleted requirement with no reason reads as an

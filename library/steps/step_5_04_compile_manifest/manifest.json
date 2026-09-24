@@ -73,6 +73,12 @@
         "description": "State input: motion_graphics_overlay from step 4.06"
       },
       {
+        "name": "behind_subject_overlays",
+        "type": "object",
+        "required": false,
+        "description": "State input: behind_subject_overlays from step 4.06 - full-canvas title segments planned with layer behind_subject. OPTIONAL: each is composited under the subject's 1.06 matte in Fusion (library/tools/behind_subject.py); a request with no usable matte refuses the compile by name."
+      },
+      {
         "name": "timed_text_overlay",
         "type": "object",
         "required": false,
@@ -83,6 +89,12 @@
         "type": "object",
         "required": true,
         "description": "State input: music_selection"
+      },
+      {
+        "name": "object_segmentation",
+        "type": "object",
+        "required": false,
+        "description": "State input: object_segmentation from step 1.06 - per-clip results plus the matte_trigger record naming which clips the plans wanted mattes for. OPTIONAL: the masks themselves travel as 1_06_object_segmentation/<clip_id>_segmentation.json files; this key is the provenance the compile grounds against."
       },
       {
         "name": "semantic_analysis",

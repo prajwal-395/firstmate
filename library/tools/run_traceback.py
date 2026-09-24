@@ -84,10 +84,9 @@ def load_dag(path=None) -> dict:
 def unwired_step_ids(dag=None) -> set:
     """Steps the layout gives a directory that NO PROCESS runs.
 
-    One does: `object_segmentation` (1.06) is implemented and unwired
-    (AGENTS.md section 3). It still gets a directory, because it still
-    has somewhere its output would land - and the reader has to be told
-    nothing puts anything there.
+    Currently none: `object_segmentation` (1.06) was the one, and it
+    was wired on 2026-09-24 as a matte-triggered step. It still gets
+    a directory, because it still has somewhere its output lands.
 
     `ocr_extraction` (1.07) is NOT here. It has a DAG node; it is
     deselected by default, which is a property of a RUN and not of the

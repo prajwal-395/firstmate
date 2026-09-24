@@ -162,13 +162,14 @@ def test_every_declared_producer_is_a_real_step_or_a_named_non_step():
 # ── Unknown stays unknown ───────────────────────────────────────────
 
 def test_a_step_that_is_not_in_the_dag_is_named_as_not_wired(project):
-    """`object_segmentation` is implemented and unwired (AGENTS.md
-    section 3). Its area declares it, which is true - and the reader has
-    to be told nothing runs it."""
+    """Nothing is implemented-but-unwired anymore: `object_segmentation`
+    was wired on 2026-09-24 as a matte-triggered step. Its area still
+    declares it, and the reader is told a run with no matte-needing
+    plan produces nothing there - not that no run ever could."""
     layout = ProjectLayout(project)
     _write(layout, Area.SEGMENTATION, "clip_001_segmentation.json", {"a": 1})
     md = render_artifact_index(build_traceback(project, dag=DAG))
-    assert "NOT wired into the DAG" in md
+    assert "NOT wired into the DAG" not in md
     assert "`object_segmentation`" in md
 
 

@@ -218,7 +218,7 @@ MEASURED_OUTPUTS = {
     "audio_catalog": "1.02 - measured duration and audio streams per audio-only file (voiceover / music)",
     "audio_indices": "1.04 - the same sound index, per audio file, as the speech/energy view",
     "prosody_analysis": "1.05 - parselmouth pitch contour, speaking rate, voice quality and intensity",
-    "object_segmentation": "1.06 - SAM 2 subject masks (unwired; nothing consumes them)",
+    "object_segmentation": "1.06 - SAM 2 subject masks, matte-triggered (subject grades, behind_subject plans)",
     "ocr_extraction": "1.07 - on-screen text read off the frames",
     "music_analysis": "2.06 - librosa tempo, beat grid and energy dynamics of the chosen track",
 }
@@ -373,6 +373,7 @@ DECLINED_OUTPUTS = {
     "audio_mix_spec": "5.02 - a mix plan. It embeds measured levels, but it is routed to no step holding the direction, so nothing here could read them",
     "cohesion_review": "5.03 observes decisions, not material",
     "assembly_manifest": "5.04 consolidates every decision taken; holding it against the direction proves nothing",
+    "matte_trigger": "1.06 states which clips the plans wanted mattes for and why - a record of decisions, not a measurement of the material",
 }
 
 

@@ -2164,6 +2164,85 @@ def compile_manifest(out_dir: str) -> dict:
                 effect.update(patch[cid])
             subject_mattes.extend(mattes)
 
+    # ── Behind-subject composites (4.06 layer behind_subject) ──
+    # Each behind segment is a full-canvas title composited UNDER the
+    # tracked subject of every placed picture clip its span plays
+    # over, through the Loader-matte path - the subject_grade wiring
+    # generalised from a grade to a graphic
+    # (library/tools/behind_subject.py). The segment never rides a
+    # motion-graphics row: it travels on behind_subject_overlays, and
+    # the row placer never sees it.
+    #
+    # A behind request REFUSES the compile by name
+    # (BehindSubjectRefused, a RenRefusal) - never dropped with a
+    # reason, never drawn on top. Both would be a different placement
+    # wearing this one's name. The first refusal is the renderer gate:
+    # scripted Loaders do not decode on timeline comps in Resolve
+    # Studio 21.1 (measured 2026-09-24), so every request refuses up
+    # front here, before Resolve is ever touched - not at delivery.
+    behind_data = (motion_graphics_overlay_data.get(
+        "behind_subject_overlays", {}) or {})
+    behind_segments = behind_data.get("segments", []) or []
+    behind_mattes: list = []
+    behind_composites: list = []
+    if behind_segments:
+        from library.tools.behind_subject import apply_behind_subject
+        _seg_dir = os.path.join(out_dir, "1_06_object_segmentation")
+        _matte_dir = os.path.join(out_dir, "subject_mattes")
+        _source_to_cid = {path: cid
+                          for cid, path in clip_lookup.items()}
+        _seg_cache = {}
+
+        def _seg_for(cid):
+            if cid not in _seg_cache:
+                _seg_cache[cid] = None
+                _seg_path = os.path.join(
+                    _seg_dir, f"{cid}_segmentation.json")
+                if os.path.exists(_seg_path):
+                    with open(_seg_path, encoding="utf-8") as f:
+                        _seg_cache[cid] = json.load(f)
+            return _seg_cache[cid]
+
+        _placed = [c for c in v1_clips + v2_clips
+                   if not c.get("bookend")]
+
+        def _clip_at(start, end):
+            found = []
+            for clip in _placed:
+                if (clip.get("timeline_in", 0) < end
+                        and start < clip.get("timeline_out", 0)):
+                    cid = _source_to_cid.get(clip.get("source_file"))
+                    if cid is None:
+                        continue
+                    found.append({
+                        "label": clip.get("label", ""),
+                        "clip_id": cid,
+                        "source_file": clip.get("source_file"),
+                        "timeline_in": clip.get("timeline_in", 0),
+                        "timeline_out": clip.get("timeline_out", 0),
+                        "source_in": clip.get("source_in", 0.0),
+                    })
+            return found
+
+        _seg_by_clip = {cid: _seg_for(cid) for cid in
+                        {_source_to_cid.get(c.get("source_file"))
+                         for c in _placed}
+                        if cid is not None}
+        _patch, _mattes, behind_composites = apply_behind_subject(
+            behind_segments, _seg_by_clip, clip_at=_clip_at,
+            matte_dir=_matte_dir, timeline_fps=float(fps),
+            clip_metadata=clip_metadata,
+            matte_stems={cid: f"{cid}_{clip['label']}"
+                         for clip in _placed
+                         for cid in [_source_to_cid.get(
+                             clip.get("source_file"))]
+                         if cid is not None})
+        for label, eff in _patch.items():
+            effect = per_clip_effects.setdefault(label, {})
+            effect.update(eff)
+        behind_mattes.extend(_mattes)
+        subject_mattes.extend(_mattes)
+
     # ── The subject-safe conform's own comp (§10.3) ──
     # `_conform_fields` decided the geometry; this is the only thing that
     # carries it to the picture. A clip whose fill crop is too narrow for
@@ -2631,12 +2710,28 @@ def compile_manifest(out_dir: str) -> dict:
         # one place. The validator holds the records to disk.
         "subject_mattes": subject_mattes,
         "subject_grade_drops": subject_grade_drops,
+        # Behind-subject composites: the matte records (same shape,
+        # same validator) and which clips each behind segment
+        # composited onto. A behind request with no usable matte
+        # refuses above, so a record here is a composite that drew.
+        "behind_subject_mattes": behind_mattes,
+        "behind_subject_composites": behind_composites,
+        # What step 1.06 was asked to segment and why - the trigger
+        # stated on the run, carried so the mattes above trace to the
+        # plans that wanted them.
+        "matte_trigger": (load(out_dir, "object_segmentation.json")
+                          or {}).get("matte_trigger", {}),
         "audio_mix": audio_mix_data.get("audio_mix_spec", {}),
         "_spine_blocks": [_spine_block_entry(b) for b in structure],
         "subtitle_overlay": subtitle_overlay_data.get(
             "subtitle_overlay", {}),
         "motion_graphics_overlay": motion_graphics_overlay_data.get(
             "motion_graphics_overlay", {}),
+        # Behind-subject title segments, as rendered - carried so the
+        # composite above is traceable to the file it merged. They
+        # never ride a motion-graphics row.
+        "behind_subject_overlays": motion_graphics_overlay_data.get(
+            "behind_subject_overlays", {}),
         # Timed text moments the brand template declared, already
         # rendered by 4.06. Carried here so the segments are inside
         # manifest validation and the renderer can place them on V6 -

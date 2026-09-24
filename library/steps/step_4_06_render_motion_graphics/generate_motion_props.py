@@ -32,6 +32,8 @@ from library.tools.brand_palette import (
     roles_from_palette,
 )
 from library.tools.motion_graphics_plan import (  # noqa: F401 - re-exported
+    LAYER_ABOVE,
+    LAYER_BEHIND_SUBJECT,
     PLAN_KEY,
     ResolvedPlan,
     plan_segments,
@@ -190,7 +192,57 @@ def generate_motion_props(
     if not resolved.moments:
         return [], resolved
 
-    segments = plan_segments(
-        resolved.moments, fps=fps, width=width, height=height,
+    # Above the picture clusters as it always has; a behind_subject
+    # moment is composited under the subject's matte in Fusion, never
+    # placed on a motion-graphics row - so it is never clustered with
+    # above moments. One moment, one full-canvas segment: merging two
+    # behind titles into one file would fuse two placements compile
+    # grounds independently (library/tools/behind_subject.py).
+    above = [m for m in resolved.moments
+             if m.get("layer", LAYER_ABOVE) != LAYER_BEHIND_SUBJECT]
+    behind = [m for m in resolved.moments
+              if m.get("layer", LAYER_ABOVE) == LAYER_BEHIND_SUBJECT]
+    segments = (plan_segments(
+        above, fps=fps, width=width, height=height,
         safe_area=safe_area, project_folder=project_folder or "")
+        if above else [])
+    for moment in sorted(behind, key=lambda m: m["startFrame"]):
+        segments.append(_behind_subject_segment(
+            moment, fps=fps, width=width, height=height,
+            safe_area=safe_area))
+    segments.sort(key=lambda s: s["timeline_start"])
+    for index, segment in enumerate(segments):
+        segment["index"] = index
     return segments, resolved
+
+
+def _behind_subject_segment(moment: dict, *, fps: float, width: int,
+                            height: int, safe_area: dict) -> dict:
+    """One behind_subject moment as its own full-canvas planned segment.
+
+    The same `props` shape `plan_segments` builds - the moment rebased
+    to its own start - so `render_one_segment` renders it through the
+    identical Remotion path. Full canvas always: the Fusion comp merges
+    the title file 1:1 over the picture, and a tight canvas would need
+    a transform nobody declared. `layer` travels on the segment so the
+    render pass carries it full and compile routes it to the matte path
+    instead of a motion-graphics row.
+    """
+    start_frame = moment["startFrame"]
+    total_frames = max(1, moment["durationFrames"])
+    return {
+        "timeline_start": moment["timeline_start"],
+        "timeline_end": moment["timeline_end"],
+        "total_frames": total_frames,
+        "element_count": 1,
+        "elements": [moment["element"]],
+        "layer": LAYER_BEHIND_SUBJECT,
+        "props": {
+            "elements": [{**moment, "startFrame": 0}],
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "safeArea": safe_area,
+            "durationInFrames": total_frames,
+        },
+    }

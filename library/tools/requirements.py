@@ -1654,10 +1654,13 @@ DELETED: Dict[str, str] = {
         "applies - [] is the absence of decoration, not a missing "
         "requirement.",
     "object_segmentation: 'raw_footage_files' / 'clip_catalog' exist in state":
-        "THE STEP IS UNWIRED (AGENTS.md 3) - it has a directory and no "
-        "DAG node, so it never runs and these can never be checked. A "
-        "requirement nothing can ask is the vacuous case; the step's own "
-        "`unwired_reason` is where this belongs.",
+        "HISTORY. Written when the step was UNWIRED (AGENTS.md 3) - a "
+        "directory and no DAG node, so these could never be checked and "
+        "the step's own `unwired_reason` was where this belonged. Wired "
+        "on 2026-09-24 as a matte-triggered step: the prose requirement "
+        "stays deleted (the code never read `raw_footage_files`), and "
+        "the DAG edges now derive real `state_key` requirements from "
+        "the manifest instead.",
 }
 
 

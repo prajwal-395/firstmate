@@ -4,7 +4,8 @@ The Haar cascade already returned `(x, y, w, h)` per face and the step kept
 only `max(w*h)` as a scalar presence score. The position was measured and
 discarded, and nothing else in the pipeline measures it: the v3 vision pass
 emits shot size, identity and time ranges, and the two steps that do produce
-boxes (`object_segmentation`, `ocr_extraction`) are not in the DAG.
+boxes (`object_segmentation`, matte-triggered, and `ocr_extraction`, wired
+and deselected by default) do not feed framing.
 
 Also covered here: an OpenCV without Haar cascades. OpenCV 5 removed them,
 `requirements.txt` allowed `>=4.8`, and the resulting AttributeError was

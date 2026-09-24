@@ -88,6 +88,7 @@ One enumeration, `library/tools/motion_graphics_plan.py`. Step 4.06 is hybrid: i
 - **A template GATES nothing.** `effect.motion_accents` and `effect.motion_progress_bar` are no longer read at all; a project that names no template plans the same layer and states its own colours. What a template still does is resolve an entry's `colour_role` against its palette. **No palette role and no stated colour DROPS the entry** - there is still no house colour (§12).
 - **Every element declares `start_seconds` and `duration_seconds` in TIMELINE seconds.** `resolve_plan` is handed the timeline's LENGTH and no block list, so nothing can quantise a start onto a cut. The spine bounds a span; it never times one.
 - **`anchor` is where in the frame, `row` is which line within that anchor.** Rows are an ON-SCREEN layout laid out by a flex stack over the live elements, not a second Resolve track: overlapping entries are composited into ONE segment by `plan_segments` (the shape `timed_text_overlay.plan_timed_text_segments` already uses), which is what keeps `manifest_validator`'s non-overlap rule for `motion_graphics_overlay` true. A row PITCH is not the mechanism - a fixed offset per row drew a two-run title straight through the row below it.
+- **`layer` is above the picture or behind the segmented subject.** An entry naming neither draws above, which is the absence of compositing rather than a choice of it. A `behind_subject` moment is resolved here, rendered by step 4.06 into its own full-canvas segment, and composited under the subject's tracked matte at compile time (`library/tools/behind_subject.py`); step 1.06 segments only the clips such moments play over. A `behind_subject` request with no usable matte refuses by name (`BehindSubjectRefused`, a `RenRefusal`) - never drawn on top.
 - **An element the renderer cannot draw is DROPPED by name and the drop is RECORDED**, never rendered as nothing and never swapped for a neighbour. `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused (the `vfx_plan_basis` shape).
 - **`planning_basis` says which absence an empty layer is.** `no_elements_planned` is a decision; `every_entry_dropped` is the absence of one. Spelled differently on purpose.
 - The upper third's COPY still has no producer in the ENGINE (`motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET`) - the model writes it in the plan, which is one of the answers that entry was written to accept. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
@@ -132,6 +133,19 @@ MOTION_CHARACTERS = tuple(vocabulary.AXES_BY_NAME["entrance"].positions)
 
 #: Which role of a declaring palette draws the element.
 COLOUR_ROLES = tuple(vocabulary.AXES_BY_NAME["colour_role"].positions)
+
+#: Whether the element draws above the picture or behind the segmented
+#: subject. The vocabulary's own axis.
+LAYERS = tuple(vocabulary.AXES_BY_NAME["layer"].positions)
+
+#: The layer an entry draws on when it names none. Above the picture -
+#: what every overlay has always done. Spelled as a constant rather
+#: than read off the axis so the status-quo ante is explicit: the
+#: absence of compositing is not a value the engine chose.
+LAYER_ABOVE = "above"
+
+#: The layer that composites under the subject's tracked matte.
+LAYER_BEHIND_SUBJECT = "behind_subject"
 
 #: The typographic weight of a run of copy.
 TYPE_ROLES = tuple(vocabulary.AXES_BY_NAME["type_role"].positions)
@@ -258,6 +272,14 @@ DROP_REASONS: Dict[str, str] = {
         "both shapes in prose - comparison_bars must be comparable "
         "magnitudes, counter_roll only where the change is the point - "
         "and this is that refusal with teeth."
+    ),
+    "unknown_layer": (
+        "The entry names a layer that is neither `above` nor "
+        "`behind_subject`. Nothing is snapped to the nearer one: a "
+        "graphic composited under the subject when the plan meant "
+        "above it would hide behind a person, and the reverse would "
+        "paste over them - both are placements, and the engine may "
+        "not choose one."
     ),
 }
 
@@ -825,6 +847,24 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
                  f"{anchor!r} is not one of {list(ANCHORS)}")
             continue
 
+        # Above the picture or behind the segmented subject. An entry
+        # naming neither draws above - the absence of compositing, not
+        # a chosen value. A behind_subject moment is resolved here and
+        # grounded later: the masks do not exist yet when the plan is
+        # resolved (step 1.06 runs after this one), so compile grounds
+        # it against the matte and refuses by name where none is usable
+        # (library/tools/behind_subject.py) - never drawn on top.
+        raw_layer = _text(entry.get("layer")).lower()
+        if not raw_layer:
+            layer = LAYER_ABOVE
+        elif raw_layer in LAYERS:
+            layer = raw_layer
+        else:
+            drop(entry, key, "unknown_layer",
+                 f"{entry.get('layer')!r} is neither 'above' nor "
+                 f"'behind_subject'")
+            continue
+
         start = _number(entry.get("start_seconds"))
         duration = _number(entry.get("duration_seconds"))
         timing_basis = "declared"
@@ -956,6 +996,11 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
         resolved.moments.append({
             "element": key,
             "anchor": anchor,
+            # Above the picture or behind the segmented subject. The
+            # build composites a behind_subject moment under the
+            # subject's matte through the Loader-matte path instead of
+            # placing it on a motion-graphics row.
+            "layer": layer,
             # Which line within that anchor. Two elements anchored the
             # same way at the same moment stack instead of colliding.
             "row": max(0, int(_number(entry.get("row")) or 0)),
