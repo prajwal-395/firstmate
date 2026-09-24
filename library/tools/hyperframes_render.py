@@ -26,11 +26,11 @@ Two things the spike measured shape this module:
   ``data-duration``), and everything inside one is a tween on the one
   paused timeline. Nothing draws in an ``onUpdate``.
 
-What this module does NOT port: ``MotionGraphics`` (2,351 lines - a
-later PR) and project-owned staged ``.tsx`` compositions (which have
-no HyperFrames form at all). ``hyperframes_template`` answers None for
-those, and the call sites render them through Remotion, STATED in the
-output, never silently - see ``library/tools/graphics_renderer.py``.
+What this module does NOT port: project-owned staged ``.tsx``
+compositions, which have no HyperFrames form at all.
+``hyperframes_template`` answers None for those, and the call sites
+render them through Remotion, STATED in the output, never silently -
+see ``library/tools/graphics_renderer.py``.
 """
 
 from __future__ import annotations
@@ -112,17 +112,17 @@ HYPERFRAMES_COMPOSITIONS = (
     "SubtitleOverlay",
     "TimedTextOverlay",
     "FullFrameCard",
+    "MotionGraphics",
 )
 
 
 def hyperframes_template(composition: str) -> Optional[str]:
     """The HyperFrames template for *composition*, or None with no form.
 
-    None means the caller renders through Remotion and SAYS SO -
-    ``MotionGraphics`` until its port lands, and every project-owned
-    staged ``.tsx`` composition, which has no HyperFrames equivalent at
-    all. An entry that drew something approximate would be a creative
-    fallback wearing a renderer's clothes (AGENTS.md 10.5).
+    None means the caller renders through Remotion and SAYS SO - every
+    project-owned staged ``.tsx`` composition, which has no HyperFrames
+    equivalent at all. An entry that drew something approximate would
+    be a creative fallback wearing a renderer's clothes (AGENTS.md 10.5).
     """
     if composition in HYPERFRAMES_COMPOSITIONS:
         return composition
@@ -134,10 +134,15 @@ def hyperframes_template(composition: str) -> Optional[str]:
 def hyperframes_available(timeout: int = 30) -> tuple:
     """``(usable, detail)`` - whether this machine can render HyperFrames.
 
-    Read-only: ``npx --no-install`` answers only when the release is
-    already resolvable, so asking never downloads anything. The render
-    itself names ``hyperframes@${PIN}`` with ``--yes`` - the install,
-    when it happens, is at render time and stated, not at probe time.
+    Read-only: ``npx --no-install`` answers only when the PINNED
+    release is already resolvable, so asking never downloads anything.
+    The pin is load-bearing here, not just in the render: a bare
+    ``hyperframes`` spec floats to whatever the registry calls latest
+    (0.8.71 the week this was written), which is answerable only with
+    an install - exactly what a read-only probe must never do. The
+    render itself names ``hyperframes@${PIN}`` with ``--yes`` - the
+    install, when it happens, is at render time and stated, not at
+    probe time.
     """
     node = shutil.which("node")
     if not node:
@@ -147,7 +152,8 @@ def hyperframes_available(timeout: int = 30) -> tuple:
         return False, "npx is not on PATH (ships with Node.js)"
     try:
         done = subprocess.run(
-            [npx, "--no-install", "hyperframes", "--version"],
+            [npx, "--no-install", f"hyperframes@{HYPERFRAMES_VERSION_PIN}",
+             "--version"],
             capture_output=True, encoding="utf-8", errors="replace",
             timeout=timeout, check=False,
         )
@@ -294,6 +300,33 @@ def stage_card_project(composition: str,
             shutil.copy2(str(source), str(staged / staged_name))
             body_files["image"] = staged / staged_name
 
+    # Motion-graphics elements naming project files (`channel_bug`,
+    # `website_panel`): the same brand-asset search, staged beside the
+    # comp under their own names. A file the project does not have
+    # refuses here, the way the Remotion plan drops it before it
+    # reaches props - a card without its mark is a hole, never a
+    # render in a fallback face.
+    element_assets: dict[str, str] = {}
+    for element in props.get("elements") or []:
+        if not isinstance(element, dict):
+            continue
+        asset = element.get("asset")
+        if not (isinstance(asset, str) and asset):
+            continue
+        name = asset.split("/")[-1]
+        if name in element_assets:
+            continue
+        source = _find_brand_file(name, project_folder)
+        if source is None and project_folder:
+            raise HyperFramesRenderError(
+                f"HyperFrames element {element.get('element')!r} names "
+                f"asset {asset!r}, which is not in the project's "
+                f"brand_assets/; refusing rather than drawing without it.")
+        if source is not None:
+            staged_name = f"project-{name}"
+            shutil.copy2(str(source), str(staged / staged_name))
+            element_assets[name] = staged_name
+
     gsap = hyperframes_dir(repo_root) / VENDOR_DIRNAME / GSAP_FILENAME
     if not gsap.is_file():
         raise HyperFramesRenderError(
@@ -312,6 +345,21 @@ def stage_card_project(composition: str,
     if "image" in body_files:
         baked_props = dict(baked_props)
         baked_props["image"] = "./" + body_files["image"].name
+    if element_assets:
+        # Rewrite the staged names into the elements that named them:
+        # the template reads a relative path, never Remotion's
+        # staticFile vocabulary.
+        rewritten = []
+        for element in baked_props.get("elements") or []:
+            if isinstance(element, dict) and isinstance(
+                    element.get("asset"), str):
+                name = element["asset"].split("/")[-1]
+                if name in element_assets:
+                    element = dict(element)
+                    element["asset"] = "./" + element_assets[name]
+            rewritten.append(element)
+        baked_props["elements"] = rewritten
+    baked_props = _bake_digit_springs(baked_props, repo_root)
     props_json = json.dumps(baked_props, indent=2, sort_keys=True)
     html = source.replace("//__REN_PROPS__",
                           f"window.__REN_PROPS = {props_json};")
@@ -329,6 +377,202 @@ def stage_card_project(composition: str,
         "$schema": "https://hyperframes.heygen.com/schema/hyperframes.json",
     }), encoding="utf-8")
     return str(staged)
+
+
+# ── The spring ───────────────────────────────────────────────────
+#
+# The digit_counter odometer is driven by a damped spring per digit,
+# and physics gets no second spelling: this is Remotion's own spring
+# integrator, ported operation-for-operation to pure stdlib Python -
+# the analytic per-frame advance (`spring-utils.js`) stepped frame by
+# frame, normalised by the measured natural duration
+# (`measure-spring.js`), called with the composition's own config
+# (damping 15, stiffness 80, mass 0.8). No `remotion` import, no node
+# subprocess: the HyperFrames path must render on a machine that has
+# never heard of Remotion, which is the whole reason the second
+# renderer exists. `tests/test_hyperframes_digit_bake.py` pins this
+# against Remotion spring values recorded as literals, so a drift
+# between the two physics fails loudly at test time rather than
+# drawing a differently-easing roll.
+#
+# This is mechanics, not taste (AGENTS.md 10.5): a damped harmonic
+# oscillator integrated in double precision has one answer, and the
+# literals prove this spelling gives it.
+
+import math as _math
+
+_SPRING_DAMPING = 15
+_SPRING_STIFFNESS = 80
+_SPRING_MASS = 0.8
+_SPRING_THRESHOLD = 0.005
+"""The config the composition rolls every digit with, and the rest
+threshold the natural duration is measured against. Spelled once -
+the template never names these, the bake reads them from here, and
+the literals test records what they produce."""
+
+
+def _spring_advance(*, to_value: float, last_timestamp: float,
+                    current: float, velocity: float, now: float,
+                    damping: float, mass: float,
+                    stiffness: float) -> tuple:
+    """One analytic integrator step. `now` and `last_timestamp` are ms."""
+    delta_time = min(now - last_timestamp, 64)
+    if damping <= 0:
+        raise HyperFramesRenderError(
+            "spring damping must be greater than 0, otherwise the "
+            "spring animation never ends.")
+    c, m, k = damping, mass, stiffness
+    v0 = -velocity
+    x0 = to_value - current
+    zeta = c / (2 * _math.sqrt(k * m))
+    omega0 = _math.sqrt(k / m)
+    omega1 = omega0 * _math.sqrt(1 - zeta ** 2)
+    t = delta_time / 1000
+    sin1 = _math.sin(omega1 * t)
+    cos1 = _math.cos(omega1 * t)
+    envelope = _math.exp(-zeta * omega0 * t)
+    frag1 = envelope * (sin1 * ((v0 + zeta * omega0 * x0) / omega1)
+                        + x0 * cos1)
+    if zeta < 1:
+        position = to_value - frag1
+        next_velocity = (zeta * omega0 * frag1 - envelope
+                         * (cos1 * (v0 + zeta * omega0 * x0)
+                            - omega1 * x0 * sin1))
+    else:
+        critically = _math.exp(-omega0 * t)
+        position = (to_value - critically
+                    * (x0 + (v0 + omega0 * x0) * t))
+        next_velocity = (critically
+                         * (v0 * (t * omega0 - 1)
+                            + t * x0 * omega0 * omega0))
+    return position, next_velocity, now
+
+
+def _spring_calculation(*, frame: float, fps: float, damping: float,
+                        mass: float, stiffness: float) -> float:
+    """The 0-to-1 spring position at `frame`, stepped frame by frame."""
+    frame_clamped = max(0, frame)
+    uneven_rest = frame_clamped % 1
+    last = _math.floor(frame_clamped)
+    current, velocity, last_timestamp = 0, 0, 0
+    f = 0
+    while f <= last:
+        if f == last:
+            f = f + uneven_rest
+        current, velocity, last_timestamp = _spring_advance(
+            to_value=1, last_timestamp=last_timestamp, current=current,
+            velocity=velocity, now=(f / fps) * 1000, damping=damping,
+            mass=mass, stiffness=stiffness)
+        f += 1
+    return current
+
+
+def _spring_natural_duration(*, fps: float, damping: float, mass: float,
+                             stiffness: float,
+                             threshold: float = _SPRING_THRESHOLD) -> int:
+    """Frames until the spring stays within `threshold` of rest."""
+    from functools import lru_cache as _cache
+
+    @_cache(maxsize=None)
+    def _at(frame: int) -> float:
+        return _spring_calculation(frame=frame, fps=fps, damping=damping,
+                                   mass=mass, stiffness=stiffness)
+
+    frame = 0
+    while abs(_at(frame) - 1) >= threshold:
+        frame += 1
+    finished = frame
+    i = 0
+    while i < 20:
+        frame += 1
+        if abs(_at(frame) - 1) >= threshold:
+            i = 0
+            finished = frame + 1
+        else:
+            i += 1
+    return finished
+
+
+def remotion_spring(*, frame: float, fps: float, duration_in_frames: int,
+                    damping: float = _SPRING_DAMPING,
+                    stiffness: float = _SPRING_STIFFNESS,
+                    mass: float = _SPRING_MASS) -> float:
+    """The digit roll's easing at `frame`: 0 unrolled, 1 settled.
+
+    The composition's call with its defaults - no delay, no reverse,
+    from 0 to 1 - stretched over `duration_in_frames` against the
+    measured natural duration, returning exactly 1 past the end. A
+    frame the spring never reaches is not a softer settle: past the
+    end is 1, the way the reference reads it.
+    """
+    if duration_in_frames and frame > duration_in_frames:
+        return 1.0
+    natural = _spring_natural_duration(fps=fps, damping=damping,
+                                       mass=mass, stiffness=stiffness)
+    return _spring_calculation(
+        frame=frame / (duration_in_frames / natural), fps=fps,
+        damping=damping, mass=mass, stiffness=stiffness)
+
+
+def _bake_digit_springs(baked_props: dict,
+                        repo_root: Optional[str | Path]) -> dict:
+    """Bake exact digit-strip offsets into digit_counter elements.
+
+    One normalised y-offset per digit per local frame, from
+    :func:`remotion_spring` called exactly as the composition calls
+    the reference - pure Python, no node, no `remotion` import, so a
+    card bakes on a machine that has never installed Remotion. Cards
+    without a digit_counter pass through untouched (and pay nothing).
+    `repo_root` is accepted and ignored, so this reads like the
+    neighbour queries that do need a checkout.
+    """
+    _ = repo_root
+    elements = baked_props.get("elements")
+    if not isinstance(elements, list):
+        return baked_props
+    targets = [el for el in elements
+               if isinstance(el, dict)
+               and el.get("element") == "digit_counter"]
+    if not targets:
+        return baked_props
+    fps = float(baked_props.get("fps") or 30.0)
+    baked = dict(baked_props)
+    rewritten = []
+    for element in elements:
+        if element not in targets:
+            rewritten.append(element)
+            continue
+        element = dict(element)
+        duration_frames = int(element.get("durationFrames") or 1)
+        data = dict(element.get("data") or {})
+        end_val = data.get("end_value") if isinstance(
+            data.get("end_value"), (int, float)) else 100
+        decimals = data.get("decimals") if isinstance(
+            data.get("decimals"), (int, float)) else 0
+        value = (f"{end_val:.{int(decimals)}f}" if decimals > 0
+                 else f"{int(round(end_val)):,}")
+        chars = list(value)
+        # Aligned to CHAR positions (statics carry null): the template
+        # indexes by character, skipping statics before it reads.
+        aligned: list = []
+        for position, char in enumerate(chars):
+            if char not in "0123456789":
+                aligned.append(None)
+                continue
+            digit = int(char)
+            reverse = len(chars) - 1 - position
+            stagger = round(reverse * (fps * 0.06))
+            span = max(1, duration_frames - stagger)
+            aligned.append([
+                -digit * remotion_spring(
+                    frame=max(0, lf - stagger), fps=fps,
+                    duration_in_frames=span)
+                for lf in range(duration_frames)])
+        data["_hf_digit_offsets"] = aligned
+        element["data"] = data
+        rewritten.append(element)
+    baked["elements"] = rewritten
+    return baked
 
 
 # ── The render ───────────────────────────────────────────────────

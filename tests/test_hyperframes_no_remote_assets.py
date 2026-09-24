@@ -21,6 +21,11 @@ from library.tools import hyperframes_render as hf  # noqa: E402
 
 _REMOTE = re.compile(r"""https?://|src\s*=\s*["']//""", re.IGNORECASE)
 
+#: Identifiers that look remote but are never fetched: the SVG namespace
+#: is an element-creation token (`createElementNS`), not a request.
+#: Anything else matching `_REMOTE` is a race with the network.
+REMOTE_ALLOWLIST = ("http://www.w3.org/2000/svg",)
+
 
 def _templates() -> list:
     root = hf.hyperframes_dir()
@@ -33,6 +38,8 @@ def test_no_template_reaches_the_network():
     offenders = []
     for template in _templates():
         text = template.read_text(encoding="utf-8")
+        for allowed in REMOTE_ALLOWLIST:
+            text = text.replace(allowed, "")
         if _REMOTE.search(text):
             offenders.append(template.name)
     assert not offenders, (

@@ -147,11 +147,6 @@ def _render_motion_graphics_file(props_path: str, dest_path: str,
     One spelling, because a tight graphic may render twice: once to
     its own union canvas, and again full canvas where the pad onto the
     delivery frame could not be proved.
-
-    ALWAYS Remotion, on either engine: MotionGraphics (2,351 lines)
-    has no HyperFrames form yet - the port is a later PR, stated in
-    the run output where it is selected rather than drawn
-    approximately. See `library/tools/hyperframes_render.py`.
     """
     try:
         result = subprocess.run(
@@ -175,6 +170,37 @@ def _render_motion_graphics_file(props_path: str, dest_path: str,
     if result.returncode != 0:
         print(f"    WARN: Render failed: {result.stderr[:200]}",
               file=sys.stderr)
+        return False
+    return True
+
+
+def _render_motion_graphics_hyperframes(render_props: dict, dest_path: str,
+                                        remotion: str, name: str,
+                                        project_folder: str) -> bool:
+    """One HyperFrames render of the MotionGraphics composition.
+
+    Judged the same way - False where nothing was drawn, with the
+    reason on stderr. The composition HAS a HyperFrames form
+    (`hyperframes/compositions/MotionGraphics.html`), so under that
+    selection this is the render rather than a fallback. The carriage
+    below treats its output like any overlay file: already `qtrle`
+    passes through, anything else is transcoded bit-exact or refused.
+    """
+    from library.tools import hyperframes_render as _hf
+    try:
+        _hf.render_one_card(
+            "MotionGraphics", render_props, dest_path,
+            os.path.dirname(os.path.abspath(dest_path)),
+            project_folder,
+            os.path.dirname(os.path.abspath(remotion)))
+    except (_hf.HyperFramesUnavailable,
+            _hf.HyperFramesRenderError) as exc:
+        print(f"    WARN: HyperFrames render failed for {name}: "
+              f"{str(exc)[:200]}", file=sys.stderr)
+        return False
+    if not os.path.isfile(dest_path) or os.path.getsize(dest_path) == 0:
+        print(f"    WARN: HyperFrames render reported success but "
+              f"{dest_path} is missing or empty", file=sys.stderr)
         return False
     return True
 
@@ -272,15 +298,24 @@ def _mg_drawing_digest(render_props: dict, geometry: str,
     })
 
 
-def _mg_reuse_key(digest: str, remotion_dir: str) -> str:
+def _mg_reuse_key(digest: str, remotion_dir: str,
+                  engine: str = "remotion") -> str:
     """The three things that have to match for a skip to be safe, or `""`.
 
     The drawing digest, the renderer fingerprint (the MotionGraphics
     composition lives in the same `remotion-subtitles/src/` tree the
-    fingerprint covers), and the carriage. Empty never matches: an
+    fingerprint covers - or the HyperFrames template tree under that
+    selection), and the carriage. Empty never matches: an
     unreadable renderer tree renders rather than skips.
     """
-    return _content_key(digest, remotion_dir, OVERLAY_CARRIAGE)
+    if engine == "hyperframes":
+        from library.tools import hyperframes_render as _hf
+        renderer_dir = str(_hf.hyperframes_dir(
+            os.path.dirname(os.path.abspath(remotion_dir))))
+    else:
+        renderer_dir = remotion_dir
+    return _content_key(digest, renderer_dir, OVERLAY_CARRIAGE,
+                        engine=engine)
 
 
 def _report_palette_state(template_name: str, palette: dict) -> None:
@@ -463,6 +498,7 @@ def render_one_segment(planned: dict, out_dir: str,
         return geometry
 
     def _name_and_key(drawn_props, box):
+        from library.tools import graphics_renderer as _engines
         digest = _mg_drawing_digest(
             drawn_props, _resolved_geometry(), box)
         content_name = motion_segment_name(project_folder, digest)
@@ -470,7 +506,9 @@ def render_one_segment(planned: dict, out_dir: str,
                 os.path.join(out_dir, f"{content_name}.mov"),
                 os.path.join(out_dir, f"{content_name}_props.json"),
                 os.path.join(out_dir, f"{content_name}_reuse_key.txt"),
-                _mg_reuse_key(digest, remotion))
+                _mg_reuse_key(
+                    digest, remotion,
+                    _engines.resolve_engine(project_folder or None)))
 
     def _read_recorded_key(key_path):
         try:
@@ -619,14 +657,18 @@ def render_one_segment(planned: dict, out_dir: str,
           f"tl:{planned['timeline_start']:.2f}-"
           f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
     from library.tools import graphics_renderer as _engines
-    if _engines.is_hyperframes(project_folder or None):
-        print(f"    engine: Remotion for {placement_label} "
-              f"(MotionGraphics has no HyperFrames form yet; selected "
-              f"engine is HyperFrames, so this segment falls back BY "
-              f"NAME, not silently)", file=sys.stderr)
-
-    if not _render_motion_graphics_file(props_path, render_path,
-                                        remotion, placement_label):
+    use_hyperframes = _engines.is_hyperframes(project_folder or None)
+    if use_hyperframes:
+        print(f"    engine: HyperFrames for {placement_label} "
+              f"(MotionGraphics has a HyperFrames form; selected by "
+              f"{_engines.USER_SETTING_KEY} or the project's "
+              f"pipeline.graphics_renderer)", file=sys.stderr)
+        if not _render_motion_graphics_hyperframes(
+                render_props, render_path, remotion, placement_label,
+                project_folder or ""):
+            return None
+    elif not _render_motion_graphics_file(props_path, render_path,
+                                          remotion, placement_label):
         return None
 
     # ── The carriage ──

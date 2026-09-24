@@ -1,0 +1,1104 @@
+<!doctype html>
+<!--
+  MotionGraphics - HyperFrames port of remotion-subtitles/src/compositions/MotionGraphics.
+
+  The PLAN owns the look (which of the eighteen roster arms, its copy,
+  colour, anchor, row, footprint and timing); this file owns what each
+  arm LOOKS like, with the same numbers: RAMP_FRAMES, TYPE_SIZE/WEIGHT,
+  STACK_GAP_PX, LINE_HEIGHT 1.3, REVIEW_PANEL, STAR_PATH, the staged
+  5-frame stagger, list/comparison stagger math, the cubic ease-outs and
+  the progress-bar lerp. A number that means something else here than
+  there is two drawings of one name.
+
+  Declarative tweens only: GSAP seek() suppresses callbacks, so nothing
+  draws in an onUpdate. Each element is the engine's own .clip windowed
+  to its [startFrame, startFrame+durationFrames); stacks lay out only
+  what the engine shows, the way the Remotion side filters isLive per
+  frame. Per-frame-computed content (typewriter reveals, counter
+  figures, digit strips) is evaluated AT BUILD TIME off the same
+  formulas and baked into layers or per-frame tweens - values, never
+  callbacks. The digit-strip spring curve is sampled from Remotion's
+  own spring() at stage time (hyperframes_render bakes
+  data._hf_digit_offsets), so the physics is the dependency's, not a
+  second spelling of it.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=__REN_WIDTH__, height=__REN_HEIGHT__" />
+    <script src="./gsap.min.js"></script>
+    <style>
+      <!--__REN_HEAD_EXTRA__-->
+      @font-face {
+        font-family: "Montserrat";
+        src: url("./Montserrat-Variable.ttf") format("truetype");
+        font-weight: 100 900;
+        font-style: normal;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: __REN_WIDTH__px; height: __REN_HEIGHT__px;
+        overflow: hidden; background: transparent;
+      }
+      #root {
+        position: relative; width: 100%; height: 100%;
+        overflow: hidden; font-family: Montserrat, sans-serif;
+        pointer-events: none;
+      }
+      .stack { position: absolute; display: flex; }
+      .el { position: relative; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="__REN_DURATION__"
+      data-width="__REN_WIDTH__"
+      data-height="__REN_HEIGHT__"
+      data-fps="__REN_FPS__"
+    ></div>
+    <script>
+      //__REN_PROPS__
+      (function () {
+        var P = window.__REN_PROPS || {};
+        var FPS = Number(P.fps) || 30;
+        var W = Number(P.width) || 1080;
+        var H = Number(P.height) || 1920;
+        var D = Number(P.durationInFrames) || 1;
+        var T = D / FPS;
+        var safe = P.safeArea;
+        if (!safe) throw new Error("MotionGraphics HF props carry no safeArea.");
+        var elements = P.elements || [];
+        var layoutWidth = (P.layoutWidth === undefined || P.layoutWidth === null)
+          ? null : Number(P.layoutWidth);
+        var EPS = 0.001;
+
+        var RAMP = { cut: 0, fade: 8, slide: 8, scale: 8, mask: 8, draw: 12,
+                     blur: 10, typewriter: 20, glitch: 10, flip: 12 };
+        var TYPE_SIZE = { display: 56, supporting: 36, micro: 24 };
+        var TYPE_WEIGHT = { display: 900, supporting: 700, micro: 600 };
+        var REVIEW_PANEL = { width: 660, pad: 26, radius: 20, rule: 2,
+          nameSize: 34, nameLine: 1.25, nameToScore: 12, scoreSize: 30,
+          scoreLine: 1.2, scoreGap: 10, headerStar: 26, labelSize: 24,
+          scoreToRows: 20, rowPadY: 18, avatar: 46, avatarLetter: 22,
+          avatarGap: 16, authorSize: 26, authorLine: 1.2, authorToBody: 8,
+          rowStar: 20, whenSize: 22, bodySize: 26, bodyLine: 1.35,
+          nameWeight: 600, scoreWeight: 700, labelWeight: 500,
+          authorWeight: 600, whenWeight: 500, bodyWeight: 400, bodyLines: 2 };
+        var STAR_PATH = "M12 2.1l3.06 6.2 6.84 1-4.95 4.82 1.17 6.81L12 17.72 " +
+          "5.88 20.93l1.17-6.81L2.1 9.3l6.84-1z";
+        var STAGE_STAGGER = 5, STAGED_PARTS = 3;
+        var SELF_POSITIONING = { progress_bar: 1, frame_accents: 1 };
+
+        function sizeOf(role) { return TYPE_SIZE[role] || TYPE_SIZE.supporting; }
+        function weightOf(role) { return TYPE_WEIGHT[role] || TYPE_WEIGHT.supporting; }
+        function runStyle(role, scale, color) {
+          return { fontSize: (sizeOf(role) * scale) + "px",
+            fontWeight: weightOf(role), color: color,
+            textShadow: "0px 4px 12px rgba(0,0,0,0.6)", lineHeight: "1.1",
+            letterSpacing: role === "display" ? "3px" : "0px",
+            textTransform: role === "display" ? "uppercase" : "none" };
+        }
+        function applyRunStyle(el, role, scale, color) {
+          var s = runStyle(role, scale, color);
+          for (var k in s) el.style[k] = s[k];
+        }
+        function rampOf(ch) { return RAMP[ch] || 0; }
+        function clamp01(v) { return Math.min(1, Math.max(0, v)); }
+        function easeOutCubic(p) { return 1 - Math.pow(1 - clamp01(p), 3); }
+
+        // typewriterShown: the entrance reveals, the exit conceals, the
+        // exit winning where they overlap. Shared with FullFrameCard.
+        function typeShown(lf, dur, entrance, exit) {
+          var out = exit === "typewriter" ? rampOf(exit) : 0;
+          if (out > 0 && dur - lf < out)
+            return clamp01((dur - lf) / out);
+          if (entrance !== "typewriter") return 1;
+          var inf = rampOf(entrance);
+          if (inf <= 0) return 1;
+          return clamp01(lf / inf);
+        }
+        function isTypewriting(lf, dur, entrance, exit) {
+          return (entrance === "typewriter" || exit === "typewriter") &&
+            typeShown(lf, dur, entrance, exit) < 1;
+        }
+        function typeSplit(lengths, progress) {
+          var total = lengths.reduce(function (s, n) { return s + n; }, 0);
+          var remaining = Math.round(total * clamp01(progress));
+          var shown = [], cursor = -1;
+          for (var i = 0; i < lengths.length; i += 1) {
+            var take = Math.min(lengths[i], Math.max(0, remaining));
+            shown.push(take); remaining -= take;
+            if (cursor === -1 && progress < 1 && take < lengths[i]) cursor = i;
+          }
+          return { shown: shown, cursorRun: cursor };
+        }
+        function cursorOn(progress) { return Math.floor(progress * 30) % 2 === 0; }
+
+        // stagedBuild: parts arrive in order on the entrance, stagger
+        // apart, and leave in reverse on the exit.
+        function stagedBuild(lf, dur, entrance, exit, part) {
+          var inf = rampOf(entrance), outf = rampOf(exit);
+          var arriving = inf > 0 ? clamp01((lf - part * STAGE_STAGGER) / inf)
+            : (lf >= part * STAGE_STAGGER ? 1 : 0);
+          var outStart = (STAGED_PARTS - 1 - part) * STAGE_STAGGER;
+          var fromEnd = dur - lf;
+          var leaving = outf > 0 ? clamp01((fromEnd - outStart) / outf)
+            : (fromEnd > outStart ? 1 : 0);
+          return Math.min(arriving, leaving);
+        }
+        // stageStarts: the plan's own per-stage seconds where stated,
+        // an equal share of the hold where not.
+        function stageStarts(el, count) {
+          var hold = Math.max(1, el.durationFrames - rampOf(el.exit));
+          var raw = (el.data || {}).stage_offsets;
+          var offsets = Array.isArray(raw) ? raw : [];
+          if (offsets.length >= count && count > 0) {
+            var starts = [], prev = 0;
+            for (var i = 0; i < count; i += 1) {
+              var f = Math.round(Math.max(0, Number(offsets[i]) || 0) * FPS);
+              var c = Math.max(prev, Math.min(f, hold - 1));
+              starts.push(c); prev = c;
+            }
+            // The reveal takes the element's own entrance ramp, never the
+            // gap to the next stage - and `??`, not `||`: a `cut`
+            // entrance ramps over 0 frames, and an OR would read that 0
+            // as absent and hand it fade's 8. Same operator the Remotion
+            // side reads, so the same entrance means the same window.
+            var ramp = (el.entrance in RAMP) ? RAMP[el.entrance] : RAMP.fade;
+            var window = Math.max(1, ramp);
+            return { starts: starts, window: window };
+          }
+          var interval = hold / Math.max(1, count);
+          var eq = [];
+          for (var j = 0; j < count; j += 1) eq.push(Math.round(j * interval));
+          return { starts: eq, window: interval };
+        }
+
+        function anchorParts(anchor) {
+          switch (anchor) {
+            case "top_left": return ["top", "left"];
+            case "top_centre": return ["top", "centre"];
+            case "top_right": return ["top", "right"];
+            case "middle_left": return ["middle", "left"];
+            case "middle_right": return ["middle", "right"];
+            case "bottom_left": return ["bottom", "left"];
+            case "bottom_centre": return ["bottom", "centre"];
+            case "bottom_right": return ["bottom", "right"];
+            case "centre": return ["middle", "centre"];
+            default: return ["middle", "centre"];
+          }
+        }
+        function safeUsable() { return Math.max(0, W - safe.left - safe.right); }
+
+        var root = document.getElementById("root");
+        var tl = gsap.timeline({ paused: true });
+
+        // One element's opacity + entrance/exit onto its container.
+        // Linear ramps, the way interpolate reads without an easing;
+        // the exit spread last so it wins where they overlap.
+        function motionTweens(box, el, t0) {
+          var dur = el.durationFrames, inf = rampOf(el.entrance), outf = rampOf(el.exit);
+          var T_IN = inf / FPS, T_OUT = outf / FPS, TT = dur / FPS;
+          if (inf > 0)
+            tl.fromTo(box, { opacity: 0 }, { opacity: 1, duration: T_IN, ease: "none" }, t0);
+          if (outf > 0)
+            tl.to(box, { opacity: 0, duration: T_OUT, ease: "none" },
+              Math.max(t0, t0 + TT - T_OUT));
+          var e = el.entrance;
+          if (inf > 0 && T_IN > 0) {
+            var d = { duration: T_IN, ease: "none" };
+            if (e === "slide") tl.fromTo(box, { y: 40 }, Object.assign({ y: 0 }, d), t0);
+            else if (e === "scale") tl.fromTo(box, { scale: 0.7 }, Object.assign({ scale: 1 }, d), t0);
+            else if (e === "mask") tl.fromTo(box, { clipPath: "inset(0 100% 0 0)" },
+              Object.assign({ clipPath: "inset(0 0% 0 0)" }, d), t0);
+            else if (e === "draw") tl.fromTo(box, { scale: 0.85, filter: "blur(4px)" },
+              Object.assign({ scale: 1, filter: "blur(0px)" }, d), t0);
+            else if (e === "blur") tl.fromTo(box, { filter: "blur(8px)", y: 12 },
+              Object.assign({ filter: "blur(0px)", y: 0 }, d), t0);
+            else if (e === "flip") tl.fromTo(box, { rotationY: 90, transformPerspective: 900 },
+              Object.assign({ rotationY: 0 }, d), t0);
+            else if (e === "glitch") {
+              tl.fromTo(box, { x: 0 }, { x: 6, duration: T_IN / 4, ease: "none" }, t0);
+              tl.to(box, { x: -4, duration: T_IN / 4, ease: "none" }, t0 + T_IN / 4);
+              tl.to(box, { x: 2, duration: T_IN / 4, ease: "none" }, t0 + T_IN / 2);
+              tl.to(box, { x: 0, duration: T_IN / 4, ease: "none" }, t0 + (3 * T_IN) / 4);
+              tl.fromTo(box,
+                { filter: "drop-shadow(6px 0 rgba(255,0,0,0.7)) drop-shadow(-6px 0 rgba(0,255,255,0.7)) drop-shadow(0 3px rgba(0,255,0,0.5))" },
+                Object.assign({ filter: "drop-shadow(0px 0 rgba(255,0,0,0)) drop-shadow(0px 0 rgba(0,255,255,0)) drop-shadow(0 0px rgba(0,255,0,0))" }, d), t0);
+            }
+          }
+          var x = el.exit, t1 = Math.max(t0, t0 + TT - T_OUT);
+          if (outf > 0 && T_OUT > 0) {
+            var d2 = { duration: T_OUT, ease: "none" };
+            if (x === "slide") tl.to(box, Object.assign({ y: -40 }, d2), t1);
+            else if (x === "scale") tl.to(box, Object.assign({ scale: 0.7 }, d2), t1);
+            else if (x === "mask") tl.to(box, Object.assign({ clipPath: "inset(0 0 0 100%)" }, d2), t1);
+            else if (x === "draw") tl.to(box, Object.assign({ scale: 0.85, filter: "blur(4px)" }, d2), t1);
+            else if (x === "blur") tl.to(box, Object.assign({ filter: "blur(8px)", y: -12 }, d2), t1);
+            else if (x === "flip") tl.to(box, Object.assign({ rotationY: -90, transformPerspective: 900 }, d2), t1);
+            else if (x === "glitch") {
+              tl.to(box, { x: 5, duration: T_OUT / 3, ease: "none" }, t1);
+              tl.to(box, { x: -3, duration: T_OUT / 3, ease: "none" }, t1 + T_OUT / 3);
+              tl.to(box, { x: 0, duration: T_OUT / 3, ease: "none" }, t1 + (2 * T_OUT) / 3);
+            }
+          }
+        }
+
+        // Runs or typewriter layers into a parent, off a per-frame
+        // reveal function. States are grouped at build time so the
+        // reveal steps on the same frames both engines read.
+        function textLayers(parent, el, scale, revealAt) {
+          var lengths = el.runs.map(function (r) { return r.text.length; });
+          var states = [], lastKey = null;
+          for (var f = 0; f < el.durationFrames; f += 1) {
+            var prog = revealAt(f);
+            var sp = typeSplit(lengths, prog);
+            var key = sp.shown.join(",") + "|" + (prog < 1 ? sp.cursorRun : -1) +
+              "|" + (cursorOn(prog) ? 1 : 0);
+            if (key !== lastKey) { states.push({ f0: f, sp: sp, prog: prog }); lastKey = key; }
+          }
+          states.forEach(function (st, i) {
+            var f1 = (i + 1 < states.length) ? states[i + 1].f0 : el.durationFrames;
+            var layer = document.createElement("div");
+            layer.className = "clip";
+            layer.setAttribute("data-start", ((el.startFrame + st.f0) / FPS).toFixed(6));
+            layer.setAttribute("data-duration", ((f1 - st.f0) / FPS).toFixed(6));
+            el.runs.forEach(function (run, ri) {
+              var vis = (run.text || "").slice(0, st.sp.shown[ri]);
+              if (!vis.length && st.sp.cursorRun !== ri) return;
+              var div = document.createElement("div");
+              div.style.fontSize = (sizeOf(run.type_role) * scale) + "px";
+              div.style.fontWeight = weightOf(run.type_role);
+              div.style.color = el.color;
+              div.style.textShadow = "0px 4px 12px rgba(0,0,0,0.6)";
+              div.style.lineHeight = "1.1";
+              div.style.letterSpacing = run.type_role === "display" ? "3px" : "0px";
+              div.style.textTransform = run.type_role === "display" ? "uppercase" : "none";
+              div.textContent = vis;
+              if (st.sp.cursorRun === ri) {
+                var cur = document.createElement("span");
+                cur.textContent = "|";
+                cur.style.opacity = cursorOn(st.prog) ? "1" : "0";
+                div.appendChild(cur);
+              }
+              layer.appendChild(div);
+            });
+            parent.appendChild(layer);
+          });
+        }
+        function runsInto(parent, el, scale) {
+          el.runs.forEach(function (run) {
+            var div = document.createElement("div");
+            applyRunStyle(div, run.type_role, scale, el.color);
+            div.textContent = run.text;
+            parent.appendChild(div);
+          });
+        }
+        // TextContent: typewriter layers where a reveal is mid-flight,
+        // whole runs everywhere else.
+        function textInto(parent, el, scale) {
+          var tw = isTypewriting(0, el.durationFrames, el.entrance, el.exit) ||
+            el.entrance === "typewriter" || el.exit === "typewriter";
+          if (tw && el.runs.length) {
+            textLayers(parent, el, scale, function (lf) {
+              return typeShown(lf, el.durationFrames, el.entrance, el.exit);
+            });
+          } else {
+            runsInto(parent, el, scale);
+          }
+        }
+
+        function starRow(parent, value, size, star, muted) {
+          var row = document.createElement("span");
+          row.style.display = "flex"; row.style.flex = "0 0 auto";
+          for (var i = 0; i < 5; i += 1) {
+            var filled = Math.max(0, Math.min(1, value - i));
+            var cell = document.createElement("span");
+            cell.style.position = "relative";
+            cell.style.width = size + "px"; cell.style.height = size + "px";
+            var NS = "http://www.w3.org/2000/svg";
+            var svg = document.createElementNS(NS, "svg");
+            svg.setAttribute("width", size); svg.setAttribute("height", size);
+            svg.setAttribute("viewBox", "0 0 24 24"); svg.style.display = "block";
+            var path = document.createElementNS(NS, "path");
+            path.setAttribute("d", STAR_PATH); path.setAttribute("fill", muted);
+            svg.appendChild(path); cell.appendChild(svg);
+            if (filled > 0) {
+              var over = document.createElement("span");
+              over.style.position = "absolute"; over.style.top = "0"; over.style.left = "0";
+              over.style.width = (size * filled) + "px"; over.style.height = size + "px";
+              over.style.overflow = "hidden";
+              var svg2 = document.createElementNS(NS, "svg");
+              svg2.setAttribute("width", size); svg2.setAttribute("height", size);
+              svg2.setAttribute("viewBox", "0 0 24 24"); svg2.style.display = "block";
+              var path2 = document.createElementNS(NS, "path");
+              path2.setAttribute("d", STAR_PATH); path2.setAttribute("fill", star);
+              svg2.appendChild(path2); over.appendChild(svg2); cell.appendChild(over);
+            }
+            row.appendChild(cell);
+          }
+          parent.appendChild(row);
+        }
+
+        // ── element arms ──
+
+        function armStagedLowerThird(el, scale, host) {
+          var alignRight = String(el.anchor).substr(-5) === "right";
+          var runs = el.runs || [];
+          if (!runs.length) return;
+          var nameRun = runs[0], titleRun = runs[1];
+          var displaySize = sizeOf("display") * scale;
+          var ruleThickness = Math.max(2, Math.round(displaySize / 12));
+          var ruleGap = Math.max(2, Math.round(displaySize / 7));
+          var wrap = document.createElement("div");
+          wrap.style.display = "flex"; wrap.style.flexDirection = "column";
+          wrap.style.alignItems = alignRight ? "flex-end" : "flex-start";
+          var inf = rampOf(el.entrance), outf = rampOf(el.exit);
+          var t0 = el.startFrame / FPS, TT = el.durationFrames / FPS;
+          // Part 1: the name rises out from behind the rule, clipped.
+          // Built first so the column order is name, rule, title.
+          var nameBox = document.createElement("div");
+          nameBox.style.overflow = "hidden";
+          var nameDiv = document.createElement("div");
+          applyRunStyle(nameDiv, nameRun.type_role, scale, el.color);
+          nameDiv.textContent = nameRun.text;
+          nameBox.appendChild(nameDiv);
+          wrap.appendChild(nameBox);
+          // Part 0: the rule draws out from the aligned edge.
+          var rule = document.createElement("div");
+          rule.style.marginTop = ruleGap + "px"; rule.style.height = ruleThickness + "px";
+          rule.style.alignSelf = "stretch"; rule.style.backgroundColor = el.color;
+          rule.style.transformOrigin = alignRight ? "right center" : "left center";
+          wrap.appendChild(rule);
+          if (inf > 0)
+            tl.fromTo(rule, { scaleX: 0 }, { scaleX: 1, duration: inf / FPS, ease: "none" }, t0);
+          if (outf > 0) {
+            var ro = (STAGED_PARTS - 1 - 0) * STAGE_STAGGER / FPS;
+            tl.to(rule, { scaleX: 0, duration: outf / FPS, ease: "none" },
+              Math.max(t0, t0 + TT - ro - outf / FPS));
+          }
+          host.appendChild(wrap);
+          var nIn = 1 * STAGE_STAGGER, nOut = (STAGED_PARTS - 1 - 1) * STAGE_STAGGER;
+          if (inf > 0) {
+            tl.fromTo(nameBox, { clipPath: "inset(100% 0 0 0)", y: displaySize * 0.35 },
+              { clipPath: "inset(0% 0 0 0)", y: 0, duration: inf / FPS, ease: "none" },
+              t0 + nIn / FPS);
+          }
+          if (outf > 0) {
+            tl.to(nameBox, { clipPath: "inset(100% 0 0 0)", y: displaySize * 0.35,
+              duration: outf / FPS, ease: "none" },
+              Math.max(t0, t0 + TT - nOut / FPS - outf / FPS));
+          }
+          // Part 2: the title wipes out along the rule.
+          if (titleRun) {
+            var titleBox = document.createElement("div");
+            titleBox.style.marginTop = ruleGap + "px";
+            var titleDiv = document.createElement("div");
+            applyRunStyle(titleDiv, titleRun.type_role, scale, el.color);
+            titleDiv.textContent = titleRun.text;
+            titleBox.appendChild(titleDiv);
+            wrap.appendChild(titleBox);
+            var wipe0 = alignRight ? "inset(0 0 0 100%)" : "inset(0 100% 0 0)";
+            var wipe1 = "inset(0 0% 0 0)";
+            if (alignRight) wipe1 = "inset(0 0 0 0%)";
+            var tIn = 2 * STAGE_STAGGER, tOut = (STAGED_PARTS - 1 - 2) * STAGE_STAGGER;
+            if (inf > 0)
+              tl.fromTo(titleBox, { clipPath: wipe0 },
+                { clipPath: wipe1, duration: inf / FPS, ease: "none" }, t0 + tIn / FPS);
+            if (outf > 0)
+              tl.to(titleBox, { clipPath: wipe0, duration: outf / FPS, ease: "none" },
+                Math.max(t0, t0 + TT - tOut / FPS - outf / FPS));
+          }
+          host.appendChild(wrap);
+        }
+
+        function armDigitRoll(el, scale, host, value, fontSize) {
+          var data = el.data || {};
+          var baked = data._hf_digit_offsets;
+          // Baked at stage time from Remotion's own spring(): one
+          // y-offset per digit per local frame. Absent means the stage
+          // refused the bake - drawing an unbaked roll would be a
+          // second, silent physics.
+          if (!baked) throw new Error("digit_counter HF props carry no baked spring offsets.");
+          var digits = String(value).split("");
+          var digitHeight = fontSize * 1.2;
+          var strip = document.createElement("div");
+          strip.style.display = "flex"; strip.style.alignItems = "center";
+          strip.style.overflow = "hidden"; strip.style.height = digitHeight + "px";
+          var t0 = el.startFrame / FPS;
+          digits.forEach(function (char, i) {
+            var digitVal = parseInt(char, 10);
+            if (isNaN(digitVal)) {
+              var stat = document.createElement("span");
+              stat.style.fontSize = fontSize + "px"; stat.style.fontWeight = "900";
+              stat.style.color = el.color; stat.style.lineHeight = "1.2";
+              stat.style.fontVariantNumeric = "tabular-nums";
+              stat.textContent = char;
+              strip.appendChild(stat);
+              return;
+            }
+            var cell = document.createElement("div");
+            cell.style.width = (fontSize * 0.65) + "px";
+            cell.style.height = digitHeight + "px";
+            cell.style.overflow = "hidden"; cell.style.position = "relative";
+            var rail = document.createElement("div");
+            rail.style.position = "absolute"; rail.style.top = "0"; rail.style.left = "0";
+            for (var d = 0; d < 10; d += 1) {
+              var dd = document.createElement("div");
+              dd.style.fontSize = fontSize + "px"; dd.style.fontWeight = "900";
+              dd.style.color = el.color; dd.style.lineHeight = "1.2";
+              dd.style.height = digitHeight + "px"; dd.style.display = "flex";
+              dd.style.alignItems = "center"; dd.style.justifyContent = "center";
+              dd.style.fontVariantNumeric = "tabular-nums";
+              dd.textContent = String(d);
+              rail.appendChild(dd);
+            }
+            cell.appendChild(rail); strip.appendChild(cell);
+            var samples = baked[i];
+            if (!samples) throw new Error("digit_counter bake is short a digit.");
+            // The baseline lives in the DOM, not in a set(): every
+            // per-frame .to() below starts from the value the build
+            // left, so a seek lands on values rather than on a callback.
+            rail.style.transform = "translateY(" + (samples[0] * digitHeight) + "px)";
+            for (var f = 0; f + 1 < samples.length && f + 1 < el.durationFrames; f += 1) {
+              tl.to(rail, { y: samples[f + 1] * digitHeight, duration: 1 / FPS, ease: "none" },
+                t0 + f / FPS);
+            }
+          });
+          host.appendChild(strip);
+        }
+
+        function buildElement(el) {
+          var scale = (el.footprint && el.footprint > 0) ? el.footprint : 1;
+          var box = document.createElement("div");
+          box.className = "el clip";
+          box.setAttribute("data-start", (el.startFrame / FPS).toFixed(6));
+          box.setAttribute("data-duration", (el.durationFrames / FPS).toFixed(6));
+          var t0 = el.startFrame / FPS;
+          motionTweens(box, el, t0);
+          var kind = el.element;
+
+          if (kind === "title_lockup") {
+            box.style.display = "flex"; box.style.flexDirection = "column";
+            box.style.gap = "12px";
+            textInto(box, el, scale);
+          } else if (kind === "quote_card") {
+            box.style.display = "flex"; box.style.flexDirection = "column";
+            box.style.gap = "16px";
+            box.style.borderLeft = Math.round(8 * scale) + "px solid " + el.color;
+            box.style.paddingLeft = Math.round(28 * scale) + "px";
+            textInto(box, el, scale);
+          } else if (kind === "progress_bar") {
+            // Chrome: no entrance/exit transforms, opacity only (already
+            // tweened above). The fill lerps start->end across the whole
+            // window minus one frame, clamped.
+            box.style.position = "absolute";
+            box.style.left = safe.left + "px"; box.style.right = safe.right + "px";
+            if (String(el.anchor).substr(0, 3) === "top") box.style.top = safe.top + "px";
+            else box.style.bottom = safe.bottom + "px";
+            box.style.height = Math.round(12 * scale) + "px";
+            box.style.backgroundColor = "rgba(255, 255, 255, 0.15)";
+            var fill = document.createElement("div");
+            fill.style.height = "100%"; fill.style.backgroundColor = el.color;
+            fill.style.boxShadow = "0 0 16px " + el.color;
+            box.appendChild(fill);
+            var p0 = Number(el.timelineProgressStart) * 100;
+            var p1 = Number(el.timelineProgressEnd) * 100;
+            var span = Math.max(1 / FPS, (el.durationFrames - 1) / FPS);
+            tl.fromTo(fill, { width: p0 + "%" }, { width: p1 + "%", duration: span, ease: "none" }, t0);
+          } else if (kind === "frame_accents") {
+            var size = Math.round(80 * scale), stroke = Math.round(6 * scale);
+            [["top", "left", "borderTop", "borderLeft"],
+             ["top", "right", "borderTop", "borderRight"],
+             ["bottom", "left", "borderBottom", "borderLeft"],
+             ["bottom", "right", "borderBottom", "borderRight"]].forEach(function (c) {
+              var corner = document.createElement("div");
+              corner.style.position = "absolute";
+              corner.style.width = size + "px"; corner.style.height = size + "px";
+              corner.style[c[0]] = safe[c[0]] + "px";
+              corner.style[c[1]] = safe[c[1]] + "px";
+              corner.style[c[2]] = stroke + "px solid " + el.color;
+              corner.style[c[3]] = stroke + "px solid " + el.color;
+              box.appendChild(corner);
+            });
+          } else if (kind === "lower_third") {
+            if ((el.data || {}).construction === "staged_rule") {
+              var inner = document.createElement("div");
+              box.appendChild(inner);
+              armStagedLowerThird(el, scale, inner);
+            } else {
+              box.style.display = "flex"; box.style.flexDirection = "column";
+              box.style.gap = "8px";
+              box.style.backgroundColor = "rgba(0, 0, 0, 0.75)";
+              box.style.padding = Math.round(24 * scale) + "px " + Math.round(32 * scale) + "px";
+              box.style.borderRadius = Math.round(16 * scale) + "px";
+              box.style.borderLeft = Math.round(8 * scale) + "px solid " + el.color;
+              box.style.backdropFilter = "blur(8px)";
+              textInto(box, el, scale);
+            }
+          } else if (kind === "channel_bug") {
+            if (!el.asset) return null;
+            var bug = document.createElement("img");
+            bug.src = el.asset; bug.alt = "";
+            bug.style.width = Math.round(safeUsable() * scale) + "px";
+            bug.style.height = "auto"; bug.style.objectFit = "contain";
+            bug.style.display = "block";
+            box.appendChild(bug);
+          } else if (kind === "context_stamp") {
+            box.style.display = "flex"; box.style.alignItems = "center";
+            box.style.justifyContent = "center";
+            box.style.backgroundColor = el.color;
+            box.style.padding = Math.round(8 * scale) + "px " + Math.round(16 * scale) + "px";
+            box.style.borderRadius = Math.round(4 * scale) + "px";
+            box.style.boxShadow = "0 4px 12px rgba(0,0,0,0.4)";
+            var pill = document.createElement("div");
+            pill.style.color = "#fff"; pill.style.textShadow = "none";
+            textInto(pill, el, scale * 0.8);
+            // The pill's runs draw white at 0.8: recolor what textInto set.
+            Array.prototype.forEach.call(pill.querySelectorAll("div,span"), function (n) {
+              n.style.color = "#fff";
+            });
+            box.appendChild(pill);
+          } else if (kind === "review_panel") {
+            buildReviewPanel(el, scale, box);
+          } else if (kind === "stat_callout") {
+            box.style.display = "flex"; box.style.flexDirection = "column";
+            box.style.alignItems = "center"; box.style.gap = "12px";
+            textInto(box, el, scale * 1.5);
+          } else if (kind === "subject_emblem") {
+            buildEmblem(el, scale, box);
+          } else if (kind === "beat_accent") {
+            // A growing, fading disc: size and fade are both linear in
+            // the window progress, so two linear tweens on an inner -
+            // the outer keeps the entrance/exit opacity, and the
+            // product is exact rather than an approximation of one.
+            var TT = el.durationFrames / FPS;
+            var disc = document.createElement("div");
+            disc.style.borderRadius = "50%"; disc.style.backgroundColor = el.color;
+            disc.style.boxShadow = "0 0 24px " + el.color;
+            box.appendChild(disc);
+            var s0 = Math.round(120 * scale * 0.5), s1 = Math.round(120 * scale * 1.5);
+            tl.fromTo(disc, { width: s0 + "px", height: s0 + "px", opacity: 1 },
+              { width: s1 + "px", height: s1 + "px", opacity: 0, duration: TT, ease: "none" }, t0);
+          } else if (kind === "pointer_annotation") {
+            box.style.width = Math.round(80 * scale) + "px";
+            box.style.height = Math.round(80 * scale) + "px";
+            box.style.borderRadius = "50%";
+            box.style.border = Math.round(8 * scale) + "px solid " + el.color;
+            box.style.boxShadow = "0 0 16px " + el.color + ", inset 0 0 16px " + el.color;
+          } else if (kind === "counter_roll") {
+            buildCounter(el, scale, box);
+          } else if (kind === "digit_counter") {
+            buildDigitCounter(el, scale, box);
+          } else if (kind === "list_build") {
+            buildList(el, scale, box);
+          } else if (kind === "comparison_bars") {
+            buildBars(el, scale, box);
+          } else if (kind === "step_counter") {
+            buildStepCounter(el, scale, box);
+          } else if (kind === "website_panel") {
+            if (!el.asset) return null;
+            buildWebsite(el, scale, box);
+          } else {
+            // Unreachable by construction: resolve_plan drops what this
+            // switch has no arm for. Drawing nothing rather than
+            // throwing keeps a hand-edited props file from taking the
+            // render down - the same rule the Remotion side reads.
+            return null;
+          }
+          return box;
+        }
+
+        function buildReviewPanel(el, scale, box) {
+          var data = el.data || {}, palette = data.palette || {};
+          var rows = Array.isArray(data.rows) ? data.rows : [];
+          if (!rows.length) return;
+          var px = function (n) { return Math.round(n * scale); };
+          box.style.width = px(REVIEW_PANEL.width) + "px";
+          box.style.backgroundColor = palette.surface;
+          box.style.borderRadius = px(REVIEW_PANEL.radius) + "px";
+          box.style.padding = px(REVIEW_PANEL.pad) + "px";
+          box.style.boxSizing = "border-box";
+          box.style.textAlign = "left";
+          box.style.boxShadow = "0 10px 30px rgba(0,0,0,0.45)";
+          var placeRun = null, labelRuns = [];
+          el.runs.forEach(function (run) {
+            if (!placeRun && run.type_role === "display") placeRun = run;
+            else if (run.type_role !== "display") labelRuns.push(run);
+          });
+          var nameH = px(REVIEW_PANEL.nameSize * REVIEW_PANEL.nameLine);
+          var scoreH = Math.max(px(REVIEW_PANEL.scoreSize * REVIEW_PANEL.scoreLine),
+            px(REVIEW_PANEL.headerStar));
+          var bodyLH = px(REVIEW_PANEL.bodySize * REVIEW_PANEL.bodyLine);
+          var rowInner = Math.max(px(REVIEW_PANEL.avatar),
+            px(REVIEW_PANEL.authorSize * REVIEW_PANEL.authorLine) +
+            px(REVIEW_PANEL.authorToBody) +
+            REVIEW_PANEL.bodyLines * bodyLH);
+          var rowH = px(REVIEW_PANEL.rowPadY) * 2 + rowInner;
+          var name = document.createElement("div");
+          name.style.height = nameH + "px"; name.style.lineHeight = nameH + "px";
+          name.style.fontSize = px(REVIEW_PANEL.nameSize) + "px";
+          name.style.fontWeight = REVIEW_PANEL.nameWeight;
+          name.style.color = palette.ink; name.style.whiteSpace = "nowrap";
+          name.style.overflow = "hidden"; name.style.textOverflow = "ellipsis";
+          name.textContent = placeRun ? placeRun.text : "";
+          box.appendChild(name);
+          var scoreRow = document.createElement("div");
+          scoreRow.style.height = scoreH + "px";
+          scoreRow.style.marginTop = px(REVIEW_PANEL.nameToScore) + "px";
+          scoreRow.style.display = "flex"; scoreRow.style.alignItems = "center";
+          scoreRow.style.gap = px(REVIEW_PANEL.scoreGap) + "px";
+          var score = document.createElement("span");
+          score.style.fontSize = px(REVIEW_PANEL.scoreSize) + "px";
+          score.style.fontWeight = REVIEW_PANEL.scoreWeight;
+          score.style.color = palette.ink;
+          score.style.lineHeight = "1.5";
+          score.style.fontVariantNumeric = "tabular-nums";
+          score.textContent = data.rating;
+          scoreRow.appendChild(score);
+          starRow(scoreRow, Number(data.rating) || 0, px(REVIEW_PANEL.headerStar),
+            palette.star, palette.rule);
+          var label = document.createElement("span");
+          label.style.fontSize = px(REVIEW_PANEL.labelSize) + "px";
+          label.style.fontWeight = REVIEW_PANEL.labelWeight;
+          label.style.color = palette.muted; label.style.lineHeight = "1.5";
+          label.style.whiteSpace = "nowrap";
+          label.style.overflow = "hidden"; label.style.textOverflow = "ellipsis";
+          label.textContent = [data.count]
+            .concat(labelRuns.map(function (r) { return r.text; }))
+            .filter(function (p) { return p !== undefined && p !== ""; }).join(" ");
+          scoreRow.appendChild(label);
+          box.appendChild(scoreRow);
+          var spacer = document.createElement("div");
+          spacer.style.height = px(REVIEW_PANEL.scoreToRows) + "px";
+          box.appendChild(spacer);
+          rows.forEach(function (row) {
+            var card = document.createElement("div");
+            card.style.height = rowH + "px"; card.style.boxSizing = "border-box";
+            card.style.paddingTop = px(REVIEW_PANEL.rowPadY) + "px";
+            card.style.paddingBottom = px(REVIEW_PANEL.rowPadY) + "px";
+            card.style.borderTop = px(REVIEW_PANEL.rule) + "px solid " + palette.rule;
+            card.style.display = "flex"; card.style.gap = px(REVIEW_PANEL.avatarGap) + "px";
+            var avatar = document.createElement("div");
+            avatar.style.flex = "0 0 auto";
+            avatar.style.width = px(REVIEW_PANEL.avatar) + "px";
+            avatar.style.height = px(REVIEW_PANEL.avatar) + "px";
+            avatar.style.borderRadius = "50%";
+            avatar.style.backgroundColor = palette.muted;
+            avatar.style.color = palette.surface;
+            avatar.style.fontSize = px(REVIEW_PANEL.avatarLetter) + "px";
+            avatar.style.fontWeight = REVIEW_PANEL.authorWeight;
+            avatar.style.display = "flex"; avatar.style.alignItems = "center";
+            avatar.style.justifyContent = "center";
+            avatar.textContent = String(row.initial || row.author || "").trim().slice(0, 1);
+            card.appendChild(avatar);
+            var main = document.createElement("div");
+            main.style.flex = "1 1 auto"; main.style.minWidth = "0";
+            var head = document.createElement("div");
+            head.style.height = px(REVIEW_PANEL.authorSize * REVIEW_PANEL.authorLine) + "px";
+            head.style.display = "flex"; head.style.alignItems = "center";
+            head.style.gap = px(REVIEW_PANEL.scoreGap) + "px";
+            var author = document.createElement("span");
+            author.style.fontSize = px(REVIEW_PANEL.authorSize) + "px";
+            author.style.fontWeight = REVIEW_PANEL.authorWeight;
+            author.style.color = palette.ink; author.style.lineHeight = "1.5";
+            author.style.whiteSpace = "nowrap";
+            author.textContent = row.author;
+            head.appendChild(author);
+            if (typeof row.stars === "number")
+              starRow(head, row.stars, px(REVIEW_PANEL.rowStar), palette.star, palette.rule);
+            if (row.when) {
+              var when = document.createElement("span");
+              when.style.fontSize = px(REVIEW_PANEL.whenSize) + "px";
+              when.style.fontWeight = REVIEW_PANEL.whenWeight;
+              when.style.color = palette.muted; when.style.lineHeight = "1.5";
+              when.style.whiteSpace = "nowrap";
+              when.textContent = row.when;
+              head.appendChild(when);
+            }
+            main.appendChild(head);
+            var body = document.createElement("div");
+            body.style.marginTop = px(REVIEW_PANEL.authorToBody) + "px";
+            body.style.height = (REVIEW_PANEL.bodyLines * bodyLH) + "px";
+            body.style.fontSize = px(REVIEW_PANEL.bodySize) + "px";
+            body.style.lineHeight = bodyLH + "px";
+            body.style.fontWeight = REVIEW_PANEL.bodyWeight;
+            body.style.color = palette.ink;
+            body.style.display = "-webkit-box";
+            body.style.webkitLineClamp = String(REVIEW_PANEL.bodyLines);
+            body.style.webkitBoxOrient = "vertical";
+            body.style.overflow = "hidden";
+            body.textContent = row.body;
+            main.appendChild(body);
+            card.appendChild(main);
+            box.appendChild(card);
+          });
+        }
+
+        function buildEmblem(el, scale, box) {
+          var mark = null, label = [];
+          el.runs.forEach(function (run) {
+            if (!mark && run.type_role === "display") mark = run;
+            else if (run.type_role !== "display") label.push(run);
+          });
+          var plate = Math.round(200 * scale);
+          box.style.display = "flex"; box.style.flexDirection = "column";
+          box.style.alignItems = "center";
+          box.style.gap = Math.round(16 * scale) + "px";
+          var disc = document.createElement("div");
+          disc.style.width = plate + "px"; disc.style.height = plate + "px";
+          disc.style.borderRadius = Math.round(48 * scale) + "px";
+          disc.style.backgroundColor = el.color;
+          disc.style.display = "flex"; disc.style.alignItems = "center";
+          disc.style.justifyContent = "center";
+          disc.style.boxShadow = "0 8px 32px rgba(0,0,0,0.45)";
+          var glyph = document.createElement("div");
+          glyph.style.fontSize = (sizeOf("display") * scale * 2) + "px";
+          glyph.style.fontWeight = "900"; glyph.style.color = "#fff";
+          glyph.style.lineHeight = "1";
+          glyph.style.textShadow = "0 4px 16px rgba(0,0,0,0.5)";
+          var tw = el.entrance === "typewriter" || el.exit === "typewriter";
+          if (tw && mark) {
+            textLayers(disc, { runs: [mark], color: "#fff", startFrame: el.startFrame,
+              durationFrames: el.durationFrames,
+              entrance: el.entrance, exit: el.exit }, scale * 2, function (lf) {
+              return typeShown(lf, el.durationFrames, el.entrance, el.exit);
+            });
+            // The layered mark draws at 2x display in white: recolor and
+            // resize what textLayers set from the run.
+            Array.prototype.forEach.call(disc.querySelectorAll("div"), function (n) {
+              n.style.color = "#fff";
+              n.style.fontSize = (sizeOf("display") * scale * 2) + "px";
+              n.style.fontWeight = "900"; n.style.lineHeight = "1";
+              n.style.textShadow = "0 4px 16px rgba(0,0,0,0.5)";
+            });
+          } else {
+            glyph.textContent = mark ? mark.text : "";
+            disc.appendChild(glyph);
+          }
+          box.appendChild(disc);
+          if (label.length) {
+            var lab = document.createElement("div");
+            label.forEach(function (run) {
+              var div = document.createElement("div");
+              applyRunStyle(div, run.type_role, scale * 0.8, el.color);
+              div.textContent = run.text;
+              lab.appendChild(div);
+            });
+            box.appendChild(lab);
+          }
+        }
+
+        function counterText(el, lf) {
+          var data = el.data || {};
+          var startVal = (typeof data.start_value === "number") ? data.start_value : 0;
+          var endVal = (typeof data.end_value === "number") ? data.end_value : 100;
+          var decimals = (typeof data.decimals === "number") ? data.decimals : 0;
+          var p = clamp01(lf / Math.max(1, el.durationFrames * 0.8));
+          var eased = 1 - Math.pow(1 - p, 3);
+          var v = startVal + (endVal - startVal) * eased;
+          var body = decimals > 0 ? v.toFixed(decimals)
+            : Math.round(v).toLocaleString("en-US");
+          return { prefix: (typeof data.prefix === "string") ? data.prefix : "",
+            body: body,
+            suffix: (typeof data.suffix === "string") ? data.suffix : "" };
+        }
+        function buildCounter(el, scale, box) {
+          box.style.display = "flex"; box.style.flexDirection = "column";
+          box.style.alignItems = "center";
+          box.style.gap = Math.round(8 * scale) + "px";
+          var fontSize = sizeOf("display") * scale * 1.5;
+          var states = [], lastKey = null;
+          for (var f = 0; f < el.durationFrames; f += 1) {
+            var c = counterText(el, f);
+            var key = c.prefix + "|" + c.body + "|" + c.suffix;
+            if (key !== lastKey) { states.push({ f0: f, c: c }); lastKey = key; }
+          }
+          states.forEach(function (st, i) {
+            var f1 = (i + 1 < states.length) ? states[i + 1].f0 : el.durationFrames;
+            var layer = document.createElement("div");
+            layer.className = "clip";
+            layer.setAttribute("data-start", ((el.startFrame + st.f0) / FPS).toFixed(6));
+            layer.setAttribute("data-duration", ((f1 - st.f0) / FPS).toFixed(6));
+            layer.style.fontSize = fontSize + "px"; layer.style.fontWeight = "900";
+            layer.style.color = el.color;
+            layer.style.fontVariantNumeric = "tabular-nums";
+            layer.style.textShadow = "0 0 40px " + el.color + "40, 0 4px 16px rgba(0,0,0,0.5)";
+            layer.style.letterSpacing = "2px"; layer.style.lineHeight = "1.0";
+            layer.textContent = st.c.prefix + st.c.body + st.c.suffix;
+            box.appendChild(layer);
+          });
+          if (el.runs.length) {
+            var lab = document.createElement("div");
+            runsInto(lab, el, scale * 0.7);
+            box.appendChild(lab);
+          }
+        }
+
+        function buildDigitCounter(el, scale, box) {
+          var data = el.data || {};
+          var endVal = (typeof data.end_value === "number") ? data.end_value : 100;
+          var decimals = (typeof data.decimals === "number") ? data.decimals : 0;
+          var value = decimals > 0 ? endVal.toFixed(decimals)
+            : Math.round(endVal).toLocaleString("en-US");
+          var fontSize = sizeOf("display") * scale * 1.5;
+          box.style.display = "flex"; box.style.flexDirection = "column";
+          box.style.alignItems = "center";
+          box.style.gap = Math.round(8 * scale) + "px";
+          var row = document.createElement("div");
+          row.style.display = "flex"; row.style.alignItems = "center";
+          row.style.textShadow = "0 0 40px " + el.color + "40, 0 4px 16px rgba(0,0,0,0.5)";
+          row.style.letterSpacing = "2px";
+          var prefix = (typeof data.prefix === "string") ? data.prefix : "";
+          var suffix = (typeof data.suffix === "string") ? data.suffix : "";
+          if (prefix) {
+            var pre = document.createElement("span");
+            pre.style.fontSize = fontSize + "px"; pre.style.fontWeight = "900";
+            pre.style.color = el.color; pre.style.lineHeight = "1.0";
+            pre.textContent = prefix;
+            row.appendChild(pre);
+          }
+          // The whole figure shares one strip row: prefix, roll, suffix.
+          var rollHost = document.createElement("div");
+          row.appendChild(rollHost);
+          armDigitRoll(el, scale, rollHost, value, fontSize);
+          if (suffix) {
+            var suf = document.createElement("span");
+            suf.style.fontSize = fontSize + "px"; suf.style.fontWeight = "900";
+            suf.style.color = el.color; suf.style.lineHeight = "1.0";
+            suf.textContent = suffix;
+            row.appendChild(suf);
+          }
+          box.appendChild(row);
+          if (el.runs.length) {
+            var lab = document.createElement("div");
+            runsInto(lab, el, scale * 0.7);
+            box.appendChild(lab);
+          }
+        }
+
+        function buildList(el, scale, box) {
+          var items = el.runs;
+          if (!items.length) return;
+          var listSize = sizeOf(items[0].type_role);
+          var st = stageStarts(el, items.length);
+          box.style.display = "flex"; box.style.flexDirection = "column";
+          box.style.gap = Math.round(12 * scale) + "px";
+          var t0 = el.startFrame / FPS;
+          items.forEach(function (run, i) {
+            var item = document.createElement("div");
+            item.style.display = "flex"; item.style.alignItems = "flex-start";
+            item.style.gap = Math.round(12 * scale) + "px";
+            var dot = document.createElement("div");
+            dot.style.width = Math.round(8 * scale) + "px";
+            dot.style.height = Math.round(8 * scale) + "px";
+            dot.style.borderRadius = "50%";
+            dot.style.backgroundColor = el.color;
+            dot.style.marginTop = Math.round((listSize * 1.3 - 8) * scale * 0.5) + "px";
+            dot.style.flexShrink = "0";
+            item.appendChild(dot);
+            var txt = document.createElement("div");
+            txt.style.fontSize = (listSize * scale) + "px";
+            txt.style.fontWeight = weightOf(run.type_role);
+            txt.style.color = el.color;
+            txt.style.textShadow = "0px 4px 12px rgba(0,0,0,0.6)";
+            txt.style.lineHeight = "1.3";
+            txt.textContent = run.text;
+            item.appendChild(txt);
+            box.appendChild(item);
+            var win = Math.max(1, st.window * 0.6) / FPS;
+            tl.fromTo(item, { opacity: 0, y: 20 },
+              { opacity: 1, y: 0, duration: win, ease: "power2.out" },
+              t0 + st.starts[i] / FPS);
+          });
+        }
+
+        function buildBars(el, scale, box) {
+          var data = el.data || {};
+          var values = Array.isArray(data.values) ? data.values : [];
+          var maxValue = Math.max.apply(null, values.concat([1]));
+          var items = el.runs;
+          var count = Math.min(items.length, values.length);
+          if (!count) return;
+          var st = stageStarts(el, count);
+          box.style.display = "flex"; box.style.flexDirection = "column";
+          box.style.gap = Math.round(16 * scale) + "px";
+          box.style.width = "100%";
+          var t0 = el.startFrame / FPS;
+          for (var i = 0; i < count; i += 1) {
+            (function (i) {
+              var wrap = document.createElement("div");
+              wrap.style.display = "flex"; wrap.style.flexDirection = "column";
+              wrap.style.gap = Math.round(4 * scale) + "px";
+              var lab = document.createElement("div");
+              lab.style.fontSize = ((TYPE_SIZE[items[i].type_role] || TYPE_SIZE.micro) * scale) + "px";
+              lab.style.fontWeight = TYPE_WEIGHT[items[i].type_role] || TYPE_WEIGHT.micro;
+              lab.style.color = el.color;
+              // Explicit, and 1.5 rather than the 1.1 runs draw at: the
+              // Remotion side states no line-height here, so both sides
+              // read `normal` - and the two bundled Chromiums resolve
+              // Montserrat's normal differently (measured: the HF stack
+              // lands ~10px short with it unset, Beta's track on 998
+              // against 1007). 1.5 lands both edges within a pixel on a
+              // 120-frame bars stack; see the parity table in the PR.
+              lab.style.lineHeight = "1.5";
+              lab.style.textShadow = "0px 2px 8px rgba(0,0,0,0.5)";
+              lab.textContent = items[i].text;
+              wrap.appendChild(lab);
+              var track = document.createElement("div");
+              track.style.width = "100%";
+              track.style.height = Math.round(12 * scale) + "px";
+              track.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
+              track.style.borderRadius = Math.round(6 * scale) + "px";
+              track.style.overflow = "hidden";
+              var fill = document.createElement("div");
+              fill.style.height = "100%";
+              fill.style.backgroundColor = el.color;
+              fill.style.borderRadius = Math.round(6 * scale) + "px";
+              fill.style.boxShadow = "0 0 12px " + el.color + "60";
+              track.appendChild(fill);
+              wrap.appendChild(track);
+              box.appendChild(wrap);
+              var win = Math.max(1, st.window * 0.7) / FPS;
+              var target = (values[i] / maxValue) * 100;
+              tl.fromTo(wrap, { opacity: 0 }, { opacity: 1, duration: win, ease: "power2.out" },
+                t0 + st.starts[i] / FPS);
+              tl.fromTo(fill, { width: "0%" }, { width: target + "%", duration: win, ease: "power2.out" },
+                t0 + st.starts[i] / FPS);
+            })(i);
+          }
+        }
+
+        function buildStepCounter(el, scale, box) {
+          var data = el.data || {};
+          var position = (typeof data.position === "number") ? data.position : 1;
+          var total = (typeof data.total === "number") ? data.total : 1;
+          box.style.display = "flex"; box.style.flexDirection = "column";
+          box.style.alignItems = "center";
+          box.style.gap = Math.round(8 * scale) + "px";
+          var row = document.createElement("div");
+          row.style.display = "flex"; row.style.alignItems = "baseline";
+          row.style.gap = Math.round(4 * scale) + "px";
+          var pos = document.createElement("span");
+          pos.style.fontSize = (sizeOf("display") * scale) + "px";
+          pos.style.fontWeight = "900"; pos.style.color = el.color;
+          pos.style.fontVariantNumeric = "tabular-nums";
+          pos.style.textShadow = "0 0 24px " + el.color + "40, 0 4px 12px rgba(0,0,0,0.5)";
+          pos.style.lineHeight = "1.0";
+          pos.textContent = String(position);
+          row.appendChild(pos);
+          var of = document.createElement("span");
+          of.style.fontSize = (sizeOf("micro") * scale) + "px";
+          of.style.fontWeight = weightOf("micro"); of.style.color = el.color;
+          of.style.opacity = "0.6";
+          // 1.5: the same unset-`normal` the bars labels needed - the
+          // Remotion side states no line-height on this span either.
+          of.style.lineHeight = "1.5";
+          of.style.textShadow = "0px 2px 8px rgba(0,0,0,0.4)";
+          of.textContent = "of " + total;
+          row.appendChild(of);
+          box.appendChild(row);
+          if (el.runs.length) {
+            var lab = document.createElement("div");
+            runsInto(lab, el, scale * 0.7);
+            box.appendChild(lab);
+          }
+        }
+
+        function buildWebsite(el, scale, box) {
+          box.style.display = "flex"; box.style.flexDirection = "column";
+          box.style.width = Math.round(safeUsable() * scale) + "px";
+          box.style.borderRadius = Math.round(16 * scale) + "px";
+          box.style.overflow = "hidden";
+          box.style.backgroundColor = "rgba(0, 0, 0, 0.85)";
+          box.style.border = Math.round(3 * scale) + "px solid " + el.color;
+          box.style.boxShadow = "0 8px 32px rgba(0,0,0,0.5)";
+          var address = el.runs.length ? el.runs[0].text : "";
+          if (address !== "") {
+            var bar = document.createElement("div");
+            bar.style.padding = Math.round(10 * scale) + "px " + Math.round(16 * scale) + "px";
+            bar.style.borderBottom = Math.round(3 * scale) + "px solid " + el.color;
+            bar.style.whiteSpace = "nowrap"; bar.style.overflow = "hidden";
+            bar.style.textOverflow = "ellipsis";
+            bar.style.fontSize = (sizeOf("micro") * scale) + "px";
+            bar.style.fontWeight = weightOf("micro");
+            bar.style.color = "#fff";
+            // 1.5: the same unset-`normal` the bars labels needed.
+            bar.style.lineHeight = "1.5";
+            bar.textContent = address;
+            box.appendChild(bar);
+          }
+          var shot = document.createElement("img");
+          shot.src = el.asset; shot.alt = "";
+          shot.style.width = "100%"; shot.style.height = "auto";
+          shot.style.objectFit = "contain"; shot.style.display = "block";
+          box.appendChild(shot);
+        }
+
+        // ── layout: chrome first, then anchor stacks of live elements ──
+
+        elements.forEach(function (el) {
+          if (!SELF_POSITIONING[el.element]) return;
+          var built = buildElement(el);
+          if (built) root.appendChild(built);
+        });
+
+        var anchors = [];
+        elements.forEach(function (el) {
+          if (SELF_POSITIONING[el.element]) return;
+          if (anchors.indexOf(el.anchor) < 0) anchors.push(el.anchor);
+        });
+        anchors.forEach(function (anchor) {
+          var parts = anchorParts(anchor);
+          var stack = document.createElement("div");
+          stack.className = "stack";
+          stack.style.gap = "24px";
+          if (parts[0] === "top") {
+            stack.style.top = safe.top + "px";
+            stack.style.flexDirection = "column";
+          } else if (parts[0] === "bottom") {
+            stack.style.bottom = safe.bottom + "px";
+            stack.style.flexDirection = "column-reverse";
+          } else {
+            stack.style.top = "50%";
+            stack.style.transform = "translateY(-50%)";
+            stack.style.flexDirection = "column";
+          }
+          stack.style.display = "flex";
+          if (parts[1] === "left") {
+            stack.style.left = safe.left + "px";
+          } else if (parts[1] === "right") {
+            stack.style.right = safe.right + "px";
+            stack.style.textAlign = "right";
+          } else {
+            stack.style.left = safe.left + "px";
+            stack.style.right = safe.right + "px";
+            stack.style.textAlign = "center";
+          }
+          if (layoutWidth !== null && parts[1] !== "left" && parts[1] !== "right") {
+            stack.style.maxWidth = Math.round(layoutWidth) + "px";
+            stack.style.marginLeft = "auto";
+            stack.style.marginRight = "auto";
+          }
+          elements
+            .filter(function (el) {
+              return !SELF_POSITIONING[el.element] && el.anchor === anchor;
+            })
+            .sort(function (a, b) { return (a.row || 0) - (b.row || 0); })
+            .forEach(function (el) {
+              var built = buildElement(el);
+              if (built) stack.appendChild(built);
+            });
+          root.appendChild(stack);
+        });
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["main"] = tl;
+        tl.seek(0);
+      })();
+    </script>
+  </body>
+</html>
