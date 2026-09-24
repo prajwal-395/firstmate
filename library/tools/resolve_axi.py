@@ -32,14 +32,20 @@ source clips; build verified by the pool listing, sync planned with
 (node LUTs and color-group assignment, both verified by re-read),
 `audio isolate` (per-track voice isolation, verified by re-read),
 `ingest` (pool imports), `render queue|start|stop`,
-`project set` (one setting), `timeline duplicate` (versioning).
+`project set` (one setting), `timeline duplicate` (versioning), and
+`sense transcribe|cuts|classify|intellisearch|reframe|mask|switch`
+(Resolve's own AI beside Ren's - transcription with speakers, scene
+cuts, audio classes, IntelliSearch, Smart Reframe, Magic Mask and
+Smart Switch - each judged by read-back, never wired into pipeline
+decisions).
 
 Safety shape, stated once:
 
 - Every command here is READ-ONLY except the write verbs behind
   `--apply` (`markers restore`, `markers reply`, `edit *`,
   `multicam build`, `color lut|group`, `audio isolate`, `ingest`,
-  `render queue|start|stop`, `project set`, `timeline duplicate`)
+  `render queue|start|stop`, `project set`, `timeline duplicate`,
+  `sense *`)
   and `run --unsafe`.
 - Nothing here opens or creates a project or timeline, and nothing
   moves the current-timeline cursor: listing and reading go through
@@ -108,7 +114,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 DESCRIPTION = "Read the live DaVinci Resolve session in token-cheap TOON rows"
 
@@ -2131,15 +2137,16 @@ def _readable(item) -> bool:
 #: does not require listing what the scripting API can do. The
 #: second row covers the 21.1 mutators outside Set/Add/Create:
 #: PerformMulticamSmartSwitch, FlattenMulticam, TranscribeAudio,
-#: AssignToColorGroup, AutoSyncAudio, SmartReframe, DetectSceneCuts
-#: and GenerateSpeech would otherwise read as plain calls.
+#: AssignToColorGroup, AutoSyncAudio, SmartReframe, DetectSceneCuts,
+#: AnalyzeForIntellisearch, AnalyzeForSlate and GenerateSpeech would
+#: otherwise read as plain calls.
 _RUN_WRITE_PREFIXES = ("Set", "Add", "Create", "Delete", "Import",
                        "Move", "Update", "Apply", "Replace", "Remove",
                        "Clear", "Load", "Close", "Open", "Duplicate",
                        "Start", "Stop", "Copy", "Paste", "Undo", "Save",
                        "Export", "Render", "Grab", "Perform", "Flatten",
                        "Transcribe", "Assign", "Auto", "Smart",
-                       "Detect", "Generate")
+                       "Detect", "Generate", "Analyze")
 
 #: What a `run` script may assume in scope. This list is exact: the
 #: script is `exec`d with exactly these names (plus what Python puts
@@ -4582,6 +4589,717 @@ def cmd_audio_isolate(args) -> int:
         return 0
 
 
+# ── senses: Resolve's own AI beside Ren's, judged by read-back ────
+
+
+#: Seconds `sense transcribe --apply` waits for words to land before
+#: refusing. Transcription is a model job: the call answers True at
+#: once and the segments fill in later (or never, on clips Resolve
+#: hears nothing in - measured 240 s empty on a 23 s phone clip).
+_SENSE_TRANSCRIBE_WAIT_S = 240
+
+#: What SmartReframe is judged by. The call answers True while moving
+#: nothing: measured True with Pan/Tilt/ZoomX reading back 0/0/1.0 on
+#: a clip with a held face, twice (rung 3a and rung 3c).
+_REFRAME_KEYS = ("Pan", "Tilt", "ZoomX", "ZoomY")
+
+
+def _sense_clip(project, clip_name: str, bin_path: str):
+    """The one pool item a sense reads, or a refusal naming the fix."""
+    if not clip_name:
+        raise AxiError("a sense needs --clip <pool clip name>.",
+                       f"{TOOL} pool")
+    return _pool_find_clip(project, clip_name, bin_path or "")[0]
+
+
+def _transcription_words(clip):
+    """Resolve's transcription as (language, segments), or a refusal.
+
+    Returns only what Resolve actually reports: segments carrying
+    words with timing and speaker labels. A missing, empty or
+    still-wordless answer is refused - never claimed as transcribed.
+    """
+    try:
+        transcript = clip.GetTranscription() or {}
+    except Exception as exc:
+        raise AxiError(f"GetTranscription raised ({exc}) - verify "
+                       f"by hand.",
+                       f"{TOOL} pool") from exc
+    if not isinstance(transcript, dict):
+        raise AxiError("GetTranscription answered a non-mapping - "
+                       "refusing rather than shaping it.",
+                       f"{TOOL} pool")
+    segments = transcript.get("segments") or []
+    voiced = [s for s in segments
+              if isinstance(s, dict) and (s.get("text") or "").strip()]
+    if not voiced:
+        raise AxiError(
+            f"the transcription holds {len(segments)} segment(s) with "
+            f"no words - TranscribeAudio may still be processing, or "
+            f"Resolve heard nothing here. Re-read later, or pass "
+            f"--apply to (re)start it.",
+            f"{TOOL} sense transcribe --clip \"{clip.GetName()}\" "
+            f"--apply")
+    return transcript.get("language", ""), voiced
+
+
+def _emit_transcription(clip_name: str, language, segments,
+                        full: bool) -> None:
+    seg_rows = []
+    word_rows = []
+    for number, seg in enumerate(segments):
+        words = seg.get("words") or []
+        seg_rows.append({
+            "index": number,
+            "start": seg.get("start", ""),
+            "end": seg.get("end", ""),
+            "speaker": ("" if seg.get("speaker") is None
+                        else str(seg.get("speaker"))),
+            "words": len(words),
+            "text": preview(seg.get("text") or "", full),
+        })
+        for pos, word in enumerate(words):
+            if not isinstance(word, dict):
+                continue
+            word_rows.append({
+                "seg": number,
+                "index": pos,
+                "start": word.get("start", ""),
+                "end": word.get("end", ""),
+                "text": preview(word.get("text") or "", full),
+            })
+    speakers = sorted({r["speaker"] for r in seg_rows} - {""})
+    emit([kv_block("transcription", {
+                "clip": clip_name,
+                "language": language or "",
+                "segments": len(seg_rows),
+                "words": len(word_rows),
+                "speakers": ",".join(speakers) or "(none labelled)",
+            }),
+          table("segments", seg_rows,
+                ["index", "start", "end", "speaker", "words", "text"]),
+          table("words", word_rows,
+                ["seg", "index", "start", "end", "text"])])
+    return None
+
+
+def cmd_sense_transcribe(args) -> int:
+    """Read (or start) Resolve's own transcription with speakers.
+
+    `TranscribeAudio(True)` answers True at once and the words land
+    later, so `--apply` polls `GetTranscription` up to `--wait`
+    seconds for segments carrying text. The verb returns only those
+    segments - words with timing and speaker labels, verbatim - and
+    refuses on an empty or wordless answer instead of claiming a
+    transcription. Pool-scoped: the cursor is reported, never moved.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            clip = _sense_clip(project, args.clip, args.bin or "")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            name = clip.GetName()
+        except Exception:
+            name = args.clip
+        before = _cursor_name(resolve)
+        if not args.apply:
+            try:
+                language, voiced = _transcription_words(clip)
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+            _emit_transcription(name, language, voiced, args.full)
+            emit([f"cursor: {before} (reported, never moved)",
+                  help_block([f"{TOOL} sense transcribe --clip "
+                              f"\"{name}\" --full"])])
+            return 0
+        try:
+            started = bool(clip.TranscribeAudio(True))
+        except Exception as exc:
+            return fail(f"TranscribeAudio raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} pool")
+        if not started:
+            return fail(f"TranscribeAudio answered False for "
+                        f"{name!r} - nothing was started.",
+                        f"{TOOL} pool")
+        try:
+            wait = float(args.wait if args.wait is not None else
+                         _SENSE_TRANSCRIBE_WAIT_S)
+        except (TypeError, ValueError):
+            return fail(f"bad --wait {args.wait!r}: seconds.",
+                        f"{TOOL} sense transcribe --help")
+        import time as _time
+        deadline = _time.monotonic() + max(0.0, wait)
+        language, voiced = "", []
+        while True:
+            try:
+                language, voiced = _transcription_words(clip)
+                break
+            except AxiError:
+                voiced = []
+                if _time.monotonic() >= deadline:
+                    try:
+                        held = clip.GetTranscription() or {}
+                    except Exception:
+                        held = {}
+                    count = len((held or {}).get("segments") or [])
+                    return fail(
+                        f"TranscribeAudio started but the transcription "
+                        f"holds no words after {wait:g}s "
+                        f"({count} placeholder segment(s)) - refusing "
+                        f"rather than claiming it. Re-read later.",
+                        f"{TOOL} sense transcribe --clip \"{name}\"")
+                _time.sleep(5)
+        _emit_transcription(name, language, voiced, args.full)
+        after = _cursor_name(resolve)
+        emit([f"cursor: {before} -> {after} (reported, never moved)",
+              help_block([f"{TOOL} sense transcribe --clip "
+                          f"\"{name}\" --full"])])
+        return 0
+
+
+def _cut_frames(timeline) -> list:
+    """Every V1 item's record start, sorted - the cuts Resolve drew."""
+    try:
+        items = (timeline.GetItemListInTrack("video", 1) or [])
+    except Exception as exc:
+        raise AxiError(
+            f"timeline {timeline.GetName()!r} would not read V1 "
+            f"({exc}).",
+            f"{TOOL} items --timeline "
+            f"\"{timeline.GetName()}\"") from exc
+    starts = []
+    for item in items:
+        try:
+            starts.append(int(item.GetStart()))
+        except Exception:
+            continue
+    return sorted(starts)
+
+
+def cmd_sense_cuts(args) -> int:
+    """Detect scene cuts along a timeline, reporting the cut frames.
+
+    `DetectSceneCuts` splits the timeline's items where Resolve sees
+    a cut; the verb reports the record frames of every resulting V1
+    item. A True that splits nothing is reported as zero cuts (a
+    single continuous take - measured), never as cuts. False is a
+    refusal. Timeline-scoped: `--apply` asserts the cursor.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if not args.apply:
+            starts = _cut_frames(timeline)
+            emit([kv_block("cuts_plan", {
+                        "timeline": timeline.GetName() +
+                        (" (current)" if is_current else ""),
+                        "v1_items": len(starts),
+                    }),
+                  table("carriers",
+                        [{"index": n, "record_in": s}
+                         for n, s in enumerate(starts)],
+                        ["index", "record_in"]),
+                  note,
+                  f"dry run - pass --apply to detect under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([f"{TOOL} sense cuts --timeline "
+                              f"\"{timeline.GetName()}\" --apply"])])
+            return 0
+        try:
+            _assert_cursor_on(resolve, timeline.GetName())
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        before = _cut_frames(timeline)
+        try:
+            detected = bool(timeline.DetectSceneCuts())
+        except Exception as exc:
+            return fail(f"DetectSceneCuts raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not detected:
+            return fail(f"DetectSceneCuts answered False on "
+                        f"{timeline.GetName()!r} - nothing was "
+                        f"claimed.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        after = _cut_frames(timeline)
+        fresh = [s for s in after if s not in set(before)]
+        emit([kv_block("cuts", {
+                    "timeline": timeline.GetName(),
+                    "items_before": len(before),
+                    "items_after": len(after),
+                    "cuts": len(fresh),
+                }),
+              table("cut_frames", [{"frame": s} for s in fresh],
+                    ["frame"]) if fresh else
+              "cut_frames: 0 new cuts - one continuous take",
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def _classification_of(clip) -> dict:
+    """The audio classes Resolve reports for a pool clip, or {}.
+
+    `PerformAudioClassification` files its answer under the
+    `Category` / `Subcategory` metadata keys (measured): whatever
+    holds them - metadata or clip properties - is the read-back.
+    """
+    found: dict = {}
+    try:
+        meta = clip.GetMetadata()
+    except Exception:
+        meta = None
+    if isinstance(meta, dict):
+        for key in ("Category", "Subcategory"):
+            if meta.get(key):
+                found[key] = meta[key]
+    if not found:
+        try:
+            props = clip.GetClipProperty() or {}
+        except Exception:
+            props = {}
+        if isinstance(props, dict):
+            for key in ("Category", "Subcategory"):
+                if props.get(key):
+                    found[key] = props[key]
+    return found
+
+
+def cmd_sense_classify(args) -> int:
+    """Read (or run) Resolve's audio classification for a pool clip.
+
+    The classes read back as `Category` / `Subcategory` metadata -
+    the verb reports them verbatim and refuses when they are absent,
+    including a True that files nothing. Pool-scoped: the cursor is
+    reported, never moved.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            clip = _sense_clip(project, args.clip, args.bin or "")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            name = clip.GetName()
+        except Exception:
+            name = args.clip
+        before = _cursor_name(resolve)
+        if not args.apply:
+            found = _classification_of(clip)
+            if not found:
+                return fail(
+                    f"{name!r} carries no Category/Subcategory - "
+                    f"pass --apply to run PerformAudioClassification.",
+                    f"{TOOL} sense classify --clip \"{name}\" --apply")
+            emit([kv_block("classification", {
+                        "clip": name, **found,
+                    }),
+                  f"cursor: {before} (reported, never moved)"])
+            return 0
+        try:
+            ran = bool(clip.PerformAudioClassification())
+        except Exception as exc:
+            return fail(f"PerformAudioClassification raised ({exc}) - "
+                        f"verify by hand.",
+                        f"{TOOL} pool")
+        if not ran:
+            return fail(f"PerformAudioClassification answered False "
+                        f"for {name!r} - nothing was claimed.",
+                        f"{TOOL} pool")
+        found = _classification_of(clip)
+        if not found:
+            return fail(
+                f"PerformAudioClassification reports True but no "
+                f"Category/Subcategory reads back on {name!r} - "
+                f"refusing to claim it.",
+                f"{TOOL} pool")
+        after = _cursor_name(resolve)
+        emit([kv_block("classification", {
+                    "clip": name, **found,
+                    "verified": "yes (read back after True)",
+                }),
+              f"cursor: {before} -> {after} (reported, never moved)"])
+        return 0
+
+
+def cmd_sense_intellisearch(args) -> int:
+    """Run Resolve's IntelliSearch analysis on a pool clip.
+
+    The scripting call exists (`AnalyzeForIntellisearch`) but on this
+    machine Resolve itself refuses it - the `AI Intellisearch -
+    Faster` package is not installed (measured). The verb attempts
+    the call and reports Resolve's own refusal verbatim; a True with
+    no readable metadata change is reported as unverified, never as
+    analysed. Nothing here is faked.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            clip = _sense_clip(project, args.clip, args.bin or "")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            name = clip.GetName()
+        except Exception:
+            name = args.clip
+        mode = "Better" if args.better else "Faster"
+        if not args.apply:
+            emit([kv_block("intellisearch_plan", {
+                        "clip": name,
+                        "mode": mode,
+                        "faces": "yes" if args.faces else "no",
+                    }),
+                  f"dry run - pass --apply to analyse under the "
+                  f"Resolve lease",
+                  help_block([f"{TOOL} sense intellisearch --clip "
+                              f"\"{name}\" --apply"])])
+            return 0
+        try:
+            before_meta = clip.GetMetadata()
+        except Exception:
+            before_meta = None
+        try:
+            analysed = bool(clip.AnalyzeForIntellisearch(
+                bool(args.faces), bool(args.better)))
+        except Exception as exc:
+            return fail(f"AnalyzeForIntellisearch refused "
+                        f"({exc}).",
+                        f"{TOOL} sense intellisearch --clip "
+                        f"\"{name}\"")
+        if not analysed:
+            return fail(f"AnalyzeForIntellisearch answered False for "
+                        f"{name!r} - nothing was claimed.",
+                        f"{TOOL} pool")
+        try:
+            after_meta = clip.GetMetadata()
+        except Exception:
+            after_meta = None
+        if (isinstance(before_meta, dict)
+                and isinstance(after_meta, dict)):
+            fresh = {k: v for k, v in after_meta.items()
+                     if before_meta.get(k) != v}
+        else:
+            fresh = {}
+        if not fresh:
+            return fail(
+                f"AnalyzeForIntellisearch reports True but no "
+                f"metadata change reads back on {name!r} - "
+                f"unverified, refusing to claim it.",
+                f"{TOOL} pool")
+        emit([kv_block("intellisearch", {
+                    "clip": name,
+                    "mode": mode,
+                    "verified": "yes (metadata changed)",
+                }),
+              table("new_metadata",
+                    [{"key": k, "value": v}
+                     for k, v in sorted(fresh.items())],
+                    ["key", "value"])])
+        return 0
+
+
+def _reframe_state(item) -> dict:
+    try:
+        props = item.GetProperties() or {}
+    except Exception:
+        props = {}
+    return {k: (props or {}).get(k) for k in _REFRAME_KEYS}
+
+
+def cmd_sense_reframe(args) -> int:
+    """Run Smart Reframe on one timeline item, judged by its transform.
+
+    The call answers True while moving nothing (measured twice: True
+    with Pan/Tilt/ZoomX reading back unchanged, on a clip holding a
+    face). The verb claims the reframe only when the re-read differs;
+    an unchanged re-read is a refusal with the measured reason, not a
+    success. Timeline-scoped: `--apply` asserts the cursor.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, _uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        if not args.apply:
+            emit([kv_block("reframe_plan", {
+                        "timeline": timeline.GetName() +
+                        (" (current)" if is_current else ""),
+                        "item": (f"{track_type}{track_index}"
+                                 f"[{args.index}] {span['name']}"),
+                        **_reframe_state(item),
+                    }),
+                  note,
+                  f"dry run - pass --apply to reframe under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([f"{TOOL} sense reframe --timeline "
+                              f"\"{timeline.GetName()}\" --track "
+                              f"{track_type}{track_index} --index "
+                              f"{args.index} --apply"])])
+            return 0
+        try:
+            _assert_cursor_on(resolve, timeline.GetName())
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        before = _reframe_state(item)
+        try:
+            reframed = bool(item.SmartReframe())
+        except Exception as exc:
+            return fail(f"SmartReframe raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not reframed:
+            return fail(f"SmartReframe answered False on "
+                        f"{span['name']!r} - nothing was claimed.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        after = _reframe_state(item)
+        if after == before:
+            return fail(
+                f"SmartReframe reports True but Pan/Tilt/ZoomX read "
+                f"back unchanged ({before}) - no verifiable effect; "
+                f"judged on pixels, not here.",
+                f"{TOOL} items --timeline "
+                f"\"{timeline.GetName()}\" --transforms")
+        emit([kv_block("reframed", {
+                    "timeline": timeline.GetName(),
+                    "item": span["name"],
+                    "verified": "yes (transform moved)",
+                }),
+              table("transform",
+                    [{"key": k, "before": before[k], "after": after[k]}
+                     for k in _REFRAME_KEYS],
+                    ["key", "before", "after"]),
+              note])
+        return 0
+
+
+def cmd_sense_mask(args) -> int:
+    """Start a Magic Mask on one timeline item, judged by its nodes.
+
+    Measured: `CreateMagicMask` answers False with the node count
+    unchanged. The verb claims the mask only when the call answers
+    True AND the node graph gains a node; anything else is a refusal
+    with the measured reason. Timeline-scoped.
+    """
+    if (args.mode or "") not in ("F", "B", "BI"):
+        return fail(f"bad --mode {args.mode!r}: F|B|BI.",
+                    f"{TOOL} sense mask --help")
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, _uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        if not args.apply:
+            emit([kv_block("mask_plan", {
+                        "timeline": timeline.GetName() +
+                        (" (current)" if is_current else ""),
+                        "item": (f"{track_type}{track_index}"
+                                 f"[{args.index}] {span['name']}"),
+                        "mode": args.mode,
+                    }),
+                  note,
+                  f"dry run - pass --apply to mask under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([f"{TOOL} sense mask --timeline "
+                              f"\"{timeline.GetName()}\" --track "
+                              f"{track_type}{track_index} --index "
+                              f"{args.index} --mode {args.mode} "
+                              f"--apply"])])
+            return 0
+        try:
+            _assert_cursor_on(resolve, timeline.GetName())
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            graph = item.GetNodeGraph()
+            nodes_before = (graph.GetNumNodes() if graph is not None
+                            else None)
+        except Exception:
+            nodes_before = None
+        try:
+            masked = bool(item.CreateMagicMask(args.mode))
+        except Exception as exc:
+            return fail(f"CreateMagicMask raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not masked:
+            return fail(
+                f"CreateMagicMask({args.mode}) answered False on "
+                f"{span['name']!r} (nodes {nodes_before}) - no mask "
+                f"started, nothing claimed.",
+                f"{TOOL} items --timeline "
+                f"\"{timeline.GetName()}\"")
+        try:
+            graph = item.GetNodeGraph()
+            nodes_after = (graph.GetNumNodes() if graph is not None
+                           else None)
+        except Exception:
+            nodes_after = None
+        if nodes_after == nodes_before:
+            return fail(
+                f"CreateMagicMask reports True but the node count "
+                f"reads back unchanged ({nodes_before}) - "
+                f"unverified, refusing to claim it.",
+                f"{TOOL} items --timeline "
+                f"\"{timeline.GetName()}\"")
+        emit([kv_block("masked", {
+                    "timeline": timeline.GetName(),
+                    "item": span["name"],
+                    "mode": args.mode,
+                    "nodes_before": nodes_before,
+                    "nodes_after": nodes_after,
+                    "verified": "yes (node gained)",
+                }),
+              note])
+        return 0
+
+
+def cmd_sense_switch(args) -> int:
+    """Run a multicam Smart Switch on one timeline item.
+
+    `PerformMulticamSmartSwitch` cuts a multicam item where Resolve
+    hears the angle change; the verb reports the item count before
+    and after. False is a refusal (nothing switched - measured on
+    timecode-synced phone clips). Timeline-scoped.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, _uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        try:
+            window = float(args.min_edit if args.min_edit is not None
+                           else 1.0)
+        except (TypeError, ValueError):
+            return fail(f"bad --min-edit {args.min_edit!r}: seconds.",
+                        f"{TOOL} sense switch --help")
+        if not args.apply:
+            emit([kv_block("switch_plan", {
+                        "timeline": timeline.GetName() +
+                        (" (current)" if is_current else ""),
+                        "item": (f"{track_type}{track_index}"
+                                 f"[{args.index}] {span['name']}"),
+                        "min_edit": window,
+                    }),
+                  note,
+                  f"dry run - pass --apply to switch under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([f"{TOOL} sense switch --timeline "
+                              f"\"{timeline.GetName()}\" --track "
+                              f"{track_type}{track_index} --index "
+                              f"{args.index} --apply"])])
+            return 0
+        try:
+            _assert_cursor_on(resolve, timeline.GetName())
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            items_before = len(timeline.GetItemListInTrack(
+                track_type, track_index) or [])
+        except Exception as exc:
+            return fail(f"timeline {timeline.GetName()!r} would not "
+                        f"read {track_type}{track_index} ({exc}).",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        try:
+            switched = bool(item.PerformMulticamSmartSwitch(
+                {"minEditDuration": window}))
+        except Exception as exc:
+            return fail(f"PerformMulticamSmartSwitch raised ({exc}) - "
+                        f"verify by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not switched:
+            return fail(f"PerformMulticamSmartSwitch answered False on "
+                        f"{span['name']!r} - nothing switched.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        try:
+            items_after = len(timeline.GetItemListInTrack(
+                track_type, track_index) or [])
+        except Exception as exc:
+            return fail(f"timeline {timeline.GetName()!r} would not "
+                        f"re-read {track_type}{track_index} ({exc}) - "
+                        f"verify by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        emit([kv_block("switched", {
+                    "timeline": timeline.GetName(),
+                    "item": span["name"],
+                    "items_before": items_before,
+                    "items_after": items_after,
+                    "verified": "yes (returned True; count re-read)",
+                }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
 # ── setup / update ───────────────────────────────────────────────────
 
 
@@ -4681,6 +5399,8 @@ def build_parser() -> Parser:
   {TOOL} multicam build --clip a.mov --clip b.mov --name "mc" --sync audio
   {TOOL} color lut --timeline "Reel 29" --track video1 --index 0 --lut "Film Looks/x.cube"
   {TOOL} audio isolate --timeline "Reel 29" --track 1 --amount 60
+  {TOOL} sense transcribe --clip a.mov
+  {TOOL} sense cuts --timeline "Reel 29" --apply
   {TOOL} ingest /footage/a.mov
   {TOOL} render queue --timeline "Reel 29" --preset "H.265 Master"
   {TOOL} run --timeline "Reel 29" --script "result = timeline_names"
@@ -5180,6 +5900,92 @@ def build_parser() -> Parser:
                    help="write under the Resolve lease with the "
                         "cursor asserted (default is a dry-run plan)")
     q.set_defaults(func=cmd_color_group)
+
+    p = subs.add_parser("sense", help="Resolve's own AI beside Ren's - "
+                                     "each judged by read-back, never "
+                                     "wired into pipeline decisions")
+    ssubs = p.add_subparsers(dest="sense_command", required=True)
+
+    def _sense_pool(q, what: str) -> None:
+        q.add_argument("--project", default="",
+                       help="expect this Resolve project open")
+        q.add_argument("--clip", required=True,
+                       help="pool clip name, exact (--bin "
+                            "disambiguates)")
+        q.add_argument("--bin", default="",
+                       help="scope the clip search to bin path A/B/C")
+        q.add_argument("--apply", action="store_true",
+                       help=f"run the analysis under the Resolve lease "
+                       f"(default reads what {what} already holds)")
+
+    def _sense_item(q) -> None:
+        _add_scope(q, "sense")
+        q.add_argument("--track", required=True,
+                       help="video1, audio2, ...")
+        q.add_argument("--index", required=True, type=int,
+                       help="position on the track, 0-based")
+        q.add_argument("--apply", action="store_true",
+                       help="write under the Resolve lease with the "
+                            "cursor asserted (default is a dry-run "
+                            "plan)")
+
+    q = ssubs.add_parser("transcribe", help="Resolve's transcription "
+                                            "with speakers, words with "
+                                            "timing; --apply starts it")
+    _sense_pool(q, "Resolve")
+    q.add_argument("--wait", default=None, type=float,
+                   help="seconds to wait for words after --apply "
+                        "(default 240; 0 reports what Resolve holds "
+                        "now)")
+    q.add_argument("--full", action="store_true",
+                   help="show complete segment text instead of the "
+                        "preview")
+    q.set_defaults(func=cmd_sense_transcribe)
+
+    q = ssubs.add_parser("cuts", help="scene cuts along a timeline, "
+                                      "as cut frames; --apply detects")
+    _add_scope(q, "cuts")
+    q.add_argument("--apply", action="store_true",
+                   help="detect under the Resolve lease with the "
+                        "cursor asserted (default lists carriers)")
+    q.set_defaults(func=cmd_sense_cuts)
+
+    q = ssubs.add_parser("classify", help="audio classes for a pool "
+                                          "clip; --apply runs it")
+    _sense_pool(q, "Resolve")
+    q.set_defaults(func=cmd_sense_classify)
+
+    q = ssubs.add_parser("intellisearch", help="IntelliSearch analysis "
+                                               "for a pool clip; "
+                                               "--apply runs it")
+    _sense_pool(q, "Resolve")
+    q.add_argument("--faces", action="store_true",
+                   help="identify faces as well")
+    q.add_argument("--better", action="store_true",
+                   help="Better mode (default Faster)")
+    q.set_defaults(func=cmd_sense_intellisearch)
+
+    q = ssubs.add_parser("reframe", help="Smart Reframe one item, "
+                                         "judged by its transform; "
+                                         "--apply writes")
+    _sense_item(q)
+    q.set_defaults(func=cmd_sense_reframe)
+
+    q = ssubs.add_parser("mask", help="Magic Mask one item, judged by "
+                                      "its nodes; --apply writes")
+    _sense_item(q)
+    q.add_argument("--mode", default="F",
+                   help="F|B|BI: forward, backward, bidirectional "
+                        "(default F)")
+    q.set_defaults(func=cmd_sense_mask)
+
+    q = ssubs.add_parser("switch", help="multicam Smart Switch one "
+                                        "item; --apply writes")
+    _sense_item(q)
+    q.add_argument("--min-edit", default=None, type=float,
+                   help="minimum edit duration in seconds (default "
+                        "1.0)")
+    q.set_defaults(func=cmd_sense_switch)
 
     p = subs.add_parser("pool", help="every clip in the media pool, "
                                     "with the bin it sits in")

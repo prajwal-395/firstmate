@@ -64,6 +64,13 @@ from library.tools.resolve_axi import (
     cmd_render_stop,
     cmd_renders,
     cmd_run,
+    cmd_sense_classify,
+    cmd_sense_cuts,
+    cmd_sense_intellisearch,
+    cmd_sense_mask,
+    cmd_sense_reframe,
+    cmd_sense_switch,
+    cmd_sense_transcribe,
     cmd_timeline_duplicate,
     cmd_timeline_get,
     cmd_timeline_list,
@@ -106,9 +113,21 @@ class _Folder:
 
 
 class _PoolClip:
-    def __init__(self, name, props=None):
+    def __init__(self, name, props=None, metadata=None,
+                 transcript=None):
         self._name = name
         self._props = dict(props or {})
+        self._metadata = dict(metadata or {})
+        # GetTranscription's answer: None means Resolve holds nothing
+        # yet; a dict with wordless segments is the still-processing
+        # placeholder the transcribe verb refuses on.
+        self._transcript = transcript
+        self._transcribe_ok = True
+        self._classify_ok = True
+        self._classify_files = True
+        self._intelli_raise = ""
+        self._intelli_ok = True
+        self._intelli_files = False
 
     def GetName(self):
         return self._name
@@ -117,6 +136,38 @@ class _PoolClip:
         if name is None:
             return dict(self._props)
         return self._props.get(name, "")
+
+    def GetMetadata(self, name=None):
+        if name is None:
+            return dict(self._metadata)
+        return self._metadata.get(name, "")
+
+    def TranscribeAudio(self, use_speakers=None):
+        self._transcribe_seen = use_speakers
+        return self._transcribe_ok
+
+    def GetTranscription(self):
+        if self._transcript is None:
+            return {}
+        return self._transcript
+
+    def PerformAudioClassification(self):
+        if not self._classify_ok:
+            return False
+        if self._classify_files:
+            self._metadata["Category"] = "Dialogue"
+            self._metadata["Subcategory"] = "Dialogue"
+        return True
+
+    def AnalyzeForIntellisearch(self, identify_faces, is_better):
+        self._intelli_seen = (identify_faces, is_better)
+        if self._intelli_raise:
+            raise RuntimeError(self._intelli_raise)
+        if not self._intelli_ok:
+            return False
+        if self._intelli_files:
+            self._metadata["IntelliSearch"] = "analysed"
+        return True
 
 
 class _MediaPool:
@@ -301,6 +352,32 @@ class _Item:
             return self._transform[key]
         raise KeyError(key)
 
+    def GetProperties(self):
+        """The 21.1 plural reading the reframe verb is judged by."""
+        return {**self._transform, **self._properties}
+
+    def SmartReframe(self):
+        """Measured shape: True while moving nothing. A test that
+        wants the success shape flips `_reframe_moves`."""
+        if getattr(self, "_reframe_refuse", False):
+            return False
+        if getattr(self, "_reframe_moves", False):
+            self._transform["Pan"] = 1.5
+        return True
+
+    def CreateMagicMask(self, mode):
+        """Measured shape: False with the nodes unchanged. A test
+        that wants the success shape flips `_mask_ok`."""
+        self._mask_seen = mode
+        if not getattr(self, "_mask_ok", False):
+            return False
+        self.GetNodeGraph()._nodes += 1
+        return True
+
+    def PerformMulticamSmartSwitch(self, settings):
+        self._switch_seen = dict(settings)
+        return not getattr(self, "_switch_refuse", False)
+
     def GetCDL(self):
         return {}
 
@@ -456,6 +533,25 @@ class _Timeline:
         if self._voice_refuse:
             return False
         self._voice[index] = dict(state)
+        return True
+
+    def DetectSceneCuts(self):
+        """Measured shapes: True splitting items, True splitting
+        nothing (one continuous take), or False. Tests pick with
+        `_cuts_refuse` / `_cuts_nothing`."""
+        if getattr(self, "_cuts_refuse", False):
+            return False
+        if getattr(self, "_cuts_nothing", False):
+            return True
+        key = ("video", 1)
+        if key in self._tracks and self._tracks[key]["items"]:
+            first = self._tracks[key]["items"][0]
+            mid = (first.GetStart() + first.GetEnd()) // 2
+            second = _Item(first.GetName() + " (cut)", mid,
+                           first.GetEnd(), pool=first.GetMediaPoolItem(),
+                           track_type="video", track_index=1)
+            first._end = mid
+            self._tracks[key]["items"].insert(1, second)
         return True
 
     def GetVoiceIsolationState(self, index):
@@ -694,7 +790,10 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
                 "DuplicateTimeline", "SetSpeed", "AddTransition",
                 "CreateMulticamClip", "AutoSyncAudio", "SetLUT",
                 "AddColorGroup", "AssignToColorGroup",
-                "SetVoiceIsolationState"}
+                "SetVoiceIsolationState", "TranscribeAudio",
+                "PerformAudioClassification", "AnalyzeForIntellisearch",
+                "DetectSceneCuts", "SmartReframe", "CreateMagicMask",
+                "PerformMulticamSmartSwitch"}
     undeclared = []
     for node in ast.walk(tree):
         if (isinstance(node, ast.Attribute)
@@ -2210,7 +2309,7 @@ def test_isolate_refuses_a_missing_track(edit_patched, capsys):
 
 
 def test_run_refuses_21_1_mutators_by_default(patched, capsys):
-    """Perform/Transcribe/Auto/Assign/Smart/Detect/Generate calls
+    """Perform/Transcribe/Auto/Assign/Smart/Detect/Generate/Analyze calls
     are writes: `run` refuses them without --unsafe like every
     other mutator."""
     assert cmd_run(_run_ns(
@@ -2225,3 +2324,265 @@ def test_run_refuses_21_1_mutators_by_default(patched, capsys):
         script="x = item.AssignToColorGroup\n"
                "result = {'grouped': True}")) == 1
     assert "AssignToColorGroup" in capsys.readouterr().out
+    assert cmd_run(_run_ns(
+        script="x = clip.AnalyzeForIntellisearch\n"
+               "result = {'searched': True}")) == 1
+    assert "AnalyzeForIntellisearch" in capsys.readouterr().out
+
+
+# ── sense: Resolve's own AI, judged by read-back ────────────────
+
+
+def _sense_clip(name, **kw):
+    """A placeable pool clip for the sense verbs: `_pool_find_clip`
+    only returns clips whose properties carry a File Path."""
+    props = {"Type": "Video + Audio", "File Path": f"/footage/{name}"}
+    return _PoolClip(name, props, **kw)
+
+
+def _voiced_clip():
+    return _PoolClip(
+        "talk.mov", {"Type": "Video + Audio",
+                     "File Path": "/footage/talk.mov"},
+        transcript={
+            "language": "en",
+            "segments": [{
+                "start": "00:00:14:16", "end": "00:00:16:02",
+                "speaker": "Speaker 1", "text": "okay we are here",
+                "words": [
+                    {"start": "00:00:14:16", "end": "00:00:15:06",
+                     "text": "okay"},
+                    {"start": "00:00:15:06", "end": "00:00:16:02",
+                     "text": "here"},
+                ],
+            }],
+        })
+
+
+def test_sense_transcribe_reads_segments_words_speakers(
+        multicam_patched, capsys):
+    """The read path returns only voiced segments: words with timing
+    plus speaker labels, verbatim."""
+    multicam_patched._pool._root._clips.append(_voiced_clip())
+    assert cmd_sense_transcribe(_ns(
+        project="", clip="talk.mov", bin="", apply=False,
+        wait=None, full=False)) == 0
+    out = capsys.readouterr().out
+    assert "segments: 1" in out
+    assert "Speaker 1" in out
+    assert "words: 2" in out
+
+
+def test_sense_transcribe_refuses_a_wordless_answer(
+        multicam_patched, capsys):
+    """One placeholder segment with no words is a refusal naming the
+    re-read, never a transcription."""
+    clip = _sense_clip("quiet.mov", transcript={
+        "language": "en",
+        "segments": [{"start": "00:00:00:00", "end": "00:00:00:00",
+                      "speaker": None, "text": "",
+                      "words": [{"start": "00:00:00:00",
+                                 "end": "00:00:00:00", "text": ""}]}]})
+    multicam_patched._pool._root._clips.append(clip)
+    assert cmd_sense_transcribe(_ns(
+        project="", clip="quiet.mov", bin="", apply=False,
+        wait=None, full=False)) == 1
+    assert "no words" in capsys.readouterr().out
+
+
+def test_sense_transcribe_apply_starts_and_reads_back(
+        multicam_patched, capsys):
+    multicam_patched._pool._root._clips.append(_voiced_clip())
+    assert cmd_sense_transcribe(_ns(
+        project="", clip="talk.mov", bin="", apply=True,
+        wait=30, full=False)) == 0
+    assert "segments: 1" in capsys.readouterr().out
+
+
+def test_sense_transcribe_apply_refuses_after_an_empty_wait(
+        multicam_patched, capsys):
+    """True then nothing within the wait is a refusal naming the
+    wait, not a claimed transcription."""
+    multicam_patched._pool._root._clips.append(_sense_clip("slow.mov"))
+    assert cmd_sense_transcribe(_ns(
+        project="", clip="slow.mov", bin="", apply=True,
+        wait=0, full=False)) == 1
+    out = capsys.readouterr().out
+    assert "holds no words after 0s" in out
+
+
+def test_sense_transcribe_refuses_a_false_start(
+        multicam_patched, capsys):
+    clip = _sense_clip("stuck.mov")
+    clip._transcribe_ok = False
+    multicam_patched._pool._root._clips.append(clip)
+    assert cmd_sense_transcribe(_ns(
+        project="", clip="stuck.mov", bin="", apply=True,
+        wait=0, full=False)) == 1
+    assert "answered False" in capsys.readouterr().out
+
+
+def test_sense_cuts_dry_run_lists_carriers(edit_patched, capsys):
+    assert cmd_sense_cuts(_ns(
+        project="", timeline="Reel 29 - salvage",
+        apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "cuts_plan" in out
+    assert "v1_items: 2" in out
+
+
+def test_sense_cuts_apply_reports_cut_frames(edit_patched, capsys):
+    assert cmd_sense_cuts(_ns(
+        project="", timeline="Reel 29 - salvage",
+        apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "items_before: 2" in out
+    assert "items_after: 3" in out
+    assert "cuts: 1" in out
+
+
+def test_sense_cuts_apply_reports_zero_cuts(edit_patched, capsys):
+    """True that splits nothing is zero cuts (one continuous take),
+    not a refusal and not cuts."""
+    edit_patched["timeline"]._cuts_nothing = True
+    assert cmd_sense_cuts(_ns(
+        project="", timeline="Reel 29 - salvage",
+        apply=True)) == 0
+    assert "0 new cuts" in capsys.readouterr().out
+
+
+def test_sense_cuts_refuses_a_false_answer(edit_patched, capsys):
+    edit_patched["timeline"]._cuts_refuse = True
+    assert cmd_sense_cuts(_ns(
+        project="", timeline="Reel 29 - salvage",
+        apply=True)) == 1
+    assert "answered False" in capsys.readouterr().out
+
+
+def test_sense_classify_reads_existing_classes(
+        multicam_patched, capsys):
+    multicam_patched._pool._root._clips.append(_sense_clip(
+        "mix.mov", metadata={"Category": "Dialogue",
+                             "Subcategory": "Dialogue"}))
+    assert cmd_sense_classify(_ns(
+        project="", clip="mix.mov", bin="", apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "Dialogue" in out
+
+
+def test_sense_classify_read_refuses_without_classes(
+        multicam_patched, capsys):
+    multicam_patched._pool._root._clips.append(
+        _sense_clip("raw.mov"))
+    assert cmd_sense_classify(_ns(
+        project="", clip="raw.mov", bin="", apply=False)) == 1
+    assert "--apply" in capsys.readouterr().out
+
+
+def test_sense_classify_apply_verifies_by_reread(
+        multicam_patched, capsys):
+    multicam_patched._pool._root._clips.append(
+        _sense_clip("raw.mov"))
+    assert cmd_sense_classify(_ns(
+        project="", clip="raw.mov", bin="", apply=True)) == 0
+    assert "read back after True" in capsys.readouterr().out
+
+
+def test_sense_classify_refuses_a_true_that_files_nothing(
+        multicam_patched, capsys):
+    """True with no Category/Subcategory on re-read is a refusal."""
+    clip = _sense_clip("hollow.mov")
+    clip._classify_files = False
+    multicam_patched._pool._root._clips.append(clip)
+    assert cmd_sense_classify(_ns(
+        project="", clip="hollow.mov", bin="", apply=True)) == 1
+    assert "refusing to claim it" in capsys.readouterr().out
+
+
+def test_sense_intellisearch_surfaces_resolves_refusal(
+        multicam_patched, capsys):
+    """The measured shape: Resolve refuses the call itself (the AI
+    package is not installed) and the verb reports those words."""
+    clip = _sense_clip("face.mov")
+    clip._intelli_raise = ("Required package 'AI Intellisearch - "
+                           "Faster' is not installed.")
+    multicam_patched._pool._root._clips.append(clip)
+    assert cmd_sense_intellisearch(_ns(
+        project="", clip="face.mov", bin="", apply=True,
+        faces=True, better=False)) == 1
+    out = capsys.readouterr().out
+    assert "AI Intellisearch - Faster" in out
+
+
+def test_sense_intellisearch_refuses_an_unverified_true(
+        multicam_patched, capsys):
+    """True with no metadata change is unverified, never analysed."""
+    multicam_patched._pool._root._clips.append(
+        _sense_clip("face.mov"))
+    assert cmd_sense_intellisearch(_ns(
+        project="", clip="face.mov", bin="", apply=True,
+        faces=False, better=False)) == 1
+    assert "unverified" in capsys.readouterr().out
+
+
+def test_sense_reframe_refuses_an_unchanged_reread(
+        edit_patched, capsys):
+    """The twice-measured shape: True with Pan/Tilt/ZoomX unchanged
+    is a refusal with the measured reason."""
+    assert cmd_sense_reframe(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "read back unchanged" in out
+
+
+def test_sense_reframe_reports_a_moved_transform(
+        edit_patched, capsys):
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    items[0]._reframe_moves = True
+    assert cmd_sense_reframe(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, apply=True)) == 0
+    assert "transform moved" in capsys.readouterr().out
+
+
+def test_sense_mask_refuses_a_false_answer(edit_patched, capsys):
+    """The measured shape: False with the nodes unchanged."""
+    assert cmd_sense_mask(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, mode="F", apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "answered False" in out
+
+
+def test_sense_mask_reports_a_gained_node(edit_patched, capsys):
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    items[0]._mask_ok = True
+    assert cmd_sense_mask(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, mode="BI", apply=True)) == 0
+    assert "node gained" in capsys.readouterr().out
+
+
+def test_sense_mask_refuses_a_bad_mode(edit_patched, capsys):
+    assert cmd_sense_mask(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, mode="sideways", apply=True)) == 1
+    assert "bad --mode" in capsys.readouterr().out
+
+
+def test_sense_switch_reports_counts(edit_patched, capsys):
+    assert cmd_sense_switch(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, min_edit=1.0, apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "count re-read" in out
+
+
+def test_sense_switch_refuses_a_false_answer(edit_patched, capsys):
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    items[0]._switch_refuse = True
+    assert cmd_sense_switch(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, min_edit=1.0, apply=True)) == 1
+    assert "answered False" in capsys.readouterr().out
