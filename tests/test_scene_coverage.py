@@ -161,10 +161,10 @@ class _StubAnalyzer:
     """One canned answer per pass label, no model anywhere near it."""
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
-                           max_tokens=512, label="pass"):
-        if label == "Scene":
+                           max_tokens=512, label="pass", audio=None):
+        if label.startswith("Scene"):
             result = [dict(PREFIX_ONLY["scene"][0])]
-        elif label == "Camera":
+        elif label.startswith("Camera"):
             result = [dict(PREFIX_ONLY["camera"][0])]
         elif label.startswith("Actions"):
             result = {"actions": []}
@@ -185,10 +185,15 @@ def test_analyze_clip_stores_normalized_scene_and_its_coverage():
 
     meta = {"clip_id": "IMG_1816", "file_path": "/footage/IMG_1816.MOV",
             "duration_s": 188.578, "fps": 30.0, "resolution": [1920, 1080]}
+    # Stub input, not a coverage claim: the whole-video passes read their
+    # windows, and this fake path has no file to cut them from.
+    native_windows = [{"index": 0, "start": 0.0, "end": 188.578,
+                       "path": "/tmp/stub.mp4", "has_audio": False}]
     with patch.object(vp.picture_quality, "measure_soft_picture",
                       return_value=[]):
         profile = vp.analyze_clip(
-            _StubAnalyzer(), meta, [], [], "", None, "/tmp/nonexistent-cache")
+            _StubAnalyzer(), meta, [], [], "", None, "/tmp/nonexistent-cache",
+            native_windows=native_windows)
 
     assert profile["scene"][0]["end"] == 18.9
     coverage = profile["scene_coverage"]

@@ -66,6 +66,29 @@ OUTPUT_DIR = Path("pipeline_output")
 # Action windows
 ACTION_WINDOW_S = 10
 
+# Native-video frame budget, measured on mlx-vlm 0.7.2 with
+# `mlx-community/gemma-4-12b-it-4bit` (2026-09-24, 25.8 GB machine).
+# `Gemma4UnifiedVideoProcessor.num_frames` is 32 and its
+# `video_sampling_defaults()` caps decoding at that count, after
+# `load_video` decodes at fps=2.0 capped to max_frames=32
+# (`mlx_vlm/utils.py`: `DEFAULT_VIDEO_SAMPLING`,
+# `resolve_video_sampling`, `load_video`). The processor then keeps at
+# most 32 (`_sample_frames`). So EVERY `video=` call sees exactly 32
+# frames no matter the clip length: 30 s -> ~1.07 fps effective, 120 s
+# -> ~0.27 fps (probe: 32 decoded frames for both). Coverage therefore
+# thins SILENTLY with clip length - wall time barely grows (30 s clip
+# 34 s, 120 s clip 44 s) because the frame count never does.
+NATIVE_VIDEO_FRAMES_PER_CALL = 32
+NATIVE_VIDEO_DECODE_FPS = 2.0
+# One native-video model call covers at most this many seconds, so the
+# effective sampling never drops below 32/60 ~= 0.53 fps. A longer clip
+# is split into windows of at most this length (the same machinery as
+# the action windows) instead of being silently sparse-sampled. Per-call
+# cost is flat in length (decode is capped, peak RSS 2-4 GB against
+# 25.8 GB) - the ceiling below is a COVERAGE floor, not a memory one:
+# a 60 s window costs ~30-45 s wall, measured on the 120 s excerpt.
+NATIVE_WINDOW_S = 60
+
 # Object detection — coarse sweep
 COARSE_FRAME_INTERVAL_S = 5       # 1 frame every 5 seconds
 COARSE_BATCH_SIZE = 15            # Max frames per model call
@@ -133,12 +156,15 @@ PROMPT_ACTION_WINDOW = """This is a {window_dur:.0f}-second segment (seconds {wi
 {transcript_line}
 Describe what is physically happening in this segment.
 
-This video clip has NO AUDIO TRACK - it was stripped before analysis,
-so you cannot hear anything. The only words that exist are the
-transcript text above (if any). NEVER quote speech: do not put words in
-quotation marks and do not attribute utterances to the person on
-screen. `speech_cue` describes VISIBLE delivery only - mouth moving,
-apparent effort, gestures while talking - never words.
+This video clip carries its AUDIO TRACK - measured on mlx-vlm 0.7.2,
+gemma4-unified accepts audio alongside video (`generate` takes
+`audio=` with the audio marker in the prompt, and the checkpoint
+carries `embed_audio` weights), so listen to HOW speech is delivered
+(pace, effort, pauses, visible effort). The only WORDS that exist are
+the transcript text above (if any). NEVER quote speech: do not put
+words in quotation marks and do not attribute utterances to the person
+on screen. `speech_cue` describes delivery - pace, effort, pauses,
+mouth movement, gestures while talking - never words.
 
 For each distinct action or behavior change, report:
 - What the person is physically doing
@@ -158,8 +184,8 @@ Rules:
 - Describe ONLY what you observe — "frowning, arms crossed" not "feeling upset."
 - If one continuous action spans the whole window, return a single action entry.
 - speech_cue should be null (not the string "null") if the person is not speaking.
-- No quotation marks anywhere in your answer: with no audio, any quoted
-  words would be invented, and a deterministic check strips them."""
+- No quotation marks anywhere in your answer: quoted words cannot be
+  verified against the transcript, and a deterministic check strips them."""
 
 PROMPT_OBJECTS_COARSE = """These are {n_frames} frames extracted from a {duration:.0f}-second video clip at the timestamps shown.
 
@@ -374,7 +400,8 @@ class VisionAnalyzer:
         self.step_id = step_id
         print(f"  Model loaded/bound in {self.load_time:.1f}s")
 
-    def analyze(self, prompt, images=None, video=None, max_tokens=512):
+    def analyze(self, prompt, images=None, video=None, max_tokens=512,
+                  audio=None):
         """Run a single analysis pass. Returns (text, elapsed_seconds).
 
         Args:
@@ -382,13 +409,24 @@ class VisionAnalyzer:
             images: List of image file paths (for frame-based passes).
             video: Path to a video file (for video-based passes).
             max_tokens: Maximum tokens to generate.
+            audio: Path to an audio file (or a video file with an audio
+                track - `load_audio` reads the track) heard ALONGSIDE
+                the video. Measured on mlx-vlm 0.7.2: the gemma4-unified
+                path accepts it - the prompt carries the audio marker
+                (`num_audios=1`), `prepare_inputs` yields `input_features`
+                (250 tokens per 10 s at 40 ms/token), and the model
+                projects them through `embed_audio`, whose weights the
+                checkpoint carries. The video loader (cv2 frames) never
+                hears anything on its own, so audio in the video file
+                alone is NOT heard - it must be passed here.
         """
         if images:
             return self._analyze_stills(prompt, images, max_tokens)
-        if video:
+        if video or audio:
             prompt = f"<|video|>{prompt}"
             formatted = apply_chat_template(
-                self.proc, self.model.config, prompt, num_images=0
+                self.proc, self.model.config, prompt, num_images=0,
+                num_audios=1 if audio else 0,
             )
         else:
             formatted = apply_chat_template(
@@ -401,6 +439,7 @@ class VisionAnalyzer:
             prompt=formatted,
             image=images,
             video=video,
+            audio=audio,
             max_tokens=max_tokens,
             temperature=0.1,
             verbose=False,
@@ -428,7 +467,7 @@ class VisionAnalyzer:
         return text, time.time() - t0
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
-                           max_tokens=512, label="pass"):
+                           max_tokens=512, label="pass", audio=None):
         """Run analysis with one retry on parse failure.
 
         Args:
@@ -436,19 +475,21 @@ class VisionAnalyzer:
             parse_fn: Function to parse the output (parse_json_array or parse_json_object).
             images, video, max_tokens: Passed to analyze().
             label: Label for logging.
+            audio: Passed to analyze() - heard alongside `video`.
 
         Returns:
             (parsed_result, raw_text, total_elapsed)
         """
         text, elapsed = self.analyze(prompt, images=images, video=video,
-                                     max_tokens=max_tokens)
+                                     max_tokens=max_tokens, audio=audio)
         result = parse_fn(text.strip())
 
         # Retry once if parse produced empty result
         if not result:
             retry_suffix = "\n\nIMPORTANT: Respond with ONLY valid JSON. No markdown, no explanation, no text before or after the JSON."
             text2, elapsed2 = self.analyze(prompt + retry_suffix, images=images,
-                                           video=video, max_tokens=max_tokens)
+                                            video=video, max_tokens=max_tokens,
+                                            audio=audio)
             elapsed += elapsed2
             result2 = parse_fn(text2.strip())
             if result2:
@@ -620,16 +661,84 @@ def extract_detail_frames(clip_path, cache_dir, ranges, fps=DETAIL_FPS):
     return result
 
 
-def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S):
-    """Extract video clips for action analysis windows.
+# ═══════════════════════════════════════════════════════════════════════
+#  Native-Video Sampling
+# ═══════════════════════════════════════════════════════════════════════
 
-    Uses ffmpeg to cut the source video into ~10s segments. Each segment
-    is re-encoded (ultrafast) to ensure clean start/end boundaries.
+def native_sample_plan(duration_s, fps):
+    """Frames one native-video (`video=`) model call will actually see.
 
-    Returns list of {index, start, end, path}.
+    A deterministic mirror of mlx-vlm 0.7.2's decode path for gemma4
+    (`utils.load_video` with the resolved sampling
+    fps=2.0/min_frames=4/max_frames=32/frame_factor=2, then
+    `Gemma4UnifiedVideoProcessor._sample_frames` keeping at most 32):
+    `n = duration * 2.0` clamped into `[ceil(4), floor(min(32, total))]`,
+    floored to a multiple of 2. `tests/test_native_video_sampling.py`
+    asserts this mirror against the real `load_video` on synthetic clips.
+
+    Returns {"frames", "decode_fps", "effective_fps"} - the record each
+    whole-video pass stores on its output. `frames` is 0 when the clip
+    is too short for the loader (fewer than 2 frames survive), in which
+    case the model call itself raises, same as before this plan existed.
     """
-    clip_dir = cache_dir / clip_path.stem / "clips"
+    total = max(1, round(duration_s * fps))
+    n = duration_s * NATIVE_VIDEO_DECODE_FPS
+    lo = 4
+    hi = min(NATIVE_VIDEO_FRAMES_PER_CALL, total)
+    n = min(max(n, lo), hi)
+    n = math.floor(n / 2) * 2
+    if n < 2 or n > total:
+        n = 0
+    n = min(n, NATIVE_VIDEO_FRAMES_PER_CALL)
+    return {
+        "frames": n,
+        "decode_fps": NATIVE_VIDEO_DECODE_FPS,
+        "effective_fps": round(n / duration_s, 3) if duration_s > 0 and n else 0.0,
+    }
+
+
+def _file_has_audio(path):
+    """Whether a media file carries an audio stream (ffprobe, ms)."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", "-select_streams", "a:0", str(path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+        return bool(json.loads(result.stdout).get("streams"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S,
+                        subdir="clips", prefix="clip", with_audio=True):
+    """Extract video clips for windowed native-video analysis.
+
+    Uses ffmpeg to cut the source video into ~`window_s` segments. Each
+    segment is re-encoded (ultrafast) to ensure clean start/end
+    boundaries.
+
+    With `with_audio=True` (the default) the window keeps an AAC audio
+    track, which the action passes hand to the model alongside the video
+    (`analyze(..., audio=...)`) - measured on mlx-vlm 0.7.2, gemma4 hears
+    it. With `with_audio=False` the track is stripped (`-an`); only the
+    native scene/camera/assessment windows use that, and their prompts
+    claim nothing about audio either way.
+
+    A cached window whose audio presence mismatches `with_audio` is
+    re-cut: caches written when action windows were stripped (`-an`)
+    would otherwise be reused silently, and `load_audio` fails on them
+    with "No audio streams found in file".
+
+    Returns list of {index, start, end, path, has_audio}.
+    """
+    clip_dir = cache_dir / clip_path.stem / subdir
     clip_dir.mkdir(parents=True, exist_ok=True)
+
+    source_has_audio = _file_has_audio(clip_path) if with_audio else False
 
     n_windows = max(1, int(math.ceil(duration / window_s)))
     clips = []
@@ -637,23 +746,30 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
     for i in range(n_windows):
         start = i * window_s
         end = min((i + 1) * window_s, duration)
-        out_path = clip_dir / f"clip_{i:03d}.mp4"
+        out_path = clip_dir / f"{prefix}_{i:03d}.mp4"
+
+        want_audio = with_audio and source_has_audio
+        if out_path.exists():
+            cached_has_audio = _file_has_audio(out_path)
+            if cached_has_audio != want_audio:
+                # Stale cache from the other audio policy - re-cut below.
+                try:
+                    out_path.unlink()
+                except OSError:
+                    pass
 
         if not out_path.exists():
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", str(clip_path),
-                 "-ss", str(start), "-t", str(end - start),
-                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                 # No audio in the window clip. The model therefore
-                 # cannot hear anything in it: any speech it reports
-                 # must come from the transcript text the prompt
-                 # carries, and any quoted words from a window with no
-                 # transcript are stripped by analyze_actions below.
-                 "-an",
-                 "-loglevel", "error",
-                 str(out_path)],
-                capture_output=True,
-            )
+            cmd = ["ffmpeg", "-y", "-i", str(clip_path),
+                   "-ss", str(start), "-t", str(end - start),
+                   "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+            if want_audio:
+                cmd += ["-c:a", "aac"]
+            else:
+                # No audio in the window clip. The model therefore
+                # cannot hear anything in it.
+                cmd += ["-an"]
+            cmd += ["-loglevel", "error", str(out_path)]
+            subprocess.run(cmd, capture_output=True, check=False)
 
         if out_path.exists():
             clips.append({
@@ -661,9 +777,28 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
                 "start": round(start, 2),
                 "end": round(end, 2),
                 "path": str(out_path),
+                "has_audio": _file_has_audio(out_path),
             })
 
     return clips
+
+
+def extract_native_windows(clip_path, duration, cache_dir,
+                           window_s=NATIVE_WINDOW_S):
+    """Windows for the whole-video passes (scene, camera, assessment).
+
+    One native-video model call sees at most 32 frames, so a clip longer
+    than `NATIVE_WINDOW_S` is split here - the same cut-and-re-encode
+    machinery as the action windows - instead of being silently
+    sparse-sampled whole. Clips at or under the ceiling yield one window
+    covering the clip, i.e. exactly the single call the passes made
+    before. Windows are video-only; their prompts claim nothing about
+    audio.
+    """
+    return extract_video_clips(
+        clip_path, duration, cache_dir, window_s=window_s,
+        subdir="native_windows", prefix="native", with_audio=False,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1340,21 +1475,80 @@ def find_detail_ranges(coarse_objects, duration):
 #  Dimension Analyzers
 # ═══════════════════════════════════════════════════════════════════════
 
+def _scene_boundaries_text(temporal_index, start=0.0, end=None):
+    """Boundary prompt text, optionally clipped to a window.
+
+    Bounds are reported relative to `start`, since the prompt describes
+    the window clip, not the whole source clip.
+    """
+    boundaries = get_scene_boundaries(temporal_index)
+    if end is not None:
+        boundaries = [b for b in boundaries if start <= b < end]
+    else:
+        boundaries = [b for b in boundaries if b >= start]
+    if boundaries:
+        boundaries_str = ", ".join(f"{t - start:.1f}s" for t in boundaries)
+        return f"Detected visual changes at: {boundaries_str}"
+    return "No hard scene boundaries detected (likely continuous)"
+
+
+def _offset_segments(segments, offset):
+    """Shift segment start/end by `offset`, keeping every other key verbatim."""
+    out = []
+    for seg in segments or []:
+        if not isinstance(seg, dict):
+            continue
+        seg = dict(seg)
+        try:
+            seg["start"] = round(float(seg["start"]) + offset, 3)
+            seg["end"] = round(float(seg["end"]) + offset, 3)
+        except (TypeError, ValueError, KeyError):
+            continue
+        out.append(seg)
+    return out
+
+
 def analyze_scene(analyzer, video_path, duration, temporal_index):
     """Analyze scene/environment — boundary-guided hybrid, 1 model call."""
-    boundaries = get_scene_boundaries(temporal_index)
-    if boundaries:
-        boundaries_str = ", ".join(f"{t:.1f}s" for t in boundaries)
-        boundaries_text = f"Detected visual changes at: {boundaries_str}"
-    else:
-        boundaries_text = "No hard scene boundaries detected (likely continuous)"
+    boundaries_text = _scene_boundaries_text(temporal_index)
 
     prompt = PROMPT_SCENE.format(duration=duration, boundaries=boundaries_text)
-    result, raw, elapsed = analyzer.analyze_with_retry(
+    result, _raw, elapsed = analyzer.analyze_with_retry(
         prompt, parse_json_array, video=video_path,
         max_tokens=MAX_TOKENS["scene"], label="Scene"
     )
     return result, elapsed
+
+
+def analyze_scene_windowed(analyzer, duration, temporal_index, native_windows, fps):
+    """Scene pass over native windows; segments offset to clip time.
+
+    Clips at or under `NATIVE_WINDOW_S` yield one window, i.e. exactly the
+    single call `analyze_scene` makes. Longer clips get one call per
+    window (32 frames each) instead of 32 frames for the whole clip.
+
+    Returns (merged_segments, total_elapsed, sampling_windows).
+    """
+    segments = []
+    total_elapsed = 0
+    sampling_windows = []
+    for w in native_windows:
+        w_dur = w["end"] - w["start"]
+        boundaries_text = _scene_boundaries_text(
+            temporal_index, start=w["start"], end=w["end"])
+        prompt = PROMPT_SCENE.format(duration=w_dur, boundaries=boundaries_text)
+        result, _raw, elapsed = analyzer.analyze_with_retry(
+            prompt, parse_json_array, video=w["path"],
+            max_tokens=MAX_TOKENS["scene"],
+            label=f"Scene [{w['start']:.0f}-{w['end']:.0f}s]"
+        )
+        total_elapsed += elapsed
+        segments.extend(_offset_segments(result, w["start"]))
+        sampling_windows.append({
+            "start": w["start"], "end": w["end"],
+            **native_sample_plan(w_dur, fps),
+        })
+    return segments, total_elapsed, sampling_windows
 
 
 def merge_camera_modes(modes):
@@ -1381,23 +1575,55 @@ def merge_camera_modes(modes):
 
 def analyze_camera(analyzer, video_path, duration):
     """Analyze camera behavior — one-shot, 1 model call."""
-    prompt = PROMPT_CAMERA.format(duration=duration)
-    result, raw, elapsed = analyzer.analyze_with_retry(
-        prompt, parse_json_array, video=video_path,
-        max_tokens=MAX_TOKENS["camera"], label="Camera"
-    )
+    result, _raw, elapsed = _camera_one(
+        analyzer, video_path, duration, label="Camera")
     # Collapse consecutive identical modes
     result = merge_camera_modes(result)
     return result, elapsed
 
 
-def _strip_unheard_quotations(text):
-    """Remove quoted spans the model could not have heard.
+def _camera_one(analyzer, video_path, duration, label="Camera"):
+    """One camera model call; raw modes, unmerged."""
+    prompt = PROMPT_CAMERA.format(duration=duration)
+    return analyzer.analyze_with_retry(
+        prompt, parse_json_array, video=video_path,
+        max_tokens=MAX_TOKENS["camera"], label=label
+    )
 
-    Action windows are silent video (`extract_video_clips` strips the
-    audio), so quoted words in the model's answer are invented -
-    measured: a quotation attributed to the person on screen from a
-    window with no speech. Returns (cleaned_text_or_None,
+
+def analyze_camera_windowed(analyzer, duration, native_windows, fps):
+    """Camera pass over native windows; modes offset to clip time.
+
+    The single merge runs once over the concatenated windows, so an
+    identical mode spanning a window boundary still collapses.
+
+    Returns (merged_modes, total_elapsed, sampling_windows).
+    """
+    modes = []
+    total_elapsed = 0
+    sampling_windows = []
+    for w in native_windows:
+        w_dur = w["end"] - w["start"]
+        result, _raw, elapsed = _camera_one(
+            analyzer, w["path"], w_dur,
+            label=f"Camera [{w['start']:.0f}-{w['end']:.0f}s]")
+        total_elapsed += elapsed
+        modes.extend(_offset_segments(result, w["start"]))
+        sampling_windows.append({
+            "start": w["start"], "end": w["end"],
+            **native_sample_plan(w_dur, fps),
+        })
+    return merge_camera_modes(modes), total_elapsed, sampling_windows
+
+
+def _strip_unheard_quotations(text):
+    """Remove quoted spans the model could not have verified.
+
+    Action windows carry audio, so the model hears delivery - but the
+    transcript is still the only source of words, so quoted words in the
+    model's answer from a window the transcript gives nothing are
+    unverifiable - measured: a quotation attributed to the person on
+    screen from a window with no speech. Returns (cleaned_text_or_None,
     stripped_any). A leftover unbalanced quote mark nulls the field:
     the span patterns could not bound the invention, so the field goes
     rather than shipping half of one. A straight apostrophe (') is
@@ -1422,8 +1648,13 @@ def _strip_unheard_quotations(text):
     return cleaned, cleaned != " ".join(text.split())
 
 
-def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript):
+def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript,
+                    fps=None):
     """Analyze actions/behavior - one model call per 10s video clip.
+
+    Each window clip keeps its audio track, which the model hears
+    alongside the video (`audio=`); `fps` records the sampling the call
+    actually used (`native_sample_plan`) on the window entry.
 
     Returns list of window results.  Each entry carries ``parse_error``
     when the VLM response could not be parsed into valid JSON, so
@@ -1462,8 +1693,9 @@ def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript)
             transcript_line=transcript_line,
         )
 
-        result, raw, elapsed = analyzer.analyze_with_retry(
+        result, _raw, elapsed = analyzer.analyze_with_retry(
             prompt, parse_json_object, video=clip_info["path"],
+            audio=clip_info["path"] if clip_info.get("has_audio") else None,
             max_tokens=MAX_TOKENS["action_window"],
             label=f"Actions [{w_start:.0f}-{w_end:.0f}s]"
         )
@@ -1485,20 +1717,32 @@ def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript)
             "window": [w_start, w_end],
             "actions": result.get("actions", []),
             "analysis_time_s": round(elapsed, 2),
+            # The window's own audio track reaches the model (`audio=`
+            # above) when the source clip has one; a sourceless clip
+            # yields silent windows, which hear nothing.
+            "has_audio": bool(clip_info.get("has_audio")),
         }
+        if fps:
+            entry["sampling"] = {
+                "window_s": round(w_dur, 2),
+                **native_sample_plan(w_dur, fps),
+            }
         if parse_failed:
             entry["parse_error"] = True
             print(f"    ⚠ Actions [{w_start:.0f}-{w_end:.0f}s]: "
                   f"window recorded as UNPARSED (VLM response was not "
                   f"valid JSON after retry)", file=sys.stderr)
 
-        # The window clip carries no audio, so the model heard nothing.
-        # Quoted words in its answer are invented - measured on a silent
-        # window as a quotation attributed to the person on screen. The
-        # prompt forbids them; this enforces it where the transcript
-        # gives the window no words of its own (word-timed speech may
-        # echo the transcript text it was given, which is attributed
-        # correctly by construction).
+        # The model hears HOW speech is delivered in the window's audio,
+        # but the transcript stays the only source of WORDS. Quoted words
+        # in its answer cannot be verified against the transcript the
+        # window was given, so where the window has no words of its own
+        # they are still stripped - measured on a wordless window as a
+        # quotation attributed to the person on screen. The prompt
+        # forbids them; this enforces it where the transcript gives the
+        # window no words of its own (word-timed speech may echo the
+        # transcript text it was given, which is attributed correctly by
+        # construction).
         if not (w_transcript and w_word_timed):
             quote_stripped = False
             for action in entry["actions"]:
@@ -1513,8 +1757,8 @@ def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript)
             if quote_stripped:
                 entry["speech_quote_stripped"] = True
                 print(f"    ⚠ Actions [{w_start:.0f}-{w_end:.0f}s]: "
-                      f"stripped quoted speech the silent window could "
-                      f"not have produced", file=sys.stderr)
+                      f"stripped quoted speech the transcript-less window "
+                      f"could not have verified", file=sys.stderr)
 
         results.append(entry)
 
@@ -1546,7 +1790,7 @@ def analyze_objects_coarse(analyzer, frames, duration):
             frame_timestamps=ts_str,
         )
 
-        result, raw, elapsed = analyzer.analyze_with_retry(
+        result, _raw, elapsed = analyzer.analyze_with_retry(
             prompt, parse_json_array, images=batch_paths,
             max_tokens=MAX_TOKENS["objects_coarse"],
             label=f"Objects coarse batch {batch_idx+1}/{n_batches}"
@@ -1606,7 +1850,7 @@ def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects, durat
                 entities_summary=entities_str,
             )
 
-            result, raw, elapsed = analyzer.analyze_with_retry(
+            result, _raw, elapsed = analyzer.analyze_with_retry(
                 prompt, parse_json_array, images=b_paths,
                 max_tokens=MAX_TOKENS["objects_detail"],
                 label=f"Objects detail [{r_start:.0f}-{r_end:.0f}s]"
@@ -1620,6 +1864,37 @@ def analyze_objects_detail(analyzer, clip_path, cache_dir, coarse_objects, durat
     return merged, total_elapsed
 
 
+def _assess_one(analyzer, video_path, duration, label="Assessment"):
+    """One assessment model call; raw result dict ({} when unparsed)."""
+    prompt = PROMPT_ASSESSMENT.format(duration=duration)
+    return analyzer.analyze_with_retry(
+        prompt, parse_json_object, video=video_path,
+        max_tokens=MAX_TOKENS["assessment"], label=label
+    )
+
+
+def _finish_assessment(deterministic, content_type, primary_subject_visible,
+                       temporal_index, duration, soft_picture_ranges):
+    """Merge model fields into the deterministic dict (shared tail).
+
+    Usable ranges are set AFTER the model merge so the model result
+    cannot override them.
+    """
+    assessment = dict(deterministic)
+    assessment["content_type"] = content_type
+    assessment["primary_subject_visible"] = primary_subject_visible
+
+    # Usable ranges: deterministic measurement from temporal index signals.
+    # Re-compute with the model's content_type so Rule 3 (subject absence)
+    # can fire for A-roll clips.  Set AFTER the model merge above so the
+    # model result cannot override.
+    _set_usable_ranges(
+        assessment, temporal_index, duration, assessment["content_type"],
+        soft_picture_ranges)
+
+    return assessment
+
+
 def analyze_assessment(analyzer, video_path, duration, deterministic,
                        temporal_index=None, soft_picture_ranges=None):
     """Assessment - model call for visual judgment fields.
@@ -1630,11 +1905,7 @@ def analyze_assessment(analyzer, video_path, duration, deterministic,
     All usable_ranges fields are set AFTER the model merge so the model
     cannot override them.
     """
-    prompt = PROMPT_ASSESSMENT.format(duration=duration)
-    result, raw, elapsed = analyzer.analyze_with_retry(
-        prompt, parse_json_object, video=video_path,
-        max_tokens=MAX_TOKENS["assessment"], label="Assessment"
-    )
+    result, _raw, elapsed = _assess_one(analyzer, video_path, duration)
 
     # Merge deterministic fields into model results.
     #
@@ -1649,24 +1920,89 @@ def analyze_assessment(analyzer, video_path, duration, deterministic,
     # key is not an answer of `[]` either, so the key's absence is carried
     # as None.  A model that returned `[]` really did say the subject is
     # nowhere, and that is kept.
-    assessment = dict(deterministic)
     if result:
-        assessment["content_type"] = result.get("content_type", "unknown")
-        assessment["primary_subject_visible"] = result.get(
-            "primary_subject_visible")
+        content_type = result.get("content_type", "unknown")
+        primary_subject_visible = result.get("primary_subject_visible")
     else:
-        assessment["content_type"] = "unknown"
-        assessment["primary_subject_visible"] = None
+        content_type = "unknown"
+        primary_subject_visible = None
 
-    # Usable ranges: deterministic measurement from temporal index signals.
-    # Re-compute with the model's content_type so Rule 3 (subject absence)
-    # can fire for A-roll clips.  Set AFTER the model merge above so the
-    # model result cannot override.
-    _set_usable_ranges(
-        assessment, temporal_index, duration, assessment["content_type"],
-        soft_picture_ranges)
+    assessment = _finish_assessment(
+        deterministic, content_type, primary_subject_visible,
+        temporal_index, duration, soft_picture_ranges)
 
     return assessment, elapsed
+
+
+def analyze_assessment_windowed(analyzer, duration, deterministic, native_windows,
+                                fps, temporal_index=None,
+                                soft_picture_ranges=None):
+    """Assessment pass over native windows; votes merged to clip level.
+
+    `content_type` is the most frequent window vote (ties go to the
+    earliest window); `primary_subject_visible` is the union of the
+    windows' ranges offset to clip time. When no window parses,
+    `content_type` is "unknown" and `primary_subject_visible` is None -
+    the same absent-measurement the single call reports. The
+    deterministic tail (`_finish_assessment`) is shared with it.
+
+    Returns (assessment, total_elapsed, sampling_windows).
+    """
+    from collections import Counter
+
+    votes = []
+    psv_all = []
+    explicit_empty = 0
+    voted_windows = 0
+    total_elapsed = 0
+    sampling_windows = []
+    for w in native_windows:
+        w_dur = w["end"] - w["start"]
+        result, _raw, elapsed = _assess_one(
+            analyzer, w["path"], w_dur,
+            label=f"Assessment [{w['start']:.0f}-{w['end']:.0f}s]")
+        total_elapsed += elapsed
+        if result:
+            voted_windows += 1
+            votes.append(result.get("content_type", "unknown"))
+            psv = result.get("primary_subject_visible")
+            if psv == []:
+                explicit_empty += 1
+            for rng in psv or []:
+                try:
+                    psv_all.append([round(float(rng[0]) + w["start"], 3),
+                                    round(float(rng[1]) + w["start"], 3)])
+                except (TypeError, ValueError, IndexError):
+                    continue
+        sampling_windows.append({
+            "start": w["start"], "end": w["end"],
+            **native_sample_plan(w_dur, fps),
+        })
+
+    if votes:
+        counts = Counter(votes)
+        first_seen = {v: i for i, v in enumerate(votes)}
+        content_type = max(counts, key=lambda v: (counts[v], -first_seen[v]))
+        if psv_all:
+            primary_subject_visible = sorted(psv_all)
+        elif explicit_empty == voted_windows:
+            # Every window that answered returned `[]`: the model really
+            # did say the subject is nowhere, and that is kept - same as
+            # the single call.
+            primary_subject_visible = []
+        else:
+            # An answer WITHOUT the key is not an answer of `[]`:
+            # carried as None, same as the single call.
+            primary_subject_visible = None
+    else:
+        content_type = "unknown"
+        primary_subject_visible = None
+
+    assessment = _finish_assessment(
+        deterministic, content_type, primary_subject_visible,
+        temporal_index, duration, soft_picture_ranges)
+
+    return assessment, total_elapsed, sampling_windows
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1674,28 +2010,40 @@ def analyze_assessment(analyzer, video_path, duration, deterministic,
 # ═══════════════════════════════════════════════════════════════════════
 
 def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
-                 temporal_index, cache_dir):
+                 temporal_index, cache_dir, native_windows=None):
     """Orchestrate all dimension passes for a single clip.
 
     Execution order:
       Group A (independent): Scene, Camera, Actions, Objects coarse
       Group B (dependent):   Objects detail (depends on coarse results)
       Group C (final):       Assessment (depends on all dimensions)
+
+    `native_windows` carries the scene/camera/assessment windows
+    (`extract_native_windows`); when None they are cut here, so a long
+    clip is never silently sparse-sampled whole.
     """
     clip_id = clip_meta["clip_id"]
     duration = clip_meta["duration_s"]
     video_path = clip_meta["file_path"]
     clip_path = Path(clip_meta["file_path"])
+    fps = clip_meta.get("fps") or 30.0
+
+    if native_windows is None:
+        native_windows = extract_native_windows(clip_path, duration, cache_dir)
+    n_native_calls = len(native_windows)
 
     n_action_calls = len(video_clips)
     n_obj_coarse_calls = max(1, int(math.ceil(len(frames) / COARSE_BATCH_SIZE)))
-    n_estimated = 1 + 1 + n_action_calls + n_obj_coarse_calls + 1  # +detail is variable
+    n_estimated = (n_native_calls * 3 + n_action_calls + n_obj_coarse_calls
+                   + 1)  # +detail is variable
 
     print(f"\n{'═'*60}")
     print(f"  Analyzing: {clip_id} ({duration:.1f}s)")
     print(f"  Estimated model calls: {n_estimated}+ "
-          f"(1 scene + 1 camera + {n_action_calls} actions + "
-          f"{n_obj_coarse_calls} obj coarse + detail + 1 assessment)")
+          f"({n_native_calls} scene + {n_native_calls} camera + "
+          f"{n_action_calls} actions + "
+          f"{n_obj_coarse_calls} obj coarse + detail + "
+          f"{n_native_calls} assessment)")
     print(f"{'═'*60}")
 
     total_time = 0
@@ -1704,10 +2052,13 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     # ── Group A: Independent passes ──────────────────────────────────
 
     # 1. Scene
-    print(f"\n  [Scene] Boundary-guided hybrid (1 call, video)...", end=" ", flush=True)
-    scene, t = analyze_scene(analyzer, video_path, duration, temporal_index)
+    print(f"\n  [Scene] Boundary-guided hybrid "
+          f"({n_native_calls} window(s) × ≤{NATIVE_WINDOW_S}s, video)...",
+          end=" ", flush=True)
+    scene, t, scene_windows = analyze_scene_windowed(
+        analyzer, duration, temporal_index, native_windows, fps)
     total_time += t
-    total_calls += 1
+    total_calls += n_native_calls
     # The model describes whatever span it feels like - on project 001
     # four long clips stop at 13.9-18.9 s while one 85.8 s clip was
     # described whole (issue #302). Normalize once here so one sloppy
@@ -1720,18 +2071,21 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
           f"{scene_coverage['ratio']:.0%} of {duration:.1f}s described")
 
     # 2. Camera
-    print(f"  [Camera] One-shot (1 call, video)...", end=" ", flush=True)
-    camera, t = analyze_camera(analyzer, video_path, duration)
+    print(f"  [Camera] Windowed ({n_native_calls} call(s), video)...",
+          end=" ", flush=True)
+    camera, t, camera_windows = analyze_camera_windowed(
+        analyzer, duration, native_windows, fps)
     total_time += t
-    total_calls += 1
-    # The same one-shot shape as the scene pass, so the same sloppy
+    total_calls += n_native_calls
+    # The same windowed shape as the scene pass, so the same sloppy
     # bounds - normalized for the same reason.
     camera = normalize_segments(camera, duration)
     print(f"({t:.1f}s) → {len(camera)} mode(s)")
 
     # 3. Actions
-    print(f"  [Actions] {n_action_calls} windows × {ACTION_WINDOW_S}s (video clips)...")
-    actions = analyze_actions(analyzer, video_clips, duration, temporal_index, transcript)
+    print(f"  [Actions] {n_action_calls} windows × {ACTION_WINDOW_S}s (video+audio clips)...")
+    actions = analyze_actions(analyzer, video_clips, duration, temporal_index,
+                              transcript, fps=fps)
     action_time = sum(a.get("analysis_time_s", 0) for a in actions)
     total_action_count = sum(len(a.get("actions", [])) for a in actions)
     total_time += action_time
@@ -1795,12 +2149,13 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     deterministic = compute_deterministic_assessment(
         temporal_index, transcript, duration=duration,
         soft_picture_ranges=soft_ranges)
-    print(f"  [Assessment] Hybrid (1 call, video + deterministic)...", end=" ", flush=True)
-    assessment, t = analyze_assessment(
-        analyzer, video_path, duration, deterministic,
+    print(f"  [Assessment] Hybrid ({n_native_calls} call(s), video + deterministic)...",
+          end=" ", flush=True)
+    assessment, t, assessment_windows = analyze_assessment_windowed(
+        analyzer, duration, deterministic, native_windows, fps,
         temporal_index=temporal_index, soft_picture_ranges=soft_ranges)
     total_time += t
-    total_calls += 1
+    total_calls += n_native_calls
     print(f"({t:.1f}s) → {assessment.get('content_type', '?')}")
 
     # ── Build clip profile ───────────────────────────────────────────
@@ -1832,6 +2187,23 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
             "analysis_time_s": round(total_time, 2),
             "frames_extracted": len(frames),
             "video_clips_extracted": len(video_clips),
+            # What each native-video (`video=`) call actually saw.
+            # Every such call is capped at 32 frames (mlx-vlm 0.7.2
+            # gemma4 path), so a clip longer than `native_window_s`
+            # takes one call per window instead of 32 frames whole.
+            # Each window entry records {start, end, frames,
+            # decode_fps, effective_fps} (`native_sample_plan`); each
+            # action entry carries its own `sampling` plus `has_audio`.
+            "video_sampling": {
+                "frames_per_call": NATIVE_VIDEO_FRAMES_PER_CALL,
+                "decode_fps": NATIVE_VIDEO_DECODE_FPS,
+                "native_window_s": NATIVE_WINDOW_S,
+                "windows": {
+                    "scene": scene_windows,
+                    "camera": camera_windows,
+                    "assessment": assessment_windows,
+                },
+            },
         },
     }
 
@@ -1943,14 +2315,21 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             frames = extract_frames(clip_path, duration, cache_dir)
             print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
 
-            # Extract video clips (for actions — 10s segments)
+            # Extract video clips (for actions — 10s segments, audio kept)
             video_clips = extract_video_clips(clip_path, duration, cache_dir)
-            print(f"  Video clips extracted: {len(video_clips)} × {ACTION_WINDOW_S}s")
+            n_aud = sum(1 for c in video_clips if c.get("has_audio"))
+            print(f"  Video clips extracted: {len(video_clips)} × {ACTION_WINDOW_S}s "
+                  f"({n_aud} with audio)")
+
+            # Extract native windows (for scene/camera/assessment — ≤60s each)
+            native_windows = extract_native_windows(clip_path, duration, cache_dir)
+            print(f"  Native windows extracted: {len(native_windows)} "
+                  f"× ≤{NATIVE_WINDOW_S}s")
 
             # Run analysis
             profile = analyze_clip(
                 analyzer, meta, frames, video_clips, transcript,
-                temporal_idx, cache_dir,
+                temporal_idx, cache_dir, native_windows=native_windows,
             )
             all_profiles.append(profile)
 

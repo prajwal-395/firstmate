@@ -1,14 +1,17 @@
-"""No quoted speech out of a silent action window.
+"""No quoted speech out of a window the transcript gives nothing.
 
-Action windows are silent video (`extract_video_clips` strips the audio
-with `-an`), so the model hears nothing. Measured defect: on a window
-with no speech it invented a quotation and attributed it to the person
-on screen, and that text flowed into searchable action segments as
-though it had been spoken.
+Action windows carry their audio track, which the model hears
+(`extract_video_clips` keeps it and `analyze_actions` passes it as
+`audio=`). Delivery is heard; words still come only from the transcript
+text the prompt carries. Measured defect: on a window with no speech it
+invented a quotation and attributed it to the person on screen, and that
+text flowed into searchable action segments as though it had been
+spoken.
 
 Two halves, matching the fix:
-1. `_strip_unheard_quotations` removes quoted spans the model could not
-   have heard (straight apostrophes are kept - they are not quotes).
+1. `_strip_unheard_quotations` removes quoted spans the window's
+   transcript cannot verify (straight apostrophes are kept - they are
+   not quotes).
 2. `analyze_actions` strips them on windows the transcript gives no
    words of its own, and records `speech_quote_stripped` on the window
    entry. Windows WITH word-timed speech may echo the transcript text
@@ -75,7 +78,7 @@ def _analyzer_saying(raw_actions):
     return analyzer
 
 
-def test_silent_window_quotation_is_stripped_and_recorded():
+def test_untranscribed_window_quotation_is_stripped_and_recorded():
     analyzer = _analyzer_saying([{
         "start": 0.0, "end": 10.0,
         "action": "person talking to camera",
