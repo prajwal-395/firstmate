@@ -311,6 +311,21 @@ def _tally(segments) -> dict:
     return counts
 
 
+def _empty_overlay(reason: str) -> dict:
+    """The overlay value when the plan yields no cards to draw.
+
+    A plan of none is a legitimate answer, not a failure: a speechless
+    cut has no captions, and a region rerun may cover no captioned
+    block. So this carries no `available: False` - the runner's hollow
+    gate (`run_pipeline.check_output_is_real`) reads that anywhere in a
+    step's output as a failed run, and a cut that needs no captions
+    could never compile. The motion-graphics renderer keeps the same
+    distinction the same way (segments with no `available` key). A
+    renderer that cannot start still raises `SubtitleRenderRefused`.
+    """
+    return {"segments": [], "declared": False, "reason": reason}
+
+
 def _box_sidecar_path(out_dir: str, segment_name: str) -> str:
     return os.path.join(out_dir, f"{segment_name}_box.json")
 
@@ -1629,11 +1644,8 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             print(f"WARNING: the caption render ledger cannot be "
                   f"written ({exc})", file=sys.stderr)
         return {
-            "subtitle_overlay": {
-                "available": False,
-                "segments": [],
-                "reason": "No subtitle entries found in subtitle plan"
-            }
+            "subtitle_overlay": _empty_overlay(
+                "No subtitle entries found in subtitle plan")
         }
 
     # ── Region scope narrows WHICH segments render, and nothing else ──
@@ -1653,12 +1665,9 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                       if p.get("_block_position") in wanted]
         if not props_list:
             return {
-                "subtitle_overlay": {
-                    "available": False,
-                    "segments": [],
-                    "reason": (f"region {span} covers no captioned block "
-                               f"(of {planned_total} planned)"),
-                }
+                "subtitle_overlay": _empty_overlay(
+                    f"region {span} covers no captioned block "
+                    f"(of {planned_total} planned)")
             }
         print(f"Region {span}: {len(props_list)} of {planned_total} "
               f"segments", file=sys.stderr)

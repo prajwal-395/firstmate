@@ -59,6 +59,7 @@ import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import (brief_attachment, briefing_interview,
+                           briefing_chat,
                            decided_value,
                            craft_role, creative_tasks,
                            direction_contradiction,
@@ -1898,6 +1899,16 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     current_context = toon_str
     if retry_feedback:
         current_context += retry_feedback
+    # What the commissioner said in the chat interview, when one was
+    # conducted at the start of this run: steps that declare
+    # `creative_brief` read the answers the way they read an attached
+    # brief. Best-effort and never fatal - a run without answers reads
+    # exactly what it read before. See library/tools/briefing_chat.py.
+    try:
+        current_context = briefing_chat.append_to_context(
+            current_context, project_folder, manifest)
+    except Exception:  # noqa: BLE001 - context must never fail a step
+        pass
     best_output = None
     
     expected_schema_str = ""
@@ -2159,7 +2170,17 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                     try:
                         with open(res_file, "r") as f:
                             res_content = f.read()
-                        parsed_result = json.loads(res_content)
+                        # The handshake owns what a response may be; a
+                        # malformed one refuses WITH the fix (which file to
+                        # repair, how to resume). See
+                        # library/tools/llm_handshake.py.
+                        from library.tools import llm_handshake
+                        parsed_result = llm_handshake.validate_response(
+                            node_id, res_content, project_folder)
+                    except LLMError:
+                        raise
+                    except llm_handshake.HandshakeRefusal as e:
+                        raise LLMError(e._ren.what, e._ren.why, e._ren.fix)
                     except Exception as e:
                         raise LLMError(
                             f"failed to read or parse agent LLM response "
@@ -2700,6 +2721,23 @@ def run_pipeline(
         print(f"  Migrated {len(migrated)} steps from the single "
               f"'steps_completed' ledger into preflight/edit",
               file=sys.stderr)
+
+    # The chat interview, conducted before anything decides. When no
+    # brief was attached and a host drives (`agent` backend), the first
+    # handshake request is the interview itself: the host asks the user
+    # in chat and answers back through the handshake, instead of the
+    # questions landing unasked in the run summary. Every other path
+    # returns state untouched. See library/tools/briefing_chat.py.
+    if not dry_run and not single_step:
+        try:
+            state = briefing_chat.conduct_if_needed(
+                project_dir, state, normalize_full_auto(full_auto),
+                llm_timeout=llm_timeout, save=save_pipeline_state)
+        except RenRefusal:
+            raise
+        except Exception as exc:  # noqa: BLE001 - never fail a run here
+            print(f"  Briefing interview skipped ({exc}); continuing "
+                  f"without a brief.", file=sys.stderr)
 
     # The run profile, read first: it contributes to the selection and to
     # the breakpoints, and a profile that cannot be read must refuse

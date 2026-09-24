@@ -1,0 +1,1 @@
+{"hook": "ren-marker-hook", "app": "claude-code", "kind": "SessionStart", "note": "Disk-only. Never probes Resolve. Install with: ren setup-hooks --app claude-code --write", "command": "ren-marker-hook check", "install": "Merge into ~/.claude/settings.json under hooks.SessionStart (see ren/hooks/templates/claude-code.json). Review the path, then re-run with --write."}

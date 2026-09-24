@@ -1,0 +1,151 @@
+---
+name: ren-co-editor
+description: >
+  Run a Ren video project end to end as the co-editor: start a project
+  from footage, drive the pipeline through every LLM_REQUEST_READY file
+  handshake, conduct the briefing interview in chat, touch up and undo,
+  sign off, search footage, and reach Resolve through resolve-axi. Use
+  when asked to use Ren, edit a video, or start a new project.
+---
+
+# ren-co-editor - the host's job on a Ren project
+
+You are the co-editor: an LLM with a shell, driving Ren (the `ren`
+front door in this checkout) on behalf of the person beside you in
+chat. Ren never calls an LLM API on this path - /**OAuth harnesses
+only** (Claude Code, Codex, opencode); direct API mode is out of
+scope/ - **you** are the model. The pipeline hands you prompts as
+files; you hand back JSON as files. That exchange is the file
+handshake, and it is the only way answers travel.
+
+Run EVERYTHING through `bin/vep`, never a bare `python3` (the venv and
+Resolve variables resolve through the ladder there). `ren` itself is
+the same commands: `ren <verb>` execs `bin/vep manage_project.py
+<subcommand>`, so `ren edit --help` prints the runner's own help.
+
+## 0. The three places (read, do not memorise)
+
+- The handshake contract lives in ONE module:
+  `library/tools/llm_handshake.py`. Request/response schema, file
+  locations, resume, and what a malformed response refuses with. What
+  is written below is that contract stated for chat; the module is
+  authoritative when they disagree.
+- The chat interview lives in `library/tools/briefing_chat.py`.
+- The marker hook lives in `ren/hooks/marker_hook.py`, installed by
+  `ren setup-hooks`.
+
+## 1. Start: new project from footage
+
+```sh
+ren doctor                        # must PASS; changes nothing
+ren new <slug> --name "..."       # create the project
+ren check <project>               # readiness: footage found, layout ok
+```
+
+`<project>` is the slug, or the absolute project path for projects
+outside `PIPELINE_PROJECTS_ROOT`. Never touch a real project or a real
+Resolve project unasked: fixtures and temp dirs unless the user named
+one of theirs.
+
+## 2. Run, and answer every handshake
+
+```sh
+ren edit <project> --full-auto agent
+```
+
+The runner prints `LLM_REQUEST_READY: <path>` on stdout and waits. For
+each request, in order:
+
+1. **Read** `<project>/pipeline_output/llm_requests/<step>.json`. It
+   carries `step_id`, `prompt` (brand constraints included),
+   `constraints`, `context` (the ONLY material you may decide from),
+   `expected_schema` (the shape your answer must satisfy),
+   `project_folder`, `timestamp`, and `kind` (`llm_step`, or
+   `briefing_interview` - see section 3).
+2. **Do the work** the prompt asks, from `context` alone. Never invent
+   footage, timings, or measurements; a step that cannot decide from
+   its own context says so in the shape its schema allows.
+3. **Write** `<project>/pipeline_output/llm_responses/<step>.json` as a
+   UTF-8 JSON **object** (`{...}`) satisfying `expected_schema`. Arrays,
+   strings, empty files and unparseable JSON are malformed: the run
+   refuses naming the step, the path, and the fix (see
+   `llm_handshake.HandshakeRefusal`), so repair the file and resume.
+4. **Resume**: while the run is still waiting, writing the file is
+   enough - it polls. If it already timed out or was stopped, re-run
+   the same `ren edit` command; it resumes from the pending step.
+   Never pre-place a response before its request exists: the runner
+   deletes stale responses when it writes the request, so a stale
+   answer is never mistaken for a fresh one.
+
+Answer EVERY request, including review gates (`ren edit --review`
+pauses for a human answer via `python3 -m
+library.tools.review_gate answer` - same files, same shape) and the
+briefing interview below. A run that stops asking has finished or
+failed; `ren status <project>` tells which.
+
+## 3. The briefing interview happens in chat
+
+When no creative brief is attached, the run's FIRST request is the
+chat interview (`llm_requests/briefing_interview.json`,
+`kind=briefing_interview`). It lists `questions` the run banked (or a
+small starter set on a first run). Ask the user each one **in
+conversation**, in plain language, one at a time - do not paste JSON
+at them. Then write:
+
+```json
+{"brief_answers": [{"question": "...", "answer": "..."}]}
+```
+
+to `llm_responses/briefing_interview.json`. An empty list is complete
+(the user declined; the run proceeds brief-less, exactly as today) -
+never a failure, never re-asked on resume. The answers ride with every
+planning step that declares `creative_brief`.
+
+## 4. After the plan: touch, undo, sign-off
+
+- `ren touch <project>` - a small change to a built reel, in place
+  (not a rebuild). `ren undo <project>` reverses the newest act.
+- `ren sign-off <project>` - record the captain's sign-off on a built
+  reel. Only built reels; `PROPOSED` fails the gate as `REJECTED` does.
+- `ren propose <project>` / `ren build <project>` - publish chosen
+  moments, then cut approved moments onto Resolve timelines. Building
+  needs Resolve open on the exact project; never build unasked.
+- `ren drift <project>` / `ren rounds <project>` / `ren notes
+  <project>` - what moved, what changed between feedback rounds, which
+  timeline note went to which step.
+
+## 5. Search footage; reach Resolve through resolve-axi
+
+- `ren search-index <project>` builds the footage index (only when
+  asked; it writes into the project's scratch). `ren search
+  <project> "..."` finds where in the footage something happens. A
+  ranking cannot say "not here": below the dense floor is not-in-footage.
+- Every Resolve read or write goes through `resolve-axi`
+  (`library/tools/resolve_axi.py`): timelines, pool, markers, renders.
+  Address a Resolve project by its EXACT listed name, never a prefix.
+  Judge every Resolve call by what it RETURNS, never by `hasattr`.
+
+## 6. Timeline notes become work via the marker hook
+
+Install once per host: `ren setup-hooks --app claude-code|opencode|codex`
+(plans; `--write` installs). The hook is disk-only - at session start
+it lists pulled marker notes no routing record has carried, with the
+`ren` verb that works each one. It never probes Resolve. Pulling new
+notes needs Resolve open:
+
+```sh
+python3 -m library.tools.marker_feedback pull --project <project>
+ren notes <project>              # which note went to which step
+ren-marker-hook work --project <absolute path>   # pending work queue
+```
+
+## 7. What you never do
+
+- No renders, no Resolve writes, unasked. No touching real projects,
+  the Resolve project, or any timeline the user did not name.
+- No API-mode LLM calls on this path; no inventing creative judgement
+  the prompts did not ask for; no answering from outside `context`.
+- One refusal shape note: a file this lane does not own may refuse in
+  words this skill did not teach. Read the refusal, do what it says,
+  and report it - refusal wording across the codebase belongs to lane
+  (b), not to this skill.

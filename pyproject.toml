@@ -37,9 +37,11 @@ dynamic = ["dependencies"]
 
 [project.scripts]
 ren = "ren.cli:main"
+ren-marker-hook = "ren.hooks.marker_hook:main"
+ren-setup-hooks = "ren.setup_hooks:main"
 
 [tool.setuptools]
-packages = ["ren"]
+packages = ["ren", "ren.hooks"]
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }

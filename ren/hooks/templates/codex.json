@@ -1,0 +1,1 @@
+{"hook": "ren-marker-hook", "app": "codex", "note": "Disk-only. Never probes Resolve. Install with: ren setup-hooks --app codex --write", "hooks": {"session_start": [{"command": "ren-marker-hook check"}]}}

@@ -70,7 +70,7 @@ ALL_COMMANDS = (
     "resolve-mark-master",
     "check", "run", "archive", "notes",
     "round-diff", "sign-off", "purge", "discharge-uncarried", "variant",
-    "relink",
+    "relink", "setup-hooks",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -1687,6 +1687,17 @@ def cmd_relink(args):
             print(f"  Could not locate: {unfixable}")
 
 
+def cmd_setup_hooks(args):
+    """Install the marker-feedback hook for a host (plan by default)."""
+    from ren.setup_hooks import APPS, _target, install
+    if getattr(args, "list", False):
+        for app in APPS:
+            print(f"{app}: {_target(app)}")
+        return
+    raise SystemExit(install(args.app.lower() if args.app else "",
+                             write=args.write))
+
+
 def cmd_propose_reels(args):
     """Publish step 3.4's chosen moments as the captain's review file."""
     from library.tools.reel_proposal import write_from_step_output
@@ -2766,6 +2777,17 @@ def main():
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
     p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")
     p_relink.set_defaults(func=cmd_relink)
+
+    p_setup_hooks = sub.add_parser(
+        "setup-hooks",
+        help="Install the marker-feedback hook for a host (plan by default)")
+    p_setup_hooks.add_argument("--app", default="",
+                               help="claude-code|opencode|codex (--list shows targets)")
+    p_setup_hooks.add_argument("--write", action="store_true",
+                               help="install; without it, plan only")
+    p_setup_hooks.add_argument("--list", action="store_true",
+                               help="list supported hosts and stop")
+    p_setup_hooks.set_defaults(func=cmd_setup_hooks)
 
     registered = tuple(sub.choices)
     if registered != ALL_COMMANDS:
