@@ -23,12 +23,13 @@ def check_resolve_connection():
             sys.path.append(os.path.join(api_path, "Modules"))
             
         import DaVinciResolveScript as dvr
-        resolve = dvr.scriptapp("Resolve")
+        from library.tools.resolve_locale import scriptapp_preserving_locale
+        resolve = scriptapp_preserving_locale(dvr, "Resolve")
         
         if resolve is None:
             return {
                 "success": False,
-                "error": "dvr.scriptapp('Resolve') returned None. Is DaVinci Resolve running?"
+                "error": "scriptapp('Resolve') returned None. Is DaVinci Resolve running?"
             }
             
         pm = resolve.GetProjectManager()

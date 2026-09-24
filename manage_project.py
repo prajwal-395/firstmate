@@ -381,7 +381,7 @@ def cmd_new(args):
             template=args.template or "",
             source_type=args.source_type or "iphone_mov",
             resolution=args.resolution or "1080x1920",
-            fps=int(args.fps) if args.fps else 30,
+            fps=float(args.fps) if args.fps else 30,
             resolve_project_name=args.resolve_name or "",
             tags=args.tags.split(",") if args.tags else [],
             description=args.description or "",

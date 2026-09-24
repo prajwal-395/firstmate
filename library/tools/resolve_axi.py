@@ -37,7 +37,7 @@ Safety shape, stated once:
   explicit flag, and it restores the TIMELINE plane only; a snapshot
   holding clip/pool-plane rows is REFUSED unless `--allow-partial`
   acknowledges the gap (the refusal names the count, the planes, and
-  the recovery file - see `RESTORE_SCOPE`, `CLIP_PLANE_RECOVERY`).
+  how to re-apply the clip half by hand - see `RESTORE_SCOPE`).
 
 Output contract (axi.md principles 1-6, 9-10):
 
@@ -88,19 +88,12 @@ NOTE_PREVIEW_CHARS = 500
 #: trip exactly through `AddMarker(frame, colour, name, note, duration,
 #: customData)`; clip/pool-plane rows carry no verified write path in
 #: this repo (no caller writes them today), so they are compared in the
-#: dry run and reported, never guessed at.
+#: dry run and reported, never guessed at. A refused restore tells the
+#: caller to re-apply that half by hand from the snapshot file (each
+#: skipped row carries its plane, frame, name and words) - the refusal
+#: names no machine-local path, because the file lives wherever the
+#: caller wrote the snapshot.
 RESTORE_SCOPE = "timeline-plane"
-
-#: Where the clip-plane notes a snapshot cannot restore actually live.
-#: A refused restore prints this, the way the ambiguous-prefix refusal
-#: prints its disambiguating command: a caller who is refused needs the
-#: recovery path, not just the gap. The file carries every clip-anchored
-#: field-test note with track, anchor item, clip-local and timeline
-#: frames, and the captain's verbatim words.
-CLIP_PLANE_RECOVERY = (
-    "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/"
-    "vep-field-test-feedback/CLIP-ANCHORED-MARKERS-2026-09-19.md"
-)
 
 #: Snapshot fields that name each frame number for what it IS.
 #: `frame_in_timeline_space` is the inverted legacy name: for a clip
@@ -664,9 +657,9 @@ def _refuse_partial_snapshot(in_file: str, timeline_name, skipped: dict,
           f"cannot write ({planes}) - restore covers the timeline "
           f"plane ({RESTORE_SCOPE}) only, so restoring it "
           f"{verb} the clip half behind",
-          f"recovery: the clip-plane notes live outside this file, at "
-          f"{CLIP_PLANE_RECOVERY} (track, anchor item, clip-local and "
-          f"timeline frames, verbatim words)",
+          f"recovery: re-apply the clip-plane note(s) by hand from the "
+          f"snapshot file - each skipped row carries its plane, frame, "
+          f"name and words",
           f"help: {TOOL} markers restore --in {in_file} --timeline "
           f"\"{timeline_name}\""
           f"{' --apply' if apply else ''} --allow-partial to proceed "
@@ -759,8 +752,10 @@ def cmd_markers_restore(args) -> int:
                     "note": preview(r.get("note") or "", False),
                 } for r in skipped_rows],
                 ["plane", "frame", "name", "note"]))
-                parts.append(f"recovery: the skipped notes live outside "
-                             f"this file, at {CLIP_PLANE_RECOVERY}")
+                parts.append(f"recovery: re-apply the skipped note(s) "
+                             f"by hand from the snapshot file - each row "
+                             f"above carries its plane, frame, name and "
+                             f"words")
             parts.extend([
                   f"dry run - pass --apply to write under the Resolve lease",
                   help_block([f"{TOOL} markers restore --in {args.in_file} "
@@ -802,8 +797,8 @@ def cmd_markers_restore(args) -> int:
         } for r, reason in refused], ["frame", "name", "reason"]))
     if skipped_rows:
         out.append(f"skipped: {len(skipped_rows)} clip-plane note(s) left "
-                   f"behind by --allow-partial - recovery: "
-                   f"{CLIP_PLANE_RECOVERY}")
+                   f"behind by --allow-partial - re-apply them by hand "
+                   f"from the snapshot file")
     out.append(help_block(
         [f"{TOOL} markers --timeline \"{timeline.GetName()}\""]))
     emit(out)

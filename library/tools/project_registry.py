@@ -221,7 +221,7 @@ def create_project(
     template: str = "",
     source_type: str = "iphone_mov",
     resolution: str = "1080x1920",
-    fps: int = 30,
+    fps: float = 30,
     resolve_project_name: str = "",
     resolve_folder: str = "",
     tags: list[str] = None,

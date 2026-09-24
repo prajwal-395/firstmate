@@ -31,13 +31,13 @@ the boundary.  Restore what was broken and nothing else.
 
 WHO GOES THROUGH THE WRAPPER, AND WHO STILL DOES NOT.  This ledger is
 here rather than in AGENTS.md 9, which keeps the rule and points at it.
-Two call sites use the wrapper: `marker_feedback` and step 6.01. Eight
+Two call sites use the wrapper: `marker_feedback` and step 6.01. Seven
 still call `scriptapp` directly and are UNMIGRATED:
 
     resolve_relinker                 execution/resolve_render
     timeline_serializer              execution/apply_fusion_comps
-    resolve_health                   probe_resolve_capabilities
-    resolve_project_sync             qa/timeline_sync_qa
+    probe_resolve_capabilities       resolve_project_sync
+    qa/timeline_sync_qa
 
 Each is a place the encoding can still be reset underneath the process.
 Delete a name from this list only when that module actually moves onto

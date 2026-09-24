@@ -457,7 +457,7 @@ def test_restore_refuses_snapshot_with_clip_notes(field_reel, tmp_path,
         out = capsys.readouterr().out
         assert "holds 1 note(s)" in out
         assert "clip_marker: 1" in out
-        assert "CLIP-ANCHORED-MARKERS-2026-09-19.md" in out
+        assert "re-apply the clip-plane note(s) by hand" in out
         assert "--allow-partial" in out
     # The refusal lands before any Resolve contact: nothing written.
     assert field_reel["timeline"].added == []
@@ -479,7 +479,7 @@ def test_restore_allow_partial_apply_writes_timeline_plane_only(
         (40, "Green", "feedback", "good take", 1, "")]
     assert "restored: 1" in out
     assert "skipped: 1" in out
-    assert "CLIP-ANCHORED-MARKERS-2026-09-19.md" in out
+    assert "re-apply them by hand" in out
 
 
 # ── Marker replies ───────────────────────────────────────────────────
