@@ -132,6 +132,11 @@ DETAIL_MAX_COVERAGE = 0.6         # Skip detail pass if ranges cover > 60% of cl
 # Token budgets per pass type
 MAX_TOKENS = {
     "window_all": 2000,
+    # Compact answers finish near ~140 tokens (measured 2026-09-24);
+    # 600 binds only the runaway tail (caption-transcription spirals
+    # that count seconds past the window) without touching good
+    # answers, so a failed window costs ~1 minute, not ~3.
+    "window_all_compact": 600,
     "objects_coarse": 700,
     "objects_detail": 600,
 }
@@ -211,6 +216,80 @@ Rules:
 # The model answers in clip-time timestamps within the window (measured:
 # it echoes the window bounds), so no offsetting is applied downstream -
 # only a range check.
+
+# Compact twin of PROMPT_WINDOW_ALL: the same four tasks, answered in a
+# positional schema instead of key-per-field objects. Measured 2026-09-24
+# (see `expand_compact_window`): the folded answer's 365 output tokens
+# are 67% of the call's wall, so the envelope is what is cut - single
+# letter keys, one array per entry, no repeated key names - plus a word
+# cap per prose field. Every field a downstream step reads is still
+# answered (the consumer list is in `expand_compact_window`'s docstring);
+# `analyze_windows` expands the compact answer back to the canonical
+# shape before anything else reads it, so no consumer changes.
+PROMPT_WINDOW_ALL_COMPACT = """This is a {window_dur:.0f}-second segment (seconds {window_start:.0f} to {window_end:.0f}) of a {duration:.0f}-second video clip.
+{transcript_line}
+This video clip carries its AUDIO TRACK - measured on mlx-vlm 0.7.2,
+gemma4-unified accepts audio alongside video (`generate` takes
+`audio=` with the audio marker in the prompt, and the checkpoint
+carries `embed_audio` weights), so listen to HOW speech is delivered
+(pace, effort, pauses, visible effort). The only WORDS that exist are
+the transcript text above (if any). NEVER quote speech: do not put
+words in quotation marks and do not attribute utterances to the person
+on screen. `speech_cue` describes delivery - pace, effort, pauses,
+mouth movement, gestures while talking - never words.
+
+Answer all four parts in ONE response. Part 1 - actions ("a"): for each
+distinct action or behavior change in this segment, report what the
+person is physically doing, observable speech delivery cues (if
+speaking): mouth movement, apparent volume, gestures while talking,
+and observable facial expression and body language: posture, hand
+position, head orientation, facial muscle state. If the person holds
+or operates something (phone, tool, cup), name it.
+
+Part 2 - scene ("s"): pre-detected scene boundaries (from automated
+visual analysis) within this segment: {boundaries}. Describe the
+physical environment for each part of this segment, and identify any
+additional subtle environment changes the detector may have missed
+(e.g., significant lighting shifts within the same location).
+
+Part 3 - camera ("c"): describe the camera behavior in this segment.
+A new entry ONLY when the camera mode meaningfully changes (e.g.,
+static to walking, selfie to rear-facing, close-up to wide shot,
+stable to shaky). Judge steadiness closely: handheld phone footage
+usually drifts or shakes slightly, so "steady" only for a truly
+locked frame.
+
+Part 4 - assessment ("t" content type, "p" subject ranges): classify
+what this segment shows. "t": one of person_talking_to_camera,
+scenery, action_sequence, multiple_people, object_showcase,
+transition. "p": time ranges where the main person is visible.
+
+Respond in this EXACT JSON format (no markdown, no explanation, no extra text):
+{{"a": [[<start>, <end>, "<what they are doing, max 12 words>", "<speech delivery, max 12 words, or null if not speaking>", "<posture, gestures, expression, max 12 words>"]], "s": [[<start>, <end>, "<place, max 8 words>", "<indoor|outdoor|vehicle|mixed>", "<lighting, max 8 words>", "<visible features, max 8 words each, joined with ; - or empty string>"]], "c": [[<start>, <end>, "<selfie|handheld|mounted|panning|tracking>", "<close-up|medium|wide>", "<steadiness, max 8 words>", "<stationary|walking|panning_left|panning_right|tilting_up|tilting_down|zooming_in|zooming_out>"]], "t": "type_here", "p": [[<start>, <end>]]}}
+
+Rules:
+- All timestamps must be within [{window_start}, {window_end}].
+- Describe ONLY what is physically visible - "frowning, arms crossed" not "feeling upset"; no mood, atmosphere, or interpretation.
+- If one continuous action spans the whole window, return a single action entry.
+- If the setting never changes, return a single scene entry spanning the window.
+- If the camera stays in one mode the whole window, return a single camera entry.
+- The null in an "a" entry is bare null (not the string "null") when the person is not speaking.
+- mode: selfie (front-facing, subject holding camera), handheld (rear-facing, hand-held),
+  mounted (tripod/fixed), panning (rotating), tracking (following a subject).
+- No quotation marks anywhere in your answer: quoted words cannot be
+  verified against the transcript, and a deterministic check strips them.
+- "s" features carry any readable text on signs or buildings.
+- The "s" features string names the 2-3 most notable STATIC things
+  (sign text, landmarks, furniture, plants), joined with ";" - never
+  timestamps, never an empty-join that counts seconds; "" when nothing
+  is notable. Burned-in captions and subtitles are NEVER features -
+  they change every second and are read by other passes, so
+  transcribing them here is unbounded. Never emit ";" inside a
+  feature itself.
+- An "s" entry is EXACTLY 6 items: start, end, place, type, lighting,
+  features-string. A 7th item is a format error - stop the entry
+  instead.
+- Keep every prose string within its word cap; brevity never drops a field."""
 
 PROMPT_OBJECTS_COARSE = """These are {n_frames} frames extracted from a {duration:.0f}-second video clip at the timestamps shown.
 
@@ -1649,17 +1728,193 @@ def _strip_unheard_quotations(text):
     return cleaned, cleaned != " ".join(text.split())
 
 
+def _compact_float(value):
+    """A timestamp from a compact row, or None when it is not a number."""
+    try:
+        return round(float(value), 3)
+    except (TypeError, ValueError):
+        return None
+
+
+def expand_compact_window(obj):
+    """Expand a `PROMPT_WINDOW_ALL_COMPACT` answer to the canonical shape.
+
+    The compact schema answers the same four sections positionally:
+    ``a`` (actions), ``s`` (scene), ``c`` (camera), ``t`` (content
+    type) and ``p`` (subject ranges). This returns
+    ``{"actions", "scene", "camera", "assessment"}`` in exactly the
+    shape `analyze_windows` builds from a canonical answer, so every
+    consumer below reads the expansion without knowing which prompt
+    produced it. Consumers of each field, all verified 2026-09-24:
+
+    - actions[].start/end: `_window_segments_in_range` (range check),
+      `footage_segments._action_segments` (cut bounds)
+    - actions[].action/body_language/speech_cue:
+      `vision_schema_adapter._blocks_from_actions` (blocks visual,
+      body_language, speech_cue), `footage_segments._action_segments`
+      (embedded text), `analyze_windows` quote-strip
+    - scene[].start/end/location/type/lighting/notable_features:
+      `vision_schema_adapter.scene_prose` + `derived_keywords` (type),
+      `footage_reference._scene_lines`,
+      `footage_segments._scene_segments` + `_facets_from_vision`
+      (type, lighting)
+    - camera[].start/end/mode/framing/stability/movement:
+      `merge_camera_modes` (mode/framing/stability),
+      `vision_schema_adapter.camera_prose` + `derived_keywords`
+      (framing/mode/movement) + `framing_summary` + `stability_summary`
+      + `movement_summary`, `footage_reference._camera_lines`,
+      `footage_segments._facets_from_vision`
+      (framing/mode/stability/movement)
+    - assessment.content_type/primary_subject_visible:
+      `_merge_assessment_votes`, `vision_schema_adapter._derived_clip_type`
+      + `derived_keywords`, `footage_reference._identity_line`,
+      `semantic_index.index_fields`, `footage_segments._facets_from_vision`
+
+    A section whose key is absent stays absent (None assessment, missing
+    list) - the same "no key is not an empty answer" rule the canonical
+    path keeps. A row with bad timestamps or prose of the wrong type is
+    DROPPED, never repaired, with one measured exception: an "s" row
+    longer than 6 items merges its extra string items into the features
+    string (see below) - a model error must not become a placed
+    segment, but neither should a hedging model lose its whole scene.
+    Enum vocabularies are NOT validated here - the canonical path never
+    validated them either, and refusing a new mode word would be a
+    stricter gate than the baseline.
+    """
+    if not isinstance(obj, dict):
+        return {"actions": [], "scene": [], "camera": [], "assessment": None}
+
+    actions = []
+    for row in obj.get("a") or []:
+        if not isinstance(row, (list, tuple)) or len(row) != 5:
+            continue
+        start, end = _compact_float(row[0]), _compact_float(row[1])
+        action, cue, body = row[2], row[3], row[4]
+        if start is None or end is None or end <= start:
+            continue
+        if not isinstance(action, str) or not isinstance(body, str):
+            continue
+        if cue is not None and not isinstance(cue, str):
+            continue
+        actions.append({
+            "start": start, "end": end, "action": action,
+            "speech_cue": cue, "body_language": body,
+        })
+
+    scene = []
+    for row in obj.get("s") or []:
+        if not isinstance(row, (list, tuple)) or len(row) < 6:
+            continue
+        start, end = _compact_float(row[0]), _compact_float(row[1])
+        location, stype, lighting = row[2], row[3], row[4]
+        if start is None or end is None or end <= start:
+            continue
+        if not all(isinstance(v, str) for v in (location, stype, lighting)):
+            continue
+        # Features travel as one ";"-joined string (measured 2026-09-24:
+        # an array slot made the model count seconds instead of naming
+        # things). Never emit ";" inside a feature - the split below
+        # would cut it in two. The model sometimes hedges: the joined
+        # string in slot 6 AND extra feature items after it (measured
+        # 7-item row). Those extras merge into the string rather than
+        # dropping the section - they are the same list, unrolled.
+        pieces = [p for p in row[5:] if isinstance(p, str)]
+        if not pieces:
+            continue
+        feats = ";".join(pieces)
+        features = [f.strip() for f in feats.split(";")]
+        features = [f for f in features if f]
+        scene.append({
+            "start": start, "end": end, "location": location,
+            "type": stype, "lighting": lighting,
+            "notable_features": features,
+        })
+
+    camera = []
+    for row in obj.get("c") or []:
+        if not isinstance(row, (list, tuple)) or len(row) != 6:
+            continue
+        start, end = _compact_float(row[0]), _compact_float(row[1])
+        mode, framing, stability, movement = row[2], row[3], row[4], row[5]
+        if start is None or end is None or end <= start:
+            continue
+        if not all(isinstance(v, str)
+                   for v in (mode, framing, stability, movement)):
+            continue
+        camera.append({
+            "start": start, "end": end, "mode": mode,
+            "framing": framing, "stability": stability,
+            "movement": movement,
+        })
+
+    assessment = None
+    if "t" in obj or "p" in obj:
+        assessment = {}
+        if isinstance(obj.get("t"), str):
+            assessment["content_type"] = obj["t"]
+        if "p" in obj:
+            psv = obj["p"]
+            if psv is None:
+                assessment["primary_subject_visible"] = None
+            elif isinstance(psv, list):
+                ranges = []
+                for rng in psv:
+                    if not isinstance(rng, (list, tuple)) or len(rng) < 2:
+                        continue
+                    start = _compact_float(rng[0])
+                    end = _compact_float(rng[1])
+                    if start is None or end is None or end <= start:
+                        continue
+                    ranges.append([start, end])
+                assessment["primary_subject_visible"] = ranges
+
+    out = {}
+    if "a" in obj:
+        out["actions"] = actions
+    if "s" in obj:
+        out["scene"] = scene
+    if "c" in obj:
+        out["camera"] = camera
+    out["assessment"] = assessment
+    return out
+
+
+def _expand_or_canonical(parsed):
+    """A window answer in the shape downstream reads.
+
+    The window prompt asks for the compact schema (`a`/`s`/`c`/`t`/`p`
+    in `PROMPT_WINDOW_ALL_COMPACT`), expanded by
+    `expand_compact_window`. A model that answers in the retired
+    canonical keys anyway (`actions`/`scene`/`camera`/`assessment`)
+    passes through untouched - its sections are already what
+    `analyze_windows` reads. Compact keys win a mixed answer: the
+    expansion is the asked-for shape, and a half-canonical tail is
+    not a second answer.
+    """
+    if not isinstance(parsed, dict):
+        return parsed
+    if set(parsed) & {"a", "s", "c", "t", "p"}:
+        return expand_compact_window(parsed)
+    return parsed
+
+
 def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
                     fps=None):
     """Analyze actions, scene, camera and assessment - one model call per 10s window.
 
-    The folded call (`PROMPT_WINDOW_ALL`) answers all four native-video
-    passes from the same 20 frames: measured on a real geo-podcast
-    excerpt, one folded call per 10 s window (~37 s wall) against four
-    separate calls on the same window (~75 s), with the scene, camera
-    and assessment answers at the same verdicts. Every pass therefore
-    samples at the decode rate (2 fps), and a 68-minute clip takes 408
-    video calls instead of 612.
+    The folded call (`PROMPT_WINDOW_ALL_COMPACT`) answers all four
+    native-video passes from the same 20 frames: measured 2026-09-24 on
+    a real reel excerpt, one compact call per 10 s window (~20 s wall,
+    ~140 output tokens) against the retired canonical prompt on the
+    same window (~35 s, ~370 tokens), with counts, content_type,
+    notable_features and body_language inside the canonical call's own
+    run-to-run variation. Every pass therefore samples at the decode
+    rate (2 fps), and a 68-minute clip takes 408 video calls instead
+    of 612.
+
+    The compact answer is expanded back to the canonical section shape
+    (`_expand_or_canonical`) before anything reads it, so every
+    consumer below is unchanged.
 
     Each window clip keeps its audio track, which the model hears
     alongside the video (`audio=`); `fps` records the sampling the call
@@ -1699,7 +1954,7 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
 
         boundaries_text = _scene_boundaries_text(
             temporal_index, start=w_start, end=w_end)
-        prompt = PROMPT_WINDOW_ALL.format(
+        prompt = PROMPT_WINDOW_ALL_COMPACT.format(
             window_start=w_start,
             window_end=w_end,
             window_dur=w_dur,
@@ -1711,7 +1966,7 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
         result, _raw, elapsed = analyzer.analyze_with_retry(
             prompt, parse_json_object, video=clip_info["path"],
             audio=clip_info["path"] if clip_info.get("has_audio") else None,
-            max_tokens=MAX_TOKENS["window_all"],
+            max_tokens=MAX_TOKENS["window_all_compact"],
             label=f"Window [{w_start:.0f}-{w_end:.0f}s]"
         )
 
@@ -1721,6 +1976,8 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
         # not be parsed at all, while {"actions": []} means the model
         # saw nothing happening in this window.
         parse_failed = not result
+        if result:
+            result = _expand_or_canonical(result)
 
         # A section that came back without its key is not an answer of
         # `[]`: the key's absence is carried as the section missing, so
