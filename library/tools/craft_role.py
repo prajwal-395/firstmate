@@ -104,6 +104,7 @@ from dataclasses import dataclass
 from typing import Dict, Tuple
 
 from library.tools.undetermined import DECLARING_STEPS as _REACHES_A_MODEL
+from library.tools.ren_refusal import RenRefusal
 
 
 @dataclass(frozen=True)
@@ -771,43 +772,58 @@ def _assert_roles_account_for_every_model_reaching_step() -> None:
     """
     both = set(ROLES) & set(WITHOUT_A_DECLARED_ROLE)
     if both:
-        raise RuntimeError(
+        raise RenRefusal(
             f"library/tools/craft_role.py has {sorted(both)} in BOTH "
-            f"ROLES and WITHOUT_A_DECLARED_ROLE. A step has a declared "
-            f"role or it does not."
-        )
+            f"ROLES and WITHOUT_A_DECLARED_ROLE",
+            "a step has a declared role or it does not - both tables "
+            "claiming it decides nothing",
+            "keep each step in exactly one table in "
+            "library/tools/craft_role.py")
     unaccounted = sorted(
         _REACHES_A_MODEL - set(ROLES) - set(WITHOUT_A_DECLARED_ROLE))
     if unaccounted:
-        raise RuntimeError(
+        raise RenRefusal(
             f"library/tools/craft_role.py does not account for the "
-            f"model-reaching step(s) {', '.join(unaccounted)}. Add each to "
-            f"ROLES (with the discipline worked out) or to "
-            f"WITHOUT_A_DECLARED_ROLE saying what it is addressed as now."
-        )
+            f"model-reaching step(s) {', '.join(unaccounted)}",
+            "a step that reaches a model with no declared framing is "
+            "the silence this module was written for",
+            "add each step to ROLES (with the discipline worked out) "
+            "or to WITHOUT_A_DECLARED_ROLE in "
+            "library/tools/craft_role.py, saying what it is addressed "
+            "as now")
     stale = sorted(
         (set(ROLES) | set(WITHOUT_A_DECLARED_ROLE)) - _REACHES_A_MODEL)
     if stale:
-        raise RuntimeError(
+        raise RenRefusal(
             f"library/tools/craft_role.py names {', '.join(stale)}, which "
-            f"undetermined.DECLARING_STEPS says does not reach a model. A "
-            f"role for a step with no prompt reaches nothing."
-        )
+            f"undetermined.DECLARING_STEPS says does not reach a model",
+            "a role for a step with no prompt reaches nothing",
+            "remove each stale entry from library/tools/craft_role.py, "
+            "or restore the step's model prompt if the removal was "
+            "accidental")
     for step_id, role in ROLES.items():
         if role.step_id != step_id:
-            raise RuntimeError(
+            raise RenRefusal(
                 f"library/tools/craft_role.py keys {step_id!r} onto a role "
-                f"whose step_id is {role.step_id!r}.")
+                f"whose step_id is {role.step_id!r}",
+                "the key and the role disagree about which step this is",
+                "fix the key or the role's step_id in "
+                "library/tools/craft_role.py so they match")
         if not (role.discipline and role.addressed_as):
-            raise RuntimeError(
+            raise RenRefusal(
                 f"the {step_id!r} role names no discipline or does not "
-                f"address the model as one.")
+                f"address the model as one",
+                "a role without a discipline is a stance nobody chose",
+                f"fill in discipline and addressed_as for {step_id!r} in "
+                f"ROLES in library/tools/craft_role.py")
         if not (role.reads_with and role.decides and role.defers):
-            raise RuntimeError(
-                f"the {step_id!r} role is incomplete. A role is a "
-                f"discipline, what it reads the measurements with, what it "
-                f"decides and what it does not; a role with no boundary "
-                f"reads as licence.")
+            raise RenRefusal(
+                f"the {step_id!r} role is incomplete",
+                "a role is a discipline, what it reads the measurements "
+                "with, what it decides and what it does not; a role with "
+                "no boundary reads as licence",
+                f"fill in reads_with, decides and defers for {step_id!r} "
+                f"in ROLES in library/tools/craft_role.py")
 
 
 _assert_roles_account_for_every_model_reaching_step()

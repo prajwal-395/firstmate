@@ -57,12 +57,13 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from library.tools.project_layout import ProjectLayout
+from library.tools.ren_refusal import RenRefusal
 
 SPLICE_LOG_KEY = "region_splices"
 """Where the record of every partial write lives, in the state itself."""
 
 
-class StateSpliceRefused(RuntimeError):
+class StateSpliceRefused(RenRefusal):
     """The write did not happen, and the file was not touched."""
 
 
@@ -112,8 +113,10 @@ def splice_step_output(project_folder: str,
     path = _state_path(project_folder)
     if not path.exists():
         raise StateSpliceRefused(
-            f"no pipeline state at {path}; a splice edits a run that "
-            f"happened, and this project has not run.")
+            f"no pipeline state at {path}",
+            "a splice edits a run that happened, and this project has "
+            "not run",
+            "run the pipeline first (`ren edit <project>`), then splice")
 
     # Re-read immediately before the write.  See "reads, verifies, then
     # writes" above - the caller's view may be minutes old.
@@ -122,7 +125,10 @@ def splice_step_output(project_folder: str,
     if node_id not in outputs:
         raise StateSpliceRefused(
             f"step_outputs has no {node_id!r}, so there is nothing to "
-            f"splice into. Known: {', '.join(sorted(outputs)) or '(none)'}")
+            f"splice into",
+            f"the step never wrote its output on this run. Known: "
+            f"{', '.join(sorted(outputs)) or '(none)'}",
+            f"run the step that writes {node_id!r} first, then splice")
 
     before = outputs[node_id]
     after = mutate(json.loads(json.dumps(before)))
@@ -132,7 +138,10 @@ def splice_step_output(project_folder: str,
             verify(after)
         except Exception as exc:
             raise StateSpliceRefused(
-                f"refusing to write {node_id!r}: {exc}") from exc
+                f"refusing to write {node_id!r}",
+                f"the mutated output failed verification: {exc}",
+                "fix the mutation so it passes verification, then "
+                "splice again - the file was not touched") from exc
 
     snapshot = snapshot_path(project_folder, label)
     shutil.copy2(path, snapshot)

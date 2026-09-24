@@ -140,6 +140,8 @@ import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from library.tools.ren_refusal import RenRefusal
 from typing import Optional
 
 PLACEMENT_REQUIRES_CURRENT = (
@@ -172,7 +174,7 @@ class UnguardedPlacementError(RuntimeError):
     """A write into Resolve was attempted outside a lease."""
 
 
-class ResolveBusy(RuntimeError):
+class ResolveBusy(RenRefusal):
     """Another writer holds the instance. Carries who, since when."""
 
 
@@ -421,10 +423,13 @@ def _wait_for_captain(purpose: str, timeout: float) -> None:
             raise CaptainPresent(
                 f"the captain is in Resolve ({record.describe()}) - "
                 f"waited {timeout:g}s for {purpose!r} without the signal "
-                f"clearing. The hold is theirs to clear and nothing "
-                f"auto-expires it: python -m library.tools.resolve_lock "
-                f"captain-release. Not starting is the guarantee - no "
-                f"agent writes while the signal stands.")
+                f"clearing",
+                "the hold is theirs to clear and nothing auto-expires "
+                "it. Not starting is the guarantee - no agent writes "
+                "while the signal stands",
+                "wait for the captain to leave Resolve, or clear it with "
+                "`python -m library.tools.resolve_lock captain-release` "
+                "- then re-run")
         if first or now - last_notice >= CAPTAIN_NOTICE_SECONDS:
             print(f"waiting: {record.describe()} - holding this lease "
                   f"acquisition for {purpose!r} until "
@@ -580,10 +585,12 @@ def resolve_lease(purpose: str, exclusive: bool = True,
         if exclusive and _mode == "shared":
             raise ResolveBusy(
                 "this process holds the Resolve instance SHARED and is "
-                "asking for it EXCLUSIVE. flock cannot upgrade in place "
-                "without dropping first, and dropping mid-section is "
-                "exactly the window a foreign writer moves the cursor "
-                "in. Take the exclusive lease at the outer call.")
+                "asking for it EXCLUSIVE",
+                "flock cannot upgrade in place without dropping first, "
+                "and dropping mid-section is exactly the window a "
+                "foreign writer moves the cursor in",
+                "this is a caller bug, not a usage bug - take the "
+                "exclusive lease at the outer call")
         _depth += 1
         try:
             yield holder()
@@ -622,8 +629,10 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                     f"Resolve is held by "
                     f"{current.describe() if current else 'another process'}"
                     f" - waited {resolved_timeout:g}s "
-                    f"for {purpose!r}. One instance, no isolation: the "
-                    f"only route is to wait or to come back.")
+                    f"for {purpose!r}",
+                    "one instance, no isolation",
+                    "wait for the holder to finish, or come back later - "
+                    "re-run the same command")
             # Who is holding it NOW, not just who was there at entry:
             # a handoff mid-wait otherwise misattributes the delay.
             # One small file read per poll; the most recent holder

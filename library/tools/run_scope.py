@@ -160,8 +160,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
+from library.tools.ren_refusal import RenRefusal
 
-class ScopeError(ValueError):
+
+class ScopeError(RenRefusal):
     """A selection that cannot be run, refused before the run starts."""
 
 
@@ -453,7 +455,10 @@ def topological_order(dag: dict) -> List[str]:
             if in_degree[neighbour] == 0:
                 queue.append(neighbour)
     if len(order) != len(nodes):
-        raise ScopeError("DAG has cycles")
+        raise ScopeError(
+            "the pipeline DAG has cycles",
+            "a step that needs its own output can never be ordered",
+            "fix the cycle in library/processes/edit_video/dag.json")
     return order
 
 
@@ -719,8 +724,11 @@ def resolve(selection: Selection,
         target = TARGETS.get(selection.target)
         if target is None:
             raise ScopeError(
-                f"unknown target {selection.target!r}. Known targets: "
-                f"{', '.join(sorted(TARGETS)) or '(none)'}."
+                f"unknown target {selection.target!r}",
+                f"known targets: {', '.join(sorted(TARGETS)) or '(none)'}",
+                f"pass --target "
+                f"{' / --target '.join(sorted(TARGETS)) or '(none)'}, or "
+                f"drop --target and scope with --only/--skip"
             )
         goals = set(target.goals)
     elif selection.only:
@@ -770,9 +778,9 @@ def resolve(selection: Selection,
                             key=lambda n: rank[n])
     if stranded_goals and selection.target:
         raise ScopeError(
-            f"target {selection.target!r} cannot be reached: it needs "
-            f"{', '.join(stranded_goals)}, which this run excludes. Drop "
-            f"the --skip, or drop the --target."
+            f"target {selection.target!r} cannot be reached",
+            f"it needs {', '.join(stranded_goals)}, which this run excludes",
+            "drop the --skip, or drop the --target"
         )
     run_set = {node_id for node_id in wanted if node_id not in excluded}
 
@@ -851,16 +859,19 @@ def _reject_unknown(selection: Selection, known: Set[str],
         for value in values:
             if value not in known:
                 raise ScopeError(
-                    f"{label} {value!r} is not a step in this pipeline. "
-                    f"Known steps: {', '.join(sorted(known))}."
+                    f"{label} {value!r} is not a step in this pipeline",
+                    f"known steps: {', '.join(sorted(known))}",
+                    f"spell it as one of the known steps - see "
+                    f"`ren edit --help` for the scoping flags"
                 )
     contradicted = sorted(
         (set(selection.skip) & (set(selection.only) | set(selection.with_steps)
                                 | set(always_include))))
     if contradicted:
         raise ScopeError(
-            f"{', '.join(contradicted)} is both selected and skipped. "
-            f"Say it once."
+            f"{', '.join(contradicted)} is both selected and skipped",
+            "one run cannot both run a step and leave it out",
+            "say it once: keep it under --only/--with or under --skip"
         )
 
 
@@ -895,7 +906,7 @@ def _assert_dependencies_met(run_set: Set[str],
     if not unmet:
         return
 
-    lines = ["This selection cannot run. Refusing before the run starts.", ""]
+    lines = []
     for (consumer, producer), keys in sorted(
             unmet.items(), key=lambda kv: (rank.get(kv[0][0], 0),
                                            rank.get(kv[0][1], 0))):
@@ -926,21 +937,24 @@ def _assert_dependencies_met(run_set: Set[str],
                        key=lambda n: rank.get(n, 0))
     suppliable = sorted({key for keys in unmet.values() for key in keys
                          if key in _checkable_keys()})
-    lines += [
-        "",
-        "Either:",
-        f"  - also skip the consumers (and then theirs, until the "
+    fixes = [
+        f"also skip the consumers (and then theirs, until the "
         f"selection closes): --skip {' --skip '.join(stranded)}",
-        f"  - or run the producers once so their output is on file: "
+        f"or run the producers once so their output is on file: "
         f"--only {' --only '.join(producers)}",
     ]
     if suppliable:
-        lines.append(
-            f"  - or supply the state yourself, if you already have it: "
+        fixes.append(
+            f"or supply the state yourself, if you already have it: "
             f"{', '.join(suppliable)} can be put under "
             f"<project>/external/ and is CHECKED before it counts. See "
             f"library/tools/external_inputs.py.")
-    raise ScopeError("\n".join(lines))
+    raise ScopeError(
+        "this selection cannot run",
+        "Refusing before the run starts: a run that begins and dies "
+        "because a producer was excluded is worse than one that "
+        "refuses in a second:\n" + "\n".join(lines),
+        "either:\n  - " + "\n  - ".join(fixes))
 
 
 def _reject_supplied_and_selected(supplied: Mapping[str, Tuple[str, ...]],
@@ -964,26 +978,27 @@ def _reject_supplied_and_selected(supplied: Mapping[str, Tuple[str, ...]],
     clash = sorted(set(supplied) & set(re_selected))
     if not clash:
         return
-    lines = ["This selection cannot run. Refusing before the run starts.", ""]
+    detail = []
     for node_id in clash:
         keys = ", ".join(supplied[node_id])
-        lines.append(
+        detail.append(
             f"  {node_id} was named on the command line, and this project "
             f"supplies its whole output from outside the pipeline "
             f"({keys}). Running it would overwrite what you supplied: a "
             f"step's own output is read before external state, so the "
             f"file under external/ would still be on disk and nothing "
             f"would read it again.")
-    lines += [
-        "",
-        "Either:",
+    raise ScopeError(
+        "this selection cannot run",
+        "naming a step whose output this project already supplies is two "
+        "contradictory requests, not a request and a default:\n"
+        + "\n".join(detail),
+        "either:\n"
         f"  - drop the flag naming "
-        f"{', '.join(clash)}, and the supplied value stands;",
+        f"{', '.join(clash)}, and the supplied value stands;\n"
         f"  - or remove "
         f"{', '.join(f'external/{key}.json' for node in clash for key in supplied[node])}"
-        f" and let the pipeline make it.",
-    ]
-    raise ScopeError("\n".join(lines))
+        f" and let the pipeline make it.")
 
 
 def _checkable_keys() -> Set[str]:

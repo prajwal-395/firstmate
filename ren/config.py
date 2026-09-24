@@ -108,9 +108,13 @@ def main(argv=None) -> int:
 
     if args.init:
         if config_file.exists():
-            print(f"ren config: {config_file} already exists; left as it is.",
-                  file=sys.stderr)
-            return 1
+            from library.tools.ren_refusal import RenRefusal
+            raise RenRefusal(
+                f"{config_file} already exists",
+                "--init writes a starter file; overwriting one would "
+                "discard this machine's settings",
+                f"edit {config_file} in place, or delete it and re-run "
+                "`ren config --init`")
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(STARTER, encoding="utf-8")
         print(f"Wrote {config_file}. Edit it, then run `ren doctor`.")

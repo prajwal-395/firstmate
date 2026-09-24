@@ -320,8 +320,9 @@ def test_touchup_batch_reports_an_execute_refusal_without_raising(
 
     def applier(_folder, spec):
         raise T.TouchupRefused(
-            f"REFUSING: reel {spec['reel']} is signed off - declare "
-            f"it with --supersede.")
+            f"reel {spec['reel']} is signed off",
+            "a touch-up over a signed-off reel replaces an approval",
+            "declare it with --supersede, then re-run")
 
     summary = T.touchup_all_reels(
         project,
@@ -331,6 +332,6 @@ def test_touchup_batch_reports_an_execute_refusal_without_raising(
         applier=applier,
     )
     assert all(entry["ok"] is False for entry in summary["reels"])
-    assert all("REFUSING" in entry["refused"]
+    assert all("refused" in entry["refused"]
                for entry in summary["reels"])
     assert summary["landed"] == 0

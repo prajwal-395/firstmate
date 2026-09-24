@@ -85,6 +85,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from library.tools.ren_refusal import RenRefusal
+
 # Where the declaration lives in a step manifest. Under
 # `classification`, beside `stage`: the field is a claim about the step,
 # enforced by `digest_spec` the way `stage` is enforced by `stage_of`.
@@ -109,8 +111,24 @@ _JSON_DUMPS_KWARGS: dict[str, Any] = {
 }
 
 
-class DigestError(ValueError):
-    """A step whose input digest cannot be declared or computed."""
+class DigestError(RenRefusal):
+    """A step whose input digest cannot be declared or computed.
+
+    Every site raises with the message alone; the fix is uniform
+    because every one faults a step manifest's
+    `classification.edit_input_digest` declaration: correct that block
+    and re-run. A site with a more specific fix passes `fix=`
+    explicitly.
+    """
+
+    def __init__(self, message: str, *, fix: str = "") -> None:
+        super().__init__(
+            what=message,
+            why=("the digest declares exactly what a step's output is "
+                 "hashed against, so a declaration nothing reads - or a "
+                 "value that cannot be hashed - cannot be trusted"),
+            fix=(fix or "correct classification.edit_input_digest in the "
+                        "step's manifest.json, then re-run"))
 
 
 # ── The declared field ──────────────────────────────────────────────

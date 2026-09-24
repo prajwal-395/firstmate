@@ -113,9 +113,10 @@ def _delivered(project_folder: str, reel: Optional[Any]) -> Dict[str, Any]:
                 if os.path.isfile(r["video_path"])]
         if not rows:
             raise render_watch.NotDelivered(
-                "this project has no delivered reel to hear. A reel "
-                "becomes a file when you run `deliver-reel`; hearing one "
-                "renders nothing.")
+                "this project has no delivered reel to hear",
+                "a reel becomes a file when you run `deliver-reel`; "
+                "hearing one renders nothing",
+                "run `ren deliver <project> <reel>` first, then hear it")
         return rows[0]
     text = str(reel).strip()
     if text.isdigit():
@@ -126,8 +127,10 @@ def _delivered(project_folder: str, reel: Optional[Any]) -> Dict[str, Any]:
         known = sorted({r["timeline_name"]
                         for r in render_watch.delivered_reels(project_folder)})
         raise render_watch.NotDelivered(
-            f"no delivered reel is named {text!r}. Delivered so far: "
-            f"{known or '(none)'}.")
+            f"no delivered reel is named {text!r}",
+            f"delivered so far: {known or '(none)'}",
+            "deliver the reel first (`ren deliver <project> <reel>`), "
+            "or hear one of the delivered ones")
     return named[0]
 
 

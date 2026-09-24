@@ -89,10 +89,25 @@ from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional
 
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools.ren_refusal import RenRefusal
 
 
-class ExternalStateError(ValueError):
-    """A supplied value that does not check out, refused before the run."""
+class ExternalStateError(RenRefusal):
+    """A supplied value that does not check out, refused before the run.
+
+    Every site raises with the message alone; the fix is uniform across
+    all of them because every one validates a value the project
+    supplies under `external/*.json`: correct that file and re-run. A
+    site with a more specific fix passes `fix=` explicitly.
+    """
+
+    def __init__(self, message: str, *, fix: str = "") -> None:
+        super().__init__(
+            what=message,
+            why=("a value supplied from outside the pipeline must check "
+                 "out before the run trusts it"),
+            fix=(fix or "correct the value in the external/*.json file "
+                        "this message names, then re-run"))
 
 
 SUFFIX = ".json"

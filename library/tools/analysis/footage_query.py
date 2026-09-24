@@ -73,6 +73,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+
 import numpy as np
 
 if __package__ in (None, ""):  # direct `python3 footage_query.py`
@@ -381,11 +383,11 @@ class FootageIndex:
         if self._payload is None:
             path = self.index_dir / SEGMENTS_FILE
             if not path.exists():
-                raise FileNotFoundError(
-                    f"No footage index at {path}. Build it first: "
-                    f"python3 -m library.tools.analysis.footage_query build "
-                    f"'{self.project_folder}'"
-                )
+                raise RenRefusal(
+                    f"no footage index at {path}",
+                    "search reads the built index; nothing has built one "
+                    "for this project yet",
+                    f"build it first: ren search-index '{self.project_folder}'")
             with open(path, encoding="utf-8") as f:
                 self._payload = json.load(f)
         return self._payload
@@ -487,7 +489,10 @@ class FootageIndex:
         is a degradation to report or an outright refusal.
         """
         if mode not in ("hybrid", "dense", "lexical"):
-            raise ValueError(f"Unknown search mode {mode!r}; use hybrid, dense or lexical")
+            raise RenRefusal(
+                f"unknown search mode {mode!r}",
+                "the scorer only runs hybrid, dense or lexical",
+                "use --mode hybrid, --mode dense or --mode lexical")
 
         lexical = self.bm25.scores(query)
         dense = None
@@ -720,7 +725,10 @@ class FootageIndex:
             Every matching segment, in index order.
         """
         if kind is not None and kind not in SEGMENT_KINDS:
-            raise ValueError(f"Unknown kind {kind!r}; known kinds: {list(SEGMENT_KINDS)}")
+            raise RenRefusal(
+                f"unknown kind {kind!r}",
+                f"the index only holds these kinds: {sorted(SEGMENT_KINDS)}",
+                f"use --kind {' / --kind '.join(sorted(SEGMENT_KINDS))}")
 
         # A named facet must MATCH; an unmeasured numeric facet fails its
         # bound rather than passing it, because "not measured" is not
@@ -1213,4 +1221,10 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # ONE place renders every refusal on `ren search` / `ren
+    # search-index`'s path, in the same shape as the front door.
+    try:
+        sys.exit(main())
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)

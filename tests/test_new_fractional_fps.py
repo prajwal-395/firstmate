@@ -16,6 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 import manage_project  # noqa: E402
+from library.tools.ren_refusal import RenRefusal  # noqa: E402
 
 
 def test_new_with_fractional_fps_reaches_create_project_untruncated(
@@ -34,6 +35,6 @@ def test_new_with_fractional_fps_reaches_create_project_untruncated(
         resolution="", fps="23.976", resolve_name="", tags="",
         description="",
     )
-    with pytest.raises(SystemExit):
+    with pytest.raises(RenRefusal):
         manage_project.cmd_new(args)
     assert seen["fps"] == 23.976

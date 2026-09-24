@@ -170,8 +170,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
-class HookError(ValueError):
+
+class HookError(RenRefusal):
     """A hook declaration that cannot be used, refused before the run."""
 
 
@@ -416,27 +418,39 @@ def _reject_unknown(got: Sequence[str], known: frozenset, what: str,
     unknown = [k for k in got if k not in known]
     if unknown:
         raise HookError(
-            f"{where}: unknown {what} {', '.join(repr(k) for k in unknown)}. "
-            f"Known: {', '.join(sorted(known))}."
+            f"{where}: unknown {what} {', '.join(repr(k) for k in unknown)}",
+            f"a key nobody reads is the trap - a misspelled entry that "
+            f"armed nothing would look like one with nothing to do. "
+            f"Known: {', '.join(sorted(known))}",
+            f"spell it as one of {', '.join(sorted(known))} in {where}"
         )
 
 
 def _parse_action(raw: Any, where: str) -> Action:
     if not isinstance(raw, dict):
-        raise HookError(f"{where}: 'action' must be an object.")
+        raise HookError(
+            f"{where}: 'action' must be an object",
+            "a hook fires one action, 'run' or 'steer', and anything else "
+            "cannot be armed",
+            f"write the action as an object with a 'kind' in {where}")
     _reject_unknown(list(raw), ACTION_KEYS, "action key", where)
 
     kind = raw.get("kind", "")
     if kind not in ACTION_KINDS:
         raise HookError(
-            f"{where}: unknown action kind {kind!r}. "
-            f"Known: {', '.join(ACTION_KINDS)}."
+            f"{where}: unknown action kind {kind!r}",
+            f"a hook fires 'run' or 'steer'. Known: "
+            f"{', '.join(ACTION_KINDS)}",
+            f"set 'kind' to one of {', '.join(ACTION_KINDS)} in {where}"
         )
 
     if kind == ACTION_RUN:
         script = raw.get("script", "")
         if not script:
-            raise HookError(f"{where}: a 'run' action needs a 'script'.")
+            raise HookError(
+                f"{where}: a 'run' action needs a 'script'",
+                "a run action with nothing to run would arm and fire nothing",
+                f"name a file in {SCRIPTS_DIRNAME}/ as 'script' in {where}")
         # A script is NAMED, never supplied. Anything with a path
         # separator or a shell metacharacter in it is refused here rather
         # than sanitised, because a name that needs sanitising is not a
@@ -444,32 +458,42 @@ def _parse_action(raw: Any, where: str) -> Action:
         # to have.
         if any(c in script for c in "/\\ ;|&$><`\n\t") or ".." in script:
             raise HookError(
-                f"{where}: script {script!r} is not a bare filename. A "
-                f"'run' action names a file in {SCRIPTS_DIRNAME}/; it "
-                f"never carries a path, an argument or a shell string."
+                f"{where}: script {script!r} is not a bare filename",
+                f"a 'run' action names a file in {SCRIPTS_DIRNAME}/; it "
+                f"never carries a path, an argument or a shell string",
+                f"put the command in a file in {SCRIPTS_DIRNAME}/ and "
+                f"name that file as 'script' in {where}"
             )
         allowed = allowed_scripts()
         if script not in allowed:
             raise HookError(
-                f"{where}: script {script!r} is not in {SCRIPTS_DIRNAME}/. "
-                f"Allowed: {', '.join(sorted(allowed)) or '(none)'}. A hook "
-                f"may only run a script that is already in the repository."
+                f"{where}: script {script!r} is not in {SCRIPTS_DIRNAME}/",
+                "a hook may only run a script that is already in the "
+                "repository. "
+                f"Allowed: {', '.join(sorted(allowed)) or '(none)'}",
+                f"add the script to {SCRIPTS_DIRNAME}/ first, then "
+                f"declare it in {where}"
             )
         for unexpected in ("text", "anchor_step"):
             if raw.get(unexpected):
                 raise HookError(
                     f"{where}: a 'run' action may not carry "
-                    f"{unexpected!r}, which belongs to 'steer'."
-                )
+                    f"{unexpected!r}",
+                    f"{unexpected!r} belongs to 'steer'",
+                    f"move {unexpected!r} into a 'steer' action in {where}")
         return Action(kind=ACTION_RUN, script=script)
 
     text = raw.get("text", "")
     if not text:
-        raise HookError(f"{where}: a 'steer' action needs a 'text'.")
+        raise HookError(
+            f"{where}: a 'steer' action needs a 'text'",
+            "a steer action with no text steers nothing",
+            f"write the steering text as 'text' in {where}")
     if raw.get("script"):
         raise HookError(
-            f"{where}: a 'steer' action may not carry 'script', which "
-            f"belongs to 'run'."
+            f"{where}: a 'steer' action may not carry 'script'",
+            "'script' belongs to 'run'",
+            f"move the script into a 'run' action in {where}"
         )
     return Action(kind=ACTION_STEER, text=text,
                   anchor_step=raw.get("anchor_step", ""))
@@ -478,32 +502,46 @@ def _parse_action(raw: Any, where: str) -> Action:
 def _parse_hook(raw: Any, index: int, path: Path) -> Hook:
     where = f"{path}: hooks[{index}]"
     if not isinstance(raw, dict):
-        raise HookError(f"{where}: each hook must be an object.")
+        raise HookError(
+            f"{where}: each hook must be an object",
+            "a hook is a named declaration, not a bare value",
+            f"write the hook as an object with name/describe/when/action "
+            f"in {path}")
     _reject_unknown(list(raw), HOOK_KEYS, "hook key", where)
 
     name = raw.get("name", "")
     if not name:
-        raise HookError(f"{where}: every hook needs a 'name'.")
+        raise HookError(
+            f"{where}: every hook needs a 'name'",
+            "the name is the ledger key - without it one hook's fires "
+            "would be recorded as another's",
+            f"give the hook a unique 'name' in {path}")
     where = f"{path}: hook {name!r}"
 
     describe = raw.get("describe", "")
     if not describe:
         raise HookError(
-            f"{where}: every hook needs a 'describe' saying WHY it exists. "
-            f"JSON carries no comments, so the reason lives in the data - "
-            f"and it is what the run header and the fired record print."
-        )
+            f"{where}: every hook needs a 'describe' saying WHY it exists",
+            "JSON carries no comments, so the reason lives in the data - "
+            "and it is what the run header and the fired record print",
+            f"write one sentence as 'describe' in {where}")
 
     when = raw.get("when", "")
     if when not in CONDITIONS:
         raise HookError(
-            f"{where}: unknown condition {when!r}. "
-            f"Known: {', '.join(sorted(CONDITIONS))}."
+            f"{where}: unknown condition {when!r}",
+            f"a hook fires on a declared condition. Known: "
+            f"{', '.join(sorted(CONDITIONS))}",
+            f"set 'when' to one of {', '.join(sorted(CONDITIONS))} in "
+            f"{where}"
         )
 
     match = raw.get("match", {})
     if not isinstance(match, dict):
-        raise HookError(f"{where}: 'match' must be an object of field: value.")
+        raise HookError(
+            f"{where}: 'match' must be an object of field: value",
+            "match narrows which firings of the condition arm this hook",
+            f"write 'match' as an object of field: value in {where}")
 
     return Hook(name=name, describe=describe, when=when, match=match,
                 action=_parse_action(raw.get("action"), where))
@@ -513,26 +551,42 @@ def _load_file(path: Path, source: str) -> Declaration:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except ValueError as exc:
-        raise HookError(f"{path}: not valid JSON - {exc}") from exc
+        raise HookError(
+            f"{path}: not valid JSON",
+            f"{exc}",
+            f"fix the JSON in {path} (a trailing comma is the usual "
+            f"cause), then re-run") from exc
     except OSError as exc:
-        raise HookError(f"{path}: cannot be read - {exc}") from exc
+        raise HookError(
+            f"{path}: cannot be read",
+            f"{exc}",
+            f"restore the hooks file at {path}, or remove the hooks "
+            f"declaration that points at it") from exc
 
     if not isinstance(raw, dict):
-        raise HookError(f"{path}: the top level must be an object.")
+        raise HookError(
+            f"{path}: the top level must be an object",
+            "a hooks file declares named hooks, not a bare list",
+            f"wrap the declaration as an object with a 'hooks' list in "
+            f"{path}")
     _reject_unknown(list(raw), DECLARATION_KEYS, "key", str(path))
 
     hooks_raw = raw.get("hooks", [])
     if not isinstance(hooks_raw, list):
-        raise HookError(f"{path}: 'hooks' must be a list.")
+        raise HookError(
+            f"{path}: 'hooks' must be a list",
+            "the file declares zero or more hooks",
+            f"write 'hooks' as a list in {path}")
 
     hooks = [_parse_hook(h, i, path) for i, h in enumerate(hooks_raw)]
     seen: Dict[str, int] = {}
     for hook in hooks:
         if hook.name in seen:
             raise HookError(
-                f"{path}: two hooks are called {hook.name!r}. The name is "
-                f"the ledger key, so it has to be unique or one hook's "
-                f"fires would be recorded as the other's."
+                f"{path}: two hooks are called {hook.name!r}",
+                "the name is the ledger key, so it has to be unique or "
+                "one hook's fires would be recorded as the other's",
+                f"rename one of the two {hook.name!r} hooks in {path}"
             )
         seen[hook.name] = 1
     return Declaration(hooks=tuple(hooks), path=str(path), source=source)
@@ -631,17 +685,21 @@ def fingerprint(condition: str, payload: Mapping[str, Any]) -> str:
     spec = CONDITIONS.get(condition)
     if spec is None:
         raise HookError(
-            f"unknown condition {condition!r}. "
-            f"Known: {', '.join(sorted(CONDITIONS))}."
-        )
+            f"unknown condition {condition!r}",
+            f"a fingerprint is keyed on a declared condition. Known: "
+            f"{', '.join(sorted(CONDITIONS))}",
+            "this is a caller bug, not a declaration bug - the condition "
+            "comes from code, so fix the caller to pass a declared one")
     parts = [condition]
     for name in spec.identity:
         if name not in payload:
             raise HookError(
-                f"a {condition!r} payload must carry {name!r}: it is what "
-                f"tells one occurrence from another, and the once-only "
-                f"ledger is keyed on it. Got: "
-                f"{', '.join(sorted(payload)) or '(nothing)'}."
+                f"a {condition!r} payload must carry {name!r}",
+                "it is what tells one occurrence from another, and the "
+                "once-only ledger is keyed on it. Got: "
+                f"{', '.join(sorted(payload)) or '(nothing)'}",
+                "this is a caller bug, not a declaration bug - fix the "
+                "caller to attach the identity field to the payload"
             )
         parts.append(str(payload[name]))
     return ":".join(parts)
@@ -895,8 +953,11 @@ def dispatch(project_dir: str, condition: str, payload: Mapping[str, Any],
     """
     if condition not in CONDITIONS:
         raise HookError(
-            f"unknown condition {condition!r}. "
-            f"Known: {', '.join(sorted(CONDITIONS))}."
+            f"unknown condition {condition!r}",
+            f"a hook fires on a declared condition. Known: "
+            f"{', '.join(sorted(CONDITIONS))}",
+            "this is a caller bug, not a declaration bug - fix the "
+            "caller to collect a declared condition"
         )
 
     declaration = load(project_dir) if declaration is None else declaration
@@ -987,8 +1048,8 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         declaration = load(project)
     except HookError as exc:
-        print(f"REFUSED: {exc}")
-        return 2
+        print(exc.render())
+        return REFUSAL_EXIT_CODE
     for line in describe(declaration):
         print(line)
     print(f"  Scripts a 'run' action may name ({SCRIPTS_DIRNAME}/): "

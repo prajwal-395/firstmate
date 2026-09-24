@@ -5764,9 +5764,11 @@ def assert_punch_took(name: str, item, source_file: str, properties: dict,
             f"against the screen window "
             f"({screen_window[0]:.0f}, {screen_window[1]:.0f}, "
             f"{screen_window[2]:.0f}, {screen_window[3]:.0f}): "
-            f"{', '.join(bands)}. A picture that does not reach the "
-            f"edges of the screen shows the set's own background "
-            f"through it.")
+            f"{', '.join(bands)}",
+            "a picture that does not reach the edges of the screen "
+            "shows the set's own background through it",
+            "fix the transform Resolve holds (or the aim feeding it) "
+            "and rebuild the reel")
 
 
 def _recorded_first_measure(project_folder: str):
@@ -5869,8 +5871,10 @@ def aim_picture_row(name: str, look: dict, screen_window,
             raise _look.ReelLookRefused(
                 f"{name}: the punch-in cannot be aimed on "
                 f"{os.path.basename(source_file)} "
-                f"({place['source_in']:.2f}-{place['source_out']:.2f}s) - "
-                f"{exc}") from exc
+                f"({place['source_in']:.2f}-{place['source_out']:.2f}s)",
+                f"{exc} - every shot would land uncropped",
+                "make a face detector available and rebuild, or drop "
+                "the punch-in from the reel look") from exc
         source_size = size_of(item)
         if source_size is None:
             raise ReelBuildError(

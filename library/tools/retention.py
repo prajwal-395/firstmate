@@ -78,6 +78,7 @@ from pathlib import Path
 
 from library.tools import build_sweep, journal_naming
 from library.tools import caption_asset_gc as gc
+from library.tools.ren_refusal import RenRefusal
 from library.tools.project_layout import (
     Area,
     ProjectLayout,
@@ -128,11 +129,11 @@ _STAMPED = re.compile(
     r"(?P<tail>_manifest\.md|\.json|\.txt)$")
 
 
-class RetentionSettingInvalid(ValueError):
+class RetentionSettingInvalid(RenRefusal):
     """`REN_RETENTION` names neither mode."""
 
 
-class PurgeRefused(Exception):
+class PurgeRefused(RenRefusal):
     """The purge declined, and removed NOTHING."""
 
 
@@ -146,9 +147,11 @@ def retention_mode(environ=None) -> str:
         return DEFAULT_MODE
     if raw not in MODES:
         raise RetentionSettingInvalid(
-            f"{SETTING}={raw!r} is not a retention mode; use one of "
-            f"{list(MODES)}. Nothing was planned: reading an unknown value "
-            f"as `lean` would delete what its owner may have asked to keep.")
+            f"{SETTING}={raw!r} is not a retention mode",
+            f"reading an unknown value as `lean` would delete what its "
+            f"owner may have asked to keep",
+            f"set {SETTING} to one of {list(MODES)}, or unset it for "
+            f"the default")
     return raw
 
 
@@ -249,8 +252,11 @@ def ledger_timelines(project_folder: str) -> set:
         data = json.loads(ledger.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise PurgeRefused(
-            f"the render ledger {ledger} cannot be read ({exc}): which "
-            f"reels its renders serve is unknown. Nothing was planned.") \
+            f"the render ledger {ledger} cannot be read",
+            f"({exc}): which reels its renders serve is unknown, and an "
+            f"unknown root reads like an unreferenced file. Nothing was "
+            f"planned",
+            "restore the render ledger, then plan the purge again") \
             from exc
     names = set()
     for entry in ((data.get("subtitle_overlay") or {}).get("segments")
@@ -277,9 +283,11 @@ def collect_roots(project_folder: str, db_paths) -> tuple[list, set]:
     """
     if not db_paths:
         raise PurgeRefused(
-            "no Resolve project database to read: without the timelines, "
-            "whether a live timeline references a file is unprovable. "
-            "Nothing was planned.")
+            "no Resolve project database to read",
+            "without the timelines, whether a live timeline references a "
+            "file is unprovable. Nothing was planned",
+            "pass --db <Project.db> (repeatable), or run with Resolve "
+            "open so the running project is read")
     resolve = gc.collect_resolve_roots(list(db_paths))
     live = gc.live_timelines_from(resolve)
     protected = set(live or ()) | unsigned_timelines(
@@ -290,9 +298,11 @@ def collect_roots(project_folder: str, db_paths) -> tuple[list, set]:
     if unreadable or live is None:
         detail = ", ".join(f"{r.name!r} ({r.detail})" for r in unreadable)
         raise PurgeRefused(
-            f"refusing to plan a purge: root(s) {detail or 'Resolve'} "
-            f"could not be read. An unreadable root reads exactly like a "
-            f"project with nothing on any timeline. Nothing was planned.")
+            f"root(s) {detail or 'Resolve'} could not be read",
+            "an unreadable root reads exactly like a project with "
+            "nothing on any timeline. Nothing was planned",
+            "make the database readable (open Resolve, or fix the --db "
+            "path), then plan the purge again")
     return roots, protected
 
 
@@ -327,7 +337,10 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
     project_folder = str(project_folder)
     mode = mode or retention_mode()
     if mode not in MODES:
-        raise RetentionSettingInvalid(f"unknown retention mode {mode!r}")
+        raise RetentionSettingInvalid(
+            f"unknown retention mode {mode!r}",
+            "a purge plans only under a declared mode",
+            f"pass mode {list(MODES)[0]!r} or {list(MODES)[1]!r}")
     plan = PurgePlan(project_folder=project_folder,
                      created_at=datetime.now(UTC).isoformat(),
                      mode=mode)
@@ -336,8 +349,9 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
     if run_control.is_running(project_folder):
         raise PurgeRefused(
             f"a pipeline run holds {project_folder} "
-            f"(pid {run_control.running_pid(project_folder)}): a render "
-            f"in flight has no record yet. Nothing was planned.")
+            f"(pid {run_control.running_pid(project_folder)})",
+            "a render in flight has no record yet. Nothing was planned",
+            "wait for the run to finish, then plan the purge again")
     layout = ProjectLayout(project_folder)
     roots, protected = collect_roots(project_folder, db_paths)
     plan.protected_timelines = sorted(protected)
@@ -374,7 +388,12 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
         try:
             layout.assert_writable(path)
         except ProjectLayoutViolation as outside:
-            raise PurgeRefused(f"{outside} Nothing was planned.") from outside
+            raise PurgeRefused(
+                f"{outside}",
+                "a purge candidate outside the project layout cannot be "
+                "judged. Nothing was planned",
+                "move the file inside the project layout, then plan "
+                "again") from outside
         if not os.path.lexists(path):
             continue
         plan.candidates.append(_stat_candidate(path, category, reason))
@@ -433,7 +452,10 @@ def listed_paths(manifest_path: str) -> list:
         if len(parts) != 3:
             raise PurgeRefused(
                 f"{manifest_path}: line {line!r} is not "
-                f"<bytes>\\t<category>\\t<path>. Nothing was removed.")
+                f"<bytes>\\t<category>\\t<path>",
+                "a hand-edited manifest line cannot be trusted. Nothing "
+                "was removed",
+                "re-plan the purge instead of hand-editing the manifest")
         out.append(parts[2])
     return out
 
@@ -455,39 +477,59 @@ def apply_purge(manifest_path: str, db_paths,
         planned = PurgePlan.from_dict(json.loads(
             Path(_json_path_for(manifest_path)).read_text(encoding="utf-8")))
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise PurgeRefused(f"the plan beside {manifest_path} cannot be read "
-                           f"({exc}). Nothing was removed.") from exc
+        raise PurgeRefused(
+            f"the plan beside {manifest_path} cannot be read",
+            f"({exc}). Nothing was removed",
+            "re-plan the purge and apply the fresh manifest") from exc
     if project_folder and os.path.realpath(project_folder) != \
             os.path.realpath(planned.project_folder):
-        raise PurgeRefused(f"the plan is for {planned.project_folder}, not "
-                           f"{project_folder}. Nothing was removed.")
+        raise PurgeRefused(
+            f"the plan is for {planned.project_folder}, not "
+            f"{project_folder}",
+            "a purge plan is bound to the project it was planned for. "
+            "Nothing was removed",
+            "re-plan the purge for this project and apply that manifest")
     if retention_mode() != LEAN:
-        raise PurgeRefused(f"{SETTING} is no longer {LEAN!r}. Nothing was "
-                           f"removed.")
+        raise PurgeRefused(
+            f"{SETTING} is no longer {LEAN!r}",
+            "retention changed since the plan was made. Nothing was "
+            "removed",
+            f"set {SETTING}={LEAN} again, re-plan, and apply the fresh "
+            f"manifest")
     by_path = {c.path: c for c in planned.candidates}
     listed = listed_paths(manifest_path)
     unplanned = [p for p in listed if p not in by_path]
     if unplanned:
-        raise PurgeRefused(f"the manifest lists {len(unplanned)} path(s) the "
-                           f"plan never named, first {unplanned[0]}. Nothing "
-                           f"was removed.")
+        raise PurgeRefused(
+            f"the manifest lists {len(unplanned)} path(s) the plan never "
+            f"named, first {unplanned[0]}",
+            "applying removes exactly what the plan proved unreferenced. "
+            "Nothing was removed",
+            "re-plan the purge and apply the fresh manifest")
 
     fresh = plan_purge(planned.project_folder, db_paths, mode=LEAN)
     for directory, before in planned.render_fingerprints.items():
         if gc.fingerprint_dir(directory) != before:
-            raise PurgeRefused(f"{directory} changed since the plan was "
-                               f"made. Plan again. Nothing was removed.")
+            raise PurgeRefused(
+                f"{directory} changed since the plan was made",
+                "a render directory that moved under the plan invalidates "
+                "it. Nothing was removed",
+                "re-plan the purge and apply the fresh manifest")
     now = {c.path: c for c in fresh.candidates}
     for path in listed:
         was, current = by_path[path], now.get(path)
         if current is None:
-            raise PurgeRefused(f"{path} is no longer removable (a current "
-                               f"root references it, or it is gone). Plan "
-                               f"again. Nothing was removed.")
+            raise PurgeRefused(
+                f"{path} is no longer removable (a current root "
+                f"references it, or it is gone)",
+                "the re-proof before removal failed. Nothing was removed",
+                "re-plan the purge and apply the fresh manifest")
         if (current.size_bytes, current.mtime_ns) != \
                 (was.size_bytes, was.mtime_ns):
-            raise PurgeRefused(f"{path} changed since the plan was made. "
-                               f"Plan again. Nothing was removed.")
+            raise PurgeRefused(
+                f"{path} changed since the plan was made",
+                "size or mtime moved under the plan. Nothing was removed",
+                "re-plan the purge and apply the fresh manifest")
 
     removed = []
     for path in listed:
@@ -545,13 +587,20 @@ def database_paths(project_folder: str) -> list:
         declared = (yaml.safe_load(handle) or {}).get("resolve") or {}
     name = str(declared.get("project_name") or "")
     if not name:
-        raise PurgeRefused(f"{config_path} declares no resolve.project_name: "
-                           f"there is no timeline database to read.")
+        raise PurgeRefused(
+            f"{config_path} declares no resolve.project_name",
+            "there is no timeline database to read. Nothing was planned",
+            f"set resolve.project_name in {config_path}, then plan the "
+            f"purge again")
     database = (connect_resolve().GetProjectManager().GetCurrentDatabase()
                 or {})
     if (database.get("DbType") or "") != "Disk":
-        raise PurgeRefused(f"the current Resolve database is {database!r}, "
-                           f"not a Disk database with a Project.db to read.")
+        raise PurgeRefused(
+            f"the current Resolve database is {database!r}",
+            "it is not a Disk database with a Project.db to read. "
+            "Nothing was planned",
+            "point Resolve at a Disk database, or pass --db <Project.db> "
+            "explicitly")
     root = database.get("DbPath") or prune_orphans._disk_database_root(
         database.get("DbName") or "")
     folder = str(declared.get("folder") or "")
@@ -559,7 +608,12 @@ def database_paths(project_folder: str) -> list:
                         "Projects", *[p for p in folder.split("/") if p],
                         name, prune_orphans.PROJECT_DB_NAME)
     if not os.path.isfile(path):
-        raise PurgeRefused(f"no project database at {path}.")
+        raise PurgeRefused(
+            f"no project database at {path}",
+            "without the timelines, whether a live timeline references "
+            "a file is unprovable. Nothing was planned",
+            "pass --db <Project.db> explicitly, or fix resolve.folder in "
+            "project.yaml")
     return [path]
 
 

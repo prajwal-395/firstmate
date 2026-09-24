@@ -294,17 +294,23 @@ _BUILD_PATH_MODULES = [
 def test_rebuild_path_imports_no_model_client():
     """Structural pin on the headline finding: importing every module
     the reel rebuild derives through pulls in no model client, so
-    there is nothing on the path that COULD re-ask. Run in a fresh
-    interpreter because this process's `sys.modules` already carries
-    whatever the rest of the suite imported."""
+    there is nothing on the path that COULD re-ask - and the removed
+    `llm_client` stays removed. Run in a fresh interpreter because
+    this process's `sys.modules` already carries whatever the rest of
+    the suite imported."""
     script = (
         "import sys; "
         f"import {', '.join(_BUILD_PATH_MODULES)}; "
         "clients = sorted(m for m in sys.modules "
-        "if m == 'library.tools.llm_client' "
-        "or m.startswith('library.tools.llm_client.')); "
+        "if 'llm_client' in m); "
         "print('MODEL_CLIENTS:' + repr(clients)); "
-        "assert not clients, clients"
+        "assert not clients, clients\n"
+        "try:\n"
+        "    import library.tools.llm_client\n"
+        "except ImportError:\n"
+        "    print('LLM_CLIENT_GONE')\n"
+        "else:\n"
+        "    raise AssertionError('library.tools.llm_client is back')"
     )
     proc = subprocess.run(
         [sys.executable, "-c", script],
@@ -315,3 +321,4 @@ def test_rebuild_path_imports_no_model_client():
         f"rebuild-path import pulled in a model client:\n{proc.stdout}\n"
         f"{proc.stderr}")
     assert "MODEL_CLIENTS:[]" in proc.stdout
+    assert "LLM_CLIENT_GONE" in proc.stdout

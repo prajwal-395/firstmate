@@ -121,9 +121,10 @@ import subprocess
 #   it: the four tiles of clip_011 at 150.0-152.466 s read back as a
 #   walking shot swinging past a storefront, which is appearance the
 #   step's prose does not carry.
-# - `api`: `llm_client.LLMClient.generate` takes ONE string and posts it.
-#   There is no image part in that call and no tool loop on the other
-#   side, so neither a path nor bytes reaches the model as a picture.
+# - `api`: the removed `llm_client.LLMClient.generate` took ONE string
+#   and posted it. There was no image part in that call and no tool
+#   loop on the other side, so neither a path nor bytes reached the
+#   model as a picture.
 # - `mock`: replays a recorded answer.  No model runs, so nothing is
 #   shown to anybody; listed as showing because a recorded answer is
 #   unaffected either way, the same reading `HARNESS_READS_FILES` gives.

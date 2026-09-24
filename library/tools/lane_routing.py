@@ -9,7 +9,7 @@ docstring examples, prose mentions and fake-module assignments cannot
 match):
 
 1. LIVE PROVIDER CALLS: an unfaked call to ``analyze_image(s)`` /
-   ``analyze_video`` / ``_server_chat`` / ``LLMClient``.  Concurrent
+   ``analyze_video`` / ``_server_chat``.  Concurrent
    shards concentrate these against one model server and throttle as
    one.  The stub exemption is file-level and therefore coarse: a file
    that patches, monkeypatches, mocks, fakes or stubs the transport
@@ -64,12 +64,14 @@ SERIAL = "serial"
 PARALLEL = "parallel"
 
 # Clause 1: provider entry points whose concurrent use throttles as one.
+# (`LLMClient` was a member until the API backend was removed: Ren
+# answers through OAuth harnesses now, and no provider client remains
+# in the tree.)
 PROVIDER_CALLS = frozenset({
     "analyze_image",
     "analyze_images",
     "analyze_video",
     "_server_chat",
-    "LLMClient",
 })
 
 # Clause 1 stub exemption, file-level and deliberately coarse (see module

@@ -233,6 +233,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import reel_retirement as retire
+from library.tools.ren_refusal import RenRefusal
 from library.tools.stable_json import write_stable
 from library.tools.versions import rounds, store
 
@@ -921,7 +922,7 @@ workflow cannot become the clutter the captain has complained about.
 """
 
 
-class ChoiceRefused(RuntimeError):
+class ChoiceRefused(RenRefusal):
     """The choice declined to proceed, and says exactly why."""
 
 
@@ -1043,9 +1044,12 @@ def compare(project_folder, reel_number: int, earlier_suffix: str,
                      for e in builds_for_reel(project_folder, reel_number)]
             raise ChoiceRefused(
                 f"reel {reel_number} has no recorded build of variant "
-                f"{suffix!r}. Built and recorded: {known or 'none'}. "
-                f"Build it before comparing it - a comparison against "
-                f"nothing reads like a comparison against an empty cut.")
+                f"{suffix!r}",
+                f"built and recorded: {known or 'none'} - a comparison "
+                f"against nothing reads like a comparison against an "
+                f"empty cut",
+                f"build the variant first (`ren variant <project> build "
+                f"{reel_number}`), then compare")
         entries[suffix] = entry
     diff = rounds.diff_reel(entries[earlier_suffix].get("rows") or {},
                                 entries[later_suffix].get("rows") or {})
@@ -1146,8 +1150,9 @@ def plan_choice(existing_names, base_final: str, variant_names,
     if chosen not in live:
         raise ChoiceRefused(
             f"{chosen!r} is not a timeline in this project, so it "
-            f"cannot become {base_final!r}. Build the variant first; a "
-            f"choice never creates the thing it chooses.")
+            f"cannot become {base_final!r}",
+            "a choice never creates the thing it chooses",
+            "build the variant first, then choose it")
     taken = set(existing)
     plan = {"promote": (chosen, base_final), "retire": None,
             "archive": {}, "collect": [], "kept": []}
@@ -1233,8 +1238,10 @@ def choose(project, pool, project_folder, reel_number: int,
     from library.tools import reel_signoff as signoff
     if not str(why or "").strip():
         raise ChoiceRefused(
+            "a choice with no reason",
             "a choice with no reason is not a decision anybody can read "
-            "later - say why this treatment won.")
+            "later",
+            "re-run with --why saying why this treatment won")
     chosen = variant_timeline_name(str(base_final), str(chosen_suffix))
     live = _timelines_by_name(project)
 
@@ -1273,11 +1280,11 @@ def choose(project, pool, project_folder, reel_number: int,
 
     if not live[chosen].SetName(base_final):
         raise ChoiceRefused(
-            f"Resolve would not rename {chosen!r} to {base_final!r}. "
+            f"Resolve would not rename {chosen!r} to {base_final!r}",
             f"Nothing was deleted: the version that held the reel's "
             f"name is safe under {report['retired']!r} and the chosen "
-            f"variant is still under its own. Rename it in Resolve and "
-            f"re-run.")
+            f"variant is still under its own",
+            "rename it in Resolve and re-run")
 
     losing = {name: live[name] for name in plan["archive"] if name in live}
     if losing:
@@ -1316,12 +1323,14 @@ def choose(project, pool, project_folder, reel_number: int,
             if not pool.DeleteTimelines(targets):
                 raise ChoiceRefused(
                     f"Resolve declined to delete {len(collected)} "
-                    f"superseded generation(s) ({', '.join(collected)}). "
-                    f"They are still in the project under their archived "
-                    f"names - nothing was reported collected. The "
-                    f"choice's renames already landed; only the "
-                    f"retention cleanup did not, and the next choice "
-                    f"will plan it again.")
+                    f"superseded generation(s) ({', '.join(collected)})",
+                    "they are still in the project under their archived "
+                    "names - nothing was reported collected. The "
+                    "choice's renames already landed; only the "
+                    "retention cleanup did not",
+                    "delete the archived generations in Resolve by hand, "
+                    "or re-run the choice - the next one plans the "
+                    "still-present generations again")
             report["collected"] = collected
 
     # The record follows the picture. A sign-off the CHOSEN variant

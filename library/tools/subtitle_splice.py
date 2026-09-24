@@ -47,8 +47,10 @@ from __future__ import annotations
 
 from typing import List, Sequence
 
+from library.tools.ren_refusal import RenRefusal
 
-class SpliceRefused(ValueError):
+
+class SpliceRefused(RenRefusal):
     """The splice would have changed something outside the region."""
 
 
@@ -94,15 +96,13 @@ def assert_durations_preserved(stored_structure: Sequence[dict],
 
     if problems:
         raise SpliceRefused(
-            "This splice would change how long the timeline is, and "
-            "mesh_spine lays every block end to end - so every block after "
-            "the change would move:\n  - "
-            + "\n  - ".join(problems)
-            + "\n\nA duration-preserving correction splices; a "
-              "duration-changing one is a re-plan, and re-planning is "
-              "`subtitles.plan` at project scope followed by the steps "
-              "downstream of it."
-        )
+            "this splice would change how long the timeline is",
+            "mesh_spine lays every block end to end - so every block "
+            "after the change would move:\n  - "
+            + "\n  - ".join(problems),
+            "a duration-changing correction is a re-plan, not a splice: "
+            "re-run the subtitles plan at project scope, then the steps "
+            "downstream of it")
 
 
 def splice_plan(stored_entries: Sequence[dict],
@@ -125,9 +125,11 @@ def splice_plan(stored_entries: Sequence[dict],
         raise SpliceRefused(
             f"the fresh plan carries entries for block(s) "
             f"{sorted(stray, key=str)}, which are not in the region being "
-            f"spliced ({sorted(targets, key=str)}). A splice may only write "
-            f"the blocks it was asked for."
-        )
+            f"spliced ({sorted(targets, key=str)})",
+            "a splice may only write the blocks it was asked for - "
+            "writing further would disturb captions outside the region",
+            "re-plan exactly the spliced region so the fresh entries "
+            "cover its blocks and no others, then splice again")
 
     kept = [dict(e) for e in stored_entries
             if e["spine_block_position"] not in targets]

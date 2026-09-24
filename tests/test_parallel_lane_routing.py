@@ -43,8 +43,7 @@ KNOWN_SAFE = [
     "tests/test_gemma_shim.py",  # own servers on ephemeral ports
     "tests/test_cli_ml_preflight.py",  # blocked-import child interpreters
     "tests/test_transcript_corrections.py",  # /tmp path to a fake backend
-    "tests/test_llm_client.py",  # provider calls with keys absent/patched
-    "tests/test_brief_reference.py",  # FakeClient swap
+    "tests/test_brief_reference.py",  # agent-clock patch
     "tests/test_full_auto.py",  # patch(...generate)
     "tests/test_qa_feedback_loop_integration.py",  # patched LLM seams
     "tests/test_vision_model_server.py",  # urlopen stubbed
@@ -60,27 +59,23 @@ def _route_source(tmp_path, name: str, source: str):
 
 
 class TestClause1LiveProviderCalls:
-    def test_bare_llmclient_call_is_serial(self, tmp_path):
+    def test_bare_provider_call_is_serial(self, tmp_path):
         route = _route_source(
             tmp_path, "test_x.py",
-            "from library.tools.llm_client import LLMClient\n"
-            "\n"
             "def test_live():\n"
-            "    client = LLMClient('gemini', 'gemini-2.5-flash')\n"
-            "    assert client.generate('hello') != ''\n",
+            "    assert analyze_image('frame.jpg', 'prompt') != ''\n",
         )
         assert route.lane == SERIAL
-        assert "LLMClient" in route.reason
+        assert "analyze_image" in route.reason
 
     def test_patched_provider_call_stays_parallel(self, tmp_path):
         route = _route_source(
             tmp_path, "test_x.py",
             "from unittest.mock import patch\n"
-            "from library.tools.llm_client import LLMClient\n"
             "\n"
             "def test_faked():\n"
-            "    with patch.dict('os.environ', {}, clear=True):\n"
-            "        assert LLMClient('gemini', 'm').generate('hi') == '{}'\n",
+            "    with patch('library.tools.vision_model.analyze_image'):\n"
+            "        assert analyze_image('frame.jpg', 'prompt') is not None\n",
         )
         assert route.lane == PARALLEL, route.reason
 

@@ -174,11 +174,21 @@ def main(argv=None) -> int:
         return 2
 
     if verb.builtin == "doctor":
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
         from ren import doctor
-        return doctor.main(rest)
+        try:
+            return doctor.main(rest)
+        except RenRefusal as refused:
+            print(refused.render(), file=sys.stderr)
+            return REFUSAL_EXIT_CODE
     if verb.builtin == "config":
+        from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
         from ren import config
-        return config.main(rest)
+        try:
+            return config.main(rest)
+        except RenRefusal as refused:
+            print(refused.render(), file=sys.stderr)
+            return REFUSAL_EXIT_CODE
     if verb.subcommand:
         _exec_vep([str(MANAGE_PROJECT), verb.subcommand, *rest])
     _exec_vep(["-m", *verb.module_argv, *rest])

@@ -343,10 +343,10 @@ class UnknownHarness(ValueError):
 #   same reading the file/frames enumerations give. The must-check
 #   read-back is still skipped under mock: there is no model to
 #   correct, only history.
-# - `api`: `llm_client.LLMClient.generate` takes ONE string and posts
-#   it. There is no tool loop and no shell on the other side, so a
-#   shell command in the prompt is a dead end - the pipeline runs the
-#   skill and feeds the result back instead.
+# - `api`: the removed `llm_client.LLMClient.generate` took ONE string
+#   and posted it. There was no tool loop and no shell on the other
+#   side, so a shell command in the prompt was a dead end - the
+#   pipeline runs the skill and feeds the result back instead.
 HARNESS_INVOKES_SKILLS = {
     "agent": True,
     "mock": True,

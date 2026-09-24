@@ -100,9 +100,10 @@ except ImportError:  # pragma: no cover - PyYAML is in requirements.txt
     yaml = None
 
 from library.tools import run_scope
+from library.tools.ren_refusal import RenRefusal
 
 
-class ProfileError(ValueError):
+class ProfileError(RenRefusal):
     """A profile that cannot be used, refused by name before the run."""
 
 
@@ -269,7 +270,11 @@ def load(name: str,
     """
     name = (name or "").strip()
     if not name:
-        raise ProfileError("no profile named.")
+        raise ProfileError(
+            "no profile named",
+            "loading was asked for a profile without naming one",
+            "this is a caller bug, not a usage bug - fix the caller to "
+            "pass a profile name")
     if name == NO_PROFILE_WORD:
         return NO_PROFILE
 
@@ -282,8 +287,11 @@ def load(name: str,
         if project_dir is not None:
             where.insert(0, str(project_dir))
         raise ProfileError(
-            f"unknown run profile {name!r}. Known profiles: {known}. "
-            f"Looked in: {', '.join(where)}."
+            f"unknown run profile {name!r}",
+            f"Known profiles: {known}. "
+            f"Looked in: {', '.join(where)}",
+            f"use --profile {' / --profile '.join(sorted(catalogue)) or '(none)'}, "
+            f"or drop --profile to run without one"
         )
 
     profile = _parse(entry, known_steps)
@@ -311,9 +319,11 @@ def resolve_for_run(project_folder: Optional[str],
     if adopted == NO_PROFILE_WORD:
         raise ProfileError(
             f"project.yaml declares `pipeline.{ADOPTION_KEY}: "
-            f"{NO_PROFILE_WORD}`. {NO_PROFILE_WORD!r} is the word that "
-            f"DECLINES a profile on the command line and cannot be "
-            f"adopted. Remove the line instead."
+            f"{NO_PROFILE_WORD}`",
+            f"{NO_PROFILE_WORD!r} is the word that DECLINES a profile on "
+            f"the command line and cannot be adopted",
+            "remove the line instead - `--profile none` declines an "
+            "adopted profile for a single run"
         )
     return load(adopted, project_folder, known_steps, adopted=True)
 
@@ -321,44 +331,62 @@ def resolve_for_run(project_folder: Optional[str],
 def _parse(entry: ProfileFile,
            known_steps: Optional[Iterable[str]]) -> RunProfile:
     if yaml is None:
-        raise ProfileError("PyYAML is required to read a run profile.")
+        raise ProfileError(
+            "PyYAML is required to read a run profile",
+            "profiles are YAML files and this interpreter has no YAML reader",
+            "install pyyaml in the pipeline interpreter, then re-run")
     path = Path(entry.path)
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        raise ProfileError(f"{path}: cannot be read - {exc}") from exc
+        raise ProfileError(
+            f"{path}: cannot be read",
+            f"{exc}",
+            f"fix the YAML in {path}, then re-run") from exc
     if raw is None:
-        raise ProfileError(f"{path}: is empty. A profile that declares "
-                           f"nothing is not a profile.")
+        raise ProfileError(
+            f"{path}: is empty",
+            "a profile that declares nothing is not a profile",
+            f"declare the run shape in {path}, or delete the file and "
+            f"run without --profile")
     if not isinstance(raw, dict):
-        raise ProfileError(f"{path}: must be a mapping, not "
-                           f"{type(raw).__name__}.")
+        raise ProfileError(
+            f"{path}: must be a mapping, not {type(raw).__name__}",
+            "a profile declares named run-shape keys",
+            f"rewrite {path} as a mapping with a `description` and the "
+            f"steps to run")
 
     unknown = sorted(set(raw) - PROFILE_KEYS)
     if unknown:
         raise ProfileError(
-            f"{path}: unknown key(s) {', '.join(repr(k) for k in unknown)}. "
-            f"A profile may declare: {', '.join(sorted(PROFILE_KEYS))}."
+            f"{path}: unknown key(s) {', '.join(repr(k) for k in unknown)}",
+            f"a profile may declare: {', '.join(sorted(PROFILE_KEYS))}",
+            f"spell it as one of {', '.join(sorted(PROFILE_KEYS))} in "
+            f"{path}"
         )
 
     declared_name = str(raw.get("name") or "").strip()
     if declared_name and declared_name != entry.name:
         raise ProfileError(
             f"{path}: declares `name: {declared_name}` but is filed as "
-            f"{entry.name!r}. A profile is found by its filename, so the "
-            f"two must agree."
+            f"{entry.name!r}",
+            "a profile is found by its filename, so the two must agree",
+            f"rename the file to {declared_name}, or set `name: "
+            f"{entry.name}` in {path}"
         )
     if entry.name == NO_PROFILE_WORD:
         raise ProfileError(
-            f"{path}: a profile may not be called {NO_PROFILE_WORD!r} - "
-            f"that is the word that declines a profile for one run."
+            f"{path}: a profile may not be called {NO_PROFILE_WORD!r}",
+            "that is the word that declines a profile for one run",
+            f"rename the profile file in {path}"
         )
 
     description = str(raw.get("description") or "").strip()
     if not description:
         raise ProfileError(
-            f"{path}: needs a `description`. A run shape nobody can read "
-            f"is a run shape nobody trusts."
+            f"{path}: needs a `description`",
+            "a run shape nobody can read is a run shape nobody trusts",
+            f"write one line as `description` in {path}"
         )
 
     lists: Dict[str, Tuple[str, ...]] = {}
@@ -368,15 +396,18 @@ def _parse(entry: ProfileFile,
     target = str(raw.get("target") or "").strip()
     if target and lists["goals"]:
         raise ProfileError(
-            f"{path}: declares both `target` and `goals`. They are two "
-            f"answers to one question - name a built-in target, or list "
-            f"the goal steps yourself."
+            f"{path}: declares both `target` and `goals`",
+            "they are two answers to one question - name a built-in "
+            "target, or list the goal steps yourself",
+            f"keep exactly one of `target` / `goals` in {path}"
         )
     if target and target not in run_scope.TARGETS:
         known = ", ".join(sorted(run_scope.TARGETS)) or "(none)"
         raise ProfileError(
-            f"{path}: `target: {target}` is not a target of this "
-            f"pipeline. Known targets: {known}."
+            f"{path}: `target: {target}` is not a target of this pipeline",
+            f"known targets: {known}",
+            f"set `target` to one of {known} in {path}, or use `goals` "
+            f"instead"
         )
 
     steps = set(known_steps) if known_steps is not None else _dag_steps()
@@ -385,8 +416,9 @@ def _parse(entry: ProfileFile,
             if value not in steps:
                 raise ProfileError(
                     f"{path}: `{key}` names {value!r}, which is not a step "
-                    f"in this pipeline. Known steps: "
-                    f"{', '.join(sorted(steps))}."
+                    f"in this pipeline",
+                    f"known steps: {', '.join(sorted(steps))}",
+                    f"spell it as a known step in {path}"
                 )
     from library.tools import breakpoints as breakpoints_module
 
@@ -394,22 +426,28 @@ def _parse(entry: ProfileFile,
         if value != breakpoints_module.EVERY_STEP and value not in steps:
             raise ProfileError(
                 f"{path}: `breakpoints` names {value!r}, which is not a "
-                f"step in this pipeline (and is not "
-                f"{breakpoints_module.EVERY_STEP!r}, which means every "
-                f"step). Known steps: {', '.join(sorted(steps))}."
+                f"step in this pipeline",
+                f"it is not {breakpoints_module.EVERY_STEP!r} either, "
+                f"which means every step. Known steps: "
+                f"{', '.join(sorted(steps))}",
+                f"spell it as a known step or "
+                f"{breakpoints_module.EVERY_STEP!r} in {path}"
             )
 
     contradicted = sorted(set(lists["goals"]) & set(lists["skip"]))
     if contradicted:
         raise ProfileError(
-            f"{path}: {', '.join(contradicted)} is both a goal and "
-            f"skipped. Say it once."
+            f"{path}: {', '.join(contradicted)} is both a goal and skipped",
+            "one run cannot both aim at a step and leave it out",
+            f"say it once in {path}"
         )
     contradicted = sorted(set(lists["with"]) & set(lists["skip"]))
     if contradicted:
         raise ProfileError(
             f"{path}: {', '.join(contradicted)} is both selected with "
-            f"`with` and skipped. Say it once."
+            f"`with` and skipped",
+            "one run cannot both select a step and leave it out",
+            f"say it once in {path}"
         )
 
     return RunProfile(
@@ -430,17 +468,22 @@ def _string_list(value, key: str, path: Path) -> Tuple[str, ...]:
         return ()
     if isinstance(value, str):
         raise ProfileError(
-            f"{path}: `{key}` must be a list, not a single string. Write "
-            f"`{key}: [{value}]` or a `- ` list."
+            f"{path}: `{key}` must be a list, not a single string",
+            "a bare string is one step, not a list of steps",
+            f"write `{key}: [{value}]` or a `- ` list in {path}"
         )
     if not isinstance(value, (list, tuple)):
-        raise ProfileError(f"{path}: `{key}` must be a list, not "
-                           f"{type(value).__name__}.")
+        raise ProfileError(
+            f"{path}: `{key}` must be a list, not {type(value).__name__}",
+            "a profile lists steps under each key",
+            f"write `{key}` as a list in {path}")
     out = []
     for item in value:
         if not isinstance(item, str) or not item.strip():
             raise ProfileError(
-                f"{path}: `{key}` holds {item!r}, which is not a step name.")
+                f"{path}: `{key}` holds {item!r}, which is not a step name",
+                "every entry names one step",
+                f"replace {item!r} with a step name in {path}")
         if item.strip() not in out:
             out.append(item.strip())
     return tuple(out)

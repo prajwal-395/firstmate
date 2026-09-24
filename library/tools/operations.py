@@ -166,13 +166,14 @@ from pathlib import Path
 from typing import Any
 
 from library.tools import scope as scope_mod
+from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 from library.tools.scope import PROJECT, REGION, Scope
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STEPS_ROOT = REPO_ROOT / "library" / "steps"
 
 
-class OperationError(Exception):
+class OperationError(RenRefusal):
     """The registry cannot serve this request."""
 
 
@@ -274,13 +275,19 @@ class OperationResult:
     def __post_init__(self):
         if self.status not in STATUSES:
             raise OperationError(
-                f"unknown status {self.status!r}; known: "
-                f"{', '.join(STATUSES)}")
+                f"unknown status {self.status!r}",
+                f"an operation completes or refuses. Known: "
+                f"{', '.join(STATUSES)}",
+                "this is a caller bug, not a usage bug - fix the caller "
+                "to record 'completed' or 'refused'")
         if self.status == REFUSED and not (self.unsatisfied or self.error):
             raise OperationError(
                 f"{self.operation} is REFUSED but names neither an "
-                f"unsatisfied requirement nor an error; a refusal that "
-                f"does not say why is the defect this type prevents")
+                f"unsatisfied requirement nor an error",
+                "a refusal that does not say why is the defect this type "
+                "prevents",
+                "this is a caller bug, not a usage bug - fix the caller "
+                "to name the unsatisfied requirement or the error")
 
     @property
     def completed(self) -> bool:
@@ -360,7 +367,12 @@ def load_step_module(step_dir: str, filename: str = "step.py"):
 
     path = STEPS_ROOT / step_dir / filename
     if not path.is_file():
-        raise OperationError(f"no such step body: {path}")
+        raise OperationError(
+            f"no such step body: {path}",
+            "an operation is a step's own code, and this step has no "
+            "such body file",
+            "this is a registry bug, not a usage bug - fix the "
+            "operation's body filename in the registry")
 
     for entry in (str(REPO_ROOT), str(REPO_ROOT / "library"),
                   str(path.parent)):
@@ -502,12 +514,14 @@ class Operation:
         """
         if self.is_prompt:
             raise OperationError(
-                f"{self.name} is a PROMPT capability, not a function: "
+                f"{self.name} is a PROMPT capability, not a function",
                 f"its implementation is {self.owning_dir}/{self.body}, "
                 f"which the runner asks a model to answer. There is no "
                 f"attribute to resolve because there is no body to point "
                 f"at - and a fallback that returned one would be this "
-                f"module owning logic, which this property exists to stop.")
+                f"module owning logic, which this property exists to stop",
+                "ask the host model to answer this operation's prompt "
+                "instead of resolving it as code")
         return getattr(load_step_module(self.owning_dir, self.body),
                        self.attr)
 
@@ -941,8 +955,9 @@ class Operation:
     def check_scope(self, scope: Scope) -> None:
         if not self.supports(scope):
             raise ScopeNotSupported(
-                f"{self.name} does not run at {scope.kind} scope; it runs "
-                f"at: {', '.join(self.scopes)}")
+                f"{self.name} does not run at {scope.kind} scope",
+                f"it runs at: {', '.join(self.scopes)}",
+                f"run it at {', '.join(self.scopes)} scope instead")
 
 
 # ── Operations whose derived effect is empty ────────────────────────
@@ -1482,7 +1497,9 @@ def get(name: str) -> Operation:
         if op.name == name:
             return op
     raise UnknownOperation(
-        f"unknown operation {name!r}. Known: {', '.join(names())}")
+        f"unknown operation {name!r}",
+        f"the registry holds: {', '.join(names())}",
+        f"run one of {', '.join(names())} - see --list for what each does")
 
 
 # ── An operation, addressed at a region ──────────────────────────────
@@ -1534,7 +1551,9 @@ def parse_address(text: str, known: Iterable[str] | None = None) -> Address:
     raw = (text or "").strip()
     if not raw:
         raise UnknownOperation(
-            f"an operation address needs a name, optionally "
+            "an operation address needs a name",
+            "a blank address names nothing to run",
+            "pass an operation name, optionally "
             f"{ADDRESS_SEPARATOR}<start>-<end>, e.g. "
             f"subtitles.render{ADDRESS_SEPARATOR}45.0-72.0")
 
@@ -1543,21 +1562,29 @@ def parse_address(text: str, known: Iterable[str] | None = None) -> Address:
     declared = tuple(known) if known is not None else names()
     if name not in declared:
         raise UnknownOperation(
-            f"unknown operation {name!r} in address {text!r}. "
-            f"Known: {', '.join(sorted(declared)) or '(none)'}.")
+            f"unknown operation {name!r} in address {text!r}",
+            f"known: {', '.join(sorted(declared)) or '(none)'}. A "
+            f"breakpoint armed at an operation that does not exist is a "
+            f"pause that will never come",
+            f"address one of {', '.join(sorted(declared)) or '(none)'}")
     if not sep:
         return Address(name)
     if not span.strip():
         raise UnknownOperation(
-            f"address {text!r} ends in {ADDRESS_SEPARATOR!r} with no "
-            f"region. Give <start>-<end> in timeline seconds, or drop the "
-            f"{ADDRESS_SEPARATOR!r} to mean the whole project.")
+            f"address {text!r} ends in {ADDRESS_SEPARATOR!r} with no region",
+            "an address with a separator and no span names nowhere to run",
+            f"give <start>-<end> in timeline seconds, or drop the "
+            f"{ADDRESS_SEPARATOR!r} to mean the whole project")
 
     from library.tools import region as region_mod
     try:
         return Address(name, region_mod.parse(span))
     except ValueError as exc:
-        raise UnknownOperation(f"address {text!r}: {exc}") from None
+        raise UnknownOperation(
+            f"address {text!r} names a region that does not parse",
+            f"{exc}",
+            "write the region as <start>-<end> in timeline seconds, e.g. "
+            "45.0-72.0") from None
 
 
 def looks_like_an_address(text: str) -> bool:
@@ -1650,21 +1677,29 @@ def parse_overrides(pairs: Iterable[str]) -> dict:
         name = name.strip()
         if not sep or not name:
             raise OperationError(
-                f"--set {raw!r}: expected NAME=<json> or "
-                f"NAME=@<file.json>, e.g. --set stored_plan=@plan.json")
+                f"--set {raw!r} names no value",
+                "an override supplies one argument the DAG does not route "
+                "to this step",
+                f"write --set {raw or 'NAME'}=<json> or "
+                f"--set {raw or 'NAME'}=@<file.json>, e.g. --set "
+                f"stored_plan=@plan.json")
         if text.startswith("@"):
             path = Path(text[1:]).expanduser()
             try:
                 text = path.read_text(encoding="utf-8")
             except OSError as exc:
                 raise OperationError(
-                    f"--set {name}=@{path}: {exc}") from None
+                    f"--set {name}=@{path} cannot be read",
+                    f"{exc}",
+                    f"point --set {name}=@ at a readable JSON file") from None
         try:
             out[name] = json.loads(text)
         except json.JSONDecodeError as exc:
             raise OperationError(
-                f"--set {name}=...: not valid JSON ({exc}). A value here "
-                f"is a structure; quote a string as '\"text\"'.") from None
+                f"--set {name}=... is not valid JSON",
+                f"{exc}. A value here is a structure",
+                f"quote a string as '\"text\"', or pass --set {name}=@"
+                f"<file.json>") from None
     return out
 
 
@@ -1707,21 +1742,16 @@ def main(argv=None) -> int:
         op = get(args.operation)
         where = scope_mod.from_cli(region_text=args.region, clip_id=args.clip)
         op.check_scope(where)
-    except (OperationError, scope_mod.ScopeError) as e:
-        print(f"REFUSED: {e}", file=sys.stderr)
-        return 2
-
-    if not args.project:
-        print("REFUSED: --project is required to run an operation; it is "
-              "where the inputs come from and where the result lands.",
-              file=sys.stderr)
-        return 2
-
-    try:
+        if not args.project:
+            raise RenRefusal(
+                "no --project given",
+                "an operation runs against a project: it is where the "
+                "inputs come from and where the result lands",
+                "re-run with --project <slug or project folder>")
         overrides = parse_overrides(args.overrides)
-    except OperationError as e:
-        print(f"REFUSED: {e}", file=sys.stderr)
-        return 2
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        return REFUSAL_EXIT_CODE
 
     result = op.execute(args.project, scope=where, **overrides)
 
@@ -1730,7 +1760,7 @@ def main(argv=None) -> int:
         print(result.error, file=sys.stderr)
         if args.json:
             print(json.dumps(result.as_record(), indent=2))
-        return 1
+        return REFUSAL_EXIT_CODE
 
     print(f"{op.name}: completed at {where}", file=sys.stderr)
     if args.json:

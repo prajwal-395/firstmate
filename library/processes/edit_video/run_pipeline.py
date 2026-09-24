@@ -70,6 +70,7 @@ from library.tools import stable_json
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
 from library.tools import external_inputs, run_scope
+from library.tools.ren_refusal import RenRefusal
 from library.tools.versions import runs
 from library.tools import requirements
 from library.tools import breakpoints as run_breakpoints
@@ -78,8 +79,11 @@ from library.tools import run_profile
 logger = logging.getLogger(__name__)
 
 class PreBridgeError(Exception): pass
-class LLMError(Exception): pass
 class PostBridgeError(Exception): pass
+
+
+class LLMError(RenRefusal):
+    """An LLM step that could not be answered - refused with the fix."""
 
 
 def _agent_sleep(seconds: float) -> None:
@@ -1767,7 +1771,7 @@ def normalize_full_auto(full_auto: str | None) -> str | None:
 
 @step_timer(step_id_kwarg="node_id")
 def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None, retry_feedback: str = "") -> dict:
-    """Present an LLM step and execute it using LLMClient or the agent backend.
+    """Present an LLM step and execute it using the agent backend.
     
     In automated mode, this calls the LLM and returns the parsed output.
 
@@ -2079,7 +2083,6 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             prompt += "\n\n" + schema_text
 
     for attempt in range(qa_loop.max_retries + 1):
-        full_prompt = prompt + constraints + "\n\nContext:\n" + current_context
         parsed_result = None
         
         if full_auto == "mock":
@@ -2092,14 +2095,26 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 with open(bak_file, "r") as f:
                     parsed_result = json.load(f)
             else:
-                raise LLMError(f"Mock response not found at {bak_file}")
+                raise LLMError(
+                    f"mock response not found at {bak_file}",
+                    "mock replays a recorded answer, and no answer was "
+                    "recorded for this step",
+                    f"place the recorded answer JSON at {bak_file} "
+                    f"(archived from an answered run), then re-run with "
+                    f"--full-auto mock")
 
         elif full_auto == "agent":
             import datetime
             from pathlib import Path
             project_folder = inputs.get("project_folder", "")
             if not project_folder:
-                raise LLMError("project_folder required in inputs for agent backend")
+                raise LLMError(
+                    "project_folder required in inputs for agent backend",
+                    "the agent backend files the request under the "
+                    "project's pipeline_output, so without it there is "
+                    "nowhere to write the handoff",
+                    "this is a caller bug, not a usage bug - fix the "
+                    "caller to pass project_folder in the step inputs")
                 
             _layout = ProjectLayout(project_folder)
             requests_dir = _layout.write_dir(Area.LLM_REQUESTS)
@@ -2113,14 +2128,13 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 
             req_data = {
                 "step_id": node_id,
-                # The brand's constraints are PROMPT TEXT: `full_prompt`
-                # places them between the handoff and the context for
-                # every other backend.  This file carried `prompt` alone,
-                # so the answering agent never saw them - meaning that
-                # even with get_brand_constraints returning a real string,
-                # the mode this pipeline actually runs in would still have
-                # dropped it.  Recorded separately too, so the archive
-                # shows what the brand contributed to a call.
+                # The brand's constraints are PROMPT TEXT: the request
+                # carries `prompt + constraints`, placing them between
+                # the handoff and the context the way the prompt reads.
+                # Recorded separately too, so the archive shows what
+                # the brand contributed to a call - the answering agent
+                # once never saw them, and the separate field is what
+                # proves it does now.
                 "prompt": prompt + constraints,
                 "constraints": constraints,
                 "context": current_context,
@@ -2147,7 +2161,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                             res_content = f.read()
                         parsed_result = json.loads(res_content)
                     except Exception as e:
-                        raise LLMError(f"Failed to read or parse agent LLM response as JSON: {e}")
+                        raise LLMError(
+                            f"failed to read or parse agent LLM response "
+                            f"as JSON: {e}",
+                            f"the answer at {res_file} is not the JSON the "
+                            f"request's expected_schema asked for",
+                            f"write the answer as one JSON object matching "
+                            f"the request's expected_schema to {res_file}, "
+                            f"then the run picks it up on retry")
                         
                     if logger:
                         response_tokens = len(res_content.split()) * 1.3
@@ -2165,89 +2186,29 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 _agent_sleep(2)
                 
             if parsed_result is None:
-                raise LLMError(f"Timeout ({llm_timeout}s) waiting for agent LLM response at {res_file}")
+                raise LLMError(
+                    f"Timeout ({llm_timeout}s) waiting for agent LLM "
+                    f"response at {res_file}",
+                    f"the request is filed at {req_file} and no answer "
+                    f"arrived before the timeout",
+                    f"answer the request: write one JSON object matching "
+                    f"the request's expected_schema to {res_file} (the "
+                    f"run prints LLM_REQUEST_READY with the request path), "
+                    f"then re-run - or re-run with a larger --llm-timeout")
 
         if full_auto == "api":
-            llm_config = {}
-            if manifest and "llm_config" in manifest:
-                llm_config = manifest["llm_config"]
-                
-            provider = os.environ.get("PIPELINE_LLM_PROVIDER", llm_config.get("provider", "gemini"))
-            model = os.environ.get("PIPELINE_LLM_MODEL", llm_config.get("model", "gemini-2.5-flash"))
-            temperature = llm_config.get("temperature", 0.7)
-            max_output_tokens = llm_config.get("max_output_tokens", 4096)
-            
-            from library.tools.llm_client import LLMClient
-            client = LLMClient(provider, model, temperature=temperature, max_output_tokens=max_output_tokens)
-            
-            print(f"  Calling LLM ({provider}/{model}) for {node_id}...", file=sys.stderr)
-            start_time_llm = time.time()
-            result_text = client.generate(full_prompt, system="You are a video editor and pipeline orchestrator.")
-            latency = time.time() - start_time_llm
-            
-            if full_auto == "api":
-                if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
-                    raise LLMError("API call failed or returned empty response.")
-                    
-                if logger:
-                    response_tokens = len(result_text.split()) * 1.3
-                    logger.log(
-                        step_id=node_id,
-                        event_type="llm_generation",
-                        backend="api",
-                        latency=round(latency, 2),
-                        token_count={
-                            "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
-                            "response": int(response_tokens)
-                        }
-                    )
-                    
-                try:
-                    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
-                    if json_match:
-                        result_json = json_match.group(1)
-                    else:
-                        result_json = result_text
-                    parsed_result = json.loads(result_json)
-                except Exception as e:
-                    raise LLMError(f"Failed to parse LLM JSON output from API: {e}\nRaw output: {result_text[:200]}")
-            else:
-                if not result_text or result_text.strip() == "{}" or "missing_api_key" in result_text:
-                    print(f"\n{'─'*60}", file=sys.stderr)
-                    print(f"  ⏸  LLM STEP: {node_id}", file=sys.stderr)
-                    print(f"  Prompt: {prompt_path}", file=sys.stderr)
-                    print(f"  Inputs: {list(inputs.keys())}", file=sys.stderr)
-                    print(f"{'─'*60}", file=sys.stderr)
-                    print(f"\n  This step requires LLM judgment.", file=sys.stderr)
-                    print(f"  Copy the prompt from {prompt_path}", file=sys.stderr)
-                    print(f"  and provide the required inputs to Antigravity.", file=sys.stderr)
-                    print(f"\n  When complete, save the output to:", file=sys.stderr)
-                    print(f"    pipeline_data.json → step_outputs.{node_id}", file=sys.stderr)
-                    print(f"{'─'*60}\n", file=sys.stderr)
-                    
-                    return {
-                        "__status": "awaiting_llm",
-                        "__prompt": prompt_path,
-                        "__inputs_available": list(inputs.keys()),
-                        "__context": current_context,
-                    }
-                    
-                try:
-                    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', result_text, re.DOTALL)
-                    if json_match:
-                        result_json = json_match.group(1)
-                    else:
-                        result_json = result_text
-                    parsed_result = json.loads(result_json)
-                except Exception as e:
-                    print(f"  Warning: failed to parse LLM output as JSON: {e}", file=sys.stderr)
-                    return {
-                        "__status": "awaiting_llm",
-                        "__prompt": prompt_path,
-                        "__inputs_available": list(inputs.keys()),
-                        "__context": current_context,
-                        "__llm_raw_output": result_text
-                    }
+            # API calls are out of scope: Ren answers LLM steps through
+            # the host harness (OAuth CLIs like Claude Code, Codex and
+            # opencode via the agent-mode file handshake), never through
+            # a provider API key. `LLMClient` and its silent "{}" are
+            # gone; this refuses in the refusal shape rather than
+            # guessing.
+            raise LLMError(
+                "--full-auto api was removed",
+                "Ren answers LLM steps through the host harness (the "
+                "agent-mode file handshake), never through a provider "
+                "API call",
+                "re-run with --full-auto agent")
                     
         # What the model could not determine is SPLIT OUT here, before
         # anything validates or reads the answer: it is a demand signal,
@@ -2413,8 +2374,16 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
                 llm_timeout, bridge_supplied=set(pre_output),
                 retry_feedback=retry_feedback,
             )
+        except RenRefusal:
+            # A refusal already carries its fix - rewording it here
+            # would strip the shape the boundary renders.
+            raise
         except Exception as e:
-            raise LLMError(f"LLM generation failed: {e}")
+            raise LLMError(
+                f"LLM generation failed: {e}",
+                "the answering backend raised outside the refusal shape",
+                "read the wrapped error above - it names the cause - fix "
+                "that, then re-run")
 
         if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
             return llm_output
@@ -4042,7 +4011,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_scope.add_scope_arguments(parser)
     run_profile.add_profile_arguments(parser)
     run_breakpoints.add_breakpoint_arguments(parser)
-    parser.add_argument("--full-auto", choices=["agent", "agy", "api", "mock"],
+    parser.add_argument("--full-auto", choices=["agent", "agy", "mock"],
                         help="Run full pipeline autonomously using specified LLM backend "
                              "(`agent`: the pipeline writes a request file an agent answers; "
                              "`agy` is a deprecated alias of `agent`)")
@@ -4065,30 +4034,41 @@ def main():
         except (ImportError, FileNotFoundError) as e:
             print(f"Error resolving project slug '{args.slug}': {e}", file=sys.stderr)
             sys.exit(1)
-    summary = run_pipeline(
-        project_dir=project_dir,
-        from_step=args.from_step,
-        single_step=args.step,
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+    summary = None
+    try:
+        summary = run_pipeline(
+            project_dir=project_dir,
+            from_step=args.from_step,
+            single_step=args.step,
 
-        dry_run=args.dry_run,
-        auto_mode=args.auto,
-        review_mode=args.review,
-        resume_mode=args.resume,
-        full_auto=args.full_auto,
-        llm_timeout=args.llm_timeout,
-        rerun=args.rerun,
-        target=args.target,
-        only=args.only,
-        skip=args.skip,
-        with_steps=args.with_steps,
-        overrides=args.overrides,
-        profile=args.profile,
-        break_at=args.break_at,
-        no_break_at=args.no_break_at,
-    )
+            dry_run=args.dry_run,
+            auto_mode=args.auto,
+            review_mode=args.review,
+            resume_mode=args.resume,
+            full_auto=args.full_auto,
+            llm_timeout=args.llm_timeout,
+            rerun=args.rerun,
+            target=args.target,
+            only=args.only,
+            skip=args.skip,
+            with_steps=args.with_steps,
+            overrides=args.overrides,
+            profile=args.profile,
+            break_at=args.break_at,
+            no_break_at=args.no_break_at,
+        )
+    except RenRefusal as refused:
+        # ONE place renders every refusal on `ren edit`'s path, in the
+        # same shape the front door (`manage_project.py`) renders. An
+        # unexpected error keeps its traceback and exit 1.
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
     # A refused selection never started, and must not look like a run.
+    # Exit 4, the refusal code (`library/tools/ren_refusal.py`): the
+    # reason already printed in the refusal shape, with its fix.
     if (summary or {}).get("status") == "REFUSED":
-        sys.exit(2)
+        sys.exit(REFUSAL_EXIT_CODE)
     # A failed run must look failed to whatever invoked us. Printing
     # "Status: FAILED" and exiting 0 is how a hollow timeline shipped as a
     # green CI job.

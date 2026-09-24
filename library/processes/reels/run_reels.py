@@ -95,11 +95,12 @@ def add_arguments(parser) -> None:
 
 
 def run(project_folder: str, args) -> int:
-    """Run every node of the reels process. 0, or 1 on a refusal.
+    """Run every node of the reels process. 0, or 4 on a refusal.
 
     `args` carries the options `add_arguments` registers. A refusal
     stops the run where it happened, names the operation and what it
     refused on, and makes no closing commit: nothing after it ran.
+    4 is the refusal code (`library/tools/ren_refusal.py`).
     """
     from library.tools import operations, processes
     from library.tools.project_layout import ProjectLayout
@@ -131,9 +132,10 @@ def run(project_folder: str, args) -> int:
                 retain=args.retain or None,
                 rebuild_all=bool(getattr(args, "rebuild_all", False)))
             if result.refused:
+                from library.tools.ren_refusal import REFUSAL_EXIT_CODE
                 print(f"REFUSED: {op.name}", file=sys.stderr)
                 print(result.error, file=sys.stderr)
-                return 1
+                return REFUSAL_EXIT_CODE
 
             # RECORD the node's output the way a run records one, so the
             # edge to the next node can carry it and so the build is

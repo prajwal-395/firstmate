@@ -84,6 +84,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from library.tools.ren_refusal import RenRefusal
+
 REEL_NAME_FORMAT = "Reel {number:02d} - {slug}"
 """The captain's format, quoted from their answer. Two digits, zero
 padded, then the topic slug."""
@@ -111,11 +113,11 @@ a REAL TURN in the conversation, not just a stray word picked up by mic
 bleed. The captain's words on batch one: 'its mostly just a single
 person yapping and not really a convo'."""
 
-class ProposalError(ValueError):
+class ProposalError(RenRefusal):
     """A proposal is not something that could be built."""
 
 
-class NotApproved(RuntimeError):
+class NotApproved(RenRefusal):
     """A build path was handed a moment the captain has not approved."""
 
 
@@ -358,12 +360,15 @@ def assert_approved(moment: ReelMoment) -> ReelMoment:
     if moment.approval is Approval.REJECTED:
         raise NotApproved(
             f"reel {moment.number} ({moment.slug!r}) was REJECTED"
-            + (f": {moment.approval_note}" if moment.approval_note else "")
-            + ". Building it anyway would overrule the captain.")
+            + (f": {moment.approval_note}" if moment.approval_note else ""),
+            "building it anyway would overrule the captain",
+            "rule on a different moment, or ask the captain to "
+            "re-consider this one - then build")
     raise NotApproved(
-        f"reel {moment.number} ({moment.slug!r}) is still PROPOSED - the "
-        f"captain has not looked at it. The pipeline proposes and the "
-        f"captain approves; nothing is built before that.")
+        f"reel {moment.number} ({moment.slug!r}) is still PROPOSED",
+        "the captain has not looked at it. The pipeline proposes and "
+        "the captain approves; nothing is built before that",
+        "get the captain's approval on this reel first, then build")
 
 
 def approved_only(moments: Sequence[ReelMoment]) -> List[ReelMoment]:
@@ -438,9 +443,11 @@ def refuse_rejected_reel_timeline(timeline_label, project_folder) -> None:
                 raise NotApproved(
                     f"reel {moment.number} ({moment.slug!r}) was REJECTED"
                     + (f": {moment.approval_note}"
-                       if moment.approval_note else "")
-                    + ". Rendering its captions anyway would overrule "
-                    + "the captain.")
+                       if moment.approval_note else ""),
+                    "rendering its captions anyway would overrule the "
+                    "captain",
+                    "rule on a different moment, or ask the captain to "
+                    "re-consider this one - then render")
             return
     print(f"  approval gate: reel {number} is not among the "
           f"{len(moments)} proposed moment(s) - proceeding without "
@@ -1374,16 +1381,23 @@ def _check_call_to_action(moment: ReelMoment, transcript: dict,
     if cta.timeline_end <= cta.timeline_start:
         raise ProposalError(
             f"{label}: its call to action runs {cta.timeline_start} to "
-            f"{cta.timeline_end}, which is not a range")
+            f"{cta.timeline_end}, which is not a range",
+            "a closer that ends before it starts cannot be placed",
+            "propose a call to action whose end is after its start")
     if cta.duration <= MIN_CTA_SECONDS:
         raise ProposalError(
             f"{label}: its call to action runs {cta.duration:.3f}s, under "
-            f"a frame. Nothing can be placed from it, so a range this "
-            f"short is a mistyped timecode rather than a closer.")
+            f"a frame",
+            "nothing can be placed from it, so a range this short is a "
+            "mistyped timecode rather than a closer",
+            "re-check the timecode and propose the full closer span")
     if cta.timeline_start < 0 or cta.timeline_end > timeline_duration + 0.001:
         raise ProposalError(
             f"{label}: its call to action runs {cta.timeline_start:.2f}-"
             f"{cta.timeline_end:.2f}s, outside the timeline's "
+            f"0-{timeline_duration:.2f}s",
+            "a closer outside the episode cannot be cut from it",
+            "move the call to action inside the timeline's "
             f"0-{timeline_duration:.2f}s")
 
     segments = transcript.get("segments") or []
@@ -1392,8 +1406,10 @@ def _check_call_to_action(moment: ReelMoment, transcript: dict,
         raise ProposalError(
             f"{label}: its call to action runs {cta.timeline_start:.2f}-"
             f"{cta.timeline_end:.2f}s, where the transcript measured no "
-            f"speech at all. A CTA must be genuinely SPOKEN in the "
-            f"episode - it is never authored, templated or padded.")
+            f"speech at all",
+            "a CTA must be genuinely SPOKEN in the episode - it is never "
+            "authored, templated or padded",
+            "move the call to action onto speech the transcript measured")
 
     cut = partial_overlaps(cta.timeline_start, cta.timeline_end, transcript)
     if cut:
@@ -1412,8 +1428,10 @@ def _check_call_to_action(moment: ReelMoment, transcript: dict,
                 f"rather than containing them, so the reel would close "
                 f"mid-sentence. First: [{first['timeline_start']:.2f}-"
                 f"{first['timeline_end']:.2f}s] "
-                f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
-                f"move the boundaries out to whole segments.")
+                f"{first.get('text', '')[:60]!r}",
+                "a closer must contain whole segments",
+                "use `snap_to_speech` to move the boundaries out to whole "
+                "segments")
 
     overlap_start = max(cta.timeline_start, moment.timeline_start)
     overlap_end = min(cta.timeline_end, moment.timeline_end)
@@ -1423,8 +1441,10 @@ def _check_call_to_action(moment: ReelMoment, transcript: dict,
             f"{cta.timeline_end:.2f}s) overlaps its own body "
             f"({moment.timeline_start:.2f}-{moment.timeline_end:.2f}s) by "
             f"{overlap_end - overlap_start:.2f}s, so the reel would play "
-            f"those seconds twice. A CTA already inside the body needs no "
-            f"second range - drop it, or move it to one that is elsewhere.")
+            f"those seconds twice",
+            "a CTA already inside the body needs no second range",
+            "drop the call to action, or move it to a range that is "
+            "elsewhere")
 
 
 def validate_proposal(moments: Sequence[ReelMoment],
@@ -1445,44 +1465,60 @@ def validate_proposal(moments: Sequence[ReelMoment],
     """
     if not moments:
         raise ProposalError(
-            "no moments proposed. An empty proposal is the absence of a "
-            "suggestion, not a suggestion of nothing.")
+            "no moments proposed",
+            "an empty proposal is the absence of a suggestion, not a "
+            "suggestion of nothing",
+            "propose at least one moment with a reason")
 
     segments = transcript.get("segments") or []
     seen_numbers = set()
     for moment in moments:
         label = f"reel {moment.number} ({moment.slug!r})"
         if moment.number in seen_numbers:
-            raise ProposalError(f"{label}: reel number {moment.number} is used twice")
+            raise ProposalError(
+                f"{label}: reel number {moment.number} is used twice",
+                "two reels cannot share a number",
+                "renumber so every reel has its own number")
         seen_numbers.add(moment.number)
         if moment.number < 1:
-            raise ProposalError(f"{label}: reel numbers start at 1")
+            raise ProposalError(
+                f"{label}: reel numbers start at 1",
+                "reel 0 and negatives name nothing",
+                "number the reels from 1")
         if not moment.reason.strip():
             raise ProposalError(
-                f"{label} carries no reason. The captain asked for a "
-                f"one-line reason each; a moment that cannot say why it "
-                f"was picked cannot be judged.")
+                f"{label} carries no reason",
+                "the captain asked for a one-line reason each; a moment "
+                "that cannot say why it was picked cannot be judged",
+                "write one line as the reason for this moment")
         if moment.timeline_end <= moment.timeline_start:
             raise ProposalError(
                 f"{label} runs {moment.timeline_start} to "
-                f"{moment.timeline_end}, which is not a range")
+                f"{moment.timeline_end}, which is not a range",
+                "a moment that ends before it starts cannot be cut",
+                "propose a span whose end is after its start")
         if moment.timeline_start < 0 or moment.timeline_end > timeline_duration + 0.001:
             raise ProposalError(
                 f"{label} runs {moment.timeline_start:.2f}-"
                 f"{moment.timeline_end:.2f}s, outside the timeline's "
+                f"0-{timeline_duration:.2f}s",
+                "a moment outside the episode cannot be cut from it",
+                "move the moment inside the timeline's "
                 f"0-{timeline_duration:.2f}s")
         if moment.duration < MIN_REEL_SECONDS:
             raise ProposalError(
                 f"{label} is {moment.duration:.2f}s, under the "
-                f"{MIN_REEL_SECONDS}s floor - too short to contain the "
-                f"speech it claims")
+                f"{MIN_REEL_SECONDS}s floor",
+                "too short to contain the speech it claims",
+                "widen the span past the floor, or drop the moment")
         if segments and not _speech_within(segments, moment.timeline_start,
                                            moment.timeline_end):
             raise ProposalError(
                 f"{label} runs {moment.timeline_start:.2f}-"
                 f"{moment.timeline_end:.2f}s, where the transcript "
-                f"measured no speech at all. A moment nobody speaks in is "
-                f"an invented timecode.")
+                f"measured no speech at all",
+                "a moment nobody speaks in is an invented timecode",
+                "move the moment onto speech the transcript measured")
         cut = partial_overlaps(moment.timeline_start, moment.timeline_end,
                                transcript)
         if cut:
@@ -1492,8 +1528,10 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"containing them - it would open or close mid-sentence. "
                 f"First: [{first['timeline_start']:.2f}-"
                 f"{first['timeline_end']:.2f}s] "
-                f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
-                f"move the boundaries out to whole segments.")
+                f"{first.get('text', '')[:60]!r}",
+                "a reel must open and close on whole segments",
+                "use `snap_to_speech` to move the boundaries out to whole "
+                "segments")
         midword = _midword_keep_edges_for(moment, transcript)
         if midword:
             first = midword[0]
@@ -1502,11 +1540,12 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"through the word {first['word']!r} "
                 f"({first['word_start']:.2f}-{first['word_end']:.2f}s), "
                 f"once its repeated takes are cut out of it - the reel "
-                f"would play that word cut in half and then jump. A "
-                f"repair in either direction changes content: widening "
-                f"reinstates part of a take the cutter dropped, "
-                f"narrowing drops more speech it kept. Redraw the span "
-                f"past the take instead - no snap can do this one.")
+                f"would play that word cut in half and then jump",
+                "a repair in either direction changes content: widening "
+                "reinstates part of a take the cutter dropped, "
+                "narrowing drops more speech it kept",
+                "redraw the span past the take instead - no snap can do "
+                "this one")
         _check_call_to_action(moment, transcript, timeline_duration, label,
                               pinned=(moment.number in pinned_cta_reels))
 
@@ -1847,8 +1886,10 @@ def write_from_step_output(project_folder, force: bool = False) -> Path:
     step_output = layout.step_dir("select_reels", "output.json")
     if not step_output.exists():
         raise ProposalError(
-            f"{step_output} does not exist - step 3.4 has not run for "
-            f"this project, so there is nothing to propose.")
+            f"{step_output} does not exist",
+            "step 3.4 has not run for this project, so there is nothing "
+            "to propose",
+            "run the pipeline through select_reels first, then propose")
     selection = (json.loads(step_output.read_text())
                  .get("reel_selection") or {})
     moments = [ReelMoment.from_dict(m) for m in (selection.get("moments") or [])]
@@ -1865,9 +1906,10 @@ def write_from_step_output(project_folder, force: bool = False) -> Path:
             raise ProposalError(
                 f"{path} already carries {len(ruled)} moment(s) the "
                 f"captain has ruled on "
-                f"({', '.join(m.slug for m in ruled)}). Overwriting would "
-                f"discard their answer. Pass force=True only if that is "
-                f"what is intended.")
+                f"({', '.join(m.slug for m in ruled)})",
+                "overwriting would discard their answer",
+                "pass force=True only if discarding the ruling is what "
+                "is intended - or run `ren propose` with --force")
     return write_proposal(path, moments, transcript)
 
 
@@ -1890,7 +1932,10 @@ def read_proposal(path) -> List[ReelMoment]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if data.get("format") != PROPOSAL_FORMAT:
         raise ProposalError(
-            f"{path} is {data.get('format')!r}, not {PROPOSAL_FORMAT!r}")
+            f"{path} is {data.get('format')!r}, not {PROPOSAL_FORMAT!r}",
+            "a foreign document is not a reel proposal",
+            "point at the proposal file this pipeline published "
+            "(`ren propose`), not another document")
     return [ReelMoment.from_dict(m) for m in data.get("moments", [])]
 
 

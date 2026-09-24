@@ -64,8 +64,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
+from library.tools.ren_refusal import RenRefusal
 
-class BreakpointError(ValueError):
+
+class BreakpointError(RenRefusal):
     """A breakpoint request that cannot be honoured, refused by name."""
 
 
@@ -189,8 +191,9 @@ def resolve(known_steps: Iterable[str],
     contradicted = sorted(set(break_at) & set(no_break_at))
     if contradicted:
         raise BreakpointError(
-            f"{', '.join(contradicted)} is both --break and --no-break. "
-            f"Say it once."
+            f"{', '.join(contradicted)} is both --break and --no-break",
+            "one run cannot both stop at a step and not stop at it",
+            "say it once: keep it under --break or under --no-break"
         )
 
     disarm_all = EVERY_STEP in no_break_at
@@ -260,7 +263,11 @@ def _reject_unknown(known: Set[str], values: Sequence[str], label: str,
                 operations_mod.parse_address(value, operations_known)
                 continue
             except operations_mod.UnknownOperation as exc:
-                raise BreakpointError(f"{label} {exc}") from None
+                raise BreakpointError(
+                    f"{label} {value!r} names an operation that does not "
+                    f"parse",
+                    f"{exc.what}",
+                    f"{exc.fix}") from None
         known_line = f"Known steps: {', '.join(sorted(known))}."
         if operations_known:
             known_line += (f" Known operations: "
@@ -269,8 +276,10 @@ def _reject_unknown(known: Set[str], values: Sequence[str], label: str,
                            f"{operations_mod.ADDRESS_SEPARATOR}<start>-<end>.")
         raise BreakpointError(
             f"{label} {value!r} is not a step in this pipeline "
-            f"(and is not {EVERY_STEP!r}, which means every step). "
-            f"{known_line}"
+            f"(and is not {EVERY_STEP!r}, which means every step)",
+            f"{known_line}",
+            f"spell it as a known step, {EVERY_STEP!r} for every step, or "
+            f"a known operation address"
         )
 
 

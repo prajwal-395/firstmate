@@ -78,6 +78,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+
+from library.tools.ren_refusal import RenRefusal
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
@@ -90,12 +92,30 @@ SIGNOFF_FILENAME = "reel_signoffs.json"
 SIGNOFF_FORMAT = "reel_signoffs/1"
 
 
-class SignOffsUnreadable(RuntimeError):
+class SignOffsUnreadable(RenRefusal):
     """The sign-off file exists but cannot be parsed, and this says so."""
 
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            what=message,
+            why=("a sign-off record that cannot be read must REFUSE, "
+                 "never be replaced with an empty one: an unreadable "
+                 "approval reads exactly like no approval"),
+            fix=("recover pipeline_output/review/reel_signoffs.json from "
+                 "backup or version history - never hand-write an empty "
+                 "one, or promotion would overwrite the reel the captain "
+                 "signed off"))
 
-class SignOffNotDeclared(RuntimeError):
+
+class SignOffNotDeclared(RenRefusal):
     """A promotion would replace a signed-off reel and did not say so."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            what=message,
+            why="a promotion would replace a reel the captain signed off",
+            fix=("replace it deliberately: re-run the same command with "
+                 "the --supersede declaration the message above spells"))
 
 
 def signoffs_path_for(project_folder) -> str:

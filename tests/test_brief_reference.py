@@ -169,11 +169,13 @@ def test_the_example_command_the_reference_prints_actually_runs(tmp_path):
 
 
 
-def test_the_api_harness_gets_the_brief_restored_in_the_prompt(tmp_path):
+def test_the_agent_harness_gets_the_brief_restored_in_the_request(tmp_path):
     """`gather_step_inputs` has no idea which backend will answer, so the
     restore happens in `present_llm_step`, which does.  This drives the
-    real function through the real `api` path far enough to see the
-    context it builds."""
+    real function through the agent path and reads the request file -
+    the artefact the answering harness actually reads."""
+    from unittest.mock import patch
+
     from library.processes.edit_video import run_pipeline
 
     brief = tmp_path / "brief.md"
@@ -188,33 +190,28 @@ def test_the_api_harness_gets_the_brief_restored_in_the_prompt(tmp_path):
     prompt = tmp_path / "handoff.md"
     prompt.write_text("Do the work.\n", encoding="utf-8")
 
-    seen = {}
+    with patch.object(run_pipeline, "_agent_sleep"), patch.object(
+            run_pipeline, "_agent_clock",
+            side_effect=[0, 0, 10, 10, 10, 10]):
+        with pytest.raises(run_pipeline.LLMError, match="Timeout"):
+            run_pipeline.present_llm_step(
+                str(prompt),
+                {"creative_brief": ref, "project_folder": str(project)},
+                "plan_vfx",
+                manifest={"interface": {"inputs": [{"name": "creative_brief"}],
+                                        "outputs": [{"name": "vfx_plan"}]}},
+                full_auto="agent", llm_timeout=1)
 
-    class _FakeClient:
-        def __init__(self, *a, **kw):
-            pass
-
-        def generate(self, full_prompt, system=None):
-            seen["prompt"] = full_prompt
-            return json.dumps({"vfx_plan": []})
-
-    import library.tools.llm_client as llm_client
-    original = llm_client.LLMClient
-    llm_client.LLMClient = _FakeClient
-    try:
-        run_pipeline.present_llm_step(
-            str(prompt),
-            {"creative_brief": ref, "project_folder": str(project)},
-            "plan_vfx",
-            manifest={"interface": {"inputs": [{"name": "creative_brief"}],
-                                    "outputs": [{"name": "vfx_plan"}]}},
-            full_auto="api", llm_timeout=5)
-    finally:
-        llm_client.LLMClient = original
-
-    assert "UNIQUE_DEEP_SENTENCE_7c21" in seen["prompt"], (
-        "the api harness cannot follow a path, so it must be handed the "
-        "document whole - a route the model cannot follow is a loss")
+    req = json.loads((project / "pipeline_output" / "llm_requests"
+                      / "plan_vfx.json").read_text(encoding="utf-8"))
+    assert "NOT copied into this prompt" in req["context"]
+    assert str(brief) in req["context"], (
+        "the agent harness follows a path, so the filed request carries "
+        "the reference - the model reads the document from the file, "
+        "not from a copy")
+    assert "UNIQUE_DEEP_SENTENCE_7c21" not in req["context"], (
+        "the whole document must not travel when the harness can read "
+        "the file - that copy was the 37%-84% bloat this module removed")
 
 
 # ── #258: which series this video belongs to ─────────────────────────
@@ -271,11 +268,13 @@ def test_a_malformed_series_declaration_raises(tmp_path):
 
 
 
-def test_the_api_restore_states_the_series_ahead_of_the_document(tmp_path):
-    """`present_llm_step` replaces the reference with the whole file for
-    a harness that cannot follow a path.  That is the route on which the
-    model reads the full eight-series roster, so the membership line is
-    stated ahead of it rather than lost with the header."""
+def test_the_agent_restore_states_the_series_ahead_of_the_document(tmp_path):
+    """`present_llm_step` replaces the reference with the whole file in
+    the filed request.  That is the route on which the model reads the
+    full eight-series roster, so the membership line is stated ahead of
+    it rather than lost with the header."""
+    from unittest.mock import patch
+
     from library.processes.edit_video import run_pipeline
 
     brief = tmp_path / "brief.md"
@@ -288,33 +287,25 @@ def test_the_api_restore_states_the_series_ahead_of_the_document(tmp_path):
     prompt = tmp_path / "handoff.md"
     prompt.write_text("Do the work.\n", encoding="utf-8")
 
-    seen = {}
+    with patch.object(run_pipeline, "_agent_sleep"), patch.object(
+            run_pipeline, "_agent_clock",
+            side_effect=[0, 0, 10, 10, 10, 10]):
+        with pytest.raises(run_pipeline.LLMError, match="Timeout"):
+            run_pipeline.present_llm_step(
+                str(prompt),
+                {"creative_brief": ref, "project_folder": str(project)},
+                "plan_vfx",
+                manifest={"interface": {"inputs": [{"name": "creative_brief"}],
+                                        "outputs": [{"name": "vfx_plan"}]}},
+                full_auto="agent", llm_timeout=1)
 
-    class _FakeClient:
-        def __init__(self, *a, **kw):
-            pass
-
-        def generate(self, full_prompt, system=None):
-            seen["prompt"] = full_prompt
-            return json.dumps({"vfx_plan": []})
-
-    import library.tools.llm_client as llm_client
-    original = llm_client.LLMClient
-    llm_client.LLMClient = _FakeClient
-    try:
-        run_pipeline.present_llm_step(
-            str(prompt),
-            {"creative_brief": ref, "project_folder": str(project)},
-            "plan_vfx",
-            manifest={"interface": {"inputs": [{"name": "creative_brief"}],
-                                    "outputs": [{"name": "vfx_plan"}]}},
-            full_auto="api", llm_timeout=5)
-    finally:
-        llm_client.LLMClient = original
-
+    req = json.loads((project / "pipeline_output" / "llm_requests"
+                      / "plan_vfx.json").read_text(encoding="utf-8"))
     assert ("This video belongs to the series 'Through the 4th Wall'."
-            in seen["prompt"])
-    assert "UNIQUE_DEEP_SENTENCE_7c21" in seen["prompt"]
+            in req["context"]), (
+        "the membership line travels in the reference header, ahead of "
+        "the roster the model reads from the file")
+    assert "UNIQUE_DEEP_SENTENCE_7c21" not in req["context"]
 
 
 def test_the_api_restore_states_the_absence_for_a_project_naming_none(tmp_path):

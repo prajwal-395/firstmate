@@ -117,9 +117,10 @@ import os
 import subprocess
 
 from library.tools import window_frames as wf
+from library.tools.ren_refusal import RenRefusal
 
 
-class NothingWasWatched(RuntimeError):
+class NothingWasWatched(RenRefusal):
     """A watch was asked for and no picture reached anybody.
 
     Raised by `assert_watched`.  It is about the INSTRUMENT: the file
@@ -302,13 +303,14 @@ def assert_watched(drawn: dict, subject: str) -> None:
     """
     if not isinstance(drawn, dict) or not drawn.get("rows"):
         raise NothingWasWatched(
-            f"a watch of {subject} was asked for and NO STRIP WAS DRAWN "
-            f"({len(list((drawn or {}).get('missing') or []))} span(s) "
+            f"a watch of {subject} was asked for and NO STRIP WAS DRAWN",
+            f"{len(list((drawn or {}).get('missing') or []))} span(s) "
             f"reported undrawable, measured duration "
-            f"{(drawn or {}).get('duration', 0.0)!r}). Nothing saw this "
-            f"picture, so nothing may report on it. Check that ffmpeg is "
-            f"on the path and that the file has a decodable video "
-            f"stream - this is the instrument failing, not a verdict.")
+            f"{(drawn or {}).get('duration', 0.0)!r}. Nothing saw this "
+            f"picture, so nothing may report on it - this is the "
+            f"instrument failing, not a verdict",
+            "check that ffmpeg is on the path and that the file has a "
+            "decodable video stream, then watch again")
 
 
 # ── What a still can be asked ─────────────────────────────────────────
@@ -597,7 +599,7 @@ def delivered_reels(project_folder: str) -> list:
     return rows
 
 
-class NotDelivered(RuntimeError):
+class NotDelivered(RenRefusal):
     """There is no rendered file of this reel to watch.
 
     Not a defect and not a refusal to work: it is the constraint this
@@ -619,23 +621,26 @@ def delivered_reel(project_folder: str, reel) -> dict:
         number = int(reel)
     except (TypeError, ValueError):
         raise NotDelivered(
-            f"watch-reel takes a reel number, got {reel!r}.") from None
+            f"watch-reel takes a reel number, got {reel!r}",
+            "a reel is addressed by its number",
+            "pass the reel number, e.g. `ren watch <project> 3`") from None
     mine = [r for r in rows if r["reel"] == number]
     if not mine:
         known = sorted({r["reel"] for r in rows if r["reel"] is not None})
         raise NotDelivered(
-            f"reel {number} has no rendered file in this project's "
-            f"exports/. Watching is of the PICTURE, and a reel becomes a "
-            f"picture only when the captain renders it: run "
-            f"`manage_project.py deliver-reel <project> {number}` first. "
-            f"Delivered so far: {known or '(none)'}.")
+            f"reel {number} has no rendered file in this project's exports/",
+            "watching is of the PICTURE, and a reel becomes a picture "
+            "only when the captain renders it. "
+            f"Delivered so far: {known or '(none)'}",
+            f"run `ren deliver <project> {number}` first, then watch")
     row = mine[0]
     if not os.path.isfile(row["video_path"]):
         raise NotDelivered(
             f"reel {number} was delivered to {row['video_path']} and that "
-            f"file is not there now. The record is "
-            f"{row['sidecar']}; deliver it again or point --video at the "
-            f"file you want watched.")
+            f"file is not there now",
+            f"the record is {row['sidecar']}",
+            "deliver it again, or point --video at the file you want "
+            "watched")
     return row
 
 
@@ -689,8 +694,10 @@ def record_answer(record_path: str, answer) -> dict:
         record = json.load(handle)
     if not record.get("watched"):
         raise NothingWasWatched(
-            f"{record_path} records a watch that drew no picture, so "
-            f"there is nothing an answer could be about.")
+            f"{record_path} records a watch that drew no picture",
+            "there is nothing an answer could be about",
+            "watch the reel again so the record carries a picture, then "
+            "answer")
     record["answer"] = answer
     write_record(record_path, record)
     return record

@@ -178,13 +178,14 @@ from typing import Any, Mapping, Optional, Sequence
 
 from library.tools import composed_edit as _ce
 from library.tools.execution.fusion_tracks import FUSION_COMP_TRACKS
+from library.tools.ren_refusal import RenRefusal
 
 # ── Refusals ─────────────────────────────────────────────────────────
 #
 # Every one stops the touchup by name, before anything is staged.
 
 
-class TouchupRefused(RuntimeError):
+class TouchupRefused(RenRefusal):
     """A touchup that refused. Fail closed, always by name."""
 
 
@@ -261,10 +262,11 @@ def _find_clip(tracks: Sequence[Mapping], row: str,
         if 0 <= int(item_index) < len(clips):
             return clips[int(item_index)]
     raise TouchupRefused(
-        f"REFUSING: no item at {row}[{item_index}] on this reel. "
-        f"The change names an item the timeline does not have, so "
-        f"there is nothing to qualify - re-read the reel and state "
-        f"the item by its current position.")
+        f"no item at {row}[{item_index}] on this reel",
+        "the change names an item the timeline does not have, so "
+        "there is nothing to qualify",
+        "re-read the reel and state the item by its current position "
+        "in the --edits JSON, then re-run `ren touch`")
 
 
 def _track_exists(tracks: Sequence[Mapping], row: str) -> bool:
@@ -335,10 +337,11 @@ def locate_named_clip(tracks: Sequence[Mapping], old_clip: str,
                     "them either, so re-check both the row and the "
                     "name.")
             raise TouchupRefused(
-                f"REFUSING: no item named {old_clip!r} on {want} "
-                f"(looked in {want}; did not search "
-                f"{', '.join(unsearched) or 'no other video row'})."
-                f"{hint}")
+                f"no item named {old_clip!r} on {want}",
+                f"looked in {want}; did not search "
+                f"{', '.join(unsearched) or 'no other video row'}.{hint}",
+                "re-check the row and the name in the --edits JSON "
+                "against the live timeline, then re-run `ren touch`")
         if len(hits) > 1:
             positions = ", ".join(
                 f"{found}[{index}] @{clip.get('record_in')}.."
@@ -346,28 +349,33 @@ def locate_named_clip(tracks: Sequence[Mapping], old_clip: str,
                 for found, index, clip in hits
             )
             raise TouchupRefused(
-                f"REFUSING: {old_clip!r} appears {len(hits)} times on "
-                f"{want} ({positions}): one spec cannot mean "
-                f"{len(hits)} items - state which position the swap "
-                f"addresses.")
+                f"{old_clip!r} appears {len(hits)} times on "
+                f"{want} ({positions})",
+                f"one spec cannot mean {len(hits)} items",
+                "state which position the swap addresses in the --edits "
+                "JSON, then re-run `ren touch`")
         (found_row, index, clip) = hits[0]
         return (found_row, int(index), clip)
     searched = list(video_rows)
     if not searched:
         raise TouchupRefused(
-            f"REFUSING: no item named {old_clip!r} anywhere: the track "
-            f"read carries no video row to search, so there is "
-            f"nothing to address - re-check the reel's rows.")
+            f"no item named {old_clip!r} anywhere",
+            "the track read carries no video row to search, so there is "
+            "nothing to address",
+            "re-check the reel's rows (`ren drift <project>` shows the "
+            "live timeline), then re-run `ren touch`")
     hits = []
     for entry in searched:
         hits.extend((entry, index, clip) for index, clip
                     in _named_hits_on_row(tracks, entry, old_clip))
     if not hits:
         raise TouchupRefused(
-            f"REFUSING: no item named {old_clip!r} on any of the "
-            f"searched video rows ({', '.join(searched)}): the swap "
-            f"names an item the live timeline does not have, so "
-            f"there is nothing to address - re-check the clip name.")
+            f"no item named {old_clip!r} on any of the "
+            f"searched video rows ({', '.join(searched)})",
+            "the swap names an item the live timeline does not have, so "
+            "there is nothing to address",
+            "re-check the clip name against the live timeline, then "
+            "re-run `ren touch`")
     if len(hits) > 1:
         positions = ", ".join(
             f"{found}[{index}] @{clip.get('record_in')}.."
@@ -375,10 +383,11 @@ def locate_named_clip(tracks: Sequence[Mapping], old_clip: str,
             for found, index, clip in hits
         )
         raise TouchupRefused(
-            f"REFUSING: {old_clip!r} appears {len(hits)} times across "
-            f"the searched video rows ({positions}): one spec cannot "
-            f"mean {len(hits)} items - narrow with `row` or state "
-            f"which position the swap addresses.")
+            f"{old_clip!r} appears {len(hits)} times across "
+            f"the searched video rows ({positions})",
+            f"one spec cannot mean {len(hits)} items",
+            "narrow with `row` or state which position the swap "
+            "addresses in the --edits JSON, then re-run `ren touch`")
     (found_row, index, clip) = hits[0]
     return (found_row, int(index), clip)
 
@@ -516,9 +525,11 @@ def _live_tracks_for_reel(project_folder: str, reel: int,
              in timelines_to_replace(project, {final_name})}
     if final_name not in found:
         raise TouchupRefused(
-            f"REFUSING: no timeline called {final_name!r} is in the "
-            f"open Resolve project. A touchup edits the reel's "
-            f"existing timeline - build it with `build-reels` first.")
+            f"no timeline called {final_name!r} is in the "
+            f"open Resolve project",
+            "a touchup edits the reel's existing timeline, and there "
+            "is none to edit",
+            "build it first (`ren build <project>`), then touch it up")
     return _read.read_tracks(found[final_name])
 
 
@@ -548,10 +559,12 @@ def _check_free(spans: Sequence[tuple], row: str, start: int,
                 what: str = "the placement") -> None:
     if not _span_is_free(spans, start, duration, ignore):
         raise TouchupRefused(
-            f"REFUSING: {what} on {row} at {start} for {duration}f "
-            f"collides with a live item. `AppendToTimeline` silently "
-            f"places NOTHING where it would collide, so a touchup "
-            f"never asks it to - state a free span.")
+            f"{what} on {row} at {start} for {duration}f "
+            f"collides with a live item",
+            "`AppendToTimeline` silently places NOTHING where it would "
+            "collide, so a touchup never asks it to",
+            "state a free span in the --edits JSON, then re-run "
+            "`ren touch`")
 
 
 def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
@@ -567,9 +580,11 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
     edits = list((spec or {}).get("edits") or ())
     if not edits:
         raise TouchupRefused(
-            "REFUSING: the change names no edits. A touchup with "
-            "nothing to do is not a no-op to wave through - it is a "
-            "caller that failed to say what it wants.")
+            "the change names no edits",
+            "a touchup with nothing to do is not a no-op to wave "
+            "through - it is a caller that failed to say what it wants",
+            "pass the change as --edits JSON or --edits-file PATH to "
+            "`ren touch`")
     exclude = [(str(r), int(i)) for r, i in
                ((spec or {}).get("exclude") or ())]
     spans = _spans_of(tracks)
@@ -584,18 +599,21 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
     for position, edit in enumerate(edits):
         if not isinstance(edit, Mapping):
             raise TouchupRefused(
-                f"REFUSING: edit {position} is not a mapping "
-                f"({edit!r}). The gate classifies structure, and "
-                f"there is no structure here to classify.")
+                f"edit {position} is not a mapping ({edit!r})",
+                "the gate classifies structure, and there is no "
+                "structure here to classify",
+                f"write edit {position} as an object with an `op` in the "
+                f"--edits JSON, then re-run `ren touch`")
         op = str(edit.get("op") or "")
         handler = _OP_HANDLERS.get(op)
         if handler is None:
             raise TouchupRefused(
-                f"REFUSING: edit {position} names op {op!r}, and the "
-                f"gate knows seven ops: "
-                f"{sorted(_OP_HANDLERS)}. Anything else is "
-                f"unclassifiable - extend the gate deliberately "
-                f"rather than guessing what {op!r} means.")
+                f"edit {position} names op {op!r}",
+                f"the gate knows seven ops: {sorted(_OP_HANDLERS)}. "
+                f"Anything else is unclassifiable - the gate is extended "
+                f"deliberately, never by guessing what {op!r} means",
+                f"use one of {sorted(_OP_HANDLERS)} as the op for edit "
+                f"{position}, then re-run `ren touch`")
         length_changing = handler(
             edit, position, tracks, spans, changes, insertions,
             removals, moves, exclude, notes, in_place) or length_changing
@@ -696,13 +714,14 @@ def _check_post_edit_overlaps(tracks: Sequence[Mapping],
         for first, second in zip(placed, placed[1:]):
             if second[0] < first[1]:
                 raise TouchupRefused(
-                    f"REFUSING: the plan overlaps on {row}: "
+                    f"the plan overlaps on {row}: "
                     f"{first[2]} @{first[0]}..{first[1]} and "
-                    f"{second[2]} @{second[0]}..{second[1]}. "
-                    f"`AppendToTimeline` silently places nothing on "
-                    f"collision, so an overlapping plan never "
-                    f"reaches the delete - state the ordering "
-                    f"explicitly.")
+                    f"{second[2]} @{second[0]}..{second[1]}",
+                    "`AppendToTimeline` silently places nothing on "
+                    "collision, so an overlapping plan never "
+                    "reaches the delete",
+                    "state the ordering explicitly in the --edits JSON, "
+                    "then re-run `ren touch`")
 
 
 def _prune_shadowed_rewrites(changes: list,
@@ -779,9 +798,10 @@ def _check_single_claim(changes: Sequence[_ce.ItemChange],
                if len(kinds) > 1}
     if doubled:
         raise TouchupRefused(
-            f"REFUSING: two edits address the same item: {doubled}. "
-            f"One of them would place it twice. State the change as "
-            f"one edit per item.")
+            f"two edits address the same item: {doubled}",
+            "one of them would place it twice",
+            "state the change as one edit per item in the --edits JSON, "
+            "then re-run `ren touch`")
 
 
 # ── The seven ops ────────────────────────────────────────────────────
@@ -802,33 +822,36 @@ def _op_move(edit, position, tracks, spans, changes, insertions,
     to_record = edit.get("to_record")
     if not row or item_index is None or to_record is None:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`move`) needs `row`, `item` "
-            f"and `to_record` (got {dict(edit)!r}). A move to "
-            f"nowhere is unclassifiable.")
+            f"edit {position} (`move`) needs `row`, `item` "
+            f"and `to_record` (got {dict(edit)!r})",
+            "a move to nowhere is unclassifiable",
+            f"give edit {position} `row`, `item` and `to_record` in the "
+            f"--edits JSON, then re-run `ren touch`")
     if _is_continuous_row(row):
         raise TouchupRefused(
-            f"REFUSING: edit {position} moves {row}[{item_index}] "
-            f"away, and {row} is continuous program - vacating it "
-            f"leaves black or silence. State the covering change "
-            f"(what plays those frames instead) rather than asking "
-            f"the gate to guess it.")
+            f"edit {position} moves {row}[{item_index}] "
+            f"away, and {row} is continuous program",
+            "vacating it leaves black or silence",
+            "state the covering change (what plays those frames instead) "
+            "in the --edits JSON, then re-run `ren touch`")
     if not _track_exists(tracks, to_row):
         raise TouchupRefused(
-            f"REFUSING: edit {position} moves to row {to_row}, and "
-            f"this reel has no such row. The gate never invents a "
-            f"track - name one the timeline already carries.")
+            f"edit {position} moves to row {to_row}, and "
+            f"this reel has no such row",
+            "the gate never invents a track",
+            "name a row the timeline already carries in the --edits "
+            "JSON, then re-run `ren touch`")
     if to_row != row:
         raise TouchupRefused(
-            f"REFUSING: edit {position} moves {row}[{item_index}] to "
-            f"{to_row}, and a move across rows is not a composed "
-            f"edit: the composition addresses what it deletes by "
-            f"(row, position), so a cross-row plan would capture "
-            f"whatever sits at that position on the TARGET row and "
-            f"delete a bystander while duplicating the moved item. "
-            f"State it as two edits - `remove_overlay` from {row} "
+            f"edit {position} moves {row}[{item_index}] to {to_row}",
+            "a move across rows is not a composed edit: the composition "
+            "addresses what it deletes by (row, position), so a "
+            "cross-row plan would capture whatever sits at that "
+            "position on the TARGET row and delete a bystander while "
+            "duplicating the moved item",
+            f"state it as two edits - `remove_overlay` from {row} "
             f"plus `add_overlay` on {to_row} carrying the treatment "
-            f"explicitly - rather than asking the gate to guess the "
-            f"carrying.")
+            f"explicitly - then re-run `ren touch`")
     clip = _find_clip(tracks, row, int(item_index))
     duration = int(clip["duration"])
     own_span = (int(clip["record_in"]), int(clip["record_out"]))
@@ -866,16 +889,21 @@ def _op_swap_pixels(edit, position, tracks, spans, changes, insertions,
     media = edit.get("media")
     if not row or item_index is None or not media:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`swap_pixels`) needs `row`, "
-            f"`item` and `media` (got {dict(edit)!r}).")
+            f"edit {position} (`swap_pixels`) needs `row`, "
+            f"`item` and `media` (got {dict(edit)!r})",
+            "a swap naming no item or no replacement cannot be staged",
+            f"give edit {position} `row`, `item` and `media` in the "
+            f"--edits JSON, then re-run `ren touch`")
     clip = _find_clip(tracks, row, int(item_index))
     if _ce.treatment_comps(clip):
         raise TouchupRefused(
-            f"REFUSING: edit {position} swaps the pixels of "
+            f"edit {position} swaps the pixels of "
             f"{row}[{item_index}], and that item carries a drawing "
-            f"Fusion comp. A pool-item swap cannot carry a treatment "
-            f"across - there is no route from the old comp to the "
-            f"new item - so this needs a rebuild, not a touchup.")
+            f"Fusion comp",
+            "a pool-item swap cannot carry a treatment across - there "
+            "is no route from the old comp to the new item",
+            "rebuild the reel (`ren build <project>`) instead of "
+            "touching it up")
     duration = int(edit.get("duration") or clip["duration"])
     removals.append({"row": row, "item_index": int(item_index),
                      "record_frame": int(clip["record_in"]),
@@ -902,31 +930,39 @@ def _op_add_overlay(edit, position, tracks, spans, changes, insertions,
     properties = edit.get("properties")
     if (not row or not media or record is None or duration is None):
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`add_overlay`) needs `row`, "
-            f"`media`, `record` and `duration` (got {dict(edit)!r}).")
+            f"edit {position} (`add_overlay`) needs `row`, "
+            f"`media`, `record` and `duration` (got {dict(edit)!r})",
+            "an overlay naming no row, media, position or length cannot "
+            "be staged",
+            f"give edit {position} all four keys in the --edits JSON, "
+            f"then re-run `ren touch`")
     if properties is None:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`add_overlay`) declares no "
-            f"`properties`. A placed item comes back at IDENTITY, so "
-            f"it would render at a framing nobody chose - declare "
-            f"them (`{{}}` if identity is what is wanted).")
+            f"edit {position} (`add_overlay`) declares no `properties`",
+            "a placed item comes back at IDENTITY, so it would render "
+            "at a framing nobody chose",
+            f"declare `properties` on edit {position} (`{{}}` if identity "
+            f"is what is wanted), then re-run `ren touch`")
     if not _track_exists(tracks, row):
         raise TouchupRefused(
-            f"REFUSING: edit {position} adds to row {row}, and this "
-            f"reel has no such row. The gate never invents a track.")
+            f"edit {position} adds to row {row}, and this "
+            f"reel has no such row",
+            "the gate never invents a track",
+            "name a row the timeline already carries in the --edits "
+            "JSON, then re-run `ren touch`")
     if row in COMP_ROWS:
         raise TouchupRefused(
-            f"REFUSING: edit {position} adds a new item on {row}, "
-            f"and {row} is a comp-bearing row - the pass writes "
-            f"per-clip Fusion comps there "
-            f"(`execution/fusion_tracks.FUSION_COMP_TRACKS`), so "
-            f"every clip around it carries a treatment. A newly "
-            f"placed item has no manifest spec for the pass to key "
-            f"one to, so it would land with no comp beside treated "
-            f"neighbours - and render, looking like a choice. "
-            f"Rebuild the reel with `build-reels`, which plans the "
-            f"new clip with its treatment, instead of touching it "
-            f"up.")
+            f"edit {position} adds a new item on {row}, "
+            f"and {row} is a comp-bearing row",
+            "the pass writes per-clip Fusion comps there "
+            "(`execution/fusion_tracks.FUSION_COMP_TRACKS`), so every "
+            "clip around it carries a treatment. A newly placed item "
+            "has no manifest spec for the pass to key one to, so it "
+            "would land with no comp beside treated neighbours - and "
+            "render, looking like a choice",
+            "rebuild the reel with `ren build <project>` "
+            "(manage_project.py build-reels), which plans the "
+            "new clip with its treatment, instead of touching it up")
     _check_free(spans.get(row, []), row, int(record), int(duration),
                 what=f"edit {position} (`add_overlay`)")
     insertions.append(_PendingSwap(
@@ -946,14 +982,18 @@ def _op_remove_overlay(edit, position, tracks, spans, changes,
     item_index = edit.get("item")
     if not row or item_index is None:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`remove_overlay`) needs "
-            f"`row` and `item` (got {dict(edit)!r}).")
+            f"edit {position} (`remove_overlay`) needs "
+            f"`row` and `item` (got {dict(edit)!r})",
+            "a removal naming no item cannot be staged",
+            f"give edit {position} `row` and `item` in the --edits JSON, "
+            f"then re-run `ren touch`")
     if _is_continuous_row(row):
         raise TouchupRefused(
-            f"REFUSING: edit {position} removes {row}[{item_index}], "
-            f"and {row} is continuous program - removing it leaves "
-            f"black or silence. State the covering change rather "
-            f"than asking the gate to guess it.")
+            f"edit {position} removes {row}[{item_index}], "
+            f"and {row} is continuous program",
+            "removing it leaves black or silence",
+            "state the covering change in the --edits JSON, then re-run "
+            "`ren touch`")
     clip = _find_clip(tracks, row, int(item_index))
     removals.append({"row": row, "item_index": int(item_index),
                      "record_frame": int(clip["record_in"]),
@@ -1000,16 +1040,21 @@ def _op_retime(edit, position, tracks, spans, changes, insertions,
     duration = edit.get("duration")
     if not row or item_index is None or duration is None:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`retime`) needs `row`, "
-            f"`item` and `duration` (got {dict(edit)!r}).")
+            f"edit {position} (`retime`) needs `row`, "
+            f"`item` and `duration` (got {dict(edit)!r})",
+            "a retime naming no item or no length cannot be staged",
+            f"give edit {position} `row`, `item` and `duration` in the "
+            f"--edits JSON, then re-run `ren touch`")
     clip = _find_clip(tracks, row, int(item_index))
     old = int(clip["duration"])
     new = int(duration)
     if new <= 0:
         raise TouchupRefused(
-            f"REFUSING: edit {position} retimes {row}[{item_index}] "
-            f"to {new}f. A zero or negative played length is not a "
-            f"trim - to take an item out, remove it explicitly.")
+            f"edit {position} retimes {row}[{item_index}] "
+            f"to {new}f",
+            "a zero or negative played length is not a trim",
+            "to take an item out, remove it explicitly with a "
+            "`remove_overlay` edit, then re-run `ren touch`")
     if new == old:
         notes.append(f"edit {position}: retime {row}[{item_index}] "
                      f"to its own length ({old}f) - no-op, qualified "
@@ -1022,16 +1067,21 @@ def _op_retime(edit, position, tracks, spans, changes, insertions,
                                   exclude=exclude)
     except _ce.SourceHeadroomExhausted as starved:
         raise TouchupRefused(
-            f"REFUSING: edit {position} retimes {row}[{item_index}] "
-            f"{old}->{new}f and {starved} lengthening an item past "
-            f"its source file places a hole rather than picture.")
+            f"edit {position} retimes {row}[{item_index}] "
+            f"{old}->{new}f and {starved}",
+            "lengthening an item past its source file places a hole "
+            "rather than picture",
+            "shorten the retime to fit the source headroom, then "
+            "re-run `ren touch`")
     if not any(c.row == row and c.item_index == int(item_index)
                and c.played_length_changes for c in planned):
         raise TouchupRefused(
-            f"REFUSING: edit {position} retimes {row}[{item_index}] "
+            f"edit {position} retimes {row}[{item_index}] "
             f"{old}->{new}f and the ripple planner did not extend "
-            f"that item (cut @{cut_frame}, delta {delta:+d}). The "
-            f"plan and the ask disagree, so nothing is staged.")
+            f"that item (cut @{cut_frame}, delta {delta:+d})",
+            "the plan and the ask disagree, so nothing is staged",
+            "restate the retime against the live timeline, then re-run "
+            "`ren touch`")
     changes.extend(planned)
     stretched = sorted(f"{c.row}[{c.item_index}]" for c in planned
                        if c.played_length_changes)
@@ -1052,14 +1102,20 @@ def _op_set_properties(edit, position, tracks, spans, changes,
     if not row or item_index is None or not isinstance(properties,
                                                        Mapping):
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`set_properties`) needs "
+            f"edit {position} (`set_properties`) needs "
             f"`row`, `item` and a `properties` mapping (got "
-            f"{dict(edit)!r}).")
+            f"{dict(edit)!r})",
+            "a property write naming no item or no mapping cannot be "
+            "staged",
+            f"give edit {position} `row`, `item` and `properties` in the "
+            f"--edits JSON, then re-run `ren touch`")
     if not properties:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`set_properties`) names no "
-            f"properties. A touchup with nothing to write is a caller "
-            f"that failed to say what it wants.")
+            f"edit {position} (`set_properties`) names no properties",
+            "a touchup with nothing to write is a caller that failed to "
+            "say what it wants",
+            f"name at least one property on edit {position}, then re-run "
+            f"`ren touch`")
     unsettable = {
         key: ("read-only - Resolve reports it and will not take it "
               "back" if key in _ce.READ_ONLY_PROPERTIES
@@ -1070,10 +1126,12 @@ def _op_set_properties(edit, position, tracks, spans, changes,
             or (isinstance(value, str) and value.startswith("<")))}
     if unsettable:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`set_properties`) asks to "
-            f"set what cannot be set: {unsettable}. "
-            f"`composed_edit.set_properties` would skip these "
-            f"silently, so the gate refuses them loudly instead.")
+            f"edit {position} (`set_properties`) asks to "
+            f"set what cannot be set: {unsettable}",
+            "`composed_edit.set_properties` would skip these silently, "
+            "so the gate refuses them loudly instead",
+            f"drop {sorted(unsettable)} from edit {position}'s "
+            f"properties, then re-run `ren touch`")
     clip = _find_clip(tracks, row, int(item_index))
     # Every unsettable key raised above, so what remains is all of it.
     wanted = dict(properties)
@@ -1097,68 +1155,86 @@ def _op_entry_motion(edit, position, tracks, spans, changes,
         fade_out = int(edit.get("fade_out_frames") or 0)
     except (TypeError, ValueError):
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`entry_motion`) needs "
+            f"edit {position} (`entry_motion`) needs "
             f"`fade_in_frames`/`fade_out_frames` as frame counts "
             f"(got {edit.get('fade_in_frames')!r}/"
-            f"{edit.get('fade_out_frames')!r}).")
+            f"{edit.get('fade_out_frames')!r})",
+            "a ramp that is not a frame count cannot be drawn",
+            f"give edit {position} integer frame counts, then re-run "
+            f"`ren touch`")
     if not row or item_index is None:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`entry_motion`) needs "
-            f"`row` and `item` (got {dict(edit)!r}).")
+            f"edit {position} (`entry_motion`) needs "
+            f"`row` and `item` (got {dict(edit)!r})",
+            "motion naming no item cannot be staged",
+            f"give edit {position} `row` and `item`, then re-run "
+            f"`ren touch`")
     if fade_in < 0 or fade_out < 0:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`entry_motion`) names a "
-            f"negative ramp ({fade_in}/{fade_out}f). A ramp runs "
-            f"forward or not at all.")
+            f"edit {position} (`entry_motion`) names a "
+            f"negative ramp ({fade_in}/{fade_out}f)",
+            "a ramp runs forward or not at all",
+            f"use non-negative ramps on edit {position}, then re-run "
+            f"`ren touch`")
     if fade_in == 0 and fade_out == 0:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`entry_motion`) animates "
-            f"nothing - both ramps are 0f. A touchup with nothing "
-            f"to draw is a caller that failed to say what it wants.")
+            f"edit {position} (`entry_motion`) animates "
+            f"nothing - both ramps are 0f",
+            "a touchup with nothing to draw is a caller that failed to "
+            "say what it wants",
+            f"give edit {position} a non-zero ramp, then re-run "
+            f"`ren touch`")
     if _is_audio_row(row):
         raise TouchupRefused(
-            f"REFUSING: edit {position} puts entry motion on {row}, "
-            f"and entry motion is a Fusion video treatment - audio "
-            f"rows carry no Fusion comps.")
+            f"edit {position} puts entry motion on {row}",
+            "entry motion is a Fusion video treatment - audio rows "
+            "carry no Fusion comps",
+            "put the motion on a video row, then re-run `ren touch`")
     if row in COMP_ROWS:
         raise TouchupRefused(
-            f"REFUSING: edit {position} animates an item on {row}, "
-            f"and {row} is a comp-bearing row - the pass writes "
-            f"per-clip Fusion comps there "
-            f"(`execution/fusion_tracks.FUSION_COMP_TRACKS`), so a "
-            f"second treatment stacked beside the pass's own would "
-            f"be dropped silently by the next re-derivation, whose "
-            f"manifest does not know it. Rebuild the reel with "
-            f"`build-reels`, which plans the treatment whole, "
-            f"instead of touching it up.")
+            f"edit {position} animates an item on {row}, "
+            f"and {row} is a comp-bearing row",
+            "the pass writes per-clip Fusion comps there "
+            "(`execution/fusion_tracks.FUSION_COMP_TRACKS`), so a "
+            "second treatment stacked beside the pass's own would "
+            "be dropped silently by the next re-derivation, whose "
+            "manifest does not know it",
+            "rebuild the reel (`ren build <project>`), which plans the "
+            "treatment whole, instead of touching it up")
     clip = _find_clip(tracks, row, int(item_index))
     if _ce.treatment_comps(clip):
         raise TouchupRefused(
-            f"REFUSING: edit {position} animates {row}[{item_index}], "
+            f"edit {position} animates {row}[{item_index}], "
             f"and that item already carries a drawing comp (or one "
             f"that could not be read - an unreadable graph is not "
-            f"evidence of an empty one). A second treatment the "
-            f"recorded manifest does not know would be dropped "
-            f"silently by the next re-derivation, so this needs a "
-            f"rebuild, not a touchup.")
+            f"evidence of an empty one)",
+            "a second treatment the recorded manifest does not know "
+            "would be dropped silently by the next re-derivation",
+            "rebuild the reel (`ren build <project>`) instead of "
+            "touching it up")
     duration = int(clip["duration"])
     if fade_in + fade_out > duration - 1:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`entry_motion`) wants "
+            f"edit {position} (`entry_motion`) wants "
             f"fade_in {fade_in}f + fade_out {fade_out}f on "
-            f"{row}[{item_index}], which plays {duration}f. The "
-            f"ramps need one frame more of clip than of ramp between "
-            f"them - a ramp longer than its clip never reaches "
-            f"neutral, so the effect would hold across the whole "
-            f"clip (`fusion.played_window`).")
+            f"{row}[{item_index}], which plays {duration}f",
+            "the ramps need one frame more of clip than of ramp between "
+            "them - a ramp longer than its clip never reaches "
+            "neutral, so the effect would hold across the whole "
+            "clip (`fusion.played_window`)",
+            f"shorten the ramps to fit {duration}f on edit {position}, "
+            f"then re-run `ren touch`")
     left_offset = clip.get("left_offset")
     if left_offset is None:
         raise TouchupRefused(
-            f"REFUSING: edit {position} (`entry_motion`) animates "
+            f"edit {position} (`entry_motion`) animates "
             f"{row}[{item_index}], and the read did not say which "
             f"source frame that item starts on (`left_offset` "
-            f"unreadable). The entry comp is keyed to the played "
-            f"window, so without it there is nothing to key to.")
+            f"unreadable)",
+            "the entry comp is keyed to the played window, so without "
+            "it there is nothing to key to",
+            "re-read the reel (`ren drift <project>`) - if the offset "
+            "is still unreadable the item cannot carry entry motion")
     in_place.append({"kind": "entry_motion", "row": row,
                      "item_index": int(item_index),
                      "record_frame": int(clip["record_in"]),
@@ -1320,12 +1396,13 @@ def check_manifest_matches(manifest: Mapping,
             }
     if mismatched:
         raise TouchupRefused(
-            f"REFUSING: the recorded fusion manifest no longer "
-            f"describes this reel's timeline ({mismatched}). The "
-            f"comp pass maps specs to items by source in order, so "
-            f"it would write comps onto the wrong clips. Rebuild "
-            f"the reel with `build-reels` - which re-derives the "
-            f"manifest - instead of touching it up.")
+            f"the recorded fusion manifest no longer "
+            f"describes this reel's timeline ({mismatched})",
+            "the comp pass maps specs to items by source in order, so "
+            "it would write comps onto the wrong clips",
+            "rebuild the reel with `ren build <project>` "
+            "(manage_project.py build-reels) - which re-derives the "
+            "manifest - instead of touching it up")
 
 
 # ── Resolving media paths to pool items ──────────────────────────────
@@ -1342,22 +1419,30 @@ def pool_item_for_path(pool: Any, path: str) -> Any:
     wanted = os.path.abspath(os.path.expanduser(path))
     if not os.path.isfile(wanted):
         raise TouchupRefused(
-            f"REFUSING: the overlay file is not on disk: {wanted}. "
-            f"A touchup never renders media - render it first, then "
-            f"state its path.")
+            f"the overlay file is not on disk: {wanted}",
+            "a touchup never renders media",
+            "render it first, then state its path in the --edits JSON "
+            "and re-run `ren touch`")
     found = _find_pool_item(pool, wanted)
     if found is not None:
         return found
     imported = pool.ImportMedia([wanted])
     if not imported:
         raise TouchupRefused(
-            f"REFUSING: the pool would not import {wanted} "
-            f"(`ImportMedia` returned nothing). Nothing was staged.")
+            f"the pool would not import {wanted} "
+            f"(`ImportMedia` returned nothing)",
+            "without a pool item there is nothing to place - and "
+            "nothing was staged",
+            "check the file is a format Resolve imports, then re-run "
+            "`ren touch`")
     found = _find_pool_item(pool, wanted)
     if found is None:
         raise TouchupRefused(
-            f"REFUSING: {wanted} imported but no pool item reads "
-            f"back at that path. Nothing was staged.")
+            f"{wanted} imported but no pool item reads back at that path",
+            "the import reported success and the item is not there - "
+            "nothing was staged",
+            "re-import the file in Resolve by hand, then re-run "
+            "`ren touch`")
     return found
 
 
@@ -1416,8 +1501,12 @@ def resolve_final_name(project_folder: str, reel: int) -> str:
         if int(moment.number) == int(reel):
             return moment.timeline_name
     raise TouchupRefused(
-        f"REFUSING: the plan names no reel {reel}. A touchup edits "
-        f"a built reel the plan describes - it never invents one.")
+        f"the plan names no reel {reel}",
+        "a touchup edits a built reel the plan describes - it never "
+        "invents one",
+        "run `ren propose <project>` first, or touch a reel the plan "
+        "names (`ren status <project>` lists them)")
+
 
 
 def _resolve_insertions(pool: Any, timeline: Any,
@@ -1432,20 +1521,25 @@ def _resolve_insertions(pool: Any, timeline: Any,
         if (frames is not None
                 and int(item.left_offset) + int(item.duration) > frames):
             raise TouchupRefused(
-                f"REFUSING: edit {item.position} wants "
+                f"edit {item.position} wants "
                 f"{item.duration}f from offset {item.left_offset} of "
-                f"{item.media}, which holds {frames}f. Placing it "
-                f"would put a hole where picture was asked for.")
+                f"{item.media}, which holds {frames}f",
+                "placing it would put a hole where picture was asked for",
+                "shorten the span to fit the source file, then re-run "
+                "`ren touch`")
         if item.carry_from is not None:
             row, index = item.carry_from
             live = _live_rows(timeline)
             items = live.get(str(row).upper()) or []
             if int(index) >= len(items):
                 raise TouchupRefused(
-                    f"REFUSING: edit {item.position} carries the "
+                    f"edit {item.position} carries the "
                     f"treatment of {row}[{index}], which is no "
-                    f"longer on the staging timeline. The plan and "
-                    f"the timeline disagree, so nothing is deleted.")
+                    f"longer on the staging timeline",
+                    "the plan and the timeline disagree, so nothing is "
+                    "deleted",
+                    "re-read the reel and restate the swap against the "
+                    "live timeline, then re-run `ren touch`")
             source = items[int(index)]
             try:
                 properties = dict(source.GetProperty() or {})
@@ -1454,11 +1548,13 @@ def _resolve_insertions(pool: Any, timeline: Any,
             nodes = _live_prop(source, "GetNumNodes", None)
             if nodes is not None and int(nodes) > 1:
                 raise TouchupRefused(
-                    f"REFUSING: edit {item.position} swaps "
+                    f"edit {item.position} swaps "
                     f"{row}[{index}], which carries a colour grade "
-                    f"({nodes} nodes). An `Insertion` cannot take a "
-                    f"grade from an item about to be deleted, so a "
-                    f"graded swap needs a rebuild, not a touchup.")
+                    f"({nodes} nodes)",
+                    "an `Insertion` cannot take a grade from an item "
+                    "about to be deleted",
+                    "rebuild the reel (`ren build <project>`) - a graded "
+                    "swap needs a rebuild, not a touchup")
             grade_from = None
         else:
             properties = dict(item.declared_properties or {})
@@ -1663,8 +1759,10 @@ def _plan_post_edit_counts(tracks: Sequence[Mapping],
     void = sorted(row for row, count in counts.items() if count < 0)
     if void:
         raise TouchupRefused(
-            f"REFUSING: the plan accounts {void} below zero items. "
-            f"The plan and the timeline disagree - nothing is staged.")
+            f"the plan accounts {void} below zero items",
+            "the plan and the timeline disagree - nothing is staged",
+            "restate the plan against the live timeline (`ren drift "
+            "<project>` shows it), then re-run `ren touch`")
     return counts
 
 
@@ -1768,17 +1866,19 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
              timelines_to_replace(project, {final})}
     if final not in found:
         raise TouchupRefused(
-            f"REFUSING: no timeline called {final!r} is in Resolve "
-            f"project {resolve_name!r}. A touchup edits the reel's "
-            f"existing timeline - build it with `build-reels` first.")
+            f"no timeline called {final!r} is in Resolve "
+            f"project {resolve_name!r}",
+            "a touchup edits the reel's existing timeline, and there "
+            "is none to edit",
+            "build it first (`ren build <project>`), then touch it up")
     source = found[final]
     staging = staging_name(final)
     if timelines_to_replace(project, {staging}):
         raise TouchupRefused(
-            f"REFUSING: a staging container {staging!r} from an "
-            f"interrupted run is still in the project. Clear it in "
-            f"Resolve before re-running; reusing it would grade one "
-            f"run's content as another's.")
+            f"a staging container {staging!r} from an "
+            f"interrupted run is still in the project",
+            "reusing it would grade one run's content as another's",
+            "clear it in Resolve before re-running `ren touch`")
 
     tracks = _read.read_tracks(source)
     qualification = qualify(tracks, spec)
@@ -1809,13 +1909,13 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         manifest = recorded_fusion_manifest(project_folder, final)
         if manifest is None:
             raise TouchupRefused(
-                f"REFUSING: this change alters a played length and no "
-                f"recorded fusion manifest for {final!r} is on disk. "
-                f"Without the manifest there is no route to the comp "
-                f"generator, and a trim without re-derivation renders "
-                f"wrong on 99% of the clip's frames while looking "
-                f"right. Rebuild the reel with `build-reels` - which "
-                f"re-derives the manifest - instead.")
+                f"this change alters a played length and no "
+                f"recorded fusion manifest for {final!r} is on disk",
+                "without the manifest there is no route to the comp "
+                "generator, and a trim without re-derivation renders "
+                "wrong on 99% of the clip's frames while looking right",
+                "rebuild the reel (`ren build <project>`) - which "
+                "re-derives the manifest - instead")
         check_manifest_matches(manifest, tracks)
         from library.tools.composed_edit import ReelLookRederiver
         rederiver = ReelLookRederiver(
@@ -1844,7 +1944,11 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
                                  == COMPOSED_WITH_REDERIVATION else None),
                 batch=str(spec.get("batch") or ""))
     except _journal.UndoRefused as unrecordable:
-        raise TouchupRefused(str(unrecordable)) from unrecordable
+        # The journal's refusal already carries what/why/fix - carry
+        # it across unchanged so the shape survives the translation.
+        raise TouchupRefused(
+            unrecordable.what, unrecordable.why,
+            unrecordable.fix) from unrecordable
     receipt["journal"] = journal["id"]
 
     stage_started = time.time()

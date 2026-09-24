@@ -136,9 +136,9 @@ LEDE_CHARS = 160
 # - `mock`: replays a recorded answer.  No model runs, so the shape of
 #   the brief reaches nobody; it is listed as reaching because a recorded
 #   answer is unaffected either way.
-# - `api`: `llm_client.LLMClient.generate` posts one string to an HTTP
-#   endpoint and returns the reply.  There is no tool loop and no
-#   filesystem on the other side, so a path is a dead end.
+# - `api`: the removed `llm_client.LLMClient.generate` posted one string
+#   to an HTTP endpoint and returned the reply.  There was no tool loop
+#   and no filesystem on the other side, so a path was a dead end.
 HARNESS_READS_FILES = {
     "agent": True,
     "mock": True,

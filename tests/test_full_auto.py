@@ -23,24 +23,28 @@ def temp_project_dir(tmp_path):
     project_dir.mkdir()
     return str(project_dir)
 
-def test_full_auto_api(temp_project_dir):
-    """Test that --full-auto api with a mocked LLMClient doesn't return awaiting_llm markers"""
+def test_full_auto_api_is_refused_with_a_fix(temp_project_dir):
+    """`--full-auto api` is gone: provider API calls are out of scope.
+
+    Ren answers LLM steps through the host harness (the agent-mode
+    file handshake). Passing the removed backend refuses in the
+    refusal shape - naming the fix - rather than calling anything.
+    """
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+
     inputs = {"project_folder": temp_project_dir, "some_data": 123}
     manifest = {"interface": {"outputs": [{"name": "test_out"}]}}
-    
+
     # Create a fake handoff.md
     prompt_path = Path(temp_project_dir) / "handoff.md"
     prompt_path.write_text("Test prompt")
-    
-    with patch("library.tools.llm_client.LLMClient.generate") as mock_generate:
-        mock_generate.return_value = '```json\n{"test_out": "success"}\n```'
-        
-        output = present_llm_step(str(prompt_path), inputs, "test_step", manifest, full_auto="api")
-        
-        assert isinstance(output, dict)
-        assert output.get("__status") != "awaiting_llm"
-        assert output.get("test_out") == "success"
-        mock_generate.assert_called_once()
+
+    with pytest.raises(RenRefusal) as refused:
+        present_llm_step(str(prompt_path), inputs, "test_step", manifest,
+                         full_auto="api")
+
+    assert refused.value.fix == "re-run with --full-auto agent"
+    assert REFUSAL_EXIT_CODE == 4
 
 def test_hybrid_step_full_auto(temp_project_dir):
     """Test that hybrid steps with --full-auto run full pre-bridge -> LLM -> post-bridge"""
@@ -65,7 +69,7 @@ def test_hybrid_step_full_auto(temp_project_dir):
         with patch("library.processes.edit_video.run_pipeline.present_llm_step") as mock_present:
             mock_present.return_value = {"llm_val": "creative"}
             
-            output = run_hybrid_step(step_dir, inputs, "my_step", full_auto="api", llm_timeout=10)
+            output = run_hybrid_step(step_dir, inputs, "my_step", full_auto="agent", llm_timeout=10)
             
             assert mock_present.called
             assert output.get("final_out") is True

@@ -30,6 +30,8 @@ import os
 import sys
 from pathlib import Path
 
+from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+
 # Add repo root to path
 REPO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -530,11 +532,16 @@ def cmd_new(args):
         print(f"    2. Fill brief.md, then run pipeline: python3 manage_project.py run {config.slug}")
 
     except FileExistsError as e:
-        print(f"  Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "a project with this slug already exists",
+            f"run `ren status {args.slug}` to see it, or create under "
+            f"another slug") from e
     except ValueError as e:
-        print(f"  Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "one of the new-project values does not check out",
+            "fix the flagged value and re-run `ren new`") from e
 
 
 def cmd_status(args):
@@ -542,8 +549,12 @@ def cmd_status(args):
     try:
         info = project_status(args.slug)
     except FileNotFoundError as e:
-        print(f"  Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            f"run `ren new {args.slug}` to create it, `ren projects` "
+            f"to list them, or pass the project's absolute path "
+            f"instead of the slug") from e
 
     print(f"\n  Project: {info['name']}")
     print(f"  Slug:    {info['slug']}")
@@ -680,8 +691,8 @@ def cmd_sign_off(args):
         entry = reel_signoff.sign_off(project_folder, args.reel,
                                       note=args.note, by=args.by)
     except reel_signoff.UncarriedNotesOpen as owed:
-        print(f"{owed}", file=sys.stderr)
-        sys.exit(1)
+        print(owed.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
     print(f"Signed off {entry['reel']!r}"
           + (f" in round {entry['round']}" if entry.get("round") else "")
           + f", by {entry['by']}.")
@@ -717,8 +728,8 @@ def cmd_purge(args):
         plan = retention.plan_purge(project_folder, db_paths)
     except (retention.PurgeRefused,
             retention.RetentionSettingInvalid) as refused:
-        print(f"{refused}", file=sys.stderr)
-        sys.exit(1)
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
     if plan.mode == retention.KEEP:
         print(f"Retention is {retention.KEEP!r}: nothing is purged.")
         return
@@ -765,21 +776,23 @@ def cmd_discharge_uncarried(args):
             if not open_notes:
                 print(f"{reel!r} owes nothing - nothing discharged.")
                 return
-            print(f"{reel!r} owes {len(open_notes)} notes - name one:",
-                  file=sys.stderr)
-            for entry in open_notes:
-                words = " ".join(
-                    (entry.get("text") or "").split())[:120]
-                print(f"  --identity {entry['identity']} "
-                      f"\"{words}\"", file=sys.stderr)
-            sys.exit(1)
+            listing = "\n".join(
+                f"  --identity {entry['identity']} "
+                f"\"{' '.join((entry.get('text') or '').split())[:120]}\""
+                for entry in open_notes)
+            raise RenRefusal(
+                f"{reel!r} owes {len(open_notes)} notes - name one",
+                f"{listing}",
+                f"re-run with --identity one of the listed ids, e.g. "
+                f"`ren discharge {args.slug} {reel} --identity "
+                f"{open_notes[0]['identity']} --note <what happened>`")
         args.identity = open_notes[0]["identity"]
     try:
         entry = owed.discharge(project_folder, reel, args.identity,
                                by=args.by, note=args.note)
     except (owed.DischargeRefused, owed.UncarriedNoteUnknown) as refused:
-        print(f"{refused}", file=sys.stderr)
-        sys.exit(1)
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
     words = " ".join((entry.get("text") or "").split())[:120]
     print(f"Discharged {entry['identity']} on {entry['reel']!r}: "
           f"\"{words}\" - by {entry['discharged']['by']}.")
@@ -824,9 +837,12 @@ def cmd_variant(args):
         for moment in read_proposal(str(proposal_path(project_folder))):
             if int(moment.number) == int(reel_number):
                 return moment.timeline_name
-        print(f"Error: the plan names no reel {reel_number}.",
-              file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"the plan names no reel {reel_number}",
+            "a variant branches a reel the plan describes - it never "
+            "invents one",
+            f"run `ren propose {args.project}` first, or branch a reel "
+            f"the plan names") from None
 
     if args.variant_command == "new":
         spec = {"suffix": args.suffix}
@@ -838,7 +854,7 @@ def cmd_variant(args):
                 except ValueError as bad:
                     print(f"Error: --{key.replace('_', '-')} is not "
                           f"JSON: {bad}", file=sys.stderr)
-                    sys.exit(1)
+                    sys.exit(2)
         if args.declares:
             spec["declares"] = sorted(set(args.declares))
         if args.watch:
@@ -847,7 +863,7 @@ def cmd_variant(args):
             project_folder, args.reel, _base_final(args.reel), spec)
         if not result.get("created"):
             print(f"REFUSED: {result.get('reason')}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(REFUSAL_EXIT_CODE)
         print(f"Declared {result['timeline_name']!r} on branch "
               f"{result['branch']} ({result['commit']}).")
         if spec.get("declares"):
@@ -899,11 +915,12 @@ def cmd_variant(args):
         if args.suffix:
             specs = [s for s in specs if s["suffix"] in set(args.suffix)]
         if not specs:
-            print(f"Error: reel {args.reel} declares no variant"
-                  + (f" with suffix {args.suffix}" if args.suffix else "")
-                  + ". Declare one with `variant new` first.",
-                  file=sys.stderr)
-            sys.exit(1)
+            raise RenRefusal(
+                f"reel {args.reel} declares no variant"
+                + (f" with suffix {args.suffix}" if args.suffix else ""),
+                "a build needs a declared variant to build",
+                f"declare one first: `ren variant {args.project} new "
+                f"{args.reel} --suffix ' (NAME)'`") from None
         print(f"Building {len(specs)} variant(s) of {base!r} beside it.")
         try:
             result = reel_build.build_reel_variants(
@@ -926,8 +943,8 @@ def cmd_variant(args):
             diff = variants.compare(project_folder, args.reel,
                                   args.earlier, args.later)
         except variants.ChoiceRefused as refused:
-            print(f"REFUSED: {refused}", file=sys.stderr)
-            sys.exit(1)
+            print(refused.render(), file=sys.stderr)
+            sys.exit(REFUSAL_EXIT_CODE)
         print(variants.render_comparison(diff))
         return
 
@@ -1055,11 +1072,13 @@ def cmd_resolve_organize(args):
                 print("  Nothing was changed.")
                 return
             if candidates and args.timeline_only:
-                print("  REFUSED: candidate bins exist - pass them with "
-                      "--proof-bin or drop --timeline-only:")
-                for path in candidates:
-                    print(f"    {'/'.join(path)}")
-                sys.exit(1)
+                listing = "\n".join(f"    {'/'.join(path)}"
+                                    for path in candidates)
+                raise RenRefusal(
+                    "candidate bins exist and --timeline-only was passed",
+                    f"{listing}",
+                    "pass them with --proof-bin, or drop --timeline-only") \
+                    from None
             if not candidates:
                 print("  No proof/demo caption bins in this pool - "
                       "removing the timeline alone.")
@@ -1370,8 +1389,12 @@ def cmd_check(args):
     try:
         config = get_project(args.slug)
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            f"run `ren new {args.slug}` to create it, `ren projects` "
+            f"to list them, or pass the project's absolute path "
+            f"instead of the slug") from e
 
     project_dir = str(config._project_root)
     print(f"Checking project: {config.name} ({project_dir})")
@@ -1384,29 +1407,43 @@ def cmd_check(args):
             config.pipeline.brand_template,
             project_folder=str(config._project_root))
     except Exception as e:
-        print(f"Refusal: Brand template failed to resolve: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"brand template failed to resolve: {e}",
+            "the check cannot verify a template it cannot read",
+            "fix pipeline.brand_template in project.yaml (or clear it "
+            "for no template), then re-run `ren check`") from e
 
     # 2. creative_brief path resolves IF declared
     print("Checking creative_brief...")
     if config.pipeline.creative_brief:
         cb_path = config._project_root / config.pipeline.creative_brief
         if not cb_path.exists():
-            print(f"Refusal: Declared creative_brief path does not exist: {cb_path}", file=sys.stderr)
-            sys.exit(1)
+            raise RenRefusal(
+                f"declared creative_brief path does not exist: {cb_path}",
+                "the check cannot verify a brief it cannot read",
+                "fix pipeline.creative_brief in project.yaml (or clear "
+                "it), then re-run `ren check`") from None
 
     # 3. Environment variables exist
     print("Checking environment paths...")
     from library.tools.paths import SFX_LIBRARY, MUSIC_LIBRARY, PROJECTS_ROOT
     if not SFX_LIBRARY.exists():
-        print(f"Refusal: PIPELINE_SFX_LIBRARY does not exist: {SFX_LIBRARY}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"PIPELINE_SFX_LIBRARY does not exist: {SFX_LIBRARY}",
+            "the check cannot verify a library that is not there",
+            "set PIPELINE_SFX_LIBRARY (`ren config --init`, then edit "
+            "it), then re-run `ren check`") from None
     if not MUSIC_LIBRARY.exists():
-        print(f"Refusal: PIPELINE_MUSIC_LIBRARY does not exist: {MUSIC_LIBRARY}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"PIPELINE_MUSIC_LIBRARY does not exist: {MUSIC_LIBRARY}",
+            "the check cannot verify a library that is not there",
+            "set PIPELINE_MUSIC_LIBRARY (`ren config --init`, then edit "
+            "it), then re-run `ren check`") from None
     if not PROJECTS_ROOT.exists():
-        print(f"Refusal: PIPELINE_PROJECTS_ROOT does not exist: {PROJECTS_ROOT}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"PIPELINE_PROJECTS_ROOT does not exist: {PROJECTS_ROOT}",
+            "the check cannot verify a projects root that is not there",
+            "create it (`ren init`), then re-run `ren check`") from None
 
     # 4. ffprobe reads every footage file
     print("Checking footage files with ffprobe...")
@@ -1414,8 +1451,11 @@ def cmd_check(args):
     raw_footage_files, _ = enumerate_footage(project_dir)
 
     if not raw_footage_files:
-        print(f"Refusal: No footage files found in project", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            "no footage files found in project",
+            "the check cannot verify footage that is not there",
+            f"copy raw footage to the project's raw footage dir, then "
+            f"re-run `ren check {args.slug}`") from None
 
     from library.steps.step_1_02_catalog_footage.step import extract_metadata
 
@@ -1428,13 +1468,20 @@ def cmd_check(args):
         metadata = extract_metadata(filepath)
         if metadata is None or "error" in metadata:
             err = metadata.get("error", "unknown error") if metadata else "unknown error"
-            print(f"Refusal: ffprobe failed to read {filepath}: {err}", file=sys.stderr)
-            sys.exit(1)
+            raise RenRefusal(
+                f"ffprobe failed to read {filepath}: {err}",
+                "the check cannot verify a file ffprobe cannot read",
+                "fix or replace the file, then re-run "
+                f"`ren check {args.slug}`") from None
 
         for field in ["duration_seconds", "width", "height", "frame_rate"]:
             if metadata.get(field) is None:
-                print(f"Refusal: Missing required field '{field}' in file '{file_info['filename']}'", file=sys.stderr)
-                sys.exit(1)
+                raise RenRefusal(
+                    f"missing required field '{field}' in file "
+                    f"'{file_info['filename']}'",
+                    "the pipeline cannot cut a file it cannot measure",
+                    "re-encode the file so ffprobe reports every field, "
+                    f"then re-run `ren check {args.slug}`") from None
 
         fps = metadata.get("frame_rate")
         w = metadata.get("width")
@@ -1468,8 +1515,8 @@ def cmd_check(args):
                 if not os.path.exists(font_file):
                     raise ProjectAssetNotFoundError(f"project asset '{font_file}' not found (checked absolute path)")
     except ProjectAssetNotFoundError as e:
-        print(f"Refusal: {e}", file=sys.stderr)
-        sys.exit(1)
+        print(e.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
 
     if len(fps_counts) > 1:
         print(f"REPORT: Mixed frame rates detected: {fps_counts}", file=sys.stderr)
@@ -1497,8 +1544,12 @@ def cmd_run(args):
     try:
         config = get_project(args.slug)
     except FileNotFoundError as e:
-        print(f"  Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            f"run `ren new {args.slug}` to create it, `ren projects` "
+            f"to list them, or pass the project's absolute path "
+            f"instead of the slug") from e
 
     # Build the run_pipeline.py command
     runner = PILOT_ROOT / "library" / "processes" / "edit_video" / "run_pipeline.py"
@@ -1561,8 +1612,11 @@ def cmd_archive(args):
         new_path = archive_project(args.slug)
         print(f"  ✓ Archived project '{args.slug}' to: {new_path}")
     except FileNotFoundError as e:
-        print(f"  Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            f"run `ren projects` to list them, or pass the project's "
+            f"absolute path instead of the slug") from e
 
 
 def cmd_info(args):
@@ -1570,8 +1624,12 @@ def cmd_info(args):
     try:
         config = get_project(args.slug)
     except FileNotFoundError as e:
-        print(f"  Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            f"run `ren new {args.slug}` to create it, `ren projects` "
+            f"to list them, or pass the project's absolute path "
+            f"instead of the slug") from e
 
     from library.schemas.project_config import project_config_to_dict
     data = project_config_to_dict(config)
@@ -1583,14 +1641,21 @@ def cmd_relink(args):
     try:
         from library.tools.resolve_relinker import relink_project
     except ImportError:
-        print("  Error: Could not import resolve_relinker", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            "could not import resolve_relinker",
+            "relinking runs through Resolve scripting, which this "
+            "interpreter cannot load",
+            "run under the pipeline interpreter (`bin/vep "
+            "manage_project.py relink ...`), then re-run") from None
 
     result = relink_project(args.slug, dry_run=args.scan)
 
     if not result.get("success"):
-        print(f"  Error: {result.get('error', 'Unknown error')}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{result.get('error', 'Unknown error')}",
+            "the relink did not succeed",
+            "fix the cause above (usually media paths), then re-run "
+            "`ren relink`") from None
 
     offline = result.get("offline_count", 0)
     if offline == 0:
@@ -1628,8 +1693,11 @@ def cmd_propose_reels(args):
     try:
         config = get_project(args.project)
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{e}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            f"run `ren projects` to list them, or pass the project's "
+            f"absolute path instead of the slug") from e
     path = write_from_step_output(str(config._project_root), force=args.force)
     print(f"Wrote {path}")
 
@@ -1677,8 +1745,8 @@ def cmd_drift(args):
                                         exclusive=True):
             report = drift_check.check_project(project_folder)
     except resolve_lock.ResolveBusy as busy:
-        print(f"REFUSED: {busy}", file=sys.stderr)
-        sys.exit(2)
+        print(busy.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
     if report.get("error"):
         print(f"drift: {report['error']}", file=sys.stderr)
         sys.exit(2)
@@ -1715,8 +1783,8 @@ def cmd_deliver_reel(args):
             timeout_seconds=args.timeout,
         )
     except reel_deliver.DeliverRefused as refused:
-        print(f"REFUSED: {refused}", file=sys.stderr)
-        sys.exit(1)
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
 
     verification = full["verification"]
     print(f"Delivered {full['timeline_name']!r} -> "
@@ -1771,7 +1839,12 @@ def cmd_watch_reel(args):
             video_path = os.path.abspath(args.video)
             if not os.path.isfile(video_path):
                 raise render_watch.NotDelivered(
-                    f"no file at {video_path}")
+                    f"no file at {video_path}",
+                    "watching is of the PICTURE, and there is no file "
+                    "here",
+                    "point --video at a rendered file, or deliver the "
+                    "reel first (`ren deliver <project> <reel>`)") \
+                    from None
             subject = f"the rendered file {os.path.basename(video_path)}"
         else:
             row = render_watch.delivered_reel(project_folder, args.reel)
@@ -1796,8 +1869,8 @@ def cmd_watch_reel(args):
             video_path, frames_dir, record_path, subject)
     except (render_watch.NotDelivered,
             render_watch.NothingWasWatched) as refused:
-        print(f"REFUSED: {refused}", file=sys.stderr)
-        sys.exit(1)
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
 
     record = watch["record"]
     print(f"Watching {subject}")
@@ -1847,10 +1920,11 @@ def cmd_hear_reel(args):
     if args.all:
         rows = render_watch.delivered_reels(project_folder)
         if not rows:
-            print("REFUSED: this project has no delivered reel to hear. "
-                  "A reel becomes a file when you run deliver-reel.",
-                  file=sys.stderr)
-            sys.exit(1)
+            raise RenRefusal(
+                "this project has no delivered reel to hear",
+                "a reel becomes a file when you run deliver-reel",
+                f"run `ren deliver {args.project} <reel>` first, then "
+                f"hear it") from None
         targets = [{"video": row["video_path"], "reel": None}
                    for row in rows]
     else:
@@ -1901,11 +1975,14 @@ def cmd_touch_reel(args):
     project_folder = _reel_project_folder(args.project)
     hold = _hold.hold_requested(project_folder)
     if hold is not None:
-        print(f"REFUSED: the handbrake is engaged on this project "
-              f"({hold.get('requested_by', 'unknown')}: "
-              f"{hold.get('reason', '')}). Release it before touching "
-              f"a reel.", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"the handbrake is engaged on this project "
+            f"({hold.get('requested_by', 'unknown')}: "
+            f"{hold.get('reason', '')})",
+            "a touch-up under a held project could fight the holder",
+            "delete pipeline.hold at the project root (it records who "
+            "asked for it - check with them), then re-run `ren touch`") \
+            from None
 
     if args.all_reels:
         if not args.new_media:
@@ -1913,7 +1990,7 @@ def cmd_touch_reel(args):
                   "pass --old-clip and --new-media (no --edits: each "
                   "reel's position is located, not stated).",
                   file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
         try:
             summary = _touchup.touchup_all_reels(
                 project_folder,
@@ -1923,8 +2000,8 @@ def cmd_touch_reel(args):
                 allow_drops=args.allow_drop or None,
                 supersede=args.supersede or None)
         except _touchup.TouchupRefused as refused:
-            print(f"REFUSED: {refused}", file=sys.stderr)
-            sys.exit(1)
+            print(refused.render(), file=sys.stderr)
+            sys.exit(REFUSAL_EXIT_CODE)
         except _touchup.TouchupError as failed:
             print(f"FAILED: {failed}", file=sys.stderr)
             sys.exit(1)
@@ -1943,7 +2020,7 @@ def cmd_touch_reel(args):
     if args.reel is None:
         print("Error: pass the reel number, or --all-reels for every "
               "reel.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
 
     if args.edits_file:
         try:
@@ -1952,17 +2029,17 @@ def cmd_touch_reel(args):
         except (OSError, ValueError) as bad:
             print(f"Error: cannot read edits file {args.edits_file}: "
                   f"{bad}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
     elif args.edits:
         try:
             edits = json.loads(args.edits)
         except ValueError as bad:
             print(f"Error: --edits is not JSON: {bad}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(2)
     else:
         print("Error: pass the change with --edits JSON or "
               "--edits-file PATH.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
     if isinstance(edits, dict) and "edits" not in edits:
         edits = {"edits": [edits]}
     spec = {"reel": args.reel, "edits": edits["edits"]
@@ -1974,8 +2051,8 @@ def cmd_touch_reel(args):
             allow_drops=args.allow_drop or None,
             supersede=args.supersede or None)
     except _touchup.TouchupRefused as refused:
-        print(f"REFUSED: {refused}", file=sys.stderr)
-        sys.exit(1)
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
     except _touchup.TouchupError as failed:
         print(f"FAILED: {failed}", file=sys.stderr)
         sys.exit(1)
@@ -2022,25 +2099,28 @@ def cmd_undo(args):
         try:
             final = resolve_final_name(project_folder, args.reel)
         except TouchupRefused as refused:
-            print(f"REFUSED: {refused}", file=sys.stderr)
-            sys.exit(1)
+            print(refused.render(), file=sys.stderr)
+            sys.exit(REFUSAL_EXIT_CODE)
     if args.list:
         print(_undo.render_stack(_undo.undo_stack(project_folder, final)))
         return
     hold = _hold.hold_requested(project_folder)
     if hold is not None:
-        print(f"REFUSED: the handbrake is engaged on this project "
-              f"({hold.get('requested_by', 'unknown')}: "
-              f"{hold.get('reason', '')}). Release it before undoing.",
-              file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"the handbrake is engaged on this project "
+            f"({hold.get('requested_by', 'unknown')}: "
+            f"{hold.get('reason', '')})",
+            "an undo under a held project could fight the holder",
+            "delete pipeline.hold at the project root (it records who "
+            "asked for it - check with them), then re-run `ren undo`") \
+            from None
     try:
         receipts = _undo.undo(project_folder, final=final,
                               entry_id=args.entry,
                               supersede=args.supersede or ())
     except _undo.UndoRefused as refused:
-        print(f"REFUSED: {refused}", file=sys.stderr)
-        sys.exit(1)
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
     except (_undo.UndoNotVerified, _undo.RollbackDiverged) as failed:
         print(f"FAILED: {failed}", file=sys.stderr)
         sys.exit(1)
@@ -2100,8 +2180,11 @@ def _reel_project_folder(project: str) -> str:
     try:
         return str(get_project(project).project_root)
     except FileNotFoundError as unknown:
-        print(f"Error: {unknown}", file=sys.stderr)
-        sys.exit(1)
+        raise RenRefusal(
+            f"{unknown}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            "run `ren projects` to list them, or pass the project's "
+            "absolute path instead of the slug") from unknown
 
 
 def main():
@@ -2699,7 +2782,16 @@ def main():
     # needs it. See ML_DEPENDENT_COMMANDS.
     preflight_check(args.command)
 
-    args.func(args)
+    # ONE place renders every refusal on every verb's path: the shape
+    # (`library/tools/ren_refusal.py`) carries what happened, why, and
+    # the fix, and the exit code contract names 4 for it. An unexpected
+    # error keeps its traceback and exit 1 - it is a bug, not a refusal.
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+    try:
+        args.func(args)
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
 
 
 if __name__ == "__main__":

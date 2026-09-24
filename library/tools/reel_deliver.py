@@ -83,8 +83,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from library.tools.ren_refusal import RenRefusal
 
-class DeliverRefused(Exception):
+
+class DeliverRefused(RenRefusal):
     """The reel will not be rendered, and this says why."""
 
 
@@ -132,21 +134,32 @@ def read_deliver_declaration(project_folder: str) -> dict:
         raise DeliverRefused(
             f"pipeline.deliver_preset must be a mapping of "
             f"{list(DELIVER_PRESET_KEYS)}, got "
-            f"{type(preset).__name__}: {preset!r}.")
+            f"{type(preset).__name__}: {preset!r}",
+            "a declaration nothing reads is refused - a preset that is "
+            "not a mapping cannot name format/codec",
+            "write pipeline.deliver_preset as a mapping with "
+            "`format`/`codec` in project.yaml")
     unknown = sorted(set(preset) - set(DELIVER_PRESET_KEYS))
     if unknown:
         raise DeliverRefused(
             f"pipeline.deliver_preset declares {unknown}, which nothing "
-            f"reads. It takes {list(DELIVER_PRESET_KEYS)}.")
+            f"reads",
+            f"it takes {list(DELIVER_PRESET_KEYS)}",
+            f"drop {unknown} from pipeline.deliver_preset in project.yaml")
     for key, value in preset.items():
         if not isinstance(value, str) or not value.strip():
             raise DeliverRefused(
                 f"pipeline.deliver_preset[{key!r}] must be a non-empty "
-                f"string, got {value!r}.")
+                f"string, got {value!r}",
+                "an empty preset value names no format or codec",
+                f"set pipeline.deliver_preset[{key!r}] to a non-empty "
+                f"string in project.yaml")
     if not isinstance(naming, str):
         raise DeliverRefused(
-            f"pipeline.deliver_naming must be a string, got "
-            f"{type(naming).__name__}: {naming!r}.")
+            f"pipeline.deliver_naming must be a string",
+            f"got {type(naming).__name__}: {naming!r}",
+            "write pipeline.deliver_naming as a string in project.yaml, "
+            "or drop it for the default")
     return {"preset": dict(preset), "naming": naming.strip()}
 
 
@@ -203,12 +216,18 @@ def _proposal_moments(project_folder: str) -> list:
     path = proposal_path(project_folder)
     if not Path(path).is_file():
         raise DeliverRefused(
-            f"no reel plan at {path} - nothing has been proposed for "
-            f"this project, so there is no reel to deliver.")
+            f"no reel plan at {path}",
+            "nothing has been proposed for this project, so there is no "
+            "reel to deliver",
+            "run `ren propose <project>` first, then deliver")
     try:
         return read_proposal(path)
     except ProposalError as exc:
-        raise DeliverRefused(str(exc)) from None
+        raise DeliverRefused(
+            f"the reel plan cannot be read: {exc}",
+            "delivering from an unreadable plan would guess which reel "
+            "to render",
+            "run `ren propose <project>` again to republish the plan") from None
 
 
 def timeline_name_for_reel(project_folder: str, reel: Optional[int]) -> str:
@@ -222,38 +241,46 @@ def timeline_name_for_reel(project_folder: str, reel: Optional[int]) -> str:
     """
     if reel is None:
         raise DeliverRefused(
-            "no reel named - `deliver-reel` takes exactly one reel "
-            "number, e.g. `manage_project.py deliver-reel <project> 3`. "
-            "Rendering without naming one is the unasked render this "
-            "verb exists to prevent.")
+            "no reel named",
+            "`deliver-reel` takes exactly one reel number - rendering "
+            "without naming one is the unasked render this verb exists "
+            "to prevent",
+            "e.g. `ren deliver <project> 3`")
     try:
         number = int(reel)
     except (TypeError, ValueError):
         raise DeliverRefused(
-            f"reel must be a reel number, got {reel!r}.") from None
+            f"reel must be a reel number, got {reel!r}",
+            "a reel is addressed by its number",
+            "pass the reel number, e.g. `ren deliver <project> 3`") from None
 
     moments = _proposal_moments(project_folder)
     moment = next((m for m in moments if int(m.number) == number), None)
     if moment is None:
         known = sorted(int(m.number) for m in moments)
         raise DeliverRefused(
-            f"the plan names no reel {number}. Known: "
-            f"{known or '(the plan names none)'}.")
+            f"the plan names no reel {number}",
+            f"known: {known or '(the plan names none)'}",
+            f"deliver one of {known or '(none - propose first)'}: "
+            f"`ren deliver <project> <n>`")
     from library.tools.reel_proposal import Approval
     if moment.approval is not Approval.APPROVED:
         raise DeliverRefused(
             f"reel {number} ({moment.slug!r}) is {moment.approval.value}, "
-            f"not approved - the captain has not approved this reel, so "
-            f"there is nothing to deliver.")
+            f"not approved",
+            "the captain has not approved this reel, so there is nothing "
+            "to deliver",
+            "get the captain's approval on this reel first, then deliver")
 
     plan_name = moment.timeline_name
     candidates = _built_names_for(project_folder, number, plan_name)
     if len(candidates) > 1:
         raise DeliverRefused(
             f"reel {number} has {len(candidates)} built names "
-            f"({', '.join(sorted(candidates))}) - a suffixed rebuild "
-            f"beside the plan's own name. Name the timeline explicitly "
-            f"with --timeline-name rather than letting this guess.")
+            f"({', '.join(sorted(candidates))})",
+            "a suffixed rebuild beside the plan's own name - guessing "
+            "would render the wrong timeline",
+            "name the timeline explicitly with --timeline-name")
     if candidates:
         return candidates[0]
     return plan_name
@@ -317,8 +344,10 @@ def verify_deliverable(video_path: str, expected_seconds: float,
 
     if not os.path.isfile(video_path):
         raise DeliverRefused(
-            f"expected a rendered file at {video_path} and there is "
-            f"none - the render reported success and produced no video.")
+            f"expected a rendered file at {video_path} and there is none",
+            "the render reported success and produced no video",
+            "check Resolve's render queue for the failed job, then "
+            "deliver again")
 
     duration = render_qa.verify_duration(video_path, expected_seconds)
     resolution = render_qa.verify_resolution(
@@ -548,17 +577,20 @@ def _timeline_expected_seconds(timeline) -> float:
         fps = 0.0
     if not fps or fps <= 0:
         raise DeliverRefused(
-            "the timeline reports no usable frame rate, so the render "
-            "could not be checked against its duration. Refusing rather "
-            "than guessing.")
+            "the timeline reports no usable frame rate",
+            "the render could not be checked against its duration - "
+            "refusing rather than guessing",
+            "fix the timeline's frame rate in Resolve, then deliver again")
     try:
         start = int(timeline.GetStartFrame())
         end = int(timeline.GetEndFrame())
     except (TypeError, ValueError, AttributeError):
         raise DeliverRefused(
-            "the timeline reports no usable frame range, so the render "
-            "could not be checked against its duration. Refusing rather "
-            "than guessing.")
+            "the timeline reports no usable frame range",
+            "the render could not be checked against its duration - "
+            "refusing rather than guessing",
+            "fix the timeline's in/out range in Resolve, then deliver "
+            "again")
     frames = max(end - start + 1, 1)
     return frames / fps
 
@@ -612,7 +644,12 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     # the constant canvas decoded as its predecessor's width.)
     stale = overlay_staleness(project, timeline.GetName())
     if stale:
-        raise DeliverRefused(_refuse_stale_overlays(stale))
+        raise DeliverRefused(
+            "the reel's overlays changed underneath Resolve's pool metadata",
+            _refuse_stale_overlays(stale),
+            "rebuild the reel once the pool-metadata refresh lands, then "
+            "deliver again - a deliver that repaired this itself would "
+            "rebind the captain's live timeline outside a build")
 
     report = resolve_render.render_timeline(
         timeline_name=timeline.GetName(),
@@ -642,10 +679,13 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     full["report_path"] = sidecar
     if not verdict["passed"]:
         raise DeliverRefused(
-            f"rendered {report['output_path']} but verification FAILED "
-            f"(duration={verdict['duration']['passed']}, "
+            f"rendered {report['output_path']} but verification FAILED",
+            f"duration={verdict['duration']['passed']}, "
             f"resolution={verdict['resolution']['passed']}, "
             f"audio={verdict['audio']['passed']}, "
-            f"content_present={verdict['content_present']}). "
-            f"Report: {sidecar}")
+            f"content_present={verdict['content_present']}. "
+            f"Report: {sidecar}",
+            "read the sidecar report for the failing check, fix the "
+            "timeline or the render settings, then deliver again - the "
+            "file stays in exports but is not recorded as delivered")
     return full

@@ -116,6 +116,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from library.tools import composed_edit as _ce
+from library.tools.ren_refusal import RenRefusal
 
 JOURNAL_FORMAT = "undo_journal/1"
 JOURNAL_DIRNAME = "undo"
@@ -128,7 +129,7 @@ STATUS_UNDONE = "undone"
 STATUS_UNDO_FAILED = "undo_failed"
 
 
-class UndoRefused(RuntimeError):
+class UndoRefused(RenRefusal):
     """An undo that declined before changing anything. Always by name."""
 
 
@@ -185,12 +186,16 @@ def read_entry(project_folder, entry_id: str) -> dict:
             entry = json.load(handle)
     except (OSError, ValueError) as unreadable:
         raise UndoRefused(
-            f"REFUSING: undo journal entry {entry_id!r} could not be read "
-            f"at {path} ({unreadable}).") from unreadable
+            f"undo journal entry {entry_id!r} could not be read at {path}",
+            f"({unreadable})",
+            "recover the journal entry from backup, or list what is "
+            "left with `ren undo <project> --list`") from unreadable
     if entry.get("format") != JOURNAL_FORMAT:
         raise UndoRefused(
-            f"REFUSING: {path} is {entry.get('format')!r}, not "
-            f"{JOURNAL_FORMAT!r}.")
+            f"{path} is {entry.get('format')!r}, not {JOURNAL_FORMAT!r}",
+            "an entry in a foreign format cannot be trusted",
+            "recover the journal entry from backup, or list what is "
+            "left with `ren undo <project> --list`")
     return entry
 
 
@@ -257,9 +262,11 @@ def open_entry(project_folder, *, final: str, reel: int,
                 if _ce._read(item, "GetStart", None) == frame]
         if len(hits) != 1:
             raise UndoRefused(
-                f"REFUSING: the plan removes {row}@{frame} and the "
-                f"approved timeline holds {len(hits)} item(s) there, so "
-                f"the journal cannot record what the touch would take.")
+                f"the plan removes {row}@{frame} and the "
+                f"approved timeline holds {len(hits)} item(s) there",
+                "so the journal cannot record what the touch would take",
+                "restate the touch against the live timeline, then "
+                "re-run `ren touch`")
         item = hits[0]
         detail = _detail_at(before, row, frame)
         capture = _ce.capture_item(item, _identity_change(detail),
@@ -267,10 +274,12 @@ def open_entry(project_folder, *, final: str, reel: int,
                                    os.path.join(root, "withheld"))
         if capture.node_count is not None and int(capture.node_count) > 1:
             raise UndoRefused(
-                f"REFUSING: {row}@{frame} carries a colour grade "
-                f"({capture.node_count} nodes). No script can record a "
-                f"grade, so removing it could not be undone - a graded "
-                f"removal needs a rebuild, not a touch-up.")
+                f"{row}@{frame} carries a colour grade "
+                f"({capture.node_count} nodes)",
+                "no script can record a grade, so removing it could not "
+                "be undone",
+                "rebuild the reel (`ren build <project>`) - a graded "
+                "removal needs a rebuild, not a touch-up")
         removed.append({
             "row": row, "record_frame": frame,
             "duration": int(detail["duration"]),
@@ -415,8 +424,11 @@ def _detail_at(tracks: Sequence[Mapping], row: str, frame: int) -> dict:
             if _row(detail) == row and int(detail["record_in"]) == frame]
     if len(hits) != 1:
         raise UndoRefused(
-            f"REFUSING: {row}@{frame} names {len(hits)} item(s) in the "
-            f"journal's read, so it cannot say what that item was.")
+            f"{row}@{frame} names {len(hits)} item(s) in the "
+            f"journal's read",
+            "so it cannot say what that item was",
+            "re-read the reel (`ren drift <project>`) and restate the "
+            "touch, then re-run `ren touch`")
     return hits[0]
 
 
@@ -479,11 +491,14 @@ def plan_inverse(before: Sequence[Mapping], after: Sequence[Mapping]) -> Inverse
                       if pairing(other) == pairing(detail)]
         if len(candidates) > 1:
             raise UndoRefused(
-                f"REFUSING: {len(candidates)} items the touch placed on "
+                f"{len(candidates)} items the touch placed on "
                 f"{_row(detail)} play {detail.get('name')!r} from source "
-                f"frame {detail.get('left_offset')}, so which one was "
+                f"frame {detail.get('left_offset')}",
+                f"so which one was "
                 f"{_row(detail)}@{detail['record_in']} cannot be said. "
-                f"Nothing was changed.")
+                f"Nothing was changed",
+                "re-run `ren undo` - if it refuses again the journal "
+                "cannot reverse this touch; rebuild the reel instead")
         if candidates:
             unpaired_after.remove(candidates[0])
             plan.restores.append((candidates[0], detail))
@@ -524,8 +539,11 @@ def _index_of(rows: Mapping, detail: Mapping) -> int:
         if _ce._read(item, "GetStart", None) == int(detail["record_in"]):
             return index
     raise UndoRefused(
-        f"REFUSING: {_row(detail)}@{detail['record_in']} is not on the "
-        f"live timeline, so the undo cannot address it.")
+        f"{_row(detail)}@{detail['record_in']} is not on the "
+        f"live timeline",
+        "so the undo cannot address it",
+        "the timeline moved since the touch - re-run `ren undo`; if it "
+        "still refuses, the touch cannot be undone in place")
 
 
 def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
@@ -549,10 +567,12 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
     moved = projection_diff(projection(after), projection(live))
     if moved:
         raise TimelineMovedSinceTouch(
-            f"REFUSING: {entry['final']!r} has changed since touch "
-            f"{entry['id']} ({', '.join(d['row'] for d in moved)}): "
-            f"{moved}. Undoing the touch over it would destroy that "
-            f"work - nothing was changed.")
+            f"{entry['final']!r} has changed since touch {entry['id']} "
+            f"({', '.join(d['row'] for d in moved)}): {moved}",
+            "undoing the touch over it would destroy that work - "
+            "nothing was changed",
+            "undo the later work first (`ren undo <project> --list` "
+            "shows the acts, newest first), then undo this touch")
 
     # 2. The plan, and every refusal it can raise, before any write.
     plan = plan_inverse(before, after)
@@ -568,14 +588,19 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
         has = int((a.get("fusion") or {}).get("comp_count") or 0)
         if has < had:
             raise UndoRefused(
-                f"REFUSING: {_row(a)}@{a['record_in']} carries {has} "
-                f"comp(s) where it carried {had}; a touch never removes a "
-                f"comp in place, so the journal cannot reverse it. "
-                f"Nothing was changed.")
+                f"{_row(a)}@{a['record_in']} carries {has} "
+                f"comp(s) where it carried {had}",
+                "a touch never removes a comp in place, so the journal "
+                "cannot reverse it. Nothing was changed",
+                "rebuild the reel (`ren build <project>`) instead of "
+                "undoing in place")
     if plan.empty:
         raise UndoRefused(
-            f"REFUSING: touch {entry['id']} left {entry['final']!r} "
-            f"reading exactly as before it - there is nothing to undo.")
+            f"touch {entry['id']} left {entry['final']!r} "
+            f"reading exactly as before it",
+            "there is nothing to undo",
+            "pick another entry (`ren undo <project> --list`), or leave "
+            "the reel as it is")
     removed = {(str(r["row"]), int(r["record_frame"])): r
                for r in entry.get("removed") or ()}
     insertions, reinsert_captures = [], []
@@ -583,15 +608,20 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
         capture = removed.get((_row(detail), int(detail["record_in"])))
         if capture is None:
             raise UndoRefused(
-                f"REFUSING: the touch took {_row(detail)}@"
+                f"the touch took {_row(detail)}@"
                 f"{detail['record_in']} and the journal holds no capture "
-                f"of it, so it cannot be put back. Nothing was changed.")
+                f"of it",
+                "so it cannot be put back. Nothing was changed",
+                "rebuild the reel (`ren build <project>`) - this touch "
+                "cannot be undone in place")
         mpi = resolve_media(capture["source_file"])
         if mpi is None:
             raise UndoRefused(
-                f"REFUSING: {capture['source_file']!r} is not in the media "
-                f"pool, so {_row(detail)}@{detail['record_in']} cannot be "
-                f"re-placed. Nothing was changed.")
+                f"{capture['source_file']!r} is not in the media pool",
+                f"so {_row(detail)}@{detail['record_in']} cannot be "
+                f"re-placed. Nothing was changed",
+                "re-import the source file into the media pool, then "
+                "re-run `ren undo`")
         insertions.append(_ce.Insertion(
             track_type=detail["track_type"],
             track_index=int(detail["track_index"]), media_pool_item=mpi,
@@ -611,9 +641,12 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
         source = _at(reference_rows, _row(a), a["record_in"])
         if source is None:
             raise UndoRefused(
-                f"REFUSING: the reference copy holds no single item at "
-                f"{_row(a)}@{a['record_in']} to carry its grade from. "
-                f"Nothing was changed.")
+                f"the reference copy holds no single item at "
+                f"{_row(a)}@{a['record_in']} to carry its grade from",
+                "without the reference there is no grade to restore. "
+                "Nothing was changed",
+                "rebuild the reel (`ren build <project>`) - this touch "
+                "cannot be undone in place")
         grade_by_frame[(_row(a), int(a["record_in"]))] = source
 
     # 3. The captain's clip markers on everything about to be re-placed.
@@ -722,8 +755,11 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
 def _revert_in_place(item, after: Mapping, before: Mapping) -> dict:
     if item is None:
         raise UndoRefused(
-            f"REFUSING: {_row(after)}@{after['record_in']} is not on the "
-            f"live timeline to revert in place.")
+            f"{_row(after)}@{after['record_in']} is not on the "
+            f"live timeline to revert in place",
+            "the timeline moved under the undo",
+            "re-run `ren undo` against the live timeline; if it still "
+            "refuses, the touch cannot be undone in place")
     out = {"row": _row(after), "record_frame": int(after["record_in"])}
     if _transform(after) != _transform(before):
         diff = _ce.set_properties(item, _transform(before))
@@ -765,8 +801,10 @@ def undo_touch(project_folder: str, entry_id: str, *, connect=None,
     entry = read_entry(project_folder, entry_id)
     if entry.get("status") != STATUS_APPLIED:
         raise UndoRefused(
-            f"REFUSING: touch {entry_id} is {entry.get('status')!r}, not "
-            f"applied - there is nothing of it on the timeline to undo.")
+            f"touch {entry_id} is {entry.get('status')!r}, not applied",
+            "there is nothing of it on the timeline to undo",
+            "pick an applied entry (`ren undo <project> --list` shows "
+            "them, newest first)")
 
     @under_lease(f"undo touch on {entry['final']}")
     def _guarded():
@@ -791,15 +829,18 @@ def _undo_touch_connected(project_folder, entry, connect,
     found = {t.GetName(): t for t in timelines_to_replace(project, {final})}
     if final not in found:
         raise UndoRefused(
-            f"REFUSING: no timeline called {final!r} is in Resolve project "
-            f"{entry['resolve_project']!r}; the touch cannot be undone on "
-            f"a timeline that is not there.")
+            f"no timeline called {final!r} is in Resolve project "
+            f"{entry['resolve_project']!r}",
+            "the touch cannot be undone on a timeline that is not there",
+            "restore the timeline in Resolve (or rebuild the reel), then "
+            "re-run `ren undo`")
     live = found[final]
     reference_name = backup_name(final)
     if timelines_to_replace(project, {reference_name}):
         raise UndoRefused(
-            f"REFUSING: {reference_name!r} is already in the project - "
-            f"left by an interrupted run. Clear it before undoing.")
+            f"{reference_name!r} is already in the project",
+            "left by an interrupted run",
+            "clear it in Resolve before re-running `ren undo`")
 
     before = entry["before"]["tracks"]
     plan = plan_inverse(before, entry["after"]["tracks"])
@@ -815,9 +856,11 @@ def _undo_touch_connected(project_folder, entry, connect,
         manifest_file = entry.get("fusion_manifest")
         if not manifest_file:
             raise UndoRefused(
-                f"REFUSING: undoing touch {entry['id']} changes a played "
-                f"length and its journal holds no fusion manifest, so "
-                f"there is no route to the comp pass. Nothing was changed.")
+                f"undoing touch {entry['id']} changes a played length "
+                f"and its journal holds no fusion manifest",
+                "there is no route to the comp pass. Nothing was changed",
+                "rebuild the reel (`ren build <project>`) - this touch "
+                "cannot be undone in place")
         with open(os.path.join(root, manifest_file), encoding="utf-8") as fh:
             manifest = json.load(fh)
         reel_touchup.check_manifest_matches(manifest, before)
@@ -831,8 +874,10 @@ def _undo_touch_connected(project_folder, entry, connect,
     reference = live.DuplicateTimeline(reference_name)
     if reference is None or reference.GetName() != reference_name:
         raise UndoRefused(
-            f"REFUSING: Resolve would not duplicate {final!r} as the "
-            f"undo's reference; nothing was changed.")
+            f"Resolve would not duplicate {final!r} as the undo's reference",
+            "without the reference copy there is nothing to undo "
+            "against - nothing was changed",
+            "clear bin space in Resolve and re-run `ren undo`")
     from library.tools.project_layout import Area, ProjectLayout
     work_dir = os.path.join(
         str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
@@ -902,9 +947,12 @@ def restore_plan_moment(project_folder: str, moment: Mapping) -> str:
             if int(m.get("number", -1)) == int(moment["number"])]
     if len(hits) != 1:
         raise UndoRefused(
-            f"REFUSING: the plan holds {len(hits)} moment(s) numbered "
-            f"{moment['number']}, so the rollback cannot say which to "
-            f"restore. Nothing was changed.")
+            f"the plan holds {len(hits)} moment(s) numbered "
+            f"{moment['number']}",
+            "so the rollback cannot say which to restore. Nothing was "
+            "changed",
+            "fix the duplicated reel number in the proposal, then "
+            "re-run `ren undo`")
     archive_plan(path)
     moments[hits[0]] = dict(moment)
     document["moments"] = moments
@@ -929,8 +977,12 @@ def _build_one_reel(project_folder: str, reel: int, supersede=()) -> int:
     repo = Path(__file__).resolve().parents[2]
     python, why_not = python_interpreter(str(repo))
     if not python:
-        raise UndoRefused(f"REFUSING: the rollback's rebuild needs the ML "
-                          f"interpreter and none was found. {why_not}")
+        raise UndoRefused(
+            "the rollback's rebuild needs the ML interpreter and none "
+            "was found",
+            f"{why_not}",
+            "set up the ML environment (docs/ML_ENVIRONMENT.md), then "
+            "re-run `ren undo`")
     argv = [python, str(repo / "manage_project.py"), "build-reels",
             str(project_folder), "--only-reel", str(int(reel))]
     for name in supersede or ():
@@ -955,25 +1007,30 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
     live = dict(read_live_rows(final) or {})
     if rounds.digest_rows(live) != newest["rows_digest"]:
         raise TimelineMovedSinceTouch(
-            f"REFUSING: {final!r} no longer reads as version "
-            f"{newest['version']} ({newest['kind']}) - it was changed "
-            f"outside Ren since. Rolling back would destroy that work; "
-            f"nothing was changed.")
+            f"{final!r} no longer reads as version {newest['version']} "
+            f"({newest['kind']}) - it was changed outside Ren since",
+            "rolling back would destroy that work; nothing was changed",
+            "re-apply the outside change after the rollback, or leave "
+            "the timeline as it is - `ren undo` will not destroy it")
     target = reel_versions.state_before(project_folder, final,
                                         int(act["version"]))
     base = reel_versions.build_before(project_folder, final,
                                       int(act["version"]))
     if target is None or base is None or not base.get("plan_moment"):
         raise UndoRefused(
-            f"REFUSING: version {act['version']} of {final!r} is the "
-            f"first recorded build with a plan behind it, so there is no "
-            f"earlier version to roll back to.")
+            f"version {act['version']} of {final!r} is the first recorded "
+            f"build with a plan behind it",
+            "so there is no earlier version to roll back to",
+            "there is nothing to roll back - leave the reel as it is")
     if base["plan_moment"] == act.get("plan_moment"):
         raise UndoRefused(
-            f"REFUSING: versions {base['version']} and {act['version']} "
-            f"of {final!r} were built from the same plan moment; what "
-            f"changed between them is outside the plan, so a rollback "
-            f"would rebuild version {act['version']} again.")
+            f"versions {base['version']} and {act['version']} of {final!r} "
+            f"were built from the same plan moment",
+            "what changed between them is outside the plan, so a "
+            "rollback would rebuild version "
+            f"{act['version']} again",
+            "change the plan moment first, then roll back - or leave the "
+            "reel as it is")
     replays = [entry for entry in reel_versions.live_acts(project_folder,
                                                           final)
                if entry["kind"] == reel_versions.KIND_TOUCH
@@ -1050,17 +1107,22 @@ def undo(project_folder: str, *, final: str = "", entry_id: str = "",
         newest = reel_versions.latest_act(project_folder, entry["final"])
         if newest is None or newest.get("journal") != entry_id:
             raise UndoRefused(
-                f"REFUSING: {entry_id} is not the newest act on "
-                f"{entry['final']!r} (that is version "
-                f"{(newest or {}).get('version')}, "
-                f"{(newest or {}).get('kind')}). Undo the later one first.")
+                f"{entry_id} is not the newest act on {entry['final']!r} "
+                f"(that is version {(newest or {}).get('version')}, "
+                f"{(newest or {}).get('kind')})",
+                "a later act stands on top of it",
+                "undo the later one first (`ren undo <project> --list` "
+                "shows the order)")
         targets = [(entry["final"], newest)]
     else:
         stack = undo_stack(project_folder, final)
         if not stack:
             raise UndoRefused(
-                f"REFUSING: nothing recorded on "
-                f"{final or 'this project'!r} is left to undo.")
+                f"nothing recorded on {final or 'this project'!r} is "
+                f"left to undo",
+                "every recorded act was already undone, or none was "
+                "ever recorded",
+                "there is nothing to undo - leave the reels as they are")
         name, act = stack[0]
         targets = [(name, act)]
         if act["kind"] == reel_versions.KIND_TOUCH and act.get("batch"):
@@ -1070,9 +1132,12 @@ def undo(project_folder: str, *, final: str = "", entry_id: str = "",
             for other, _act in targets:
                 if reel_versions.latest_act(project_folder, other) != _act:
                     raise UndoRefused(
-                        f"REFUSING: the all-reels touch {act['batch']} "
-                        f"has a later act on {other!r} standing on it. "
-                        f"Undo that first.")
+                        f"the all-reels touch {act['batch']} has a later "
+                        f"act on {other!r} standing on it",
+                        "an all-reels touch is undone whole, and a later "
+                        "act stands in the way",
+                        f"undo the later act on {other!r} first, then "
+                        f"re-run `ren undo`")
     receipts = []
     for name, act in targets:
         if act["kind"] == reel_versions.KIND_TOUCH:
@@ -1099,8 +1164,11 @@ def _live_rows_reader(project_folder, connect=None):
                      for t in timelines_to_replace(project, {final})}
             if final not in found:
                 raise UndoRefused(
-                    f"REFUSING: no timeline called {final!r} is in the "
-                    f"Resolve project.")
+                    f"no timeline called {final!r} is in the Resolve "
+                    f"project",
+                    "the undo cannot read a timeline that is not there",
+                    "restore the timeline in Resolve (or rebuild the "
+                    "reel), then re-run `ren undo`")
             return snapshot_timeline(found[final], final, side="retiring")
     return read
 

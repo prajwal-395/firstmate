@@ -65,6 +65,8 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from library.tools.ren_refusal import RenRefusal
+
 FRAME_TRACK = 2
 """The reel video track the frame asset is placed on - for a
 SINGLE-angle reel, where the plan reads V1 picture, V2 frame.
@@ -95,7 +97,7 @@ MOTION_BASES = (MOTION_NOT_DECLARED, MOTION_AWAITING_ANSWER,
 """Why a reel carries the drift it carries, including none."""
 
 
-class ReelLookRefused(RuntimeError):
+class ReelLookRefused(RenRefusal):
     """The look cannot be placed on this reel, and this says why."""
 
 
@@ -525,17 +527,18 @@ def apply_grade(timeline, track_plan, cdl_values: dict,
         return record
     if cdl_values and not allow_unverified_cdl:
         raise ReelLookRefused(
-            "This project declares a look but no "
-            "`color.power_grade_drx`, so the only route to the picture "
-            "is TimelineItem.SetCDL - and that route cannot be shown "
-            "to have worked.\n\n"
+            "this project declares a look but no "
+            "`color.power_grade_drx`",
+            "the only route to the picture is TimelineItem.SetCDL - "
+            "and that route cannot be shown to have worked.\n\n"
             f"{CDL_RETURN_IS_NOT_EVIDENCE}\n\n"
-            "Declare the look as a `.drx` under `color.power_grade_drx` "
+            "Refusing here rather than writing `applied` "
+            "against six clips nothing reached.",
+            "declare the look as a `.drx` under `color.power_grade_drx` "
             "in the project's own project.yaml (with provenance - see "
             "library/tools/color_page_grade.py). That route IS "
             "verified: the node graph reads back the nodes the file "
-            "builds. Refusing here rather than writing `applied` "
-            "against six clips nothing reached.")
+            "builds.")
     record = apply_cdl(timeline, track_plan, cdl_values,
                        footage_sources=footage_sources)
     record["route"] = "cdl" if cdl_values else "none"
@@ -794,9 +797,11 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
         ], capture_output=True, encoding="utf-8", check=False)
         if result.returncode != 0 or not os.path.isfile(path):
             raise ReelLookRefused(
-                f"the TV frame could not be rendered to {longest} frames: "
+                f"the TV frame could not be rendered to {longest} frames",
                 f"ffmpeg exited {result.returncode}. "
-                f"{(result.stderr or '').strip()[-500:]}")
+                f"{(result.stderr or '').strip()[-500:]}",
+                "re-run the build; if it refuses again, the ffmpeg error "
+                "above names the cause (usually the frame asset)")
     segments = []
     for start_frame, end_frame in runs:
         segments.append({
@@ -979,13 +984,15 @@ def assert_covers_window(properties, source_width: int, source_height: int,
     bands = uncovered_window_edges(picture, window, tolerance)
     if bands:
         raise PunchInLeavesBlack(
-            f"the punch-in leaves black inside the television's screen: "
-            f"{', '.join(bands)}. The picture is "
-            f"{picture.rect} and the screen window is "
+            "the punch-in leaves black inside the television's screen: "
+            f"{', '.join(bands)}",
+            f"the picture is {picture.rect} and the screen window is "
             f"({window[0]:.0f}, {window[1]:.0f}, {window[2]:.0f}, "
             f"{window[3]:.0f}). A picture that does not reach the edges "
             f"of the screen shows the set's own background through it, "
-            f"which is what a viewer reads as a broken render.")
+            f"which is what a viewer reads as a broken render",
+            "raise the `punch_in` zoom in the reel look declaration "
+            "until the picture covers the screen window, then rebuild")
 
 
 def power_effects(look: dict, first_label: str,

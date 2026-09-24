@@ -75,6 +75,8 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Mapping
 
+from library.tools.ren_refusal import RenRefusal
+
 NOTES_FILENAME = "uncarried_notes.json"
 NOTES_FORMAT = "uncarried_notes/1"
 
@@ -90,11 +92,20 @@ _REPLY_PAIRINGS = frozenset({
 })
 
 
-class UncarriedNotesUnreadable(RuntimeError):
+class UncarriedNotesUnreadable(RenRefusal):
     """The obligation file exists but cannot be parsed, and this says so."""
 
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            what=message,
+            why=("an obligation record that cannot be read must REFUSE, "
+                 "never be replaced with an empty one"),
+            fix=("recover the obligation file from backup or version "
+                 "history - never hand-write an empty one, which would "
+                 "read as no obligations"))
 
-class UncarriedNotesOpen(RuntimeError):
+
+class UncarriedNotesOpen(RenRefusal):
     """This reel has open uncarried-note obligations, so it is not done.
 
     Carries `.reel` and `.open` (the obligation entries). A sign-off
@@ -104,17 +115,38 @@ class UncarriedNotesOpen(RuntimeError):
 
     def __init__(self, message: str, reel: str = "",
                  open: list | None = None) -> None:
-        super().__init__(message)
+        super().__init__(
+            what=message,
+            why=("a sign-off says the reel is done, and a reel with the "
+                 "captain's words unaccounted for is not done"),
+            fix=("discharge each open obligation named above (`ren "
+                 "discharge <project> <reel> --identity <id> --note "
+                 "<what happened to the words>`), then sign off again"))
         self.reel = reel
         self.open = list(open or ())
 
 
-class UncarriedNoteUnknown(RuntimeError):
+class UncarriedNoteUnknown(RenRefusal):
     """No open obligation matches this discharge, and this says which do."""
 
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            what=message,
+            why="a discharge names the obligation it answers, and this "
+                "one names none that is open",
+            fix=("discharge one of the open identities listed above, or "
+                 "list them with `ren discharge <project> <reel>`"))
 
-class DischargeRefused(RuntimeError):
+
+class DischargeRefused(RenRefusal):
     """A discharge needs a stated reason, and none was given."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            what=message,
+            why="a discharge with no reason is a bypass",
+            fix=("re-run with --note saying what happened to the "
+                 "captain's words (answered, correctly dropped, re-typed)"))
 
 
 def notes_path_for(project_folder) -> str:

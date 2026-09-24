@@ -18,11 +18,11 @@ judgement over it, in his precedence order:
 1. the project's STATED terms - `correct` forms already on file in
    the store, which a re-transcription may spell a new way;
 2. the MODEL reading a sentence and answering whether a token is a
-   word the reader needs - routed through `llm_client` the way the
-   neighbouring steps do;
-3. a documented fallback, never a silent one: without API keys the
-   model half degrades to an UNEVALUATED list a human (or a later
-   run with keys) judges, rather than guessing.
+   word the reader needs - through an injected `judge`, or by a human
+   reviewing the scan report's proposals;
+3. a documented fallback, never a silent one: without a judge the
+   model half degrades to an UNEVALUATED list a human judges, rather
+   than guessing.
 
 The NOMINATION is deterministic and shape-based, never lexical: a
 token is nominated by what can be measured about it, not by what it
@@ -76,6 +76,8 @@ import json
 import os
 import statistics
 import sys
+
+from library.tools.ren_refusal import RenRefusal
 
 #: Nomination is relative to each speaker's own median word duration.
 #: Kept as corroborating evidence on each candidate (a 60ms "f" was
@@ -342,99 +344,45 @@ def _llm_judge(view: list, candidates: list, terms: list,
     [...], "respell": [...], "unevaluated": [...]}`. A suppression is
     `{"seg", "index", "scope", "why"}` (`scope` `"global"` only where
     the token needs no context - the model says so per token, never a
-    list here); a respell is `{"heard", "correct", "why"}`. Without API
-    keys nothing is guessed: every candidate returns UNEVALUATED with
-    its evidence attached, for a human or a later keyed run to judge -
-    and the sentences no keyless pass can judge say so instead of
-    passing silently.
+    list here); a respell is `{"heard", "correct", "why"}`.
+
+    Nothing is guessed here: every candidate returns UNEVALUATED with
+    its evidence attached. Judgement arrives one of two ways - a caller
+    injects a `judge` (tests do; a host harness answers through its own
+    channel), or a human reviews the report's proposals and records
+    them with `transcript_corrections.record_spelling` /
+    `record_display_suppression`. Direct provider API calls
+    (`LLMClient`) were removed: Ren works with OAuth harnesses, and a
+    keyed judge that posts prompts to an API is out of scope.
     """
-    hinted = {(c["seg"], c["index"]): c["shape"] for c in candidates}
-    empty = {"suppress": [], "respell": [],
-             "unevaluated": list(candidates)}
-    has_key = any(os.environ.get(var) for var in
-                  ("GEMINI_API_KEY", "OPENAI_API_KEY",
-                   "ANTHROPIC_API_KEY"))
-    if not has_key:
-        print("  hygiene: no LLM key in the environment - "
-              f"{len(candidates)} nominated candidate(s) returned "
-              f"UNEVALUATED rather than guessed, and filler-word and "
-              f"mishearing detection needs the keyed judge.",
-              file=sys.stderr)
-        return empty
-    from library.tools.llm_client import LLMClient
-
-    if terms:
-        named = "; ".join(f"\"{t['correct']}\" ({t['id']})"
-                          for t in terms)
-        term_line = ("Recorded proper forms on this project: "
-                     + named + ".")
-    else:
-        term_line = "No proper forms recorded on this project yet."
-    provider = os.environ.get("PIPELINE_LLM_PROVIDER", "gemini")
-    model = os.environ.get("PIPELINE_LLM_MODEL", "gemini-2.5-flash")
-    client = LLMClient(provider, model, temperature=0.2,
-                       max_output_tokens=4096)
-    suppressions, respells, refused = [], [], []
-    for start in range(0, len(view), batch):
-        rows = []
-        for row in view[start:start + batch]:
-            flagged = []
-            for pos, token in enumerate(row["words"]):
-                mark = hinted.get((row["seg"], pos))
-                shown = (f"{token}[*{mark}]" if mark
-                         else str(token))
-                flagged.append(f"{pos}:{shown}")
-            rows.append(f"seg{row['seg']} {row['speaker'] or '?'}: "
-                        + " ".join(flagged))
-        prompt = f"""You are judging subtitle hygiene for a video edit. The subtitle should carry what a reader needs, not a phonetic transcript of what the microphone caught.
-
-{term_line}
-
-Each line below is one spoken sentence; tokens are numbered (position: surface) and tokens nominated by measurable shape are flagged [*shape]. For every line, decide:
-- SUPPRESS a token when it is a disfluency or filler ("um", "uh"), a stray phoneme fragment ("qu", "s", "f"), or a false-start repeat the reader does not need ("I I", "company company"). The audio keeps playing it - only the read text drops it. Say "scope": "global" ONLY when the token never carries meaning in any sentence; otherwise "anchored" (this occurrence only).
-- RESPELL a token span when it is a misheard or mis-cased proper noun, acronym, brand or product name: give the heard surface ("jim and i", "aics", "la fitnesses") and the correct reading ("Gemini", "AI sees", "LA Fitnesses").
-- KEEP (omit from both lists) everything the reader needs: placeholders ("X, Y and Z"), letters standing for options ("B produces", "C gives"), discourse markers that carry meaning, numbers, repeated words for emphasis, and ordinary short words.
-- When you are unsure about a row, say so plainly in `why` (for example LOW CONFIDENCE or NEEDS CAPTAIN CONFIRMATION): an unsure proposal is held for human confirmation instead of being applied.
-
-{chr(10).join(rows)}
-
-Answer with ONE JSON object and nothing else:
-{{"suppress": [{{"seg": <seg>, "index": <position>, "scope": "global"|"anchored", "why": "<one sentence>"}}], "respell": [{{"heard": "<surface>", "correct": "<reading>", "why": "<one sentence>"}}]}}
-"""
-        try:
-            raw = client.generate(
-                prompt,
-                system="You judge subtitle hygiene. Answer with one "
-                       "JSON object and nothing else.")
-        except Exception as exc:  # noqa: BLE001 - judgement degrades
-            print(f"  hygiene: model call failed ({exc}) - batch "
-                  f"starting at seg{view[start]['seg']} UNEVALUATED.",
-                  file=sys.stderr)
-            continue
-        try:
-            verdict = _parse_verdict(raw)
-        except HygieneError as exc:
-            print(f"  hygiene: model verdict unreadable ({exc}) - "
-                  f"batch starting at seg{view[start]['seg']} "
-                  f"UNEVALUATED.", file=sys.stderr)
-            continue
-        kept, dropped = _dispose_batch(view, verdict)
-        suppressions.extend(kept[0])
-        respells.extend(kept[1])
-        refused.extend(dropped)
-    # Candidates the verdict never disposed stay unevaluated.
-    judged = {(s["seg"], s["index"]) for s in suppressions}
-    unevaluated = [c for c in candidates
-                   if (c["seg"], c["index"]) not in judged]
-    if refused:
-        print(f"  hygiene: refused {len(refused)} verdict row(s): "
-              + "; ".join(refused[:5]), file=sys.stderr)
-    return {"suppress": suppressions, "respell": respells,
-            "unevaluated": unevaluated, "refused": refused}
+    print("  hygiene: judge deferred - "
+          f"{len(candidates)} nominated candidate(s) returned "
+          f"UNEVALUATED rather than guessed.\n"
+          f"    why: no automated judge is wired here; guessing would "
+          f"write corrections nobody decided.\n"
+          f"    fix: review the unevaluated proposals in the scan report "
+          f"(each carries its evidence) and record the verdict with "
+          f"transcript_corrections, or pass a judge to scan.",
+          file=sys.stderr)
+    return {"suppress": [], "respell": [],
+            "unevaluated": list(candidates)}
 
 
-class HygieneError(ValueError):
-    """A model verdict that cannot be honoured as written."""
+class HygieneError(RenRefusal):
+    """A model verdict that cannot be honoured as written.
+
+    Every site raises with the message alone; the fix is uniform
+    because every one faults the judge's answer: answer with one JSON
+    object carrying `suppress` and `respell` lists, and nothing else.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            what=message,
+            why=("a verdict that cannot be honoured is refused, never "
+                 "partially applied - half a judgement is a guess"),
+            fix=("answer with one JSON object carrying `suppress` and "
+                 "`respell` lists, and nothing else"))
 
 
 def _parse_verdict(raw: str) -> dict:
