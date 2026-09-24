@@ -2446,6 +2446,64 @@ def build_timeline(
         msg = f"audio mix read back wrong: {complaint}"
         results["warnings"].append(msg)
         print(f"  ⚠ {msg}", file=sys.stderr)
+    for row in mix_report.get("stem_unmatched", []) or []:
+        msg = (f"cleanup stem {row.get('label', '?')} matched no clip: "
+               f"{row.get('reason', '')}")
+        results["errors"].append(msg)
+        print(f"  ✗ {msg}", file=sys.stderr)
+    for row in mix_report.get("stem_applied", []) or []:
+        print(f"  ✓ cleanup stem {row['label']} on the timeline",
+              file=sys.stderr)
+
+    # ══════════════════════════════════════════════════════════
+    # DIALOGUE CLEANUP: VOICE ISOLATION (fidelity rung R5d)
+    # ══════════════════════════════════════════════════════════
+    # Plan-requested only: step 5.02 validates each entry and compile
+    # resolves it against the played clips; here the amount reaches
+    # the speech track AFTER the OTIO round trip above, because the
+    # import rebuilds the timeline and would discard a setting written
+    # before it. Each write is judged by Get read-back
+    # (`dialogue_cleanup.apply_voice_isolation`, the same discipline as
+    # the `audio isolate` resolve-axi verb) - and a write that does not
+    # land errors the build rather than warning past it, the way an
+    # unplaced room-tone fill does: uncleaned dialogue reported clean
+    # is the fake success rung 1 removed.
+    results["voice_isolation"] = []
+    cleanup_plan = ((manifest.get("audio") or {})
+                    .get("dialogue_cleanup") or {})
+    voice_rows = cleanup_plan.get("voice_isolation", []) or []
+    if voice_rows:
+        _speech = track_plan.speech_row_for_angle("main")
+        if _speech is None:
+            _rows = track_plan.speech_rows()
+            _speech = _rows[0] if _rows else None
+        if _speech is None:
+            results["errors"].append(
+                "Voice isolation planned with no speech row; refusing "
+                "to apply it unrowed.")
+        else:
+            from library.tools import dialogue_cleanup as _dclean
+            print(f"\n── Voice isolation: {len(voice_rows)} request(s) "
+                  f"on A{_speech.index} ──", file=sys.stderr)
+            while timeline.GetTrackCount("audio") < _speech.index:
+                timeline.AddTrack("audio")
+            for _row in voice_rows:
+                try:
+                    assert_current_timeline(project, timeline)
+                    _applied = _dclean.apply_voice_isolation(
+                        timeline, _speech.index, _row.get("amount"))
+                except _dclean.DialogueCleanupRefused as exc:
+                    msg = (f"voice isolation on A{_speech.index} for "
+                           f"{_row.get('source', '?')} declined: "
+                           f"{exc.what}")
+                    results["errors"].append(msg)
+                    print(f"  ✗ {msg}", file=sys.stderr)
+                    continue
+                _applied["source"] = _row.get("source", "")
+                results["voice_isolation"].append(_applied)
+                print(f"  ✓ A{_speech.index} voice isolation "
+                      f"{_applied['amount']} ({_applied['verified']})",
+                      file=sys.stderr)
 
     if not mix_report["delivered"]:
         # THE FALLBACK, and it is a fallback: a cyan marker is a note

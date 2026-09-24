@@ -1,0 +1,836 @@
+"""Dialogue cleanup: plan-requested noise treatment for speech, never a default.
+
+Fidelity rung R5d (Ears): EQ, dynamics and noise reduction were a no-op
+stub returning True (`fairlight_presets.py`, rung 1 removed the fake
+success), and the `audio_mix` model call was skipped on an empty schema
+so no brief could shape the mix. The research answer for speech and mix
+says DeepFilterNet first (dual MIT/Apache-2.0, Apple Silicon binaries,
+offline) plus Resolve Voice Isolation via
+`Timeline.SetVoiceIsolationState` (amount 0-100, Studio) as the in-app
+path; rung 3a measured the track call returning True and reading back.
+
+That research is landscape evidence. What ships here was measured
+locally first, on real dialogue from the captain's projects (16 s
+excerpts, 48 kHz mono, this machine, CPU, 2026-09-24):
+
+================= ==================== ==================== ============
+clip              floor before->after  speech before->after WER vs orig
+================= ==================== ==================== ============
+akshita (podcast) -44.1 -> -50.1 dBFS  -27.10 -> -27.23     0.000 (46 w)
+craig (podcast)   unmeasurable (dense) -26.49 -> -26.70     0.019 (53 w)
+img1816 (vlog)    -29.7 -> -34.5 dBFS  -27.80 -> -29.86     see note
+img1822 (vlog)    -54.1 -> -58.2 dBFS  -23.72 -> -24.74     0.000 (54 w)
+================= ==================== ==================== ============
+
+DeepFilterNet3 (`deepfilternet==0.5.6`, `deepfilterlib==0.5.6` cp311
+macOS-arm64 wheel, torch 2.8/torchaudio 2.8 pair): ~0.3 s inference
+per 16 s clip (RT factor ~0.02), words intact. img1816 note: 10 token
+edits over 28 words, all number verbalization ("25th, 2026" vs
+"twenty fifth, twenty twenty six") and two uncertain function words;
+same sentences, same timestamps within 0.2 s. The Voz self-rerun
+control on the uncleaned file is 0 edits, so the delta comes from the
+cleanup's spectral change, not ASR noise - and re-measuring after
+loudness-normalising the cleaned file to the original gives the same
+10, so it is not the level either. Meaning preserved, tokens shifted
+where Voz was already uncertain.
+
+Voice Isolation (`Timeline.SetVoiceIsolationState` on audio track 1,
+the rung-3a verb with read-back), rendered from a throwaway project on
+the same 16 s img1816 excerpt, same day, same machine (renders ~1.2 s
+each; the off render reproduces the source at floor -29.8 dBFS, speech
+-27.83 LUFS, WER 0.000, so the render path itself is transparent):
+
+================= ==================== ==================== ============
+amount            floor                speech               WER vs orig
+================= ==================== ==================== ============
+off               -29.8 dBFS           -27.83 LUFS          0.000 (28 w)
+30                -33.0 dBFS           -29.56 LUFS          0.321
+60                -33.2 dBFS           -29.67 LUFS          0.321
+90                -33.3 dBFS           -29.77 LUFS          0.393
+================= ==================== ==================== ============
+
+Two readings the plan should know: the floor drop is ~3.4 dB with
+almost no difference between 30 and 90 (diminishing returns across the
+scale, not a linear dial), and the word deltas are the same shape as
+DeepFilterNet's - number verbalization plus uncertain function words,
+same sentences, same timestamps. On this clip DeepFilterNet lowered
+the floor further (-34.5); on dense speech neither tool has a gap to
+measure and the speech level moves ~0.2 dB either way.
+
+Two things that conditioning measured, and they constrain the product:
+
+1. The pip install does NOT belong in `requirements.txt`. The shared
+   ML venv is Python 3.12 with numpy 2.5.3; `deepfilternet` pins
+   `numpy>=1.22,<2.0` and `deepfilterlib` ships no cp312 macOS-arm64
+   wheel (cp310/cp311 only). Pinning it would downgrade numpy fleet-wide
+   and break the torch pair every lane runs on. The first
+   torch 2.14/torchaudio 2.11 attempt failed exactly the way
+   AGENTS.md 9 documents (`torchaudio.backend` removed); the working
+   pair is torch 2.8/torchaudio 2.8 with Python 3.11. So the engine
+   invokes DeepFilterNet opportunistically - `df` import, else the
+   `deep-filter` Rust binary on PATH - and REFUSES BY NAME when neither
+   answers, instead of shipping a pin that breaks the build.
+2. Voice Isolation's audio effect (floor drop per amount, word safety)
+   is measured in Resolve at build-prove time; rung 3a measured the
+   call itself. Amounts are Resolve's own 0..100 scale - the engine
+   offers no scale of its own (AGENTS.md 10.5).
+
+What this module owns (one enumeration, like every vocabulary here):
+
+- `TOOLS`: the only two cleanup tools. Anything else is refused by
+  name in `validate_cleanup_request`, never dropped.
+- Availability probes with the reason attached, so the plan context
+  states what the build can actually do.
+- `run_deepfilternet`: source range in, stem file out, with wall time
+  and before/after measurements on the record.
+- `apply_voice_isolation`: the track call with Get read-back, the same
+  discipline as the `audio isolate` resolve-axi verb (rung 3a). The
+  per-clip variant stays out: the probe ranks the track call first.
+- `rewrite_clip_media_to_stem`: the OTIO half of a DeepFilterNet stem -
+  the clip's media reference becomes the stem file, which IS the played
+  range, so the source start resets to zero. Pure function, unit-tested.
+
+A cleanup is PLAN-REQUESTED or it does not happen. There is no engine
+default, no threshold that turns it on, and no fallback tool: an entry
+without `why` is dropped like every other undecided creative value,
+and a tool nothing here names refuses through the post-bridge retry
+path so the model re-plans instead of the mix carrying a key nobody
+reads.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import time
+
+from library.tools.ren_refusal import RenRefusal
+
+
+class DialogueCleanupRefused(RenRefusal):
+    """A dialogue cleanup cannot be planned, staged, or applied."""
+
+
+#: The only cleanup tools. `voice_isolation` is Resolve's own
+#: per-track Voice Isolation (`Timeline.SetVoiceIsolationState`,
+#: amount 0..100, Studio-only since 21.1). `deepfilternet` is a
+#: processed stem the build places natively through the OTIO route.
+TOOLS = ("voice_isolation", "deepfilternet")
+
+#: Resolve's own Voice Isolation scale, read off the 21.1 stub and the
+#: rung-3a probe (`SetVoiceIsolationState(1, {isEnabled, amount: 60})`
+#: returning True and reading back). The engine offers no scale of its
+#: own: a bound narrower than Resolve's would be taste (AGENTS.md 10.5).
+VOICE_ISOLATION_MIN = 0
+VOICE_ISOLATION_MAX = 100
+
+#: The entry keys step 5.02 reads. Anything else is REFUSED, never
+#: dropped - an unread key is how a probe's SFX `at_word` landed 3.06 s
+#: early on the block start.
+CLEANUP_ENTRY_KEYS = frozenset({
+    "source",
+    "tool",
+    "amount",
+    "span_start",
+    "span_end",
+    "why",
+})
+
+#: Measure-grade sample rate for stems. DeepFilterNet is full-band at
+#: 48 kHz; the stem stays there so the OTIO route places exactly what
+#: was measured.
+STEM_SAMPLE_RATE = 48000
+
+
+def _refuse(what: str, why: str, fix: str) -> DialogueCleanupRefused:
+    return DialogueCleanupRefused(what=what, why=why, fix=fix)
+
+
+# ── Availability ─────────────────────────────────────────────────────
+
+def deepfilternet_probe() -> dict:
+    """Whether this interpreter can run DeepFilterNet, and how.
+
+    Returns `{"available", "method", "reason"}`. `method` is `python`
+    (the `df` package imports), `binary` (the `deep-filter` Rust binary
+    on PATH), or "" when neither answers. Unavailability is a stated
+    fact with the measured block, not an exception: the plan context
+    carries it so the model asks for what the build can do.
+    """
+    try:
+        import importlib.util as _ilu
+
+        if _ilu.find_spec("df") is not None:
+            return {"available": True, "method": "python",
+                    "reason": "the df package imports in this interpreter"}
+    except (ImportError, ValueError, AttributeError):
+        pass
+    binary = shutil.which("deep-filter")
+    if binary:
+        return {"available": True, "method": "binary",
+                "reason": f"the deep-filter binary is on PATH at {binary}"}
+    return {
+        "available": False,
+        "method": "",
+        "reason": (
+            "neither the df package nor the deep-filter binary answers "
+            "here: deepfilternet pins numpy<2 against this stack's numpy "
+            "2.x and deepfilterlib 0.5.6 ships no cp312 macOS-arm64 "
+            "wheel, so it is not in requirements.txt. Install "
+            "deepfilternet==0.5.6 with deepfilterlib==0.5.6 on Python "
+            "3.11 (torch 2.8/torchaudio 2.8), or put the deep-filter "
+            "binary on PATH."
+        ),
+    }
+
+
+def voice_isolation_note() -> dict:
+    """What the plan context says about Voice Isolation availability.
+
+    The call needs a live Resolve Studio timeline, which no plan-time
+    probe can see - so this states the precondition instead of a
+    verdict. The build refuses by name when Resolve answers otherwise.
+    """
+    return {
+        "available": "at build",
+        "method": "resolve",
+        "reason": (
+            "Timeline.SetVoiceIsolationState with Get read-back, applied "
+            "to the speech track at build time (rung 3a read back "
+            "amount 60). Scripting is Studio-only since Resolve 21.1; "
+            "the build refuses by name when Resolve is absent or "
+            "declines."
+        ),
+    }
+
+
+# ── Plan validation ──────────────────────────────────────────────────
+
+def validate_cleanup_request(entry: dict) -> dict:
+    """A plan entry normalised, or refused by name.
+
+    Returns `{"source", "tool", "amount", "span_start", "span_end",
+    "why"}` with `amount`/`span_*` None when not given. Refuses an
+    unknown tool, a Voice Isolation amount outside Resolve's own
+    0..100, a span that is not a positive range, and an entry with no
+    `why` or no `source` - a cleanup nobody justified is exactly what
+    "never an engine default" exists to remove.
+    """
+    if not isinstance(entry, dict):
+        raise _refuse(
+            "dialogue cleanup cannot be planned: an entry is not an object",
+            "the plan list carries a row the step cannot read field by "
+            "field.",
+            "re-plan the cleanup list as objects with keys "
+            + ", ".join(sorted(CLEANUP_ENTRY_KEYS)) + ".",
+        )
+    source = entry.get("source")
+    if not (isinstance(source, str) and source.strip()):
+        raise _refuse(
+            "dialogue cleanup cannot be planned: an entry names no source",
+            "a cleanup with no source would apply to whatever the build "
+            "guessed, which is an engine default by another name.",
+            "name the source file (basename matches) each entry cleans, "
+            "or drop the entry.",
+        )
+    tool = entry.get("tool")
+    if tool not in TOOLS:
+        raise _refuse(
+            f"dialogue cleanup cannot be planned: {tool!r} is not a "
+            f"cleanup tool",
+            "the build applies voice_isolation through Resolve and "
+            "deepfilternet as a staged stem - a third name would reach "
+            "no code and ship as an uncleaned source reported clean.",
+            f"re-plan with one of: {', '.join(TOOLS)}.",
+        )
+    amount = entry.get("amount")
+    if tool == "voice_isolation":
+        if amount is None:
+            raise _refuse(
+                f"dialogue cleanup cannot be planned: voice_isolation on "
+                f"{source!r} names no amount",
+                "Resolve's Voice Isolation takes 0..100 and the engine "
+                "holds no default amount - a substituted one would be "
+                "taste nobody chose (AGENTS.md 10.5).",
+                "name the amount (0..100) with the measured floor that "
+                "made it that strong, or drop the entry.",
+            )
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            raise _refuse(
+                f"dialogue cleanup cannot be planned: amount {amount!r} "
+                f"is not a number",
+                "the amount reaches Timeline.SetVoiceIsolationState, "
+                "which takes 0..100.",
+                "re-plan the amount as an integer 0..100.",
+            ) from None
+        if not VOICE_ISOLATION_MIN <= amount <= VOICE_ISOLATION_MAX:
+            raise _refuse(
+                f"dialogue cleanup cannot be planned: amount {amount} is "
+                f"outside Resolve's 0..100",
+                "the amount is Resolve's own scale, passed through - "
+                "outside it nothing answers.",
+                "re-plan the amount inside 0..100.",
+            )
+    elif amount is not None:
+        raise _refuse(
+            f"dialogue cleanup cannot be planned: deepfilternet on "
+            f"{source!r} carries an amount",
+            "a DeepFilterNet stem has no strength dial - the model is "
+            "the strength choice the plan already made. An amount beside "
+            "it would reach no code.",
+            "drop the amount key, or switch the tool to voice_isolation.",
+        )
+    span_start, span_end = entry.get("span_start"), entry.get("span_end")
+    if (span_start is None) != (span_end is None):
+        raise _refuse(
+            f"dialogue cleanup cannot be planned: {source!r} carries half "
+            f"a span",
+            "a span with one end would clean from (or to) wherever the "
+            "build guessed.",
+            "give both span_start and span_end in source seconds, or "
+            "neither (the whole played range).",
+        )
+    if span_start is not None:
+        try:
+            span_start, span_end = float(span_start), float(span_end)
+        except (TypeError, ValueError):
+            raise _refuse(
+                f"dialogue cleanup cannot be planned: span "
+                f"{span_start!r}-{span_end!r} is not seconds",
+                "spans are source seconds, the unit every word timing "
+                "already carries.",
+                "re-plan the span as two numbers in source seconds.",
+            ) from None
+        if not span_end > span_start:
+            raise _refuse(
+                f"dialogue cleanup cannot be planned: span "
+                f"{span_start}-{span_end} runs backwards",
+                "a non-positive span stages an empty stem, which is a "
+                "gap reported as cleaned.",
+                "re-plan with span_end past span_start, in source "
+                "seconds.",
+            )
+    why = entry.get("why")
+    if not (isinstance(why, str) and why.strip()):
+        raise _refuse(
+            f"dialogue cleanup cannot be planned: the entry on {source!r} "
+            f"carries no why",
+            "a cleanup nobody justified is an engine default with a "
+            "plan-shaped excuse - 5.01's rule, unchanged.",
+            "state what in the measured floor made this tool (and this "
+            "amount) the answer, or drop the entry.",
+        )
+    return {
+        "source": source.strip(),
+        "tool": tool,
+        "amount": amount,
+        "span_start": span_start,
+        "span_end": span_end,
+        "why": why.strip(),
+    }
+
+
+# ── Source measurement (the plan context) ────────────────────────────
+
+def spans_by_source(structure: list, a_roll_assignments) -> tuple:
+    """Played ranges and word spans per source file, in source seconds.
+
+    Joins the audio spine blocks (`clip_id` + `word_timestamps`, read
+    directly per the spine contract) to the played ranges
+    (`video_segments` source_file/video_in/video_out) through the
+    segment `clip_id`. Returns `({source: [(in, out)]},
+    {source: [(word_start, word_end)]})` with word spans clipped to
+    what the edit really plays - timings from unplayed takes must not
+    exclude the room the edit rests on. Both the 5.02 bridge and
+    compile_manifest read this, so the two halves cannot join
+    differently and disagree.
+    """
+    words_by_clip: dict = {}
+    for block in structure or []:
+        if not isinstance(block, dict):
+            continue
+        content = block.get("content")
+        if not isinstance(content, dict):
+            content = {}
+        clip_id = block.get("clip_id") or content.get("clip_id")
+        stamps = block.get("word_timestamps") or content.get("word_timestamps")
+        if not clip_id or not isinstance(stamps, list):
+            continue
+        spans = []
+        for stamp in stamps:
+            if not isinstance(stamp, dict):
+                continue
+            try:
+                start, end = (float(stamp["source_start"]),
+                              float(stamp["source_end"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if end > start:
+                spans.append((start, end))
+        if spans:
+            words_by_clip.setdefault(clip_id, []).extend(spans)
+
+    played: dict = {}
+    clips: dict = {}
+    for entry in a_roll_assignments or []:
+        if not isinstance(entry, dict):
+            continue
+        for segment in entry.get("video_segments") or []:
+            if not isinstance(segment, dict):
+                continue
+            source = segment.get("source_file")
+            try:
+                start, end = (float(segment["video_in"]),
+                              float(segment["video_out"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not source or not end > start:
+                continue
+            played.setdefault(source, []).append((start, end))
+            if segment.get("clip_id"):
+                clips.setdefault(source, set()).add(segment["clip_id"])
+
+    spans: dict = {}
+    for source, ranges in played.items():
+        out = []
+        for clip_id in clips.get(source, ()):
+            for start, end in words_by_clip.get(clip_id, []):
+                if any(start < r_end and end > r_start
+                       for r_start, r_end in ranges):
+                    out.append((start, end))
+        spans[source] = sorted(out)
+    return played, spans
+
+def measure_source(source_file: str, played_ranges: list,
+                   speech_spans: list) -> dict:
+    """The noise record for one played source, absences stated.
+
+    `played_ranges` are (in, out) source seconds the edit plays;
+    `speech_spans` are word timings in the same unit (the spine
+    contract's `source_start`/`source_end`, read directly). Returns the
+    floor (`room_tone.measure_room_tone`), the speech level over the
+    played ranges (`speech_loudness.measure_range`), and
+    `floor_unmeasured_reason` when the floor refuses - never a default
+    level reported as measured.
+    """
+    from library.tools import room_tone as _room
+    from library.tools import speech_loudness as _loud
+
+    record = {"source_file": source_file,
+              "played_ranges": [list(r) for r in played_ranges or []]}
+    try:
+        floor = _room.measure_room_tone(source_file, speech_spans or [])
+        record["floor"] = {
+            "level_dbfs": floor.get("level_dbfs"),
+            "peak_dbfs": floor.get("peak_dbfs"),
+            "segment_start": floor.get("segment_start"),
+            "segment_end": floor.get("segment_end"),
+            "gaps_considered": floor.get("gaps_considered"),
+        }
+        record["floor_unmeasured_reason"] = ""
+    except Exception as exc:
+        record["floor"] = {}
+        record["floor_unmeasured_reason"] = str(exc)[:300]
+    speech = None
+    for start, end in played_ranges or []:
+        reading = _loud.measure_range(source_file, start, end)
+        if reading.get("measured") and (
+                speech is None or reading["integrated_lufs"]
+                > speech["integrated_lufs"]):
+            speech = reading
+    record["speech"] = speech or {"measured": False,
+                                  "reason": "no played range measured"}
+    return record
+
+
+# ── DeepFilterNet staging ────────────────────────────────────────────
+
+def run_deepfilternet(source_wav: str, out_wav: str, *,
+                      speech_spans: list | None = None) -> dict:
+    """Clean `source_wav` into `out_wav`. Returns the staged record.
+
+    Tries the `df` package, then the `deep-filter` binary, and refuses
+    by name when neither answers (see `deepfilternet_probe` for the
+    measured install block). The record carries wall time and the
+    before/after floor and speech level - the proof the render is
+    judged against. A floor that refuses on either side is stated, not
+    defaulted.
+    """
+    if not os.path.isfile(source_wav):
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: {source_wav!r} is not on "
+            f"disk",
+            "the stem is processed from the source file itself - a stem "
+            "built without reading it would be invented signal.",
+            "point the cleanup request at the real source file, or drop "
+            "the entry.",
+        )
+    probe = deepfilternet_probe()
+    if not probe["available"]:
+        raise _refuse(
+            "dialogue cleanup cannot be staged: DeepFilterNet answers "
+            "nowhere here",
+            probe["reason"],
+            "request voice_isolation instead (Resolve applies it at "
+            "build), or install DeepFilterNet and re-run compile.",
+        )
+    os.makedirs(os.path.dirname(os.path.abspath(out_wav)), exist_ok=True)
+    started = time.time()
+    if probe["method"] == "python":
+        _enhance_python(source_wav, out_wav)
+    else:
+        _enhance_binary(source_wav, out_wav)
+    wall = round(time.time() - started, 2)
+    if not os.path.isfile(out_wav):
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: DeepFilterNet ran but "
+            f"{out_wav!r} is not on disk",
+            "a run that reports success with no file is the fake-success "
+            "stub rung 1 removed.",
+            "re-run compile; if it repeats, the DeepFilterNet install "
+            "is broken - reinstall it.",
+        )
+    return {
+        "stem_file": out_wav,
+        "method": probe["method"],
+        "wall_seconds": wall,
+        "floor_before_dbfs": _floor_or_none(source_wav, speech_spans),
+        "floor_after_dbfs": _floor_or_none(out_wav, speech_spans),
+        "speech_before_lufs": _speech_or_none(source_wav),
+        "speech_after_lufs": _speech_or_none(out_wav),
+    }
+
+
+def _enhance_python(source_wav: str, out_wav: str) -> None:
+    from df import enhance as _df_enhance
+    from df import init_df as _df_init
+    from df.io import load_audio as _df_load
+    from df.io import save_audio as _df_save
+
+    model, state, _ = _df_init()
+    audio, _ = _df_load(source_wav, sr=state.sr())
+    cleaned = _df_enhance(model, state, audio)
+    _df_save(out_wav, cleaned, state.sr())
+
+
+def _enhance_binary(source_wav: str, out_wav: str) -> None:
+    binary = shutil.which("deep-filter")
+    if not binary:
+        raise _refuse(
+            "dialogue cleanup cannot be staged: the deep-filter binary "
+            "left PATH mid-run",
+            "the probe saw it and the run does not - the environment "
+            "moved under the build.",
+            "put the deep-filter binary back on PATH and re-run compile.",
+        )
+    try:
+        proc = subprocess.run(
+            [binary, source_wav, "-o",
+             os.path.dirname(os.path.abspath(out_wav))],
+            capture_output=True, encoding="utf-8", timeout=900,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _refuse(
+            "dialogue cleanup cannot be staged: the deep-filter binary "
+            f"did not run ({exc})",
+            "the stem is processed audio, not a planned level - without "
+            "the run there is no stem.",
+            "repair the deep-filter install and re-run compile, or "
+            "re-plan with voice_isolation.",
+        ) from exc
+    if proc.returncode != 0 or not os.path.isfile(out_wav):
+        raise _refuse(
+            "dialogue cleanup cannot be staged: the deep-filter binary "
+            f"answered {proc.returncode}",
+            (proc.stderr or "")[-300:] or "no diagnostic on stderr.",
+            "re-run compile; if it repeats, re-plan with "
+            "voice_isolation.",
+        )
+
+
+def _floor_or_none(path: str, spans: list | None):
+    from library.tools import room_tone as _room
+
+    try:
+        return (_room.measure_room_tone(path, spans or [])
+                .get("level_dbfs"))
+    except Exception:
+        return None
+
+
+def _speech_or_none(path: str):
+    from library.tools import room_tone as _room
+    from library.tools import speech_loudness as _loud
+
+    try:
+        duration = len(_room.decode_mono(path)[0]) / _room.MEASURE_SR
+    except Exception:
+        return None
+    reading = _loud.measure_range(path, 0, duration)
+    return reading.get("integrated_lufs") if reading.get("measured") else None
+
+
+# ── Compile-time staging ───────────────────────────────────────────
+
+def stage_deepfilternet(request: dict, clips: list, spans: list,
+                        out_dir: str) -> list:
+    """Stage one DeepFilterNet request's stems. Returns stem records.
+
+    `request` is a validated entry (`validate_cleanup_request` runs
+    again here - the plan crossed a step boundary since 5.02, and a
+    second validation is cheaper than a stem for a request nobody can
+    read). `clips` are the manifest V1 clips cut from the requested
+    source, each carrying `source_in`/`source_out` plus its timeline
+    frames; `spans` are that source's word timings in source seconds.
+
+    A request span intersects each played range (a range outside the
+    span is dropped, a straddling one is clipped - never extended).
+    Each surviving range is extracted to 48 kHz mono, cleaned, and
+    recorded with its timeline frames so the OTIO route can swap it in
+    and the render can be judged: floor before/after, speech
+    before/after, wall time. A source with no played range refuses by
+    name, and so does a span that intersects nothing.
+    """
+    row = validate_cleanup_request(request)
+    stem_dir = os.path.join(out_dir, "dialogue_cleanup")
+    os.makedirs(stem_dir, exist_ok=True)
+    span = ((row["span_start"], row["span_end"])
+            if row["span_start"] is not None else None)
+
+    ranges = []
+    for clip in clips or []:
+        try:
+            start, end = (float(clip.get("source_in", 0.0)),
+                          float(clip.get("source_out", 0.0)))
+        except (TypeError, ValueError):
+            continue
+        if not end > start:
+            continue
+        if span is not None:
+            start, end = max(start, span[0]), min(end, span[1])
+            if not end > start:
+                continue
+        ranges.append((start, end, clip))
+    if not ranges:
+        if span is not None:
+            raise _refuse(
+                f"dialogue cleanup cannot be staged: span "
+                f"{span[0]}-{span[1]}s of {row['source']!r} intersects "
+                f"nothing the edit plays",
+                "a span outside the played ranges stages an empty stem, "
+                "which is a gap reported as cleaned.",
+                "re-plan the span inside a played range, or drop the "
+                "span and clean the whole played range.",
+            )
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: {row['source']!r} "
+            f"reaches no played clip",
+            "the request names a source the edit does not play - the "
+            "stem would land nowhere.",
+            "re-plan the source against cleanup_context.sources, or "
+            "drop the entry.",
+        )
+
+    stems = []
+    for index, (start, end, clip) in enumerate(ranges):
+        label = str(clip.get("label") or os.path.basename(
+            row["source"])) + f"_clean{index}"
+        source_file = clip.get("source_file") or ""
+        if not (isinstance(source_file, str) and source_file
+                and os.path.isfile(source_file)):
+            raise _refuse(
+                f"dialogue cleanup cannot be staged: the played clip "
+                f"{label!r} names no source file on disk",
+                "the stem is processed from the source file itself - a "
+                "basename the plan carried cannot be decoded.",
+                "restore the source file, or drop the cleanup request.",
+            )
+        range_wav = os.path.join(stem_dir, f"{label}_range.wav")
+        stem_wav = os.path.join(stem_dir, f"{label}.wav")
+        _extract_range(source_file, start, end, range_wav)
+        local_spans = [(s - start, e - start) for s, e in spans or []
+                       if e > start and s < end]
+        staged = run_deepfilternet(range_wav, stem_wav,
+                                   speech_spans=local_spans)
+        staged.update({
+            "label": label,
+            "source_file": clip.get("source_file") or row["source"],
+            "request_source": row["source"],
+            "source_in": round(start, 3),
+            "source_out": round(end, 3),
+            "timeline_in_frame": clip.get("timeline_in_frame"),
+            "timeline_out_frame": clip.get("timeline_out_frame"),
+            "why": row["why"],
+        })
+        stems.append(staged)
+    return stems
+
+
+def _extract_range(source_file: str, start: float, end: float,
+                   out_wav: str) -> None:
+    """One played range to 48 kHz mono WAV, or a named refusal."""
+    if not os.path.isfile(source_file):
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: {source_file!r} is not "
+            f"on disk",
+            "the stem is processed from the source file itself.",
+            "restore the source file, or drop the cleanup request.",
+        )
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-nostdin",
+             "-ss", f"{max(0.0, start):.3f}",
+             "-t", f"{end - start:.3f}",
+             "-i", source_file, "-ac", "1", "-ar",
+             str(STEM_SAMPLE_RATE), "-c:a", "pcm_s16le", "-y", out_wav],
+            capture_output=True, encoding="utf-8", timeout=900,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: ffmpeg did not run "
+            f"({exc})",
+            "the range extraction is the stem's first half - without it "
+            "there is nothing to clean.",
+            "install ffmpeg and re-run compile, or drop the cleanup "
+            "request.",
+        ) from exc
+    if proc.returncode != 0 or not os.path.isfile(out_wav):
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: ffmpeg could not read "
+            f"{start:.2f}-{end:.2f}s of {os.path.basename(source_file)}",
+            (proc.stderr or "")[-300:] or "no diagnostic on stderr.",
+            "restore the source file, or drop the cleanup request.",
+        )
+
+
+# ── Voice Isolation application ──────────────────────────────────────
+
+def apply_voice_isolation(timeline, track: int, amount: int) -> dict:
+    """Set Voice Isolation on one audio track, judged by re-read.
+
+    The same discipline as the `audio isolate` resolve-axi verb: the
+    write is claimed only when `GetVoiceIsolationState` re-reads
+    `isEnabled True` at the requested amount. A True that isolated
+    nothing fails naming both. `timeline` is duck-typed so fakes judge
+    the discipline in tests.
+    """
+    try:
+        amount = int(amount)
+    except (TypeError, ValueError):
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: amount {amount!r} is "
+            f"not a number",
+            "the amount reaches Timeline.SetVoiceIsolationState, which "
+            "takes 0..100.",
+            "re-plan the amount as an integer 0..100.",
+        ) from None
+    if not VOICE_ISOLATION_MIN <= amount <= VOICE_ISOLATION_MAX:
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: amount {amount} is "
+            f"outside Resolve's 0..100",
+            "the amount is Resolve's own scale, passed through.",
+            "re-plan the amount inside 0..100.",
+        )
+    try:
+        count = timeline.GetTrackCount("audio") or 0
+    except Exception as exc:
+        raise _refuse(
+            "dialogue cleanup cannot be applied: the timeline would not "
+            f"report its audio tracks ({exc})",
+            "without a track count the build cannot say the track names "
+            "anything.",
+            "verify the timeline in Resolve and re-run the build.",
+        ) from exc
+    if track < 1 or track > count:
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: audio track {track} "
+            f"names nothing (the timeline holds {count})",
+            "an isolation setting on a missing track would ship as "
+            "cleaned dialogue that was never touched.",
+            "re-plan against the speech track the build really placed.",
+        )
+    state = {"isEnabled": True, "amount": amount}
+    try:
+        wrote = bool(timeline.SetVoiceIsolationState(track, dict(state)))
+    except Exception as exc:
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: SetVoiceIsolationState "
+            f"raised ({exc})",
+            "the call declined instead of answering True.",
+            "verify Voice Isolation in Resolve Studio (scripting is "
+            "Studio-only since 21.1) and re-run the build.",
+        ) from exc
+    if not wrote:
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: "
+            f"SetVoiceIsolationState(audio{track}) answered False",
+            "False is Resolve declining the write - claiming it would "
+            "be the fake success rung 1 removed.",
+            "verify Voice Isolation in Resolve Studio and re-run the "
+            "build, or re-plan with deepfilternet.",
+        )
+    try:
+        back = timeline.GetVoiceIsolationState(track) or {}
+    except Exception as exc:
+        raise _refuse(
+            "dialogue cleanup cannot be applied: the isolation re-read "
+            f"raised ({exc})",
+            "a write without a read-back is an unjudged placement.",
+            "verify by hand in Resolve and re-run the build.",
+        ) from exc
+    if (not back.get("isEnabled")
+            or back.get("amount") != amount):
+        raise _refuse(
+            f"dialogue cleanup cannot be applied: "
+            f"SetVoiceIsolationState reports True and re-reads {back!r} "
+            f"for {state!r}",
+            "True that isolated nothing is the defect this read-back "
+            "exists to catch.",
+            "verify Voice Isolation in Resolve Studio and re-run the "
+            "build, or re-plan with deepfilternet.",
+        )
+    return {"track": track, "amount": amount, "verified": "re-reads equal"}
+
+
+# ── The OTIO half of a stem ──────────────────────────────────────────
+
+def rewrite_clip_media_to_stem(clip: dict, stem_file: str) -> dict:
+    """Point an OTIO audio clip at its cleaned stem. Returns the clip.
+
+    The stem IS the played range (staged from source_in..source_out at
+    compile time), so the clip's source start resets to zero while its
+    duration - what the timeline plays - is untouched. Refuses a stem
+    that is not on disk: the import answers None for a whole timeline
+    over one missing file and says nothing about which.
+    """
+    if not (isinstance(stem_file, str) and stem_file
+            and os.path.exists(stem_file)):
+        raise _refuse(
+            f"dialogue cleanup cannot be placed: stem {stem_file!r} is "
+            f"not on disk",
+            "Resolve's OTIO import returns None for a whole timeline "
+            "when one referenced file is missing, naming nothing.",
+            "re-run compile to re-stage the stem, or drop the cleanup "
+            "request.",
+        )
+    references = clip.get("media_references") or {}
+    key = clip.get("active_media_reference_key", "")
+    reference = references.get(key)
+    if not isinstance(reference, dict):
+        raise _refuse(
+            "dialogue cleanup cannot be placed: the clip names no active "
+            "media reference",
+            "without the reference there is no URL to rewrite - the "
+            "stem would land nowhere.",
+            "drop the cleanup request: this clip's media cannot be "
+            "swapped.",
+        )
+    reference["target_url"] = "file://" + os.path.abspath(stem_file)
+    source_range = clip.get("source_range") or {}
+    start = source_range.get("start_time")
+    if isinstance(start, dict) and "value" in start:
+        start["value"] = 0
+    return clip

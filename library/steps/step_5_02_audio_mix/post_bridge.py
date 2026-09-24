@@ -36,6 +36,10 @@ from library.steps.step_5_02_audio_mix.mix import (
     solve_automation,
 )
 from library.tools import decided_value
+from library.tools.dialogue_cleanup import (
+    CLEANUP_ENTRY_KEYS,
+    validate_cleanup_request,
+)
 from library.tools.plan_keys import refuse_unknown_keys
 
 
@@ -147,7 +151,60 @@ def resolve_audio_mix(data: dict) -> dict:
         print(f"  Window {window['spine_block_position']} carries no bed "
               f"level: {window['why']}", file=sys.stderr)
 
-    return assemble(pre_output, decisions, automation, undetermined)
+    cleanup = resolve_cleanup(data)
+
+    return assemble(pre_output, decisions, automation, undetermined,
+                    cleanup=cleanup)
+
+
+def resolve_cleanup(data: dict) -> dict:
+    """The dialogue cleanup the plan asked for, validated entry by entry.
+
+    Reads `cleanup_plan` (falling back to the raw response the way
+    4.04 reads `sfx_creative`). A non-list answer is a warning and an
+    empty plan - cleanup is opt-in, so nothing requested means nothing
+    cleaned. Every entry is then validated strictly: an unknown key, an
+    unknown tool, a missing or out-of-range amount, or a missing `why`
+    refuses through the post-bridge retry path so the model re-plans
+    instead of the mix carrying a request nothing applies.
+    """
+    plan = data.get("cleanup_plan")
+    if not plan and "llm_raw_response" in data:
+        try:
+            parsed = json.loads(data["llm_raw_response"])
+            plan = parsed if isinstance(parsed, list) else parsed.get(
+                "cleanup_plan", [])
+        except Exception:
+            plan = data["llm_raw_response"]
+    if plan is None:
+        plan = []
+    if not isinstance(plan, list):
+        print(f"  Warning: LLM returned invalid response for cleanup_plan. "
+              f"Defaulting to empty (no cleanup). "
+              f"Response was: {str(plan)[:100]}", file=sys.stderr)
+        plan = []
+    plan = [v for v in plan if isinstance(v, dict)]
+    refuse_unknown_keys(plan, CLEANUP_ENTRY_KEYS, step="audio_mix",
+                        plan="cleanup_plan")
+    requests = []
+    for entry in plan:
+        row = validate_cleanup_request(entry)
+        requests.append(row)
+        detail = (f"{row['tool']} {row['amount']}"
+                  if row["tool"] == "voice_isolation" else row["tool"])
+        span = (f" span {row['span_start']}-{row['span_end']}s"
+                if row["span_start"] is not None else "")
+        print(f"  Cleanup {row['source']}: {detail}{span} - {row['why']}",
+              file=sys.stderr)
+    if not requests:
+        print("  Cleanup: no source requested it - nothing will be "
+              "cleaned.", file=sys.stderr)
+    context = data.get("cleanup_context") or {}
+    return {
+        "requests": requests,
+        "tools": context.get("tools", {}),
+        "sources": context.get("sources", []),
+    }
 
 
 def main():

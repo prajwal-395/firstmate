@@ -27,6 +27,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from library.tools import decided_value
+from library.tools.dialogue_cleanup import (
+    deepfilternet_probe,
+    measure_source,
+    spans_by_source,
+    voice_isolation_note,
+)
 from library.tools.music_behavior import (
     level_for_block,
     resolve_music_behavior,
@@ -146,6 +152,7 @@ def measure(audio_spine: dict, music_selection: dict,
         "bed_measurements": bed,
         "mix_windows": windows,
         "mix_decision_legend": legend(bed),
+        "cleanup_context": cleanup_context(audio_spine, a_roll_assignments),
     }
 
 
@@ -179,7 +186,7 @@ def legend(bed: dict) -> dict:
 
 
 def assemble(pre_output: dict, decisions: list, automation: list,
-             undetermined_windows: list) -> dict:
+             undetermined_windows: list, cleanup: dict | None = None) -> dict:
     """`audio_mix_spec` from the measurements and the decisions."""
     bed = pre_output.get("bed_measurements") or {}
     # A separation target exists only where somebody named a SEPARATION.
@@ -197,6 +204,11 @@ def assemble(pre_output: dict, decisions: list, automation: list,
             "value_decisions": decisions,
             "separation_targets_declared": bool(declared),
             "undetermined_windows": undetermined_windows,
+            # The dialogue cleanup the plan asked for (fidelity rung
+            # R5d). Absent means unasked: the build cleans nothing it
+            # was not asked for, and compile_manifest is the reader.
+            "dialogue_cleanup": cleanup or {"requests": [], "tools": {},
+                                            "sources": []},
             "master_limiter": {
                 "threshold_db": -1.0,
                 "enabled": True,
@@ -269,3 +281,46 @@ def solve_automation(pre_output: dict, decisions_by_scope: dict) -> tuple:
                 bed_level_after_gain(bed, level_db)),
         })
     return automation, undetermined
+
+
+def cleanup_context(audio_spine: dict, a_roll_assignments) -> dict:
+    """The noise record the cleanup judgement is made over, measured once.
+
+    One row per distinct played source: the ranges the edit really
+    plays (from `a_roll_assignments` video segments), the word timings
+    in source seconds (from the audio spine blocks' `word_timestamps`,
+    read directly per the spine contract), and the floor plus speech
+    level `dialogue_cleanup.measure_source` reads off them. A floor
+    that refuses is stated with its reason - never a default. Costs one
+    decode per distinct source plus the loudnorm passes the speech
+    windows already paid; a run with long masters pays seconds here,
+    once, instead of every consumer re-decoding.
+
+    `tools` states what the build can actually do: DeepFilterNet
+    availability is probed in this interpreter (the pip install is
+    deliberately NOT in requirements.txt - see `dialogue_cleanup`),
+    Voice Isolation applies at build with read-back on Studio.
+    """
+    structure = (audio_spine or {}).get("structure", []) or []
+    played, spans = spans_by_source(structure, a_roll_assignments)
+
+    sources = []
+    for source in sorted(played):
+        record = measure_source(source, played[source], spans[source])
+        sources.append(record)
+
+    return {
+        "sources": sources,
+        "tools": {
+            "deepfilternet": deepfilternet_probe(),
+            "voice_isolation": voice_isolation_note(),
+        },
+        "legend": (
+            "floor.level_dbfs is the measured quiet of this source - the "
+            "room tone rung 5a stages fills from. A request that names no "
+            "measured floor is still plannable, but the build applies only "
+            "what its tool can verify: voice_isolation needs Resolve "
+            "Studio with read-back, deepfilternet needs the model in the "
+            "build interpreter. tools says which answers here."
+        ),
+    }

@@ -43,6 +43,13 @@ def main():
     print(f"  Speech measured on {measured} of "
           f"{len(output['mix_windows'])} windows.", file=sys.stderr)
 
+    noisy = [(s.get("source_file", "?"), (s.get("floor") or {}).get("level_dbfs"))
+             for s in (output.get("cleanup_context") or {}).get("sources", [])]
+    for source, floor in noisy:
+        print(f"  Noise floor {source.split('/')[-1]}: "
+              f"{floor if floor is not None else 'unmeasured'} dBFS.",
+              file=sys.stderr)
+
     json.dump(output, sys.stdout, indent=2)
 
 

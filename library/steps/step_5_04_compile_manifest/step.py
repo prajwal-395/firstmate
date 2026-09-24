@@ -2538,9 +2538,91 @@ def compile_manifest(out_dir: str) -> dict:
             )
 
     # Audio config
+    # Dialogue cleanup (fidelity rung R5d): plan-requested noise
+    # treatment, never an engine default. Step 5.02 validates each
+    # entry; here each request is resolved against the played V1 clips
+    # (matched by source basename) and staged: DeepFilterNet ranges are
+    # extracted and cleaned into stems under dialogue_cleanup/ with
+    # before/after floors on the record, Voice Isolation rows carry the
+    # amount for the speech track the build applies with read-back. A
+    # request that matches nothing, a span that intersects nothing, or
+    # two Voice Isolation amounts for one track refuses by name -
+    # unapplied cleanup reported as applied is the fake success rung 1
+    # removed. Read by the timeline build (`resolve_build_timeline`)
+    # and the OTIO route (`otio_mix.stem_swaps`) - see output_contract.
+    cleanup_spec = (audio_mix_data.get("audio_mix_spec", {})
+                    .get("dialogue_cleanup", {}) or {})
+    cleanup_stems = []
+    cleanup_voice = []
+    for _entry in cleanup_spec.get("requests", []) or []:
+        from library.tools import dialogue_cleanup as _dc
+        _row = _dc.validate_cleanup_request(_entry)
+        _played = [c for c in v1_clips
+                   if isinstance(c, dict) and c.get("source_file")
+                   and os.path.basename(str(c["source_file"]))
+                   == os.path.basename(_row["source"])]
+        if not _played:
+            raise _dc.DialogueCleanupRefused(
+                what=(f"dialogue cleanup cannot be staged: "
+                      f"{_row['source']!r} reaches no played clip"),
+                why=("the request names a source the edit does not play "
+                     "- the treatment would land nowhere."),
+                fix=("re-plan the source against "
+                     "cleanup_context.sources, or drop the entry."),
+            )
+        if _row["tool"] == "deepfilternet":
+            from library.tools.dialogue_cleanup import spans_by_source as _spans
+            _played_map, _span_map = _spans(structure, aroll_data.get(
+                "a_roll_assignments", []) if isinstance(aroll_data, dict) else [])
+            _key = next((s for s in _played_map
+                         if os.path.basename(s)
+                         == os.path.basename(_row["source"])), None)
+            _stems = _dc.stage_deepfilternet(
+                _row, _played, (_span_map.get(_key, []) if _key else []),
+                out_dir)
+            cleanup_stems.extend(_stems)
+            for _stem in _stems:
+                print(
+                    f"  Cleanup {_stem['label']}: DeepFilterNet stem "
+                    f"floor {_stem['floor_before_dbfs']}->"
+                    f"{_stem['floor_after_dbfs']} dBFS, speech "
+                    f"{_stem['speech_before_lufs']}->"
+                    f"{_stem['speech_after_lufs']} LUFS "
+                    f"({_stem['wall_seconds']}s, {_stem['method']})",
+                    file=sys.stderr,
+                )
+        else:
+            cleanup_voice.append({
+                "source": _row["source"],
+                "amount": _row["amount"],
+                "why": _row["why"],
+            })
+            print(
+                f"  Cleanup {_row['source']}: voice isolation "
+                f"{_row['amount']} - {_row['why']}",
+                file=sys.stderr,
+            )
+    _amounts = {r["amount"] for r in cleanup_voice}
+    if len(_amounts) > 1:
+        from library.tools import dialogue_cleanup as _dc2
+        raise _dc2.DialogueCleanupRefused(
+            what=("dialogue cleanup cannot be staged: voice isolation "
+                  f"amounts {sorted(_amounts)} conflict on one speech "
+                  f"track"),
+            why=("Voice Isolation is a per-track setting - two amounts "
+                 "cannot both sit on it, and picking one would be taste "
+                 "nobody chose."),
+            fix=("re-plan with one amount for the speech track, or move "
+                 "one source to deepfilternet."),
+        )
     audio_preset = sfx_preset or audio_mix_data.get("audio_mix_spec", {}).get("fairlight_preset", "")
     audio_config = {
         "fairlight_preset": audio_preset,
+        "dialogue_cleanup": {
+            "requests": cleanup_spec.get("requests", []) or [],
+            "stems": cleanup_stems,
+            "voice_isolation": cleanup_voice,
+        },
     }
 
     # A bed running past the last PICTURE pads the export with black, so it

@@ -65,13 +65,15 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
     }
 
     targets = otio_mix.mix_targets(manifest, fps=fps)
-    if not targets:
+    swaps = otio_mix.stem_swaps(manifest)
+    if not targets and not swaps:
         planned = len((manifest.get("audio_mix", {}) or {})
                       .get("music_automation", []) or [])
         report["reason"] = (
             f"{planned} music level(s) planned and no A2 music clip to carry "
             f"them" if planned else
-            "nothing planned: no music automation and no clip volumes")
+            "nothing planned: no music automation, no clip volumes, "
+            "and no dialogue-cleanup stems")
         return report
 
     if not project_folder:
@@ -157,10 +159,20 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
 
     written = otio_mix.apply_mix(otio, targets)
     report["unmatched"] = written["unmatched"]
-    if not written["applied"]:
+    stemmed = otio_mix.apply_stem_swaps(otio, swaps)
+    report["stem_applied"] = stemmed["applied"]
+    report["stem_unmatched"] = stemmed["unmatched"]
+    for row in stemmed["applied"]:
+        print(f"  cleanup stem: {row['label']} swaps in "
+              f"{os.path.basename(row['stem_file'])}", file=sys.stderr)
+    for row in stemmed["unmatched"]:
+        print(f"  cleanup stem UNMATCHED {row.get('label', '?')}: "
+              f"{row.get('reason', '')}", file=sys.stderr)
+    if not written["applied"] and not stemmed["applied"]:
         report["reason"] = (
-            f"none of {len(targets)} planned level(s) matched a clip on the "
-            f"exported timeline")
+            f"none of {len(targets)} planned level(s) and "
+            f"{len(swaps)} stem(s) matched a clip on the exported "
+            f"timeline")
         return report
 
     otio_mix.save(otio, mixed_path, timeline_name=name)
@@ -197,8 +209,11 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
         Area.TIMELINE_INTERCHANGE, f"{name}.delivered.otio", step="render"))
     if imported.Export(check_path, getattr(resolve, "EXPORT_OTIO", EXPORT_OTIO)) \
             and os.path.exists(check_path):
+        reloaded = otio_mix.load(check_path)
         report["complaints"] = otio_mix.verify(
-            otio_mix.load(check_path), written["applied"])
+            reloaded, written["applied"])
+        report["complaints"].extend(
+            otio_mix.verify_stems(reloaded, stemmed["applied"]))
     else:
         report["complaints"] = ["could not re-export the mixed timeline to check it"]
 

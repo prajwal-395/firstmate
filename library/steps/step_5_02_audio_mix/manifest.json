@@ -53,13 +53,26 @@
         "type": "object",
         "description": "Bridge output: what each column IS and what a separation is measured against. The MEASUREMENT_LEGEND route - it defines the vocabulary and never says what to conclude."
       },
-      {
-        "name": "audio_mix_spec",
-        "type": "object",
-        "description": "State output: audio_mix_spec - the track levels, the per-block music automation carrying the solved clip gain and the separation it delivers, what the bed measures, and `value_decisions`: what decided each level, on what basis, over which measurements (library/tools/decided_value.py)."
-      }
+    {
+      "name": "audio_mix_spec",
+      "type": "object",
+      "description": "State output: audio_mix_spec - the track levels, the per-block music automation carrying the solved clip gain and the separation it delivers, what the bed measures, the dialogue cleanup the plan asked for (requests plus the per-source noise table it was decided over), and `value_decisions`: what decided each level, on what basis, over which measurements (library/tools/decided_value.py)."
+    },
+    {
+      "name": "cleanup_context",
+      "type": "object",
+      "description": "Bridge output: one noise row per played source - the ranges the edit plays, the floor rung 5a measures, the speech level, and what each cleanup tool can do on this run. It is the table the cleanup half of the prompt reads, and the measurement the plan's `why` must cite."
+    }
     ],
-    "llm_outputs": []
+    "llm_outputs": [
+      {
+        "name": "cleanup_plan",
+        "type": "list",
+        "required": true,
+        "may_be_empty": true,
+        "description": "Dialogue cleanup - which played sources get noise treatment, with which tool. Each: source (a source_file basename from cleanup_context.sources - no other value names anything the build can stage), tool (voice_isolation - Resolve's per-track Voice Isolation applied at build with read-back - or deepfilternet - a processed stem the build places natively; no other value reaches any code), amount (REQUIRED for voice_isolation: Resolve's own 0..100 scale, the strength the measured floor made right; FORBIDDEN for deepfilternet, which has no strength dial), span_start/span_end (OPTIONAL pair in source seconds cleaning only that span; leave both out and the whole played range is cleaned), why (REQUIRED - what in the measured floor made this tool and this amount the answer). An entry that names no tool the vocabulary holds, no amount where one is required, or no why is refused and re-planned, never defaulted. Leave the list empty when no source earns it - silence here is a decision, and the build cleans nothing it was not asked for."
+      }
+    ]
   },
   "classification": {
     "stage": "edit",
@@ -95,7 +108,8 @@
   "context_fields": [
     "bed_measurements",
     "mix_windows",
-    "mix_decision_legend"
+    "mix_decision_legend",
+    "cleanup_context"
   ],
   "decides": [
     "mix.speech_above_bed_db"

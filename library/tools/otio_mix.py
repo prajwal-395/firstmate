@@ -367,6 +367,86 @@ def _tidy(keys: list, last_frame: int) -> dict:
     return curve
 
 
+# ── Dialogue-cleanup stems: cleaned audio onto speech clips ──────────
+
+def stem_swaps(manifest: dict) -> list:
+    """What the cleanup plan asks to swap, as clip-addressed stems.
+
+    Reads `manifest.audio.dialogue_cleanup.stems` (staged at compile by
+    `library/tools/dialogue_cleanup.stage_deepfilternet`, fidelity rung
+    R5d). A swap names the ORIGINAL source file and the timeline frame
+    the clip starts on - the pair that identifies a placed clip - plus
+    the stem file, which IS that clip's played range. The swap itself
+    is `dialogue_cleanup.rewrite_clip_media_to_stem`, applied in the
+    same OTIO transaction as the levels below.
+    """
+    swaps = []
+    cleanup = (manifest.get("audio") or {}).get("dialogue_cleanup") or {}
+    for stem in cleanup.get("stems", []) or []:
+        source = stem.get("source_file", "")
+        stem_file = stem.get("stem_file", "")
+        start = stem.get("timeline_in_frame")
+        if not source or not stem_file or start is None:
+            continue
+        swaps.append({
+            "source_file": source,
+            "stem_file": stem_file,
+            "start_frame": int(start),
+            "label": stem.get("label", os.path.basename(stem_file)),
+        })
+    return swaps
+
+
+def apply_stem_swaps(otio: dict, swaps: list) -> dict:
+    """Point each named clip at its cleaned stem. Returns what happened.
+
+    A swap that matches no clip, or whose stem is not on disk, is
+    REPORTED, never dropped quietly - like `apply_mix`, a level (or a
+    stem) nobody applied is the defect this module exists to remove.
+    """
+    from library.tools import dialogue_cleanup as _dc
+
+    placed = list(audio_clips(otio))
+    used, applied, unmatched = set(), [], []
+    for swap in swaps or []:
+        target = {"source_file": swap["source_file"],
+                  "start_frame": swap["start_frame"]}
+        index = _match(placed, used, target)
+        if index is None:
+            unmatched.append(dict(swap, reason="matched no clip"))
+            continue
+        used.add(index)
+        _, clip, start, frames = placed[index]
+        try:
+            _dc.rewrite_clip_media_to_stem(clip, swap["stem_file"])
+        except _dc.DialogueCleanupRefused as exc:
+            unmatched.append(dict(swap, reason=str(exc.what)[:200]))
+            continue
+        applied.append(dict(swap, matched_start_frame=start,
+                            matched_frame_count=frames))
+    return {"applied": applied, "unmatched": unmatched}
+
+
+def verify_stems(otio: dict, applied: list) -> list:
+    """Stems that did not come back off a re-export, as complaints.
+
+    The reader half of the swap: what `apply_stem_swaps` wrote is read
+    back off a fresh export, the same way `verify` reads the levels.
+    """
+    on_timeline = {(clip_media_path(clip), start): True
+                   for _, clip, start, _ in audio_clips(otio)}
+    complaints = []
+    for swap in applied or []:
+        key = (os.path.abspath(swap["stem_file"]),
+               swap.get("matched_start_frame", swap["start_frame"]))
+        present = any(os.path.abspath(path) == key[0]
+                      for (path, _s) in on_timeline)
+        if not present:
+            complaints.append(
+                f"{swap['label']}: stem not on the imported timeline")
+    return complaints
+
+
 # ── Writing the plan into an OTIO ───────────────────────────────────
 
 def mix_targets(manifest: dict, *, fps: float) -> list:

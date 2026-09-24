@@ -79,6 +79,41 @@ if nothing measured the bed, or no window carrying that behaviour has
 measured speech under it. An omission is recorded as an omission. It is
 never read as agreement with what the engine used to do.
 
+## Dialogue cleanup (a second, separate decision)
+
+`cleanup_context.sources` - one row per played source, measured whole:
+
+- `floor.level_dbfs` - the measured quiet of this source, the room tone
+  rung 5a stages fills from. The noisiest played source on the last
+  measured project sat at -29.7 dBFS against -44 to -54 elsewhere.
+- `floor_unmeasured_reason` - why no floor could be measured (dense
+  speech with no 0.3 s pause, a missing file). A reason, never a level.
+- `speech` - the loudest played range's own loudness.
+
+`cleanup_context.tools` - what the build can actually do on this run:
+`deepfilternet` (a processed stem placed natively) is probed in the
+build interpreter, `voice_isolation` (Resolve's per-track Voice
+Isolation, Studio-only) applies at build with read-back.
+
+In `cleanup_plan`, one entry per source that earns it:
+
+- `source` - the source_file basename from the table. Nothing else
+  names a file the build can stage.
+- `tool` - `voice_isolation` or `deepfilternet`. Nothing else reaches
+  any code, and an unknown name refuses the step rather than shipping
+  an uncleaned source reported clean.
+- `amount` - REQUIRED for `voice_isolation`: Resolve's own 0..100. The
+  rung-3a probe read back 60; how strong yours should be is what the
+  floor is for. FORBIDDEN for `deepfilternet`.
+- `span_start`/`span_end` - an optional pair in source seconds. Leave
+  both out and the whole played range is cleaned.
+- `why` - REQUIRED: what in the measured floor made this tool (and this
+  amount) the answer.
+
+There is no default cleanup. Leave the list empty when no source earns
+it - the build cleans nothing it was not asked for, and a floor with no
+entry is a measurement, not a request.
+
 ## What is not yours here
 
 The three other words are not levels and are not asked for.
