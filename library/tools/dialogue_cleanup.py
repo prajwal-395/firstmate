@@ -59,7 +59,7 @@ measure and the speech level moves ~0.2 dB either way.
 
 Two things that conditioning measured, and they constrain the product:
 
-1. The pip install does NOT belong in `requirements.txt`. The shared
+ 1. The pip install does NOT belong in `requirements.txt`. The shared
    ML venv is Python 3.12 with numpy 2.5.3; `deepfilternet` pins
    `numpy>=1.22,<2.0` and `deepfilterlib` ships no cp312 macOS-arm64
    wheel (cp310/cp311 only). Pinning it would downgrade numpy fleet-wide
@@ -68,8 +68,11 @@ Two things that conditioning measured, and they constrain the product:
    AGENTS.md 9 documents (`torchaudio.backend` removed); the working
    pair is torch 2.8/torchaudio 2.8 with Python 3.11. So the engine
    invokes DeepFilterNet opportunistically - `df` import, else the
-   `deep-filter` Rust binary on PATH - and REFUSES BY NAME when neither
-   answers, instead of shipping a pin that breaks the build.
+   `deep-filter` Rust binary at the shared-environment location
+   (`<vep_home>/bin/deep-filter`, `PIPELINE_DEEPFILTER_BINARY` to name
+   another, `scripts/install_deepfilternet.sh` to fill it), else the
+   same binary on PATH - and REFUSES BY NAME when none answers,
+   instead of shipping a pin that breaks the build.
 2. Voice Isolation's audio effect (floor drop per amount, word safety)
    is measured in Resolve at build-prove time; rung 3a measured the
    call itself. Amounts are Resolve's own 0..100 scale - the engine
@@ -149,14 +152,43 @@ def _refuse(what: str, why: str, fix: str) -> DialogueCleanupRefused:
 
 # ── Availability ─────────────────────────────────────────────────────
 
+def _deepfilter_binary_path() -> str:
+    """The `deep-filter` executable the binary method runs, or "".
+
+    One resolution, shared by the probe and the run: the
+    shared-environment location first (`PIPELINE_DEEPFILTER_BINARY`
+    outright, else `<vep_home>/bin/deep-filter` - see
+    `shared_environment.deepfilter_binary`), then PATH as the legacy
+    rung. Two different answers here is how a probe's "available"
+    becomes a run's "left PATH mid-run".
+    """
+    try:
+        from library.tools import shared_environment as _se
+    except ImportError:  # imported as `tools.dialogue_cleanup` from inside library/
+        try:
+            from tools import shared_environment as _se
+        except ImportError:
+            _se = None
+    if _se is not None:
+        try:
+            candidate = _se.deepfilter_binary()
+        except Exception:
+            candidate = None
+        if (candidate is not None and candidate.is_file()
+                and os.access(candidate, os.X_OK)):
+            return str(candidate)
+    return shutil.which("deep-filter") or ""
+
+
 def deepfilternet_probe() -> dict:
     """Whether this interpreter can run DeepFilterNet, and how.
 
     Returns `{"available", "method", "reason"}`. `method` is `python`
     (the `df` package imports), `binary` (the `deep-filter` Rust binary
-    on PATH), or "" when neither answers. Unavailability is a stated
-    fact with the measured block, not an exception: the plan context
-    carries it so the model asks for what the build can do.
+    at the shared-environment location or on PATH), or "" when neither
+    answers. Unavailability is a stated fact with the measured block,
+    not an exception: the plan context carries it so the model asks
+    for what the build can do.
     """
     try:
         import importlib.util as _ilu
@@ -166,21 +198,23 @@ def deepfilternet_probe() -> dict:
                     "reason": "the df package imports in this interpreter"}
     except (ImportError, ValueError, AttributeError):
         pass
-    binary = shutil.which("deep-filter")
+    binary = _deepfilter_binary_path()
     if binary:
         return {"available": True, "method": "binary",
-                "reason": f"the deep-filter binary is on PATH at {binary}"}
+                "reason": f"the deep-filter binary answers at {binary}"}
     return {
         "available": False,
         "method": "",
         "reason": (
-            "neither the df package nor the deep-filter binary answers "
-            "here: deepfilternet pins numpy<2 against this stack's numpy "
-            "2.x and deepfilterlib 0.5.6 ships no cp312 macOS-arm64 "
-            "wheel, so it is not in requirements.txt. Install "
-            "deepfilternet==0.5.6 with deepfilterlib==0.5.6 on Python "
-            "3.11 (torch 2.8/torchaudio 2.8), or put the deep-filter "
-            "binary on PATH."
+            "no deep-filter binary answers here: deepfilternet pins "
+            "numpy<2 against this stack's numpy 2.x and deepfilterlib "
+            "0.5.6 ships no cp312 macOS-arm64 wheel, so it is not in "
+            "requirements.txt. Install deepfilternet==0.5.6 with "
+            "deepfilterlib==0.5.6 on Python 3.11 (torch 2.8/torchaudio "
+            "2.8) for the python method, or run "
+            "scripts/install_deepfilternet.sh for the prebuilt binary "
+            "(<vep_home>/bin/deep-filter, or PIPELINE_DEEPFILTER_BINARY "
+            "to name another)."
         ),
     }
 
@@ -517,19 +551,29 @@ def _enhance_python(source_wav: str, out_wav: str) -> None:
 
 
 def _enhance_binary(source_wav: str, out_wav: str) -> None:
-    binary = shutil.which("deep-filter")
+    binary = _deepfilter_binary_path()
     if not binary:
         raise _refuse(
             "dialogue cleanup cannot be staged: the deep-filter binary "
-            "left PATH mid-run",
+            "is unreachable mid-run",
             "the probe saw it and the run does not - the environment "
             "moved under the build.",
-            "put the deep-filter binary back on PATH and re-run compile.",
+            "run scripts/install_deepfilternet.sh (or set "
+            "PIPELINE_DEEPFILTER_BINARY) and re-run compile.",
         )
+    # The binary writes the stem under the INPUT's basename inside the
+    # output directory (measured 2026-09-24: `probe.wav -o out` leaves
+    # `out/probe.wav`), never under the name it was asked for - so it
+    # runs into a scratch directory and the stem is moved into place.
+    # Running it straight into the stem's directory would overwrite a
+    # range file that shares the input's name.
+    import tempfile
+
+    work_dir = tempfile.mkdtemp(prefix="deepfilter_",
+                                dir=os.path.dirname(os.path.abspath(out_wav)))
     try:
         proc = subprocess.run(
-            [binary, source_wav, "-o",
-             os.path.dirname(os.path.abspath(out_wav))],
+            [binary, source_wav, "-o", work_dir],
             capture_output=True, encoding="utf-8", timeout=900,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -541,7 +585,8 @@ def _enhance_binary(source_wav: str, out_wav: str) -> None:
             "repair the deep-filter install and re-run compile, or "
             "re-plan with voice_isolation.",
         ) from exc
-    if proc.returncode != 0 or not os.path.isfile(out_wav):
+    produced = os.path.join(work_dir, os.path.basename(source_wav))
+    if proc.returncode != 0 or not os.path.isfile(produced):
         raise _refuse(
             "dialogue cleanup cannot be staged: the deep-filter binary "
             f"answered {proc.returncode}",
@@ -549,6 +594,13 @@ def _enhance_binary(source_wav: str, out_wav: str) -> None:
             "re-run compile; if it repeats, re-plan with "
             "voice_isolation.",
         )
+    try:
+        os.replace(produced, out_wav)
+    finally:
+        try:
+            os.rmdir(work_dir)
+        except OSError:
+            pass
 
 
 def _floor_or_none(path: str, spans: list | None):

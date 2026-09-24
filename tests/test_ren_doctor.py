@@ -16,7 +16,8 @@ from ren import doctor
 def _all_else_passes(monkeypatch):
     passing = doctor.Check("stub", True, "stubbed")
     for name in ("macos_check", "python_checks", "ffmpeg_check", "node_checks",
-                 "model_checks", "config_checks", "harness_check"):
+                 "model_checks", "deepfilternet_check", "config_checks",
+                 "harness_check"):
         monkeypatch.setattr(doctor, name, lambda: [passing])
 
 
@@ -56,3 +57,39 @@ def test_a_probe_that_raises_is_a_fail_line(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert code == 1
     assert "FAIL  Resolve scripting" in out and "fusionscript segfaulted" in out
+
+
+def _stub_deepfilter(monkeypatch, usable, binary="/vep/bin/deep-filter",
+                     version="deep_filter 0.5.6"):
+    import subprocess
+
+    import library.tools.shared_environment as se
+    monkeypatch.setattr(se, "deepfilter_available", lambda: (usable, ""))
+    monkeypatch.setattr(se, "deepfilter_binary", lambda *args: binary)
+
+    def run(argv, **kwargs):
+        assert argv[0] == binary
+        if version is None:
+            raise OSError("exec format error")
+        return subprocess.CompletedProcess(argv, 0, version + "\n", "")
+
+    monkeypatch.setattr(doctor.subprocess, "run", run)
+
+
+def test_deepfilter_reports_presence_without_failing(monkeypatch):
+    _stub_deepfilter(monkeypatch, True)
+    check = doctor.deepfilternet_check()
+    assert check.ok and "deep_filter 0.5.6" in check.detail
+
+
+def test_deepfilter_absence_is_reported_never_a_fail(monkeypatch):
+    _stub_deepfilter(monkeypatch, False)
+    check = doctor.deepfilternet_check()
+    assert check.ok and "not installed" in check.detail
+    assert "scripts/install_deepfilternet.sh" in check.fix
+
+
+def test_deepfilter_that_would_not_run_is_a_fail_line(monkeypatch):
+    _stub_deepfilter(monkeypatch, True, version=None)
+    check = doctor.deepfilternet_check()
+    assert not check.ok and "would not run" in check.detail

@@ -320,7 +320,7 @@ def cleanup_context(audio_spine: dict, a_roll_assignments) -> dict:
             "room tone rung 5a stages fills from. A request that names no "
             "measured floor is still plannable, but the build applies only "
             "what its tool can verify: voice_isolation needs Resolve "
-            "Studio with read-back, deepfilternet needs the model in the "
-            "build interpreter. tools says which answers here."
+            "Studio with read-back, deepfilternet needs its binary on "
+            "this machine. tools says which answers here."
         ),
     }

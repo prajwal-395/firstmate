@@ -440,6 +440,43 @@ def model_checks() -> list:
     return checks
 
 
+# ── Dialogue cleanup ─────────────────────────────────────────────
+
+def deepfilternet_check() -> Check:
+    """Can a deepfilternet request stage a stem on this machine?
+
+    Optional by design like MFA above: without the binary the request
+    refuses by name and the model re-plans with voice_isolation
+    (library/tools/dialogue_cleanup.py), so absence is reported, never
+    a FAIL. A binary that is present but would not run IS a FAIL - the
+    plan context would claim the tool and the build would refuse it.
+    """
+    from library.tools import shared_environment
+    usable, _ = shared_environment.deepfilter_available()
+    script = shared_environment.DEEPFILTER_INSTALL_SCRIPT
+    if not usable:
+        return Check(
+            "dialogue cleanup DeepFilter", True,
+            "not installed - a deepfilternet request refuses by name and "
+            "the model re-plans with voice_isolation",
+            f"bash {script} adds it")
+    binary = str(shared_environment.deepfilter_binary())
+    try:
+        done = subprocess.run([binary, "--version"], capture_output=True,
+                              encoding="utf-8", timeout=PROBE_TIMEOUT_S,
+                              check=False)
+        version = ((done.stdout.strip().splitlines() or [""])[0].strip()
+                   if done.returncode == 0 else "")
+    except (OSError, subprocess.SubprocessError):
+        version = ""
+    if not version:
+        return Check("dialogue cleanup DeepFilter", False,
+                     f"{binary} is installed but would not run",
+                     f"re-run bash {script}")
+    return Check("dialogue cleanup DeepFilter", True,
+                 f"{version} at {binary}")
+
+
 # ── Configuration ────────────────────────────────────────────────────
 
 def config_checks() -> list:
@@ -564,6 +601,7 @@ def run_checks(probe=None) -> list:
     checks += _guarded("Node.js", node_checks)
     checks += _guarded("graphics engines", graphics_engine_checks)
     checks += _guarded("models", model_checks)
+    checks += _guarded("dialogue cleanup DeepFilter", deepfilternet_check)
     checks += _guarded("configuration", config_checks)
     checks += _guarded("chat harness", harness_check)
     return checks

@@ -92,8 +92,10 @@ never read as agreement with what the engine used to do.
 
 `cleanup_context.tools` - what the build can actually do on this run:
 `deepfilternet` (a processed stem placed natively) is probed in the
-build interpreter, `voice_isolation` (Resolve's per-track Voice
-Isolation, Studio-only) applies at build with read-back.
+build interpreter - the binary method needs the binary on the machine
+(`ren doctor` reports it), not the model in the interpreter -
+`voice_isolation` (Resolve's per-track Voice Isolation, Studio-only)
+applies at build with read-back.
 
 In `cleanup_plan`, one entry per source that earns it:
 

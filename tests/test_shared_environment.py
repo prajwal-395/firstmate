@@ -299,3 +299,81 @@ def test_a_checkout_with_no_venv_anywhere_refuses_naming_every_rung(
     assert "docs/ML_ENVIRONMENT.md" in why_not
 
 
+# ── the DeepFilterNet half: one binary per machine ────────────────────
+#
+# Fidelity rung R5d measured DeepFilterNet3 but could not install it:
+# the shared venv is Python 3.12 with numpy 2.x and deepfilterlib
+# ships no cp312 wheel. The engine runs the prebuilt Rust binary
+# instead, installed once per machine - and these assert the
+# resolution the probe and the doctor both read.
+
+
+def test_deepfilter_binary_defaults_under_vep_home(tmp_path, monkeypatch):
+    """No override: `<vep_home>/bin/deep-filter`, outside every checkout."""
+    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    binary = ne.deepfilter_binary()
+    assert binary == tmp_path / "vep" / "bin" / "deep-filter"
+    assert REPO_ROOT not in binary.parents
+
+
+def test_deepfilter_explicit_path_wins_outright(tmp_path, monkeypatch):
+    """An escape hatch for a layout this module did not anticipate."""
+    elsewhere = tmp_path / "elsewhere" / "deep-filter"
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    monkeypatch.setenv("PIPELINE_DEEPFILTER_BINARY", str(elsewhere))
+    assert ne.deepfilter_binary() == elsewhere
+
+
+def test_deepfilter_absence_names_the_install_command(tmp_path, monkeypatch):
+    """Missing is a refusal with the fix, not a bare path."""
+    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    usable, detail = ne.deepfilter_available()
+    assert not usable
+    assert ne.DEEPFILTER_INSTALL_SCRIPT in detail
+    assert str(tmp_path / "vep" / "bin" / "deep-filter") in detail
+    with pytest.raises(ne.DeepFilterEnvironmentMissing):
+        ne.require_deepfilter()
+
+
+def test_deepfilter_presence_is_the_executable_bit(tmp_path, monkeypatch):
+    """An executable file at the resolved path is usable, by version."""
+    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    binary = ne.deepfilter_binary()
+    binary.parent.mkdir(parents=True)
+    binary.write_text("#!/bin/sh\necho deep_filter 0.5.6\n", encoding="utf-8")
+    assert ne.deepfilter_available() == (False, ne.deepfilter_missing_message())
+    binary.chmod(0o755)
+    usable, detail = ne.deepfilter_available()
+    assert usable and ne.DEEPFILTER_VERSION in detail
+    assert ne.require_deepfilter() == binary
+
+
+def test_the_deepfilter_install_script_reports_without_installing(tmp_path):
+    """`--check` must answer without touching the network or the store."""
+    script = REPO_ROOT / ne.DEEPFILTER_INSTALL_SCRIPT
+    assert script.is_file() and os.access(script, os.X_OK)
+
+    env = dict(os.environ, PIPELINE_VEP_HOME=str(tmp_path / "vep"))
+    result = subprocess.run(
+        [str(script), "--check"],
+        cwd=REPO_ROOT, capture_output=True, encoding="utf-8", check=False,
+        env=env)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "DEEPFILTERNET BINARY: ABSENT" in result.stdout
+    assert not (tmp_path / "vep").exists(), "--check wrote into the store"
+
+    binary = tmp_path / "vep" / "bin" / "deep-filter"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    result = subprocess.run(
+        [str(script), "--check"],
+        cwd=REPO_ROOT, capture_output=True, encoding="utf-8", check=False,
+        env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "DEEPFILTERNET BINARY: PRESENT" in result.stdout
+
+

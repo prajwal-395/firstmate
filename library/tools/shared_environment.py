@@ -563,6 +563,118 @@ def require_mfa() -> Path:
     return mfa_binary()
 
 
+# ── the DeepFilterNet half: plan-requested dialogue cleanup ──────
+#
+# A fourth shared dependency, discovered the same way as the three
+# above: one location per MACHINE under `vep_home()`, never one per
+# checkout, and absence REFUSES with the command that fixes it rather
+# than a stack trace. `library/tools/dialogue_cleanup.py` is the only
+# runtime reader; `scripts/install_deepfilternet.sh` is the one way to
+# fill it.
+#
+# Why a binary and not a pip install. Fidelity rung R5d measured
+# DeepFilterNet3 against Resolve Voice Isolation on the captain's own
+# dialogue (4-6 dB floor drop, words intact) through a scratch Python
+# 3.11 venv - because the shared ML venv is Python 3.12 with numpy
+# 2.x, `deepfilternet` pins `numpy>=1.22,<2.0`, and `deepfilterlib`
+# 0.5.6 ships no cp312 macOS-arm64 wheel. Pinning it would downgrade
+# numpy fleet-wide and break the torch pair every lane runs on, so it
+# is NOT in `requirements.txt` by measurement, not by omission. The
+# engine instead invokes the project's own prebuilt `deep-filter`
+# Rust binary for Apple Silicon, which carries the model runtime and
+# needs no Python at all. Licence: MIT OR Apache-2.0 (LICENSE-MIT and
+# LICENSE-APACHE in the upstream repository, Rikorose/DeepFilterNet).
+
+DEEPFILTER_VERSION = "0.5.6"
+"""The DeepFilterNet release the floor measurements were taken on. PINNED.
+
+The binary is a static Rust build, so unlike the MFA acoustic model
+there is no floating tag to guard against - but a second version
+beside it is a different instrument until it is measured as one, so
+the install script downloads exactly this.
+"""
+
+DEEPFILTER_RELEASE_TAG = "v0.5.6"
+"""The upstream release tag `DEEPFILTER_VERSION` ships under."""
+
+DEEPFILTER_ASSET = "deep-filter-0.5.6-aarch64-apple-darwin"
+"""The prebuilt binary asset for this machine (Apple Silicon)."""
+
+DEEPFILTER_DOWNLOAD_URL = (
+    "https://github.com/Rikorose/DeepFilterNet/releases/download/"
+    f"{DEEPFILTER_RELEASE_TAG}/{DEEPFILTER_ASSET}"
+)
+"""Where the one install script fetches the binary from. Spelled once, here."""
+
+DEEPFILTER_BINARY_DIRNAME = "bin"
+"""The directory under `vep_home()` that holds machine-level binaries."""
+
+DEEPFILTER_BINARY_NAME = "deep-filter"
+"""The executable name, matching upstream and the `df` fallback's PATH rung."""
+
+DEEPFILTER_INSTALL_SCRIPT = "scripts/install_deepfilternet.sh"
+"""The one way to fill the DeepFilterNet binary. Named in every refusal."""
+
+
+class DeepFilterEnvironmentMissing(RuntimeError):
+    """The DeepFilterNet binary is not reachable on this machine.
+
+    Raised rather than left for the staging subprocess to report as a
+    missing binary several layers down. The message carries the
+    command that fixes it. The cleanup treats this as a REFUSAL BY
+    NAME of the deepfilternet tool, never a skip - see
+    `library/tools/dialogue_cleanup.py`.
+    """
+
+
+def deepfilter_binary(directory: Optional[str | Path] = None) -> Path:
+    """The `deep-filter` executable this machine cleans dialogue with.
+
+    `PIPELINE_DEEPFILTER_BINARY` wins outright - the escape hatch for
+    a machine whose layout this module did not anticipate, set in the
+    per-user config (`~/.config/ren/config.env`) like every other
+    external path. Otherwise it is `<vep_home>/bin/deep-filter`,
+    because that is where `scripts/install_deepfilternet.sh` puts it.
+    `directory` is accepted and ignored, so this reads like the MFA
+    half's queries.
+    """
+    _ = directory
+    explicit = os.environ.get("PIPELINE_DEEPFILTER_BINARY")
+    if explicit:
+        return Path(explicit).expanduser()
+    return vep_home() / DEEPFILTER_BINARY_DIRNAME / DEEPFILTER_BINARY_NAME
+
+
+def deepfilter_available() -> tuple:
+    """`(usable, detail)` - whether this machine can clean with DeepFilterNet."""
+    binary = deepfilter_binary()
+    if not (binary.is_file() and os.access(binary, os.X_OK)):
+        return False, deepfilter_missing_message()
+    return True, f"DeepFilterNet {DEEPFILTER_VERSION} via {binary}"
+
+
+def deepfilter_missing_message() -> str:
+    """Why DeepFilterNet is not reachable, and the command that fixes it."""
+    lines = [
+        f"The DeepFilterNet binary is not reachable "
+        f"({deepfilter_binary()}).",
+        f"Install once per machine:\n"
+        f"    {DEEPFILTER_INSTALL_SCRIPT}\n"
+        f"A machine without it still plans: a deepfilternet request "
+        f"refuses by name and the model re-plans with voice_isolation "
+        f"(the dialogue_cleanup tool module owns that refusal).",
+    ]
+    return "\n".join(lines)
+
+
+def require_deepfilter() -> Path:
+    """Return the `deep-filter` executable, or REFUSE by name."""
+    usable, detail = deepfilter_available()
+    if not usable:
+        raise DeepFilterEnvironmentMissing(detail)
+    return deepfilter_binary()
+
+
 # ── the BUILD half: what a reel build needs in its own interpreter ───
 #
 # Four instances, all on 2026-09-10/11, each costing a lane a failed

@@ -271,3 +271,81 @@ def test_stem_rewrite_refuses_a_clip_with_no_reference(tmp_path):
     stem.write_bytes(b"RIFF")
     with pytest.raises(DialogueCleanupRefused, match="no active media"):
         rewrite_clip_media_to_stem({"OTIO_SCHEMA": "Clip.1"}, str(stem))
+
+
+# ── binary resolution: one location, then PATH ────────────────────────
+#
+# The shared ML venv cannot carry deepfilternet (numpy<2 pin, no cp312
+# wheel), so the binary method reads the shared-environment location
+# first and PATH second. The fake binaries below are shell scripts -
+# they prove the RESOLUTION, not the suppression; the real binary is
+# measured on real dialogue outside the suite.
+
+def _no_df_package(monkeypatch):
+    import importlib.util
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name: None)
+
+
+def _fake_binary(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\ncp \"$1\" \"$3/$(basename \"$1\")\"\n",
+                    encoding="utf-8")
+    path.chmod(0o755)
+    return str(path)
+
+
+def test_probe_reads_the_shared_environment_location(tmp_path, monkeypatch):
+    from library.tools.dialogue_cleanup import _deepfilter_binary_path
+    _no_df_package(monkeypatch)
+    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    expected = _fake_binary(tmp_path / "vep" / "bin" / "deep-filter")
+    monkeypatch.setattr("shutil.which", lambda name: "/elsewhere/deep-filter")
+    assert _deepfilter_binary_path() == expected
+    probe = deepfilternet_probe()
+    assert probe == {"available": True, "method": "binary",
+                     "reason": f"the deep-filter binary answers at {expected}"}
+
+
+def test_probe_falls_back_to_path(tmp_path, monkeypatch):
+    _no_df_package(monkeypatch)
+    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    monkeypatch.setattr("shutil.which",
+                        lambda name: "/usr/local/bin/deep-filter"
+                        if name == "deep-filter" else None)
+    probe = deepfilternet_probe()
+    assert probe["available"] and probe["method"] == "binary"
+    assert "/usr/local/bin/deep-filter" in probe["reason"]
+
+
+def test_probe_unavailable_names_the_install_command(tmp_path, monkeypatch):
+    _no_df_package(monkeypatch)
+    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    probe = deepfilternet_probe()
+    assert probe["available"] is False and probe["method"] == ""
+    assert probe["reason"].strip()
+    assert "scripts/install_deepfilternet.sh" in probe["reason"]
+    assert "PIPELINE_DEEPFILTER_BINARY" in probe["reason"]
+
+
+def test_enhance_binary_moves_the_produced_stem_into_place(
+        tmp_path, monkeypatch):
+    from library.tools.dialogue_cleanup import _enhance_binary
+    _no_df_package(monkeypatch)
+    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    _fake_binary(tmp_path / "vep" / "bin" / "deep-filter")
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    source = str(tmp_path / "take_range.wav")
+    _fixture(source)
+    out = str(tmp_path / "stems" / "take.wav")
+    import os
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    _enhance_binary(source, out)
+    assert os.path.isfile(out)
+    assert open(out, "rb").read() == open(source, "rb").read()
+    assert os.listdir(os.path.dirname(out)) == ["take.wav"]

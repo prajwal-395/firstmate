@@ -9,6 +9,7 @@ identical for every checkout of the same commit:
 |---|---|---|
 | **Node** | `node_modules` for the Remotion renderer, which draws every caption, motion graphic, timed-text card, bookend and full-frame element | 285 MB |
 | **Python** | an interpreter carrying mlx_vlm, torch and the rest of the ML stack (whisperx left it on 2026-09-24; transcription runs through Voz+MFA, not pip) | ~4 GB |
+| **DeepFilterNet** | the prebuilt `deep-filter` Rust binary for plan-requested dialogue cleanup (rung R5d) - a static build, so no Python and no numpy, which is why it is a binary and not a venv package | ~28 MB |
 
 Both were assumed to live inside whichever checkout was running. Neither
 does, on any machine this repository has been installed on. This page is
@@ -17,7 +18,9 @@ the design and the recreate procedure for both halves;
 the Python venv itself, and nothing here moves it.
 
 `library/tools/shared_environment.py` is the one module that answers
-where either of them is.
+where any of them is: `<vep_home>/bin/deep-filter` for the third
+(`PIPELINE_DEEPFILTER_BINARY` to name another),
+`scripts/install_deepfilternet.sh` to fill it.
 
 ## Why this is written down at all - the Node half
 
