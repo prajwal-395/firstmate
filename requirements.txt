@@ -32,6 +32,16 @@ pyyaml>=6.0
 # Verified by transcribing 001 footage, not by importing the module.
 whisperx>=3.8,<4
 librosa>=0.10
+# Beat and downbeat detection (step 2.06 via music_pipeline, surfaced per
+# candidate at choice time in 2.04). beat_this (CPJKU, MIT licence -
+# LICENSE file at github.com/CPJKU/beat_this, Institute of Computational
+# Perception, JKU Linz) detects beats AND bar starts from the audio;
+# without it the pipeline falls back to madmom, then to librosa, whose
+# downbeats are an every-4th-beat estimate labelled "estimated" wherever
+# they travel. Measured on the captain's machine (M4, CPU): ~3 s for a
+# 200 s track after the first-run checkpoint download (~17 s), 283 beats
+# at 88.2 BPM on Sickick - Infected (Instrumental).
+beat-this==1.1.0
 # Step 2.04 searches for music and fetches what it finds. It has shelled
 # out to yt-dlp since it was written and this file never carried it, so
 # `search_youtube.py` had no caller and no dependency and could never have

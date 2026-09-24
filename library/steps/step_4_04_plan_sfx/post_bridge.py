@@ -481,6 +481,15 @@ def resolve_sfx(
     # wherever the bed starts. See library/tools/music_section.py.
     from library.tools.beat_grid import downbeat_positions
     beat_grid = downbeat_positions(music_analysis, music_selection)
+    # State what the SFX snapped to: a detected grid is bar starts the
+    # tracker heard, an estimated one is every 4th beat and can sit a
+    # beat off (rung-1 finding 3). The numbers above are either way;
+    # the run record says which.
+    _tempo = (music_analysis or {}).get("tempo") or {}
+    _source = _tempo.get("downbeat_source") or "unknown"
+    _method = _tempo.get("method") or "no tracker"
+    print(f"  downbeat grid: {len(beat_grid)} bar starts "
+          f"({_source}, {_method})", file=sys.stderr)
 
     # There is no density scaling here, and there must not be one again.
     #

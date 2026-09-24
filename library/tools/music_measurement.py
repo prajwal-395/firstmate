@@ -240,6 +240,7 @@ MEASURED_KEYS = frozenset({
     "tempo_method",
     "tempo_beat_count",
     "tempo_downbeat_count",
+    "tempo_downbeat_source",
     "tempo_stable",
     "tempo_note",
     "musical_key",
@@ -314,6 +315,7 @@ SELECTION_MEASUREMENT_KEYS = (
     "tempo_method",
     "tempo_beat_count",
     "tempo_downbeat_count",
+    "tempo_downbeat_source",
     "tempo_stable",
     "tempo_note",
     "musical_key",
@@ -922,6 +924,14 @@ def measure_rhythm_track(audio_path: str) -> Dict[str, object]:
     out["tempo_method"] = method if isinstance(method, str) else None
     out["tempo_beat_count"] = len(beats)
     out["tempo_downbeat_count"] = len(downbeats)
+    # Whether the bar starts were DETECTED by a downbeat tracker or
+    # ESTIMATED as every 4th detected beat. The estimate used to travel
+    # as bare `tempo_downbeat_count` with nothing saying what it was,
+    # and 4.04 snapped SFX to it (rung-1 finding 3). It now travels
+    # labelled, on the candidate and on the chosen selection.
+    source = (tempo or {}).get("downbeat_source")
+    out["tempo_downbeat_source"] = source \
+        if source in ("detected", "estimated") else None
     out["tempo_stable"] = stable if isinstance(stable, bool) else None
     out["beat_grid"] = {
         "beats": [round(b, 3) for b in beats],
@@ -952,6 +962,15 @@ def measure_rhythm_track(audio_path: str) -> Dict[str, object]:
             out["tempo_note"] = (
                 f"the tracker found {len(beats)} beats but no tempo; "
                 f"tracker {method or 'unknown'}"
+            )
+        elif out["tempo_downbeat_source"] == "estimated":
+            # The count the model reads is a guess dressed as bar
+            # starts. Say so where the model reads it (rung-1 finding
+            # 3): a cut "on the downbeat" of an estimated grid can sit
+            # a whole beat off the bar.
+            out["tempo_note"] = (
+                "downbeats are estimated as every 4th detected beat, "
+                "not detected - bar starts may sit a beat off"
             )
         else:
             out["tempo_note"] = ""

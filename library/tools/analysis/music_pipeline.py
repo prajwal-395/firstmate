@@ -3,12 +3,20 @@
 Music Analysis Pipeline — Deep Audio Feature Extraction
 
 Extracts comprehensive music features for video editing:
-- BPM/tempo tracking (madmom RNN+DBN or librosa fallback)
+- BPM/tempo tracking (beat_this detected beats+downbeats, madmom RNN+DBN,
+  or librosa fallback)
 - Beat grid with downbeat detection
 - Musical key detection (essentia KeyExtractor)
 - Song structure segmentation (energy-based)
 - Energy builds/drops detection
 - Stem separation (Demucs, optional)
+
+Beat/downbeat precedence: beat_this (CPJKU, MIT licence, `beat-this` on
+PyPI) detects both beats and bar starts from the audio and runs in ~3 s
+on CPU; where it is unavailable madmom's RNN+DBN is next; librosa's
+`beat_track` is last and only ever ESTIMATES downbeats as every 4th
+beat - the estimate is labelled `downbeat_source: "estimated"` wherever
+it travels, never presented as detected.
 
 Input:  { "music_file": "/path/to/track.wav", "output_dir": "/path/to/output" }
 Output: Comprehensive music_analysis.json
@@ -23,29 +31,110 @@ import numpy as np
 from pathlib import Path
 
 
+def _finalize_tempo(method: str, beats, downbeats: list,
+                    downbeat_source, note: str = "") -> dict:
+    """BPM, tempo curve and stability from a beat grid, one way.
+
+    `downbeat_source` is `"detected"` where a tracker heard the bar
+    starts and `"estimated"` where they are every 4th detected beat -
+    the estimate this module used to present as downbeats without
+    saying so (rung-1 finding 3: the guess sat one beat off on the
+    track measured). `None` where there is no grid at all.
+    """
+    beats = [round(float(b), 3) for b in beats]
+
+    # Calculate BPM from beat intervals
+    if len(beats) >= 2:
+        intervals = np.diff(beats)
+        bpm = round(float(60.0 / np.median(intervals)), 1)
+    else:
+        bpm = None
+
+    # Instantaneous tempo curve
+    tempo_curve = []
+    for i in range(1, len(beats)):
+        interval = beats[i] - beats[i - 1]
+        inst_bpm = round(float(60.0 / interval), 1)
+        tempo_curve.append({
+            "time": round(float(beats[i - 1]), 3),
+            "bpm": inst_bpm
+        })
+
+    return {
+        "method": method,
+        "bpm": bpm,
+        "beats": beats,
+        "downbeats": downbeats,
+        "downbeat_source": downbeat_source,
+        "tempo_curve": tempo_curve,
+        "beat_count": len(beats),
+        "tempo_stable": bool(
+            np.std([t["bpm"] for t in tempo_curve]) < 3.0
+        ) if tempo_curve else True,
+        "note": note,
+    }
+
+
+def _analyze_tempo_beat_this(audio_path: str) -> dict:
+    """Beats and DETECTED downbeats from beat_this (CPJKU, MIT).
+
+    Raises ImportError where `beat-this` is not installed and any
+    other exception where inference itself fails - both are a stated
+    absence for the caller to fall through, never a grid of zeros.
+    """
+    from beat_this.inference import File2Beats
+
+    print("  Using beat_this (CPJKU) for beats + downbeats...",
+          file=sys.stderr)
+    tracker = File2Beats("final0", device="cpu")
+    beats, downbeats = tracker(audio_path)
+    return _finalize_tempo(
+        "beat-this-final0",
+        beats,
+        [round(float(d), 3) for d in downbeats],
+        "detected",
+    )
+
+
 def analyze_tempo_beats(audio_path: str) -> dict:
     """Extract BPM and beat grid.
-    
-    Tries madmom (RNN+DBN, ±0.5 BPM accuracy) first,
-    falls back to librosa (±2-5 BPM, octave errors possible).
+
+    beat_this first (detected beats AND downbeats), then madmom
+    (RNN+DBN, ±0.5 BPM accuracy), then librosa (±2-5 BPM, octave
+    errors possible, downbeats ESTIMATED as every 4th beat).
     """
-    result = {"method": None, "bpm": None, "beats": [], "downbeats": []}
-    
-    # Try madmom first (superior accuracy)
+    result = {"method": None, "bpm": None, "beats": [], "downbeats": [],
+              "downbeat_source": None}
+
+    # beat_this first: detected beats AND detected downbeats.
+    try:
+        result = _analyze_tempo_beat_this(audio_path)
+        print(f"  beat_this: {result['bpm']} BPM, {len(result['beats'])} beats, "
+              f"{len(result['downbeats'])} downbeats (detected)",
+              file=sys.stderr)
+        return result
+    except ImportError:
+        print("  beat_this not available, falling back to madmom...",
+              file=sys.stderr)
+    except Exception as e:
+        print(f"  beat_this failed: {e}, falling back to madmom...",
+              file=sys.stderr)
+
+    # Try madmom next (superior accuracy to librosa)
     try:
         from madmom.features.beats import RNNBeatProcessor, DBNBeatTrackingProcessor
         from madmom.features.downbeats import (
             RNNDownBeatProcessor, DBNDownBeatTrackingProcessor
         )
-        
+
         print("  Using madmom RNN+DBN for beat tracking...", file=sys.stderr)
-        
+
         # Beat detection
         beat_proc = RNNBeatProcessor()
         beat_act = beat_proc(audio_path)
         beat_tracker = DBNBeatTrackingProcessor(fps=100, transition_lambda=100)
         beats = beat_tracker(beat_act)
-        
+
         # Downbeat detection
         try:
             db_proc = RNNDownBeatProcessor()
@@ -56,82 +145,61 @@ def analyze_tempo_beats(audio_path: str) -> dict:
             downbeat_result = db_tracker(db_act)
             # downbeat_result is (time, beat_position) pairs
             downbeats = [
-                round(float(t), 3) 
+                round(float(t), 3)
                 for t, pos in downbeat_result if int(pos) == 1
             ]
+            downbeat_source = "detected"
+            note = ""
         except Exception as e:
             print(f"  WARNING: downbeat detection failed: {e}", file=sys.stderr)
             # Estimate downbeats from beats (every 4th beat)
             downbeats = [round(float(beats[i]), 3) for i in range(0, len(beats), 4)]
-        
-        # Calculate BPM from beat intervals
-        if len(beats) >= 2:
-            intervals = np.diff(beats)
-            bpm = round(float(60.0 / np.median(intervals)), 1)
-        else:
-            bpm = None
-        
-        # Instantaneous tempo curve
-        tempo_curve = []
-        for i in range(1, len(beats)):
-            interval = beats[i] - beats[i-1]
-            inst_bpm = round(float(60.0 / interval), 1)
-            tempo_curve.append({
-                "time": round(float(beats[i-1]), 3),
-                "bpm": inst_bpm
-            })
-        
-        result = {
-            "method": "madmom-rnn-dbn",
-            "bpm": bpm,
-            "beats": [round(float(b), 3) for b in beats],
-            "downbeats": downbeats,
-            "tempo_curve": tempo_curve,
-            "beat_count": len(beats),
-            "tempo_stable": bool(
-                np.std([t["bpm"] for t in tempo_curve]) < 3.0
-            ) if tempo_curve else True,
-        }
-        print(f"  madmom: {bpm} BPM, {len(beats)} beats, {len(downbeats)} downbeats",
+            downbeat_source = "estimated"
+            note = ("madmom's downbeat tracker failed, so bar starts are "
+                    "estimated as every 4th detected beat, not detected")
+
+        result = _finalize_tempo("madmom-rnn-dbn", beats, downbeats,
+                                 downbeat_source, note)
+        print(f"  madmom: {result['bpm']} BPM, {len(result['beats'])} beats, "
+              f"{len(result['downbeats'])} downbeats ({downbeat_source})",
               file=sys.stderr)
         return result
-        
+
     except ImportError:
         print("  madmom not available, falling back to librosa...", file=sys.stderr)
     except Exception as e:
         print(f"  madmom failed: {e}, falling back to librosa...", file=sys.stderr)
-    
-    # Fallback: librosa
+
+    # Fallback: librosa. Beats are detected; downbeats are an
+    # every-4th-beat ESTIMATE and travel labelled as one.
     try:
         import librosa
-        
+
         y, sr = librosa.load(audio_path)
-        
+
         # Tempo and beats
         tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units='time')
-        # Handle both scalar and array tempo returns
-        if hasattr(tempo, '__len__'):
-            bpm = round(float(tempo[0]), 1)
-        else:
-            bpm = round(float(tempo), 1)
-        
+
         # Estimate downbeats (every 4th beat)
         downbeats = [round(float(beats[i]), 3) for i in range(0, len(beats), 4)]
-        
-        result = {
-            "method": "librosa-beat-track",
-            "bpm": bpm,
-            "beats": [round(float(b), 3) for b in beats],
-            "downbeats": downbeats,
-            "tempo_curve": [],
-            "beat_count": len(beats),
-            "tempo_stable": True,
-            "warning": "librosa has ±2-5 BPM accuracy and frequent octave errors"
-        }
-        print(f"  librosa: {bpm} BPM, {len(beats)} beats (⚠ less accurate)", 
+
+        result = _finalize_tempo(
+            "librosa-beat-track", beats, downbeats, "estimated",
+            "librosa has ±2-5 BPM accuracy and frequent octave errors; "
+            "downbeats are estimated as every 4th detected beat, not "
+            "detected - bar starts may sit a beat off")
+        # librosa's own BPM estimate rides along for the log line only;
+        # the grid-derived BPM above is what travels.
+        if hasattr(tempo, '__len__'):
+            librosa_bpm = round(float(tempo[0]), 1)
+        else:
+            librosa_bpm = round(float(tempo), 1)
+        print(f"  librosa: {result['bpm']} BPM (librosa said {librosa_bpm}), "
+              f"{len(result['beats'])} beats, downbeats ESTIMATED "
+              f"(⚠ less accurate)",
               file=sys.stderr)
         return result
-        
+
     except Exception as e:
         print(f"  ERROR: beat tracking failed entirely: {e}", file=sys.stderr)
         return result

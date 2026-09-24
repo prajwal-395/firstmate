@@ -78,18 +78,24 @@ Whether it was measured at all:
 Rhythm:
 
 - `tempo_bpm`: Detected tempo in beats per minute, from the same beat
-  tracker step 2.06 runs (madmom RNN+DBN where installed, librosa
-  otherwise). `None` when no usable grid was found.
-- `tempo_method`: Which tracker answered - `madmom-rnn-dbn` or
-  `librosa-beat-track`. The two disagree by up to a few BPM, and librosa
-  doubles or halves the true tempo on some tracks.
+  tracker step 2.06 runs (beat_this where installed, madmom RNN+DBN next,
+  librosa otherwise). `None` when no usable grid was found.
+- `tempo_method`: Which tracker answered - `beat-this-final0`,
+  `madmom-rnn-dbn` or `librosa-beat-track`. The last two disagree by up
+  to a few BPM, and librosa doubles or halves the true tempo on some
+  tracks.
 - `tempo_beat_count`: How many beats the tracker found across the whole
   track. Below eight there is no grid to snap to, only noise.
 - `tempo_downbeat_count`: How many bar starts were found. A cut on a
   downbeat reads as intentional where a cut on any beat can read as busy.
+- `tempo_downbeat_source`: Whether those bar starts were `detected` by
+  the tracker or `estimated` as every 4th detected beat. An estimated
+  grid can sit a whole beat off the bar - a cut "on the downbeat" of
+  one may land on beat 4 of the music.
 - `tempo_stable`: Whether the instantaneous tempo holds steady across the
   track. A drifting tempo has one BPM number and no single grid.
-- `tempo_note`: Why there is no usable tempo, when `tempo_bpm` is `None`.
+- `tempo_note`: Why there is no usable tempo, when `tempo_bpm` is `None`
+  - and, when the downbeats are estimated, that warning instead.
 
 Harmony:
 

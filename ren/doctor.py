@@ -416,6 +416,27 @@ def model_checks() -> list:
         "forced aligner (step 1.04)" if mfa_ok else
         f"not installed - optional, wav2vec2 aligns instead "
         f"(bash {shared_environment.MFA_INSTALL_SCRIPT} adds it)"))
+
+    # beat_this weights (detected downbeats, step 2.06). Optional by
+    # design like MFA above: without the checkpoint the tracker cannot
+    # load and the grid falls back to librosa's every-4th-beat estimate
+    # - labelled "estimated" wherever it travels - so a run still
+    # completes, on a bar grid that can sit a beat off.
+    bt_path = torch_checkpoints() / "beat_this-final0.ckpt"
+    bt_complete = bt_path.is_file()
+    interpreter, _ = resolve_interpreter()
+    bt_fetch = (
+        f"{interpreter} -c \"from beat_this.inference import load_model; "
+        f"load_model('final0', device='cpu')\"" if interpreter
+        else "from beat_this.inference import load_model; "
+             "load_model('final0', device='cpu')")
+    checks.append(Check(
+        "model beat_this final0", True,
+        f"detected downbeats (step 2.06): {_gb(bt_path.stat().st_size)}"
+        if bt_complete else
+        "not downloaded - downbeats fall back to the librosa "
+        "every-4th-beat estimate (labelled estimated)",
+        "" if bt_complete else f"fetch it (~81 MB): {bt_fetch}"))
     return checks
 
 

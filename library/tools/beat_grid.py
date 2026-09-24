@@ -94,6 +94,15 @@ def downbeat_positions(music_analysis: Optional[Dict[str, Any]],
     The stronger grid: a cut on a downbeat reads as intentional where a
     cut on any beat can read as busy. `plan_sfx` wants these - it was
     asking for `beat_grid.bars`, which is what a bar start is.
+
+    Provenance travels on the analysis itself as
+    `tempo.downbeat_source`: `"detected"` where beat_this (preferred)
+    or madmom heard the bar starts, `"estimated"` where they are every
+    4th detected beat. This function returns the numbers either way -
+    an estimated grid is still the best available rhythm - so a caller
+    that REPORTS a snap (a log line, a manifest note, a prompt column)
+    reads `music_analysis["tempo"].get("downbeat_source")` and says
+    which grid it snapped to.
     """
     return _times(music_analysis, "downbeats", music_selection,
                   audio_spine, timeline_duration)
