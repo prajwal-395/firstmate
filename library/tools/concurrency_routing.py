@@ -204,6 +204,14 @@ OPERATIONS: Tuple[Operation, ...] = (
         why="Read-modify-write of one project-wide store. Two agents "
             "recording different edits lose one of them without a key."),
     Operation(
+        name="record an edit-ledger row",
+        entry_point="library.tools.edit_ledger.record_row",
+        exclusion=DECLARATION,
+        declaration="edit_ledger",
+        why="Read-modify-write of one project-wide store, keyed by "
+            "the row identity. Two agents recording different rows "
+            "lose one of them without a key."),
+    Operation(
         name="record a variant build",
         entry_point="library.tools.versions.variants.record_build",
         exclusion=DECLARATION,

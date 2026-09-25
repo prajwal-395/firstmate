@@ -153,6 +153,14 @@ class KeyedStore:
 #: version numbers are read from the owner rather than restated here,
 #: at import, so a schema bump cannot leave this module writing the old
 #: one (AGENTS.md 10.1, key-name mismatches).
+def _ledger_key(entry: dict) -> str:
+    """The ledger's OWN identity, imported rather than restated -
+    the same rule `declaration_keys` merges by, so a re-stating
+    supersedes in place rather than duplicating."""
+    from library.tools.edit_ledger import _row_identity
+    return json.dumps(list(_row_identity(entry)), ensure_ascii=False)
+
+
 def _stores() -> Dict[str, KeyedStore]:
     from library.tools import (
         caption_timing,
@@ -162,6 +170,7 @@ def _stores() -> Dict[str, KeyedStore]:
         reel_ending,
     )
     from library.tools.captain_edits import CAPTAIN_EDITS_KEY
+    from library.tools.edit_ledger import EDIT_LEDGER_VERSION
 
     return {
         "captain_edits": KeyedStore(
@@ -183,6 +192,9 @@ def _stores() -> Dict[str, KeyedStore]:
         "overlay_intent": KeyedStore(
             "overlay_intent", "targets",
             {"version": overlay_intent.INTENT_VERSION}, None),
+        "edit_ledger": KeyedStore(
+            "edit_ledger", "rows",
+            {"version": EDIT_LEDGER_VERSION}, _ledger_key),
     }
 
 

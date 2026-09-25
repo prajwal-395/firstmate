@@ -7661,6 +7661,63 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         print(f"  {name}: {held} captain's transform hold(s) in force",
               file=sys.stderr)
 
+    # ── The edit ledger's hands rows ──
+    # A direct edit made with Ren's hands (resolve-axi) or recorded
+    # from the captain lives in `external/edit_ledger.json`, and this
+    # derived timeline would otherwise paint it over: the build
+    # deletes and rebuilds from declarations, so anything that lives
+    # only on the old timeline is gone. Hands rows replay AFTER the
+    # build's own passes above - the held value is the requester's,
+    # never the plan's - each judged by Resolve's own read-back. A
+    # row the build cannot replay is REPORTED BY NAME, never dropped
+    # silently; a ledger the build cannot read at all REFUSES the
+    # build, because that build would paint over it by construction.
+    # Plan-level ledger rows (transform holds, trims, drops, caption
+    # fixes, closer redraws) replay through the existing appliers via
+    # the merged `captain_edits` view - never here, or every hold
+    # would land twice.
+    from library.tools import edit_ledger as _ledger
+    try:
+        _ledger_rows = _ledger.load_rows(project_folder)
+    except _ledger.EditLedgerError as exc:
+        raise ReelBuildError(
+            f"edit_ledger cannot be read: {exc}. A recorded direct "
+            f"edit the build cannot read must refuse, never build "
+            f"silently past it.") from exc
+    if any(row.get("op") in _ledger.REPLAYED_OPS
+           or row.get("op") in _ledger.CARRIER_OPS
+           for row in _ledger_rows):
+        _video_places = [
+            p for p in placements_list
+            if getattr(p["clip"], "track_type", "video") == "video"]
+        _position = {id(place): index
+                     for index, place in enumerate(_video_places)}
+        _span_items: dict = {}
+        for _aroll_row in track_plan.aroll_rows():
+            _row_items = (timeline.GetItemListInTrack(
+                "video", _aroll_row.index) or [])
+            _row_places = [
+                p for p in placements_list
+                if getattr(p["clip"], "track_type", "video") == "video"
+                and video_row_by_angle.get(_angle_key(p["clip"]))
+                == _aroll_row.index]
+            _row_places.sort(key=lambda p: p["snapped_record"])
+            for _index, _item in enumerate(_row_items):
+                if _index >= len(_row_places):
+                    break
+                _span_items[_position.get(
+                    id(_row_places[_index]), -1)] = _item
+        _replay = _ledger.replay_on_timeline(
+            name, _ledger_rows, _video_places, transcript, timeline,
+            item_for_span=_span_items.get, reel_name=name)
+        build_record["edit_ledger"] = {
+            "applied": _replay["applied"],
+            "unreplayable": _replay["unreplayable"],
+        }
+        if _replay["applied"]:
+            print(f"  {name}: {len(_replay['applied'])} edit-ledger "
+                  f"row(s) replayed", file=sys.stderr)
+
     # ── The freeze inherits the shot it holds ──
     # A freeze IS the ending shot's last frame, so it must look exactly
     # like that frame: same punch-in transform, same grade. Its own aim
@@ -10453,6 +10510,20 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # so under a SHARED hold like the baseline above.
     with resolve_lease("build reels master digest", exclusive=False):
         _master_digest = _need.carried_digest_live(project, timeline)
+    # The edit ledger's rows, read ONCE: each reel's own rows ride its
+    # derivation digest in `extra` below, so a row on one reel rebuilds
+    # that reel alone (`reel_rebuild_need.PER_REEL_DECLARATION_STEMS`).
+    # An unreadable ledger digests as a marker row - which matches no
+    # record, so the reel rebuilds and the replay refuses LOUDLY there
+    # instead of this decision silently skipping a reel whose direct
+    # edits the build cannot see.
+    from library.tools import edit_ledger as _ledger_mod
+    try:
+        _ledger_all_rows = _ledger_mod.load_rows(project_folder)
+        _ledger_digest_note = ""
+    except _ledger_mod.EditLedgerError as _ledger_bad:
+        _ledger_all_rows = []
+        _ledger_digest_note = f"ledger unreadable: {_ledger_bad}"
 
     # The carried half is read with THE REEL ITSELF CURRENT, because a
     # transform does not read back the same way twice: what Resolve
@@ -11124,6 +11195,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # are invisible is indistinguishable from a reel silently
             # dropped, and a REBUILD that says which half disagreed is
             # how an operator sees what their edit reached.
+            _ledger_extra = {}
+            _ledger_mine = _ledger_mod.rows_for_reel(
+                _ledger_all_rows, name)
+            if _ledger_mine or _ledger_digest_note:
+                _ledger_extra["edit_ledger"] = _ledger_mine
+            if _ledger_digest_note:
+                _ledger_extra["edit_ledger_note"] = _ledger_digest_note
             _derivation = _need.derivation_digest(
                 reel_number=moment.number,
                 engine_code=_engine_code,
@@ -11178,6 +11256,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                        "insisted": [list(sp) for sp in moment_insisted],
                        "overlay_intent": bool(overlay_intent),
                        "skip_captions": bool(skip_captions),
+                       # The reel's own edit-ledger rows - unscoped rows
+                       # plus rows scoped to this reel - travel in
+                       # `extra` rather than as a new named parameter:
+                       # absent means none, so a project that records
+                       # no rows digests byte-identically to before
+                       # this existed (the lower-thirds precedent
+                       # above). A row on Reel 13 changes Reel 13's
+                       # digest and nothing else's.
+                       **_ledger_extra,
                        **({"lower_thirds": _lower_third_rows(
                            lower_third_segments)}
                           if lower_third_segments else {})},

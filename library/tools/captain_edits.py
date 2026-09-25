@@ -362,33 +362,49 @@ def edits_path(project_folder) -> Path:
 def load_edits(project_folder) -> list:
     """The verified edits in force, or [] where the captain wrote none.
 
-    Reads the external file and validates it structurally. Drift
-    against current speech is NOT judged here - the file must be
-    readable before any spine exists (a first run), and drift is
-    where it is LOUD: the external check refuses it pre-run where the
-    spine is on file, and apply time reports it STALE otherwise."""
+    Reads the external file and validates it structurally, PLUS the
+    edit ledger's rows of the five plan-level kinds
+    (`library/tools/edit_ledger.py`) as one merged view - so every
+    existing applier replays ledger rows with no second
+    implementation. Drift against current speech is NOT judged here
+    - the file must be readable before any spine exists (a first
+    run), and drift is where it is LOUD: the external check refuses
+    it pre-run where the spine is on file, and apply time reports it
+    STALE otherwise."""
     if not project_folder:
         return []
     try:
         path = edits_path(project_folder)
     except (KeyError, ValueError):
         return []
-    if not path.is_file():
-        return []
+    edits: list = []
+    if path.is_file():
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise CaptainEditError(
+                f"{path} cannot be read: {exc}") from exc
+        if not isinstance(document, dict) or "value" not in document:
+            raise CaptainEditError(
+                f"{path.name} must be an object with 'key', 'source' and "
+                f"'value' (library/tools/external_inputs.py).")
+        if document.get("key") != CAPTAIN_EDITS_KEY:
+            raise CaptainEditError(
+                f"{path.name} declares key {document.get('key')!r}; the file "
+                f"name IS the state key, so it must be {CAPTAIN_EDITS_KEY!r}.")
+        edits = validate_edits(document["value"])
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        from library.tools import edit_ledger as _ledger
+        edits = edits + _ledger.project_onto_captain_edits(
+            _ledger.load_rows(project_folder))
+    except _ledger.EditLedgerError as exc:
         raise CaptainEditError(
-            f"{path} cannot be read: {exc}") from exc
-    if not isinstance(document, dict) or "value" not in document:
-        raise CaptainEditError(
-            f"{path.name} must be an object with 'key', 'source' and "
-            f"'value' (library/tools/external_inputs.py).")
-    if document.get("key") != CAPTAIN_EDITS_KEY:
-        raise CaptainEditError(
-            f"{path.name} declares key {document.get('key')!r}; the file "
-            f"name IS the state key, so it must be {CAPTAIN_EDITS_KEY!r}.")
-    return validate_edits(document["value"])
+            f"edit_ledger cannot be read: {exc}. A recorded decision "
+            f"the build cannot read must refuse, never build silently "
+            f"past it.") from exc
+    if not edits:
+        return []
+    return validate_edits(edits)
 
 
 # ── Caption fixes: text only, timings never move ─────────────────────

@@ -987,6 +987,7 @@ DECLARATIONS = {
     "reel_cta": ("library.tools.reel_cta_treatment", "check_treatment"),
     "tail_extend_authorizations": (
         "library.tools.tail_extend_authorization", "load_authorizations"),
+    "edit_ledger": ("library.tools.edit_ledger", "load_rows"),
 }
 
 

@@ -200,6 +200,10 @@ PER_REEL_DECLARATION_STEMS = {
         "recorded rulings that one reported tail extends, keyed by "
         "reel - they move the ranges, and the ranges plus the "
         "placements derived from them are in the derivation digest"),
+    "edit_ledger": (
+        "direct-edit rows (voice isolation, clip LUTs) keyed by reel "
+        "- the reel's own rows ride the derivation digest in `extra`, "
+        "so a row on one reel rebuilds that reel alone"),
 }
 """Declarations under `external/` whose effect on ONE reel is already
 carried by that reel's derivation digest.

@@ -4206,6 +4206,44 @@ def cmd_multicam_sync(args) -> int:
     return 0
 
 
+def _ledger_block(args, row: dict, why_missing: str = "") -> str:
+    """Record a verified hands write as an edit-ledger row, as well as
+    acting - so the next build replays it instead of painting over it
+    (K3). Returns the `ledger` TOON block: `recorded` with the row's
+    name, or `not-recorded` naming why. A ledger failure never fails
+    the verb: the ACT is what the exit judges (it already verified),
+    and the block judges the durability - but it says so loudly,
+    because an unledgered hands edit WILL be painted over by the next
+    build and nothing else will say that."""
+    from library.tools import edit_ledger as _ledger
+
+    project_folder = getattr(args, "project_folder", "") or ""
+    if not project_folder:
+        return kv_block("ledger", {
+            "row": why_missing or "not-recorded",
+            "why": ("no --project-folder: acted, not carried - the "
+                    "next build paints this over. Re-run with "
+                    "--project-folder <pipeline project> to ledger it."),
+        })
+    if why_missing:
+        return kv_block("ledger", {
+            "row": "not-recorded",
+            "why": why_missing,
+        })
+    try:
+        _ledger.record_row(project_folder, row)
+    except Exception as exc:
+        return kv_block("ledger", {
+            "row": "not-recorded",
+            "why": (f"{exc} - acted, not carried: the next build "
+                    f"paints this over until it is ledgered."),
+        })
+    return kv_block("ledger", {
+        "row": "recorded",
+        "name": _ledger._row_name(row),
+    })
+
+
 def cmd_color_lut(args) -> int:
     """Set a node LUT on one item, verified by re-read.
 
@@ -4319,6 +4357,27 @@ def cmd_color_lut(args) -> int:
                 f"SetLUT reports True and re-reads {back!r} for "
                 f"{args.lut!r} - refusing to claim it.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        anchor = (getattr(args, "anchor", "") or "").strip()
+        ledger_row = {
+            "op": "clip_lut",
+            "anchor": {"kind": "words", "phrase": anchor} if anchor
+            else {"kind": "reel"},
+            "params": {"lut": args.lut, "node": node},
+            "stated_by": getattr(args, "stated_by", "captain") or
+            "captain",
+            "reason": (getattr(args, "reason", "") or
+                       f"{TOOL} color lut on {timeline.GetName()}").strip(),
+        }
+        reel_scope = (getattr(args, "reel", "") or "").strip()
+        ledger_row["reel"] = reel_scope or timeline.GetName()
+        if not anchor:
+            ledger_note = ("no --anchor: a LUT holds on the clips "
+                           "speaking the anchor's words, which is what "
+                           "survives a rebuild - acted, not carried. "
+                           "Re-run with --anchor \"...\" and "
+                           "--project-folder to ledger it.")
+        else:
+            ledger_note = ""
         emit([kv_block("lut", {
                   "timeline": timeline.GetName(),
                   "name": span["name"],
@@ -4327,6 +4386,7 @@ def cmd_color_lut(args) -> int:
                   "verified": "yes (GetLUT re-reads the LUT)",
               }),
               note,
+              _ledger_block(args, ledger_row, ledger_note),
               help_block([f"{TOOL} items --timeline "
                           f"\"{timeline.GetName()}\""])])
         return 0
@@ -4576,6 +4636,26 @@ def cmd_audio_isolate(args) -> int:
                 f"{back!r} for {state!r} - refusing to claim it.",
                 f"{TOOL} audio --timeline "
                 f"\"{timeline.GetName()}\" --full")
+        ledger_row = {
+            "op": "voice_isolation",
+            "anchor": {"kind": "reel"},
+            "params": {"track": track,
+                       "amount": (0 if args.disable else amount)},
+            "stated_by": getattr(args, "stated_by", "captain") or
+            "captain",
+            "reason": (getattr(args, "reason", "") or
+                       f"{TOOL} audio isolate on "
+                       f"{timeline.GetName()}").strip(),
+        }
+        reel_scope = (getattr(args, "reel", "") or "").strip()
+        ledger_row["reel"] = reel_scope or timeline.GetName()
+        if args.disable:
+            ledger_note = ("isolation turned OFF: off is the absence "
+                           "of a hold, not a hold - acted, not "
+                           "carried. Record a voice_isolation row by "
+                           "hand for an amount the build must keep.")
+        else:
+            ledger_note = ""
         emit([kv_block("isolated", {
                   "timeline": timeline.GetName(),
                   "track": f"audio{track}",
@@ -4584,6 +4664,7 @@ def cmd_audio_isolate(args) -> int:
                   "verified": "yes (re-reads equal)",
               }),
               note,
+              _ledger_block(args, ledger_row, ledger_note),
               help_block([f"{TOOL} audio --timeline "
                           f"\"{timeline.GetName()}\" --full"])])
         return 0
@@ -5821,6 +5902,20 @@ def build_parser() -> Parser:
     q.add_argument("--apply", action="store_true",
                    help="write under the Resolve lease with the "
                         "cursor asserted (default is a dry-run plan)")
+    q.add_argument("--project-folder", default="",
+                   help="pipeline project folder: with --apply, record "
+                        "the isolation as an edit-ledger row so the "
+                        "next build replays it instead of painting over "
+                        "it (without this the write acts but is not "
+                        "carried)")
+    q.add_argument("--reel", default="",
+                   help="ledger scope: the reel timeline name (default "
+                        "is the timeline just written)")
+    q.add_argument("--stated-by", default="captain",
+                   choices=["captain", "requester", "model"],
+                   help="who stated this value (the ledger taste seam)")
+    q.add_argument("--reason", default="",
+                   help="whose words decided this, for the ledger row")
     q.set_defaults(func=cmd_audio_isolate)
 
     p = subs.add_parser("multicam", help="multicam clips from pool "
@@ -5883,6 +5978,24 @@ def build_parser() -> Parser:
     q.add_argument("--apply", action="store_true",
                    help="write under the Resolve lease with the "
                         "cursor asserted (default is a dry-run plan)")
+    q.add_argument("--project-folder", default="",
+                   help="pipeline project folder: with --apply, record "
+                        "the LUT as an edit-ledger row so the next "
+                        "build replays it instead of painting over it "
+                        "(without this the write acts but is not "
+                        "carried)")
+    q.add_argument("--anchor", default="",
+                   help="words the graded clip speaks: the ledger "
+                        "anchor, which is what survives a rebuild "
+                        "(required to ledger a LUT)")
+    q.add_argument("--reel", default="",
+                   help="ledger scope: the reel timeline name (default "
+                        "is the timeline just written)")
+    q.add_argument("--stated-by", default="captain",
+                   choices=["captain", "requester", "model"],
+                   help="who stated this value (the ledger taste seam)")
+    q.add_argument("--reason", default="",
+                   help="whose words decided this, for the ledger row")
     q.set_defaults(func=cmd_color_lut)
     q = csubs.add_parser("group", help="assign one item to a color "
                                       "group, verified by re-read; "
