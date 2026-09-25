@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from library.steps.step_5_02_audio_mix.mix import (
     SLOT,
     assemble,
+    shortfall_lines,
     solve_automation,
 )
 from library.tools import decided_value
@@ -150,6 +151,11 @@ def resolve_audio_mix(data: dict) -> dict:
     for window in undetermined:
         print(f"  Window {window['spine_block_position']} carries no bed "
               f"level: {window['why']}", file=sys.stderr)
+    # Finding 25: a window that misses its decided separation is
+    # reported here, on the run that planned it - met windows stay
+    # silent.
+    for line in shortfall_lines(automation):
+        print(f"  {line}", file=sys.stderr)
 
     cleanup = resolve_cleanup(data)
 

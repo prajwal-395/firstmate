@@ -941,6 +941,25 @@ def _v1_index_ending_at(v1_clips: list, cut_time, tolerance: float = 0.25):
     return best_idx
 
 
+def _downgrade_misplaced_transition(t: dict, transition_id: str,
+                                    reason: str) -> None:
+    """Ship the hard cut the boundary already is, in place.
+
+    Finding 32: one entry dropped with its reason, never a failed run.
+    The stale placement addressing (`after_clip` and kin) is removed
+    with it - it was the plan's wrong claim about which cut this sits
+    on, and leaving it on a hard-cut row would fail downstream
+    validation against a cut that is not one. The reason, which names
+    the cut time, lives in `transitions_downgraded`.
+    """
+    t["transition_type"] = "hard_cut"
+    t["duration_frames"] = 0
+    for key in ("after_clip", "from_block", "to_block"):
+        t.pop(key, None)
+    print(f"  Transition {transition_id} misplaced ({reason}), "
+          f"shipping a hard cut", file=sys.stderr)
+
+
 def _resolve_v2_overlaps(v2_clips: list, fps: float, kinds: dict) -> list:
     """Trim overlapping B-roll clips so V2 reads as a sequence, in place.
 
@@ -2358,16 +2377,42 @@ def compile_manifest(out_dir: str) -> dict:
                              t.get("cut_point_original"))
             after_clip = _v1_index_ending_at(v1_clips, cut_time)
             if after_clip is None:
-                raise ValueError(
-                    f"Transition {t.get('transition_id', '?')} at {cut_time}s "
-                    f"does not sit at the end of any V1 clip"
-                )
+                # Finding 32: a transition 4.02 accepts can sit where no
+                # V1 clip ends (a cut out of b-roll on V2). The boundary
+                # is still real, so the one entry is DROPPED with its
+                # reason - the hard cut the boundary already is, recorded
+                # in `transitions_downgraded` - and the run builds. What
+                # must never happen is failing the whole run over one
+                # entry (AGENTS.md 10.5).
+                transitions_downgraded.append({
+                    "transition_id": t.get("transition_id", "?"),
+                    "requested_type": raw_type,
+                    "shipped_type": "hard_cut",
+                    "reason": (
+                        f"no V1 clip ends at {cut_time}s - the cut the "
+                        f"plan named is not a V1 cut, so the transition "
+                        f"has no outgoing clip to sit on"
+                    ),
+                })
+                _downgrade_misplaced_transition(
+                    t, t.get("transition_id", "?"),
+                    f"no V1 clip ends at {cut_time}s")
+                continue
             if after_clip + 1 >= len(v1_clips):
-                raise ValueError(
-                    f"Transition {t.get('transition_id', '?')} sits at the "
-                    f"end of the last V1 clip ({after_clip}); there is no "
-                    f"incoming clip for the transition"
-                )
+                transitions_downgraded.append({
+                    "transition_id": t.get("transition_id", "?"),
+                    "requested_type": raw_type,
+                    "shipped_type": "hard_cut",
+                    "reason": (
+                        f"the cut sits at the end of the last V1 clip "
+                        f"({after_clip}); there is no incoming clip for "
+                        f"the transition's head half"
+                    ),
+                })
+                _downgrade_misplaced_transition(
+                    t, t.get("transition_id", "?"),
+                    f"end of the last V1 clip ({after_clip})")
+                continue
             # The first granted category is the default: for
             # Cross Dissolve that is simple (both measured granted).
             # The plan states no category - the measurement does.
@@ -2462,21 +2507,42 @@ def compile_manifest(out_dir: str) -> dict:
         cut_time = t.get("cut_point_timeline", t.get("cut_point_original"))
         after_clip = _v1_index_ending_at(v1_clips, cut_time)
         if after_clip is None:
-            raise ValueError(
-                f"Transition {t.get('transition_id', '?')} at {cut_time}s "
-                f"does not sit at the end of any V1 clip"
-            )
+            # Finding 32, Fusion path: same downgrade as the native path
+            # above - one entry dropped with its reason, the run builds.
+            transitions_downgraded.append({
+                "transition_id": t.get("transition_id", "?"),
+                "requested_type": raw_type,
+                "shipped_type": "hard_cut",
+                "reason": (
+                    f"no V1 clip ends at {cut_time}s - the cut the plan "
+                    f"named is not a V1 cut, so the transition has no "
+                    f"outgoing clip to sit on"
+                ),
+            })
+            _downgrade_misplaced_transition(
+                t, t.get("transition_id", "?"),
+                f"no V1 clip ends at {cut_time}s")
+            continue
 
         # The effect is a tail on the outgoing clip AND a head on the
         # incoming one, so there has to be an incoming clip. Without this
         # a transition on the last clip drew half a transition into
         # nothing.
         if after_clip + 1 >= len(v1_clips):
-            raise ValueError(
-                f"Transition {t.get('transition_id', '?')} sits at the end "
-                f"of the last V1 clip ({after_clip}); there is no incoming "
-                f"clip for its head effect"
-            )
+            transitions_downgraded.append({
+                "transition_id": t.get("transition_id", "?"),
+                "requested_type": raw_type,
+                "shipped_type": "hard_cut",
+                "reason": (
+                    f"the cut sits at the end of the last V1 clip "
+                    f"({after_clip}); there is no incoming clip for the "
+                    f"transition's head half"
+                ),
+            })
+            _downgrade_misplaced_transition(
+                t, t.get("transition_id", "?"),
+                f"end of the last V1 clip ({after_clip})")
+            continue
 
         # The key is read directly, never defaulted: the downgrade
         # above guarantees every drawn transition reaching here carries

@@ -548,11 +548,30 @@ def load_pipeline_state(project_dir: str) -> dict:
     # `target_duration_seconds` reached no gate on any run, and four
     # duration checks measured against a constant instead.  See
     # library/tools/duration_targets.py.
+    #
+    # Re-read on EVERY run, not just the first (finding 29): state
+    # persists in pipeline_data.json, so a declaration changed after the
+    # first run never reached a step again - B6 changed
+    # `target_duration_seconds` 60 -> 30 and the rerun's 2.02 gate still
+    # measured against 60, silently. A run whose declaration differs
+    # from what the last run used says so on stderr, naming both.
+    from library.tools.brand_registry import project_declared_config
+    declared_cfg = project_declared_config(project_dir)
     if "project_config" not in state:
-        from library.tools.brand_registry import project_declared_config
-        declared_cfg = project_declared_config(project_dir)
         if declared_cfg:
             state["project_config"] = declared_cfg
+    elif state.get("project_config") != declared_cfg:
+        import sys as _sys_cfg
+        _prev = state.get("project_config")
+        print(f"project_config differs from the last run: "
+              f"project.yaml now declares {declared_cfg}, "
+              f"the persisted state held {_prev} - "
+              f"the declaration on disk wins for this run",
+              file=_sys_cfg.stderr)
+        if declared_cfg:
+            state["project_config"] = declared_cfg
+        else:
+            state.pop("project_config", None)
 
     if "brand_template" not in state:
         from library.tools.brand_registry import (
@@ -2411,7 +2430,10 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
 
         # The must-check rule: a declared gating skill RAN, read back
         # from its receipt on disk - never from the answer's claim that
-        # it checked. A missing receipt travels the post-bridge retry
+        # it checked. The answer itself scopes the rule: a gate scoped
+        # to what its skill knows needs no receipt where the answer
+        # names nothing verifiable (finding 5 - an empty 4.03 plan).
+        # A missing receipt travels the post-bridge retry
         # path like any other contract violation: bounded retries
         # carrying the reason, and at the bound the step FAILS with it
         # named rather than proceeding on an unchecked answer.
@@ -2419,7 +2441,8 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
             try:
                 _skills_rt.assert_gating_skills_ran(
                     node_id, manifest,
-                    compressed.get("project_folder", ""))
+                    compressed.get("project_folder", ""),
+                    llm_output=llm_output)
             except _skills_rt.GatingSkillSkipped as e:
                 violation = str(e)
                 if attempt >= post_bridge_retry.MAX_ATTEMPTS:
@@ -2459,6 +2482,11 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
             merge_data.update(llm_output)
         else:
             merge_data["llm_raw_response"] = llm_output
+        # Which pass this is, for a post-bridge that turns recorded
+        # drops into a correction request on the first pass (finding
+        # 34). Same shape as `second_pass.PASS_KEY` above: loop state,
+        # not model output, so it is set after the answer is merged.
+        merge_data[post_bridge_retry.ATTEMPT_KEY] = attempt
         try:
             final = run_subprocess(post_bridge, merge_data)
         except Exception as e:

@@ -15,6 +15,7 @@ import json
 import sys
 from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.post_bridge_retry import ATTEMPT_KEY, MAX_ATTEMPTS
 from library.tools.sub_block_anchor import (
     ANCHOR_ENTRY_KEYS,
     AnchorRefused,
@@ -788,6 +789,33 @@ def main():
         if not (d.reason == "generator_not_a_clip_effect"
                 and str(d.target_block_position) in routed)
     ]
+
+    # A dropped entry goes back to the model that wrote it (finding
+    # 34): on the FIRST pipeline pass the drops raise, which travels
+    # the existing post_bridge_retry path so the model can correct a
+    # slip - a `cut_in` whose params name nothing readable, a
+    # `speed_ramp` without `segments`. A later pass ships whatever
+    # still resolves with the remaining drops recorded: the retry is
+    # the correction chance, not a second refusal path, and a run is
+    # never failed over a typo. Outside the runner (`ATTEMPT_KEY`
+    # absent - a direct call, the replay bench) there is no retry path
+    # to travel, so drops ship recorded exactly as before.
+    if dropped and data.get(ATTEMPT_KEY) == 1:
+        lines = "\n".join(
+            f"  - block {d.target_block_position}: "
+            f"{d.effect_type!r} dropped as {d.reason}: {d.detail}"
+            for d in dropped
+        )
+        raise ValueError(
+            f"step plan_vfx dropped {len(dropped)} of {len(creative)} "
+            f"planned effect(s):\n{lines}\n"
+            f"Answer again with corrected entries - keep the effect, "
+            f"fix the spelling the reason names (the parameter names "
+            f"each effect is drawn from are "
+            f"{sorted(TOOLKIT_PARAMETERS)}, a speed ramp needs "
+            f"`params.segments`). At most {MAX_ATTEMPTS} passes; what "
+            f"still drops after that ships recorded."
+        )
 
     # Why this plan is the length it is.  `{"visual_effects": []}` alone
     # says the same thing whether the planner deliberately chose

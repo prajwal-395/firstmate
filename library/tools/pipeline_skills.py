@@ -580,8 +580,39 @@ def gating_skills(manifest, step_id: str = "") -> List[str]:
             if SKILLS[n].kind == GATE]
 
 
+def _gate_applies(skill_name: str, step_id: str,
+                  llm_output: Optional[dict]) -> bool:
+    """Whether this gating skill's receipt is required for this answer.
+
+    A gate scoped to what its skill knows (finding 5): a skill module
+    may expose `gate_applies(step_id, llm_output)`, and where it does
+    the must-check rule asks it. No hook, or no answer to judge, means
+    the gate applies - scoping is opt-in per skill, and a failure to
+    scope fails CLOSED (the check runs) rather than open. See
+    `library/skills/verify_treatment/skill.gate_applies`.
+    """
+    if llm_output is None:
+        return True
+    if skill_name not in SKILLS:
+        return True
+    try:
+        module = __import__(SKILLS[skill_name].module + ".skill",
+                            fromlist=["gate_applies"])
+    except ImportError:
+        return True
+    applies = getattr(module, "gate_applies", None)
+    if applies is None:
+        return True
+    try:
+        return bool(applies(step_id, llm_output))
+    except Exception:  # noqa: BLE001 - a scoping bug must not open the gate
+        return True
+
+
 def assert_gating_skills_ran(step_id: str, manifest,
-                             project_folder: str) -> Dict[str, dict]:
+                             project_folder: str,
+                             llm_output: Optional[dict] = None
+                             ) -> Dict[str, dict]:
     """The must-check rule: every declared gating skill ran.
 
     Read back from the receipts on disk - real state the skill entry
@@ -590,6 +621,12 @@ def assert_gating_skills_ran(step_id: str, manifest,
     Raises `GatingSkillSkipped` naming the skill when its receipt is
     absent. Skipped when the step declares no gating skill, and when
     there is no project folder to read back from.
+
+    `llm_output` scopes the rule to what the skill knows: a gating
+    skill whose module says the gate does not apply to this answer
+    needs no receipt (finding 5 - an empty 4.03 plan, or one naming
+    only effects with no plan-time verifier). Absent, the gate
+    applies unconditionally, as before.
     """
     needed = gating_skills(manifest, step_id)
     if not needed or not project_folder:
@@ -597,13 +634,16 @@ def assert_gating_skills_ran(step_id: str, manifest,
     receipts = read_receipts(project_folder, step_id)
     missing = [n for n in needed if n not in receipts]
     if missing:
+        missing = [n for n in missing
+                   if _gate_applies(n, step_id, llm_output)]
+    if missing:
         raise GatingSkillSkipped(
             f"{step_id}: declared gating skill(s) "
             f"{', '.join(missing)} never ran - no receipt at "
             f"{RECEIPTS_RELDIR}/{step_id}/. Run the skill before "
             f"answering; asserting the check without invoking it fails "
             f"the step.")
-    return {n: receipts[n] for n in needed}
+    return {n: receipts[n] for n in needed if n in receipts}
 
 
 # ── The pipeline-runs-it route ────────────────────────────────────

@@ -93,6 +93,16 @@ Optional: `--source-file /path/to/clip.mov --source-fps 30` to capture
 window stills from the footage; `--ask-vision --question "..."` to put
 them to the local model (on request only - never on every build).
 
+`--treatment-key` is the effect you planned: `tv_power_head` /
+`tv_power_tail` for the switch animation, or `slow_zoom_in` /
+`slow_zoom_out` / `zoom_emphasis` / `cut_in` / `ken_burns` for drift
+and emphasis (judged on the zoom spline the comp really renders, with
+`--effects` carrying that effect's own params). A key nothing here can
+check (`stabilize`, `speed_ramp`, `screen_shake`) is refused rather
+than passed - and a plan naming only such effects, or an empty plan,
+needs no receipt at all: the gate is scoped to what this skill knows,
+so stillness the planner chose is not a check skipped.
+
 The run writes a receipt to
 `<project>/pipeline_output/skill_runs/<step-id>/verify_treatment.json`.
 The pipeline reads that receipt back to confirm the check ran: only an

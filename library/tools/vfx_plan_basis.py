@@ -34,6 +34,12 @@ should stop a run is a decision about how the pipeline behaves, and it is
 the captain's, not this module's.  Recording is what makes the question
 askable from the output rather than from a log.
 
+The RETRY half is settled in step 4.03's post-bridge (finding 34): on
+the first pipeline pass drops raise through the existing
+`post_bridge_retry` path so the model can correct a slip, and whatever
+still drops on a later pass ships recorded here.  A refusal would stop
+the run; a retry only asks once.
+
 
 Rules relocated from AGENTS.md 10.2
 -----------------------------------

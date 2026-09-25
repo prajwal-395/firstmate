@@ -43,6 +43,64 @@ from typing import Any, Dict, List, Optional
 
 SKILL_NAME = "verify_treatment"
 
+#: The 4.03 drift/emphasis effects this skill verifies through
+#: `treatment_verify.verify_drift` - the Ken Burns moves 4.03 actually
+#: plans (finding 5: the gate knew only the switch animation and failed
+#: every drift plan with UnknownTreatment). The drift verdict judges the
+#: zoom spline the comp really renders; a constant reframe passes with
+#: `motion_over_time` False, reported never gated. Keys with no
+#: deterministic verifier at all (`stabilize`, `speed_ramp`,
+#: `screen_shake`) are NOT here: a plan naming only those needs no
+#: receipt (`gate_applies`), and an unchecked treatment must never read
+#: as a checked one.
+DRIFT_TREATMENT_KEYS = ("slow_zoom_in", "slow_zoom_out",
+                        "zoom_emphasis", "cut_in", "ken_burns")
+
+#: Every effect spelling this skill can verify, by either route. One
+#: enumeration beside the two it unions, so the gate scope and the run
+#: path cannot drift apart.
+VERIFIABLE_EFFECT_TYPES = frozenset(
+    ("tv_power_head", "tv_power_tail") + DRIFT_TREATMENT_KEYS)
+
+#: 4.03's alias spellings, read as the effect they rename. An alias may
+#: only rename, never decide - so for gate scope a `push_in` is the
+#: `zoom_emphasis` it names.
+_EFFECT_ALIASES = {"push_in": "zoom_emphasis"}
+
+
+def plan_names_verifiable_effect(vfx_creative) -> bool:
+    """True when the plan names anything this skill can verify."""
+    if not isinstance(vfx_creative, list):
+        return False
+    for entry in vfx_creative:
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("effect_type")
+        effect = _EFFECT_ALIASES.get(raw, raw)
+        if effect in VERIFIABLE_EFFECT_TYPES:
+            return True
+    return False
+
+
+def gate_applies(step_id: str, llm_output) -> bool:
+    """Whether the must-check rule needs this skill's receipt.
+
+    Scoped to what the skill knows (finding 5): on step_4_03_plan_vfx
+    the gate applies only when the answer's own `vfx_creative` names a
+    verifiable treatment. An empty plan - stillness the planner chose -
+    and one naming only effects with no plan-time verifier need no
+    receipt. Anything the answer does not state (no dict, no
+    `vfx_creative` key) applies the gate: an unreadable answer is not
+    an empty plan.
+    """
+    if step_id != "step_4_03_plan_vfx":
+        return True
+    if not isinstance(llm_output, dict):
+        return True
+    if "vfx_creative" not in llm_output:
+        return True
+    return plan_names_verifiable_effect(llm_output.get("vfx_creative"))
+
 
 def capture_window_stills(source_file: str, source_fps: float,
                           window: List[int], out_dir: str,
@@ -88,7 +146,9 @@ def run(effects: Dict[str, Any], treatment_key: str, clip_dur: int,
     Returns a verdict dict with `passed`, the measured `verdict`, the
     `stills` (or a withholding notice), and the `vision` opinion. The
     deterministic half gates; the model's half is recorded, never
-    enforced. Raises UnknownTreatment for a key nothing can check -
+    enforced. Routes `tv_power_head`/`tv_power_tail` to
+    `verify_treatment` and 4.03's drift/emphasis effects to
+    `verify_drift`. Raises UnknownTreatment for a key nothing can check -
     an unchecked treatment must not read as a checked one.
     """
     from library.tools import pipeline_skills, treatment_verify
@@ -112,9 +172,14 @@ def run(effects: Dict[str, Any], treatment_key: str, clip_dur: int,
             "ffprobe can read. Got neither, so no comp is built."
         )
 
-    verdict = treatment_verify.verify_treatment(
-        effects, treatment_key, clip_dur, played_frames=played_frames,
-        source_res=frame)
+    if treatment_key in DRIFT_TREATMENT_KEYS:
+        verdict = treatment_verify.verify_drift(
+            effects, clip_dur, played_frames=played_frames,
+            source_res=frame)
+    else:
+        verdict = treatment_verify.verify_treatment(
+            effects, treatment_key, clip_dur, played_frames=played_frames,
+            source_res=frame)
 
     shows = harness_shows_frames(harness)
     tmpdir = tempfile.mkdtemp(prefix="verify_treatment_")

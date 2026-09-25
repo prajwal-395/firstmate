@@ -58,6 +58,19 @@ from __future__ import annotations
 # Two retries after the first answer, the same bound the QA loop uses.
 MAX_ATTEMPTS = 3
 
+# The merge-data key carrying which post-bridge pass this is (1-based,
+# set by `run_hybrid_step` before each post-bridge call). A post-bridge
+# that turns RECORDED drops into a correction request on the first pass
+# - and ships whatever still resolves on a later one - reads this
+# instead of asking forever (finding 34: a dropped 4.03 entry never went
+# back to the model, so a one-word slip silently removed the whole
+# request). Same shape as `second_pass.PASS_KEY`: loop state the bridge
+# needs to know it is answering a retry. Absent outside the runner (a
+# direct invocation, the replay bench), where there is no retry path
+# for a refusal to travel - so a post-bridge outside the loop ships
+# recorded drops exactly as before.
+ATTEMPT_KEY = "post_bridge_attempt"
+
 # One violation's worth of text.  A post-bridge failure carries a
 # subprocess stderr tail, which can be long; the model needs the reason,
 # not the traceback.

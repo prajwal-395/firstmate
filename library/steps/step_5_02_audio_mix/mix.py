@@ -232,6 +232,16 @@ def solve_automation(pre_output: dict, decisions_by_scope: dict) -> tuple:
     Returns `(automation, undetermined_windows)`.  A window whose level
     nothing decided carries NO gain and names itself; nothing downstream
     may substitute one.
+
+    The gain is fitted PER WINDOW to the decided separation (finding
+    25): one gain per behaviour, fitted to one block's speech, left
+    every other block under the same behaviour missing the target by
+    the difference in their speech. The scope decision still sets only
+    the SEPARATION; the clip gain each window needs for it is
+    arithmetic over that window's own speech and the bed's. A window
+    that cannot be fitted (no measured speech, unmeasured bed, no
+    decided separation) keeps the scope gain, delivers nothing, and
+    says so on `separation_shortfall_db` / `shortfall_basis`.
     """
     bed = pre_output.get("bed_measurements") or {}
     windows = pre_output.get("mix_windows") or []
@@ -258,6 +268,18 @@ def solve_automation(pre_output: dict, decisions_by_scope: dict) -> tuple:
         # and a `silent` window carries none: there is no voice-to-bed gap
         # to plan when no music plays.
         target = (decisions_by_scope.get(scope) or {}).get("answer")
+        fitted, fit_note = _fit_gain_to_window(
+            window["speech_lufs"], target, bed)
+        if fitted is not None and level_db is not None:
+            level_db = fitted
+            why = (f"fitted to this window's own speech ({fit_note}); "
+                   f"the scope decision set the separation, not the gain")
+        bed_after_gain = bed_level_after_gain(bed, level_db)
+        delivered = separation_delivered_db(window["speech_lufs"],
+                                            bed_after_gain)
+        shortfall, shortfall_basis = _shortfall(target, delivered,
+                                                window["speech_lufs"],
+                                                bed)
         automation.append({
             "spine_block_position": window["spine_block_position"],
             "timeline_start": window["timeline_start"],
@@ -269,18 +291,97 @@ def solve_automation(pre_output: dict, decisions_by_scope: dict) -> tuple:
             "target_level_db": level_db,
             "target_level_basis": why,
             # Where that gain puts the bed, given what the bed measures.
-            "bed_level_after_gain_lufs": bed_level_after_gain(bed, level_db),
+            "bed_level_after_gain_lufs": bed_after_gain,
             # What the plan asks the ear to hear. A real number now, on
             # every window whose behaviour was decided.
             "separation_target_db": target,
             "speech_lufs": window["speech_lufs"],
             "speech_loudness": window["speech_loudness"],
             # The separation this window WILL deliver.
-            "separation_delivered_db": separation_delivered_db(
-                window["speech_lufs"],
-                bed_level_after_gain(bed, level_db)),
+            "separation_delivered_db": delivered,
+            # What it misses the target by, in dB: 0.0 where the fit
+            # lands, None with the reason in `shortfall_basis`
+            # where nothing measurable was fitted.
+            "separation_shortfall_db": shortfall,
+            "shortfall_basis": shortfall_basis,
         })
     return automation, undetermined
+
+
+def _fit_gain_to_window(speech_lufs, separation_target, bed):
+    """The clip gain delivering `separation_target` under THIS window.
+
+    `gain = (speech - separation) - bed`, the same arithmetic
+    `decided_value._solve_bed_gain` runs, over this window's own speech
+    instead of the scope's reference. Returns `(gain, note)` or
+    `(None, why not)`: a term that was never measured produces NO gain
+    rather than a gain computed from a stand-in.
+    """
+    if (not isinstance(separation_target, (int, float))
+            or isinstance(separation_target, bool)):
+        return None, "no separation was decided for this behaviour"
+    if not isinstance(speech_lufs, (int, float)):
+        return None, ("no measured speech under this window, so the gain "
+                      "that would deliver the decided separation cannot "
+                      "be fitted to it")
+    integrated = (bed or {}).get("integrated_lufs")
+    if not (bed or {}).get("measured") or not isinstance(
+            integrated, (int, float)):
+        return None, ("the bed's own loudness was not measured, so no "
+                      "window can be fitted to it")
+    gain = round(float(speech_lufs) - float(separation_target)
+                 - float(integrated), 2)
+    return gain, (f"{speech_lufs} LUFS speech - {separation_target} dB "
+                  f"separation - {integrated} LUFS bed")
+
+
+def _shortfall(target, delivered, speech_lufs, bed):
+    """`(shortfall_db, basis)` for one automation row.
+
+    0.0 where the fit lands. None with a named reason where nothing
+    measurable was fitted - a miss that must be reported, never a zero
+    that reads as met.
+    """
+    if (isinstance(target, (int, float))
+            and not isinstance(target, bool)
+            and isinstance(delivered, (int, float))):
+        return round(float(target) - float(delivered), 2), None
+    if (not isinstance(target, (int, float))
+            or isinstance(target, bool)):
+        return None, ("no separation was decided for this behaviour, so "
+                      "there is no target to miss")
+    if not isinstance(speech_lufs, (int, float)):
+        return None, ("no measured speech under this window: it keeps "
+                      "the scope gain and its separation is unreported")
+    return None, ("the bed's own loudness was not measured, so this "
+                  "window's separation is unreported")
+
+
+def shortfall_lines(automation: list) -> list:
+    """One human line per window that misses its decided separation.
+
+    The report half of finding 25: met windows are silent, and a miss
+    names the window, the target, what it will deliver, and why.
+    """
+    lines = []
+    for row in automation or []:
+        target = row.get("separation_target_db")
+        if (not isinstance(target, (int, float))
+                or isinstance(target, bool)):
+            continue
+        shortfall = row.get("separation_shortfall_db")
+        pos = row.get("spine_block_position")
+        if isinstance(shortfall, (int, float)) and shortfall != 0.0:
+            lines.append(
+                f"Window {pos}: separation "
+                f"{row.get('separation_delivered_db')} dB vs decided "
+                f"target {target} dB (shortfall {shortfall} dB)")
+        elif shortfall is None:
+            basis = (row.get("shortfall_basis")
+                     or "separation unreported")
+            lines.append(
+                f"Window {pos}: {basis} (decided target {target} dB)")
+    return lines
 
 
 def cleanup_context(audio_spine: dict, a_roll_assignments) -> dict:
