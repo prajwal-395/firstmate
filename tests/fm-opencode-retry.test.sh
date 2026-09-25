@@ -313,6 +313,7 @@ test_rung_cap_rejects_unknown_rung() {
   assert_contains "$(cat "$err")" "opencode" "the refusal names what was passed"
   assert_contains "$(cat "$err")" "free" "the refusal names the accepted free rung"
   assert_contains "$(cat "$err")" "go" "the refusal names the accepted go rung"
+  assert_contains "$(cat "$err")" "plus" "the refusal names the accepted plus rung"
   rm -f "$err"
   pass "record-cap refuses an unreadable rung without writing and names the valid rungs"
 }
@@ -340,10 +341,10 @@ test_rung_cap_commands_reject_the_same_set() {
 }
 
 test_rung_cap_accepted_rungs_work_end_to_end() {
-  # Both ladder rungs still classify exactly as before: a quota-scale horizon
+  # Every ladder rung classifies consistently: a quota-scale horizon
   # reads blocked (capped) and a seconds-long horizon reads waiting.
   local rung d_long d_short out
-  for rung in free go; do
+  for rung in free go plus; do
     d_long="$TMP_ROOT/rung-e2e-$rung-blocked"; mkdir -p "$d_long"
     "$HELPER" record-cap "$d_long" "$rung" "$(ms_from_now 79200)" \
       || fail "record-cap refused a quota-scale observation for rung '$rung'"

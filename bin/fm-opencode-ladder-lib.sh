@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# fm-opencode-ladder-lib.sh - the opencode free-then-Go ladder, enforced at dispatch.
+# fm-opencode-ladder-lib.sh - the opencode free-then-Go-then-Plus ladder.
 # Usage: . bin/fm-opencode-ladder-lib.sh
 # Sourced by bin/fm-spawn.sh. Sourcing has no side effects beyond the rung
 # constants below.
 #
-# THE POLICY. The captain's standing rule for opencode dispatch is a fixed
-# two-rung ladder run by PROVEN EXHAUSTION, not load balancing: rung 1 is the
-# free tier, rung 2 is the paid Go tier, same model (muse spark 1.3), different
-# provider prefix. Work runs on free first each day; new spawns fall through
-# to Go only once free is proven exhausted; work climbs straight back the
-# moment free resets. The rungs are stated once, here, as constants - there is
+# THE POLICY. The standing rule for opencode dispatch is a fixed three-rung
+# ladder: free, paid Go, then Codex Plus (gpt-6-luna at max effort). Work runs
+# on free first; new spawns fall through only when the preceding rung is
+# exhausted. The rungs are stated once, here, as constants - there is
 # no config order to derive, because the order is fixed by economics rather
 # than ranked by the captain.
 #
@@ -53,17 +51,12 @@
 # return to free through this file once the vendor's horizon elapses. The agy
 # ladder has no climb-back in either direction, so its rules do not transfer.
 #
-# THE FAILURE DIRECTION, STATED NOT IMPLIED. Two mistakes are possible: fall
-# through to Go when free is actually fine (spends money that did not need
-# spending), or refuse to fall through when free is genuinely dead (stalls the
-# fleet). This ladder is biased toward falling through, for the captain's own
-# throughput-first reason: a stalled fleet is worse than a small early spend.
-# That bias cashes out in exactly two places: a quota-scale cap with NO model
-# binding still falls through (the notice owns the ambiguity), and NOTHING
-# here ever refuses a launch - even a home where both tiers show capped still
-# launches on Go and lets the existing per-lane detection report it, rather
-# than wedging dispatch. Absence of evidence, however, is never exhaustion: a
-# home with no cap evidence at all dispatches free, silently.
+# THE FAILURE DIRECTION, STATED NOT IMPLIED. A quota-scale free cap without a
+# model binding still falls through to Go (the notice owns the ambiguity).
+# Go exhaustion is known zero `all_models` effective availability from a
+# fresh quota-axi result, or current reactive cap evidence. Unknown data never
+# counts as exhaustion. A free cap plus Go exhaustion plus Codex Plus
+# exhaustion refuses dispatch and names all three tiers.
 #
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE, set to a non-empty reason, holds
 # a free request on free past a proven cap and prints that it did. It is an
@@ -74,15 +67,15 @@
 # when none was requested) passes through unchanged, with a notice naming the
 # kill-switch so a bypass never looks like a decision.
 
-# The governed pair. Same model, different provider prefix - the only
-# difference between the tiers, as the captain said.
+# The governed OpenCode models and final Codex Plus model.
 FM_OPENCODE_LADDER_FREE='opencode/muse-spark-1.3-contributor-free'
 FM_OPENCODE_LADDER_GO='opencode-go/muse-spark-1.3-contributor'
+FM_OPENCODE_LADDER_PLUS_MODEL='gpt-6-luna'
 
-# The rung keys. `free` and `go` are the short names the gate queries and the
-# rung-scoped record files are keyed on (state/.opencode-cap-<rung>).
+# The rung keys. `free`, `go`, and `plus` are the names rung-scoped record
+# files are keyed on (state/.opencode-cap-<rung>).
 # This is the SINGLE place the rung names live: bin/fm-opencode-retry.sh
-# validates record-cap/check-cap/verdict-cap against these two values by
+# validates record-cap/check-cap/verdict-cap against these values by
 # reading them from this file (never by retyping them), and the gate below
 # queries through them, so a rename here cannot leave an unreadable record
 # behind the way `.opencode-cap-opencode` was left on 2026-09-22.
@@ -92,6 +85,46 @@ FM_OPENCODE_LADDER_FREE_RUNG='free'
 # cap can be preserved and shown. bin/fm-opencode-retry.sh reads this line as
 # part of the accepted set - that static read is the use.
 FM_OPENCODE_LADDER_GO_RUNG='go'
+# shellcheck disable=SC2034 # Static consumer in fm-opencode-retry.sh reads this rung name.
+FM_OPENCODE_LADDER_PLUS_RUNG='plus'
+
+# quota-axi exhaustion is deliberately strict: known effective availability
+# of zero for all_models means exhausted. Any missing, stale, or unknown reading
+# is not exhaustion; Go also has the reactive vendor-cap evidence below.
+fm_opencode_ladder_quota_exhausted() {  # <provider>
+  local provider=$1 report
+  command -v quota-axi >/dev/null 2>&1 || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  report=$(quota-axi --provider "$provider" --json 2>/dev/null) || return 1
+  printf '%s' "$report" | jq -e --arg provider "$provider" '
+    any(.providers[]?; .provider == $provider and .state.stale == false
+      and any(.quotaSemantics.effectiveAvailability[]?;
+        .scope == "all_models" and .status == "known"
+        and .effectivePercentRemaining == 0))' >/dev/null 2>&1
+}
+
+fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
+  local state_dir=$1 f id out status horizon model go_bare model_bare
+  [ -d "$state_dir" ] || return 1
+  if out=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" go 2>/dev/null); then
+    case "$out" in *'status=blocked'*) return 0 ;; esac
+  fi
+  go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO")
+  for f in "$state_dir"/*.opencode-retry; do
+    [ -e "$f" ] || continue
+    id=${f##*/}; id=${id%.opencode-retry}
+    out=$("$_FM_OPENCODE_LADDER_RETRY" check "$state_dir" "$id" 2>/dev/null) || continue
+    status=''; horizon=''; model=''
+    for word in $out; do
+      case "$word" in status=*) status=${word#status=} ;; horizon_s=*) horizon=${word#horizon_s=} ;; model=*) model=${word#model=} ;; esac
+    done
+    [ "$status" = blocked ] || continue
+    case "$horizon" in ''|*[!0-9]*) continue ;; esac
+    model_bare=$(fm_opencode_ladder_bare_model "$model")
+    [ "$model_bare" = "$go_bare" ] && return 0
+  done
+  return 1
+}
 
 # Resolve this library's own directory so it can name the retry-evidence
 # helper whether it was sourced by a bin/ script or directly by a test.
@@ -299,12 +332,12 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 
 # fm_opencode_ladder_model: the model id a launch with <requested> should run.
 # Prints exactly one line - the effective model id - on stdout, and the human
-# notice (if any) on stderr. Always exits 0: this ladder never refuses, so a
-# broken gate degrades to the requested model rather than a stalled fleet.
-# An empty or `default` request is free intent: dispatch on free by default.
+# notice (if any) on stderr. An empty or `default` request is free intent and
+# dispatches on free unless its cap and both downstream exhaustion signals are
+# present; that proven all-out case returns failure.
 fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} cap='' horizon='' bound=''
-  local word effective notice=''
+  local word effective notice='' go_exhausted=0
   if [ -z "$requested" ] || [ "$requested" = default ]; then
     requested=$FM_OPENCODE_LADDER_FREE
   fi
@@ -331,10 +364,22 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
           *)
             when="next retry in $(fm_opencode_ladder_horizon_human "$horizon")" ;;
         esac
+        if fm_opencode_ladder_quota_exhausted opencode-go || fm_opencode_ladder_go_reactive_capped "$state_dir"; then
+          go_exhausted=1
+          if fm_opencode_ladder_quota_exhausted codex; then
+            printf 'error: opencode ladder exhausted: free, Go, and Codex Plus are all out of quota\n' >&2
+            return 1
+          fi
+        fi
         if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
           printf '%s\n' "$FM_OPENCODE_LADDER_FREE"
           printf 'notice: opencode ladder OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=%s - holding free past a proven cap (%s)\n' \
             "$FM_OPENCODE_LADDER_OVERRIDE" "$when" >&2
+          return 0
+        fi
+        if [ "$go_exhausted" -eq 1 ]; then
+          printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
+          printf 'notice: opencode ladder: free and Go are exhausted; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
           return 0
         fi
         effective=$FM_OPENCODE_LADDER_GO
@@ -360,8 +405,8 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
       ;;
     *)
       printf '%s\n' "$requested"
-      printf 'notice: opencode ladder not applied: model %s is outside the governed free-then-Go pair (%s, %s), so this launch is unchecked against the free cap\n' \
-        "$requested" "$FM_OPENCODE_LADDER_FREE" "$FM_OPENCODE_LADDER_GO" >&2
+      printf 'notice: opencode ladder not applied: model %s is outside the governed ladder (%s, %s, %s), so this launch is unchecked against the free cap\n' \
+        "$requested" "$FM_OPENCODE_LADDER_FREE" "$FM_OPENCODE_LADDER_GO" "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
       return 0
       ;;
   esac

@@ -1,6 +1,6 @@
 # Codex
 
-Verified on 2026-06-11 with codex-cli 0.139.0 unless a fact gives a newer version.
+Verified on 2026-09-25 with codex-cli 0.156.1 unless a fact gives a newer version.
 
 ## Operating facts
 
@@ -12,9 +12,9 @@ Verified on 2026-06-11 with codex-cli 0.139.0 unless a fact gives a newer versio
 | Skill invocation | `$<skill>`, for example `$no-mistakes`; `/<skill>` is Claude-only and Codex rejects it as "Unrecognized command". |
 | Resume | `codex resume <session-id>`, using the id printed on quit. |
 | Model flag | `--model <model>`. |
-| Effort flag | `-c 'model_reasoning_effort="<low\|medium\|high\|xhigh>"'`, verified on codex-cli 0.142.1 whose installed schema contains `model_reasoning_effort`, active config uses it, and bundled catalog advertises only these four values while omitting `max`. |
+| Effort flag | `-c 'model_reasoning_effort="<effort>"'`. On codex-cli 0.156.1, `codex debug models` exposes each model's supported reasoning levels, including `max` for `gpt-6-luna`; pass `max` only when the selected model advertises it. |
 | Model discovery | Open the current interactive session's `/model` picker. |
-| Marker | None; identity comes from ancestry, and `../../../bin/fm-harness.sh` is what keeps a retained foreign `CLAUDECODE` from renaming it. Verified on 2026-09-01 with codex-cli 0.152.0: the pane process is the `node` npm shim and the native `codex` binary runs as its foreground child, so a tool subprocess reaches the native name directly while the shim itself is identified from its script path. |
+| Marker | None; identity comes from ancestry, and `../../../bin/fm-harness.sh` is what keeps a retained foreign `CLAUDECODE` from renaming it. Codex is installed as a Homebrew cask native binary on the current Mac; the npm-shim process shape verified on 2026-09-01 with codex-cli 0.152.0 does not describe this installation. |
 
 A directory trust dialog appears on the first run for a repository root: "Do you trust the contents of this directory?"
 Accept it with Enter and verify the instructions begin processing.

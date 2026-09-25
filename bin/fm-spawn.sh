@@ -1899,23 +1899,32 @@ case "$HARNESS" in
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
     ;;
   opencode)
-    # The captain's free-then-Go ladder, enforced rather than remembered
+    # The free-then-Go-then-Plus ladder, enforced rather than remembered
     # (bin/fm-opencode-ladder-lib.sh owns the rungs, the reactive evidence
     # rule, and why an absent reading never moves a launch). It runs here
     # because this case is on the one path every opencode crewmate and scout
     # launch already takes, so an ordinary dispatch has nowhere to route
-    # around it. It never refuses: a proven free cap rewrites the model to
-    # the Go tier, and anything less than proof keeps the requested model
-    # (free when none was requested), so a broken gate degrades to today's
-    # behavior rather than a stalled fleet. MODEL_SET is left as it was: the
+    # around it. A proven free cap routes to Go, Go exhaustion routes to Plus,
+    # and exhaustion of all three refuses the new spawn. MODEL_SET is left as it was: the
     # meta record below reads MODEL itself, so the routed tier is what
     # recovery relaunches on.
     _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
     if [ -n "$_FM_OPENCODE_LADDER_NOTE" ]; then
-      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "${MODEL:-}" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") \
-        || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
+      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "${MODEL:-}" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
+        [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
+        rm -f "$_FM_OPENCODE_LADDER_NOTE"
+        exit 1
+      }
       [ -n "$_FM_OPENCODE_LADDER_MODEL" ] || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
       MODEL=$_FM_OPENCODE_LADDER_MODEL
+      if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
+        EFFORT=max
+        HARNESS=codex
+        LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+          echo "error: Codex Plus launch template is unavailable" >&2
+          exit 1
+        }
+      fi
       [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
     fi
