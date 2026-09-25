@@ -15,7 +15,13 @@ Produces a per-clip JSON index containing:
     environment is present, wav2vec2 where MFA declines, full
     WhisperX where the hybrid cannot answer at all)
   - energy_curve: per-second RMS audio energy (librosa, 30Hz frame-aligned)
-  - audio_events: classified audio events — silence, ambient noise, etc.
+  - audio_events: classified audio events - measured PANNs
+    non-speech labels plus measured energy quiet (the old
+    zero-crossing `ambient_noise` guess is gone)
+  - sound_events / sound_event_method: the PANNs event layer proper
+    (AudioSet labels, spans, confidences) beside the method that says
+    whether anything was measured - what event anchors resolve
+    against (`library/tools/sound_events.py`)
   - motion_energy: per-second visual motion magnitude (frame differencing,
     30Hz frame-aligned)
 
@@ -827,138 +833,129 @@ _EDITORIAL_AUDIO_CLASSES = {
 }
 
 
+def measure_clip_sound_events(audio_path: str) -> tuple:
+    """Measured non-speech sound events for one clip's index audio.
+
+    Returns `(sound_events, method)`: the PANNs event list
+    (`library/tools/analysis/sound_event_pipeline.py`, each
+    `{"label", "start", "end", "confidence"}` in source seconds) and
+    the producer method name - or `([], "unmeasured: <reason>")` where
+    the checkpoint is not on this machine. An unmeasured clip refuses
+    event anchors by name; it never serves heuristic guesses.
+    """
+    from library.tools.analysis import sound_event_pipeline as _sep
+
+    try:
+        measured = _sep.measure_sound_events(audio_path)
+        return measured["events"], measured["method"]
+    except _sep.SoundEventsUnavailable as e:
+        print(f"  INFO: sound events unmeasured: {e}", file=sys.stderr)
+        return [], f"unmeasured: {e}"
+    except Exception as e:
+        print(
+            f"  WARNING: sound-event measurement failed: {e}",
+            file=sys.stderr,
+        )
+        return [], f"unmeasured: {e}"
+
+
+def _energy_silence_spans(audio_path: str,
+                          speech_regions: list = None,
+                          sample_rate_hz: int = 2) -> list:
+    """Measured quiet spans: RMS under threshold, outside word spans.
+
+    The one heuristic the old classifier carried that was a real
+    signal - silence is low energy, honestly measured - kept as its
+    own function with its own method tag. Word-overlapping quiet is
+    filtered out exactly as before: a pause inside speech is the
+    transcript's business, not silence.
+    """
+    import librosa
+    y, sr = librosa.load(audio_path, sr=16000)
+    hop = sr // sample_rate_hz
+    rms = librosa.feature.rms(
+        y=y, frame_length=hop * 2, hop_length=hop
+    )[0]
+    spans = []
+    for i, val in enumerate(rms):
+        if val < 0.005:
+            spans.append({
+                "time": round(i / sample_rate_hz, 2),
+                "duration": round(1.0 / sample_rate_hz, 2),
+                "class": "silence",
+                "confidence": 0.8,
+                "method": "energy",
+            })
+    events = _consolidate_events(spans)
+    if speech_regions and events:
+        word_spans = []
+        for region in (speech_regions or []):
+            for w in region.get("words", []):
+                word_spans.append((w["start"], w["end"]))
+        if word_spans:
+            filtered = []
+            for event in events:
+                e_start = event["time"]
+                e_end = e_start + event["duration"]
+                overlaps_word = any(
+                    min(e_end, we) - max(e_start, ws) > 0.05
+                    for ws, we in word_spans
+                )
+                if overlaps_word:
+                    continue
+                filtered.append(event)
+            events = filtered
+    return events
+
+
 def classify_audio_events(
     audio_path: str,
     speech_regions: list = None,
     min_confidence: float = 0.3,
     sample_rate_hz: int = 2,
+    sound_measurement: tuple = None,
 ) -> list:
     """
-    Classify audio events using a lightweight audio classifier.
+    Classify audio events: measured PANNs labels plus measured quiet.
 
-    Uses torchaudio's pipeline if available, falls back to simple
-    energy-based speech/silence classification otherwise.
-
-    If speech_regions is provided, silence events that overlap with
-    word-level speech activity are filtered out.
+    The PANNs half names non-speech sounds (laughter, impacts, music)
+    with timed spans in the model's own AudioSet vocabulary
+    (`library/tools/analysis/sound_event_pipeline.py`); the energy
+    half names quiet spans outside word time. The old zero-crossing
+    `ambient_noise` guess is gone - nothing here thresholds a texture
+    into a label. `min_confidence` and `sample_rate_hz` are kept so
+    existing callers read unchanged; the producer owns its operating
+    points. `sound_measurement` is the `(events, method)` pair a
+    caller that already measured for its own document hands over, so
+    one clip costs one inference; None measures here.
 
     Returns a list of audio event dicts:
-        [{"time": 3.1, "duration": 0.8, "class": "laughter", "confidence": 0.7}, ...]
+        [{"time": 3.1, "duration": 0.8, "class": "Laughter",
+          "confidence": 0.7, "method": "panns-..."}, ...]
     """
+    _ = min_confidence
     events = []
-
+    if sound_measurement is None:
+        sound_measurement = measure_clip_sound_events(audio_path)
+    sound_events, _method = sound_measurement
+    for event in sound_events:
+        events.append({
+            "time": event["start"],
+            "duration": round(event["end"] - event["start"], 3),
+            "class": event["label"],
+            "confidence": event["confidence"],
+            "method": _method,
+        })
     try:
-        import numpy as np
-
-        # Try torchaudio YAMNet-style classification
-        try:
-            import torch
-            import torchaudio
-            from torchaudio.pipelines import (
-                VGGISH as _pipeline,
-            )
-
-            # Load audio
-            waveform, sr = torchaudio.load(audio_path)
-            if sr != 16000:
-                waveform = torchaudio.functional.resample(waveform, sr, 16000)
-                sr = 16000
-
-            # Use mono
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
-
-            # Process in 1-second windows for event detection
-            window_samples = sr  # 1 second
-            hop_samples = sr // sample_rate_hz
-
-            # Simple energy-based event detection with spectral features
-            waveform_np = waveform.squeeze().numpy()
-            total_samples = len(waveform_np)
-
-            for i in range(0, total_samples - window_samples, hop_samples):
-                chunk = waveform_np[i:i + window_samples]
-                t = i / sr
-
-                # RMS energy
-                rms = float(np.sqrt(np.mean(chunk ** 2)))
-
-                # Zero crossing rate (high = noise/unvoiced, low = voiced/tonal)
-                zcr = float(np.mean(np.abs(np.diff(np.sign(chunk))) > 0))
-
-                # Classify based on features
-                if rms < 0.005:
-                    events.append({
-                        "time": round(t, 2),
-                        "duration": round(1.0 / sample_rate_hz, 2),
-                        "class": "silence",
-                        "confidence": round(min(1.0, (0.005 - rms) / 0.005), 2),
-                    })
-                elif zcr > 0.15 and rms > 0.02:
-                    # High ZCR + energy = likely unvoiced/noise (wind, etc.)
-                    events.append({
-                        "time": round(t, 2),
-                        "duration": round(1.0 / sample_rate_hz, 2),
-                        "class": "ambient_noise",
-                        "confidence": round(min(1.0, zcr / 0.3), 2),
-                    })
-
-            # Deduplicate consecutive same-class events into ranges
-            events = _consolidate_events(events)
-
-        except (ImportError, Exception) as e:
-            print(
-                f"  INFO: torchaudio not available for audio events ({e}), "
-                "using basic detection",
-                file=sys.stderr,
-            )
-            # Fallback: energy-based silence detection only
-            import librosa
-            y, sr = librosa.load(audio_path, sr=16000)
-            hop = sr // sample_rate_hz
-            rms = librosa.feature.rms(
-                y=y, frame_length=hop * 2, hop_length=hop
-            )[0]
-
-            for i, val in enumerate(rms):
-                t = i / sample_rate_hz
-                if val < 0.005:
-                    events.append({
-                        "time": round(t, 2),
-                        "duration": round(1.0 / sample_rate_hz, 2),
-                        "class": "silence",
-                        "confidence": 0.8,
-                    })
-            events = _consolidate_events(events)
-
+        events.extend(
+            _energy_silence_spans(audio_path, speech_regions,
+                                  sample_rate_hz))
     except Exception as e:
         print(
-            f"  WARNING: audio event classification failed: {e}",
+            f"  WARNING: energy silence spans failed: {e}",
             file=sys.stderr,
         )
-
-    # Filter silence events that overlap with word-level speech
-    if speech_regions and events:
-        word_spans = []
-        for sr in (speech_regions or []):
-            for w in sr.get("words", []):
-                word_spans.append((w["start"], w["end"]))
-
-        if word_spans:
-            filtered = []
-            for event in events:
-                if event["class"] == "silence":
-                    e_start = event["time"]
-                    e_end = e_start + event["duration"]
-                    overlaps_word = any(
-                        min(e_end, we) - max(e_start, ws) > 0.05
-                        for ws, we in word_spans
-                    )
-                    if overlaps_word:
-                        continue  # skip — silence during speech
-                filtered.append(event)
-            events = filtered
-
+    events.sort(key=lambda e: (e["time"], e["duration"]))
     return events
 
 
@@ -1750,6 +1747,100 @@ def backfill_motion_measurement(index: dict, video_path: str = None) -> bool:
     return True
 
 
+def _panns_checkpoint_present() -> bool:
+    """Whether the event checkpoint is on this machine right now."""
+    try:
+        from library.tools.shared_environment import panns_checkpoint
+        path = panns_checkpoint()
+        return path.is_file() and path.stat().st_size >= 3e8
+    except Exception:
+        return False
+
+
+def sound_events_backfill_needed(index: dict) -> bool:
+    """Whether a cached per-clip index predates the event measurement.
+
+    True when the document has no event list, when its method is not
+    the PANNs producer, or when it records an `unmeasured` absence
+    whose reason may have cleared (the checkpoint is on this machine
+    now). A measured clip stays cached, and a still-unmeasurable one
+    is not rewritten - re-measuring either on every run would burn an
+    inference per clip, or churn the file, for nothing.
+    """
+    from library.tools.analysis import sound_event_pipeline as _sep
+    events = (index or {}).get("sound_events")
+    method = (index or {}).get("sound_event_method")
+    if not isinstance(events, list) or not isinstance(method, str):
+        return True
+    if method == _sep.METHOD:
+        return False
+    if method.startswith("unmeasured:"):
+        return _panns_checkpoint_present()
+    return True
+
+
+def backfill_sound_events(index: dict, video_path: str = None,
+                          layout=None) -> bool:
+    """Measure sound events onto a cached index that predates them.
+
+    Mutates `index` in place, setting `sound_events` and
+    `sound_event_method` from a fresh `measure_clip_sound_events`
+    pass over the clip's 16 kHz audio. Returns whether anything
+    changed. The footage is read from `video_path` (or the document's
+    own `source_file`); when neither names a file on disk the
+    document is left alone and False is returned - a stale
+    measurement is served, never an invented one.
+
+    An `unmeasured` outcome IS written: unlike motion (whose absence
+    is churn), it records that the checkpoint was missing at a named
+    time, which is what makes the next run's refusal specific. The
+    backfill predicate retries such a record only once the checkpoint
+    is present, so a written `unmeasured` is not churned blindly.
+    """
+    path = video_path or (index or {}).get("source_file")
+    if not path or not os.path.isfile(path):
+        print(
+            f"  WARNING: sound-event backfill skipped for "
+            f"{(index or {}).get('clip_id', (index or {}).get('audio_id', '?'))}: "
+            f"no footage file at {path!r}",
+            file=sys.stderr,
+        )
+        return False
+    try:
+        if layout is not None:
+            audio_dir = str(layout.write_dir(Area.AUDIO_CACHE,
+                                             step="temporal_index"))
+        else:
+            audio_dir = tempfile.mkdtemp(prefix="r5e-backfill-")
+        wav = extract_audio_16k(
+            str(path), audio_dir,
+            clip_id=(index or {}).get("clip_id",
+                                      (index or {}).get("audio_id")))
+        events, method = measure_clip_sound_events(wav)
+    except Exception as e:
+        print(
+            f"  WARNING: sound-event backfill failed for "
+            f"{(index or {}).get('clip_id', '?')}: {e}",
+            file=sys.stderr,
+        )
+        return False
+    index["sound_events"] = events
+    index["sound_event_method"] = method
+    # The legacy `audio_events` list predates the producer: refresh it
+    # from the same pass so the two halves of the document agree.
+    try:
+        index["audio_events"] = classify_audio_events(
+            wav, speech_regions=index.get("speech_regions"),
+            sound_measurement=(events, method))
+    except Exception as e:
+        print(
+            f"  WARNING: audio_events refresh failed for "
+            f"{(index or {}).get('clip_id', '?')}: {e}",
+            file=sys.stderr,
+        )
+    return True
+
+
 # ── 9. Camera motion decomposition (5Hz) ─────────────────────────────
 
 def decompose_camera_motion(
@@ -2537,9 +2628,15 @@ def index_clip(
 
     # 5. Audio events
     print("    [5/12] Audio events...", file=sys.stderr)
-    audio_events = classify_audio_events(audio_path, speech_regions=speech)
+    sound_events, sound_event_method = measure_clip_sound_events(
+        audio_path)
+    audio_events = classify_audio_events(
+        audio_path, speech_regions=speech,
+        sound_measurement=(sound_events, sound_event_method))
     print(
-        f"           {len(audio_events)} events",
+        f"           {len(audio_events)} events "
+        f"({len(sound_events)} measured non-speech, "
+        f"{sound_event_method})",
         file=sys.stderr,
     )
 
@@ -2632,6 +2729,13 @@ def index_clip(
         "speech_regions": speech,
         "energy_curve": energy,
         "audio_events": audio_events,
+        # Measured non-speech sound events (PANNs AudioSet labels, in
+        # source seconds) beside the method that produced them - the
+        # layer event anchors and the soundevents view read. An
+        # unmeasured clip records `sound_event_method: unmeasured:
+        # <reason>` and an empty list, never guesses.
+        "sound_events": sound_events,
+        "sound_event_method": sound_event_method,
         "motion_energy": motion,
         "onset_times": onsets,
         "word_end_times": word_ends,
@@ -2813,7 +2917,11 @@ def index_audio_clip(
     )
 
     print("    [4/5] Audio events...", file=sys.stderr)
-    audio_events = classify_audio_events(wav_path, speech_regions=speech)
+    sound_events, sound_event_method = measure_clip_sound_events(
+        wav_path)
+    audio_events = classify_audio_events(
+        wav_path, speech_regions=speech,
+        sound_measurement=(sound_events, sound_event_method))
 
     print("    [5/5] Word end times...", file=sys.stderr)
     word_ends = extract_word_end_times(speech)
@@ -2834,6 +2942,8 @@ def index_audio_clip(
         "speech_regions": speech,
         "energy_curve": energy,
         "audio_events": audio_events,
+        "sound_events": sound_events,
+        "sound_event_method": sound_event_method,
         "onset_times": onsets,
         "word_end_times": word_ends,
         "speech_activity": speech_activity,
@@ -2999,7 +3109,8 @@ def build_temporal_index(
                 # not re-transcribed: the backfill measures only the
                 # flow and rewrites the same file, so old projects gain
                 # peaks and directions for the cost of one ffmpeg pass.
-                if motion_backfill_needed(index):
+                motion_due = motion_backfill_needed(index)
+                if motion_due:
                     print(f"  backfilling dense motion for "
                           f"{os.path.basename(index_path)}",
                           file=sys.stderr)
@@ -3010,7 +3121,24 @@ def build_temporal_index(
                         print(f"  motion backfill yielded nothing; "
                               f"serving cached measurement",
                               file=sys.stderr)
-                else:
+                # A cached document predating sound events is UPGRADED
+                # the same way: the backfill measures only the audio
+                # and rewrites the same file, so old projects gain
+                # event anchors for the cost of one ffmpeg pass plus
+                # one inference - no re-transcription.
+                sound_due = sound_events_backfill_needed(index)
+                if sound_due:
+                    print(f"  backfilling sound events for "
+                          f"{os.path.basename(index_path)}",
+                          file=sys.stderr)
+                    if backfill_sound_events(index, filepath, layout):
+                        with open(index_path, "w", encoding="utf-8") as f:
+                            json.dump(index, f, indent=2)
+                    else:
+                        print(f"  sound-event backfill yielded nothing; "
+                              f"serving cached measurement",
+                              file=sys.stderr)
+                if not motion_due and not sound_due:
                     print(f"  reusing {os.path.basename(index_path)}",
                           file=sys.stderr)
             else:
@@ -3029,9 +3157,21 @@ def build_temporal_index(
             # magnitudes) so sub-block anchors resolve without opening
             # the per-clip file; the per-sample series stays in that
             # file, named by `index_path` below.
+            #
+            # The sound half rides beside it: the clip's measured
+            # non-speech events (labels, spans, confidences) so event
+            # anchors resolve the same way, plus the method that says
+            # whether anything was measured at all.
             flow = index.get("optical_flow_direction") or {}
             if not isinstance(flow, dict):
                 flow = {}
+            sound_events = index.get("sound_events")
+            if not isinstance(sound_events, list):
+                sound_events = []
+            sound_event_method = index.get("sound_event_method")
+            if not isinstance(sound_event_method, str):
+                sound_event_method = (
+                    "unmeasured: predates the event measurement")
             results.append({
                 "clip_id": clip_id,
                 "index_path": index_path,
@@ -3058,6 +3198,11 @@ def build_temporal_index(
                 "motion_peaks": [
                     p for p in flow.get("motion_peaks", [])
                     if isinstance(p, dict)
+                ],
+                "sound_event_method": sound_event_method,
+                "sound_events": [
+                    e for e in sound_events
+                    if isinstance(e, dict)
                 ],
             })
 

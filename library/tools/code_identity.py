@@ -189,6 +189,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # recorded as learnings, so a fix here changes what the cached
         # transcript carries. (Its own imports are exempt plumbing.)
         "library/tools/learned_context.py",
+        # The executed sound-event measurement: PANNs AudioSet spans
+        # per clip, so a fix here changes the cached sound_events.
+        "library/tools/analysis/sound_event_pipeline.py",
         # The confidence vocabulary carried in the cached segments
         # (avg_logprob): the transcription path keys its numbers here.
         "library/tools/transcript_confidence.py",

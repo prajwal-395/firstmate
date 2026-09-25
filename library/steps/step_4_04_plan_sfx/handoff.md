@@ -85,6 +85,11 @@ One of (exactly one per anchor):
   estimated one.
 - `anchor: {frame: 343}` - timeline frame 343. It must fall inside the
   block.
+- `anchor: {event: "Laughter"}` - the start (onset) of the first
+  laugh the block's own clip measured (`occurrence: 2` for its
+  second, `edge: end` for a span's end). Spans come from the
+  `soundevents` view in your context; a label the clip did not
+  measure refuses with what it carries.
 
 Any form takes `offset_seconds` / `offset_frames` (applied after, and
 still inside the block). An anchor that names nothing placeable - a
@@ -99,6 +104,16 @@ loudness and duration - with the formula stated there. Land a sound on
 the word the brief names, or on the block's most emphasized word; name
 it through `anchor: {word}` with its `occurrence`, exactly as above.
 The score is context, not an order - you still decide.
+
+Sound events: the `soundevents` view in your context names, per
+block, the non-speech sounds the block's own clip measured -
+laughter, impacts, music entrances - with their timeline spans and
+confidences. Land a sound on the moment the footage itself makes:
+a sting on the laugh through `anchor: {event: "Laughter"}`, a hit on
+the impact through `anchor: {event: "Crash cymbal"}`. Labels are the
+model's own AudioSet words - a label no clip measured stays absent,
+never guessed. The spans are context, not an order - you still
+decide.
 
 ### Context data available:
 

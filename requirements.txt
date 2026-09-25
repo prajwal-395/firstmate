@@ -96,6 +96,21 @@ scipy>=1.10
 # floors together and let the resolver match the pair.
 torch>=2.8
 torchaudio>=2.8
+# Timed non-speech sound events (step 1.04 via sound_event_pipeline,
+# read by the cut planners through view:soundevents and anchor
+# {event}). panns-inference (MIT) + torchlibrosa (MIT) are pure Python
+# on the torch already here and resolved cleanly against numpy 2.5.3 /
+# torch 2.8 with nothing else moving. The 327 MB Cnn14_DecisionLevelMax
+# weights are CC-BY-4.0 (Zenodo record 3987831, md5 verified at
+# install) and live once per machine under vep_home()/models/panns/
+# via scripts/install_panns.sh - they are data, not a pin. Measured on
+# the captain's machine (M4, CPU): 100-210x realtime at 100 frames/s,
+# ~2.9 GB peak RSS, speech spans covering 97.5% of transcript
+# word-time, a cough/sneeze burst agreeing to ~1 s with an independent
+# CED-tiny pass. (CED-tiny stays a measurement: its upstream is
+# GPL-3.0 and its model tarball ships no licence.)
+panns-inference==0.1.1
+torchlibrosa==0.1.0
 # Pinned below 5: OpenCV 5 dropped Haar cascades entirely (no
 # cv2.CascadeClassifier, no XML in cv2.data.haarcascades), and the
 # face-presence and subject-position signals in step_1_04 need them.

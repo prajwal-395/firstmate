@@ -437,6 +437,25 @@ def model_checks() -> list:
         "not downloaded - downbeats fall back to the librosa "
         "every-4th-beat estimate (labelled estimated)",
         "" if bt_complete else f"fetch it (~81 MB): {bt_fetch}"))
+
+    # PANNs weights (timed sound events, step 1.04). Optional by
+    # design like the halves above: without the checkpoint a clip
+    # records `sound_event_method: unmeasured` with the reason and an
+    # event anchor on it refuses by name - so a run still completes,
+    # with no event layer to address.
+    panns_ok, _ = shared_environment.panns_available()
+    panns_path = shared_environment.panns_checkpoint()
+    checks.append(Check(
+        "model PANNs Cnn14-DLM", True,
+        f"timed sound events (step 1.04): "
+        f"{_gb(panns_path.stat().st_size)}"
+        if panns_ok else
+        "not downloaded - clips record unmeasured sound events and "
+        "event anchors refuse by name "
+        f"(bash {shared_environment.PANNS_INSTALL_SCRIPT} adds it, "
+        f"~327 MB)",
+        "" if panns_ok else
+        f"bash {shared_environment.PANNS_INSTALL_SCRIPT}"))
     return checks
 
 

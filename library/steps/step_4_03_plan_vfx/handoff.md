@@ -136,12 +136,17 @@ One address per anchor (exactly one):
   action starts (`occurrence: 2` for the second). Peaks come from the
   `motion` view in your context; a peak is a point, so there is never
   an `edge` on these forms.
+- `{event: "Laughter"}` - the block's first measured laugh
+  (`occurrence: 2` for the second span, `edge: end` for a span's
+  end - default start is the onset). Spans come from the
+  `soundevents` view in your context; a label the clip did not
+  measure refuses with what it carries.
 - `{frame: 343}` - timeline frame 343. It must fall inside the block.
 
 Any form takes `offset_seconds` / `offset_frames` (applied after, and
 still inside the block). An anchor that names nothing placeable - a
 word the block does not say, a bar past the grid, a section the grid
-did not measure, a frame outside the
+did not measure, an event the clip did not measure, a frame outside the
 block, or an end at or before its start - REFUSES the step with the
 fix, and you re-plan; it never falls back to the block span.
 
@@ -168,6 +173,17 @@ never falls back to the block span. `still_motion_notes` carries what
 the still router saw in those stills - one motion line per file - as
 a second reading beside your own; where nothing answered, the absence
 is stated and the still paths above remain for you to open.
+
+Sound events: the `soundevents` view in your context names, per
+block, the non-speech sounds the block's own clip measured -
+laughter, impacts, music entrances - with their timeline spans and
+confidences. Place the effect ON the sound: a hit lands on the laugh
+through `anchor: {event: "Laughter"}`, a punch spans it with
+`anchor_end: {event: "Laughter", edge: end}`. Labels are the model's
+own AudioSet words - a label no clip measured stays absent, never
+guessed. The spans are context, not an order - you still decide. An
+event anchor on a block whose sound is unmeasured refuses with the
+fix, and you re-plan; it never falls back to the block span.
 
 ### Context data available:
 

@@ -60,6 +60,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - `view:motion` is what the cut and effect planners (4.02, 4.03) read instead of the per-sample flow series: per block, the clip's dominant direction and motion kind plus the action onsets and apexes inside the block's own range, joinable by `block_position` and addressable through `anchor: {motion_peak}` / `{action_onset}` with `occurrence`. The model still decides; the measurement is context.
 - `view:beatgrid` is what a step reads to address a beat by NUMBER instead of snapping to one in code: one row per bar (bar, downbeat seconds, beats in it) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions`, `plan_vfx` and `plan_sfx`; the per-beat series stays withheld and the post-bridge resolves every anchor to an exact frame (`library/tools/sub_block_anchor.py`).
 - `view:sectiongrid` is what a step reads to address a musical section by LABEL instead of by seconds: one row per measured section (label, span, first-downbeat seconds) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions` and `plan_vfx`; the boundary series stays withheld and the post-bridge resolves every `anchor: {section}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model - a section it cannot give stays absent, never guessed.
+- `view:soundevents` is what a step reads to address a non-speech sound by LABEL instead of by seconds: one row per block with a source clip, carrying the measured event spans inside the block's own source range (label, timeline span, confidence) plus the measurement's provenance. Declared by `plan_transitions`, `plan_vfx` and `plan_sfx`; the frame series stays withheld and the post-bridge resolves every `anchor: {event}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model's own AudioSet vocabulary - voiced speech withheld, a label no clip measured stays absent, never guessed.
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
@@ -1131,6 +1132,143 @@ def _motion(data: dict) -> dict:
     return {"motion": view}
 
 
+SOUNDEVENTS_LEGEND = {
+    "what_this_is": (
+        "Per spine block, the non-speech sounds the block's own clip "
+        "measured: laughter, impacts, music entrances and what else "
+        "the soundtrack carries, each with its timeline span and the "
+        "model's own confidence."
+    ),
+    "how_measured": (
+        "PANNs Cnn14 DecisionLevelMax frame-level sound-event "
+        "detection over the AudioSet vocabulary at 100 frames/s "
+        "(CC-BY-4.0 weights, scripts/install_panns.sh), spans merged "
+        "across gaps under 0.25 s, said per clip by "
+        "sound_event_method. confidence is the span's peak frame "
+        "probability. Speech spans 97.5% of transcript word-time on "
+        "the captain's podcast audio, which is what makes the frame "
+        "timing trustworthy; a cough/sneeze burst both camera mics "
+        "hear lands within ~1 s on an independent CED-tiny pass."
+    ),
+    "vocabulary": (
+        "Labels are the model's own AudioSet words, verbatim - name "
+        "one exactly in an event anchor. Voiced-speech classes "
+        "(Speech, Male/Female/Child speech, Conversation, Narration, "
+        "Babbling, Whispering) are WITHHELD: the transcript times "
+        "speech to the word, so a cut never lands on 'speech' "
+        "instead of on a word. A label no clip measured stays "
+        "absent, never guessed."
+    ),
+    "how_to_address_an_event": (
+        "By LABEL and occurrence through a sub-block anchor, never by "
+        "seconds: a cut, effect or sound entry carries anchor "
+        "{event: <label>} (the nth span of that label in the block, "
+        "occurrence 1-based, default 1; edge end for the span's end, "
+        "default start is the onset). The post-bridge resolves it to "
+        "the exact frame (library/tools/sub_block_anchor.py). "
+        "Seconds are shown so a duration can be sanity-checked, not "
+        "so an entry can name one."
+    ),
+}
+
+
+def _soundevents(data: dict) -> dict:
+    """Measured non-speech sound events per spine block, for event anchors.
+
+    Fidelity rung 5e: the soundtrack carried no timed events - plans
+    could land a hit on a word, a beat or a frame, but never on the
+    laugh or impact the footage actually holds. This view is the
+    addressed middle: one row per block with a source clip, carrying
+    the measured event spans inside the block's own source range, each
+    with timeline seconds. The model still decides; the measurement is
+    context.
+
+    Reads the routed temporal summaries (`temporal_event_indices`,
+    or `temporal_index` where the edge lands under that name) - the
+    same shape `view:motion` reads, carrying `sound_events` and
+    `sound_event_method` per clip. A block with no source clip, no
+    source range, or no measured clip is NAMED in one line, not
+    silently absent.
+    """
+    from library.tools.sound_events import events_in_block, measured
+    from library.tools.spine_contract import source_to_timeline
+
+    summaries = data.get("temporal_event_indices")
+    if not isinstance(summaries, list):
+        summaries = data.get("temporal_index")
+    if not isinstance(summaries, list):
+        return {}
+    by_clip = {}
+    for entry in summaries:
+        if isinstance(entry, dict) and entry.get("clip_id"):
+            by_clip[str(entry["clip_id"])] = entry
+
+    spine = data.get("timed_spine")
+    if isinstance(spine, dict):
+        spine = spine.get("structure")
+        if spine is None:
+            spine = []
+    if not isinstance(spine, list):
+        return {}
+
+    rows, unmeasured = [], []
+    for block in spine:
+        if not isinstance(block, dict):
+            continue
+        position = block.get("position")
+        clip_id = block.get("clip_id")
+        src_start = block.get("source_start")
+        src_end = block.get("source_end")
+        tl_start = block.get("timeline_start")
+        tl_end = block.get("timeline_end")
+        summary = by_clip.get(str(clip_id)) if clip_id else None
+        sound_ok = (
+            summary is not None
+            and measured(summary)
+            and isinstance(src_start, (int, float))
+            and isinstance(src_end, (int, float))
+            and isinstance(tl_start, (int, float))
+            and isinstance(tl_end, (int, float))
+        )
+        if not sound_ok:
+            unmeasured.append(position)
+            continue
+        spans = []
+        for event in events_in_block(summary, float(src_start),
+                                     float(src_end)):
+            spans.append({
+                "label": event["label"],
+                "start_seconds": round(source_to_timeline(
+                    event["start_seconds"], block), 3),
+                "end_seconds": round(source_to_timeline(
+                    event["end_seconds"], block), 3),
+                "confidence": event["confidence"],
+            })
+        spans.sort(key=lambda s: (s["start_seconds"], s["end_seconds"]))
+        rows.append({
+            "block_position": position,
+            "clip_id": clip_id,
+            "sound_event_method": summary.get("sound_event_method",
+                                              "unmeasured"),
+            "events": spans,
+        })
+
+    view: dict = {"legend": SOUNDEVENTS_LEGEND}
+    if rows:
+        view["blocks"] = rows
+        view["blocks_measured"] = len(rows)
+    if unmeasured:
+        view["not_measured"] = (
+            f"{len(unmeasured)} block(s) have no sound-event measurement "
+            f"(no source clip, no source range, or an unmeasured "
+            f"clip): "
+            + ", ".join(sorted({str(p) for p in unmeasured}))
+        )
+    if not rows and not unmeasured:
+        return {}
+    return {"soundevents": view}
+
+
 # name -> builder(routed_inputs) -> a dict merged into the projection.
 #
 # A view's NAME is the key it writes.  That is what makes a second
@@ -1149,6 +1287,7 @@ CONTEXT_VIEWS = {
     "sectiongrid": _sectiongrid,
     "emphasis": _emphasis,
     "motion": _motion,
+    "soundevents": _soundevents,
 }
 
 

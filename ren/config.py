@@ -62,6 +62,13 @@ STARTER = """\
 # only for a layout that module did not anticipate.
 # PIPELINE_DEEPFILTER_BINARY=
 
+# Where the PANNs sound-event checkpoint lives for the step 1.04 event
+# measurement. Unset means `<vep_home>/models/panns/
+# Cnn14_DecisionLevelMax_mAP=0.385.pth` (where scripts/install_panns.sh
+# puts it once per machine); set this only for a layout that module
+# did not anticipate.
+# PIPELINE_PANNS_CHECKPOINT=
+
 # HuggingFace token, for gated model downloads.
 # HF_TOKEN=
 """

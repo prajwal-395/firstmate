@@ -675,6 +675,114 @@ def require_deepfilter() -> Path:
     return deepfilter_binary()
 
 
+# ── the sound-events half: the PANNs checkpoint ─────────────────────
+#
+# A fifth shared dependency, discovered the same way as the four
+# above: one location per MACHINE under `vep_home()`, never one per
+# checkout, and absence REFUSES with the command that fixes it rather
+# than a stack trace. `library/tools/analysis/sound_event_pipeline.py`
+# is the only runtime reader; `scripts/install_panns.sh` is the one way
+# to fill it.
+#
+# Why a checkpoint file and not just a pip install. `panns-inference`
+# and `torchlibrosa` ARE pip packages (both MIT) and live in the
+# shared ML venv beside torch 2.8 - they resolved cleanly against the
+# numpy 2.5.3 / torch 2.8 stack with nothing else moving, so unlike
+# DeepFilterNet there was no reason for an isolated tool location.
+# The 327 MB weights are data, not code: they live once per machine
+# under `vep_home()/models/panns/`, verified by md5 at install.
+# Licence: CC-BY-4.0 (the Zenodo record 3987831 licence, commercial
+# use with attribution - see the pipeline module).
+
+PANNS_CHECKPOINT_NAME = "Cnn14_DecisionLevelMax_mAP=0.385.pth"
+"""The PANNs weights the event measurements were taken on. PINNED.
+
+Frame-level sound-event detection over the AudioSet vocabulary at
+100 frames/s. A second checkpoint beside it is a different instrument
+until it is measured as one, so the install script fetches exactly
+this.
+"""
+
+PANNS_CHECKPOINT_MD5 = "70539c43c18b6a289b3199c503a82c5a"
+"""The Zenodo md5 of `PANNS_CHECKPOINT_NAME`, verified at install."""
+
+PANNS_CHECKPOINT_SIZE = 327428481
+"""The Zenodo byte size of `PANNS_CHECKPOINT_NAME`."""
+
+PANNS_DOWNLOAD_URL = (
+    "https://zenodo.org/api/records/3987831/files/"
+    "Cnn14_DecisionLevelMax_mAP%3D0.385.pth/content"
+)
+"""Where the one install script fetches the checkpoint from. Spelled once, here."""
+
+PANNS_MODELS_DIRNAME = "models/panns"
+"""The directory under `vep_home()` that holds the event checkpoint."""
+
+PANNS_INSTALL_SCRIPT = "scripts/install_panns.sh"
+"""The one way to fill the PANNs checkpoint. Named in every refusal."""
+
+
+class PannsEnvironmentMissing(RuntimeError):
+    """The PANNs checkpoint is not reachable on this machine.
+
+    Raised rather than left for torch to report as a missing file
+    several layers down. The message carries the command that fixes
+    it. The measurement treats this as UNMEASURED with the reason -
+    an event anchor on an unmeasured clip refuses by name, never a
+    skip - see `library/tools/analysis/sound_event_pipeline.py`.
+    """
+
+
+def panns_checkpoint(directory: Optional[str | Path] = None) -> Path:
+    """The Cnn14 DecisionLevelMax checkpoint this machine measures with.
+
+    `PIPELINE_PANNS_CHECKPOINT` wins outright - the escape hatch for
+    a machine whose layout this module did not anticipate, set in the
+    per-user config (`~/.config/ren/config.env`) like every other
+    external path. Otherwise it is
+    `<vep_home>/models/panns/<PANNS_CHECKPOINT_NAME>`, because that is
+    where `scripts/install_panns.sh` puts it. `directory` is accepted
+    and ignored, so this reads like the halves above.
+    """
+    _ = directory
+    explicit = os.environ.get("PIPELINE_PANNS_CHECKPOINT")
+    if explicit:
+        return Path(explicit).expanduser()
+    return vep_home() / PANNS_MODELS_DIRNAME / PANNS_CHECKPOINT_NAME
+
+
+def panns_available() -> tuple:
+    """`(usable, detail)` - whether this machine can measure events."""
+    checkpoint = panns_checkpoint()
+    if not (checkpoint.is_file()
+            and checkpoint.stat().st_size >= 3e8):
+        return False, panns_missing_message()
+    return True, f"PANNs {PANNS_CHECKPOINT_NAME} via {checkpoint}"
+
+
+def panns_missing_message() -> str:
+    """Why PANNs is not reachable, and the command that fixes it."""
+    lines = [
+        f"The PANNs checkpoint is not reachable "
+        f"({panns_checkpoint()}).",
+        f"Install once per machine:\n"
+        f"    {PANNS_INSTALL_SCRIPT}\n"
+        f"A machine without it still plans: a clip records "
+        f"`sound_event_method: unmeasured` with the reason, and an "
+        f"event anchor on it refuses by name (the sound_event_pipeline "
+        f"module owns that record).",
+    ]
+    return "\n".join(lines)
+
+
+def require_panns() -> Path:
+    """Return the PANNs checkpoint, or REFUSE by name."""
+    usable, detail = panns_available()
+    if not usable:
+        raise PannsEnvironmentMissing(detail)
+    return panns_checkpoint()
+
+
 # ── the BUILD half: what a reel build needs in its own interpreter ───
 #
 # Four instances, all on 2026-09-10/11, each costing a lane a failed

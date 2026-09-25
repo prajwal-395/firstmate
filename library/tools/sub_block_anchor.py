@@ -8,16 +8,19 @@ the block start, 3.06 s early, and stretched the punch across the whole
 10 s block. An `at_word` key nobody read was the silent form of the
 same defect; rung 1 (PR #1373) made unread keys refuse instead.
 
-This module is the vocabulary rung 2 adds - and rung 4d extends to the
-picture's own motion: a word anchor (the word, resolved to its
-transcript word and occurrence), a beat or downbeat anchor (bar and
-beat on the detected grid), a section anchor (a functional label from
-the measured section grid, resolved to its first downbeat), a motion
-anchor (an action onset or a motion apex from the clip's measured
-motion peaks, resolved through the routed temporal summaries), and a
-frame anchor (timeline frame), each with an optional offset, alongside
-the existing block reference. It is defined ONCE, here, and every
-placement-bearing post-bridge reads it from here:
+This module is the vocabulary rung 2 adds - rung 4d extends it to the
+picture's own motion and rung 5e to the soundtrack's own events: a word
+anchor (the word, resolved to its transcript word and occurrence), a
+beat or downbeat anchor (bar and beat on the detected grid), a section
+anchor (a functional label from the measured section grid, resolved to
+its first downbeat), a motion anchor (an action onset or a motion apex
+from the clip's measured motion peaks, resolved through the routed
+temporal summaries), an event anchor (a non-speech sound the clip's
+measured event layer names - a laugh, an impact, a music entrance -
+resolved through the same summaries), and a frame anchor (timeline
+frame), each with an optional offset, alongside the existing block
+reference. It is defined ONCE, here, and every placement-bearing
+post-bridge reads it from here:
 
 - step 4.02 `plan_transitions` (cut points),
 - step 4.03 `plan_vfx` (effect spans),
@@ -39,15 +42,17 @@ falls back to the block start silently:
 - beat/downbeat asked of an empty grid,
 - `grid: detected` asked of an estimated grid,
 - section label not in the measured grid (or occurrence past its spans),
+- event label not measured on the block's clip (or occurrence past
+  its spans),
 - frame (or offset result) outside the block.
 
 Word timings are read through the spine contract - the block's own
 `word_timestamps`, mapped with `source_to_timeline` - which is the
-existing transcript interface. Motion peaks are read through the
-routed temporal summaries (`temporal_event_indices`, the per-clip
-`motion_peaks` in source seconds, mapped the same way) - nothing here
-opens the per-clip index files, so the vocabulary stays hermetic to
-the post-bridge's inputs and to the replay bench.
+existing transcript interface. Motion peaks AND sound events are read
+through the routed temporal summaries (the per-clip `motion_peaks`
+and `sound_events` in source seconds, mapped the same way) - nothing
+here opens the per-clip index files, so the vocabulary stays hermetic
+to the post-bridge's inputs and to the replay bench.
 
 The section grid is read through `library/tools/music_sections.py`,
 the one module that knows the producer's shape - the same position
@@ -307,6 +312,112 @@ def _resolve_motion(anchor: dict, block: dict, temporal_indices,
         f"{block.get('position')!r} (clip {clip_id!r})")
 
 
+def _resolve_event(anchor: dict, block: dict, temporal_indices,
+                     step: str, plan: str, index, end: str):
+    """An event anchor to one measured non-speech sound in the block.
+
+    The anchor's value is the model's own AudioSet label -
+    `{event: "Laughter"}` - matched case-insensitively against what
+    the block's clip measured; `occurrence` (1-based, default 1) is
+    the nth span of that label inside the block's source range. An
+    event is a SPAN: the anchor resolves to its start (the onset, what
+    a cut or hit lands on) or, with `edge: end`, to its end. Labels
+    arrive verbatim from the measurement - a laugh on a run with no
+    laughter stays absent, never guessed - and the refusal names what
+    the clip DID measure. Read through `library/tools/sound_events.py`,
+    the one module that knows the producer's shape, the same position
+    `music_sections.py` holds for the section grid.
+    """
+    from library.tools.sound_events import (
+        find_events,
+        measured,
+    )
+
+    raw = anchor.get("event")
+    if not isinstance(raw, str) or not raw.strip():
+        raise _refuse(step, plan, index, end,
+                      f"event {raw!r} names no event",
+                      f"re-plan entry {index} of `{plan}` with "
+                      f"`anchor: {{event: <label>}}` naming a label "
+                      f"from the `soundevents` view, or drop the anchor.")
+    label = raw.strip()
+    clip_id = block.get("clip_id")
+    if not clip_id:
+        raise _refuse(
+            step, plan, index, end,
+            f"an event anchor on block {block.get('position')!r}, "
+            f"which names no source clip",
+            f"re-plan entry {index} of `{plan}` with an event anchor "
+            f"on a block cut from a source clip (a cutaway-covered "
+            f"block names none - its sound is the cutaway's, which "
+            f"no block range addresses), or drop the anchor.")
+    summaries = _motion_summaries(temporal_indices)
+    if not summaries:
+        raise _refuse(step, plan, index, end,
+                      "no sound-event measurement is routed to this step",
+                      f"re-plan entry {index} of `{plan}` without "
+                      f"the event anchor, or drop the anchor.")
+    summary = summaries.get(str(clip_id))
+    if summary is None or not measured(summary):
+        raise _refuse(
+            step, plan, index, end,
+            f"clip {clip_id!r} has no measured sound events",
+            f"re-plan entry {index} of `{plan}` without the event "
+            f"anchor - an unmeasured clip refuses by name, it never "
+            f"serves a guessed event - or drop the anchor.")
+    src_start = block.get("source_start")
+    src_end = block.get("source_end")
+    if (isinstance(src_start, bool) or isinstance(src_end, bool)
+            or not isinstance(src_start, (int, float))
+            or not isinstance(src_end, (int, float))):
+        raise _refuse(
+            step, plan, index, end,
+            f"an event anchor on block {block.get('position')!r}, "
+            f"which names no source range",
+            f"re-plan entry {index} of `{plan}` without the event "
+            f"anchor, or drop the anchor.")
+    matches, present = find_events(summary, label)
+    inside = [e for e in matches
+              if e["start_seconds"] <= float(src_end) + 0.1
+              and e["end_seconds"] >= float(src_start) - 0.1]
+    inside.sort(key=lambda e: (e["start_seconds"], e["end_seconds"]))
+    if not inside:
+        have = ", ".join(present) if present else "none"
+        raise _refuse(
+            step, plan, index, end,
+            f"event {label!r} is not measured inside block "
+            f"{block.get('position')!r} (clip {clip_id!r} carries: "
+            f"{have})",
+            f"re-plan entry {index} of `{plan}` with an event the "
+            f"block's own clip measured - the `soundevents` view "
+            f"shows its spans - or drop the anchor.")
+    occurrence = anchor.get("occurrence", 1)
+    occurrence = _positive_int(occurrence, "occurrence",
+                               step, plan, index, end)
+    if occurrence > len(inside):
+        raise _refuse(
+            step, plan, index, end,
+            f"event {label!r} occurs {len(inside)} time(s) inside "
+            f"block {block.get('position')!r} but occurrence "
+            f"{occurrence} was asked for",
+            f"re-plan entry {index} of `{plan}` with occurrence 1.."
+            f"{len(inside)}, or drop the anchor.")
+    span = inside[occurrence - 1]
+    edge = anchor.get("edge", EDGE_START)
+    if edge not in (EDGE_START, EDGE_END):
+        raise _refuse(step, plan, index, end,
+                      f"edge {edge!r} is not 'start' or 'end'",
+                      f"re-plan entry {index} of `{plan}` with edge "
+                      f"'start' (the event's onset) or 'end', or drop "
+                      f"it (start is the default).")
+    source_time = (span["end_seconds"] if edge == EDGE_END
+                   else span["start_seconds"])
+    return float(source_time), (
+        f"{edge} of event {span['label']!r} occurrence {occurrence} "
+        f"of {len(inside)} in block {block.get('position')!r} "
+        f"(clip {clip_id!r})")
+
+
 def _resolve_section(anchor: dict, music_analysis, music_selection,
                      step: str, plan: str, index, end: str):
     """A section anchor to the first downbeat of a measured span."""
@@ -492,10 +603,15 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
         {"motion_peak": 1}                        the block's 1st motion apex
         {"motion_peak": 2}                        its 2nd apex
         {"action_onset": 1}                       the block's 1st action onset
+        {"event": "Laughter"}                     the block's 1st laugh
+        {"event": "Music", "occurrence": 2}       its 2nd music entrance
+        {"event": "Crash cymbal", "edge": "end"}  the impact's end
         {"frame": 343}                            timeline frame 343
 
     A peak is a point: the motion forms take `occurrence` (1-based,
-    default 1) but never `edge`. Any form takes `offset_seconds`
+    default 1) but never `edge`. An event is a span: the event form
+    takes `occurrence` (default 1) and `edge` (start is the onset,
+    end is its end). Any form takes `offset_seconds`
     and/or `offset_frames`, applied after the address resolves. The
     addressed moment must lie inside the block - a frame (or an offset
     result) outside it refuses, because an anchor is sub-block
@@ -511,7 +627,7 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
                       f"anchor object (one of word / beat / bar+beat / "
                       f"downbeat / frame), or drop the anchor.")
     address = [k for k in ("word", "beat", "bar", "downbeat",
-                            "section", "frame",
+                            "section", "frame", "event",
                             "motion_peak", "action_onset")
                 if k in anchor]
     # `bar` without `beat` addresses the bar's downbeat; `beat` beside
@@ -525,12 +641,13 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
             f"({', '.join(address) or 'none'})",
             f"re-plan entry {index} of `{plan}` with exactly one "
             f"address - word, beat, bar (+ beat), downbeat, section, "
-            f"motion_peak, action_onset or frame - or drop the anchor.")
+            f"event, motion_peak, action_onset or frame - or drop the "
+            f"anchor.")
     known_modifiers = {"occurrence", "edge", "offset_seconds",
                        "offset_frames", "grid"}
     for key in anchor:
         if key in ("word", "beat", "bar", "downbeat", "section", "frame",
-                   "motion_peak", "action_onset"):
+                   "event", "motion_peak", "action_onset"):
             continue
         if key not in known_modifiers:
             raise _refuse(step, plan, index, end,
@@ -541,10 +658,12 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
                           f"or drop the anchor.")
 
     if (("word" in anchor or "frame" in anchor or "section" in anchor
+            or "event" in anchor
             or "motion_peak" in anchor or "action_onset" in anchor)
             and anchor.get("grid", GRID_ANY) not in (GRID_ANY,)):
         which = ("word" if "word" in anchor
                  else "frame" if "frame" in anchor
+                 else "event" if "event" in anchor
                  else "motion" if ("motion_peak" in anchor
                                    or "action_onset" in anchor)
                  else "section")
@@ -561,6 +680,11 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
         kind = "motion_peak" if "motion_peak" in anchor else "action_onset"
         source_time, method = _resolve_motion(
             anchor, block, temporal_indices, kind,
+            step, plan, index, end)
+        moment = source_to_timeline(float(source_time), block)
+    elif "event" in anchor:
+        source_time, method = _resolve_event(
+            anchor, block, temporal_indices,
             step, plan, index, end)
         moment = source_to_timeline(float(source_time), block)
     elif "section" in anchor:

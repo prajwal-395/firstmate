@@ -133,7 +133,11 @@ grid); the section form lands on a musical span's first downbeat
 forms land on the outgoing block's measured action (`{motion_peak: 1}`
 its first apex, `{action_onset: 1}` its first onset - peaks come from
 the `motion` view in your context, `occurrence` for the nth of that
-kind, never `edge`: a peak is a point); the frame
+kind, never `edge`: a peak is a point); the event form lands on the
+outgoing block's measured sound (`{event: "Laughter"}` its first
+laugh - spans come from the `soundevents` view in your context, with
+`occurrence` for the nth span and `edge: end` for its end, default
+start is the onset); the frame
 form names a timeline frame inside the outgoing
 block. Any form takes `offset_seconds` / `offset_frames`. An anchor
 that names nothing placeable REFUSES the step with the fix, and you
@@ -161,6 +165,17 @@ gesture) - either way the measurement is context, not an order, and
 you still decide. A motion anchor on a block whose motion is
 unmeasured refuses with the fix, and you re-plan; it never falls
 back to the block boundary.
+
+Cut on the sound: the `soundevents` view in your context names, per
+block, the non-speech sounds the block's own clip measured -
+laughter, impacts, music entrances - with their timeline spans and
+confidences. Cut ON the laugh through `anchor: {event: "Laughter"}`
+(the outgoing block's first laugh; `occurrence: 2` for its second,
+`edge: end` for a span's end): the cut lands exactly where the
+anchor resolves. Labels are the model's own AudioSet words - a label
+no clip measured stays absent, never guessed. An event anchor on a
+block whose sound is unmeasured refuses with the fix, and you
+re-plan; it never falls back to the block boundary.
 
 ### Context data available:
 
