@@ -33,13 +33,24 @@ def test_checked_in_overlay_draws_exactly_the_table(name):
     assert np.array_equal(alpha, expected)
 
 
-def test_intrusions_names_the_band_a_box_sits_in():
-    # A box in the top 100 rows sits in every platform's top bar.
+def test_intrusions_names_the_zone_a_box_sits_in():
+    # A box across the top 100 rows sits under every app's status bar.
     hits = psz.intrusions((300, 20, 700, 100))
     assert {h["platform"] for h in hits} == set(psz.PLATFORMS)
-    assert all(h["band"] == "top" for h in hits)
+    assert {h["band"] for h in hits} == {"top", "status-time",
+                                         "dynamic-island"}
     # The combined safe box clears every zone.
     assert psz.intrusions((130, 300, 770, 830)) == []
+
+
+def test_a_top_corner_icon_does_not_cover_the_row_beside_it():
+    # The captain, 2026-09-25: the Shorts search icon and menu were drawn
+    # as a band across the whole top, marking everything left of them
+    # unsafe. Each is its own box, so the row beside them is clear...
+    assert psz.intrusions((100, 180, 780, 240), "youtube_shorts") == []
+    # ...and the icon itself is still covered.
+    hits = psz.intrusions((780, 180, 900, 240), "youtube_shorts")
+    assert [h["band"] for h in hits] == ["search"]
 
 
 def _project(tmp_path, avatar):

@@ -49,6 +49,8 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from library.tools.timeline_layout import POST_HEADER_NAME
+
 DECLARATION_KEY = "post_header"
 
 #: Everything the declaration may carry.  Checked on read: a key nothing
@@ -241,13 +243,13 @@ def layout_box(declared: dict, width: int, height: int) -> dict[str, int]:
     """Where the header lays out: the declared row, between the
     combined platform safe columns.
 
-    The horizontal span is not chosen here - it is the union of every
-    platform's side bands (``platform_safe_zones``), so the hook wraps
-    before any app's action rail rather than under it.
+    The horizontal span is not chosen here - it is the columns clear of
+    every platform's side strips (``platform_safe_zones``), so no phone
+    crops the hook off.
     """
     from library.tools import platform_safe_zones as psz
 
-    x0, _y0, x1, _y1 = _combined_safe_columns()
+    x0, x1 = _combined_safe_columns()
     sx = width / psz.REFERENCE_SIZE[0]
     left = round(x0 * sx)
     right = round(x1 * sx)
@@ -255,12 +257,11 @@ def layout_box(declared: dict, width: int, height: int) -> dict[str, int]:
             "width": right - left}
 
 
-def _combined_safe_columns() -> tuple[int, int, int, int]:
+def _combined_safe_columns() -> tuple[int, int]:
     from library.tools import platform_safe_zones as psz
 
-    rects = [p.safe_rect() for p in psz.PLATFORMS.values()]
-    return (max(r[0] for r in rects), max(r[1] for r in rects),
-            min(r[2] for r in rects), min(r[3] for r in rects))
+    columns = [p.safe_columns() for p in psz.PLATFORMS.values()]
+    return (max(c[0] for c in columns), min(c[1] for c in columns))
 
 
 def ink_box(png_path: str) -> tuple[int, int, int, int] | None:
@@ -479,7 +480,7 @@ PLANS_FORMAT = "post_headers/1"
 
 #: What the reel build calls the header's row, and what the verifier
 #: files items by. One spelling, `timeline_layout`'s.
-from library.tools.timeline_layout import POST_HEADER_NAME as TRACK_NAME  # noqa: E402
+TRACK_NAME = POST_HEADER_NAME
 
 #: What a rendered header file is called, as a pattern.
 FILE_SHAPE = r"^post_header_[0-9a-f]{10}$"
