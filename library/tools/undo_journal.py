@@ -380,7 +380,8 @@ def item_projection(detail: Mapping) -> dict:
             "comps": int((detail.get("fusion") or {}).get("comp_count")
                          or 0),
             "windows": _windows(detail),
-            "clip_color": str(detail.get("clip_color") or "")}
+            "clip_color": str(detail.get("clip_color") or ""),
+            "enabled": bool(detail.get("enabled", True))}
 
 
 def _details(tracks: Sequence[Mapping]) -> list:
@@ -669,6 +670,21 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
     except UndoRefused as refused:
         raise UndoNotVerified(str(refused)) from refused
 
+    # Rows the touch ADDED (`add_row`) go with it, once emptied - the
+    # item projection has no row for an empty track, so it cannot see one.
+    before_rows = sum(1 for t in before
+                      if str(t.get("type", "")).lower().startswith("v"))
+    dropped_rows = []
+    while int(timeline.GetTrackCount("video") or 0) > before_rows:
+        index = int(timeline.GetTrackCount("video"))
+        if timeline.GetItemListInTrack("video", index):
+            break
+        name = timeline.GetTrackName("video", index)
+        if not timeline.DeleteTrack("video", index):
+            break
+        dropped_rows.append(f"V{index} {name}")
+    receipt["rows_removed"] = dropped_rows
+
     # 7. The notes, carried by source frame onto what now plays them.
     carried, uncarried = marker_carry.plan_clip_carry(notes, timeline,
                                                       entry["final"])
@@ -768,6 +784,13 @@ def _revert_in_place(item, after: Mapping, before: Mapping) -> dict:
                 f"{out['row']}@{out['record_frame']} did not take its "
                 f"prior transform back: {diff}.")
         out["transform"] = True
+    if bool(after.get("enabled", True)) != bool(before.get("enabled", True)):
+        item.SetClipEnabled(bool(before.get("enabled", True)))
+        if bool(item.GetClipEnabled()) != bool(before.get("enabled", True)):
+            raise UndoNotVerified(
+                f"{out['row']}@{out['record_frame']} did not switch back "
+                f"{'on' if before.get('enabled', True) else 'off'}.")
+        out["enabled"] = bool(before.get("enabled", True))
     had = int((before.get("fusion") or {}).get("comp_count") or 0)
     has = int(_ce._read(item, "GetFusionCompCount", 0) or 0)
     if has > had:

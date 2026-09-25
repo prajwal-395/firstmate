@@ -10,15 +10,16 @@ module is the path that connects the two.
 What the caller states, and what it does not
 --------------------------------------------
 The caller states the change STRUCTURALLY: which reel, which item,
-what changes - one of the seven ops below.  Mapping a captain's
+what changes - one of the nine ops below.  Mapping a captain's
 natural-language note onto such a change is the NEXT task and is
 explicitly not this one; this module is the mechanism that task will
 call.
 
-The seven ops
--------------
-The first five delete and re-place through the composition.  The last
-two are IN-PLACE: they write onto the staged item itself - no delete,
+The nine ops
+------------
+The first five delete and re-place through the composition; `add_row`
+makes a declared row; `set_enabled`, `set_properties` and
+`entry_motion` are IN-PLACE: they write onto the staged item itself - no delete,
 no place - and ride `Qualification.in_place` rather than
 changes/insertions/removals.  They run before the composition off the
 same staging, so a capture taken after them carries them, and a spec
@@ -64,6 +65,12 @@ edit (`_check_single_claim`).
   skip (read-only, None, a `<placeholder>`) REFUSES here instead,
   naming it: a spec asking to set `Resolution` is a caller error,
   not a no-op to wave through.
+- `add_row` - a new NAMED video row on top of the stack, made on the
+  staging copy and read back; later edits in the same spec may place
+  onto it. A reel already carrying a row of that name refuses.
+- `set_enabled` - IN-PLACE. An overlay item (V3+) switched on or off;
+  it keeps its span, file and treatment, so disabling a graphic never
+  deletes it.
 - `entry_motion` - IN-PLACE.  An entrance and/or exit fade authored
   as a Fusion comp (`fusion.comp_builder.build_effect_comp` over the
   `fade_in_frames`/`fade_out_frames` keys, the same dispatch the comp
@@ -249,6 +256,9 @@ class Qualification:
     #: the target row but the source index, so the overlap check and
     #: the count planner read the move here rather than inferring it.
     moves: list = field(default_factory=list)
+    #: Rows the touch ADDS on top of the video stack (`add_row`), as
+    #: `{"row": "V9", "name": "Post Header"}` in the order they are made.
+    new_rows: list = field(default_factory=list)
     cost_statement: str = ""
     notes: list = field(default_factory=list)
 
@@ -424,11 +434,16 @@ def reel_numbers(project_folder: str) -> list:
             in read_proposal(str(proposal_path(project_folder)))]
 
 
-def touchup_all_reels(project_folder: str, *, old_clip: str,
-                      new_media: str, row: str = "",
+def touchup_all_reels(project_folder: str, *, old_clip: str = "",
+                      new_media: str = "", row: str = "",
                       reels=None, reader=None, applier=None,
-                      allow_drops=None, supersede=None) -> dict:
+                      allow_drops=None, supersede=None,
+                      spec_for=None) -> dict:
     """The same named-clip swap on every reel, reporting per reel.
+
+    `spec_for(tracks, number) -> spec` replaces the swap with any other
+    per-reel change (`reel_post_header.touch_spec` is one); the reading,
+    the batch and the per-reel refusals stay this function's.
 
     One reel's refusal never stops the rest: a refused reel is reported
     with its reason alongside the receipts of the reels that landed.
@@ -469,9 +484,10 @@ def touchup_all_reels(project_folder: str, *, old_clip: str,
                              "refused": f"the live read failed ({exc!r})"})
             continue
         try:
-            spec = swap_spec_for_tracks(
-                tracks, reel=int(number), old_clip=old_clip,
-                new_media=new_media, row=row)
+            spec = (spec_for(tracks, int(number)) if spec_for is not None
+                    else swap_spec_for_tracks(
+                        tracks, reel=int(number), old_clip=old_clip,
+                        new_media=new_media, row=row))
         except TouchupRefused as refused:
             per_reel.append({"reel": int(number), "final": final,
                              "ok": False, "refused": str(refused)})
@@ -587,6 +603,9 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
             "`ren touch`")
     exclude = [(str(r), int(i)) for r, i in
                ((spec or {}).get("exclude") or ())]
+    # A copy: `add_row` appends the row it will make, so later edits in
+    # the same spec can place onto it, without touching the caller's read.
+    tracks = list(tracks or ())
     spans = _spans_of(tracks)
     notes: list = []
     changes: list = []
@@ -609,7 +628,7 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
         if handler is None:
             raise TouchupRefused(
                 f"edit {position} names op {op!r}",
-                f"the gate knows seven ops: {sorted(_OP_HANDLERS)}. "
+                f"the gate knows {len(_OP_HANDLERS)} ops: {sorted(_OP_HANDLERS)}. "
                 f"Anything else is unclassifiable - the gate is extended "
                 f"deliberately, never by guessing what {op!r} means",
                 f"use one of {sorted(_OP_HANDLERS)} as the op for edit "
@@ -648,6 +667,8 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
     return Qualification(gate_class=gate_class, changes=changes,
                          insertions=insertions, removals=removals,
                          moves=moves, in_place=in_place,
+                         new_rows=[{"row": t["row"], "name": t["name"]}
+                                   for t in tracks if t.get("added")],
                          cost_statement=cost, notes=notes)
 
 
@@ -804,7 +825,7 @@ def _check_single_claim(changes: Sequence[_ce.ItemChange],
             "then re-run `ren touch`")
 
 
-# ── The seven ops ────────────────────────────────────────────────────
+# ── The nine ops ─────────────────────────────────────────────────────
 #
 # Each takes the edit, its position, the full read, the live spans and
 # the plan under construction.  Returns True when it alters a played
@@ -1145,6 +1166,73 @@ def _op_set_properties(edit, position, tracks, spans, changes,
     return False
 
 
+def _op_add_row(edit, position, tracks, spans, changes, insertions,
+                removals, moves, exclude, notes, in_place) -> bool:
+    """A new, NAMED video row on top of the stack - declared, never invented.
+
+    The gate refuses to place onto a row the reel does not carry
+    (`add_overlay`), because inventing one is the gate guessing. A
+    spec that states the row by name is not a guess: the row is made
+    on the staging copy, above every row the build placed, and its
+    name is read back. A reel already carrying a row of that name
+    refuses - a second one would be two rows doing one row's job.
+    """
+    name = str(edit.get("name") or "").strip()
+    if not name:
+        raise TouchupRefused(
+            f"edit {position} (`add_row`) names no row",
+            "a row nobody named is the default-named row the SOP forbids",
+            f"give edit {position} a `name`, then re-run `ren touch`")
+    if any(str(t.get("name") or "") == name for t in tracks
+           if str(t.get("type", "")).lower().startswith("v")):
+        raise TouchupRefused(
+            f"edit {position} adds a row {name!r} and this reel already "
+            f"carries one",
+            "two rows of one name are two rows doing one row's job",
+            f"place onto the existing {name!r} row instead")
+    index = len(_video_rows_of(tracks)) + 1
+    row = f"V{index}"
+    tracks.append({"type": "video", "index": index, "name": name,
+                   "clips": [], "added": True, "row": row})
+    spans.setdefault(row, [])
+    notes.append(f"edit {position}: add row {row} {name!r} on top")
+    return False
+
+
+def _op_set_enabled(edit, position, tracks, spans, changes, insertions,
+                    removals, moves, exclude, notes, in_place) -> bool:
+    """Switch one item on or off IN PLACE - it stays on the timeline.
+
+    Disabling is how a graphic leaves the picture without leaving the
+    reel: nothing is deleted, the item keeps its span, file and
+    treatment, and `ren undo` (or one click in Resolve) brings it back.
+    """
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    enabled = edit.get("enabled")
+    if not row or item_index is None or not isinstance(enabled, bool):
+        raise TouchupRefused(
+            f"edit {position} (`set_enabled`) needs `row`, `item` and a "
+            f"boolean `enabled` (got {dict(edit)!r})",
+            "a switch naming no item or no state cannot be staged",
+            f"give edit {position} `row`, `item` and `enabled`, then "
+            f"re-run `ren touch`")
+    if _is_continuous_row(row) or _is_audio_row(row):
+        raise TouchupRefused(
+            f"edit {position} switches an item on {row}",
+            "switching off continuous picture or program sound leaves "
+            "black or silence",
+            "switch overlay items (V3+) only")
+    clip = _find_clip(tracks, row, int(item_index))
+    in_place.append({"kind": "set_enabled", "row": row,
+                     "item_index": int(item_index),
+                     "record_frame": int(clip["record_in"]),
+                     "enabled": enabled})
+    notes.append(f"edit {position}: {'enable' if enabled else 'disable'} "
+                 f"{row}[{item_index}] in place")
+    return False
+
+
 def _op_entry_motion(edit, position, tracks, spans, changes,
                      insertions, removals, moves, exclude, notes,
                      in_place) -> bool:
@@ -1252,6 +1340,8 @@ _OP_HANDLERS = {
     "move": _op_move,
     "swap_pixels": _op_swap_pixels,
     "add_overlay": _op_add_overlay,
+    "add_row": _op_add_row,
+    "set_enabled": _op_set_enabled,
     "remove_overlay": _op_remove_overlay,
     "retime": _op_retime,
     "set_properties": _op_set_properties,
@@ -1984,6 +2074,26 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     return receipt
 
 
+def _add_rows(staged: Any, new_rows: Sequence[Mapping]) -> list:
+    """Make the rows `add_row` declared, on the staging copy, read back."""
+    made = []
+    for entry in new_rows or ():
+        if not staged.AddTrack("video"):
+            raise TouchupError(f"Resolve would not add row {entry['row']} "
+                               f"to the staging copy")
+        index = int(staged.GetTrackCount("video"))
+        if f"V{index}" != entry["row"]:
+            raise TouchupError(
+                f"the new row landed as V{index}, the plan said "
+                f"{entry['row']} - the staging copy and the read disagree")
+        staged.SetTrackName("video", index, entry["name"])
+        if staged.GetTrackName("video", index) != entry["name"]:
+            raise TouchupError(f"row {entry['row']} would not take the name "
+                               f"{entry['name']!r}")
+        made.append(dict(entry))
+    return made
+
+
 def _apply_in_place(staged: Any, qualification: Qualification,
                     comp_dir: str) -> dict:
     """Write every in-place edit onto the staging copy. No delete, no place.
@@ -2015,6 +2125,19 @@ def _apply_in_place(staged: Any, qualification: Qualification,
                 f"timeline disagree. Nothing further is written "
                 f"and the approved timeline stands.")
         item = hits[0]
+        if entry.get("kind") == "set_enabled":
+            want = bool(entry["enabled"])
+            item.SetClipEnabled(want)
+            if bool(item.GetClipEnabled()) is not want:
+                raise TouchupError(
+                    f"the staged {row}@{entry.get('record_frame')} reads "
+                    f"back {'disabled' if want else 'enabled'} after the "
+                    f"switch - nothing further is edited and the approved "
+                    f"timeline stands.")
+            applied.setdefault("enabled", []).append({
+                "row": row, "record_frame": entry["record_frame"],
+                "enabled": want})
+            continue
         if entry.get("kind") == "set_properties":
             diff = _ce.set_properties(
                 item, dict(entry.get("properties") or {}))
@@ -2162,6 +2285,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # In-place writes land FIRST, before anything is deleted: the
     # composition's capture reads the staged item as it stands, so a
     # re-place further down carries the write instead of losing it.
+    receipt["new_rows"] = _add_rows(staged, qualification.new_rows)
     receipt["in_place"] = _apply_in_place(
         staged, qualification, comp_dir)
 

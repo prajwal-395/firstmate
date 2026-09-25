@@ -428,6 +428,14 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
     from library.tools.brand_registry import project_template_name
     safe_area = resolve_safe_area(
         project_folder or None, width=width, height=height).as_props()
+    # A reel carrying a post header (library/tools/reel_post_header.py)
+    # gives up its rows: a top-anchored visual sits under the header,
+    # never on it.
+    from library.tools.reel_post_header import header_floor
+    floor = header_floor(project_folder or None, reel_number, width,
+                         height, fps)
+    if floor is not None and floor > safe_area["top"]:
+        safe_area["top"] = floor
     try:
         palette_source = project_template_name(project_folder)
     except Exception:

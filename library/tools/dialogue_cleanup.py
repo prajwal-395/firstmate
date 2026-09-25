@@ -574,7 +574,7 @@ def _enhance_binary(source_wav: str, out_wav: str) -> None:
     try:
         proc = subprocess.run(
             [binary, source_wav, "-o", work_dir],
-            capture_output=True, encoding="utf-8", timeout=900,
+            capture_output=True, encoding="utf-8", timeout=900, check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise _refuse(
@@ -738,7 +738,7 @@ def _extract_range(source_file: str, start: float, end: float,
              "-t", f"{end - start:.3f}",
              "-i", source_file, "-ac", "1", "-ar",
              str(STEM_SAMPLE_RATE), "-c:a", "pcm_s16le", "-y", out_wav],
-            capture_output=True, encoding="utf-8", timeout=900,
+            capture_output=True, encoding="utf-8", timeout=900, check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise _refuse(

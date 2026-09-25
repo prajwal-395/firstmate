@@ -53,6 +53,14 @@ SEMANTIC = "semantic"
 MOTION_GRAPHICS = "motion_graphics"
 GENERATORS = "generators"
 TIMED_TEXT = "timed_text"
+#: The social-post header above a vertical reel's picture
+#: (`library/tools/reel_post_header.py`). Topmost of the drawn rows, so
+#: nothing the reel places can draw over it.
+POST_HEADER = "post_header"
+#: A platform safe-zone GUIDE (`library/tools/platform_safe_zones.py`).
+#: Never part of the plan: the `safe-zones` verb adds it above every
+#: other row and DISABLES it, so it can never reach a render.
+GUIDES = "guides"
 SPEECH = "speech"
 MUSIC = "music"
 SFX = "sfx"
@@ -71,7 +79,8 @@ AUDIO = "audio"
 #: name on Reel 26: "two different tighbox animations that are layered
 #: on seperate rows on the timeline".
 SINGLETON_ROLES = frozenset({B_ROLL, FRAME, CAPTIONS, TRANSITIONS,
-                              GENERATORS, TIMED_TEXT, MUSIC})
+                              GENERATORS, TIMED_TEXT, POST_HEADER,
+                              GUIDES, MUSIC})
 
 #: The standard NAMES those singleton rows carry. A master row carrying
 #: one is a layer, not a camera - which is how the reel builder tells
@@ -83,8 +92,12 @@ SINGLETON_ROLES = frozenset({B_ROLL, FRAME, CAPTIONS, TRANSITIONS,
 SINGLETON_NAMES = frozenset({
     "B-Roll", "Frame", "Subtitles", "Captions", "Transitions",
     "Explainer", "Semantic", "Motion Graphics", "Generator Effects",
-    "Timed Text", "Music", "SFX",
+    "Timed Text", "Post Header", "Safe Zones", "Music", "SFX",
 })
+
+#: The standard names of the two rows above.
+POST_HEADER_NAME = "Post Header"
+GUIDES_NAME = "Safe Zones"
 
 #: Names Resolve itself gives tracks nobody named. A row carrying one
 #: was never organised.
@@ -327,6 +340,8 @@ def plan_layout(material: dict) -> TrackPlan:
       a row rather than sharing one. A `full_frame_span` never arrives
       here: a span IS the body's picture and stays on it.
     - has_generators: bool.
+    - has_post_header: bool. The social-post header's row, above every
+      other drawn row.
     - music_spans / sfx_spans: [(start, end)] in frames, packed the
       same way.
     """
@@ -431,6 +446,11 @@ def plan_layout(material: dict) -> TrackPlan:
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
                                role=TIMED_TEXT, name=name,
                                occupant="timed_text"))
+
+    if material.get("has_post_header"):
+        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                               role=POST_HEADER, name=POST_HEADER_NAME,
+                               occupant="post_header"))
 
     for angle in angles:
         audio.append(TrackSpec(index=len(audio) + 1, media_type=AUDIO,

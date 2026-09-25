@@ -979,7 +979,7 @@ def build_and_transcribe(project_folder: str, snapshot,
         print(f"  transcript corrections applied: "
               f"{correction_report['replacements']} replacement(s) in "
               f"{correction_report['segments_touched']} segment(s) "
-              f"{[a['id'] for a in correction_report['applied'] if a['replacements']]}",
+              f"{[a['id'] for a in correction_report['applied'] if a.get('replacements')]}",
               file=sys.stderr)
     return document
 

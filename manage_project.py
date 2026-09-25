@@ -63,7 +63,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "drift",
-    "deliver-reel",
+    "post-header", "safe-zones", "deliver-reel",
     "watch-reel", "hear-reel", "touch-reel", "undo", "ren-dry-run",
     "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
@@ -1828,6 +1828,91 @@ def cmd_drift(args):
         sys.exit(1)
 
 
+def cmd_post_header(args):
+    """Put each reel's social-post header on its EXISTING final timeline.
+
+    `library/tools/reel_post_header.touch_spec` composes one touch-reel
+    change per reel - a new "Post Header" row, the header over the
+    picture, and (unless `--keep-graphics`) every Semantic-row graphic
+    switched OFF, never deleted - and `reel_touchup` stages, verifies,
+    promotes and journals it. One batch: `ren undo` reverses it whole.
+    `--dry-run` reads the reels and prints each change without writing.
+    """
+    import json as _json
+
+    from library.tools import reel_post_header as rph
+    from library.tools import reel_touchup
+
+    project_folder = _reel_project_folder(args.project)
+    records: dict = {}
+
+    def spec_for(tracks, number):
+        spec = rph.touch_spec(project_folder, number, tracks,
+                              fps=24000 / 1001,
+                              disable_graphics=not args.keep_graphics)
+        records[number] = spec.pop("post_header")
+        return spec
+
+    def dry(folder, spec):
+        return {"dry_run": True, "edits": spec["edits"]}
+
+    try:
+        result = reel_touchup.touchup_all_reels(
+            project_folder, reels=args.reel or None, spec_for=spec_for,
+            applier=dry if args.dry_run else None,
+            supersede=args.supersede or None)
+    except rph.PostHeaderError as exc:
+        print(f"post-header: {exc}", file=sys.stderr)
+        sys.exit(2)
+    for entry in result["reels"]:
+        edits = ((entry.get("receipt") or {}).get("edits")
+                 if args.dry_run else None)
+        status = ("PLAN" if args.dry_run else "DONE") if entry["ok"] \
+            else "REFUSED"
+        print(f"{status} reel {entry['reel']} {entry['final']}"
+              + (f": {entry['refused']}" if entry.get("refused") else ""))
+        if edits:
+            for edit in edits:
+                print(f"    {_json.dumps(edit)}")
+    if not args.dry_run:
+        landed = {entry["final"]: entry["reel"] for entry in result["reels"]
+                  if entry["ok"]}
+        rph.write_plans(project_folder, [
+            {"reel": final, "number": number, "basis": rph.HEADER_PLACED,
+             **records[number]}
+            for final, number in landed.items() if number in records])
+    print(f"{result['landed']} reel(s) {'planned' if args.dry_run else 'done'}"
+          f", {result['refused']} refused")
+    if result["refused"]:
+        sys.exit(1)
+
+
+def cmd_safe_zones(args):
+    """Place a platform safe-zone guide on reel timelines, switched off.
+
+    `library/tools/safe_zone_guide.py`: the guide rides its own row
+    above everything the build placed, and its clip is switched OFF and
+    read back off, so it never reaches a render. `--remove` takes the
+    row away. Moving the cursor is a write, so this takes the instance
+    and puts the cursor back.
+    """
+    from library.tools import resolve_lock
+    from library.tools import safe_zone_guide
+
+    project_folder = _reel_project_folder(args.project)
+    overlay = None if args.remove else args.overlay
+    try:
+        with resolve_lock.resolve_lease("safe-zone guides", exclusive=True):
+            safe_zone_guide.place_guides(project_folder, args.reel or None,
+                                         overlay)
+    except resolve_lock.ResolveBusy as busy:
+        print(busy.render(), file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    except safe_zone_guide.SafeZoneGuideError as exc:
+        print(f"safe-zones: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_deliver_reel(args):
     """Render ONE chosen reel timeline to a video file. The explicit verb.
 
@@ -2327,6 +2412,44 @@ def main():
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
     drift_parser.set_defaults(func=cmd_drift)
+
+    post_header_parser = sub.add_parser(
+        "post-header", help="Put each reel's social-post header on its "
+                            "existing final timeline, as a journaled touch")
+    post_header_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    post_header_parser.add_argument(
+        "reel", type=int, nargs="*",
+        help="Approved reel numbers; none means every approved reel")
+    post_header_parser.add_argument(
+        "--keep-graphics", action="store_true",
+        help="Leave the Semantic-row graphics on (default: switch them off)")
+    post_header_parser.add_argument(
+        "--supersede", action="append", default=[], metavar="REEL",
+        help="A signed-off reel this touch may replace. Repeatable")
+    post_header_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Read the reels and print each change; write nothing")
+    post_header_parser.set_defaults(func=cmd_post_header)
+
+    safe_zones_parser = sub.add_parser(
+        "safe-zones", help="Place a platform safe-zone guide on reel "
+                           "timelines, switched off so it never renders")
+    safe_zones_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    safe_zones_parser.add_argument(
+        "reel", type=int, nargs="*",
+        help="Approved reel numbers; none means every approved reel")
+    from library.tools.platform_safe_zones import COMBINED, OVERLAY_NAMES
+    safe_zones_parser.add_argument(
+        "--overlay", choices=OVERLAY_NAMES, default=COMBINED,
+        help="Which platform's guide, or all four combined (default)")
+    safe_zones_parser.add_argument(
+        "--remove", action="store_true",
+        help="Take the guide row away instead of placing one")
+    safe_zones_parser.set_defaults(func=cmd_safe_zones)
 
     deliver_reel_parser = sub.add_parser(
         "deliver-reel", help="Render ONE chosen reel timeline to a file")

@@ -92,6 +92,10 @@ from library.tools.speaker_identity import (
     RENDER_PREFIX as LOWER_THIRD_RENDER_PREFIX,
 )
 from library.tools.reel_semantic_visual import SPAN_EVERY_EVENT_DROPPED
+from library.tools.timeline_layout import (
+    GUIDES_NAME as GUIDES_TRACK_NAME,
+    POST_HEADER_NAME as POST_HEADER_TRACK_NAME,
+)
 from library.tools.frame_utils import span_frames
 from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
 from library.tools.reel_exchange import LENGTH_GUIDANCE
@@ -158,6 +162,13 @@ class FindingClass:
     # speaker TWICE, because "on the first appearance" is the whole ask
     # (`library/tools/speaker_identity.py`).
     F24 = "F24"  # ENCODING: the speaker lower thirds, against the plan
+
+    # 2026-09-25: the SOCIAL-POST HEADER (`library/tools/reel_post_header.py`)
+    # on its own row, and a platform SAFE-ZONE GUIDE on its disabled row
+    # (`library/tools/safe_zone_guide.py`). F25 grades the header row
+    # against the record the build wrote, both directions; a guide row
+    # holds only guide files.
+    F25 = "F25"  # ENCODING: the post header and guide rows
 
     # Plan quality gates (not from the audit, from the captain's list)
     PQ_LENGTH = "PQ-LENGTH"       # outside the 45-90s PREFERENCE (warning)
@@ -519,6 +530,10 @@ class ReelTimeline:
     that is, named there once so the placement and the check cannot
     disagree about it."""
     lower_third_items: Tuple[TimelineItem, ...] = ()
+    post_header_items: Tuple[TimelineItem, ...] = ()
+    """Items on the post-header row (`reel_post_header.TRACK_NAME`)."""
+    guide_items: Tuple[TimelineItem, ...] = ()
+    """Items on a safe-zone guide row (`timeline_layout.GUIDES_NAME`)."""
     """Items on the speaker lower-third row, in order.
 
     `library/tools/speaker_identity.TRACK_NAME` is which row that is,
@@ -3847,6 +3862,63 @@ def check_speaker_lower_thirds(reel_name: str,
     return findings
 
 
+def check_post_header(reel_name: str,
+                      post_header_items: Sequence[TimelineItem],
+                      guide_items: Sequence[TimelineItem],
+                      planned: Optional[dict],
+                      fps: float) -> List[Finding]:
+    """F25: the post header, against the record THE BUILD WROTE.
+
+    The two directions F24 carries: a recorded segment with no placed
+    item is a header the viewer never saw, and an item no record
+    accounts for is an out-of-band append. `planned` is
+    `reel_post_header.plan_for`'s entry - read from the build's record,
+    never re-derived; None means no record, which grades nothing.
+
+    A guide row (`safe_zone_guide`) may hold only guide files: anything
+    else there is on a row Resolve does not render, which is content
+    the captain thinks is on his reel and is not.
+    """
+    import re as _re
+
+    findings: List[Finding] = []
+    for item in guide_items or ():
+        if not _re.match(r"^safe_zones_[a-z_]+_", _item_stem(item)):
+            findings.append(Finding(
+                finding_class=FindingClass.F25, reel=reel_name,
+                severity="error",
+                message=(f"V{item.track_index} is a disabled guide row and "
+                         f"carries {item.name!r}, which is not a safe-zone "
+                         f"guide - it will never render"),
+                detail={"track": item.track_index, "name": item.name}))
+    if planned is None:
+        if post_header_items:
+            findings.append(Finding(
+                finding_class=FindingClass.F25, reel=reel_name,
+                severity="error",
+                message=(f"{len(post_header_items)} item(s) on the "
+                         f"{POST_HEADER_TRACK_NAME!r} row and this reel "
+                         f"has no recorded post header"),
+                detail={"count": len(post_header_items)}))
+        return findings
+    placed = sorted(post_header_items or (), key=lambda i: i.start_frame)
+    wanted = sorted(
+        (int(round(float(s["timeline_start"]) * fps)),
+         int(s["total_frames"]))
+        for s in (planned.get("segments") or []))
+    got = [(i.start_frame, i.duration_frames) for i in placed]
+    if len(got) != len(wanted) or any(
+            abs(a[0] - b[0]) > 1 or abs(a[1] - b[1]) > 1
+            for a, b in zip(got, wanted)):
+        findings.append(Finding(
+            finding_class=FindingClass.F25, reel=reel_name,
+            severity="error",
+            message=(f"the post header placed {got} (start, frames) and "
+                     f"the build recorded {wanted}"),
+            detail={"placed": got, "recorded": wanted}))
+    return findings
+
+
 def check_span_plan(reel_name: str,
                     planned: Optional[dict]) -> List[Finding]:
     """F23: an all-refused span picture plan is a REFUSED plan, not a still reel.
@@ -4943,6 +5015,7 @@ def verify_reel(plan: ReelPlan,
                 semantic_plan: Optional[dict] = None,
                 span_plan: Optional[dict] = None,
                 lower_third_plan: Optional[dict] = None,
+                post_header_plan: Optional[dict] = None,
                  expected_frame: Optional[Tuple[int, int]] = None,
                  draw_gain: float = None,
                  word_coverage: Optional[dict] = None,
@@ -5301,6 +5374,11 @@ def verify_reel(plan: ReelPlan,
     findings.extend(check_speaker_lower_thirds(
         plan.reel_name, timeline.lower_third_items, lower_third_plan, fps))
 
+    # F25: the post header and any guide row, against the build's record.
+    findings.extend(check_post_header(
+        plan.reel_name, timeline.post_header_items, timeline.guide_items,
+        post_header_plan, fps))
+
     # F23: the span picture plan, against the record the build wrote.
     # Passing None means "no record", which returns nothing rather than
     # grading a pre-span build against an absence.
@@ -5400,6 +5478,8 @@ def _snapshot_to_reel_timeline(snapshot, cards=()) -> ReelTimeline:
     explainer_items = []
     semantic_items = []
     lower_third_items = []
+    post_header_items = []
+    guide_items = []
     frame_items = []
     for clip in snapshot.clips:
         item = TimelineItem(
@@ -5448,6 +5528,10 @@ def _snapshot_to_reel_timeline(snapshot, cards=()) -> ReelTimeline:
             semantic_items.append(item)
         elif is_video and _is_layer_named(row, LOWER_THIRD_TRACK_NAME):
             lower_third_items.append(item)
+        elif is_video and row == POST_HEADER_TRACK_NAME:
+            post_header_items.append(item)
+        elif is_video and row == GUIDES_TRACK_NAME:
+            guide_items.append(item)
         elif is_video and clip.track_index == 3:
             caption_items.append(item)
         elif is_video and clip.track_index == OVERLAY_TRACK:
@@ -5499,6 +5583,9 @@ def _snapshot_to_reel_timeline(snapshot, cards=()) -> ReelTimeline:
                                      key=lambda i: i.start_frame)),
         semantic_items=tuple(sorted(semantic_items,
                                     key=lambda i: i.start_frame)),
+        post_header_items=tuple(sorted(post_header_items,
+                                       key=lambda i: i.start_frame)),
+        guide_items=tuple(sorted(guide_items, key=lambda i: i.start_frame)),
         lower_third_items=tuple(sorted(lower_third_items,
                                        key=lambda i: i.start_frame)),
         frame_items=tuple(sorted(frame_items,
@@ -6783,6 +6870,11 @@ def run_verification(
         read_plans as read_lower_third_plans)
     lower_third_plans = (read_lower_third_plans(project_folder)
                          if project_folder else {})
+    from library.tools.reel_post_header import (
+        plan_for as post_header_plan_for_reel,
+        read_plans as read_post_header_plans)
+    post_header_plans = (read_post_header_plans(project_folder)
+                         if project_folder else {})
     from library.tools.explainer_plan import plan_for_reel, read_plans
     explainer_plans = read_plans(project_folder) if project_folder else {}
     if (explainer_plans.get("plans") or []):
@@ -6949,6 +7041,8 @@ def run_verification(
                     span_plan_records, name),
                 lower_third_plan=lower_third_plan_for_reel(
                     lower_third_plans, name),
+                post_header_plan=post_header_plan_for_reel(
+                    post_header_plans, name),
                 expected_frame=expected_frame,
                 draw_gain=draw_gain,
                 word_coverage=word_coverage,

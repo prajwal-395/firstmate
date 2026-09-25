@@ -378,6 +378,8 @@ class Area(str, Enum):
 
     REEL_FRAME_OVERLAYS = "reel_frame_overlays"
     REEL_CARDS = "reel_cards"
+    REEL_POST_HEADERS = "reel_post_headers"
+    REEL_SAFE_ZONE_GUIDES = "reel_safe_zone_guides"
 
 
 AREAS: dict[Area, AreaSpec] = {
@@ -714,6 +716,18 @@ AREAS: dict[Area, AreaSpec] = {
         "reel_placed_assets promotes the placed copy here before anything is "
         "imported. Anything that trusts the SCRATCH declaration must never be "
         "able to remove them.",
+        step="build_reels"),
+    Area.REEL_POST_HEADERS: AreaSpec(
+        _step_path("build_reels", "post_headers"), Kind.OUTPUT,
+        "Social-post headers placed above a reel's picture "
+        "(library/tools/reel_post_header.py). A timeline places these, so "
+        "they are OUTPUT of the step that builds reels, never scratch.",
+        step="build_reels"),
+    Area.REEL_SAFE_ZONE_GUIDES: AreaSpec(
+        _step_path("build_reels", "safe_zone_guides"), Kind.OUTPUT,
+        "Platform safe-zone guides (library/tools/safe_zone_guide.py) "
+        "carried as movies and placed on a DISABLED guide row of a reel "
+        "timeline. A timeline places these, so never scratch.",
         step="build_reels"),
     Area.REEL_CARDS: AreaSpec(
         _step_path("build_reels", "reel_cards"), Kind.OUTPUT,

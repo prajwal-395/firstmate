@@ -562,6 +562,29 @@ def report(timeline_name: str, carried, uncarried) -> None:
               file=sys.stderr, flush=True)
 
 
+
+
+def _already_carries(target, frame: int, marker) -> bool:
+    """Does `target` already hold THIS marker at `frame`?
+
+    A touch-up stages on a DUPLICATE of the approved timeline, and
+    Resolve's duplicate keeps every timeline and clip marker - so the
+    carry then asks Resolve to add a marker that is already there, is
+    declined, and used to report "NOT CARRIED" for a note that never
+    left. Measured 2026-09-25: 34 such reports on the 30-reel post-header
+    touch, every marker present exactly once on every reel. Only an
+    IDENTICAL marker (name, colour, note) counts: a different marker at
+    that frame is still a decline, and still reported.
+    """
+    try:
+        existing = (target.GetMarkers() or {}).get(int(frame))
+    except Exception:                                   # noqa: BLE001
+        return False
+    return bool(existing) and all(
+        str(existing.get(k) or "") == str(marker.get(k) or "")
+        for k in ("name", "color", "note"))
+
+
 @under_lease("carry the captain's markers onto the replacement")
 def place(timeline, carried) -> list:
     """Write the resolved markers onto the replacement.
@@ -578,6 +601,9 @@ def place(timeline, carried) -> list:
             start + int(marker["to_frame"]), marker["color"] or "Blue",
             marker["name"], marker["note"], marker["duration"],
             marker.get("custom_data") or "")
+        if not ok and _already_carries(
+                timeline, int(marker["to_frame"]), marker):
+            continue
         if not ok:
             failed.append(marker)
             print(f"  MARKER NOT CARRIED: Resolve declined "
@@ -1002,6 +1028,9 @@ def place_clip_markers(replacement, carried) -> list:
                   f"({refused}) for {marker['name']!r} - the captain "
                   f"wrote: {marker['note'].strip()!r}",
                   file=sys.stderr, flush=True)
+            continue
+        if not ok and _already_carries(
+                item, int(marker["to_source_frame"]), marker):
             continue
         if not ok:
             failed.append(marker)

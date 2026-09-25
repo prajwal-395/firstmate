@@ -31,6 +31,11 @@ import {
   stagedSceneSchema,
   type StagedSceneProps,
 } from "./compositions/StagedScene";
+import {
+  PostHeader,
+  postHeaderSchema,
+  type PostHeaderProps,
+} from "./compositions/PostHeader";
 // The studio has no pipeline behind it, so its preview defaults need the
 // safe area written down somewhere TypeScript can import. This file is
 // GENERATED from library/tools/safe_area.py by
@@ -87,6 +92,16 @@ const calculateFullFrameMetadata: CalculateMetadataFunction<FullFrameCardProps> 
   };
 
 const calculateStagedSceneMetadata: CalculateMetadataFunction<StagedSceneProps> =
+  async ({ props }) => {
+    return {
+      durationInFrames: props.durationInFrames,
+      fps: props.fps,
+      width: props.width,
+      height: props.height,
+    };
+  };
+
+const calculatePostHeaderMetadata: CalculateMetadataFunction<PostHeaderProps> =
   async ({ props }) => {
     return {
       durationInFrames: props.durationInFrames,
@@ -270,6 +285,37 @@ export const RemotionRoot: React.FC = () => {
           safeArea: SAFE_AREA,
         }}
         calculateMetadata={calculateFullFrameMetadata}
+      />
+      <Composition
+        id="PostHeader"
+        component={PostHeader}
+        schema={postHeaderSchema}
+        durationInFrames={1}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={{
+          // No account and no hook: a studio default carrying a name, a
+          // handle and copy would be one series' identity sitting in the
+          // repository (AGENTS.md 14). The pipeline supplies all of it.
+          avatarSrc: "",
+          avatarShape: "square",
+          avatarBackground: "transparent",
+          displayName: "",
+          handle: "",
+          verified: false,
+          hook: "",
+          fontFamily: "Montserrat",
+          nameSize: 38,
+          handleSize: 32,
+          hookSize: 36,
+          box: { left: 0, top: 0, width: 1080 },
+          fps: 30,
+          width: 1080,
+          height: 1920,
+          durationInFrames: 1,
+        }}
+        calculateMetadata={calculatePostHeaderMetadata}
       />
       <Composition
         id="StagedScene"

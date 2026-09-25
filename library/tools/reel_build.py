@@ -142,6 +142,7 @@ from library.tools.timeline_layout import (
     EXPLAINER,
     FRAME,
     MOTION_GRAPHICS,
+    POST_HEADER,
     SEMANTIC,
     TRANSITIONS,
     plan_layout,
@@ -5263,7 +5264,8 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
     reel_seconds = sum(max(0.0, end - start) for start, end in (ranges or []))
 
     bands = _explainer_bands(project_folder, width, height,
-                             draw_gain=draw_gain)
+                             draw_gain=draw_gain,
+                             reel_number=int(moment.number), fps=fps)
     plan = ex.author_explainer(
         reel_name=name, reel_number=int(moment.number),
         reel_seconds=reel_seconds, judgement=judgement,
@@ -5608,6 +5610,23 @@ def _lower_third_rows(segments) -> list:
     return rows
 
 
+def _post_header_extra(project_folder: str, reel_number) -> dict:
+    """What the post header contributes to one reel's rebuild digest.
+
+    The declaration and this reel's hook, so a changed hook re-places
+    that reel and no other. Empty where no header is declared, so a
+    project without one digests byte-identically to before.
+    """
+    from library.tools import reel_post_header as rph
+
+    declared = rph.project_declaration(project_folder)
+    if declared is None:
+        return {}
+    return {"post_header": {"declared": declared,
+                            "hook": rph.hook_for(project_folder,
+                                                 reel_number)}}
+
+
 def _reel_slug(timeline_name: str) -> str:
     """A timeline name as a filename-safe placement label."""
     import re
@@ -5616,7 +5635,8 @@ def _reel_slug(timeline_name: str) -> str:
 
 
 def _explainer_bands(project_folder: str, width: int, height: int,
-                     draw_gain: float = FALLBACK_DRAW_GAIN):
+                     draw_gain: float = FALLBACK_DRAW_GAIN,
+                     reel_number=None, fps: float = 0.0):
     """The picture-area enumeration for a reel of this project.
 
     Built from the two measurements that already exist - the rectangle a
@@ -5637,6 +5657,15 @@ def _explainer_bands(project_folder: str, width: int, height: int,
                                 dict(IDENTITY), draw_gain=draw_gain)
     insets = resolve_safe_area(project_folder=project_folder,
                                width=width, height=height)
+    # A reel carrying a post header gives up its rows: the band above
+    # the picture starts under the header (reel_post_header.header_floor).
+    if reel_number is not None and fps:
+        import dataclasses
+
+        from library.tools.reel_post_header import header_floor
+        floor = header_floor(project_folder, reel_number, width, height, fps)
+        if floor is not None and floor > insets.top:
+            insets = dataclasses.replace(insets, top=int(floor))
     return ex.picture_bands(picture.rect, width, height, insets)
 
 
@@ -7210,6 +7239,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
          int(round(s["timeline_end"] * fps)))
         for s in (subtitle_segments or [])
         if s.get("timeline_end", 0) > s.get("timeline_start", 0)]
+    # ── The social-post header (`library/tools/reel_post_header.py`) ──
+    # Rendered BEFORE the plan, so its row exists exactly when a header
+    # goes on it. Carried over the picture runs, like the TV frame: the
+    # header sits over the reel's picture and nowhere a card replaces it.
+    from library.tools import reel_look as _look_runs
+    from library.tools import reel_post_header as _rph
+    _header_window = None
+    if look is not None:
+        from library.tools.tv_frame import screen_window_rect
+        _header_window = screen_window_rect(look, width, height)
+    post_header = _rph.plan_for_reel(
+        name, getattr(moment, "number", None),
+        _look_runs.frame_runs(placements_list, fps), fps, width, height,
+        project_folder, picture_window=_header_window)
     material = reel_track_material(
         master_clips, resolved_channels,
         caption_spans=caption_spans,
@@ -7224,6 +7267,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         card_spans=[(int(card.reel_start_frame), int(card.reel_end_frame))
                     for card in (cards or ())
                     if getattr(card, "placement", "") in ("head", "tail")])
+    material["has_post_header"] = bool(post_header.segments)
     track_plan = plan_layout(material)
     video_row_by_angle = {}
     for angle in angles:
@@ -7966,6 +8010,24 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             pool, project, timeline, name, fps, lower_third_segments,
             [row.index for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
             kind="speaker lower third", check="F21",
+            project_folder=project_folder,
+            overlay_intent=overlay_intent, frame=(width, height),
+            seen_ids=seen_intent_ids,
+            do_not_draw=suppressions,
+            intent_applied=applied_intent_keys,
+            seen_labels=seen_intent_labels,
+            sweep_out=_sweep_records,
+            draw_gain=draw_gain))
+
+    # The social-post header, on its own row above everything drawn.
+    # Full canvas, so no transform: the still was laid out on the
+    # delivery frame and plays at its natural size.
+    build_record["post_header"] = post_header.as_dict()
+    if post_header.segments:
+        suppressed_ids.extend(place_overlay_segments(
+            pool, project, timeline, name, fps, post_header.segments,
+            track_plan.row_for_role(POST_HEADER).index,
+            kind="post header", check="F4",
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
             seen_ids=seen_intent_ids,
@@ -8971,6 +9033,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     from library.tools.speaker_identity import (
         rename_plan_reels as _rename_lower_third_plans)
     _rename_lower_third_plans(project_folder, promoted_claimed)
+    from library.tools.reel_post_header import (
+        rename_plan_reels as _rename_post_headers)
+    _rename_post_headers(project_folder, promoted_claimed)
     # The render ledger binds each caption to the timeline it was
     # rendered for, and it is read as a reference ROOT. Left naming the
     # staging container this promotion just renamed away, every entry
@@ -9575,6 +9640,9 @@ def discard_staged_reels(project, project_folder: str,
     from library.tools.speaker_identity import (
         drop_plan_reels as _drop_lower_third_plans)
     _drop_lower_third_plans(project_folder, staging)
+    from library.tools.reel_post_header import (
+        drop_plan_reels as _drop_post_headers)
+    _drop_post_headers(project_folder, staging)
     _organise_after_refusal(project, project_folder, master_timeline_name)
 
 
@@ -10589,6 +10657,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     card_declarations = declared_cards(project_folder)
     explainer_plans = []
     lower_third_plans = []
+    post_header_records = []
     semantic_records = []
     span_records = []
     # The project's TV-frame declaration, read ONCE for the same reason
@@ -11267,7 +11336,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                        **_ledger_extra,
                        **({"lower_thirds": _lower_third_rows(
                            lower_third_segments)}
-                          if lower_third_segments else {})},
+                          if lower_third_segments else {}),
+                       # The post header's declaration and THIS reel's
+                       # hook, and only where one is declared - absent
+                       # means none, the lower-thirds precedent above.
+                       **_post_header_extra(project_folder,
+                                            moment.number)},
             )
             build_signatures[name] = _need.signature_for_record(
                 _derivation)
@@ -11450,6 +11524,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # being told again.
                     do_not_draw=suppression_rules,
                 )
+                _header_record = build_result.get("post_header")
+                if isinstance(_header_record, dict):
+                    post_header_records.append(_header_record)
                 suppressed_here = list(
                     build_result.get("suppressed_overlays") or [])
                 if suppressed_here:
@@ -11627,6 +11704,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # reels with none, and merged per reel for the reason above.
     from library.tools.speaker_identity import write_plans as _write_lower
     _write_lower(project_folder, lower_third_plans)
+
+    # What each reel's post header really was, for F25, merged per reel.
+    from library.tools.reel_post_header import (
+        write_plans as _write_post_headers)
+    _write_post_headers(project_folder, post_header_records)
 
     # What each reel's semantic visuals really were, INCLUDING the reels
     # with none. MERGED per reel, for the same reason `write_provenance`

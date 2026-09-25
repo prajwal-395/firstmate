@@ -51,7 +51,12 @@ RESOLVE_NEEDED = (
 )
 
 CLIP_IN, CLIP_LEN = 100, 120
-CAPTURE_TC = "00:00:01:10"        # 40 frames in at 30fps
+#: The frame the playhead is parked on, as an OFFSET into the scratch
+#: timeline. Set through `_tc` at the timeline's own rate: the scratch
+#: timeline inherits the open project's rate, and a fixed "00:00:01:10"
+#: is frame 40 only at 30fps - at 23.976 it is 34, the capture then
+#: creates a new marker beside the typed one, and the typed-text test
+#: failed on whichever project happened to be open (2026-09-25).
 CAPTURE_KEY = 40
 
 
@@ -114,7 +119,8 @@ def scratch(resolve_project):
         "mediaPoolItem": pool_clip, "startFrame": CLIP_IN,
         "endFrame": CLIP_IN + CLIP_LEN - 1, "mediaType": 1, "trackIndex": 1,
     }]), "Resolve declined to place the scratch clip"
-    assert timeline.SetCurrentTimecode(CAPTURE_TC) is True
+    assert timeline.SetCurrentTimecode(
+        _tc(timeline.GetStartFrame() + CAPTURE_KEY, timeline)) is True
     try:
         yield resolve, project, timeline
     finally:
@@ -223,7 +229,7 @@ def test_the_playhead_inside_a_long_marker_updates_that_marker(
     marker on top of the captain's would be a change they did not make."""
     _, project, timeline = scratch
     assert timeline.AddMarker(30, "Green", "LONG", "spans this", 20, "") is True
-    assert timeline.SetCurrentTimecode(CAPTURE_TC) is True   # frame 40, inside
+    assert timeline.SetCurrentTimecode(_tc(timeline.GetStartFrame() + CAPTURE_KEY, timeline)) is True   # inside
 
     result = capture(timeline, project, tmp_path)
 

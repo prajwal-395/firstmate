@@ -24,7 +24,7 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - Brand templates live with the project as `brand.json` (§10.1).
 - `library/profiles/`: declared run configurations - which steps a run fires and where it stops (§3).
 - `.agents/skills/`: the ONE skill source - Codex and opencode read it, `.claude/skills` links to it; a pipeline skill's entry point is `library/skills/<name>/`.
-- `library/presets/`: Fusion macros and DaVinci's own built-in effect settings. Whatever reaches a timeline is found by direct path; there is no preset index.
+- `library/presets/`: Fusion macros, DaVinci's built-in effect settings, platform safe-zone guides (`platform_safe_zones.py`). Whatever reaches a timeline is found by direct path; there is no preset index.
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
 - `tests/`: unit and integration tests for the engine.
