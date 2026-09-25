@@ -46,7 +46,14 @@ if [ "${1:-}" = --list-models ]; then
 fi
 exit 0
 SH
-  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
+  cat > "$fakebin/codex" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = debug ] && [ "${2:-}" = models ]; then
+  printf '%s\n' '{"models":[{"slug":"gpt-5","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"max"}]}]}'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent" "$fakebin/codex"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
@@ -417,7 +424,7 @@ test_codex_threads_model_and_effort() {
   pass "codex receives --model and model_reasoning_effort profile flags"
 }
 
-test_codex_omits_invalid_max_effort() {
+test_codex_omits_unsupported_max_effort() {
   local rec id out status launch
   id=profile-codex-max-z4
   rec=$(make_spawn_case profile-codex-max codex "$id")
@@ -426,12 +433,29 @@ test_codex_omits_invalid_max_effort() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5 --effort max)
   status=$?
   expect_code 0 "$status" "codex spawn with unsupported max effort should omit the effort flag"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 max
+  assert_grep "harness=codex" "$HOME_DIR/state/$id.meta" "meta missing codex harness"
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "effort=max" "meta must not claim an omitted effort"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "codex --model 'gpt-5' --dangerously-bypass-approvals-and-sandbox" \
     "codex launch did not preserve the model flag when max effort was omitted"
   assert_not_contains "$launch" "model_reasoning_effort" "codex launch must omit unsupported max reasoning effort"
-  pass "codex omits unsupported max effort instead of passing a bad config value"
+  assert_contains "$out" "effort max omitted for codex model gpt-5" "spawn must explain the omitted effort"
+  pass "codex omits unsupported max effort from launch and task record"
+}
+
+test_codex_threads_catalogued_max_effort() {
+  local rec id out status launch
+  id=profile-codex-max-luna-z4
+  rec=$(make_spawn_case profile-codex-max-luna codex "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-6-luna --effort max)
+  status=$?
+  expect_code 0 "$status" "codex spawn with catalogued max effort should succeed"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-6-luna max
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "codex --model 'gpt-6-luna' -c 'model_reasoning_effort=\"max\"' --dangerously-bypass-approvals-and-sandbox" \
+    "codex launch did not pass max effort for a model that advertises it"
+  pass "codex passes max effort only for models advertising it in the installed catalog"
 }
 
 test_grok_threads_model_and_reasoning_effort() {
@@ -460,12 +484,13 @@ test_grok_omits_invalid_max_reasoning_effort() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort max)
   status=$?
   expect_code 0 "$status" "grok spawn with unsupported max reasoning effort should omit the effort flag"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 max
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "effort=max" "meta must not claim an omitted effort"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "grok --always-approve --model 'grok-4' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < " \
     "grok launch did not preserve the model flag and typed brief when max effort was omitted"
   assert_not_contains "$launch" "--reasoning-effort" "grok launch must omit unsupported max reasoning effort"
   assert_not_contains "$launch" "--effort" "grok launch must not fall back to --effort for reasoning effort"
+  assert_contains "$out" "effort max omitted for grok model grok-4" "spawn must explain the omitted effort"
   pass "grok omits unsupported max reasoning effort"
 }
 
@@ -479,12 +504,13 @@ test_grok_omits_invalid_xhigh_reasoning_effort() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort xhigh)
   status=$?
   expect_code 0 "$status" "grok spawn with unsupported xhigh reasoning effort should omit the effort flag"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 xhigh
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "effort=xhigh" "meta must not claim an omitted effort"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "grok --always-approve --model 'grok-4' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < " \
     "grok launch did not preserve the model flag and typed brief when xhigh effort was omitted"
   assert_not_contains "$launch" "--reasoning-effort" "grok launch must omit unsupported xhigh reasoning effort"
   assert_not_contains "$launch" "--effort" "grok launch must not fall back to --effort for reasoning effort"
+  assert_contains "$out" "effort xhigh omitted for grok model grok-4" "spawn must explain the omitted effort"
   pass "grok omits unsupported xhigh reasoning effort"
 }
 
@@ -498,7 +524,7 @@ test_cursor_threads_model_workspace_and_omits_effort_axis() {
     --model cursor-grok-4.5-high --effort high)
   status=$?
   expect_code 0 "$status" "cursor spawn with a model-qualified reasoning class should succeed"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-grok-4.5-high high
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "effort=high" "meta must not claim an omitted effort"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "--trust --yolo --model 'cursor-grok-4.5-high' --workspace '$WT_DIR'" \
     "cursor launch did not carry trust, autonomy, model, and exact workspace flags"
@@ -567,7 +593,7 @@ test_opencode_threads_model_and_ignores_effort_axis() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5 --effort high)
   status=$?
   expect_code 0 "$status" "opencode spawn with model and ignored effort should succeed"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 high
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "effort=high" "meta must not claim an omitted effort"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode launch did not thread model"
@@ -1310,7 +1336,8 @@ test_active_dispatch_profile_allows_positional_harness
 test_active_dispatch_profile_allows_raw_launch_command
 test_claude_threads_model_and_effort
 test_codex_threads_model_and_effort
-test_codex_omits_invalid_max_effort
+test_codex_omits_unsupported_max_effort
+test_codex_threads_catalogued_max_effort
 test_grok_threads_model_and_reasoning_effort
 test_grok_omits_invalid_max_reasoning_effort
 test_grok_omits_invalid_xhigh_reasoning_effort

@@ -2164,11 +2164,15 @@ effort_flag_for_harness() {
       esac
       ;;
     codex)
-      # The installed codex config schema uses model_reasoning_effort, and the
-      # bundled model catalog advertises low|medium|high|xhigh. Omit max rather
-      # than passing an unsupported value.
       case "$effort" in
         low|medium|high|xhigh) printf -- '-c %s ' "$(shell_quote "model_reasoning_effort=\"$effort\"")" ;;
+        max)
+          if [ -n "$model" ] && [ "$model" != default ] \
+            && codex debug models 2>/dev/null \
+              | jq -e --arg model "$model" 'any(.models[]?; .slug == $model and any(.supported_reasoning_levels[]?; .effort == "max"))' >/dev/null 2>&1; then
+            printf -- '-c %s ' "$(shell_quote 'model_reasoning_effort="max"')"
+          fi
+          ;;
       esac
       ;;
     grok)
@@ -4446,6 +4450,13 @@ META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_PUBLISHED_AT=$(date +%s)
+MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
+EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL") || exit 1
+if [ -n "$EFFORT" ] && [ "$EFFORT" != default ] && [ -z "$EFFORTFLAG" ]; then
+  printf 'notice: spawn: effort %s omitted for %s model %s because the installed harness does not advertise that setting\n' \
+    "$EFFORT" "$HARNESS" "${MODEL:-default}" >&2
+  EFFORT=
+fi
 SPAWN_META_PATH="$STATE/$ID.meta"
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
@@ -4621,8 +4632,6 @@ sq_ompext=$(shell_quote "$STATE/$ID.omp-ext.ts")
 sq_ompcfg=$(shell_quote "${OMP_WORKER_CFG:-$FM_ROOT/.omp/fm-worker-overlay.yml}")
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 sq_worktree=$(shell_quote "$WT")
-MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
-EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL") || exit 1
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__CLAUDEPERMFLAG__/$CLAUDE_PERM_FLAG}
