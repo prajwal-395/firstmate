@@ -64,11 +64,13 @@ item is a cut nobody planned), so keep one step per item or anchor the
 steps to item spans.
 
 One MECHANICAL refusal applies, and it is not a taste bound: the comp
-builder rejects an ANIMATED Transform Size whose peak exceeds 1.04
-(`library/tools/fusion/nodes.py`, AGENTS.md §5) because of what it does
-to the .comp file, and it refuses rather than clamping. A HELD reframe -
-`cut_in`, where all three points carry the same value - is not animated
-and is not bounded by it.
+builder rejects an ANIMATED Transform Size whose peak exceeds
+<!-- MAX_ANIMATED_ZOOM --> (`library/tools/fusion/nodes.py:
+MAX_ANIMATED_ZOOM`, AGENTS.md §5 - the number is rendered into this
+prompt from that constant, so the two cannot disagree) because of what
+it does to the .comp file, and it refuses rather than clamping. A HELD
+reframe - `cut_in`, where all three points carry the same value - is
+not animated and is not bounded by it.
 
 **DaVinci Resolve Built-in Fusion Effects Vocabulary (143 presets):**
 You can use any of the built-in Fusion effects listed below by providing their exact snake_case name as the `effect_type`.
@@ -249,7 +251,8 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 2. Every effect's `params` use names the renderer dispatches on, and the
    VALUES in them are the plan's own. There is no style-spec range, no
    scale the engine offers and no ceiling - only the one MECHANICAL
-   refusal above (an ANIMATED Transform Size peaking over 1.04)
+   refusal above (an ANIMATED Transform Size peaking over
+   <!-- MAX_ANIMATED_ZOOM -->)
 3. No effect changes clip in/out points or timeline position
 
 ---

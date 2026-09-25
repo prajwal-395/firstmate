@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.vision_schema_adapter import adapt_semantic_document, is_v3_profile
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools import code_identity
 
 # Per-clip ceiling for the vision analyser. It was 600s, which is under
 # what a long clip needs: measured on this machine, a 3.6s clip costs 86s
@@ -168,7 +169,52 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
     
     # Which clips already have a profile, keyed by file stem - the same key
     # the analyser caches on. See the note above _profile_stems.
-    existing_profiles = _profile_stems(analysis_dir)
+    #
+    # Profiles are trusted only when they were written by THIS code. The
+    # ledger forgets the step when its code changes
+    # (`apply_code_identity`), but this step resumes from its on-disk
+    # profiles - so a re-run after a method change printed
+    # "invalidating" and then reused every stale profile (finding 8,
+    # execution-frontier report 2026-09-24). The stamp beside the
+    # profiles names the code that wrote them (`code_identity`); a
+    # mismatch means the profiles describe what an older method saw, and
+    # they are removed so the analyser below re-measures every clip.
+    # No stamp reads as unknown code, never as a match: a cache from
+    # before stamps existed is re-analyzed once, then stamped.
+    step_code_hash = code_identity.current_code_hash(
+        os.path.dirname(os.path.abspath(__file__)))
+    # A None hash means there was nothing to hash: it matches nothing,
+    # so the profiles below are re-measured rather than trusted.
+    if (step_code_hash
+            and step_code_hash == code_identity.read_code_stamp(
+                analysis_dir)):
+        existing_profiles = _profile_stems(analysis_dir)
+    else:
+        stale = sorted(glob.glob(
+            os.path.join(analysis_dir, 'clip_profile_*.json')))
+        if stale:
+            print(f"Semantic Analysis: step code changed since "
+                  f"{len(stale)} cached profile(s) were written - "
+                  f"removing them and re-analyzing every clip",
+                  file=sys.stderr)
+            for path in stale:
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    # Another writer already removed it; it is no
+                    # longer available for the analyser to reuse.
+                    continue
+                except OSError as exc:
+                    # The analyser independently skips an existing
+                    # profile unless --force is passed. Continuing after
+                    # a failed unlink would therefore let it return the
+                    # stale profile and the stamp below would bless that
+                    # file as if this method had written it.
+                    raise RuntimeError(
+                        f"Cannot invalidate stale semantic profile "
+                        f"{path} ({exc}); refusing to run the analyser "
+                        f"against a cache written by older code") from exc
+        existing_profiles = set()
 
     # Find clips that need analysis
     all_clips = []
@@ -251,7 +297,13 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
 
     print(f"Collected {len(profiles)} clip profiles "
           f"({adapted_count} adapted from the v3 vision schema)", file=sys.stderr)
-    
+
+    # Stamp what this run's profiles were written under, so the next run
+    # can tell its own method's output from an older one's. Written even
+    # when nothing was analyzed: an empty collection under current code
+    # is a fact the next run may trust, not a gap to re-probe.
+    code_identity.write_code_stamp(analysis_dir, step_code_hash)
+
     return {
         'semantic_analysis_documents': profiles,
         'total_clips_analyzed': len(profiles),

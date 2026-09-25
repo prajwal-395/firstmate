@@ -1088,7 +1088,7 @@ _REGISTRY: tuple[Operation, ...] = (
     ),
     Operation(
         name="speech.enrich",
-        summary="Enrich the model's speech sequence with WhisperX word timings from the temporal index",
+        summary="Enrich the model's speech sequence with word timings from the temporal index",
         owning_node="speech_sequence",
         owning_dir="step_2_02_speech_sequence", body="post_bridge.py",
         attr="enrich_speech_sequence",

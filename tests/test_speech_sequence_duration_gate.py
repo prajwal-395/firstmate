@@ -68,6 +68,11 @@ def _zone(target):
     return (target * 0.9, float(target), target * 1.1)
 
 
+def _speech_zone(target):
+    floor, target_f, _ceiling = _zone(target)
+    return (floor, target_f, target_f)
+
+
 # ── The total is measured off aligned words, not the hint ────────────
 
 def test_the_total_is_read_off_the_aligned_timings(enriched):
@@ -80,7 +85,7 @@ def test_the_total_is_read_off_the_aligned_timings(enriched):
 def test_a_sequence_short_of_a_declared_target_is_refused(enriched):
     total = pb.total_speech_seconds(enriched["body_sequence"])
     with pytest.raises(pb.SpeechDurationError) as excinfo:
-        pb.refuse_out_of_zone_sequence(total, _zone(60))
+        pb.refuse_out_of_zone_sequence(total, _speech_zone(60), _zone(60))
     message = str(excinfo.value)
     assert f"{total:.1f}s" in message
     assert "54.0-66.0s" in message
@@ -108,13 +113,19 @@ def _payload(clip_011, index_dir, target):
     return json.dumps(data)
 
 
-def test_main_refuses_an_out_of_zone_sequence(clip_011, index_dir, capsys,
-                                              monkeypatch):
+def test_main_refuses_speech_over_target_inside_the_total_max(
+        clip_011, index_dir, capsys, monkeypatch):
+    """2.02 must leave the upper band for non-speech the spine adds.
+
+    The aligned speech is about 20.8 s. At a 19 s target it fits inside
+    the total zone's 20.9 s maximum, but exceeds the speech ceiling.
+    The old full-zone check let it through, leaving no room for breaths.
+    """
     monkeypatch.setattr(sys, "stdin",
-                        io.StringIO(_payload(clip_011, index_dir, 60)))
+                        io.StringIO(_payload(clip_011, index_dir, 19)))
     with pytest.raises(SystemExit) as excinfo:
         pb.main()
     assert excinfo.value.code == 1
     out = json.loads(capsys.readouterr().out)
     assert out["step"] == "2.02_bridge"
-    assert "outside the declared target zone" in out["error"]
+    assert "above the speech ceiling" in out["error"]

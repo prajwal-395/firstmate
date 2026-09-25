@@ -36,6 +36,20 @@
         "type": "array",
         "required": false,
         "description": "Frame-grab and segment-check verdicts the build produced behind PIPELINE_PERCEPTUAL_QA, emitted only when non-empty and absent on a default run. Read by this step's own LLM review through the VISUAL_QA_INSTRUCTIONS addition, which records the absence when there is no table. See library/tools/visual_qa_router.py."
+      },
+      {
+        "name": "render_review",
+        "type": "object",
+        "required": true,
+        "description": "The narrative half of this step: what the review SAW in the export it just built - the strips when they were drawn, the manifest and the measurements otherwise. Shape: {\"overall\": \"clean\"|\"concerns\"|\"not_watched\", \"notes\": [\"one line per span or concern\"]}. Written by the model, read by the run summary (library/tools/render_review.py). Advisory only: 6.02's validation is the gate with teeth."
+      }
+    ],
+    "llm_outputs": [
+      {
+        "name": "render_review",
+        "type": "object",
+        "required": true,
+        "description": "The narrative verdict on the export this step just built, in the shape the render_review output declares. The ONLY key the model is asked for: render_output, render_watch_frames and visual_qa are all measured by the deterministic build, and asking the model to echo them back was the defect (finding 11, execution-frontier report 2026-09-24)."
       }
     ]
   },

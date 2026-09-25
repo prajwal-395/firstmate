@@ -40,6 +40,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools import code_identity
+
+
+def _method_hash() -> str | None:
+    """The identity of the analysis method behind the cached grid.
+
+    The step directory (this file, the manifest) plus the declared
+    measurement implementation (`music_pipeline.py`, via
+    `STEP_IMPLEMENTATION_DEPS`) - the same rule the ledger applies to
+    preflight steps, applied here because this edit-stage step's cache
+    outlives its method otherwise (finding 8, execution-frontier
+    report 2026-09-24: an August librosa grid reused after beat_this
+    landed). None when there is nothing to hash: it matches nothing.
+    """
+    return code_identity.current_code_hash(
+        os.path.dirname(os.path.abspath(__file__)))
 
 
 def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
@@ -86,18 +102,55 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
 
     # Check if analysis already exists for this track
     analysis_path = os.path.join(output_dir, "music_analysis.json")
+    method_hash = _method_hash()
     if os.path.exists(analysis_path):
         try:
             with open(analysis_path) as f:
                 existing = json.load(f)
             # Verify it's for the same track (music_pipeline.py emits "file")
-            if existing.get("file") == track_path:
+            # AND was written by the current method. A grid from an older
+            # method is not a hit even for the same file: the beat grid,
+            # downbeat source and section labels are what changed under
+            # it, and reusing them reports success while the new work
+            # did not happen. A cache from before hashes were stamped
+            # carries no "method_hash" and reads as unknown, never as a
+            # match - it is re-analyzed once, then stamped.
+            if existing.get("file") == track_path and method_hash and \
+                    existing.get("method_hash") == method_hash:
                 print(f"Music analysis already exists for {os.path.basename(track_path)}, "
                       f"reusing cached result", file=sys.stderr)
                 existing["available"] = True
                 return {"music_analysis": existing}
+            elif existing.get("file") == track_path:
+                print(f"Music analysis for {os.path.basename(track_path)} "
+                      f"was written by an older method - re-analyzing",
+                      file=sys.stderr)
+            else:
+                print(f"Music analysis cache is for a different track - "
+                      f"re-analyzing {os.path.basename(track_path)}",
+                      file=sys.stderr)
         except (json.JSONDecodeError, IOError):
-            pass  # Re-run analysis
+            print(f"Music analysis cache for {os.path.basename(track_path)} "
+                  f"is unreadable - re-analyzing", file=sys.stderr)
+
+        # The pipeline writes this same path. Remove any cache that was
+        # not a verified hit before launching it: if analysis fails or
+        # exits without writing, reading the old file afterward would
+        # silently stamp a stale grid with the current method hash.
+        # Finding 8, execution-frontier report 2026-09-24: cache reuse
+        # after the analysis method changed.
+        try:
+            os.remove(analysis_path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            return {
+                "music_analysis": {
+                    "available": False,
+                    "error": ("Cannot invalidate stale music analysis "
+                              f"cache: {exc}"),
+                }
+            }
 
     print(f"Analyzing music track: {os.path.basename(track_path)}",
           file=sys.stderr)
@@ -135,6 +188,17 @@ def analyse_music(music_selection: dict, project_folder: str = "") -> dict:
             with open(analysis_path) as f:
                 analysis = json.load(f)
             analysis["available"] = True
+            # Stamp the method that wrote this grid, so the cache check
+            # above can tell it from an older method's output. Written
+            # back to the file: a stamp kept only in memory would
+            # re-analyze on every run.
+            if method_hash:
+                analysis["method_hash"] = method_hash
+                try:
+                    with open(analysis_path, "w") as f:
+                        json.dump(analysis, f, indent=2)
+                except OSError:
+                    pass
             # BPM lives under `tempo`, not at the top level - this line
             # read analysis['bpm'] and printed "BPM=?" on every run.
             _tempo = analysis.get("tempo") or {}

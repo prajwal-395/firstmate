@@ -194,6 +194,19 @@ class UnpulledMarkers(RuntimeError):
         self.notes = notes
 
 
+class TimelineUnreadableError(RuntimeError):
+    """A timeline would not report what reading its notes needs."""
+
+    def __init__(self, timeline_label: str, what: str, cause) -> None:
+        super().__init__(
+            f"timeline {timeline_label} would not report its {what} "
+            f"({cause}) - refusing rather than reporting half a note. "
+            f"Re-open the timeline and re-run.")
+        self.timeline_label = timeline_label
+        self.what = what
+        self.cause = cause
+
+
 # ── Connecting ──────────────────────────────────────────────────────
 
 
@@ -355,7 +368,10 @@ class MarkerNote:
 
 def _timeline_fps(timeline) -> float:
     for key in ("timelineFrameRate", "timelinePlaybackFrameRate"):
-        raw = timeline.GetSetting(key)
+        try:
+            raw = timeline.GetSetting(key)
+        except Exception:
+            continue
         try:
             fps = float(raw)
         except (TypeError, ValueError):
@@ -491,6 +507,20 @@ def _clips_at(placements: list, frame: Optional[int]) -> list:
     ]
 
 
+def _timeline_label(timeline) -> str:
+    """The timeline's name for an error message, or a stated absence.
+
+    The name read itself can fail on a timeline that is already
+    unreadable; the refusal must name that rather than traceback on
+    the naming.
+    """
+    try:
+        name = timeline.GetName()
+    except Exception:
+        return "(unnamed timeline)"
+    return repr(name) if name else "(unnamed timeline)"
+
+
 def read_notes(timeline, project_folder=None) -> list:
     """Every typed note on `timeline`, in timeline order.
 
@@ -503,11 +533,38 @@ def read_notes(timeline, project_folder=None) -> list:
     `pull` report the same paths without the caller having to say.
     """
     read_at = datetime.now(timezone.utc).isoformat()
-    fps = _timeline_fps(timeline)
-    start_frame = int(timeline.GetStartFrame())
-    placements = _all_placements(timeline)
+    label = _timeline_label(timeline)
+    # Every Resolve read this listing needs, up front and guarded. A
+    # scratch timeline that will not report its markers, rate, start
+    # frame or items used to fail deep inside the listing with a bare
+    # TypeError - `resolve-axi markers` crashed on it instead of
+    # refusing (finding 19, execution-frontier report 2026-09-24).
+    # "No markers" and "I could not look" stay different answers.
+    try:
+        fps = _timeline_fps(timeline)
+        raw_markers = timeline.GetMarkers() or {}
+        if raw_markers:
+            try:
+                start_frame = int(timeline.GetStartFrame())
+            except Exception as exc:
+                raise TimelineUnreadableError(
+                    label, "start frame", exc) from exc
+        else:
+            # No timeline markers to place: the start frame is never
+            # read, so an empty scratch timeline lists cleanly without
+            # touching the call that fails on it.
+            start_frame = 0
+        placements = _all_placements(timeline)
+    except TimelineUnreadableError:
+        raise
+    except Exception as exc:
+        raise TimelineUnreadableError(label, "markers", exc) from exc
     if project_folder is None:
-        project_folder = project_folder_from_timeline(timeline)
+        try:
+            project_folder = project_folder_from_timeline(timeline)
+        except Exception as exc:
+            raise TimelineUnreadableError(
+                label, "project folder", exc) from exc
     notes: list = []
 
     def add(**kw):
@@ -523,7 +580,7 @@ def read_notes(timeline, project_folder=None) -> list:
         ))
 
     # 1. Timeline markers.  Keys are relative to GetStartFrame().
-    for key, marker in (timeline.GetMarkers() or {}).items():
+    for key, marker in raw_markers.items():
         name, note, text = _text_of(marker)
         add(
             source="timeline_marker",

@@ -65,6 +65,34 @@ def get_target_duration_zone(data: dict) -> Optional[Tuple[float, float, float]]
     return None
 
 
+def get_speech_duration_zone(data: dict) -> Optional[Tuple[float, float, float]]:
+    """The band step 2.02 holds SPEECH alone to, or None if undeclared.
+
+    `(zone_min, zone_target, zone_target)`: speech owns the LOWER half
+    of the declared zone - it must reach the floor and must not pass
+    the target. The band above the target, up to the zone ceiling, is
+    the room the NON-SPEECH the spine adds extends into (intro/outro
+    breaths, music and picture blocks - step 2.05's creative half),
+    and step 2.05 holds the TOTAL to the full `(min, target, max)`.
+
+    Why the ceiling is the target and not the max: 2.02 holding speech
+    alone to the full zone, and 2.05 then holding the total to the
+    same zone, left nothing for breaths, b-roll slots or beats - at a
+    30 s target 30.3 s of speech passed 2.02 and left 2.7 s for
+    everything else (findings 9 and 30, execution-frontier report
+    2026-09-24). A speech sequence already at the target cannot take
+    another breath without breaking the total, so it is refused HERE,
+    where the model that chose the passages can still cut, rather than
+    at 2.05, where nothing can. B-roll overlaps speech and adds no
+    time; only what EXTENDS the total needs the upper band.
+    """
+    zone = get_target_duration_zone(data)
+    if zone is None:
+        return None
+    min_dur, target_dur, _max_dur = zone
+    return (min_dur, target_dur, target_dur)
+
+
 # What the three resolved numbers ARE.  Shipped in the context alongside
 # the numbers so a model judged against the zone can read what it is being
 # judged against - the same route ``music_measurement.MEASUREMENT_LEGEND``

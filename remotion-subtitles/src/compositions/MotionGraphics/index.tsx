@@ -40,7 +40,7 @@ export type PlannedElement = {
   element: string;
   anchor: string;
   row: number;
-  runs: { text: string; type_role: string }[];
+  runs: { text: string; type_role: string; uppercase?: boolean }[];
   color: string;
   entrance: string;
   exit: string;
@@ -610,6 +610,11 @@ export const runStyle = (
   typeRole: string,
   scale: number,
   color: string,
+  // Declared style, never a default: copy renders in the case the plan
+  // stated it unless the run declares `uppercase: true` (finding 22,
+  // execution-frontier report 2026-09-24). `mg_tight_box._run_width`
+  // measures off the same flag, so the measured union is the drawn one.
+  uppercase: boolean = false,
 ): React.CSSProperties => ({
   fontSize: `${(TYPE_SIZE[typeRole] ?? TYPE_SIZE.supporting) * scale}px`,
   fontWeight: TYPE_WEIGHT[typeRole] ?? TYPE_WEIGHT.supporting,
@@ -617,7 +622,7 @@ export const runStyle = (
   textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
   lineHeight: 1.1,
   letterSpacing: typeRole === "display" ? "3px" : "0px",
-  textTransform: typeRole === "display" ? "uppercase" : "none",
+  textTransform: uppercase ? "uppercase" : "none",
 });
 
 /** What a review listing LOOKS like in this renderer, in pixels at scale 1.
@@ -877,7 +882,7 @@ const StagedLowerThird: React.FC<{
           transform: `translateY(${nameLift}px)`,
         }}
       >
-        <div style={runStyle(nameRun.type_role, scale, element.color)}>
+        <div style={runStyle(nameRun.type_role, scale, element.color, nameRun.uppercase ?? false)}>
           {nameRun.text}
         </div>
       </div>
@@ -898,7 +903,7 @@ const StagedLowerThird: React.FC<{
             clipPath: wipeFrom(titleBuilt),
           }}
         >
-          <div style={runStyle(titleRun.type_role, scale, element.color)}>
+          <div style={runStyle(titleRun.type_role, scale, element.color, titleRun.uppercase ?? false)}>
             {titleRun.text}
           </div>
         </div>
@@ -913,7 +918,7 @@ const Runs: React.FC<{ element: PlannedElement; scale: number }> = ({
 }) => (
   <>
     {element.runs.map((run, i) => (
-      <div key={i} style={runStyle(run.type_role, scale, element.color)}>
+      <div key={i} style={runStyle(run.type_role, scale, element.color, run.uppercase ?? false)}>
         {run.text}
       </div>
     ))}
@@ -965,7 +970,7 @@ const TypewriterRuns: React.FC<{
               textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
               lineHeight: 1.1,
               letterSpacing: run.type_role === "display" ? "3px" : "0px",
-              textTransform: run.type_role === "display" ? "uppercase" : "none",
+              textTransform: run.uppercase ? "uppercase" : "none",
             }}
           >
             {visibleText}

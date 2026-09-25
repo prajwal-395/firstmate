@@ -236,6 +236,13 @@ STEP_IMPLEMENTATION_DEPS = {
         # The whole measurement, imported by step.py.
         "library/tools/analysis/ocr_extractor.py",
     ),
+    "step_2_06_music_analysis": (
+        # The executed measurement: beat grid, tempo, key and sections.
+        # This step is EDIT stage, so the ledger's preflight code check
+        # never covers it - the step stamps its own cache with this hash
+        # instead (finding 8, execution-frontier report 2026-09-24).
+        "library/tools/analysis/music_pipeline.py",
+    ),
 }
 
 # library.tools imports a step may reference WITHOUT declaring them
@@ -244,6 +251,14 @@ STEP_IMPLEMENTATION_DEPS = {
 EXEMPT_IMPORTS = {
     # Directory plumbing: moving an area does not change a measured value.
     "library/tools/project_layout.py",
+    # Cache-identity plumbing: hashing a step's sources and stamping
+    # which code wrote a cache. A fix here can only invalidate good
+    # cache (a re-analysis, the safe direction) - never silently bless
+    # stale values, which is the failure this map exists to stop.
+    # Declaring it instead would drag every file this module NAMES in
+    # STEP_IMPLEMENTATION_DEPS into each importing step's hash through
+    # the coverage test's transitive scan.
+    "library/tools/code_identity.py",
     # Centralized path configuration: every entry is a location or an
     # environment override, so a change here fails loud (a binary not
     # found) rather than as a silently stale cached value.  Declaring it
@@ -355,6 +370,71 @@ def step_code_hash(step_dir: str, extra_files=()) -> Optional[str]:
         digest.update(data)
 
     return digest.hexdigest() if found else None
+
+
+# The stamp file a step keeps beside its own cached artifacts, naming the
+# code that wrote them.  The ledger-level check (`apply_code_identity` in
+# run_pipeline.py) forgets a step whose code changed so the step re-runs -
+# but several steps resume from their on-disk artifacts, and a re-run that
+# reuses artifacts its own new method would not have produced reports
+# success while the work did not happen (finding 8, execution-frontier
+# report 2026-09-24: music_analysis reused an old librosa grid after
+# beat_this landed; semantic analysis printed "invalidating" then reused
+# all 17 profiles).  A step compares this stamp on entry and treats a
+# mismatch as "nothing cached": the invalidation the ledger promised,
+# carried through to the files.
+CODE_STAMP_FILENAME = ".step_code_hash"
+
+
+def current_code_hash(step_dir, repo_root=None) -> Optional[str]:
+    """This step's code identity, by the same rule the ledger checks.
+
+    ``step_dir`` is the step's own directory (or anything
+    ``implementation_deps`` can key on by basename); the hash folds in
+    the step directory plus its declared ``STEP_IMPLEMENTATION_DEPS``,
+    so it moves exactly when the ledger's hash for the step moves.
+    None when there is nothing to hash - the caller then cannot stamp
+    and must not claim a match.
+    """
+    root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    try:
+        deps = implementation_deps(str(step_dir), root)
+    except Exception:
+        deps = []
+    return step_code_hash(str(step_dir), extra_files=deps)
+
+
+def read_code_stamp(output_dir: str) -> Optional[str]:
+    """The hash the cached artifacts in ``output_dir`` were written under.
+
+    None when no stamp is on disk - a cache from before stamps existed,
+    which reads as "written by unknown code" and never as a match.
+    """
+    try:
+        text = Path(output_dir, CODE_STAMP_FILENAME).read_text(
+            encoding="utf-8")
+    except OSError:
+        return None
+    digest = text.strip().split()[0] if text.strip() else ""
+    return digest or None
+
+
+def write_code_stamp(output_dir: str, code_hash: Optional[str]) -> None:
+    """Record which code wrote this run's artifacts. Best-effort.
+
+    A stamp that cannot be written must not fail the analysis it
+    describes - the next run then re-analyzes, which is the safe
+    direction. A None hash writes nothing for the same reason: no
+    stamp is "unknown code", never a match.
+    """
+    if not code_hash:
+        return
+    try:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        Path(output_dir, CODE_STAMP_FILENAME).write_text(
+            code_hash + "\n", encoding="utf-8")
+    except OSError:
+        pass
 
 
 def implementation_deps(step_dir: str, repo_root=None) -> list:

@@ -333,6 +333,12 @@ dropped).
   are not.
 - `copy` is what the graphic SAYS. Nothing else in this pipeline produces it,
   so an element the roster marks `copy: required` with no copy is dropped.
+- **Copy renders in the case you state it.** A display run is NOT uppercased
+  for you: `"link in bio"` draws lowercase, `"LINK IN BIO"` draws shouting.
+  A run that must shout states `"uppercase": true` on its run - which needs
+  the list form: `[{"text": "...", "type_role": "display", "uppercase": true}]`.
+  The usual mapping form (`{"display": "...", "supporting": "..."}`) always
+  honours case.
 - **Every run of copy names a `type_role`** - `display`, `supporting` or
   `micro`. It is a typographic tier, not a size; it is how a figure and its
   unit are distinguishable without either naming pixels. A copy run naming no

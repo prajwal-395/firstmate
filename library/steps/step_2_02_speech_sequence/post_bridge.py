@@ -56,7 +56,7 @@ class SpeechDurationError(ValueError):
 def total_speech_seconds(body_sequence: list) -> float:
     """Sum of enriched passage durations, in seconds.
 
-    Read off the ALIGNED `start_time`/`end_time` - the WhisperX word
+    Read off the ALIGNED `start_time`/`end_time` - the temporal index's word
     timings `apply_enrichment` wrote back - never off the LLM's hint.
     """
     total = 0.0
@@ -68,8 +68,16 @@ def total_speech_seconds(body_sequence: list) -> float:
     return total
 
 
-def refuse_out_of_zone_sequence(total_duration: float, zone) -> None:
+def refuse_out_of_zone_sequence(total_duration: float, zone,
+                                total_zone=None) -> None:
     """Raise SpeechDurationError when a DECLARED zone is missed.
+
+    ``zone`` is the SPEECH zone - `(floor, target, ceiling)` from
+    `duration_targets.get_speech_duration_zone`: speech owns the lower
+    half of the declared zone and must neither fall short of the floor
+    nor pass the target. ``total_zone`` is the full
+    `(min, target, max)` the TOTAL is held to downstream; it is carried
+    only so the refusal can state both bands.
 
     The summation is exact and the zone is the project's own
     declaration (`library/tools/duration_targets.py`), so the verdict
@@ -80,20 +88,40 @@ def refuse_out_of_zone_sequence(total_duration: float, zone) -> None:
     proceeding on an over-long sequence step 3.03's gate would fail a
     stage later.
 
+    Each direction names its own fix. A too-short sequence used to be
+    refused with "Select fewer or shorter passages" - the wrong way
+    (finding 30, execution-frontier report 2026-09-24).
+
     A run that declares no target is UNCHECKED, not passed: measuring
     against an invented minute is the defect `duration_targets`
     removed.
     """
     if zone is None:
         return
-    min_dur, target_dur, max_dur = zone
-    if total_duration > max_dur or total_duration < min_dur:
+    min_dur, _target_dur, ceiling = zone
+    if total_zone is None:
+        total_zone = (min_dur, _target_dur, ceiling)
+    total_min, total_target, total_max = total_zone
+    if total_duration > ceiling:
         raise SpeechDurationError(
-            f"Total speech duration ({total_duration:.1f}s) is outside "
-            f"the declared target zone ({min_dur:.1f}-{max_dur:.1f}s, "
-            f"target {target_dur:.1f}s). Select fewer or shorter "
-            f"passages so the sequence fits; document what was cut in "
-            f"excluded_passages."
+            f"Total speech duration ({total_duration:.1f}s) is above "
+            f"the speech ceiling ({ceiling:.1f}s, the declared "
+            f"{total_target:.1f}s target). Select fewer or shorter "
+            f"passages, leaving the {ceiling:.1f}-{total_max:.1f}s band "
+            f"above the target for the breaths, intro/outro and "
+            f"music/picture blocks step 2.05 adds - it holds the TOTAL "
+            f"to ({total_min:.1f}-{total_max:.1f}s). Document what was "
+            f"cut in excluded_passages."
+        )
+    if total_duration < min_dur:
+        raise SpeechDurationError(
+            f"Total speech duration ({total_duration:.1f}s) is below "
+            f"the zone floor ({min_dur:.1f}s, target {total_target:.1f}s). "
+            f"Select MORE or LONGER passages. Non-speech blocks complete "
+            f"the total downstream, but they extend it by seconds - step "
+            f"2.05 still holds the TOTAL to "
+            f"({total_min:.1f}-{total_max:.1f}s). Document the choice in "
+            f"excluded_passages either way."
         )
 
 
@@ -309,7 +337,7 @@ def _anchor_backed_up(candidates: list, idx: int) -> int:
     return idx
 
 
-# Contraction expansion table: candidate spellings WhisperX produces that
+# Contraction expansion table: candidate spellings transcription produces that
 # the passage text writes out in two words.
 _EXPANDED_CONTRACTIONS = {
     "its": ("it", "is"),
@@ -333,7 +361,8 @@ _EXPANDED_CONTRACTIONS = {
 def _align_from(candidates: list, passage_words: list, c_idx: int) -> list:
     """Two-pointer alignment of `passage_words` starting at `c_idx`.
 
-    Handles words the LLM included but WhisperX did not transcribe,
+    Handles words the LLM included but the temporal index has no timings
+    for,
     contractions, and filler words in the candidate list.
     """
     aligned = []
@@ -365,7 +394,7 @@ def _align_from(candidates: list, passage_words: list, c_idx: int) -> list:
                 continue
 
         # Lookahead: maybe the current passage word wasn't transcribed
-        # (e.g. "2026" missing from WhisperX). Try matching the NEXT
+        # (e.g. "2026" missing from the index). Try matching the NEXT
         # passage word against the current candidate.
         lookahead = min(3, len(passage_words) - p_idx)
         matched = False
@@ -656,7 +685,7 @@ def enrich_speech_sequence(
 
         The LLM's `source_start`/`source_end` are a HINT only - they
         disambiguate which occurrence of the text to align against.  The
-        returned times always come from WhisperX word timings, so an LLM
+        returned times always come from the temporal index's word timings, so an LLM
         that guessed a plausible-looking round-number range cannot leak
         fabricated timings into the timeline.
 
@@ -934,8 +963,10 @@ def main():
     total_duration = total_speech_seconds(body)
 
     from library.tools.duration_targets import (
-        NO_TARGET_DECLARED, get_target_duration_zone)
-    zone = get_target_duration_zone(data)
+        NO_TARGET_DECLARED, get_speech_duration_zone,
+        get_target_duration_zone)
+    zone = get_speech_duration_zone(data)
+    total_zone = get_target_duration_zone(data)
 
     if zone is None:
         # Stated, not measured against a made-up minute.
@@ -948,7 +979,7 @@ def main():
         # numbers back to the model that chose the passages, bounded by
         # the post-bridge retry path (library/tools/post_bridge_retry.py).
         try:
-            refuse_out_of_zone_sequence(total_duration, zone)
+            refuse_out_of_zone_sequence(total_duration, zone, total_zone)
         except SpeechDurationError as exc:
             print(json.dumps({"error": str(exc), "step": "2.02_bridge"}))
             sys.exit(1)

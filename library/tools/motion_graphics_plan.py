@@ -647,7 +647,7 @@ def _data_states_no_difference(key: str, data: Any) -> str:
 def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
     """The runs of copy an entry carries, in the order it wrote them.
 
-    A run is `{text, type_role}`. `type_role` is the vocabulary's axis
+    A run is `{text, type_role, uppercase}`. `type_role` is the vocabulary's axis
     and carries no size: what `display` and `micro` MEASURE is the
     composition's business, and what they MEAN is the vocabulary's.
     Nothing here supplies a run the plan did not write, and nothing
@@ -658,13 +658,21 @@ def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
     10.5). The handoff asks for copy as a mapping of role to text, so
     a bare string is an answer that declined the axis, not one that
     named it.
+
+    `uppercase` is a declared style, not a default: copy renders in the
+    case the plan stated it unless the run declares `uppercase: true`
+    (finding 22, execution-frontier report 2026-09-24: the renderer
+    force-uppercased every display run whatever case the copy stated).
+    Only the list form can declare it; the string and mapping forms
+    carry `False`. The renderer and the tight-box measurement read the
+    same flag, so the measured union is the drawn one.
     """
     raw = entry.get("copy")
     runs: List[dict] = []
     if isinstance(raw, str):
         text = raw.strip()
         if text:
-            runs.append({"text": text, "type_role": ""})
+            runs.append({"text": text, "type_role": "", "uppercase": False})
         return runs
     if isinstance(raw, dict):
         # A mapping of type_role -> text, in the roles' own order so a
@@ -675,20 +683,23 @@ def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
         for role in TYPE_ROLES:
             text = _text(raw.get(role))
             if text:
-                runs.append({"text": text, "type_role": role})
+                runs.append({"text": text, "type_role": role,
+                             "uppercase": False})
         for key, value in raw.items():
             if key in TYPE_ROLES:
                 continue
             text = _text(value)
             if text:
-                runs.append({"text": text, "type_role": ""})
+                runs.append({"text": text, "type_role": "",
+                             "uppercase": False})
         return runs
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, str):
                 text = item.strip()
                 if text:
-                    runs.append({"text": text, "type_role": ""})
+                    runs.append({"text": text, "type_role": "",
+                                 "uppercase": False})
             elif isinstance(item, dict):
                 text = _text(item.get("text"))
                 if not text:
@@ -697,6 +708,10 @@ def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
                 runs.append({
                     "text": text,
                     "type_role": role if role in TYPE_ROLES else "",
+                    # Treat only JSON true as an uppercase declaration;
+                    # truthy strings such as "false" are malformed copy
+                    # data, not a style choice.
+                    "uppercase": item.get("uppercase", False) is True,
                 })
     return runs
 

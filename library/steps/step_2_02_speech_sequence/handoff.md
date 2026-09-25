@@ -22,8 +22,8 @@ per-clip semantic analyses (your raw material).
 
 Your job is SELECTION AND PLACEMENT — choose which speech passages to use
 and in what order. The exact source timings are resolved for you: the
-post-bridge aligns the verbatim text you give it against WhisperX word
-timings and writes the real in and out points back.
+post-bridge aligns the verbatim text you give it against the temporal
+index's word timings, then writes the real in and out points back.
 
 ---
 
@@ -71,8 +71,8 @@ Each passage needs:
 **The exact in and out points are not yours to compute, and no answer you
 give here becomes a timeline range.** The post-bridge
 (`library/steps/step_2_02_speech_sequence/post_bridge.py`,
-`_align_words_to_text`) searches the clip's WhisperX word timings for your
-`text`, tries every occurrence of its first word, and ranks the candidates
+`_align_words_to_text`) searches the temporal index's word timings for
+your `text`, tries every occurrence of its first word, and ranks the candidates
 by how much of the passage aligned, then by the shortest span, then by the
 smallest leading gap. Whatever it picks becomes `start_time`/`end_time`,
 and those are what reach the spine. It FAILS THE STEP when your text
@@ -118,14 +118,22 @@ brief is provided, rely on the creative direction output from Step 2.1.
 
 ## Duration Limit
 
-**The project declares a target duration zone, and the sequence has to fit
-inside it. You are not the one who adds it up.** The post-bridge sums the
-ALIGNED durations - the real ones, off the word timings, not the hints you
-gave - and `refuse_out_of_zone_sequence`
-(`library/steps/step_2_02_speech_sequence/post_bridge.py`) REFUSES the step
-when the total falls outside the declared zone, handing you the numbers and
-the zone so you can cut. Any arithmetic you do here is on estimates the
-alignment is about to replace, so do not present a total as a fact.
+**The project declares a target duration zone, and the speech sequence
+owns its lower half.** The post-bridge sums the ALIGNED durations - the
+real ones, off the word timings, not the hints you gave - and
+`refuse_out_of_zone_sequence`
+(`library/steps/step_2_02_speech_sequence/post_bridge.py`) REFUSES the
+step when speech falls short of the zone floor or passes the declared
+target, handing you the numbers and both bands so you can extend or
+cut. Any arithmetic you do here is on estimates the alignment is about
+to replace, so do not present a total as a fact.
+
+The band ABOVE the target, up to the zone ceiling, is not yours: it is
+the room the breaths, intro/outro and music/picture blocks step 2.05
+adds extend into, and step 2.05 holds the TOTAL to the full zone. Land
+speech at or under the target with room above - a sequence already at
+the target leaves nowhere for a breath. B-roll overlaps speech and
+adds no time; only blocks that EXTEND the total need the upper band.
 
 What that leaves you is the judgement the refusal cannot make:
 
@@ -133,9 +141,6 @@ What that leaves you is the judgement the refusal cannot make:
   creative direction's narrative theme and key moments. Cutting the weakest
   passage and cutting the shortest one are different decisions and only one
   of them is editorial.
-- **Leaving room for B-roll, transitions, intro and outro** - how much of
-  the piece is speech versus visual is a creative call that depends on the
-  footage and the creative direction, and the zone measures speech alone.
 - **Documenting the cut** in `excluded_passages`, with
   `reason_excluded: "cut to meet duration target of Xs"`.
 

@@ -216,7 +216,13 @@ def test_every_bridge_key_is_declared(tmp_path):
         declared = _declared_names(manifest)
         for inputs, env in _cases(step_dir, tmp_path):
             emitted = _run_bridge(step_dir, inputs, env)
-            unknown = sorted(set(emitted) - declared)
+            # `__prompt_additions` is popped into the prompt by
+            # `present_llm_step`, and `validate_step_output` ignores it by
+            # construction - so it is neither declared nor declarable,
+            # and this test's rationale (validation would flag it) does
+            # not apply. Other private keys still fail this contract.
+            unknown = sorted(k for k in set(emitted) - declared
+                             if k != "__prompt_additions")
             if unknown:
                 problems.append(f"{step_dir}: {unknown}")
     assert not problems, (

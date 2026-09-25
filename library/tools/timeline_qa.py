@@ -274,8 +274,36 @@ def verify_fusion_comps(timeline, placed_labels_by_track, manifest_fusion_effect
 def run_full_timeline_qa(timeline, project, manifest) -> QAReport:
     """Station 6: Final sweep after all phases."""
     report = QAReport(station="full_sweep", passed=True)
-    
+
+    manifest = manifest or {}
+    # A centred native dissolve is drawn OVER the cut: Resolve extends
+    # both neighbours into each other's handles, so the two V1 items
+    # overlap by half the transition's duration. That overlap IS the
+    # dissolve, and flagging it as a clip collision made every correct
+    # dissolve read as a defect (finding 18, execution-frontier report
+    # 2026-09-24: a 6-frame Cross Dissolve reported as
+    # "overlap_before_clip_N expected >=0, got -3"). The manifest's
+    # `native_transitions` rows carry `after_clip` (the OUTGOING clip's
+    # index in timeline order) and `duration_frames`, always centred -
+    # see `native_ops_apply.apply_native_transitions`. An overlap at a
+    # declared boundary, within half that duration, is explained and
+    # passes; anything bigger, or anywhere else, still fails.
+    transition_allowance: dict = {}
+    for op in manifest.get("native_transitions", []) or []:
+        after_clip = op.get("after_clip")
+        duration = op.get("duration_frames")
+        if (isinstance(after_clip, int) and not isinstance(after_clip, bool)
+                and isinstance(duration, (int, float))
+                and not isinstance(duration, bool) and duration >= 1):
+            transition_allowance[after_clip] = max(
+                transition_allowance.get(after_clip, 0),
+                math.ceil(duration / 2))
+
     v1_items = timeline.GetItemListInTrack("video", 1) or []
+    try:
+        v1_items = sorted(v1_items, key=lambda item: item.GetStart())
+    except Exception:
+        pass
     prev_end = None
     
     for i, item in enumerate(v1_items):
@@ -309,10 +337,20 @@ def run_full_timeline_qa(timeline, project, manifest) -> QAReport:
                 if not gap_covered:
                     report.checks.append(QACheck(name=f"gap_before_clip_{i}", passed=False, expected="<=1", actual=start-prev_end))
                     report.passed = False
-            # Overlap detection: check no two V1 items share frames
+            # Overlap detection: check no two V1 items share frames,
+            # beyond what a declared centred dissolve explains (above).
             if start < prev_end:
-                report.checks.append(QACheck(name=f"overlap_before_clip_{i}", passed=False, expected=">=0", actual=start-prev_end))
-                report.passed = False
+                overlap = prev_end - start
+                allowed = transition_allowance.get(i - 1, 0)
+                if overlap <= allowed:
+                    report.checks.append(QACheck(
+                        name=f"overlap_before_clip_{i}_dissolve",
+                        passed=True,
+                        expected=f"<= {allowed} (declared dissolve)",
+                        actual=start - prev_end))
+                else:
+                    report.checks.append(QACheck(name=f"overlap_before_clip_{i}", passed=False, expected=">=0", actual=start-prev_end))
+                    report.passed = False
         prev_end = end
         
     # Total duration within 10% of expected

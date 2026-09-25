@@ -59,6 +59,24 @@ VFX_STILL_PROMPT = (
 # into it, not a second copy.
 TEXT_SUMMARY_CHARS = 80
 
+#: The handoff marker this bridge fills with the enforced zoom bound.
+ZOOM_BOUND_MARKER = "<!-- MAX_ANIMATED_ZOOM -->"
+
+
+def zoom_bound_additions() -> dict:
+    """The prompt addition rendering the enforced animated-zoom bound.
+
+    The handoff states the comp builder's MECHANICAL refusal on
+    animated Transform Size; the number it states is rendered here
+    from `library/tools/fusion/nodes.py: MAX_ANIMATED_ZOOM` - the
+    single source - so the prompt and the enforcement cannot disagree
+    again (finding 20, execution-frontier report 2026-09-24: the
+    prompt said 1.04 while the code enforced 1.15).
+    `present_llm_step` replaces the marker with this text.
+    """
+    from library.tools.fusion.nodes import MAX_ANIMATED_ZOOM
+    return {ZOOM_BOUND_MARKER: f"{MAX_ANIMATED_ZOOM:g}"}
+
 
 def format_toon(headers, rows):
     if not rows:
@@ -566,6 +584,12 @@ def main():
         "vfx_shot_stills": stills_block,
         "still_motion_notes": observe_vfx_stills(
             still_paths, project_folder),
+        # The enforced zoom bound, rendered into the handoff's marker
+        # (see `zoom_bound_additions`): one source for the prompt and
+        # the comp builder. `__`-prefixed keys never reach validation
+        # (`validate_step_output` ignores them) and `present_llm_step`
+        # pops this into the prompt before the model is asked.
+        "__prompt_additions": zoom_bound_additions(),
     }
 
     print(json.dumps(compressed))

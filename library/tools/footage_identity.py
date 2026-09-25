@@ -411,6 +411,9 @@ class SourceDelta:
     added: List[str] = field(default_factory=list)     # clip ids new here
     removed: List[str] = field(default_factory=list)   # clip ids gone
     changed: List[str] = field(default_factory=list)   # same id, other file
+    moved: List[str] = field(default_factory=list)     # same id, same
+    # content, other path - a copy or rename of the project, not new
+    # footage (finding 7, execution-frontier report 2026-09-24)
 
     @property
     def stale_clip_ids(self) -> List[str]:
@@ -418,7 +421,9 @@ class SourceDelta:
 
         ``added`` is included: under the sorted-path numbering an "added"
         id may be a REUSED id that now points at different footage, and a
-        genuinely new clip has no artifact to delete anyway.
+        genuinely new clip has no artifact to delete anyway. ``moved``
+        is NOT included: the bytes are identical, so the analysis still
+        describes them - only the project's address changed.
         """
         return sorted(set(self.added) | set(self.removed) | set(self.changed))
 
@@ -434,6 +439,8 @@ class SourceDelta:
             parts.append(f"removed {', '.join(sorted(self.removed))}")
         if self.changed:
             parts.append(f"replaced {', '.join(sorted(self.changed))}")
+        if self.moved:
+            parts.append(f"relocated {', '.join(sorted(self.moved))}")
         return "; ".join(parts) or "unchanged"
 
 
@@ -444,6 +451,13 @@ def compare(recorded: Dict[str, dict], current: Dict[str, dict]) -> SourceDelta:
     not: a different path, a different size, or different content at
     either end.  All three are treated identically because all three mean
     the cached analysis describes something else.
+
+    A clip is ``moved`` - not ``changed`` - when its id survives at a
+    different path with identical size AND identical content digest.
+    That is a copy or rename of the project, and the cached analysis
+    still describes the bytes.  Records without a digest (written before
+    it existed) cannot prove identical content, so a path change on
+    those stays ``changed``: the safe direction.
 
     A record written before the digest existed carries no
     ``content_digest``.  It is compared on what it does have, so gaining
@@ -464,15 +478,21 @@ def compare(recorded: Dict[str, dict], current: Dict[str, dict]) -> SourceDelta:
         was = recorded.get(clip_id)
         if not was:
             continue
-        same = (
+        same_path = (
             os.path.abspath(str(was.get("path", "")))
             == os.path.abspath(str(now.get("path", "")))
-            and was.get("size_bytes") == now.get("size_bytes")
-            and (was.get("content_digest") is None
-                 or was["content_digest"] == now.get("content_digest"))
         )
-        if not same:
-            delta.changed.append(clip_id)
+        same_size = was.get("size_bytes") == now.get("size_bytes")
+        if same_path and same_size and (
+                was.get("content_digest") is None
+                or was["content_digest"] == now.get("content_digest")):
+            continue
+        if (not same_path and same_size
+                and was.get("content_digest") is not None
+                and was["content_digest"] == now.get("content_digest")):
+            delta.moved.append(clip_id)
+            continue
+        delta.changed.append(clip_id)
 
     return delta
 

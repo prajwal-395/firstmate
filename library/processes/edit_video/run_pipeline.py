@@ -1030,6 +1030,18 @@ def apply_source_identity(project_dir: str, state: dict, stage_by_node: dict,
         return None
 
     delta = footage_identity.compare(recorded, current)
+    if delta.moved and not delta.footage_changed:
+        # Relocation, not replacement: every clip's bytes are identical
+        # and only the project's address changed (a copy or rename -
+        # finding 7, execution-frontier report 2026-09-24). The cached
+        # analysis still describes the footage, so nothing is
+        # invalidated; the record is adopted at the new address so the
+        # next run compares against where the footage lives now.
+        state[step_ledger.SOURCE_FINGERPRINTS_KEY] = current
+        print(f"  ℹ Source footage relocated ({delta.describe()}) - "
+              f"identical content, keeping the cached preflight work",
+              file=sys.stderr)
+        return delta
     if not delta.footage_changed:
         return delta
 
@@ -3785,6 +3797,24 @@ def run_pipeline(
         review_findings = _cv.unplaced_findings(_cut_decisions)
     except Exception as exc:  # noqa: BLE001 - a report must not fail a run
         print(f"  WARNING: could not read the rough-cut review findings: "
+              f"{exc}", file=sys.stderr)
+
+    # What the render review saw, printed where a person will see it.
+    #
+    # Step 6.01's model half watches the export it just built and writes
+    # `render_review`. The verdict has no downstream step to act on it -
+    # 6.02's validation is the gate with teeth - so the run summary is
+    # its reader, the way the rough-cut review's unplaced findings are
+    # printed above. Reading is not gating: `status` is decided above
+    # this block.
+    try:
+        from library.tools import render_review as _rr
+        _render_review = (state.get("step_outputs", {})
+                          .get("render", {}).get("render_review"))
+        for _line in _rr.summary_lines(_render_review):
+            print(_line, file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the render review: "
               f"{exc}", file=sys.stderr)
 
     # The captain's notes that reached NOBODY on this run.

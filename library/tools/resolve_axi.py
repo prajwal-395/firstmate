@@ -236,6 +236,25 @@ def fail(message: str, fix: str = "") -> int:
     return 1
 
 
+def _read_notes(timeline, fix: str):
+    """`marker_feedback.read_notes`, failing clean instead of tracebacking.
+
+    A timeline that will not report its markers, rate, start frame or
+    items used to fail deep inside the listing with a bare TypeError,
+    so `resolve-axi markers` crashed on a scratch timeline instead of
+    refusing (finding 19, execution-frontier report 2026-09-24). The
+    unreadable shape now arrives as `TimelineUnreadableError` and
+    leaves here as an `AxiError` the call sites answer with `fail`.
+    Anything else stays loud: an unexpected traceback is a bug, and a
+    clean refusal would hide it.
+    """
+    from library.tools import marker_feedback
+    try:
+        return marker_feedback.read_notes(timeline)
+    except marker_feedback.TimelineUnreadableError as exc:
+        raise AxiError(str(exc), fix) from exc
+
+
 class Parser(argparse.ArgumentParser):
     """argparse that fails loud onto stdout with exit 2 (axi principle 6).
 
@@ -492,13 +511,16 @@ def cmd_timeline_get(args) -> int:
             timeline, _, note = _target_timeline(project, args.name)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
-        from library.tools import marker_feedback
         start, end, frames = _frames_of(timeline)
         try:
             fps = timeline.GetSetting("timelineFrameRate")
         except Exception:
             fps = "unknown"
-        notes = marker_feedback.read_notes(timeline)
+        try:
+            notes = _read_notes(
+                timeline, f"{TOOL} timeline get \"{args.name}\"")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
         planes: dict = {}
         colours: dict = {}
         for entry in notes:
@@ -572,8 +594,12 @@ def cmd_markers(args) -> int:
                 project, args.timeline)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
-        from library.tools import marker_feedback
-        notes = marker_feedback.read_notes(timeline)
+        try:
+            notes = _read_notes(
+                timeline, f"{TOOL} markers --timeline "
+                f"\"{args.timeline or '<name>'}\"")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
     rows = _note_rows(notes, args.full, args.plane or "")
     truncated = sum(1 for r in rows if "(truncated," in r["note"])
     emit([kv_block("markers", {
@@ -635,8 +661,12 @@ def cmd_markers_snapshot(args) -> int:
             timeline, _, note = _target_timeline(project, args.timeline)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
-        from library.tools import marker_feedback
-        notes = marker_feedback.read_notes(timeline)
+        try:
+            notes = _read_notes(
+                timeline, f"{TOOL} markers --timeline "
+                f"\"{args.timeline or '<name>'}\"")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
         payload = _snapshot_payload(project.GetName(), timeline.GetName(),
                                     notes)
     try:
@@ -881,8 +911,12 @@ def cmd_markers_reply(args) -> int:
             timeline, _, note = _target_timeline(project, args.timeline)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
-        from library.tools import marker_feedback
-        notes = marker_feedback.read_notes(timeline)
+        try:
+            notes = _read_notes(
+                timeline, f"{TOOL} markers --timeline "
+                f"\"{args.timeline or '<name>'}\"")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
         answered = [n for n in notes
                     if args.answers_frame is not None
                     and n.frame == args.answers_frame]
@@ -1045,7 +1079,12 @@ def cmd_markers_audit_replies(args) -> int:
             return fail(str(exc), f"{TOOL} markers --timeline "
                                   f"\"{args.timeline or '<name>'}\"")
         rows = _carry.audit_replies(notes, timeline.GetName())
-        live = marker_feedback.read_notes(timeline)
+        try:
+            live = _read_notes(
+                timeline, f"{TOOL} markers --timeline "
+                f"\"{args.timeline or '<name>'}\"")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
         clip_replies = [
             n for n in live if n.source != "timeline_marker"
             and marker_feedback.reply_records_in(n.custom_data_raw)]

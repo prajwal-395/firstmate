@@ -42,6 +42,32 @@ sharing the same interface contract.
 
 ---
 
+## Your answer
+
+One key, `render_review` - the narrative verdict on the export this
+step just built. It is the ONLY thing you are asked to write:
+`render_output`, `render_watch_frames` and `visual_qa` are measured by
+the deterministic build, not authored here.
+
+```json
+{
+  "render_review": {
+    "overall": "clean | concerns | not_watched",
+    "notes": ["one line per span watched or concern found"]
+  }
+}
+```
+
+`clean` means every strip watched reads as intended; `concerns` names
+what looked wrong, one line each; `not_watched` - with the reason - is
+the honest answer when `render_watch_frames` is absent and the
+manifest and measurements alone say nothing about the picture. The
+verdict is advisory: it is printed on the run summary for the operator
+(`library/tools/render_review.py`) and gates nothing. Step 6.02's
+validation is the gate with teeth.
+
+---
+
 ## Verification
 
 - Output file exists and is non-zero bytes

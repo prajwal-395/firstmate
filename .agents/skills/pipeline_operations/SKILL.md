@@ -29,7 +29,7 @@ run at a declared scope. It owns no logic of its own.
 | `prosody.analyse` | `prosody_analysis` | project | Measure pitch, pace, voice quality and intensity per clip |
 | `ocr.extract` | `ocr_extraction` | project | Extract on-screen text from the footage |
 | `creative.direct` | `creative_direction` | project | Decide the video's creative direction from the preflight reads |
-| `speech.enrich` | `speech_sequence` | project | Enrich the model's speech sequence with WhisperX word timings from the temporal index |
+| `speech.enrich` | `speech_sequence` | project | Enrich the model's speech sequence with word timings from the temporal index |
 | `music.resolve` | `music_selection` | project | Resolve the model's music choice against the measured candidates |
 | `duration_zone.build` | `mesh_spine` | project | Resolve the project's target duration into the band the model is shown |
 | `aroll.assign` | `assign_aroll` | project | Map speech blocks and hook to their A-roll source files |

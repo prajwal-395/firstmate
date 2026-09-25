@@ -24,8 +24,9 @@ re-chosen. Type sizes and weights are its `TYPE_SIZE` / `TYPE_WEIGHT`
 tables; the row gap is its `STACK_GAP_PX`; the bar, accent, plate and
  glow sizes are the literals in each element's arm. Text is measured
  with the same Montserrat face the render loads (`CaptionFitter`), and
- `display` runs are measured uppercased with their 3px letter spacing
- because that is what the render draws. The staged-rule lower third
+ a run declaring `uppercase` is measured uppercased with its 3px letter
+ spacing because that is what the render draws - anything else is
+ measured in the case the plan stated it. The staged-rule lower third
  (`data.construction == "staged_rule"`) is measured the same way off
  `StagedLowerThird`: the name and title runs in their own roles, the
  rule a twelfth of the display size thick a seventh of it below the
@@ -287,9 +288,12 @@ def _fitter_for_size(size: float, weight: int,
 
 
 def _run_width(text: str, type_role: str, scale: float,
-               project_folder: str, _cache: dict) -> float:
-    """One run's drawn width, over-estimated. Display runs render
-    uppercased with 3px letter spacing, so they are measured that way."""
+               project_folder: str, _cache: dict,
+               uppercase: bool = False) -> float:
+    """One run's drawn width, over-estimated. A run declaring `uppercase`
+    is measured uppercased with its 3px letter spacing, because that is
+    what the render draws (`runStyle` in the composition reads the same
+    flag); anything else is measured in the case the plan stated."""
     size = TYPE_SIZE.get(type_role, TYPE_SIZE["supporting"]) * scale
     weight = TYPE_WEIGHT.get(type_role, TYPE_WEIGHT["supporting"])
     key = (round(size, 3), weight)
@@ -297,7 +301,7 @@ def _run_width(text: str, type_role: str, scale: float,
     if fitter is None:
         fitter = _fitter_for_size(size, weight, project_folder)
         _cache[key] = fitter
-    drawn = text.upper() if type_role == "display" else text
+    drawn = text.upper() if uppercase else text
     width = fitter.word_width(drawn)
     if type_role == "display":
         width += DISPLAY_LETTER_SPACING * max(0, len(drawn) - 1)
@@ -334,7 +338,9 @@ def _column_size(element: dict, scale: float, project_folder: str,
     """(width, height) of a stacked-runs column, over-estimated."""
     runs = element.get("runs") or []
     widths = [_run_width(r.get("text", ""), r.get("type_role", "supporting"),
-                         scale, project_folder, _cache) for r in runs]
+                         scale, project_folder, _cache,
+                         uppercase=bool(r.get("uppercase", False)))
+              for r in runs]
     width = max(widths, default=0.0)
     height = sum(
         _run_line_height(r.get("type_role", "supporting"), scale)
@@ -382,7 +388,8 @@ def _staged_lower_third_size(element: dict, scale: float,
     title = runs[1] if len(runs) > 1 else None
     name_w = _run_width(name.get("text", ""),
                         name.get("type_role", "supporting"),
-                        scale, project_folder, _cache)
+                        scale, project_folder, _cache,
+                        uppercase=bool(name.get("uppercase", False)))
     name_h = _run_line_height(name.get("type_role", "supporting"), scale)
     # Derived from the DISPLAY type whatever the runs' roles, exactly
     # as the construction derives them - see `StagedLowerThird`.
@@ -394,7 +401,8 @@ def _staged_lower_third_size(element: dict, scale: float,
     if title is not None:
         title_w = _run_width(title.get("text", ""),
                              title.get("type_role", "supporting"),
-                             scale, project_folder, _cache)
+                             scale, project_folder, _cache,
+                             uppercase=bool(title.get("uppercase", False)))
         title_h = _run_line_height(title.get("type_role", "supporting"),
                                    scale)
         width = max(width, title_w)
@@ -473,7 +481,8 @@ def _element_size(element: dict, scale: float, project_folder: str,
         label = [r for r in runs if r.get("type_role") != "display"]
         plate = EMBLEM_PLATE * scale
         mark_w = (_run_width(mark.get("text", ""), "display", scale,
-                             project_folder, _cache)
+                             project_folder, _cache,
+                             uppercase=bool(mark.get("uppercase", False)))
                   if mark else 0.0)
         label_w, label_h = _column_size(
             {"element": "stat_callout", "runs": label}, scale * 0.8,
