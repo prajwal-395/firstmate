@@ -648,7 +648,7 @@ test_agy_launch_carries_the_brief_with_model_effort_and_autonomy() {
   pass "fm-spawn: agy launch carries brief, model, effort, and autonomy with cleared markers"
 }
 
-test_agy_effort_xhigh_is_recorded_but_omitted() {
+test_agy_effort_xhigh_is_omitted_from_launch_and_meta() {
   local id rec out rc launch meta
   id="agy-xhigh-z2-$$"
   rec=$(make_agy_spawn_case xhigh "$id")
@@ -660,8 +660,9 @@ test_agy_effort_xhigh_is_recorded_but_omitted() {
   launch=$(cat "$CASE_DIR/launch.log")
   assert_not_contains "$launch" "--effort" "agy launch passed a known-bad effort value"
   meta="$HOME_DIR/state/$id.meta"
-  assert_grep 'effort=xhigh' "$meta" "agy meta did not retain the unsupported effort axis"
-  pass "fm-spawn: agy omits xhigh from the launch but records it in task metadata"
+  assert_not_contains "$(cat "$meta")" 'effort=xhigh' "agy meta must not record omitted xhigh"
+  assert_contains "$out" "effort xhigh omitted for agy model gemini-3.8-flash-low" "agy spawn must explain the omitted effort"
+  pass "fm-spawn: agy reports omitted xhigh and leaves it out of task metadata"
 }
 
 test_agy_unlisted_model_refuses_before_pane_creation() {
@@ -940,7 +941,7 @@ test_herdr_shell_first_with_live_registry_stays_live
 test_herdr_lone_unregistered_pane_is_agent_free
 test_herdr_malformed_and_failed_reads_stay_unknown
 test_agy_launch_carries_the_brief_with_model_effort_and_autonomy
-test_agy_effort_xhigh_is_recorded_but_omitted
+test_agy_effort_xhigh_is_omitted_from_launch_and_meta
 test_agy_unlisted_model_refuses_before_pane_creation
 test_agy_unreachable_listing_launches_unvalidated
 test_agy_hung_listing_is_cut_off_and_launches

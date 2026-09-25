@@ -438,6 +438,14 @@ esac
 printf '{"providers":[{"provider":"%s","state":{"stale":false},"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s}]}}]}\n' "$provider" "$remaining"
 SH
   chmod +x "$fakebin/quota-axi"
+  cat > "$fakebin/codex" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = debug ] && [ "${2:-}" = models ]; then
+  printf '%s\n' '{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"max"}]}]}'
+fi
+exit 0
+SH
+  chmod +x "$fakebin/codex"
   printf '%s\n' "$fakebin"
 }
 

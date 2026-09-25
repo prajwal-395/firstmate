@@ -465,7 +465,7 @@ Top-level `agy_ladder` optionally states the agy rung order as display names (or
 `bin/fm-agy-ladder-lib.sh` enforces exactly that sequence, with the Opus 4.6 25 percent reserve traveling with the model rather than the rung position.
 `default` then carries only the default dispatch ruling.
 A file without `agy_ladder` whose `default` profiles name agy models keeps resolving through the legacy derivation, and bootstrap names that coupled read as a `CREW_DISPATCH` legacy notice so it is reported rather than silent.
-Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is recorded as `effort=` in task meta for traceability but omitted from the launch flags.
+Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is reported and omitted from task meta and launch flags.
 Bootstrap reports unsupported harness/model/effort combinations as a `CREW_DISPATCH` diagnostic when they are visible in the file.
 See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`; its Pi default declares the `claude` provider required for typed resolution of that Anthropic model.
 When the file exists, bootstrap validates it with `jq`.

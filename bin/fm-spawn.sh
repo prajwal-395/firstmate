@@ -1719,7 +1719,7 @@ launch_template() {
     # legacy alias agent), and the foreign primary markers are cleared so an
     # inherited CLAUDECODE cannot outrank cursor's own marker in a process that
     # only reads the environment. Cursor exposes no effort flag, so the shared
-    # effort axis is deliberately omitted and stays in task metadata only.
+    # effort axis is deliberately omitted from the task metadata and launch.
     cursor) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_INVOKED_AS __CURSORBIN__ --trust --yolo __MODELFLAG__--workspace __WORKTREE__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # gemini (Google Gemini CLI): a positional query starts the supervised
     # interactive session and auto-submits it, so the brief rides the launch
@@ -1752,7 +1752,7 @@ launch_template() {
     # bin/fm-harness.sh must not read a gemini worker as its launcher.
     # gemini exposes no reasoning-effort flag (checked against 0.58.0
     # --help), so the shared effort axis is deliberately omitted here and
-    # stays in task metadata only, per the record-and-omit contract.
+    # is omitted from task metadata and launch, per the shared effort contract.
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
     gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
@@ -2195,7 +2195,7 @@ effort_flag_for_harness() {
       ;;
     agy)
       # agy 1.2.0 --effort accepts exactly low|medium|high, so xhigh and max are
-      # omitted rather than passed as known-bad values (record-and-omit).
+      # omitted rather than passed as known-bad values or recorded as applied.
       case "$effort" in
         low|medium|high) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
@@ -2239,10 +2239,9 @@ effort_flag_for_harness() {
     # opencode's interactive `opencode --prompt` launch has a verified --model
     # flag but no verified effort flag. Its `opencode run --variant` flag belongs
     # to a different, non-interactive launch mode, so fm-spawn does not pass it.
-    # kimi likewise has no reasoning-effort flag; the requested axis stays in
-    # task metadata but never reaches the launch command. Cursor encodes effort
-    # in model ids such as cursor-grok-4.5-high, so it also receives no separate
-    # effort flag.
+    # kimi likewise has no reasoning-effort flag, and Cursor encodes effort in
+    # model ids such as cursor-grok-4.5-high; an omitted axis is reported and
+    # not recorded as applied effort in task metadata.
   esac
 }
 
@@ -4460,8 +4459,15 @@ META_WINDOW=$T
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_PUBLISHED_AT=$(date +%s)
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
-EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL") || exit 1
-if [ -n "$EFFORT" ] && [ "$EFFORT" != default ] && [ -z "$EFFORTFLAG" ]; then
+EFFORTFLAG=
+EFFORT_SUPPORTED=0
+if [ "$HARNESS" = rovo ]; then
+  case "$EFFORT" in low|medium|high|max) EFFORT_SUPPORTED=1 ;; esac
+else
+  EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL") || exit 1
+  [ -z "$EFFORTFLAG" ] || EFFORT_SUPPORTED=1
+fi
+if [ -n "$EFFORT" ] && [ "$EFFORT" != default ] && [ "$EFFORT_SUPPORTED" -eq 0 ]; then
   printf 'notice: spawn: effort %s omitted for %s model %s because the installed harness does not advertise that setting\n' \
     "$EFFORT" "$HARNESS" "${MODEL:-default}" >&2
   EFFORT=

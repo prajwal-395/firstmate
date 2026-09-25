@@ -746,7 +746,7 @@ teardown gm2 complete; state/gm2.gemini-settings.json removed
 ### Not verified
 
 Gemini as a PRIMARY or SECONDMATE runtime is unverified and is refused by `bin/fm-spawn.sh`: no wake protocol exists under `docs/supervision-protocols/` and no turn-end guard adapter was built or exercised.
-No reasoning-effort axis was found; `gemini --help` on 0.58.0 exposes no effort, reasoning, or thinking flag, so the record-and-omit contract applies.
+No reasoning-effort axis was found; `gemini --help` on 0.58.0 exposes no effort, reasoning, or thinking flag, so requested effort is reported and omitted from task metadata and launch flags.
 
 ## Herdr
 
