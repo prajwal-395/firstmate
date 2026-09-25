@@ -94,6 +94,9 @@ VERBS = (
          module_argv=(_FOOTAGE_QUERY, "search")),
     Verb("search-index", "Footage", "Build the footage search index (writes into the project's scratch)",
          module_argv=(_FOOTAGE_QUERY, "build")),
+
+    Verb("eval", "Eval", "Run the standing request-following eval (report only; gates nothing)",
+         module_argv=("library.tools.eval_harness",)),
 )
 
 _BY_NAME = {verb.name: verb for verb in VERBS}

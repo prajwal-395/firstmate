@@ -1,0 +1,805 @@
+"""Focused regressions for the standing eval's reporting invariants.
+
+Each case names a defect that would mis-score a request or start unsafe
+work. No Resolve or real project is reached; fixtures use `tmp_path`.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from library.tools import eval_corpus, eval_harness
+
+
+def test_unknown_filter_keys_raise():
+    """An unknown id, domain, level, rung, cluster or verdict raises.
+
+    Catches: `ren eval run --rung 12` (or a typo'd id) selecting zero
+    requests and printing a successful empty report.
+    """
+    with pytest.raises(KeyError):
+        eval_corpus.select(request_id="ST9.9")
+    with pytest.raises(KeyError):
+        eval_corpus.select(domain="ZZ")
+    with pytest.raises(KeyError):
+        eval_corpus.select(level=4)
+    with pytest.raises(KeyError):
+        eval_corpus.select(rung=12)
+    with pytest.raises(KeyError):
+        eval_corpus.select(cluster="K10")
+    with pytest.raises(KeyError):
+        eval_corpus.select(verdict="Q")
+
+
+def test_rung_selections_match_the_roadmap():
+    """Each rung selects the clusters its roadmap entry names.
+
+    Catches: a rung edit that silently re-points a rung at the wrong
+    requests, so "run per rung" stops measuring the rung.
+    """
+    assert {r["id"] for r in eval_corpus.select(rung=7)} == set(
+        eval_corpus.CLUSTERS[0]["requests"])
+    rung8 = {r["id"] for r in eval_corpus.select(rung=8)}
+    assert rung8 == set(eval_corpus.CLUSTERS[2]["requests"]) | set(
+        eval_corpus.CLUSTERS[4]["requests"])
+    assert {r["id"] for r in eval_corpus.select(rung=9)} == set(
+        eval_corpus.CLUSTERS[1]["requests"])
+    rung10 = {r["id"] for r in eval_corpus.select(rung=10)}
+    assert rung10 == set(eval_corpus.CLUSTERS[5]["requests"]) | set(
+        eval_corpus.CLUSTERS[6]["requests"])
+    assert {r["id"] for r in eval_corpus.select(rung=11)} == set(
+        eval_corpus.CLUSTERS[7]["requests"])
+    assert len(eval_corpus.select(rung=0)) == 40
+    assert len(eval_corpus.select(rung=6)) == 120
+
+
+def test_derive_verdict_never_blends():
+    """A track A miss cannot be averaged into a pass.
+
+    Catches: one missed operation being hidden by another followed
+    operation or by a favorable export judgement.
+    """
+    assert eval_harness.derive_verdict(["followed", "followed"]) == "F"
+    assert eval_harness.derive_verdict(["missed", "missed"]) == "X"
+    assert eval_harness.derive_verdict(["missed"]) == "X"
+    assert eval_harness.derive_verdict(["followed", "missed"]) == "P"
+    assert eval_harness.derive_verdict(["followed", "part"]) == "P"
+    assert eval_harness.derive_verdict(["part"]) == "P"
+
+
+def test_judgement_requires_the_layer_on_a_miss():
+    """A part/missed op without the first layer that broke is incomplete.
+
+    Catches: a miss recorded as bare disappointment, which the report
+    cannot route to a rung.
+    """
+    judgement = {
+        "ops": [{"op": "12-frame dissolve", "outcome": "part",
+                 "evidence": "10f placed", "layer": ""}],
+        "hunks": [], "looks_good": {"verdict": "unjudged"}}
+    problems = eval_harness.check_judgement_complete(judgement, [])
+    assert any("layer" in p for p in problems)
+    judgement["ops"][0]["layer"] = "-"
+    assert any("layer" in p for p in
+               eval_harness.check_judgement_complete(judgement, []))
+    judgement["ops"][0]["layer"] = "V"
+    assert eval_harness.check_judgement_complete(judgement, []) == []
+
+
+def test_judgement_requires_evidence_hunk_attribution_and_judge_agreement(
+        tmp_path):
+    """A judgement cannot invent evidence, op attribution, or judge agreement.
+
+    Catches: unsupported ops, arbitrary prose laundering a hunk as clean,
+    and an LLM visual judgement with no captain-label calibration.
+    """
+    judgement = {
+        "ops": [{"op": "12-frame dissolve", "outcome": "followed",
+                 "evidence": "", "layer": "-"}],
+        "hunks": [], "looks_good": {"verdict": "unjudged"}}
+    assert any("evidence" in p
+               for p in eval_harness.check_judgement_complete(judgement, []))
+    hunks = [{"index": 0, "header": "@@ -1 +1 @@", "lines": ["-a", "+b"]}]
+    judgement["ops"][0]["evidence"] = "readback line 12"
+    problems = eval_harness.check_judgement_complete(judgement, hunks)
+    assert any("hunk 0" in p for p in problems)
+    judgement["hunks"] = [{"index": 0,
+                           "explained_by": "not an actual op",
+                           "break_reason": ""}]
+    problems = eval_harness.check_judgement_complete(judgement, hunks)
+    assert any("exactly match" in p for p in problems)
+    judgement["hunks"][0]["explained_by"] = "12-frame dissolve"
+    judgement["looks_good"] = {
+        "verdict": "yes", "looked_by": "judge:gemma-4",
+        "note": "clear export", "captain_label_agreement": ""}
+    problems = eval_harness.check_judgement_complete(judgement, hunks)
+    assert any("captain labels" in p for p in problems)
+    judgement["looks_good"]["captain_label_agreement"] = "agree"
+    assert eval_harness.check_judgement_complete(judgement, hunks) == []
+    report = eval_harness.render_request_report(
+        eval_corpus.select(request_id="TR3.1")[0], {}, {"hunks": hunks},
+        {**judgement, "difference": "calibration fixture"},
+        "F", "differ-explained")
+    assert "Judge agreement with captain labels: **agree**" in report
+    entry = {
+        "request_id": "TR3.1", "domain": "TR", "level": 3,
+        "scout_verdict": "P", "harness_verdict": "F",
+        "agreement": "differ-explained", "broke_nothing": "clean",
+        "looks_good": "yes", "looks_good_agreement": "agree"}
+    aggregate = eval_harness.aggregate([entry])
+    cell = aggregate["matrix"]["TR L3"]
+    assert (cell["F"], cell["P"], cell["X"], cell["looks_yes"],
+            cell["judge_agree"], cell["judge_disagree"],
+            cell["judge_unjudged"]) == (1, 0, 0, 1, 1, 0, 0)
+    summary = eval_harness.render_aggregate_report([entry], aggregate)
+    assert "| Looks | Judge agreement |" in summary
+    assert "| yes | agree |" in summary
+    assert "| Judge agree | Judge disagree | Judge unjudged |" in summary
+    assert "| TR L3 | 1 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 |" in summary
+
+    out = _finalisable_out(tmp_path, "TR3.1")
+    judgement_path = out / "TR3.1" / "judgement.json"
+    stored = json.loads(judgement_path.read_text(encoding="utf-8"))
+    stored["looks_good"] = judgement["looks_good"]
+    stored["difference"] = "the tested build differs from the scout run"
+    judgement_path.write_text(json.dumps(stored), encoding="utf-8")
+    eval_harness.finalize_request(str(out), "TR3.1")
+    assert eval_harness.main(["report", "--out", str(out)]) == 0
+    aggregate_report = (out / "REPORT.md").read_text(encoding="utf-8")
+    assert ("| TR3.1 | P | F | differ-explained | clean | yes | agree |"
+            in aggregate_report)
+    assert ("| TR L3 | 1 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 |"
+            in aggregate_report)
+
+
+def test_agreement_needs_the_reason_for_a_difference():
+    """Match is agree; differ with reason is data; differ bare is failure.
+
+    Catches: the proof "agreeing" with the scout by leaving the
+    difference column blank.
+    """
+    assert eval_harness.agreement("F", "F") == "agree"
+    assert eval_harness.agreement("P", "X", "behind-subject landed in "
+                                  "#1389") == "differ-explained"
+    assert eval_harness.agreement("P", "X") == "differ-unexplained"
+
+
+def test_empty_project_path_does_not_corrupt_the_base_readback():
+    """An absent path is not an empty string to replace everywhere.
+
+    Catches: build_measures turning each base line into alternating
+    `<rundir>` text, so every baseline item appears changed.
+    """
+    text = "timeline EVAL_BASE\nV1 clip_017 987-1204\n"
+    assert eval_harness.normalise_readback(text, "", "") == (
+        "timeline <evaltimeline>\nV1 clip_017 987-1204\n")
+
+
+def test_diff_normalises_the_project_that_built_the_base_reference(tmp_path):
+    """The readback diff compares two clones, not a clone and its source.
+
+    Catches: baseline media paths surviving normalization because the
+    harness replaced the pristine fixture path instead of BASE/run.
+    """
+    reference = tmp_path / "reference" / "BASE"
+    base_project = reference / "run"
+    base_project.mkdir(parents=True)
+    (base_project / "pipeline_data.json").write_text("{}", encoding="utf-8")
+    base_readback = reference / "readback.txt"
+    base_readback.write_text(
+        "timeline: EVAL_BASE\n"
+        f"source_file: {base_project / 'raw' / 'a.mov'}\n",
+        encoding="utf-8")
+
+    request_out = tmp_path / "eval" / "TR2.1"
+    request_out.mkdir(parents=True)
+    run_project = request_out / "run"
+    run_project.mkdir()
+    (request_out / "readback.txt").write_text(
+        "timeline: EVAL_RUN\n"
+        f"source_file: {run_project / 'raw' / 'a.mov'}\n",
+        encoding="utf-8")
+
+    measures = eval_harness.build_measures(
+        "TR2.1", request_out, str(base_readback), "",
+        {"clone": {"base": str(tmp_path / "pristine-base"),
+                   "dest": str(run_project)}})
+    assert measures["hunks"] == []
+
+
+def test_frame_stats_selects_video_dimensions_from_ffprobe_json(monkeypatch):
+    """A second stream must not make export pixels unmeasurable.
+
+    Catches: CSV dimensions containing an extra stream value and failing
+    luma/chroma measurement on a valid video with attached data.
+    """
+    from types import SimpleNamespace
+
+    probe_calls = 0
+
+    def fake_run(argv, **kwargs):
+        nonlocal probe_calls
+        if argv[0] == "ffprobe":
+            probe_calls += 1
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({"streams": [
+                    {"codec_type": "data", "width": 1920, "height": 1080},
+                    {"codec_type": "video", "width": 2, "height": 2},
+                ]}), stderr="")
+        return SimpleNamespace(returncode=0,
+                               stdout=bytes([255, 0, 0] * 4), stderr=b"")
+
+    monkeypatch.setattr(eval_harness.subprocess, "run", fake_run)
+    row = eval_harness.frame_stats("sample.mp4", [0.5])[0]
+
+    assert probe_calls == 1
+    assert row["luma"] == 76.2
+    assert row["rgb"] == [255, 0, 0]
+    assert row["chroma"] > 100
+
+
+def test_export_report_keeps_pixel_audio_and_zoom_measures_separate(
+        tmp_path, monkeypatch):
+    """Track B reports rendered luma/chroma/zoom, LUFS and separation.
+
+    Catches: an export report silently omitting one of the measurements
+    the standing eval promises, or reading LUFS from a nonexistent field.
+    """
+    from types import SimpleNamespace
+
+    from library.tools import render_qa
+
+    pixels = [{"t": 1.0, "luma": 90.0, "rgb": [90, 80, 70],
+               "chroma": 13.0, "saturation": 0.2}]
+    monkeypatch.setattr(eval_harness, "_ffprobe_duration", lambda path: 10.0)
+    monkeypatch.setattr(eval_harness, "frame_stats", lambda video, stamps: pixels)
+    monkeypatch.setattr(
+        eval_harness, "estimate_relative_zoom",
+        lambda base, run, stamps: {"measured": True,
+                                   "rows": [{"t": 1.0, "measured": True,
+                                             "relative_scale": 1.08,
+                                             "inliers": 18, "matches": 30}]})
+    monkeypatch.setattr(
+        render_qa, "measure_lufs",
+        lambda video: SimpleNamespace(value={"input_i": -18.5}))
+    monkeypatch.setattr(
+        eval_harness, "_measure_export_separation",
+        lambda video, project: {"measured": True, "judged": 1,
+                                "windows": [{"margin_db": 12.0}]})
+
+    measures = eval_harness.measure_exports(
+        "base.mp4", "run.mp4", str(tmp_path / "base"),
+        str(tmp_path / "run"))
+    assert measures["frames"]["rows"][0]["base"]["chroma"] == 13.0
+    assert measures["zoom"]["rows"][0]["relative_scale"] == 1.08
+    assert measures["lufs"]["base_lufs"] == -18.5
+    assert measures["separation"]["base"]["windows"][0]["margin_db"] == 12.0
+
+    request = eval_corpus.select(request_id="ST1.1")[0]
+    report = eval_harness.render_request_report(
+        request, {"batch": "T1"}, measures,
+        {"ops": [], "hunks": [], "looks_good": {"verdict": "unjudged"}},
+        "F", "agree")
+    assert "luma 90.0 -> 90.0" in report
+    assert "chroma 13.0 -> 13.0" in report
+    assert "1.08x" in report
+    assert "-18.5 LUFS" in report
+    assert "12.0 dB" in report
+
+
+def test_separation_uses_the_selected_track_section_offset(tmp_path):
+    """The export fit uses the music file time the manifest actually plays.
+
+    Catches: measuring against second zero when a splice starts later in
+    the source, which makes correlation and speech-over-bed margins false.
+    """
+    music = tmp_path / "music.wav"
+    music.touch()
+    state = {
+        "step_outputs": {
+            "compile_manifest": {"assembly_manifest": {
+                "audio_mix": {
+                    "bed": {"audio_path": str(music)},
+                    "music_automation": [{"timeline_start": 0.0,
+                                          "timeline_end": 4.0}]},
+                "_spine_blocks": [{"position": 0,
+                                   "block_type": "speech"}]}},
+            "music_selection": {"music_selection": {
+                "splices": [{"source_in": 35.0, "source_out": 39.0}]}}}}
+    (tmp_path / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    inputs = eval_harness._separation_inputs(str(tmp_path))
+    assert inputs["offset"] == 35.0
+    assert inputs["music_path"] == str(music)
+
+
+def test_clone_preserves_fixture_and_routes_request_note(tmp_path, monkeypatch):
+    """Cloning preserves analysis, answers and a routable request note.
+
+    Catches: dead host paths surviving a fresh-machine clone, or a `/tmp`
+    alias making source identity discard analysis, stale answer paths, or
+    the request being refused as an unknown marker source.
+    """
+    from library.tools import footage_identity
+
+    host = tmp_path / "previous-machine" / "Apple001"
+    base = tmp_path / "base"
+    (base / "pipeline_output" / "steps").mkdir(parents=True)
+    (base / "exports").mkdir()
+    (base / "raw").mkdir()
+    (base / "music").mkdir()
+    footage = base / "raw" / "a.mov"
+    footage.write_bytes(b"footage")
+    fingerprint = footage_identity.fingerprint(str(footage))
+    (base / "pipeline_data.json").write_text(json.dumps(
+        {"source_fingerprints": {"clip_001": {
+             "path": str(host / "raw" / "a.mov"), **fingerprint}},
+         "preflight_completed": {"semantic_analysis": {"status": "SUCCESS"}},
+         "preflight_code_hashes": {"semantic_analysis": "fixture-hash"},
+         "catalog": {"clip_001": {"path": str(host / "raw" / "a.mov")}},
+         "music": {"bed": str(host / "music" / "bed.wav")},
+         "analysis": str(host / "pipeline_output" / "steps" / "analysis.json"),
+         "export": str(host / "exports" / "base.mp4")}),
+        encoding="utf-8")
+    (base / "project.yaml").write_text(
+        f'footage: "{host / "raw"}"\nmusic_library: "{host / "music"}"\n'
+        'timeline_name: "X"\nresolve:\n'
+        '  project_name: "host-resolve-project"\n'
+        '  timeline_name: "X"\n', encoding="utf-8")
+    (base / "music" / "bed.wav").write_bytes(b"bed")
+    (base / "pipeline_output" / "steps" / "analysis.json").write_text(
+        "{}", encoding="utf-8")
+    (base / "exports" / "base.mp4").write_bytes(b"export")
+    assert not host.exists()
+    assert eval_harness.detect_recorded_root(str(base)) == str(host)
+    monkeypatch.setattr(eval_harness, "current_preflight_code_hashes",
+                        lambda: {"semantic_analysis": "current-hash"})
+    canonical_dest = tmp_path / "run"
+    alias = tmp_path / "run-alias"
+    alias.symlink_to(canonical_dest, target_is_directory=True)
+    ledger = eval_harness.clone_base(str(base), str(alias), "T1")
+    data_path = canonical_dest / "pipeline_data.json"
+    data = data_path.read_text(
+        encoding="utf-8")
+    assert str(host) not in data
+    assert str(canonical_dest) in data
+    state = json.loads(data)
+    recorded = state["source_fingerprints"]
+    current = footage_identity.fingerprints_for(
+        footage_identity.enumerate_footage(str(canonical_dest))[0])
+    assert footage_identity.compare(recorded, current).footage_changed is False
+    assert ledger["dest"] == str(canonical_dest)
+    assert (state["preflight_code_hashes"]["semantic_analysis"]
+            == "current-hash")
+    assert ledger["preflight_hashes_pinned"] == [{
+        "step_id": "semantic_analysis", "fixture_hash": "fixture-hash",
+        "eval_hash": "current-hash"}]
+    cloned_config = (canonical_dest / "project.yaml").read_text(
+        encoding="utf-8")
+    assert 'project_name: "ren-eval-scratch-T1"' in cloned_config
+    assert 'timeline_name: "EVAL_T1"' in cloned_config
+    answers_src = tmp_path / "answers"
+    answers_src.mkdir()
+    (answers_src / "music_selection.json").write_text(
+        json.dumps({"music_path": str(host / "music" / "bed.wav")}),
+        encoding="utf-8")
+    answers_dest = tmp_path / "eval-answers"
+    eval_harness.seed_answers(
+        str(answers_src), str(answers_dest), ledger["base"],
+        ledger["dest"],
+        path_rewrites=((ledger["recorded_root"], ledger["dest"]),))
+    seeded = (answers_dest / "music_selection.json").read_text(
+        encoding="utf-8")
+    assert str(host) not in seeded
+    assert str(canonical_dest / "music" / "bed.wav") in seeded
+    report = eval_harness.render_request_report(
+        eval_corpus.select(request_id="ST1.1")[0], {"clone": ledger}, {},
+        {"ops": [], "hunks": [],
+         "looks_good": {"verdict": "unjudged"}}, "F", "agree")
+    assert "preflight hashes pinned for: semantic_analysis" in report
+    from library.tools import marker_routing
+
+    transition_request = eval_corpus.select(request_id="TR3.1")[0]
+    eval_harness.inject_request(str(canonical_dest), transition_request,
+                                "EVAL_T1")
+    routed = marker_routing.route_project(str(canonical_dest))
+    assert len(routed) == 1
+    assert routed[0].source == "timeline_marker"
+    assert routed[0].outcome == "routed"
+    assert routed[0].steps == ["plan_transitions"]
+    assert ledger["missing_refs"] == []
+
+
+def _finalisable_out(tmp_path, request_id="ST1.1", *,
+                     outcome="followed", layer="-"):
+    out = tmp_path / "eval" / request_id
+    out.mkdir(parents=True)
+    (out / "run.json").write_text(json.dumps(
+        {"batch": "T1", "timeline": "EVAL_T1"}), encoding="utf-8")
+    (out / "measures.json").write_text(json.dumps({"hunks": []}),
+                                       encoding="utf-8")
+    (out / "judgement.json").write_text(json.dumps({
+        "request_id": request_id,
+        "ops": [{"op": "open on the quitting line", "outcome": outcome,
+                 "evidence": "hook V1 0-216 = clip_017 src 987-1204",
+                 "layer": layer}],
+        "hunks": [],
+        "looks_good": {"verdict": "yes", "looked_by": "human:proof",
+                       "note": "hook lands"},
+        "difference": ""}), encoding="utf-8")
+    return tmp_path / "eval"
+
+
+def test_a_looks_good_export_cannot_turn_a_track_a_miss_into_followed(tmp_path):
+    """A favorable export judgement stays separate from operation follow-through.
+
+    Catches: track B's visual approval changing a missed track A operation
+    into F, which would blend two separate evaluation questions.
+    """
+    out = _finalisable_out(tmp_path, outcome="missed", layer="V")
+    entry = eval_harness.finalize_request(str(out), "ST1.1")
+    assert entry["harness_verdict"] == "X"
+    assert entry["looks_good"] == "yes"
+
+
+def test_broken_hunk_stays_separate_from_followed_verdict(tmp_path):
+    """An unwanted timeline hunk reports BROKE while its op can still pass.
+
+    Catches: a side effect either being counted clean because it has prose,
+    or preventing the harness from reporting the other score independently.
+    """
+    out = _finalisable_out(tmp_path)
+    request_out = out / "ST1.1"
+    hunk = {"index": 0, "header": "@@ -1 +1 @@", "lines": ["-a", "+b"]}
+    (request_out / "measures.json").write_text(
+        json.dumps({"hunks": [hunk]}), encoding="utf-8")
+    judgement_path = request_out / "judgement.json"
+    judgement = json.loads(judgement_path.read_text(encoding="utf-8"))
+    judgement["hunks"] = [{"index": 0, "explained_by": "",
+                           "break_reason": ""}]
+    judgement_path.write_text(json.dumps(judgement), encoding="utf-8")
+    with pytest.raises(ValueError, match="choose exactly one"):
+        eval_harness.finalize_request(str(out), "ST1.1")
+
+    judgement["hunks"][0]["break_reason"] = "unrequested V2 placement"
+    judgement_path.write_text(json.dumps(judgement), encoding="utf-8")
+    entry = eval_harness.finalize_request(str(out), "ST1.1")
+    assert entry["harness_verdict"] == "F"
+    assert entry["broke_nothing"] == "BROKE"
+    matrix = eval_harness.aggregate([entry])["matrix"]["ST L1"]
+    assert (matrix["F"], matrix["BROKE"], matrix["looks_yes"]) == (1, 1, 1)
+    assert (matrix["P"], matrix["X"], matrix["clean"],
+            matrix["looks_no"], matrix["looks_unjudged"]) == (0, 0, 0, 0, 0)
+    report = (request_out / "report.md").read_text(encoding="utf-8")
+    assert "Broke nothing: **BROKE**" in report
+    aggregate = eval_harness.render_aggregate_report(
+        [entry], eval_harness.aggregate([entry]))
+    assert "| Cell | F | P | X | Clean | Broke |" in aggregate
+    assert "| ST L1 | 1 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 0 |" in aggregate
+
+
+def test_refused_stored_answer_escalates_to_the_brain():
+    """A step asking again after being served never gets the same file.
+
+    Catches: the loop re-feeding a contract-refused answer forever (the
+    base `audio_mix` answer predates the `cleanup_plan` key, so the step
+    re-requests) - the refusal must reach the brain, not loop.
+    """
+    assert eval_harness.decide_answer("audio_mix", False, True, set()) == (
+        "copy-stored")
+    assert eval_harness.decide_answer("audio_mix", False, True,
+                                      {"audio_mix"}) == "needs-brain"
+    assert eval_harness.decide_answer("plan_vfx", False, False, set()) == (
+        "needs-brain")
+    assert eval_harness.decide_answer("mesh_spine", True, True, set()) == (
+        "have-target")
+
+
+def test_failed_summary_is_not_a_done_run():
+    """Unscoped FAILED summaries raise with the log tail.
+
+    Catches: a failed edit stage marching on to the Resolve build - the
+    proof's base run did exactly this before the fix.
+    """
+    assert eval_harness.parse_run_status('  "status": "SUCCESS",\n') == (
+        "SUCCESS")
+    assert eval_harness.parse_run_status('  "status": "FAILED",\n') == (
+        "FAILED")
+    assert eval_harness.parse_run_status("still running\n") is None
+
+
+def test_answer_loop_can_return_partial_only_for_a_scoped_stage(tmp_path):
+    """The expected scoped status reaches the stage-specific verifier.
+
+    Catches: rejecting every PARTIAL status before checking whether it only
+    reflects render and validate being intentionally skipped.
+    """
+    log = tmp_path / "edit.log"
+    log.write_text('{"status": "PARTIAL"}\n', encoding="utf-8")
+
+    result = eval_harness.answer_loop(
+        log, str(tmp_path), str(tmp_path / "answers"), set(),
+        allow_partial=True)
+
+    assert result["run_status"] == "PARTIAL"
+    with pytest.raises(RuntimeError, match="run ended PARTIAL"):
+        eval_harness.answer_loop(
+            log, str(tmp_path), str(tmp_path / "answers"), set())
+
+
+def test_edit_stage_accepts_partial_when_only_render_and_validate_are_skipped(
+        tmp_path):
+    """PARTIAL is usable only when its declared edit work really completed.
+
+    Catches: treating the edit's intentional render/validate skips as failure,
+    or allowing a failed or incomplete edit to proceed to the Resolve build.
+    """
+    log_path = tmp_path / "edit.log"
+    summary = {
+        "status": "partial",
+        "completed": list(eval_harness.EDIT_RERUN_CHAIN),
+        "failed": [],
+        "outstanding_failures": [],
+        "stranded_failures": [],
+        "skipped": ["render", "validate"],
+    }
+
+    def write_log():
+        log_path.write_text(
+            "pipeline output\n" + json.dumps(summary, indent=2)
+            + "\nRunning pipeline for: fixture\n", encoding="utf-8")
+
+    write_log()
+
+    result = eval_harness.validate_scoped_run(
+        str(log_path), "edit", eval_harness.EDIT_RERUN_CHAIN,
+        ("render", "validate"), "PARTIAL")
+
+    assert result["skipped_steps"] == ["render", "validate"]
+    summary["completed"].remove("compile_manifest")
+    write_log()
+    with pytest.raises(RuntimeError, match="did not complete required steps"):
+        eval_harness.validate_scoped_run(
+            str(log_path), "edit", eval_harness.EDIT_RERUN_CHAIN,
+            ("render", "validate"), "PARTIAL")
+
+    summary["completed"].append("compile_manifest")
+    summary["failed"] = ["plan_transitions"]
+    write_log()
+    with pytest.raises(RuntimeError, match="recorded failures"):
+        eval_harness.validate_scoped_run(
+            str(log_path), "edit", eval_harness.EDIT_RERUN_CHAIN,
+            ("render", "validate"), "PARTIAL")
+
+
+def test_heavy_gate_matches_working_processes_not_prompt_mentions(monkeypatch):
+    """Actual pipeline/model work blocks; task prose mentioning it does not.
+
+    Catches: prompt text in Codex's argv self-matching the heavy pattern
+    and blocking every eval even after the machine is quiet.
+    """
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        eval_harness.subprocess, "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            stdout=("100 python3 manage_project.py run /tmp/other\n"
+                    "101 python3 library/processes/edit_video/run_pipeline.py\n"
+                    "102 /opt/homebrew/bin/ffmpeg -i input.mov output.mov\n"
+                    "103 /venv/bin/python3 -m mlx_lm.server\n"
+                    "104 python3 -m library.tools.eval_harness run "
+                    "--base x --out other\n"
+                    f"{os.getpid()} python3 -m library.tools.eval_harness "
+                    "run --base x --out own\n"
+                    "105 codex --model gpt-6-luna 'brief mentions ffmpeg "
+                    "mlx_lm llama-server full_suite_gate.sh'\n")))
+    jobs = eval_harness.heavy_jobs()
+    assert len(jobs) == 5
+    assert "manage_project.py run" in jobs[0]
+    assert "run_pipeline.py" in jobs[1]
+    assert "ffmpeg" in jobs[2]
+    assert "mlx_lm.server" in jobs[3]
+    assert "eval_harness run" in jobs[4]
+    assert all("--out own" not in job for job in jobs)
+
+
+def test_memory_gate_counts_reclaimable_macos_pages():
+    """Inactive and purgeable cache count as available memory.
+
+    Catches: a healthy Mac waiting forever for free pages while most usable
+    memory sits in reclaimable file cache.
+    """
+    vm_stat = ("Pages free: 10.\nPages inactive: 20.\n"
+               "Pages purgeable: 30.\nPages speculative: 1000.")
+
+    assert eval_harness.memory_free_mb(vm_stat) == 60 * 16384 / 1048576
+
+
+def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
+        monkeypatch):
+    """Project switches and timeline restoration hold the shared guards.
+
+    Catches: the eval moving Resolve's shared cursor outside a lease or
+    restoring the captain's timeline with an unregistered direct setter.
+    """
+    from contextlib import contextmanager
+
+    from library.tools import marker_feedback, resolve_lock
+
+    events = []
+    lease_active = False
+
+    @contextmanager
+    def fake_lease(purpose, **kwargs):
+        nonlocal lease_active
+        assert not lease_active
+        lease_active = True
+        events.append(f"lease:{purpose}")
+        try:
+            yield None
+        finally:
+            lease_active = False
+
+    @contextmanager
+    def fake_cursor_fence(project, timeline, purpose):
+        assert lease_active
+        events.append(f"fence:{purpose}")
+        project.current_timeline = timeline
+        yield None
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", fake_lease)
+    monkeypatch.setattr(resolve_lock, "cursor_fence", fake_cursor_fence)
+
+    class Timeline:
+        def __init__(self, name):
+            self.name = name
+
+        def GetName(self):
+            return self.name
+
+    class Project:
+        def __init__(self, name, timeline=None):
+            self.name = name
+            self.current_timeline = timeline
+            self.timelines = [timeline] if timeline else []
+
+        def GetName(self):
+            return self.name
+
+        def GetCurrentTimeline(self):
+            return self.current_timeline
+
+        def GetTimelineCount(self):
+            return len(self.timelines)
+
+        def GetTimelineByIndex(self, index):
+            return self.timelines[index - 1]
+
+    class Manager:
+        def __init__(self, captain):
+            self.current = captain
+            self.projects = {}
+
+        def GetCurrentProject(self):
+            return self.current
+
+        def SaveProject(self):
+            assert lease_active
+            events.append(f"save:{self.current.GetName()}")
+            return True
+
+        def GetProjectListInCurrentFolder(self):
+            return list(self.projects)
+
+        def CreateProject(self, name):
+            assert lease_active
+            events.append(f"create:{name}")
+            project = Project(name)
+            self.projects[name] = project
+            self.current = project
+            return project
+
+        def LoadProject(self, name):
+            assert lease_active
+            events.append(f"load:{name}")
+            self.current = self.projects.get(name, captain)
+            return self.current
+
+        def DeleteProject(self, name):
+            assert lease_active
+            events.append(f"delete:{name}")
+            self.projects.pop(name, None)
+            return True
+
+    timeline = Timeline("captain timeline")
+    captain = Project("captain project", timeline)
+    manager = Manager(captain)
+
+    class Resolve:
+        def GetProjectManager(self):
+            return manager
+
+    monkeypatch.setattr(marker_feedback, "connect_resolve",
+                        lambda: Resolve())
+    scratch = f"{eval_harness.SCRATCH_PREFIX}T1"
+
+    saved = eval_harness.resolve_bracket_start(scratch)
+    assert saved == {"project": "captain project",
+                     "timeline": "captain timeline", "saved": True}
+    assert events.index("save:captain project") < events.index(
+        f"create:{scratch}")
+
+    restored = eval_harness.resolve_bracket_end(scratch, saved)
+    assert restored == {"project_restored": True,
+                        "timeline_restored": True,
+                        "scratch_deleted": True}
+    assert manager.current is captain
+    assert captain.current_timeline is timeline
+    assert "fence:restore eval timeline captain timeline" in events
+    assert f"delete:{scratch}" in events
+
+
+def test_run_waits_for_quiet_before_starting_the_model(tmp_path, monkeypatch):
+    """Quiet-machine coordination gates both editing and Resolve build.
+
+    Catches: starting the product model concurrently with another lane,
+    then only checking for a quiet machine after the edit already ran.
+    """
+    events = []
+    out = tmp_path / "eval"
+    base = tmp_path / "base"
+    dest = out / "ST1.1" / "run"
+
+    def clone(base_arg, dest_arg, batch, extra_rewrites=()):
+        Path(dest_arg).mkdir(parents=True)
+        return {"base": str(base), "dest": str(dest),
+                "timeline": "EVAL_T1", "answers": str(dest / "eval_answers")}
+
+    monkeypatch.setattr(eval_harness, "clone_base", clone)
+    monkeypatch.setattr(eval_harness, "inject_request",
+                        lambda *args: events.append("note") or "pull.json")
+    monkeypatch.setattr(eval_harness, "wait_for_quiet",
+                        lambda: events.append("quiet"))
+    monkeypatch.setattr(eval_harness, "run_pipeline_edit",
+                        lambda *args: events.append("edit") or {
+                            "run_status": "SUCCESS"})
+    monkeypatch.setattr(eval_harness, "take_resolve_lock",
+                        lambda *args: events.append("lock"))
+    monkeypatch.setattr(eval_harness, "resolve_bracket_start",
+                        lambda *args: events.append("save-and-open") or {
+                            "project": "captain", "timeline": "master"})
+    monkeypatch.setattr(eval_harness, "run_pipeline_render",
+                        lambda *args: events.append("build") or {
+                            "run_status": "SUCCESS"})
+    monkeypatch.setattr(eval_harness, "_built_timeline_name",
+                        lambda *args: "EVAL_T1")
+
+    def readback(*args):
+        events.append("readback")
+        Path(args[2]).write_text("items\n", encoding="utf-8")
+
+    monkeypatch.setattr(eval_harness, "readback_timeline", readback)
+    monkeypatch.setattr(eval_harness, "find_export",
+                        lambda *args: "export.mp4")
+    monkeypatch.setattr(eval_harness, "resolve_bracket_end",
+                        lambda *args: events.append("restore-and-delete") or {
+                            "project_restored": True, "timeline_restored": True,
+                            "scratch_deleted": True})
+    monkeypatch.setattr(eval_harness, "release_resolve_lock",
+                        lambda: events.append("unlock"))
+    monkeypatch.setattr(eval_harness, "build_measures",
+                        lambda *args: {"hunks": []})
+
+    request = eval_corpus.select(request_id="ST1.1")[0]
+    eval_harness.run_request(request, str(base), str(out), "T1")
+    assert events[:4] == ["note", "quiet", "edit", "quiet"]
+    assert events[4:] == ["lock", "save-and-open", "build", "readback",
+                          "restore-and-delete", "unlock"]
