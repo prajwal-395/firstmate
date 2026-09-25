@@ -1837,6 +1837,8 @@ def cmd_post_header(args):
     switched OFF, never deleted - and `reel_touchup` stages, verifies,
     promotes and journals it. One batch: `ren undo` reverses it whole.
     `--dry-run` reads the reels and prints each change without writing.
+    A reel that already carries a header has it swapped for the tight
+    one in place, placed with `--draw-gain`.
     """
     import json as _json
 
@@ -1848,7 +1850,7 @@ def cmd_post_header(args):
 
     def spec_for(tracks, number):
         spec = rph.touch_spec(project_folder, number, tracks,
-                              fps=24000 / 1001,
+                              fps=24000 / 1001, draw_gain=args.draw_gain,
                               disable_graphics=not args.keep_graphics)
         records[number] = spec.pop("post_header")
         return spec
@@ -2466,6 +2468,11 @@ def main():
     post_header_parser.add_argument(
         "reel", type=int, nargs="*",
         help="Approved reel numbers; none means every approved reel")
+    post_header_parser.add_argument(
+        "--draw-gain", type=float, required=True,
+        help="What the renderer draws per Pan/Tilt unit on these "
+             "timelines, as MEASURED (resolve_transform); the header is "
+             "placed with it")
     post_header_parser.add_argument(
         "--keep-graphics", action="store_true",
         help="Leave the Semantic-row graphics on (default: switch them off)")

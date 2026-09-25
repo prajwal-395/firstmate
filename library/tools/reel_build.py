@@ -7252,7 +7252,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     post_header = _rph.plan_for_reel(
         name, getattr(moment, "number", None),
         _look_runs.frame_runs(placements_list, fps), fps, width, height,
-        project_folder, picture_window=_header_window)
+        project_folder, picture_window=_header_window,
+        draw_gain=draw_gain)
     material = reel_track_material(
         master_clips, resolved_channels,
         caption_spans=caption_spans,
@@ -8021,8 +8022,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             draw_gain=draw_gain))
 
     # The social-post header, on its own row above everything drawn.
-    # Full canvas, so no transform: the still was laid out on the
-    # delivery frame and plays at its natural size.
+    # A tight canvas like every graphic: its segments carry their own
+    # placement, which the placer applies and reads back.
     build_record["post_header"] = post_header.as_dict()
     if post_header.segments:
         suppressed_ids.extend(place_overlay_segments(

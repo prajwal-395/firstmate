@@ -95,9 +95,37 @@ def test_a_reel_with_no_hook_gets_no_header(tmp_path):
         raise AssertionError("rendered a header nobody wrote a hook for")
 
     plan = rph.plan_for_reel("Reel 01", 1, [(0, 48)], 24.0, 1080, 1920,
-                             folder, render=never)
+                             folder, render=never, draw_gain=1.0)
     assert plan.basis == rph.NO_HOOK_WRITTEN
     assert plan.segments == []
+
+
+@pytest.mark.parametrize("draw_gain", [1.0, 2.0])
+def test_the_header_is_a_tight_canvas_placed_where_it_laid_out(
+        tmp_path, draw_gain):
+    # The captain, 2026-09-25: the header was placed FULL FRAME, so
+    # moving it meant re-rendering. It is cut to its ink and placed by
+    # Pan/Tilt - and that Pan/Tilt must draw the canvas exactly where
+    # the full-frame layout put the ink, or the header jumps on the
+    # swap.
+    from library.tools import reel_post_header as rph
+    from library.tools.tight_box import MIN_CANVAS_HEIGHT, ink_screen_box
+
+    still = tmp_path / "post_header_x.png"
+    image = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+    image.paste((255, 255, 255, 255), (130, 275, 951, 461))
+    image.save(still)
+    tight, canvas = rph.tight_still(str(still), (1080, 1920))
+    with Image.open(tight) as cut:
+        size = cut.size
+    assert size == (canvas[2] - canvas[0], canvas[3] - canvas[1])
+    assert size[0] < 1080 and size[1] >= MIN_CANVAS_HEIGHT
+    assert size[0] % 2 == 0 and size[1] % 2 == 0
+    placement = rph.placement_for(canvas, (1080, 1920), draw_gain)
+    ink = rph.ink_box(tight)
+    drawn = ink_screen_box(size[0], size[1], placement, ink, 1080, 1920,
+                           draw_gain=draw_gain)
+    assert all(abs(a - b) < 0.5 for a, b in zip(drawn, (130, 275, 951, 461)))
 
 
 def test_an_empty_hook_is_refused_not_drawn(tmp_path):

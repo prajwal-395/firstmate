@@ -41,7 +41,8 @@ edit (`_check_single_claim`).
   no colour grade beyond the default single node (an `Insertion`
   cannot take a grade from an item about to be deleted).  Its
   transform properties are CARRIED from its own live read and declared
-  in the receipt - carried, never invented (AGENTS.md 10.5).
+  in the receipt - carried, never invented (AGENTS.md 10.5) - unless
+  the edit declares `properties` for a file cut to a different canvas.
 - `add_overlay` - a new overlay item at a stated record frame, on an
   OVERLAY row (V3+).  Adding to a comp-bearing row (V1/V2,
   `FUSION_COMP_TRACKS`) refuses: every clip there carries a
@@ -930,11 +931,19 @@ def _op_swap_pixels(edit, position, tracks, spans, changes, insertions,
                      "record_frame": int(clip["record_in"]),
                      "duration": int(clip["duration"]),
                      "why": f"edit {position} (`swap_pixels`)"})
+    # The replaced item's transform rides across, unless the edit
+    # declares the new one: a file cut to a different canvas (a
+    # full-frame graphic re-rendered tight) is drawn somewhere else by
+    # the old item's Pan/Tilt.
+    properties = edit.get("properties")
     insertions.append(_PendingSwap(
         row=row, record_frame=int(clip["record_in"]),
         duration=duration, media=str(media),
         left_offset=int(edit.get("left_offset") or 0),
-        carry_from=(row, int(item_index)),
+        carry_from=None if properties is not None else (row,
+                                                        int(item_index)),
+        declared_properties=(dict(properties) if properties is not None
+                             else None),
         name=str(edit.get("name") or clip.get("name", "")),
         position=position))
     notes.append(f"edit {position}: swap {row}[{item_index}] pixels "

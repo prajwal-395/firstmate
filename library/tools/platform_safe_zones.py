@@ -175,9 +175,12 @@ class Element:
 
 @dataclass(frozen=True)
 class Capture:
-    """One app on the captain's phone: where its video region ends, how
-    it can scale the video, and the elements it draws over it."""
+    """One view of an app on the captain's phone: where its video region
+    ends, how it scales the video, and the elements it draws over it.
+    A platform with two views (LinkedIn's Video tab and its full-screen
+    viewer) has two captures, and its zones are both."""
 
+    platform: str
     region: int  # screen px: the video runs from y0 to here
     fills: tuple[str, ...]  # "cover" and/or "fit"
     elements: tuple[Element, ...]
@@ -199,14 +202,20 @@ _STATUS = (
 #:   Reels   0..1748 (below it is a blurred smear the app draws under
 #:           its progress bar and nav pill, not picture - detail energy
 #:           drops from ~13 to <1 across y1744..1756)
-#:   LinkedIn 0..2000 (no bar). The creator's own black meets the app's
-#:           black, so the capture cannot show whether LinkedIn fills
-#:           the screen or fits the width: both are modelled.
-#: All three measured apps FILL (the device research, 2026-09-25: Reels
-#: "zoom in… parts of the video are cut off", TikTok crops "to prevent
-#: black bars", Shorts "chose crop over letterbox"; none publishes it).
+#:   LinkedIn, two views of ONE video:
+#:           the Video tab  0..1808 (its tab bar below is opaque)
+#:           the viewer     0..1920 (full screen above the home bar)
+#:           The same video is drawn 6.2% larger in the viewer (avatar
+#:           ring 189 vs 178px tall, title 672 vs 632 wide) - exactly
+#:           1920 / 1808, and every bottom element sits 112px higher in
+#:           the Video tab. Fitting the width would draw it the same
+#:           size in both, so LinkedIn FILLS, like the other three.
+#: TikTok, Reels and Shorts FILL too (the device research, 2026-09-25:
+#: Reels "zoom in… parts of the video are cut off", TikTok crops "to
+#: prevent black bars", Shorts "chose crop over letterbox"; none
+#: publishes it).
 CAPTURES: dict[str, Capture] = {
-    "tiktok": Capture(1728, ("cover",), _STATUS + (
+    "tiktok": Capture("tiktok", 1728, ("cover",), _STATUS + (
         Element("tabs", (37, 165, 880, 238), "stretch", "top",
                 "LIVE, Following / For You tabs, search - the full width"),
         Element("rail", (805, 690, 895, 1700), "right", "bottom",
@@ -214,7 +223,8 @@ CAPTURES: dict[str, Capture] = {
         Element("text", (28, 1450, 690, 1712), "stretch", "bottom",
                 "username, title and up to four caption lines"),
     ), "phone-tiktok.png"),
-    "instagram_reels": Capture(1748, ("cover",), _STATUS + (
+    "instagram_reels": Capture("instagram_reels", 1748, ("cover",),
+                               _STATUS + (
         Element("rail", (815, 1015, 885, 1642), "right", "bottom",
                 "action rail: like, comment, repost, share, menu"),
         Element("profile", (35, 1518, 740, 1598), "stretch", "bottom",
@@ -224,7 +234,8 @@ CAPTURES: dict[str, Capture] = {
         Element("followed-by", (35, 1685, 740, 1737), "stretch", "bottom",
                 "followed-by row"),
     ), "phone-ig-reels.png"),
-    "youtube_shorts": Capture(1810, ("cover",), _STATUS + (
+    "youtube_shorts": Capture("youtube_shorts", 1810, ("cover",),
+                              _STATUS + (
         Element("search", (718, 172, 765, 218), "right", "top",
                 "search icon"),
         Element("menu", (845, 177, 862, 217), "right", "top",
@@ -242,7 +253,17 @@ CAPTURES: dict[str, Capture] = {
         Element("progress", (0, 1800, 920, 1810), "stretch", "bottom",
                 "progress bar"),
     ), "phone-yt-shorts.png"),
-    "linkedin": Capture(2000, ("cover", "fit"), _STATUS + (
+    "linkedin_feed": Capture("linkedin", 1808, ("cover",), _STATUS + (
+        Element("rail", (825, 1053, 890, 1673), "right", "bottom",
+                "action rail: like, comment, share, save, more"),
+        Element("author", (37, 1573, 770, 1666), "stretch", "bottom",
+                "avatar, name, Follow and headline"),
+        Element("caption", (37, 1683, 755, 1718), "stretch", "bottom",
+                "caption, one line and ...more"),
+        Element("progress", (37, 1763, 883, 1776), "stretch", "bottom",
+                "progress bar"),
+    ), "phone-linkedin-feed.png"),
+    "linkedin_viewer": Capture("linkedin", 1920, ("cover",), _STATUS + (
         Element("back", (30, 178, 78, 215), "left", "top", "back arrow"),
         Element("rail", (825, 1165, 890, 1785), "right", "bottom",
                 "action rail: like, comment, share, save, more"),
@@ -288,7 +309,7 @@ def side_crop(key: str, device: str = MEASURED_DEVICE,
 
 
 def crop_table() -> dict[str, dict[str, float]]:
-    """{app: {device: per-side crop in frame px}}, filling the screen."""
+    """{view: {device: per-side crop in frame px}}, filling the screen."""
     return {key: {d.name: round(side_crop(key, d.name), 1) for d in DEVICES}
             for key in CAPTURES}
 
@@ -347,14 +368,15 @@ def zones_on(key: str, device: Device, fill: str = "cover") -> list[Zone]:
     return zones
 
 
-def _agnostic(key: str) -> tuple[Zone, ...]:
-    """Each element's bounding box over every phone and every fill, and
-    the widest side crop."""
+def _agnostic(platform: str) -> tuple[Zone, ...]:
+    """Each element's bounding box over every view of the platform,
+    every phone and every fill, and the widest side crop."""
     w, h = REFERENCE_SIZE
     boxes: dict[str, list[int]] = {}
     ui: dict[str, str] = {}
     crop = 0.0
-    for device in DEVICES:
+    views = [k for k, c in CAPTURES.items() if c.platform == platform]
+    for key, device in ((k, d) for k in views for d in DEVICES):
         for fill in CAPTURES[key].fills:
             crop = max(crop, side_crop(key, device.name, fill))
             for zone in zones_on(key, device, fill):
@@ -425,12 +447,11 @@ LINKEDIN = PlatformZones(
     zones=_agnostic("linkedin"),
     colour=(10, 102, 194),
     basis="measured",
-    source=("MEASURED on the captain's iPhone 17 screenshot "
-            "(phone-linkedin.png, 920x2000, 2026-09-25), laid out on every "
-            "modelled phone. The video's edge is not visible in the "
-            "capture, so both ways LinkedIn could scale it (fill the "
-            "screen, fit the width) are unioned. LinkedIn publishes no "
-            "vertical safe zone."),
+    source=("MEASURED on the captain's iPhone 17 screenshots "
+            "of the Video tab and the full-screen viewer "
+            "(phone-linkedin-feed.png, phone-linkedin.png, 920x2000, "
+            "2026-09-25), laid out on every modelled phone. LinkedIn "
+            "publishes no vertical safe zone."),
     source_date="screenshot 2026-09-25",
 )
 
@@ -528,7 +549,7 @@ def _outline_inside_zones(draw, platform: PlatformZones, width: int,
     the overlay touches is always a covered pixel - which is what lets
     the test compare the PNG to the table exactly. A side strip is lined
     on its inner edge, with a thin tick where the MEASURED phone cuts;
-    an edge band on its inner edge; an element box all round.
+    an element box all round.
     """
     for zone in platform.zones:
         a, b, c, d = _scale(zone.rect, width, height)
@@ -536,16 +557,14 @@ def _outline_inside_zones(draw, platform: PlatformZones, width: int,
             inner = (c - LINE_WIDTH, a)[zone.name == "right"]
             draw.rectangle((inner, b, inner + LINE_WIDTH - 1, d - 1),
                            fill=rgba)
-            if platform.key in CAPTURES:
-                cut = round(side_crop(platform.key) * width
+            views = [k for k, c in CAPTURES.items()
+                     if c.platform == platform.key]
+            if views:
+                cut = round(max(side_crop(k) for k in views) * width
                             / REFERENCE_SIZE[0])
                 x = cut - 1 if zone.name == "left" else width - cut
                 for y in range(b, d, 24):
                     draw.rectangle((x, y, x, min(d, y + 12) - 1), fill=rgba)
-        elif zone.name == "top":
-            draw.rectangle((a, d - LINE_WIDTH, c - 1, d - 1), fill=rgba)
-        elif zone.name == "bottom":
-            draw.rectangle((a, b, c - 1, b + LINE_WIDTH - 1), fill=rgba)
         else:
             draw.rectangle((a, b, c - 1, d - 1), outline=rgba,
                            width=min(LINE_WIDTH, (c - a) // 2, (d - b) // 2))
@@ -646,7 +665,7 @@ def describe() -> list[str]:
             lines.append(f"    {zone.name:<16} {zone.rect}  {zone.ui}")
     lines.append("Per-side crop in frame px, by phone:")
     for key, row in crop_table().items():
-        lines.append(f"    {PLATFORMS[key].label}: {row}")
+        lines.append(f"    {key}: {row}")
     return lines
 
 

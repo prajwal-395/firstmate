@@ -23,11 +23,16 @@ Two halves, and neither lives in engine code:
   a post nobody wrote.
 
 How it reaches the picture: ``remotion-subtitles``' ``PostHeader``
-composition is rendered ONCE per reel as a transparent still, carried as
-a looped ProRes 4444 movie over the reel's picture runs - the TV frame's
-own carriage (``reel_look.frame_overlay_segments``), because a still
-cannot be placed for an arbitrary length through Resolve's API - and
-placed full canvas on its own ``post_header`` row.
+composition is rendered ONCE per reel as a transparent still on the
+delivery frame, where it lays out; the still is then cut to a TIGHT
+canvas round its ink (:func:`tight_still`, the house rule for graphics,
+AGENTS.md 10.2), carried as a looped ProRes 4444 movie over the reel's
+picture runs - because a still cannot be placed for an arbitrary length
+through Resolve's API - and placed by Pan/Tilt on its own
+``post_header`` row. So moving the header is a transform on the
+timeline, like every other graphic: the captain, 2026-09-25, "why did
+we render it full frame and not tightly bounded like we do for
+graphics? that way we can just change the positioning freely".
 
 Where it sits is MEASURED after the render, not asserted: the drawn ink
 is read off the still and checked against every platform's UI band
@@ -114,7 +119,8 @@ class HeaderPlan:
                              if self.over_picture else None),
             "segments": [{"overlay_path": s.get("overlay_path"),
                           "timeline_start": s.get("timeline_start"),
-                          "total_frames": s.get("total_frames")}
+                          "total_frames": s.get("total_frames"),
+                          "tight_box": s.get("tight_box")}
                          for s in self.segments],
         }
 
@@ -358,6 +364,70 @@ def carry_still(png: str, frames: int, fps: float, out_mov: str) -> str:
     return out_mov
 
 
+def tight_still(png: str, frame: tuple[int, int]
+                ) -> tuple[str, tuple[int, int, int, int]]:
+    """The full-frame still cut to its ink: ``(tight png, canvas box)``.
+
+    The box is the ink padded as every tight graphic is
+    (``tight_box.PAD_*``), grown down to the canvas floor
+    (``tight_box.MIN_CANVAS_HEIGHT``) and to even sides, inside the
+    frame. The canvas box is where the tight still must be drawn for
+    the header to land where it laid out.
+    """
+    from PIL import Image
+
+    from library.tools.tight_box import (
+        MIN_CANVAS_HEIGHT,
+        PAD_BOTTOM,
+        PAD_TOP,
+        PAD_X,
+    )
+
+    box = ink_box(png)
+    if box is None:
+        raise PostHeaderError(f"PostHeader still {png} drew nothing")
+    width, height = frame
+    x0, x1 = max(0, box[0] - PAD_X), min(width, box[2] + PAD_X)
+    y0, y1 = max(0, box[1] - PAD_TOP), min(height, box[3] + PAD_BOTTOM)
+    y1 = min(height, max(y1, y0 + MIN_CANVAS_HEIGHT))
+    y0 = max(0, min(y0, y1 - MIN_CANVAS_HEIGHT))
+    if (x1 - x0) % 2:
+        x1, x0 = (x1 + 1, x0) if x1 < width else (x1, x0 - 1)
+    if (y1 - y0) % 2:
+        y1, y0 = (y1 + 1, y0) if y1 < height else (y1, y0 - 1)
+    canvas = (x0, y0, x1, y1)
+    out = png[:-4] + "_tight.png"
+    if not os.path.isfile(out):
+        with Image.open(png) as image:
+            image.convert("RGBA").crop(canvas).save(out)
+    return out, canvas
+
+
+def placement_for(canvas: tuple[int, int, int, int], frame: tuple[int, int],
+                  draw_gain: float) -> dict:
+    """The Scaling/Pan/Tilt that draws the tight canvas at ``canvas``."""
+    from library.tools.tight_box import placement_for_box
+
+    x0, y0, x1, y1 = canvas
+    return placement_for_box(x1 - x0, y1 - y0, (x0 + x1) / 2,
+                             (y0 + y1) / 2, frame[0], frame[1],
+                             draw_gain=draw_gain)
+
+
+def _tight_segments(png: str, runs, fps: float, frame: tuple[int, int],
+                    draw_gain: float) -> list[dict]:
+    """The header carried over ``runs`` as tight, placed segments."""
+    tight, canvas = tight_still(png, frame)
+    placement = placement_for(canvas, frame, draw_gain)
+    mov = carry_still(tight, max(b - a for a, b in runs), fps,
+                      tight[:-4] + ".mov")
+    size = {"width": canvas[2] - canvas[0], "height": canvas[3] - canvas[1],
+            "canvas_box": list(canvas), "placement": placement}
+    return [{"overlay_path": mov, "timeline_start": a / fps,
+             "total_frames": b - a, "tight_box": dict(size)}
+            for a, b in runs]
+
+
 def _still_for(declared: dict, hook: str, width: int, height: int,
                fps: float, project_folder: str, render=render_still) -> str:
     """The reel's header still, rendered once and keyed by its props."""
@@ -402,8 +472,13 @@ def plan_for_reel(reel_name: str, reel_number, runs: Sequence[tuple[int, int]],
                   fps: float, width: int, height: int,
                   project_folder: str,
                   picture_window: tuple[int, int, int, int] | None = None,
-                  render=render_still) -> HeaderPlan:
-    """One reel's header: render, measure, carry.  Empty plans say why."""
+                  render=render_still, *, draw_gain: float) -> HeaderPlan:
+    """One reel's header: render, measure, carry.  Empty plans say why.
+
+    ``draw_gain`` is the renderer's draw gain the build places every
+    tight graphic with (``resolve_transform``); the header's Pan/Tilt
+    is computed with the same one.
+    """
     from library.tools import platform_safe_zones as psz
 
     plan = HeaderPlan(reel_name=reel_name,
@@ -448,10 +523,8 @@ def plan_for_reel(reel_name: str, reel_number, runs: Sequence[tuple[int, int]],
                 print(f"  {reel_name}: post header draws over the picture "
                       f"at {plan.over_picture}", file=sys.stderr)
 
-    longest = max(b - a for a, b in runs)
-    mov = carry_still(png, longest, fps, png[:-4] + ".mov")
-    plan.segments = [{"overlay_path": mov, "timeline_start": a / fps,
-                      "total_frames": b - a} for a, b in runs]
+    plan.segments = _tight_segments(png, runs, fps, (width, height),
+                                    draw_gain)
     plan.basis = HEADER_PLACED
     print(f"  {reel_name}: post header {plan.hook!r} ink {plan.ink_box}",
           file=sys.stderr)
@@ -483,7 +556,7 @@ PLANS_FORMAT = "post_headers/1"
 TRACK_NAME = POST_HEADER_NAME
 
 #: What a rendered header file is called, as a pattern.
-FILE_SHAPE = r"^post_header_[0-9a-f]{10}$"
+FILE_SHAPE = r"^post_header_[0-9a-f]{10}(_tight)?$"
 
 
 def plans_path(project_folder: str) -> str:
@@ -588,10 +661,18 @@ def picture_runs(tracks) -> list[tuple[int, int]]:
 
 
 def touch_spec(project_folder: str, reel_number: int, tracks, *,
-               fps: float, width: int = 1080, height: int = 1920,
-               disable_graphics: bool = True,
+               fps: float, draw_gain: float, width: int = 1080,
+               height: int = 1920, disable_graphics: bool = True,
                render=render_still) -> dict:
-    """The `touch-reel` spec that puts this reel's header on its final."""
+    """The `touch-reel` spec that puts this reel's header on its final.
+
+    A reel with no header row gets one, and the tight header over its
+    picture runs. A reel that already carries a header - the full-frame
+    one this module placed before 2026-09-25 included - has each item
+    SWAPPED for the tight header, in place and placed by Pan/Tilt, so
+    a re-run replaces rather than stacks. ``draw_gain`` is the one the
+    caller MEASURED on these timelines; there is no default for it.
+    """
     declared = project_declaration(project_folder)
     if declared is None:
         raise PostHeaderError(f"effect.{DECLARATION_KEY} is not declared")
@@ -605,15 +686,31 @@ def touch_spec(project_folder: str, reel_number: int, tracks, *,
         raise PostHeaderError(f"reel {reel_number} plays no picture on V1/V2")
     png = _still_for(declared, hook["hook"], width, height, fps,
                      project_folder, render=render)
-    mov = carry_still(png, max(b - a for a, b in runs), fps,
-                      png[:-4] + ".mov")
     video = [t for t in tracks if str(t.get("type", "")).lower()
              .startswith("v")]
-    row = f"V{len(video) + 1}"
-    edits: list[dict] = [{"op": "add_row", "name": TRACK_NAME}]
-    edits += [{"op": "add_overlay", "row": row, "media": mov,
-               "record": a, "duration": b - a, "properties": {},
-               "name": os.path.basename(mov)} for a, b in runs]
+    existing = next((t for t in video
+                     if str(t.get("name") or "") == TRACK_NAME), None)
+    placed = list((existing or {}).get("clips") or ())
+    spans = ([(int(c["record_in"]), int(c["record_in"]) + int(c["duration"]))
+              for c in placed] if placed else runs)
+    segments = _tight_segments(png, spans, fps, (width, height), draw_gain)
+    placement = segments[0]["tight_box"]["placement"]
+    properties = {"Scaling": placement["scaling"], "Pan": placement["pan"],
+                  "Tilt": placement["tilt"]}
+    mov = segments[0]["overlay_path"]
+    edits: list[dict] = []
+    if placed:
+        row = f"V{int(existing['index'])}"
+        edits += [{"op": "swap_pixels", "row": row, "item": index,
+                   "media": mov, "properties": dict(properties)}
+                  for index in range(len(placed))]
+    else:
+        row = f"V{len(video) + 1}"
+        edits.append({"op": "add_row", "name": TRACK_NAME})
+        edits += [{"op": "add_overlay", "row": row, "media": mov,
+                   "record": a, "duration": b - a,
+                   "properties": dict(properties),
+                   "name": os.path.basename(mov)} for a, b in spans]
     if disable_graphics:
         for t in video:
             name = str(t.get("name") or "")
@@ -632,6 +729,6 @@ def touch_spec(project_folder: str, reel_number: int, tracks, *,
             "post_header": {
                 "hook": hook["hook"], "hook_basis": hook["basis"],
                 "still_path": png, "ink_box": list(ink_box(png) or ()),
-                "segments": [{"overlay_path": mov,
-                              "timeline_start": (a - origin) / fps,
-                              "total_frames": b - a} for a, b in runs]}}
+                "segments": [
+                    {**seg, "timeline_start": (a - origin) / fps}
+                    for seg, (a, _b) in zip(segments, spans)]}}
