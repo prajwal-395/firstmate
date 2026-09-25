@@ -193,11 +193,11 @@ def generate_motion_props(
         return [], resolved
 
     # Above the picture clusters as it always has; a behind_subject
-    # moment is composited under the subject's matte in Fusion, never
-    # placed on a motion-graphics row - so it is never clustered with
-    # above moments. One moment, one full-canvas segment: merging two
-    # behind titles into one file would fuse two placements compile
-    # grounds independently (library/tools/behind_subject.py).
+    # moment is precomposed under the subject's matte at compile
+    # time, so it is never clustered with above moments. One moment,
+    # one full-canvas segment: merging two behind titles into one
+    # file would fuse two placements compile grounds independently
+    # (library/tools/behind_subject.py).
     above = [m for m in resolved.moments
              if m.get("layer", LAYER_ABOVE) != LAYER_BEHIND_SUBJECT]
     behind = [m for m in resolved.moments
@@ -222,11 +222,11 @@ def _behind_subject_segment(moment: dict, *, fps: float, width: int,
 
     The same `props` shape `plan_segments` builds - the moment rebased
     to its own start - so `render_one_segment` renders it through the
-    identical Remotion path. Full canvas always: the Fusion comp merges
-    the title file 1:1 over the picture, and a tight canvas would need
-    a transform nobody declared. `layer` travels on the segment so the
-    render pass carries it full and compile routes it to the matte path
-    instead of a motion-graphics row.
+    identical Remotion path. Full canvas always: compile precomposites
+    the title file 1:1 under the subject matte, and a tight canvas
+    would need a transform nobody declared. `layer` travels on the
+    segment so the render pass carries it full and compile routes it
+    to the precomposite path instead of an above-picture row.
     """
     start_frame = moment["startFrame"]
     total_frames = max(1, moment["durationFrames"])

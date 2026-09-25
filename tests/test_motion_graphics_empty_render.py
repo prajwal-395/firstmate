@@ -25,9 +25,12 @@ one another is what let 001 report a delivered layer.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -189,3 +192,103 @@ def test_a_plan_whose_entries_all_died_is_a_different_absence(tmp_path):
     assert reasons == {"asset_not_found_on_disk", "no_colour_to_draw_it_in"}
     for row in basis["dropped"]:
         assert row["what_the_reason_means"]
+
+
+needs_ffmpeg = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None,
+    reason="needs ffmpeg; runs in CI, which installs it (AGENTS.md 9)")
+
+
+def _title_entry(layer=None):
+    entry = {
+        "element": "title_lockup", "anchor": "centre", "row": 0,
+        "copy": {"display": "MORNING WALK"},
+        "color": "#FFFFFF", "colour_role": "text",
+        "entrance": "cut", "exit": "cut",
+        "start_seconds": 0.0, "duration_seconds": 0.5,
+        "why": "opening title for the walk",
+    }
+    if layer is not None:
+        entry["layer"] = layer
+    return entry
+
+
+def _draw_mov(path, frames=15):
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+         "-i", "color=white:s=64x64:d=1:r=30,format=rgba",
+         "-frames:v", str(frames), "-c:v", "qtrle", str(path)],
+        check=True)
+
+
+def _render_shapes(monkeypatch, tmp_path, plan):
+    """The step's output shapes with the renderer stubbed out.
+
+    `render_one_segment` is the Remotion half (covered by its own
+    tests); what is pinned here is what the step SAYS about each
+    side of the layer - and that the hollow check reads it as a
+    legitimate answer, not a failed run.
+    """
+    import library.steps.step_4_06_render_motion_graphics.post_bridge as pb
+    from library.processes.edit_video.run_pipeline import (
+        check_output_is_real)
+
+    mov = tmp_path / "title.mov"
+    _draw_mov(mov)
+    canned = {"segment_id": "mg_000", "overlay_path": str(mov),
+              "total_frames": 15,
+              "timeline_start": 0.0, "timeline_end": 0.5}
+    monkeypatch.setattr(
+        pb, "render_one_segment", lambda *a, **k: dict(canned))
+    monkeypatch.setattr(
+        "library.tools.mg_tight_box.check_motion_graphics_files",
+        lambda paths, w, h: ([], {"tight": 0, "full_by_design": 1,
+                                  "full_with_reason": 0,
+                                  "full_undeclared": 0}))
+    payload = _payload(tmp_path, motion_graphics_plan=plan)
+    out = pb.render_motion_graphics(payload)
+    assert check_output_is_real("render_motion_graphics", out) == []
+    return out
+
+
+@needs_ffmpeg
+def test_a_behind_only_plan_states_the_empty_above_side(tmp_path,
+                                                        monkeypatch):
+    out = _render_shapes(monkeypatch, tmp_path,
+                         [_title_entry(layer="behind_subject")])
+    behind = out["behind_subject_overlays"]
+    assert behind["available"] is True
+    assert len(behind["segments"]) == 1
+    seg = behind["segments"][0]
+    # The segment was sequenced for the compile precomposite: the
+    # manifest names the first PNG frame, not the .mov.
+    assert seg["overlay_path"].endswith(".png")
+    assert seg["sequence"]["frame_count"] == 15
+    assert os.path.isfile(seg["overlay_path"])
+    above = out["motion_graphics_overlay"]
+    assert above["available"] is False
+    assert above["segments"] == []
+    assert "behind_subject_overlays" in above["reason"]
+
+
+@needs_ffmpeg
+def test_an_above_only_plan_states_the_empty_behind_side(tmp_path,
+                                                         monkeypatch):
+    out = _render_shapes(monkeypatch, tmp_path, [_title_entry()])
+    above = out["motion_graphics_overlay"]
+    assert above["available"] is True
+    assert len(above["segments"]) == 1
+    behind = out["behind_subject_overlays"]
+    assert behind["available"] is False
+    assert behind["segments"] == []
+    assert "behind_subject" in behind["reason"]
+
+
+def test_a_plan_of_none_is_hollow_clean_on_both_sides(tmp_path):
+    proc, _ = _run_step(tmp_path, _payload(
+        tmp_path, motion_graphics_plan=[]))
+    assert proc.returncode == 0, proc.stderr
+    from library.processes.edit_video.run_pipeline import (
+        check_output_is_real)
+    out = json.loads(proc.stdout)
+    assert check_output_is_real("render_motion_graphics", out) == []

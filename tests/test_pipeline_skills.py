@@ -217,6 +217,33 @@ def test_ran_gating_skill_reads_back_from_disk(tmp_path, good_video):
     assert receipts["verify_render"]["result"]["passed"] is True
 
 
+def test_an_empty_vfx_plan_needs_no_treatment_receipt(tmp_path):
+    """An empty plan draws nothing, so there is no picture to verify.
+
+    The gate firing on one would fail correct output; the exemption
+    is exactly `[]`, not a missing field and not a plan with
+    entries. Both spellings of the step id behave the same: the
+    runner addresses the DAG node (`plan_vfx`) while the directory
+    reads `step_4_03_plan_vfx`, and scoping on the spelling fails the
+    empty plan in production while the directory-id unit test stays
+    green (AGENTS.md 10.1).
+    """
+    manifest = {"skills": ["verify_treatment"]}
+    for step_id in ("plan_vfx", "step_4_03_plan_vfx"):
+        assert pipeline_skills.assert_gating_skills_ran(
+            step_id, manifest, str(tmp_path),
+            llm_output={"vfx_creative": []}) == {}
+        with pytest.raises(pipeline_skills.GatingSkillSkipped):
+            pipeline_skills.assert_gating_skills_ran(
+                step_id, manifest, str(tmp_path),
+                llm_output={"vfx_creative": [
+                    {"target_block_position": 1,
+                     "effect_type": "slow_zoom_in"}]})
+        with pytest.raises(pipeline_skills.GatingSkillSkipped):
+            pipeline_skills.assert_gating_skills_ran(
+                step_id, manifest, str(tmp_path), llm_output={})
+
+
 def test_pipeline_runs_the_gate_for_a_shell_less_harness(
         tmp_path, good_video):
     """`api` cannot invoke: the pipeline runs verify_render itself and

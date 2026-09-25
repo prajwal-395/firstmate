@@ -134,6 +134,7 @@ from tools.tv_frame import (
 from tools.tv_power import switch_shape
 from tools.delivery_format import resolve_delivery_format
 from library.tools.subject_grade import apply_subject_grades
+from library.tools.timeline_layout import allocate_non_overlapping_rows
 from tools.project_layout import (
     STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
 )
@@ -2190,21 +2191,21 @@ def compile_manifest(out_dir: str) -> dict:
             subject_mattes.extend(mattes)
 
     # ── Behind-subject composites (4.06 layer behind_subject) ──
-    # Each behind segment is a full-canvas title composited UNDER the
-    # tracked subject of every placed picture clip its span plays
-    # over, through the Loader-matte path - the subject_grade wiring
-    # generalised from a grade to a graphic
-    # (library/tools/behind_subject.py). The segment never rides a
-    # motion-graphics row: it travels on behind_subject_overlays, and
-    # the row placer never sees it.
+    # Each behind segment is a full-canvas title precomposited UNDER
+    # the tracked subject of every placed picture clip its span plays
+    # over: per frame `overlay_alpha = title_alpha x (1 -
+    # subject_matte)`, premultiplied, carried as `qtrle`
+    # (library/tools/behind_subject.py). The precomp rides a normal
+    # motion-graphics row above the picture - the holes punched for
+    # the subject are what put the title behind them, not the row -
+    # so the segment travels inside `motion_graphics_overlay`, where
+    # the timeline build imports it, sets Full + Premultiplied and
+    # places it full-canvas like any other overlay.
     #
     # A behind request REFUSES the compile by name
     # (BehindSubjectRefused, a RenRefusal) - never dropped with a
     # reason, never drawn on top. Both would be a different placement
-    # wearing this one's name. The first refusal is the renderer gate:
-    # scripted Loaders do not decode on timeline comps in Resolve
-    # Studio 21.1 (measured 2026-09-24), so every request refuses up
-    # front here, before Resolve is ever touched - not at delivery.
+    # wearing this one's name.
     behind_data = (motion_graphics_overlay_data.get(
         "behind_subject_overlays", {}) or {})
     behind_segments = behind_data.get("segments", []) or []
@@ -2212,8 +2213,15 @@ def compile_manifest(out_dir: str) -> dict:
     behind_composites: list = []
     if behind_segments:
         from library.tools.behind_subject import apply_behind_subject
-        _seg_dir = os.path.join(out_dir, "1_06_object_segmentation")
+        # 1.06's segmentation files live in THAT step's directory -
+        # resolved through the layout, never composed by hand. A raw
+        # join onto out_dir points at pipeline_output/ root, where no
+        # step writes, so every lookup missed and the compile refused
+        # for no matte on real runs (measured 2026-09-24).
+        _seg_dir = str(ProjectLayout(os.path.dirname(
+            os.path.abspath(out_dir))).step_dir("object_segmentation"))
         _matte_dir = os.path.join(out_dir, "subject_mattes")
+        _precomp_dir = os.path.join(out_dir, "behind_subject_precomp")
         _source_to_cid = {path: cid
                           for cid, path in clip_lookup.items()}
         _seg_cache = {}
@@ -2253,20 +2261,38 @@ def compile_manifest(out_dir: str) -> dict:
                         {_source_to_cid.get(c.get("source_file"))
                          for c in _placed}
                         if cid is not None}
-        _patch, _mattes, behind_composites = apply_behind_subject(
+        _placed_behind, _mattes, behind_composites = apply_behind_subject(
             behind_segments, _seg_by_clip, clip_at=_clip_at,
-            matte_dir=_matte_dir, timeline_fps=float(fps),
+            matte_dir=_matte_dir, precomp_dir=_precomp_dir,
+            timeline_fps=float(fps),
             clip_metadata=clip_metadata,
-            matte_stems={cid: f"{cid}_{clip['label']}"
+            matte_stems={(cid, clip["label"]): f"{cid}_{clip['label']}"
                          for clip in _placed
                          for cid in [_source_to_cid.get(
                              clip.get("source_file"))]
                          if cid is not None})
-        for label, eff in _patch.items():
-            effect = per_clip_effects.setdefault(label, {})
-            effect.update(eff)
         behind_mattes.extend(_mattes)
         subject_mattes.extend(_mattes)
+        # The precomps join the overlay list the build places: full
+        # canvas, no tight box, no transform. Lanes are repacked over
+        # the COMBINED spans in list order - the same greedy packing
+        # the track plan runs at build time - so a behind title that
+        # overlaps an above graphic in time takes its own row instead
+        # of tripping the per-lane overlap check or landing on it.
+        _mg_overlay = motion_graphics_overlay_data.setdefault(
+            "motion_graphics_overlay", {})
+        _mg_list = _mg_overlay.setdefault("segments", [])
+        _mg_list.extend(_placed_behind)
+        if _placed_behind:
+            _spans = [(round(float(s.get("timeline_start", 0)) * fps),
+                       round(float(s.get("timeline_end", 0)) * fps))
+                      for s in _mg_list]
+            _packed = allocate_non_overlapping_rows(_spans, base_index=0)
+            _lanes = sorted({row for _, row in _packed})
+            for _seg, (_, _row) in zip(_mg_list, _packed):
+                _seg["lane"] = _lanes.index(_row)
+            _mg_overlay["available"] = True
+            _mg_overlay["total_segments"] = len(_mg_list)
 
     # ── The subject-safe conform's own comp (§10.3) ──
     # `_conform_fields` decided the geometry; this is the only thing that
@@ -2300,6 +2326,33 @@ def compile_manifest(out_dir: str) -> dict:
         key = "tv_power_head" if half == "head" else "tv_power_tail"
         effect[key] = True
         effect[f"{key}_timing"] = timing
+
+    # ── Behind-subject registration guard ──
+    # A behind precomp punches its holes at the source pixels, so a
+    # picture-moving effect on the same clip moves the subject out
+    # from under them. The combination refuses by name here - all
+    # per-clip effects are final at this point - rather than building
+    # a misaligned title (library/tools/behind_subject.py).
+    if behind_composites:
+        from library.tools.behind_subject import (
+            assert_no_geometric_overlap)
+        _behind_by_label: dict = {}
+        for _comp in behind_composites:
+            for _pre in _comp.get("precomps", []):
+                _behind_by_label.setdefault(
+                    _pre.get("label", ""), []).append(
+                    (_comp.get("segment_id", "?"),
+                     _pre.get("timeline_start", 0.0),
+                     _pre.get("timeline_end", 0.0)))
+        _stabilized = [
+            _label for _label, _directives
+            in (neural_engine_directives or {}).items()
+            if isinstance(_directives, dict)
+            and _directives.get("stabilize")]
+        assert_no_geometric_overlap(
+            _behind_by_label, per_clip_effects=per_clip_effects,
+            stabilized_labels=_stabilized,
+            speed_ops=native_speed_ops)
 
     # An entry over a stretch of timeline with no clip on V1 OR V2 cannot
     # be drawn - there is no picture to put a comp on.  It used to RAISE,
@@ -2866,8 +2919,9 @@ def compile_manifest(out_dir: str) -> dict:
         "subject_grade_drops": subject_grade_drops,
         # Behind-subject composites: the matte records (same shape,
         # same validator) and which clips each behind segment
-        # composited onto. A behind request with no usable matte
-        # refuses above, so a record here is a composite that drew.
+        # composited onto, with the precomp each produced. A behind
+        # request with no usable matte refuses above, so a record here
+        # is a precomp that verified.
         "behind_subject_mattes": behind_mattes,
         "behind_subject_composites": behind_composites,
         # What step 1.06 was asked to segment and why - the trigger
@@ -2881,9 +2935,9 @@ def compile_manifest(out_dir: str) -> dict:
             "subtitle_overlay", {}),
         "motion_graphics_overlay": motion_graphics_overlay_data.get(
             "motion_graphics_overlay", {}),
-        # Behind-subject title segments, as rendered - carried so the
-        # composite above is traceable to the file it merged. They
-        # never ride a motion-graphics row.
+        # Behind-subject title segments, as rendered - carried so each
+        # precomp above is traceable to the title it punched. The
+        # placeable form travels inside `motion_graphics_overlay`.
         "behind_subject_overlays": motion_graphics_overlay_data.get(
             "behind_subject_overlays", {}),
         # Timed text moments the brand template declared, already

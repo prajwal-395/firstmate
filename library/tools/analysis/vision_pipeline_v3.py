@@ -2606,7 +2606,16 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             when a host answers. Required when `harness` declares
             vision; unused otherwise.
     """
+    # Absolute before anything joins them: the still-vision handshake
+    # carries frame paths to a host that opens them with its own file
+    # tools, and it refuses a relative one (measured 2026-09-24: a
+    # host-driven run failed every clip on `.vision_cache/...`
+    # relative paths). Same directory as before - `resolve` only
+    # spells it absolutely - so no cache is orphaned by this.
+    cache_dir = Path(cache_dir).resolve()
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     all_profiles = []

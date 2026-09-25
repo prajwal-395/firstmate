@@ -154,24 +154,16 @@ def build_effect_comp(effects: dict, clip_dur: int,
     src_in = effects.get('source_in_frame')
     src_out = effects.get('source_out_frame')
 
-    # A behind_subject composite: the rendered title merged over the
-    # picture, then the picture merged back over that through the
-    # tracked matte - the title shows everywhere except where the
-    # subject is. FIRST, and must be: it branches from MediaIn1 by
-    # name (both the title's background and the subject's foreground
-    # ARE the source frame), so anything added before it would be
-    # silently absent from the subject the viewer sees. What follows -
-    # the grade, the vignette, the look - acts on the composite, which
-    # is what seats the title IN the picture. The keys arrive from
-    # `behind_subject.apply_behind_subject` via compile_manifest.
-    if 'behind_subject_matte' in effects:
-        from library.tools.behind_subject import block_from_effects
-        engine.add(block_from_effects(effects))
+    # A behind_subject title reaches the timeline as a precomposed
+    # overlay clip on a motion-graphics row, never as a comp effect -
+    # so there is deliberately no dispatch for one here. The holes
+    # the 1.06 matte punched are what put the title behind the
+    # subject, not a merge (library/tools/behind_subject.py).
 
-    # The backdrop is next, and branches off MediaIn1 by
-    # name like the composite above does (its sharp picture branch
-    # reads the source, so a title survives there only blurred in the
-    # backdrop - an accepted imperfection of two branches meeting).
+    # The backdrop branches off MediaIn1 by
+    # name (its sharp picture branch reads the source, so a title
+    # survives there only blurred in the backdrop - an accepted
+    # imperfection of two branches meeting).
     # Everything after it - the Ken Burns drift, the grade, the
     # vignette - is meant to act on the composed picture, not on the
     # source behind it.

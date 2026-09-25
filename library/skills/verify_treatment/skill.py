@@ -85,16 +85,21 @@ def plan_names_verifiable_effect(vfx_creative) -> bool:
 def gate_applies(step_id: str, llm_output) -> bool:
     """Whether the must-check rule needs this skill's receipt.
 
-    Scoped to what the skill knows (finding 5): on step_4_03_plan_vfx
-    the gate applies only when the answer's own `vfx_creative` names a
-    verifiable treatment. An empty plan - stillness the planner chose -
-    and one naming only effects with no plan-time verifier need no
-    receipt. Anything the answer does not state (no dict, no
-    `vfx_creative` key) applies the gate: an unreadable answer is not
-    an empty plan.
+    Scoped to what the skill knows (finding 5): the gate applies
+    only when the answer's own `vfx_creative` names a verifiable
+    treatment. An empty plan - stillness the planner chose - and one
+    naming only effects with no plan-time verifier need no receipt.
+    Anything the answer does not state (no dict, no `vfx_creative`
+    key) applies the gate: an unreadable answer is not an empty plan.
+
+    Deliberately deaf to `step_id`: the must-check rule only asks
+    skills the answering step's own manifest declares, so by the time
+    this runs the step is the one that declared it - and the runner
+    addresses steps by DAG node id (`plan_vfx`) while the directory
+    reads `step_4_03_plan_vfx`. Scoping on the id reintroduces that
+    mismatch (AGENTS.md 10.1) and fails the empty plan in production
+     while the unit test, calling with the directory id, stays green.
     """
-    if step_id != "step_4_03_plan_vfx":
-        return True
     if not isinstance(llm_output, dict):
         return True
     if "vfx_creative" not in llm_output:

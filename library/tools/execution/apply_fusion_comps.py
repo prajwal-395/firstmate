@@ -727,33 +727,11 @@ def apply_fusion_comps(manifest, project_folder,
                 detail = f" ({', '.join(parts)})" if parts else ""
                 print(f"  ✓ [{where}] {label}: {len(real_tools)} tools{detail}", file=sys.stderr)
 
-                # 4. DELIVER the file-backed Loaders the import stripped.
-                # ImportFusionComp turns Loader nodes into MediaIn
-                # placeholders, so the title and matte the comp text
-                # declares are not on the timeline after the import
-                # above. The delivery re-attaches them under comp.Lock()
-                # - which suppresses the file-browser dialog an
-                # unlocked AddTool opens - and REFUSES by name where a
-                # loader did not decode: a black composite must never
-                # ship in silence. The refusal propagates out of this
-                # subprocess and fails the build step with the file
-                # named. Only behind-subject composites ride this;
-                # subject grades keep their existing path until their
-                # own delivery is measured.
-                if comp and 'behind_subject_matte' in effects:
-                    try:
-                        from library.tools.behind_subject import (
-                            loader_specs_from_effects)
-                        from library.tools.execution.deliver_loaders import (
-                            deliver_loaders)
-                    except ImportError:  # pragma: no cover - script path
-                        from behind_subject import loader_specs_from_effects
-                        from deliver_loaders import deliver_loaders
-                    delivered = deliver_loaders(
-                        comp, loader_specs_from_effects(effects))
-                    print(f"  ✓ [{where}] {label}: loaders delivered "
-                          f"({', '.join(sorted(delivered))})",
-                          file=sys.stderr)
+                # Behind-subject titles ride no Loader delivery: they
+                # reach the timeline precomposited, as normal overlay
+                # clips on motion-graphics rows
+                # (library/tools/behind_subject.py) - so there is
+                # deliberately no file-backed delivery here.
             else:
                 print(f"  ✗ [{where}] {label}: ImportFusionComp failed", file=sys.stderr)
 

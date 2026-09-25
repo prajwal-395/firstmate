@@ -74,6 +74,42 @@ def test_broll_cover_counts_as_a_wanted_clip():
     assert sorted(wanted) == ["b7", "c1"]
 
 
+def test_a_speech_block_names_its_video_segments_clip():
+    """The real assign_aroll shape nests the clip_id.
+
+    A speech block carries no top-level clip_id - the picture it
+    plays comes from `video_segments`. Measured 2026-09-24: a behind
+    title over a real speech block triggered nothing and the compile
+    refused for no matte.
+    """
+    wanted = matte_trigger(
+        behind_subject_overlays=_behind(("t1", 0.0, 0.72)),
+        a_roll_assignments=[{
+            "spine_block_position": 1, "block_type": "speech",
+            "timeline_start": 0.0, "timeline_end": 0.72,
+            "video_segments": [{
+                "clip_id": "clip_001",
+                "duration_seconds": 0.72,
+                "video_in": 3.32, "video_out": 4.04,
+            }],
+        }])
+    assert list(wanted) == ["clip_001"]
+
+
+def test_video_segment_shares_resolve_within_the_block_span():
+    wanted = matte_trigger(
+        behind_subject_overlays=_behind(("t1", 5.0, 6.0)),
+        a_roll_assignments=[{
+            "spine_block_position": 1, "block_type": "speech",
+            "timeline_start": 0.0, "timeline_end": 10.0,
+            "video_segments": [
+                {"clip_id": "c1", "duration_seconds": 4.0},
+                {"clip_id": "c2", "duration_seconds": 6.0},
+            ],
+        }])
+    assert list(wanted) == ["c2"]
+
+
 def test_face_boxes_come_from_the_per_clip_index_files(tmp_path):
     index = tmp_path / "c1_index.json"
     index.write_text(json.dumps({

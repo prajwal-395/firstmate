@@ -169,7 +169,12 @@ def request_host_answer(prompt: str, image_paths: list,
     """Ask the driving host to look at stills. Returns its answer text.
 
     Files the handshake request (prompt, the stills as `images`),
-    prints `LLM_REQUEST_READY`, and polls for the response. The
+    prints `LLM_REQUEST_READY` on stderr, and polls for the response.
+    Stderr, not stdout: this is called from inside pre-bridges whose
+    stdout the runner parses as JSON, and a marker line there reads
+    as a broken bridge (measured 2026-09-24: every host-answered
+    stills request failed its step). The request file is what the
+    host watches; the line is only the nudge. The
     response is validated exactly as today
     (`validate_response` + `require_text_answer`): malformed answers
     refuse with the fix, and an unanswered request raises
@@ -204,7 +209,8 @@ def request_host_answer(prompt: str, image_paths: list,
     )
     with open(req_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
-    print(f"{_handshake.READY_MARKER}: {req_path}", flush=True)
+    print(f"{_handshake.READY_MARKER}: {req_path}", flush=True,
+          file=sys.stderr)
     print(f"  [still-vision] {label}: host looking at "
           f"{len(image_paths)} still(s) (timeout {timeout_seconds:g}s)...",
           file=sys.stderr)

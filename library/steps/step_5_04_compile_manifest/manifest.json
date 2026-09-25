@@ -76,7 +76,7 @@
         "name": "behind_subject_overlays",
         "type": "object",
         "required": false,
-        "description": "State input: behind_subject_overlays from step 4.06 - full-canvas title segments planned with layer behind_subject. OPTIONAL: each is composited under the subject's 1.06 matte in Fusion (library/tools/behind_subject.py); a request with no usable matte refuses the compile by name."
+        "description": "State input: behind_subject_overlays from step 4.06 - full-canvas title segments planned with layer behind_subject. OPTIONAL: each is precomposited under the subject's 1.06 matte into a qtrle overlay placed on a motion-graphics row (library/tools/behind_subject.py); a request with no usable matte refuses the compile by name."
       },
       {
         "name": "timed_text_overlay",

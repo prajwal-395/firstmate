@@ -2,7 +2,7 @@
   "id": "step_1_06_object_segmentation",
   "name": "Object Segmentation",
   "version": "2.0.0",
-  "description": "Tracks the subject on the clips a matte-needing plan names, with SAM 2 face-seeded from step 1.04's face boxes. Runs after the planning steps and segments ONLY those clips (the trigger is stated in step.py): subject_grades entries in color_grade_spec, and behind_subject_overlays segments resolved against a_roll/b_roll placement. A wanted clip with no face box is declined, never blob-seeded. Masks land as {area:segmentation}/{clip_id}_segmentation.json, where compile grounds subject grades and behind-subject composites through the Loader-matte path.",
+  "description": "Tracks the subject on the clips a matte-needing plan names, with SAM 2 face-seeded from step 1.04's face boxes. Runs after the planning steps and segments ONLY those clips (the trigger is stated in step.py): subject_grades entries in color_grade_spec, and behind_subject_overlays segments resolved against a_roll/b_roll placement. A wanted clip with no face box is declined, never blob-seeded. Masks land as {area:segmentation}/{clip_id}_segmentation.json, where compile grounds subject grades and precomposites behind-subject titles under them.",
   "level": "step",
   "interface": {
     "inputs": [

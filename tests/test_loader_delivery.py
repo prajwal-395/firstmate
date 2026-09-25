@@ -1,10 +1,16 @@
-"""Locked Loader delivery: derivation, wiring and read-back refusal.
+"""Locked Loader delivery: wiring and read-back refusal.
 
 `TimelineItem.ImportFusionComp` turns Loader nodes into MediaIn
 placeholders, so the delivery re-attaches the files under
 comp.Lock(). Everything Resolve-shaped here is a fake with the same
 method names; the logic under test is which calls are made, in which
 order, and what read-back refuses.
+
+No timeline path rides this today - the behind-subject composite it
+was built for now reaches the timeline precomposited
+(library/tools/behind_subject.py) - so the specs and wiring here are
+synthetic. What stays covered is the generic executor, for a future
+file-backed delivery that measures.
 """
 
 import os
@@ -16,32 +22,22 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from library.tools import behind_subject
 from library.tools.execution import deliver_loaders as dl
 
 
-EFFECTS = {
-    "behind_title_media": "/titles/t_00000.png",
-    "behind_title_trim_in": 12,
-    "behind_title_trim_out": 40,
-    "behind_subject_matte": "/mattes/m_00000.png",
-}
+SPECS = [
+    {"role": "title", "first_frame": "/titles/t_00000.png",
+     "trim_in": 12, "trim_out": 40},
+    {"role": "matte", "first_frame": "/mattes/m_00000.png",
+     "trim_in": 0, "trim_out": None},
+]
 
+WIRING = (
+    ("TitleOver", "Foreground", "title", "Output"),
+    ("SubjectOver", "EffectMask", "matte", "Mask"),
+)
 
-def test_specs_derive_title_trims_and_a_trimless_matte():
-    specs = behind_subject.loader_specs_from_effects(EFFECTS)
-    assert specs == [
-        {"role": "title", "first_frame": "/titles/t_00000.png",
-         "trim_in": 12, "trim_out": 40},
-        {"role": "matte", "first_frame": "/mattes/m_00000.png",
-         "trim_in": 0, "trim_out": None},
-    ]
-
-
-def test_no_keys_means_nothing_to_deliver_not_a_refusal():
-    assert behind_subject.loader_specs_from_effects({}) == []
-    assert behind_subject.loader_specs_from_effects(
-        {"behind_title_media": "/titles/t_00000.png"}) == []
+PLACEHOLDERS = ("BehindTitle", "SubjectMatte")
 
 
 class _Input:
@@ -133,8 +129,7 @@ def _wired_comp(**overrides):
 
 def test_delivery_wires_both_loaders_under_lock():
     comp = _wired_comp()
-    delivered = dl.deliver_loaders(
-        comp, behind_subject.loader_specs_from_effects(EFFECTS))
+    delivered = dl.deliver_loaders(comp, SPECS, WIRING, PLACEHOLDERS)
     assert sorted(delivered) == ["matte", "title"]
     assert comp.calls[0] == ("Lock",)
     assert comp.calls[-1] == ("Unlock",)
@@ -147,9 +142,6 @@ def test_delivery_wires_both_loaders_under_lock():
 
 def test_a_loader_that_did_not_decode_refuses():
     comp = _wired_comp()
-    specs = behind_subject.loader_specs_from_effects(EFFECTS)
-    for tool in comp.tools.values():
-        pass
     real_add = comp.AddTool
 
     def _black_loader(reg, *_pos):
@@ -160,7 +152,7 @@ def test_a_loader_that_did_not_decode_refuses():
 
     comp.AddTool = _black_loader
     with pytest.raises(dl.LoaderDeliveryRefused) as exc:
-        dl.deliver_loaders(comp, specs)
+        dl.deliver_loaders(comp, SPECS, WIRING, PLACEHOLDERS)
     assert "did not decode" in str(exc.value)
 
 
@@ -176,24 +168,21 @@ def test_an_unknown_length_refuses():
 
     comp.AddTool = _unreadable_loader
     with pytest.raises(dl.LoaderDeliveryRefused) as exc:
-        dl.deliver_loaders(
-            comp, behind_subject.loader_specs_from_effects(EFFECTS))
+        dl.deliver_loaders(comp, SPECS, WIRING, PLACEHOLDERS)
     assert "did not resolve" in str(exc.value)
 
 
 def test_a_missing_merge_refuses_not_skips():
     comp = _Comp({})
     with pytest.raises(dl.LoaderDeliveryRefused) as exc:
-        dl.deliver_loaders(
-            comp, behind_subject.loader_specs_from_effects(EFFECTS))
+        dl.deliver_loaders(comp, SPECS, WIRING, PLACEHOLDERS)
     assert "TitleOver" in str(exc.value)
 
 
 def test_placeholders_are_removed_and_working_loaders_kept():
     placeholder = _Tool("BehindTitle", reg="MediaIn")
     comp = _wired_comp(BehindTitle=placeholder)
-    dl.deliver_loaders(
-        comp, behind_subject.loader_specs_from_effects(EFFECTS))
+    dl.deliver_loaders(comp, SPECS, WIRING, PLACEHOLDERS)
     assert ("Delete",) in placeholder.calls
 
 
@@ -213,6 +202,5 @@ def test_trims_that_do_not_take_refuse():
 
     comp.AddTool = _stubborn_loader
     with pytest.raises(dl.LoaderDeliveryRefused) as exc:
-        dl.deliver_loaders(
-            comp, behind_subject.loader_specs_from_effects(EFFECTS))
+        dl.deliver_loaders(comp, SPECS, WIRING, PLACEHOLDERS)
     assert "wrong frames" in str(exc.value)

@@ -19,8 +19,8 @@ from library.tools.project_layout import Area, ProjectLayout
 #: * a `subject_grades` entry in `color_grade_spec` (step 5.01) names
 #:   its clip_id - the Loader-matte path grades that subject; or
 #: * a `behind_subject_overlays` segment (step 4.06) plays over a
-#:   timeline span a placed picture clip covers - the Fusion comp puts
-#:   that title under this clip's matte. Spans resolve to clips
+#:   timeline span a placed picture clip covers - the compile
+#:   precomposites that title under this clip's matte. Spans resolve to clips
 #:   through `a_roll_assignments` and the `b_roll_assignments` /
 #:   `b_roll_interjections` that cover them.
 #:
@@ -88,6 +88,26 @@ def matte_trigger(color_grade_spec=None,
             if span is None:
                 continue
             placements.append((_entry_clip_id(entry), span))
+            # Speech blocks cut their picture from `video_segments`,
+            # which carry the clip_id the entry itself does not name
+            # (measured 2026-09-24: a behind plan over a real speech
+            # block triggered nothing, and the compile refused for no
+            # matte). Each segment's share of the span is its own
+            # duration laid end to end from the span's start - exact
+            # for the single-segment norm, never a guess.
+            offset = span[0]
+            for seg in (entry.get("video_segments") or []):
+                if not isinstance(seg, dict):
+                    continue
+                try:
+                    dur = float(seg.get("duration_seconds", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                seg_id = seg.get("clip_id", "")
+                if seg_id and dur > 0:
+                    placements.append(
+                        (seg_id, (offset, offset + dur)))
+                    offset += dur
 
     for segment in ((behind_subject_overlays or {}).get("segments")
                     or []):

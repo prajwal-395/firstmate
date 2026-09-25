@@ -998,6 +998,7 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
                 "available": False,
                 "segments": [],
                 "total_segments": 0,
+                "reason": "the plan names no behind_subject entries",
             },
             "timed_text_overlay": timed_text_overlay,
         }
@@ -1013,11 +1014,12 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
 
     segments = []
     for i, planned in enumerate(segments_plan):
-        # A behind_subject segment is composited 1:1 over the picture
-        # inside a per-clip Fusion comp, so it always renders full
-        # canvas - a tight canvas would need a transform nobody
-        # declared. The explicit 'full' writes the geometry_full_declared
-        # sidecar, which is what the tightness guard below asks for.
+        # A behind_subject segment is precomposited 1:1 under the
+        # picture's subject matte at compile time, so it always
+        # renders full canvas - a tight canvas would need a transform
+        # nobody declared. The explicit 'full' writes the
+        # geometry_full_declared sidecar, which is what the tightness
+        # guard below asks for.
         planned_geometry = (
             "full" if planned.get("layer") == "behind_subject"
             else geometry)
@@ -1077,20 +1079,18 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
                   file=sys.stderr)
 
     # Above-picture segments ride motion-graphics rows; behind_subject
-    # ones are composited under the subject's matte in Fusion and are
-    # never placed on a row - so they travel on their own output key,
-    # where compile grounds each against its matte
-    # (library/tools/behind_subject.py) and the row placer never sees
-    # them. A behind request with no usable matte refuses there, never
-    # silently rejoins this list.
+    # ones are precomposed under the subject's matte at compile time
+    # into overlays that join the same rows - so they travel on their
+    # own output key, where compile grounds each against its matte
+    # (library/tools/behind_subject.py) and appends the verified
+    # precomp to the row placer list. A behind request with no usable
+    # matte refuses there, never silently rejoins this list.
     #
-    # A behind title reaches Fusion as a PNG image sequence, not as the
-    # .mov it rendered as: TimelineItem.ImportFusionComp strips Loader
-    # nodes, and the locked delivery re-attaches them by first frame -
-    # and a Loader resolves a numbered PNG sequence (length reads back)
-    # where a qtrle .mov does not resolve at all (measured on Resolve
-    # Studio 21.1). The .mov stays on disk as provenance; the sequence
-    # is what the manifest names.
+    # A behind title reaches compile as a PNG image sequence, not as
+    # the .mov it rendered as: compile precomposites frame by frame,
+    # and the numbered sequence is the random-access frame source it
+    # reads. The .mov stays on disk as provenance; the sequence is
+    # what the manifest names.
     for seg in segments:
         if seg.get("layer", "above") == "behind_subject":
             _sequence_behind_segment(seg)
@@ -1099,30 +1099,46 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     behind_segments = [s for s in segments
                        if s.get("layer", "above") == "behind_subject"]
 
+    # An empty side states WHICH absence it is: the hollow check
+    # (`check_output_is_real`) reads an `available: false` with no
+    # reason as a failed run, and a behind-only plan - or an
+    # above-only one - is a legitimate layer, not a failure.
+    mg_overlay = {
+        "available": len(above_segments) > 0,
+        "segments": above_segments,
+        "format": OVERLAY_FORMAT_NAME,
+        "has_alpha": True,
+        "fps": fps,
+        "total_segments": len(above_segments),
+        "planning_basis": basis,
+        # What this pass carried, so a reader knows without
+        # re-deriving it per segment.
+        "geometry": geometry,
+        # The tight/refused census the guard computed above - the
+        # same counts the conformance sweep surfaces per project.
+        "tightness": tightness_census,
+    }
+    if not above_segments:
+        mg_overlay["reason"] = (
+            f"no above-picture entries planned; "
+            f"{len(behind_segments)} behind_subject segment(s) travel "
+            f"on behind_subject_overlays" if behind_segments else
+            "no above-picture entries planned and none rendered")
+    behind_overlay = {
+        "available": len(behind_segments) > 0,
+        "segments": behind_segments,
+        "format": "PNG image sequence (RGBA)",
+        "has_alpha": True,
+        "fps": fps,
+        "total_segments": len(behind_segments),
+    }
+    if not behind_segments:
+        behind_overlay["reason"] = (
+            "the plan names no behind_subject entries")
+
     return {
-        "motion_graphics_overlay": {
-            "available": len(above_segments) > 0,
-            "segments": above_segments,
-            "format": OVERLAY_FORMAT_NAME,
-            "has_alpha": True,
-            "fps": fps,
-            "total_segments": len(above_segments),
-            "planning_basis": basis,
-            # What this pass carried, so a reader knows without
-            # re-deriving it per segment.
-            "geometry": geometry,
-            # The tight/refused census the guard computed above - the
-            # same counts the conformance sweep surfaces per project.
-            "tightness": tightness_census,
-        },
-        "behind_subject_overlays": {
-            "available": len(behind_segments) > 0,
-            "segments": behind_segments,
-            "format": "PNG image sequence (RGBA)",
-            "has_alpha": True,
-            "fps": fps,
-            "total_segments": len(behind_segments),
-        },
+        "motion_graphics_overlay": mg_overlay,
+        "behind_subject_overlays": behind_overlay,
         "timed_text_overlay": timed_text_overlay,
     }
 

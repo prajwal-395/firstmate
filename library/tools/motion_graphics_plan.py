@@ -997,9 +997,9 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
             "element": key,
             "anchor": anchor,
             # Above the picture or behind the segmented subject. The
-            # build composites a behind_subject moment under the
-            # subject's matte through the Loader-matte path instead of
-            # placing it on a motion-graphics row.
+            # build precomposites a behind_subject moment under the
+            # subject's matte into a `qtrle` overlay placed on a
+            # motion-graphics row.
             "layer": layer,
             # Which line within that anchor. Two elements anchored the
             # same way at the same moment stack instead of colliding.

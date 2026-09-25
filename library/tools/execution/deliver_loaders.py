@@ -16,9 +16,12 @@ the file named rather than leaving a black composite on the timeline.
 A false refusal (dims populating late on some build) is honest and
 actionable; a false pass ships black.
 
-Only behind-subject composites ride this today
-(`behind_subject.loader_specs_from_effects`); subject grades keep
-their existing path until their own delivery is measured.
+No timeline path rides this today: the behind-subject composite it
+was built for now reaches the timeline precomposited, as a normal
+overlay clip (library/tools/behind_subject.py) - scripted Loaders
+never decode on timeline comps in Resolve Studio 21.1 (measured
+2026-09-24). What stays is the generic executor, covered by its
+tests, for a future file-backed delivery that measures.
 """
 
 from __future__ import annotations
@@ -106,21 +109,22 @@ def _connected(merge: Any, input_id: str) -> bool:
 
 
 def deliver_loaders(comp: Any, specs: Sequence[Mapping],
-                    wiring: Sequence[tuple] = ()) -> dict:
+                    wiring: Sequence[tuple],
+                    placeholder_names: Sequence[str] = ()) -> dict:
     """Deliver loader specs onto an imported timeline comp.
 
-    `specs` is `behind_subject.loader_specs_from_effects` output;
-    `wiring` is `(merge tool, merge input, loader role, ...)` -
-    `behind_subject.DELIVERY_WIRING`. Returns `{role: loader tool
-    name}`. Raises `LoaderDeliveryRefused` naming the first failure:
-    no merge, no loader, no clip, no length, 0x0 dimensions, no
-    trims where declared, or an unwired input afterwards. Placeholder
-    MediaIns the import left behind are deleted once the real loaders
-    are wired, so a later read cannot mistake one for the delivery.
+    `specs` are `{"role", "first_frame", "trim_in", "trim_out"}`
+    dicts, one per file-backed node to re-attach; `wiring` is
+    `(merge tool, merge input, loader role, loader output)` - which
+    merge input each loader drives; `placeholder_names` are the
+    comp-text Loader names the import turned into MediaIn
+    placeholders. Returns `{role: loader tool name}`. Raises
+    `LoaderDeliveryRefused` naming the first failure: no merge, no
+    loader, no clip, no length, 0x0 dimensions, no trims where
+    declared, or an unwired input afterwards. Placeholder MediaIns
+    the import left behind are deleted once the real loaders are
+    wired, so a later read cannot mistake one for the delivery.
     """
-    from library.tools import behind_subject as _behind
-
-    wiring = wiring or _behind.DELIVERY_WIRING
     by_role = {spec.get("role"): spec for spec in specs or []}
     delivered: dict[str, str] = {}
     comp.Lock()
@@ -158,7 +162,7 @@ def deliver_loaders(comp: Any, specs: Sequence[Mapping],
             if not wired or not _connected(merge, input_id):
                 _refuse(f"{merge_name!r}.{input_id} is not connected "
                         f"after wiring.")
-        _remove_placeholders(comp)
+        _remove_placeholders(comp, placeholder_names)
     finally:
         comp.Unlock()
     _verify_decode(comp, by_role, delivered)
@@ -166,12 +170,10 @@ def deliver_loaders(comp: Any, specs: Sequence[Mapping],
 
 
 def _set_trims(loader: Any, role: str, spec: Mapping) -> None:
-    """The title trims the comp text declares, or a refusal.
+    """The trims the comp text declares, or a refusal.
 
-    A trim that does not take would misalign the title against its
-    span in silence - frames from the wrong seconds under the
-    subject - so a mismatch refuses rather than rounding. A matte
-    plays its whole played window and carries no trims.
+    A trim that does not take would misalign the file against its
+    span in silence - so a mismatch refuses rather than rounding.
     """
     for key, attr in (("trim_in", "TOOLIT_Clip_TrimIn"),
                       ("trim_out", "TOOLIT_Clip_TrimOut")):
@@ -186,11 +188,11 @@ def _set_trims(loader: Any, role: str, spec: Mapping) -> None:
         have = _slot(loader.GetAttrs().get(attr))
         if have != int(want):
             _refuse(f"Loader trim {attr} reads back {have!r}, want "
-                    f"{int(want)} - the title would play the wrong "
-                    f"frames under the subject.")
+                    f"{int(want)} - the file would play the wrong "
+                    f"frames.")
 
 
-def _remove_placeholders(comp: Any) -> None:
+def _remove_placeholders(comp: Any, names: Sequence[str]) -> None:
     """Delete the import's MediaIn placeholders for delivered loaders.
 
     The importer turns each Loader into a same-named MediaIn; once the
@@ -200,9 +202,7 @@ def _remove_placeholders(comp: Any) -> None:
     and deleting a working loader would be the defect this module
     exists to remove.
     """
-    from library.tools import behind_subject as _behind
-
-    for name in (_behind.TITLE_LOADER_NAME, _behind.MATTE_LOADER_NAME):
+    for name in names:
         try:
             node = comp.FindTool(name)
         except Exception:  # noqa: BLE001 - per-node best effort

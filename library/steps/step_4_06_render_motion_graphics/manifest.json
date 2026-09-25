@@ -64,7 +64,7 @@
       {
         "name": "behind_subject_overlays",
         "type": "object",
-        "description": "Numbered PNG image sequences (RGBA) for entries planned with layer behind_subject, each with overlay_path naming the first frame plus timeline span. The segment renders as a full-canvas .mov (kept as provenance) and is sequenced because a Fusion Loader resolves a numbered PNG sequence where a qtrle .mov does not resolve at all. Compile composites each under the subject's tracked matte in Fusion instead of placing it on a motion-graphics row; a request with no usable matte refuses there. See library/tools/behind_subject.py."
+        "description": "Numbered PNG image sequences (RGBA) for entries planned with layer behind_subject, each with overlay_path naming the first frame plus timeline span. The segment renders as a full-canvas .mov (kept as provenance) and is sequenced because compile precomposites each under the subject's tracked matte frame by frame. The precomp joins motion_graphics_overlay as a normal overlay clip on a motion-graphics row; a request with no usable matte refuses at compile. See library/tools/behind_subject.py."
       },
       {
         "name": "timed_text_overlay",
