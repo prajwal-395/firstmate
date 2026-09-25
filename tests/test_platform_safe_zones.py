@@ -34,11 +34,11 @@ def test_checked_in_overlay_draws_exactly_the_table(name):
 
 
 def test_intrusions_names_the_zone_a_box_sits_in():
-    # A box across the top 100 rows sits under every app's status bar.
+    # A box across the top 100 rows sits under every app's status bar,
+    # and under TikTok's tabs where a short Android status bar lifts them.
     hits = psz.intrusions((300, 20, 700, 100))
     assert {h["platform"] for h in hits} == set(psz.PLATFORMS)
-    assert {h["band"] for h in hits} == {"top", "status-time",
-                                         "dynamic-island"}
+    assert {h["band"] for h in hits} == {"camera", "status-time", "tabs"}
     # The combined safe box clears every zone.
     assert psz.intrusions((130, 300, 770, 830)) == []
 
@@ -51,6 +51,28 @@ def test_a_top_corner_icon_does_not_cover_the_row_beside_it():
     # ...and the icon itself is still covered.
     hits = psz.intrusions((780, 180, 900, 240), "youtube_shorts")
     assert [h["band"] for h in hits] == ["search"]
+
+
+@pytest.mark.parametrize("key", sorted(psz.CAPTURES))
+def test_the_model_lays_the_screenshot_out_where_it_was_measured(key):
+    # Laid out on the phone the screenshots came from, every element
+    # lands exactly where the screenshot's own cover mapping puts it. A
+    # pin read off the wrong edge, or an inset applied twice, moves a
+    # box here before it moves one on a phone nobody has captured.
+    capture = psz.CAPTURES[key]
+    phone = psz.DEVICE_BY_NAME[psz.MEASURED_DEVICE]
+    s = capture.region / 1920
+    ox = (1080 * s - psz.SCREENSHOT[0]) / 2
+    laid = {z.name: z.rect for z in psz.zones_on(key, phone)}
+    for element in capture.elements:
+        x0, y0, x1, y1 = element.box
+        want = (max(0, round((x0 - psz.PAD + ox) / s)),
+                max(0, round((y0 - psz.PAD) / s)),
+                min(1080, round((x1 + psz.PAD + ox) / s)),
+                min(1920, round((y1 + psz.PAD) / s)))
+        got = laid[element.name]
+        assert all(abs(a - b) <= 1 for a, b in zip(got, want)), (
+            element.name, got, want)
 
 
 def _project(tmp_path, avatar):
