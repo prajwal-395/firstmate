@@ -234,7 +234,7 @@ test_rovo_launch_then_send_is_verified() {
   pass "fm-spawn: rovo launches bare, waits for readiness, and delivers its brief pointer"
 }
 
-test_rovo_effort_xhigh_is_recorded_but_omitted() {
+test_rovo_effort_xhigh_is_omitted_from_launch_and_meta() {
   local id rec out rc launch meta
   id="rovo-xhigh-z2-$$"
   rec=$(make_spawn_case xhigh "$id")
@@ -250,8 +250,9 @@ test_rovo_effort_xhigh_is_recorded_but_omitted() {
   # (a second occurrence silently discards the first, confirmed live).
   assert_contains "$launch" "allowedExternalPaths" "rovo launch dropped its allowedExternalPaths grant when effort was unsupported"
   meta="$HOME_DIR/state/$id.meta"
-  assert_grep 'effort=xhigh' "$meta" "rovo meta did not retain the unsupported effort axis"
-  pass "fm-spawn: rovo omits efficiencyLevel for xhigh but keeps its allowedExternalPaths grant, recording xhigh in task metadata"
+  assert_not_contains "$(cat "$meta")" 'effort=xhigh' "rovo meta must not record omitted xhigh"
+  assert_contains "$out" "effort xhigh omitted for rovo model default" "rovo spawn must explain the omitted effort"
+  pass "fm-spawn: rovo reports omitted xhigh and keeps allowedExternalPaths without recording xhigh"
 }
 
 test_rovo_effort_high_sets_config_override() {
@@ -461,7 +462,7 @@ tool output line $i"
 }
 
 test_rovo_launch_then_send_is_verified
-test_rovo_effort_xhigh_is_recorded_but_omitted
+test_rovo_effort_xhigh_is_omitted_from_launch_and_meta
 test_rovo_effort_high_sets_config_override
 test_rovo_readiness_gate_precedes_pointer
 test_rovo_unconfirmed_delivery_fails_loudly

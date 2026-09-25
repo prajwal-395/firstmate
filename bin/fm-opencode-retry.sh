@@ -124,7 +124,8 @@
 #       Validates and atomically stores the vendor's scheduled-retry
 #       timestamp as state/.opencode-cap-<rung> (`v1 next=<ms> ts=<s>`).
 #       <rung> must be one of the ladder's own rung keys
-#       (FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG in
+#       (FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG /
+#       FM_OPENCODE_LADDER_PLUS_RUNG in
 #       bin/fm-opencode-ladder-lib.sh, read from that file - never retyped
 #       here): anything else is refused (exit 1) with the accepted names
 #       listed, so an unreadable record can never be written silently.
@@ -289,7 +290,8 @@ if [ "$CMD" = record-cap ] || [ "$CMD" = check-cap ] || [ "$CMD" = verdict-cap ]
   CAP_RUNG=${2:-}
   [ -n "$CAP_STATE" ] && [ -n "$CAP_RUNG" ] || usage
   # The accepted rung names live in exactly ONE place:
-  # FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG in
+  # FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG /
+  # FM_OPENCODE_LADDER_PLUS_RUNG in
   # bin/fm-opencode-ladder-lib.sh. They are read from that file's assignment
   # lines only - the whole library is never sourced here, because sourcing it
   # would pull bin/fm-backend.sh (1211 lines) into this dependency-free
@@ -303,12 +305,13 @@ if [ "$CMD" = record-cap ] || [ "$CMD" = check-cap ] || [ "$CMD" = verdict-cap ]
   _CAP_LADDER_LIB="$_CAP_LIB_DIR/fm-opencode-ladder-lib.sh"
   _CAP_FREE_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_FREE_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
   _CAP_GO_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_GO_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
-  if [ -z "${_CAP_FREE_RUNG:-}" ] || [ -z "${_CAP_GO_RUNG:-}" ]; then
-    echo "error: rung catalogue unreadable: FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG missing from fm-opencode-ladder-lib.sh" >&2
+  _CAP_PLUS_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_PLUS_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
+  if [ -z "${_CAP_FREE_RUNG:-}" ] || [ -z "${_CAP_GO_RUNG:-}" ] || [ -z "${_CAP_PLUS_RUNG:-}" ]; then
+    echo "error: rung catalogue unreadable: free, go, or plus rung missing from fm-opencode-ladder-lib.sh" >&2
     exit 1
   fi
-  if [ "$CAP_RUNG" != "$_CAP_FREE_RUNG" ] && [ "$CAP_RUNG" != "$_CAP_GO_RUNG" ]; then
-    echo "error: invalid rung '$CAP_RUNG': accepted rungs are: $_CAP_FREE_RUNG, $_CAP_GO_RUNG" >&2
+  if [ "$CAP_RUNG" != "$_CAP_FREE_RUNG" ] && [ "$CAP_RUNG" != "$_CAP_GO_RUNG" ] && [ "$CAP_RUNG" != "$_CAP_PLUS_RUNG" ]; then
+    echo "error: invalid rung '$CAP_RUNG': accepted rungs are: $_CAP_FREE_RUNG, $_CAP_GO_RUNG, $_CAP_PLUS_RUNG" >&2
     exit 1
   fi
   case "$CAP_RUNG" in

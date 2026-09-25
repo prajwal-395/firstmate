@@ -115,7 +115,7 @@ Treat the ~1h access-token lifetime as an ordinary operational fact rather than 
 
 ## Effort and model
 
-`agent.efficiencyLevel` accepts `low|medium|high|max` live via `--config-override`; a requested `xhigh` (unsupported) is recorded in task metadata but omitted from that JSON object, both verified against the fake-binary suite.
+`agent.efficiencyLevel` accepts `low|medium|high|max` live via `--config-override`; a requested `xhigh` (unsupported) is reported and omitted from task metadata and that JSON object, both verified against the fake-binary suite.
 `--config-override` is single-value - a second occurrence silently discards the first rather than merging, confirmed live by reversing the order of two `--config-override` flags and observing the earlier one's effect disappear - so `fm-spawn.sh`'s `rovo_config_override_flag` folds `agent.efficiencyLevel` into the SAME JSON object as the mandatory `allowedExternalPaths` grant below rather than emitting two flags; the fake-binary suite pins that exactly one `--config-override` occurrence carries both.
 Model discovery is per-account (`/models` or ACP `session/new`); the observed live list is recorded in `references/harness/rovo.md` and must never be hardcoded.
 

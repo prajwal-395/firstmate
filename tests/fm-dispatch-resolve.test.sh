@@ -745,6 +745,10 @@ for bad in \
   assert_contains "$err" "malformed rules file: $RULES - ${bad#*|}" "malformed rules are named: ${bad#*|}"
 done
 assert_absent "$LOG/argv" "configuration errors never reach the network"
+printf '%s\n' '{"rules":[],"default":{"harness":"codex","model":"gpt-6-luna","effort":"max","provider":"codex"}}' > "$RULES"
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_not_contains "$err" 'malformed rules file' "catalogued Codex max profile is valid"
+assert_contains "$out" '  reason: no rules to match' "valid Codex max profile reaches normal no-rule handling"
 cp "$BASE_RULES" "$RULES"
 for removed in --json --rules --quota; do
   TYPESAFE_API_KEY=$KEY run code out err "$BRIEF" "$removed"

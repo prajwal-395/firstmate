@@ -1719,7 +1719,7 @@ launch_template() {
     # legacy alias agent), and the foreign primary markers are cleared so an
     # inherited CLAUDECODE cannot outrank cursor's own marker in a process that
     # only reads the environment. Cursor exposes no effort flag, so the shared
-    # effort axis is deliberately omitted and stays in task metadata only.
+    # effort axis is deliberately omitted from the task metadata and launch.
     cursor) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_INVOKED_AS __CURSORBIN__ --trust --yolo __MODELFLAG__--workspace __WORKTREE__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     # gemini (Google Gemini CLI): a positional query starts the supervised
     # interactive session and auto-submits it, so the brief rides the launch
@@ -1752,7 +1752,7 @@ launch_template() {
     # bin/fm-harness.sh must not read a gemini worker as its launcher.
     # gemini exposes no reasoning-effort flag (checked against 0.58.0
     # --help), so the shared effort axis is deliberately omitted here and
-    # stays in task metadata only, per the record-and-omit contract.
+    # is omitted from task metadata and launch, per the shared effort contract.
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
     gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
@@ -1899,23 +1899,32 @@ case "$HARNESS" in
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
     ;;
   opencode)
-    # The captain's free-then-Go ladder, enforced rather than remembered
+    # The free-then-Go-then-Plus ladder, enforced rather than remembered
     # (bin/fm-opencode-ladder-lib.sh owns the rungs, the reactive evidence
     # rule, and why an absent reading never moves a launch). It runs here
     # because this case is on the one path every opencode crewmate and scout
     # launch already takes, so an ordinary dispatch has nowhere to route
-    # around it. It never refuses: a proven free cap rewrites the model to
-    # the Go tier, and anything less than proof keeps the requested model
-    # (free when none was requested), so a broken gate degrades to today's
-    # behavior rather than a stalled fleet. MODEL_SET is left as it was: the
+    # around it. A proven free cap routes to Go, Go exhaustion routes to Plus,
+    # and exhaustion of all three refuses the new spawn. MODEL_SET is left as it was: the
     # meta record below reads MODEL itself, so the routed tier is what
     # recovery relaunches on.
     _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
     if [ -n "$_FM_OPENCODE_LADDER_NOTE" ]; then
-      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "${MODEL:-}" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") \
-        || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
+      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "${MODEL:-}" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
+        [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
+        rm -f "$_FM_OPENCODE_LADDER_NOTE"
+        exit 1
+      }
       [ -n "$_FM_OPENCODE_LADDER_MODEL" ] || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
       MODEL=$_FM_OPENCODE_LADDER_MODEL
+      if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
+        EFFORT=max
+        HARNESS=codex
+        LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+          echo "error: Codex Plus launch template is unavailable" >&2
+          exit 1
+        }
+      fi
       [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
     fi
@@ -2164,11 +2173,15 @@ effort_flag_for_harness() {
       esac
       ;;
     codex)
-      # The installed codex config schema uses model_reasoning_effort, and the
-      # bundled model catalog advertises low|medium|high|xhigh. Omit max rather
-      # than passing an unsupported value.
       case "$effort" in
         low|medium|high|xhigh) printf -- '-c %s ' "$(shell_quote "model_reasoning_effort=\"$effort\"")" ;;
+        max)
+          if [ -n "$model" ] && [ "$model" != default ] \
+            && codex debug models 2>/dev/null \
+              | jq -e --arg model "$model" 'any(.models[]?; .slug == $model and any(.supported_reasoning_levels[]?; .effort == "max"))' >/dev/null 2>&1; then
+            printf -- '-c %s ' "$(shell_quote 'model_reasoning_effort="max"')"
+          fi
+          ;;
       esac
       ;;
     grok)
@@ -2182,7 +2195,7 @@ effort_flag_for_harness() {
       ;;
     agy)
       # agy 1.2.0 --effort accepts exactly low|medium|high, so xhigh and max are
-      # omitted rather than passed as known-bad values (record-and-omit).
+      # omitted rather than passed as known-bad values or recorded as applied.
       case "$effort" in
         low|medium|high) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
       esac
@@ -2226,10 +2239,9 @@ effort_flag_for_harness() {
     # opencode's interactive `opencode --prompt` launch has a verified --model
     # flag but no verified effort flag. Its `opencode run --variant` flag belongs
     # to a different, non-interactive launch mode, so fm-spawn does not pass it.
-    # kimi likewise has no reasoning-effort flag; the requested axis stays in
-    # task metadata but never reaches the launch command. Cursor encodes effort
-    # in model ids such as cursor-grok-4.5-high, so it also receives no separate
-    # effort flag.
+    # kimi likewise has no reasoning-effort flag, and Cursor encodes effort in
+    # model ids such as cursor-grok-4.5-high; an omitted axis is reported and
+    # not recorded as applied effort in task metadata.
   esac
 }
 
@@ -4446,6 +4458,20 @@ META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_PUBLISHED_AT=$(date +%s)
+MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
+EFFORTFLAG=
+EFFORT_SUPPORTED=0
+if [ "$HARNESS" = rovo ]; then
+  case "$EFFORT" in low|medium|high|max) EFFORT_SUPPORTED=1 ;; esac
+else
+  EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL") || exit 1
+  [ -z "$EFFORTFLAG" ] || EFFORT_SUPPORTED=1
+fi
+if [ -n "$EFFORT" ] && [ "$EFFORT" != default ] && [ "$EFFORT_SUPPORTED" -eq 0 ]; then
+  printf 'notice: spawn: effort %s omitted for %s model %s because the installed harness does not advertise that setting\n' \
+    "$EFFORT" "$HARNESS" "${MODEL:-default}" >&2
+  EFFORT=
+fi
 SPAWN_META_PATH="$STATE/$ID.meta"
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
@@ -4621,8 +4647,6 @@ sq_ompext=$(shell_quote "$STATE/$ID.omp-ext.ts")
 sq_ompcfg=$(shell_quote "${OMP_WORKER_CFG:-$FM_ROOT/.omp/fm-worker-overlay.yml}")
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 sq_worktree=$(shell_quote "$WT")
-MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
-EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT" "$MODEL") || exit 1
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__CLAUDEPERMFLAG__/$CLAUDE_PERM_FLAG}
