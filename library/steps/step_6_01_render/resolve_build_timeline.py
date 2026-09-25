@@ -46,6 +46,7 @@ keeps the headline and points here.
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -511,6 +512,190 @@ def _ensure_transparent_carrier(
 
 # ─── Core: Build Timeline ────────────────────────────────────
 
+def caption_segment_placement(seg: dict, si: int, caption_row: int
+                              ) -> tuple:
+    """(placement, refusal) for one caption segment's transform.
+
+    Finding 21: one segment per build landed at Tilt 0, inside the
+    picture, while every other segment rode its tight-box placement
+    to the declared caption row. The chain has exactly one shape
+    that ships Tilt 0 silently - a TIGHT canvas reaching
+    `place_overlay_segment` with no `tight_box.placement`, where
+    `placement=None` reads as "full canvas, nothing to do" and the
+    clip sits centred. Whatever dropped the placement (a render
+    fallback the record did not carry, stale state, a hand edit),
+    the timeline must not carry a centred caption mutely.
+
+    Returns the placement to ride, or (None, reason): a tight segment
+    with no placement is REFUSED by name - skipped, warned, counted
+    nowhere. A full-canvas segment (`geometry == "full"`) draws its
+    text natively and rides untransformed, exactly as before. A
+    segment too old to declare a geometry but carrying a placement
+    rides it; one declaring neither is refused rather than assumed
+    full canvas.
+    """
+    tight = seg.get("tight_box") or {}
+    placement = tight.get("placement")
+    if placement:
+        return placement, ""
+    if (seg.get("geometry", "") or "") == "full":
+        return None, ""
+    seg_id = seg.get("segment_id") or seg.get("overlay_path") or "?"
+    return None, (
+        f"V{caption_row}[{si}] {seg_id}: tight caption segment with "
+        f"no tight_box placement - refusing to place it "
+        f"untransformed (an untransformed tight canvas sits centred "
+        f"at Tilt 0, inside the picture, not on the declared row)")
+
+
+def source_frame_span_for_timeline(source_in: float, source_out: float,
+                                   timeline_in_frame: int,
+                                   timeline_out_frame: int,
+                                   timeline_fps: float,
+                                   source_fps: float,
+                                   label: str) -> tuple:
+    """Map a planned record span to source frames at 100% speed.
+
+    Round the timeline boundaries once, then derive the duration from
+    their difference. Rounding source in and out independently can yield
+    a different duration for the same seconds: B8's 0.836-3.234s source
+    rounds to 72 frames, while its 7.185-9.583s record span is 71 frames.
+    The source start stays anchored to the requested in point; its end is
+    derived from the exact planned duration. A difference greater than a
+    frame between the requested source length and the planned duration is
+    a named refusal.
+    """
+    try:
+        source_in = float(source_in)
+        source_out = float(source_out)
+        source_fps = float(source_fps)
+        timeline_fps = float(timeline_fps)
+        timeline_length = int(timeline_out_frame) - int(timeline_in_frame)
+    except (TypeError, ValueError, OverflowError) as exc:
+        return None, None, (
+            f"{label}: source/timeline frame mapping is unreadable "
+            f"({type(exc).__name__}: {exc})")
+    if (not all(math.isfinite(value) for value in
+                (source_in, source_out, source_fps, timeline_fps))
+            or source_fps <= 0 or timeline_fps <= 0
+            or source_out <= source_in or timeline_length <= 0):
+        return None, None, (
+            f"{label}: invalid source/timeline span or frame rate "
+            f"({source_fps:g} source fps, {timeline_fps:g} timeline fps, "
+            f"{timeline_length} timeline frames)")
+    start = round(source_in * source_fps)
+    requested_end = round(source_out * source_fps)
+    length = round(timeline_length * source_fps / timeline_fps)
+    if length <= 0:
+        return None, None, (
+            f"{label}: planned timeline span maps to no source frames at "
+            f"{source_fps:g} source fps")
+    requested_length = requested_end - start
+    if abs(requested_length - length) > 1:
+        return None, None, (
+            f"{label}: source range is {requested_length} frames but its "
+            f"planned timeline span maps to {length} source frames at "
+            f"100% speed; refusing a difference larger than frame-rounding")
+    return start, start + length, ""
+
+
+def v1_plan_overlap_refusal(planned_start_frame: int,
+                            planned_end_frame: int,
+                            previous_planned_start_frame: int,
+                            previous_planned_end_frame: int,
+                            previous_label: str, clip_label: str) -> str:
+    """Name any overlap declared by two V1 plan entries."""
+    overlap = min(int(planned_end_frame), int(previous_planned_end_frame)) - max(
+        int(planned_start_frame), int(previous_planned_start_frame))
+    if overlap <= 0:
+        return ""
+    unit = "frame" if overlap == 1 else "frames"
+    return (f"V1 placement for {clip_label} overlaps planned item "
+            f"{previous_label} by {overlap} {unit}; refusing the overlap")
+
+
+def timeline_frame_rate_refusal(set_result, rate_readback,
+                                requested_fps: float) -> str:
+    """Refuse a timeline whose frame grid does not match the manifest."""
+    try:
+        actual_fps = float(rate_readback)
+    except (TypeError, ValueError, OverflowError):
+        return (f"Resolve returned an unreadable timeline frame rate "
+                f"({rate_readback!r}) for requested {requested_fps:g} fps")
+    try:
+        requested_fps = float(requested_fps)
+    except (TypeError, ValueError, OverflowError):
+        return f"Manifest timeline frame rate is unreadable ({requested_fps!r})"
+    if set_result is False:
+        return (f"Resolve refused the timeline frame-rate setting for "
+                f"{requested_fps:g} fps (read back {rate_readback!r})")
+    if (not math.isfinite(actual_fps) or not math.isfinite(requested_fps)
+            or actual_fps <= 0 or requested_fps <= 0
+            or abs(actual_fps - requested_fps) > 0.0001):
+        return (f"Resolve timeline frame rate mismatch: requested "
+                f"{requested_fps:g} fps, read back {rate_readback!r}. "
+                "Refusing placement on a different frame grid")
+    return ""
+
+
+def project_frame_rate_refusal(project, requested_fps: float) -> str:
+    """Ensure OTIO rebuilds inherit the frame rate the placement used.
+
+    Resolve's audio-mix round trip rebuilds the timeline from project
+    settings. A per-timeline rate can read back correctly when first set,
+    then revert to the project's rate on that rebuild. Initialize the
+    project rate only while it has no timelines; changing an established
+    project's rate could alter the captain's existing timelines.
+    """
+    try:
+        requested = float(requested_fps)
+    except (TypeError, ValueError, OverflowError):
+        return f"Manifest frame rate is unreadable ({requested_fps!r})"
+    if not math.isfinite(requested) or requested <= 0:
+        return f"Manifest frame rate must be positive and finite, got {requested!r}"
+
+    try:
+        timeline_count = int(project.GetTimelineCount())
+    except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+        return ("Resolve did not return a readable timeline count for its "
+                f"project ({type(exc).__name__}: {exc}); refusing to set "
+                "the project frame rate")
+
+    key = "timelineFrameRate"
+    try:
+        current_raw = project.GetSetting(key)
+        current = float(current_raw)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        current_raw = None
+        current = None
+    if (current is not None and math.isfinite(current)
+            and abs(current - requested) <= 0.0001):
+        return ""
+
+    rate = str(int(requested)) if requested.is_integer() else str(requested)
+    if timeline_count:
+        return (
+            f"Resolve project frame rate mismatch: requested {requested:g} "
+            f"fps, project reads {current_raw!r}, and {timeline_count} "
+            "existing timeline(s) prevent changing the project frame rate. "
+            "The audio-mix OTIO rebuild inherits the project rate; use an "
+            "empty Resolve project at the requested frame rate.")
+
+    try:
+        set_result = project.SetSetting(key, rate)
+        readback = project.GetSetting(key)
+        actual = float(readback)
+    except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+        return (f"Resolve could not set and read back project frame rate "
+                f"{requested:g} fps ({type(exc).__name__}: {exc})")
+    if (set_result is not True or not math.isfinite(actual)
+            or abs(actual - requested) > 0.0001):
+        return (f"Resolve refused the project frame-rate setting: requested "
+                f"{requested:g} fps, SetSetting returned {set_result!r}, "
+                f"read back {readback!r}")
+    return ""
+
+
 def caption_block_offsets(v1_clips, placed_by_label) -> dict:
     """{spine block index: measured V1 start offset} for caption placement.
 
@@ -690,6 +875,22 @@ def resolve_speech_channel(angle_key: str, angle_label: str,
     channel = next(iter(distinct))
     basis = "; ".join(sorted({b for _, b in resolved.values()}))
     return channel, basis
+
+
+def mapping_carries_program(channels, expected) -> bool:
+    """Whether a placed item's channel mapping carries the program stream.
+
+    `channels` is the `channel_idx` list read off the item's
+    `GetSourceAudioChannelMapping` (track 1), `expected` the angle's
+    resolved program channel. A mapping CARRYING the program channel
+    stays - a stereo speech item maps `CH[1, 2]` and carries program
+    CH1 in it. The exact-equality this replaces (`channels == [1]`)
+    deleted every such stereo item as "non-program audio" and built
+    iPhone footage with no dialogue at all while reporting success
+    (finding 4: "A1 non-program audio removed" x12, export -91 dB
+    over the spoken hook).
+    """
+    return expected in list(channels or [])
 
 
 @under_lease("render the edit timeline")
@@ -1290,6 +1491,12 @@ def build_timeline(
         results["timeline_name_taken"] = sorted(taken)
         return results
 
+    timeline_fps_str = str(int(fps)) if fps.is_integer() else str(fps)
+    _project_fps_refusal = project_frame_rate_refusal(project, fps)
+    if _project_fps_refusal:
+        results["errors"].append(_project_fps_refusal)
+        return results
+
     # ── Create empty timeline ──
     timeline = media_pool.CreateEmptyTimeline(timeline_name)
     if not timeline:
@@ -1301,9 +1508,8 @@ def build_timeline(
     # fence's drift record, and an unleased move is what killed a
     # sibling lane's Fusion pass on 2026-09-20.
     assert_current_timeline(project, timeline)
-    timeline_fps_str = str(int(fps)) if fps.is_integer() else str(fps)
 
-    # The shape goes on the PROJECT, not only on the timeline.
+    # The shape and frame rate go on the PROJECT, not only on the timeline.
     #
     # The audio mix round trip re-imports the timeline through OTIO
     # (AGENTS.md 5, "the import REBUILDS the timeline"), and the rebuilt
@@ -1328,10 +1534,11 @@ def build_timeline(
     # a bound rather than a wait - it costs nothing when the first read
     # already agrees and it does not encode a settle time nobody measured.
     #
-    # Only the RESOLUTION is load-bearing here. Frame rate stays on the
-    # timeline, where it has always been set and has always worked;
-    # putting it on the project was an addition of mine that widened what
-    # could refuse a build without widening what the build needed.
+    # The project frame rate is established before the timeline is
+    # created: the timeline's own setting can read back at 30fps and then
+    # revert to the project's 24fps when OTIO rebuilds it. A project with
+    # existing timelines cannot be changed safely, so
+    # `project_frame_rate_refusal` names that mismatch before placement.
     def _confirm(obj, key, value, attempts=5):
         """Write, then read back. Returns the value Resolve reports."""
         for _ in range(attempts):
@@ -1356,7 +1563,11 @@ def build_timeline(
     for key, value in (("timelineResolutionWidth", width),
                        ("timelineResolutionHeight", height)):
         _confirm(timeline, key, value)
-    timeline.SetSetting("timelineFrameRate", timeline_fps_str)
+    _fps_set_result = timeline.SetSetting(
+        "timelineFrameRate", timeline_fps_str)
+    _fps_readback = timeline.GetSetting("timelineFrameRate")
+    _fps_refusal = timeline_frame_rate_refusal(
+        _fps_set_result, _fps_readback, fps)
 
     if wrong:
         results["errors"].append(
@@ -1364,11 +1575,14 @@ def build_timeline(
             + ". The render would inherit whatever the project already "
             "held, which is how a vertical edit ships as landscape.")
         return results
+    if _fps_refusal:
+        results["errors"].append(_fps_refusal)
+        return results
 
     print(f"✓ Created timeline: {timeline_name} "
           f"({project.GetSetting('timelineResolutionWidth')}x"
           f"{project.GetSetting('timelineResolutionHeight')} @ "
-          f"{timeline_fps_str}fps, read back from Resolve)",
+          f"{float(_fps_readback):g}fps, read back from Resolve)",
           file=sys.stderr)
 
     # ── Set up tracks: the plan's rows, and only those ──
@@ -1454,7 +1668,8 @@ def build_timeline(
             _program_channel = {"main": _main_channel}
 
     def _enforce_program_stream(angle_key, placed_items, label):
-        """Only the recorded program stream stays on a speech row.
+        """Only mappings carrying the recorded program stream stay on a
+        speech row.
 
         Every audio AppendToTimeline return is read back: items whose
         channel mapping is not the angle's recorded program channel are
@@ -1487,7 +1702,7 @@ def build_timeline(
                     f"kept, UNVERIFIED")
                 kept.append(item)
                 continue
-            if list(channels or []) == [expected]:
+            if mapping_carries_program(channels, expected):
                 kept.append(item)
             else:
                 try:
@@ -1519,17 +1734,31 @@ def build_timeline(
     v1_placed_labels = []
     placed_by_row = {}
 
-    # Compute per-clip source frame ranges for video and audio placement.
+    # Preserve planned V1 boundaries before placement read-back updates
+    # the mutable clip rows for later caption offset calculations.
+    _planned_v1_spans = {}
     for ci, clip in enumerate(v1_clips):
         src_in = clip.get('source_in', 0)
         src_out = clip.get('source_out')
-        if not src_out:
+        if src_out is None:
             dur = clip.get('timeline_out', 0) - clip.get('timeline_in', 0)
             src_out = src_in + dur if dur > 0 else src_in + 3.5
-        clip['video_src_in'] = round(src_in * fps)
-        clip['video_src_out'] = round(src_out * fps)
-        clip['audio_src_in'] = round(clip.get('audio_src_in', src_in) * fps)
-        clip['audio_src_out'] = round(clip.get('audio_src_out', src_out) * fps)
+        planned_in = clip.get('timeline_in_frame')
+        if planned_in is None:
+            planned_in = round(float(clip.get('timeline_in', 0)) * fps)
+        planned_out = clip.get('timeline_out_frame')
+        if planned_out is None:
+            planned_out = (
+                round(float(clip['timeline_out']) * fps)
+                if clip.get('timeline_out') is not None
+                else int(planned_in) + round(
+                    (float(src_out) - float(src_in)) * fps))
+        _planned_v1_spans[id(clip)] = (
+            int(planned_in), int(planned_out),
+            float(src_in), float(src_out),
+            float(clip.get('audio_src_in', src_in)),
+            float(clip.get('audio_src_out', src_out)),
+        )
 
     _clips_by_angle = {}
     for clip in v1_clips:
@@ -1563,11 +1792,51 @@ def build_timeline(
                 results["errors"].append(f"V{_vrow}[{ci}] {basename} not in media pool")
                 continue
 
-            v_in = clip['video_src_in']
-            v_out = clip['video_src_out']
-            a_in = clip['audio_src_in']
-            a_out = clip['audio_src_out']
-            tl_in_f = clip.get('timeline_in_frame', 0)
+            (_planned_tl_in, _planned_tl_out, _video_source_in,
+             _video_source_out, _audio_source_in,
+             _audio_source_out) = _planned_v1_spans[id(clip)]
+            tl_in_f = _planned_tl_in
+            _source_rate = _source_fps(pool_item, fps)
+            v_in, v_out, _frame_error = source_frame_span_for_timeline(
+                _video_source_in, _video_source_out,
+                _planned_tl_in, _planned_tl_out, fps, _source_rate,
+                clip.get('label', basename))
+            if _frame_error:
+                results["errors"].append(_frame_error)
+                print(f"  ✗ {_frame_error}", file=sys.stderr)
+                continue
+            a_in, a_out, _audio_frame_error = (
+                source_frame_span_for_timeline(
+                    _audio_source_in, _audio_source_out,
+                    _planned_tl_in, _planned_tl_out, fps, _source_rate,
+                    f"{clip.get('label', basename)} dialogue audio"))
+            if _audio_frame_error and not clip.get("video_only"):
+                results["errors"].append(_audio_frame_error)
+                print(f"  ✗ {_audio_frame_error}", file=sys.stderr)
+                continue
+            clip['video_src_in'] = v_in
+            clip['video_src_out'] = v_out
+            clip['audio_src_in'] = a_in
+            clip['audio_src_out'] = a_out
+
+            # Shared frame boundaries make only plan-declared overlap a
+            # placement error. Refuse it before Resolve silently moves
+            # the item away from the record frame in the manifest.
+            if _placed_here:
+                _plan_refusal = ""
+                for _, _previous_clip in _placed_here:
+                    _previous_span = _planned_v1_spans[id(_previous_clip)]
+                    _plan_refusal = v1_plan_overlap_refusal(
+                        _planned_tl_in, _planned_tl_out,
+                        _previous_span[0], _previous_span[1],
+                        _previous_clip.get("label", "previous V1 clip"),
+                        clip.get("label", basename))
+                    if _plan_refusal:
+                        break
+                if _plan_refusal:
+                    results["errors"].append(_plan_refusal)
+                    print(f"  ✗ {_plan_refusal}", file=sys.stderr)
+                    continue
 
             # Place Video (plan row, video-only)
             assert_current_timeline(project, timeline)
@@ -1581,7 +1850,8 @@ def build_timeline(
             }])
 
             # Calculate Audio Record Frame to maintain sync
-            a_rec = tl_in_f + (a_in - v_in)
+            a_rec = tl_in_f + round(
+                (_audio_source_in - _video_source_in) * fps)
 
             # Place Audio (plan row, audio-only, explicit). A clip marked
             # video_only has no audio to place - a declared intro / outro /
@@ -1833,8 +2103,13 @@ def build_timeline(
             results["errors"].append(f"native ops refused: {exc}")
         else:
             if _native_speed_ops:
+                # Dialogue rows only for the linked-audio half: the bed
+                # and SFX rows never ride a picture retime (finding 17).
+                _dialogue_tracks = [r.index for r in
+                                    track_plan.speech_rows()]
                 _speed_report = _native_apply.apply_native_speed_ops(
-                    timeline, _native_speed_ops, fps=fps)
+                    timeline, _native_speed_ops, fps=fps,
+                    dialogue_tracks=_dialogue_tracks)
                 results["native_speed_ops"] = _speed_report
                 for row in _speed_report["applied"]:
                     print(f"  ✓ {row['op_id']} {row['item']!r}: "
@@ -1853,10 +2128,29 @@ def build_timeline(
                         "native transitions refused: V1 items would not "
                         f"order ({exc})")
                     _ordered_v1 = None
+                # The V2 items for transitions planned into the b-roll
+                # (finding 16): read back off the b-roll row in
+                # timeline order, the same order the compile indexed
+                # `after_clip` into. None where the timeline carries
+                # no b-roll row - a V2 op then refuses by name in the
+                # applicator rather than landing on V1's clips.
+                _ordered_v2 = None
+                if _broll_row is not None:
+                    try:
+                        _ordered_v2 = sorted(
+                            timeline.GetItemListInTrack(
+                                "video", _broll_row) or [],
+                            key=lambda it: it.GetStart())
+                    except Exception as exc:
+                        results["errors"].append(
+                            "native transitions refused: V2 items would "
+                            f"not order ({exc})")
+                        _ordered_v1 = None
                 if _ordered_v1 is not None:
                     _trans_report = (
                         _native_apply.apply_native_transitions(
-                            timeline, _ordered_v1, _native_trans, fps=fps))
+                            timeline, _ordered_v1, _native_trans, fps=fps,
+                            v2_items=_ordered_v2))
                     results["native_transitions"] = _trans_report
                     for row in _trans_report["applied"]:
                         print(f"  ✓ {row['transition_id']} "
@@ -1946,6 +2240,11 @@ def build_timeline(
             # computed - read off the entry step 4.05 recorded - and
             # the placer SETS it then READS BACK what Resolve holds.
             # See library/tools/overlay_placement.py.
+            # A tight segment with no placement never reaches the
+            # placer: `caption_segment_placement` refuses it by name
+            # (finding 21 - an untransformed tight canvas sits
+            # centred at Tilt 0, inside the picture). What ships is
+            # either row-placed or absent, never silently centred.
             # `draw_intent` arms the pixel half: the held values are
             # judged against the DECLARED caption row, so a sidecar
             # placement served under a superseded row is REPORTED
@@ -1953,11 +2252,18 @@ def build_timeline(
             # would move placements, not just judge them), so this is
             # the row path only - `intent` stays None.
             assert_current_timeline(project, timeline)
+            _seg_placement, _seg_refusal = caption_segment_placement(
+                seg, si, _caption_row)
+            if _seg_refusal:
+                results["warnings"].append(_seg_refusal)
+                print(f"  ✗ [{si}] {seg_basename}: {_seg_refusal}",
+                      file=sys.stderr)
+                continue
             placed, note = place_overlay_segment(
                 media_pool, timeline, pool_item,
                 track_index=_caption_row, record_frame=tl_in_frame,
                 source_in_frame=src_in_f, source_out_frame=src_out_f,
-                placement=(seg.get("tight_box") or {}).get("placement"),
+                placement=_seg_placement,
                 label=f"V{_caption_row}[{si}] {seg_basename}",
                 draw_intent=draw_intent_for_segment(
                     seg, kind="caption",
@@ -2941,7 +3247,58 @@ def build_timeline(
                 except Exception as e:
                     results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
 
-                print(f"  ✓ Applied CDL base grade to {clip_name}", file=sys.stderr)
+                # Finding 28: a True return from SetCDL is not evidence
+                # the grade landed - only the read-back is. What GetCDL
+                # holds afterwards is compared with the four specified
+                # terms (`library/tools/cdl_readback.py`): a mismatch
+                # ERRORS naming the clip (the build must not report a
+                # grade it does not carry), an unreadable read-back
+                # warns (the grade may be on and only the read-back
+                # broke - timeline_qa's station-3 philosophy). The
+                # exported pixels get their own verdict in 6.02
+                # (`render_qa.measure_grade_delivery`).
+                from library.tools import cdl_readback as _cdl
+                try:
+                    _actual = item.GetCDL() or {}
+                except Exception as _e:
+                    _actual = {}
+                    _cdl_read_error = f"{type(_e).__name__}: {_e}"
+                else:
+                    _cdl_read_error = ""
+                if not isinstance(_actual, dict) or not _actual:
+                    try:
+                        _prop_actual = {
+                            "Slope": item.GetClipProperty("Slope"),
+                            "Offset": item.GetClipProperty("Offset"),
+                            "Power": item.GetClipProperty("Power"),
+                            "Saturation": item.GetClipProperty(
+                                "Saturation"),
+                        }
+                    except Exception:
+                        _prop_actual = {}
+                    if any(v for v in _prop_actual.values()):
+                        _actual = _prop_actual
+                _mismatches = _cdl.compare_cdl(_actual, cdl_vals)
+                if _mismatches and _actual:
+                    _msg = (f"CDL on {clip_name} reads back different "
+                            f"from the plan: {'; '.join(_mismatches)}")
+                    results["errors"].append(_msg)
+                    print(f"  ✗ {_msg}", file=sys.stderr)
+                elif _mismatches:
+                    # No read-back at all (measured 2026-09-25: this
+                    # build serves neither GetCDL nor the Slope clip
+                    # properties): one line naming that, not four
+                    # unverifiable terms. The grade is UNVERIFIED here;
+                    # 6.02 judges its pixels on the export.
+                    _msg = (f"CDL on {clip_name} is unverified "
+                            f"({(_cdl_read_error or 'this Resolve build '
+                                                 'serves no CDL read-back')})"
+                            f" - 6.02 judges its exported pixels")
+                    results["warnings"].append(_msg)
+                    print(f"  ⚠ {_msg}", file=sys.stderr)
+                else:
+                    print(f"  ✓ CDL base grade on {clip_name} "
+                          f"(read back equal)", file=sys.stderr)
 
     # The PowerGrade route, per clip, after the CDL: a declared DRX
     # replaces the whole node graph, so this runs inside the same clip

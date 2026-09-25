@@ -185,6 +185,56 @@ def resolve_cut_point(
     }
 
 
+def _unplaceable_reason(ttype: str, cut_time: float,
+                         carriers_row: dict | None,
+                         v2_spans: list | None) -> str | None:
+    """Why this resolved transition carries on no track, or None.
+
+    The plan-time half of findings 16 and 32: a transition the model
+    placed where no cut exists must go back to the model (first pass)
+    or ship as the hard cut the boundary already is (later passes) -
+    never forward to a compile that downgrades it unasked. Judges what
+    4.02 can see: the spine (V1 membership both sides) and the b-roll
+    plan (V2 pairs). An overlay element rides its own track and needs
+    no cut; a withdrawn or refused name is refused on its own path;
+    either returns None here.
+    """
+    from library.tools.transition_carriers import (
+        CARRIES, v2_pair_at,
+    )
+    from library.tools.transition_vocabulary import (
+        is_cut, is_overlay, native_canonical_type,
+    )
+    if is_cut(ttype) or is_overlay(ttype):
+        return None
+    if native_canonical_type(ttype) is None:
+        # Drawn route: a V1 clip must end at the cut with another
+        # following - the `cut_carriers` verdict the bridge already
+        # puts in `cuts_toon` beside every cut.
+        if carriers_row is not None and carriers_row.get("verdict") == CARRIES:
+            return None
+        basis = (carriers_row or {}).get("basis") or \
+            "the boundary names no spine cut this step can seat"
+        return (f"drawn {ttype!r} at {cut_time:.3f}s carries on no V1 "
+                f"cut ({basis})")
+    # Native route: a V1 cut that draws through, or a V2 pair
+    # abutting the cut on the b-roll's own track (finding 16).
+    if (carriers_row is not None
+            and carriers_row.get("verdict") == CARRIES
+            and "draws through" in str(carriers_row.get("basis") or "")):
+        return None
+    if v2_spans is not None and v2_pair_at(v2_spans, cut_time) is not None:
+        return None
+    if v2_spans is None:
+        # No b-roll plan to judge V2 by (a direct call, not the
+        # runner): what cannot be judged is not refused.
+        return None
+    basis = (carriers_row or {}).get("basis") or \
+        "the boundary names no spine cut this step can seat"
+    return (f"native {ttype!r} at {cut_time:.3f}s carries on no cut "
+            f"({basis}; no V2 pair abuts it either)")
+
+
 def _resolve_cut_block_index(trans: dict, spine_blocks: list):
     """Resolve a creative transition entry to the INCOMING block's index.
 
@@ -233,6 +283,8 @@ def resolve_transitions(
     creative_direction: dict = None,
     brand_effect: dict = None,
     music_analysis: dict = None,
+    v2_spans: list | None = None,
+    attempt: int | None = None,
 ) -> list:
     """Resolve creative transition plan to execution specs.
 
@@ -253,6 +305,19 @@ def resolve_transitions(
         brand_effect = {}
 
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
+
+    # What each cut can carry, keyed by incoming block position - the
+    # same `cut_carriers` rows the bridge puts in `cuts_toon`, so the
+    # retry below judges by the table the model was shown. Read only
+    # where the runner is judging a pass (`attempt` is not None): a
+    # direct call carries no b-roll plan to judge V2 by, and what
+    # cannot be judged is not refused.
+    carriers_by_position = {}
+    if attempt is not None:
+        from library.tools.transition_carriers import cut_carriers
+        for row in cut_carriers(spine_blocks):
+            carriers_by_position[row["position"]] = row
+    unplaceable: list = []
 
     from library.tools.beat_grid import beat_positions as real_beat_positions
 
@@ -350,7 +415,47 @@ def resolve_transitions(
                 index=len(resolved), temporal_indices=temporal_indices)
 
         if trans_dict is not None:
+            if attempt is not None:
+                reason = _unplaceable_reason(
+                    trans_dict.get("transition_type", ""),
+                    trans_dict.get("cut_point_timeline"),
+                    carriers_by_position.get(block.get("position")),
+                    v2_spans)
+                if reason is not None:
+                    unplaceable.append((block.get("position"), trans_dict,
+                                        reason))
             resolved.append(trans_dict)
+
+    if unplaceable and attempt == 1:
+        # First pass: back to the model that placed them, with the
+        # reason - the post_bridge_retry path re-asks, so the model
+        # can re-place each transition onto a cut that carries it
+        # (findings 16, 32). Later passes ship the hard cut instead:
+        # the retry is the correction chance, not a refusal loop.
+        lines = "\n".join(
+            f"  - into block {pos!r}: {reason}"
+            for pos, _t, reason in unplaceable
+        )
+        raise ValueError(
+            f"step plan_transitions placed {len(unplaceable)} of "
+            f"{len(resolved)} transition(s) where no cut carries "
+            f"them:\n{lines}\n"
+            f"Answer again with each transition re-placed onto a cut "
+            f"its track carries - `cuts_toon`'s "
+            f"`can_carry_drawn_transition` / `carry_basis` columns say "
+            f"which cuts those are - or dropped. At most 3 passes; "
+            f"what still carries nothing after that ships as the hard "
+            f"cut the boundary already is, with the reason recorded."
+        )
+    for _pos, t, reason in unplaceable:
+        # A later pass: the retry did not place it, so the boundary
+        # ships as the hard cut it already is - stamped on the row,
+        # the same surfacing the compile gives a fallback, so the
+        # per-item record says what was asked and why it changed.
+        t["requested_type"] = t.get("transition_type")
+        t["transition_type"] = "hard_cut"
+        t["duration_frames"] = 0
+        t["downgrade_reason"] = reason
 
     resolved.sort(key=lambda t: t["cut_point_timeline"])
     for i, t in enumerate(resolved, start=1):
@@ -734,9 +839,31 @@ def main():
     brand_effect = data.get("brand_effect", {})
 
     music_analysis = data.get("music_analysis", {})
+    # The V2 spans the buildability retry judges native transitions
+    # against: every b-roll assignment and interjection becomes a V2
+    # clip, so a native transition abutting a pair of them carries on
+    # the b-roll's own track (finding 16). Read defensively - an
+    # entry without a usable span is not a span.
+    from library.tools.post_bridge_retry import ATTEMPT_KEY
+    v2_spans = []
+    for _key in ("b_roll_assignments", "b_roll_interjections"):
+        for _row in data.get(_key, []) or []:
+            if not isinstance(_row, dict):
+                continue
+            _clip = _row.get("assigned_clip") if "assigned_clip" in _row \
+                else _row
+            if not isinstance(_clip, dict):
+                continue
+            try:
+                v2_spans.append((float(_clip["timeline_start"]),
+                                 float(_clip["timeline_end"])))
+            except (KeyError, TypeError, ValueError):
+                continue
     result = resolve_transitions(creative, spine, music, temporal, fps,
                                  creative_direction, brand_effect,
-                                 music_analysis=music_analysis)
+                                 music_analysis=music_analysis,
+                                 v2_spans=v2_spans,
+                                 attempt=data.get(ATTEMPT_KEY))
     json.dump({"transition_spec": result}, sys.stdout, indent=2)
 
 

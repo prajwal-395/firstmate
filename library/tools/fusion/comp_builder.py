@@ -176,6 +176,13 @@ def build_effect_comp(effects: dict, clip_dur: int,
         ))
 
     if any(k in effects for k in ZOOM_KEYS):
+        _window = effects.get('effect_window_frames')
+        _win = None
+        if (isinstance(_window, (list, tuple)) and len(_window) == 2):
+            try:
+                _win = (int(_window[0]), int(_window[1]))
+            except (TypeError, ValueError):
+                _win = None
         engine.add(fx.zoom(
             clip_dur,
             start=effects.get('zoom_start', 1.0),
@@ -186,6 +193,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             pan_end=effects.get('pan_end'),
             source_in=src_in,
             source_out=src_out,
+            window=_win,
         ))
 
     if 'grade_gain' in effects or 'grade_contrast' in effects or 'grade_saturation' in effects:

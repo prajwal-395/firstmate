@@ -1700,6 +1700,215 @@ def _db(x: float) -> float:
     return float(20.0 * np.log10(max(float(x), 1e-12)))
 
 
+@dataclass
+class GradeSpan:
+    """One graded clip's claim on the export, for `measure_grade_delivery`.
+
+    `timeline_start`/`timeline_end` bound the clip on the EXPORT;
+    `source_path` is the footage it was cut from (the ungraded
+    reference); `source_start`/`source_end` bound the played range
+    INSIDE that source, in seconds - the reference is measured on the
+    same content the export plays, never on the whole file (measured
+    2026-09-25 on the proof timeline: four items playing source 0-5s
+    read chroma ratios of 1.11/2.01/2.23/2.23 against the whole-file
+    median, while the same-range ratios read 0.499/0.904/1.0 - the
+    whole-file reference aliases content differences as grade
+    effects). None bounds the whole file, for callers with no range;
+    `cdl` is the four specified terms in the plan's own spelling
+    (`slope_r`...`saturation`, as `color_grade` carries them). `label`
+    names the clip in per-row verdicts.
+    """
+    label: str
+    timeline_start: float
+    timeline_end: float
+    source_path: str
+    cdl: dict
+    source_start: Optional[float] = None
+    source_end: Optional[float] = None
+
+
+def _median_luma_and_chroma(video_path: str, width: int, height: int,
+                            sample_fps: float,
+                            start_seconds: Optional[float] = None,
+                            duration_seconds: Optional[float] = None):
+    """(median frame-mean luma, median p99 chroma) over sampled frames.
+
+    The chroma half is `measure_chroma_presence`'s statistic - 99th
+    percentile of per-pixel chroma over LIT pixels only, so letterbox
+    bars and true black cannot dilute it. (None, None) where nothing
+    sampled.
+    """
+    import numpy as np
+
+    lumas, chromas = [], []
+    for frame in _stream_raw_frames(video_path, 'yuv444p', 3, width,
+                                    height, sample_fps,
+                                    start_seconds=start_seconds,
+                                    duration_seconds=duration_seconds):
+        y = frame[0].astype(np.float32)
+        lumas.append(float(np.mean(y)))
+        u = frame[1].astype(np.float32)
+        v = frame[2].astype(np.float32)
+        chroma = np.sqrt((u - 128.0) ** 2 + (v - 128.0) ** 2)
+        lit = chroma[y >= LIT_LUMA_THRESHOLD]
+        if lit.size:
+            chromas.append(float(np.percentile(lit, 99)))
+    if not lumas:
+        return None, None
+    return (float(statistics.median(lumas)),
+            float(statistics.median(chromas)) if chromas else None)
+
+
+def measure_grade_delivery(video_path: str,
+                           grade_spans: Optional[Sequence[GradeSpan]] = None,
+                           sample_fps: float = DEFAULT_SAMPLE_FPS
+                           ) -> RenderQAResult:
+    """P11: what the grade specified is what the exported pixels show.
+
+    Finding 28: per-clip CDL reached `SetCDL` but barely showed in the
+    export (saturation 0.88 measuring a chroma ratio of 0.96-1.03;
+    +1.3 stops moving luma 43 -> 82 against ~130), while the build
+    reported "Applied". The build's read-back (`cdl_readback`,
+    judged where the grade is written) is the gate; this is the
+    pixel verdict, REPORTED per graded clip, never gated: a shortfall
+    confounds the grade with the pipeline and the encode, so it is
+    said loudly rather than failed on.
+
+    Per span the export window is measured against the SOURCE range it
+    was cut from (median luma, median p99 chroma - the source is the
+    only ungraded reference the validator holds), and the direction
+    the CDL demands is checked with a dead zone: saturation at or
+    below 0.95 must move chroma DOWN, at or above 1.05 UP; mean slope
+    at or above 1.2 must move luma UP, at or below 0.85 DOWN. A span
+    whose CDL is ~identity demands nothing and reads as info; a span
+    with no source or no samples reads as unverifiable, never as
+    delivered.
+    """
+    import numpy as np  # noqa: F401 - hard dependency, see chroma_presence
+
+    if not grade_spans:
+        return RenderQAResult(
+            "grade_delivery", True, {"spans": []}, {"spans": 0},
+            "info", "no graded spans declared - nothing to verify")
+
+    size = _probe_video_size(video_path)
+    if not size:
+        return RenderQAResult("grade_delivery", True, None, None,
+                              "warning", "No video stream found")
+    width, height = size
+
+    rows = []
+    contradicts = 0
+    for span in grade_spans or []:
+        cdl = span.cdl or {}
+        try:
+            sat = float(cdl.get("saturation", 1.0))
+        except (TypeError, ValueError):
+            sat = 1.0
+        try:
+            gain = float(sum(float(cdl.get(f"slope_{c}", 1.0))
+                             for c in "rgb") / 3.0)
+        except (TypeError, ValueError):
+            gain = 1.0
+        demands = []
+        if sat <= 0.95:
+            demands.append(("chroma_down", sat))
+        elif sat >= 1.05:
+            demands.append(("chroma_up", sat))
+        if gain >= 1.2:
+            demands.append(("luma_up", gain))
+        elif gain <= 0.85:
+            demands.append(("luma_down", gain))
+        duration = max(float(span.timeline_end)
+                       - float(span.timeline_start), 0.0)
+        if duration <= 0.0:
+            rows.append({"label": span.label, "verdict": "unverifiable",
+                         "detail": "empty timeline span"})
+            continue
+        exp_luma, exp_chroma = _median_luma_and_chroma(
+            video_path, width, height, sample_fps,
+            start_seconds=float(span.timeline_start),
+            duration_seconds=duration)
+        if exp_luma is None:
+            rows.append({"label": span.label, "verdict": "unverifiable",
+                         "detail": "no export frames sampled"})
+            continue
+        src_size = _probe_video_size(span.source_path)
+        if not src_size:
+            rows.append({"label": span.label, "verdict": "unverifiable",
+                         "detail": f"source unreadable: {span.source_path}"})
+            continue
+        try:
+            _src_start = (float(span.source_start)
+                          if span.source_start is not None else None)
+            _src_end = (float(span.source_end)
+                        if span.source_end is not None else None)
+        except (TypeError, ValueError):
+            _src_start = _src_end = None
+        _src_dur = ((max(_src_end - _src_start, 0.0))
+                    if _src_start is not None and _src_end is not None
+                    else None)
+        src_luma, src_chroma = _median_luma_and_chroma(
+            span.source_path, src_size[0], src_size[1], sample_fps,
+            start_seconds=_src_start, duration_seconds=_src_dur)
+        if src_luma is None or not src_chroma:
+            rows.append({"label": span.label, "verdict": "unverifiable",
+                         "detail": "no source frames sampled"})
+            continue
+        luma_ratio = exp_luma / max(src_luma, 1e-6)
+        chroma_ratio = (exp_chroma / src_chroma if exp_chroma else None)
+        misses = []
+        for kind, amount in demands:
+            if kind == "chroma_down" and chroma_ratio is not None \
+                    and chroma_ratio >= 0.99:
+                misses.append(f"saturation {amount:g} demands chroma "
+                              f"down, measured ratio {chroma_ratio:.2f}")
+            elif kind == "chroma_up" and chroma_ratio is not None \
+                    and chroma_ratio <= 1.01:
+                misses.append(f"saturation {amount:g} demands chroma "
+                              f"up, measured ratio {chroma_ratio:.2f}")
+            elif kind == "luma_up" and luma_ratio <= 1.10:
+                misses.append(f"slope {amount:g} demands luma up, "
+                              f"measured ratio {luma_ratio:.2f}")
+            elif kind == "luma_down" and luma_ratio >= 0.95:
+                misses.append(f"slope {amount:g} demands luma down, "
+                              f"measured ratio {luma_ratio:.2f}")
+        if not demands:
+            rows.append({"label": span.label, "verdict": "no demand",
+                         "detail": f"identity-ish CDL (sat {sat:g}, "
+                                   f"slope {gain:g}) - nothing measurable "
+                                   f"demanded",
+                         "luma_ratio": round(luma_ratio, 3),
+                         "chroma_ratio": (round(chroma_ratio, 3)
+                                          if chroma_ratio else None)})
+        elif misses:
+            contradicts += 1
+            rows.append({"label": span.label, "verdict": "contradicts",
+                         "detail": "; ".join(misses),
+                         "luma_ratio": round(luma_ratio, 3),
+                         "chroma_ratio": (round(chroma_ratio, 3)
+                                          if chroma_ratio else None)})
+        else:
+            rows.append({"label": span.label, "verdict": "delivered",
+                         "detail": "export moves the demanded direction",
+                         "luma_ratio": round(luma_ratio, 3),
+                         "chroma_ratio": (round(chroma_ratio, 3)
+                                          if chroma_ratio else None)})
+    value = {"spans": rows, "contradicts": contradicts}
+    if contradicts:
+        return RenderQAResult(
+            "grade_delivery", False, value, {"contradicts": 0},
+            "warning",
+            f"{contradicts} of {len(rows)} graded span(s) contradict "
+            f"the specified grade on exported pixels - "
+            + "; ".join(f"{r['label']}: {r['detail']}"
+                        for r in rows if r["verdict"] == "contradicts"))
+    return RenderQAResult(
+        "grade_delivery", True, value, {"contradicts": 0}, "info",
+        f"{len(rows)} graded span(s) verified against the source - "
+        f"no span contradicts its grade")
+
+
 def measure_speech_above_bed(
         video_path: str,
         music_path: str,
@@ -2380,7 +2589,8 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
                        music_automation: Optional[Sequence[dict]] = None,
                        music_offset_seconds: Optional[float] = None,
                        spine_blocks: Optional[Sequence[dict]] = None,
-                       overlay_segments: Optional[Sequence["OverlaySegment"]] = None
+                       overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
+                       grade_spans: Optional[Sequence["GradeSpan"]] = None
                        ) -> List[RenderQAResult]:
     """Run every render QA check.
 
@@ -2424,6 +2634,13 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     the picture, so P1 can mask the pixels they drew instead of guessing
     at where an overlay sits.  Passing None says nothing was established
     about them, and P1 reports that rather than treating it as none.
+
+    `grade_spans` are the per-clip grades the manifest carries, so P11
+    (`measure_grade_delivery`) can judge each graded span's exported
+    pixels against the source they were cut from.  None runs no grade
+    verdict - a caller that never established the grades says so by
+    passing none, not by passing an empty list (which is exact: graded
+    nowhere, verified nowhere).
     """
     results = []
 
@@ -2465,7 +2682,10 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     
     if expected_duration is not None:
         results.append(verify_duration(video_path, expected_duration))
-        
+
     results.append(verify_audio_streams(video_path))
-    
+
+    if grade_spans is not None:
+        results.append(measure_grade_delivery(video_path, grade_spans))
+
     return results

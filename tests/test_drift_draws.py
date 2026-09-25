@@ -86,6 +86,20 @@ def test_a_push_in_moves_start_to_end():
     assert verdict["changed_count"] > 0
 
 
+def test_an_anchored_cut_in_draws_inside_its_window():
+    """A word-anchored punch returns to neutral outside its word span."""
+    verdict = tv.verify_drift(
+        {"zoom_start": 1.15, "zoom_mid": 1.15, "zoom_end": 1.15,
+         "effect_window_frames": [6, 11]},
+        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
+
+    assert verdict["passed"] is True
+    assert verdict["changed_frames"] == list(range(6, 12))
+    assert verdict["start_value"] == 1.0
+    assert verdict["end_value"] == 1.0
+    assert verdict["motion_over_time"] is True
+
+
 def test_undo_restores_byte_identical_comp():
     """Removing a failed drift returns the exact undrifted bytes."""
     effects = {"zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,

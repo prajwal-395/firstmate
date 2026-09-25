@@ -395,6 +395,7 @@ class fx:
         pan_end: Optional[tuple] = None,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
+        window: Optional[tuple] = None,
     ) -> EffectBlock:
         """Animated Ken Burns zoom with optional pan offset.
 
@@ -415,6 +416,13 @@ class fx:
         ``source_in`` / ``source_out`` are the first and last source
         frames the timeline plays.  Keyframes are placed within this
         window.  When omitted the whole source (0..clip_dur-1) is used.
+
+        ``window`` is the anchored span as COMP frames `(first, last)`
+        inclusive - the sub-block range a word/beat/frame anchor
+        resolved to.  Keyframes land inside it and the Size holds
+        neutral (1.0) outside it, so a punch on one word does not
+        punch the whole item (finding 36).  None, or a window covering
+        the whole played range, keys exactly as before.
 
         ``easing`` is one of `nodes.EASING_FUNCTIONS`' names; an
         unknown name raises rather than falling back, because a
@@ -441,10 +449,64 @@ class fx:
         tf = FusionNode(tf_name, "Transform")
         tf.set_attr("CtrlWZoom", False)
 
-        if has_anim:
-            # Keyframes in the comp's own frames, which are the
-            # PLAYED frames numbered from zero.
-            first, last = played_range(clip_dur, source_in, source_out)
+        # Keyframes in the comp's own frames, which are the
+        # PLAYED frames numbered from zero.
+        first, last = played_range(clip_dur, source_in, source_out)
+        w0, w1 = first, last
+        if window is not None:
+            try:
+                w0 = max(first, min(last, int(window[0])))
+                w1 = max(first, min(last, int(window[1])))
+            except (TypeError, ValueError, IndexError):
+                w0, w1 = first, last
+        windowed = (w0, w1) != (first, last)
+
+        if windowed:
+            # The anchored span: the move plays inside [w0, w1] and
+            # the Size holds neutral outside it. Holds sit one frame
+            # off the window edges so the punch snaps in and out
+            # instead of ramping in from frame 0.
+            held: dict[int, float] = {}
+            if w0 > first:
+                held[first] = 1.0
+                if w0 - 1 > first:
+                    held[w0 - 1] = 1.0
+            if w1 < last:
+                if w1 + 1 < last:
+                    held[w1 + 1] = 1.0
+                held[last] = 1.0
+            spline_name = f"{tf_name}Size"
+            if not has_anim:
+                held[w0] = start
+                held[w1] = end
+            elif _is_midpoint(start, mid, end):
+                if easing not in EASING_FUNCTIONS:
+                    raise ValueError(
+                        f"Unknown drift easing {easing!r}: choose one of "
+                        f"{', '.join(sorted(EASING_FUNCTIONS))}."
+                    )
+                _ramp = BezierSpline.sampled(
+                    spline_name,
+                    start_frame=w0, end_frame=w1,
+                    easing=easing,
+                    scale=end - start, offset=start,
+                    color=(233, 217, 11),
+                )
+                for _kf in _ramp.keyframes:
+                    held[_kf.frame] = _kf.value
+            else:
+                seg_dur = w1 - w0
+                mid_frame = w0 + seg_dur // 2
+                held[w0] = start
+                held[mid_frame] = mid
+                held[w1] = end
+            spline = BezierSpline(spline_name)
+            for _f in sorted(held):
+                spline.add_key(_f, round(held[_f], 6))
+            spline.linearize()
+            tf.set_input("Size", spline)
+            nodes.append(spline)
+        elif has_anim:
 
             spline_name = f"{tf_name}Size"
             if _is_midpoint(start, mid, end):

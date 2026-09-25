@@ -2435,8 +2435,27 @@ def cmd_run(args) -> int:
             rendered = _run_parts(result, args.full, args.json)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
-    meta = {"timeline": timeline.GetName() +
-            (" (current)" if is_current else ""),
+    try:
+        _meta_name = timeline.GetName()
+    except Exception:
+        _meta_name = None
+    if _meta_name is None:
+        # The script switched projects mid-run (a setup/teardown
+        # script legitimately does), so the held timeline proxy is
+        # stale and reads None. Crash the after-report on that and
+        # the script's own result is lost with it - read the cursor
+        # fresh instead, best effort.
+        try:
+            _fresh_proj = (_connect().GetProjectManager()
+                           .GetCurrentProject())
+            _meta_name = _fresh_proj.GetCurrentTimeline().GetName()
+            _meta_current = True
+        except Exception:
+            _meta_name, _meta_current = "(unknown)", False
+    else:
+        _meta_current = is_current
+    meta = {"timeline": (_meta_name or "(unknown)") +
+            (" (current)" if _meta_current else ""),
             "unsafe": "yes" if args.unsafe else "no"}
     if args.unsafe:
         meta["cursor_before"] = cursor_before
@@ -2449,7 +2468,7 @@ def cmd_run(args) -> int:
                    f"{cursor_after!r}")
     out.append(help_block([f"{TOOL} timeline list",
                            f"{TOOL} markers --timeline "
-                           f"\"{timeline.GetName()}\""]))
+                           f"\"{_meta_name or ''}\""]))
     emit(out)
     return 0
 
@@ -2572,9 +2591,16 @@ def _edit_item(timeline, track_spec: str, index: int):
 def _item_span(item) -> dict:
     """The span a dry run names and a read-back checks. Best effort
     per field: a verb refuses on the fields it needs, never on a
-    neighbour's blank."""
+    neighbour's blank.
+
+    Read through `getattr`, never `item.__getattribute__`: on
+    Resolve's scripting proxies the dunder lookup answers None for
+    the method, so calling it raises `TypeError: 'NoneType' object
+    is not callable` and every field reads blank - trim and move
+    then refuse ("would not report its spans") and every verb prints
+    `name: ''` (finding 6). `getattr` serves the bound method."""
     span: dict = {"name": "", "record_in": "", "record_out": "",
-                  "source_in": "", "source_out": "", "uid": ""}
+                   "source_in": "", "source_out": "", "uid": ""}
     for key, method in (("name", "GetName"),
                         ("record_in", "GetStart"),
                         ("record_out", "GetEnd"),
@@ -2582,10 +2608,98 @@ def _item_span(item) -> dict:
                         ("source_out", "GetSourceEndFrame"),
                         ("uid", "GetUniqueId")):
         try:
-            span[key] = item.__getattribute__(method)()
+            span[key] = getattr(item, method)()
         except Exception:
             continue
     return span
+
+
+def _pool_file_name(item):
+    """The media pool file backing one timeline item, or None.
+
+    None covers a proxy that does not serve the calls and an item
+    with no pool file (a generator, a Fusion comp) - the caller
+    refuses linkage it cannot prove rather than guessing.
+    """
+    try:
+        mpi = item.GetMediaPoolItem()
+    except Exception:
+        return None
+    if mpi is None:
+        return None
+    try:
+        return mpi.GetClipProperty("File Name")
+    except Exception:
+        return None
+
+
+def _linked_audio_for_speed(timeline, item, span) -> tuple:
+    """The audio items one speed write must carry, selected, not guessed.
+
+    Finding 17: a retimed talking shot without its dialogue loses
+    sync. Linked is a same-span (within 1.5 frames) audio item from
+    the SAME source file - the bed shares spans, never sources, so a
+    span match alone would retime the music too.
+
+    Returns (linked, skipped, refused, unchecked): `linked` the items
+    to retime, `skipped` the names left at full speed (same span,
+    different source), `refused` the failure naming what would not
+    read beside real candidates (the caller fails rather than
+    guessing), `unchecked` the note where the span itself would not
+    read so there was nothing to match against (the caller says the
+    audio was NOT checked). No exception escapes; the dry run names
+    and the apply path retimes-or-refuses off the same answer.
+    """
+    try:
+        v_in = float(span["record_in"])
+        v_out = float(span["record_out"])
+    except (TypeError, ValueError, KeyError):
+        return [], [], "", ("the video span would not read - verify "
+                            "the audio by hand")
+    try:
+        n_audio = timeline.GetTrackCount("audio") or 0
+    except Exception:
+        n_audio = 0
+    cands = []
+    for track in range(1, n_audio + 1):
+        try:
+            cands.extend(timeline.GetItemListInTrack("audio", track)
+                         or [])
+        except Exception:
+            continue
+    same = []
+    for cand in cands:
+        try:
+            if (abs(float(cand.GetStart()) - v_in) <= 1.5
+                    and abs(float(cand.GetStart())
+                            + float(cand.GetDuration()) - v_out) <= 1.5):
+                same.append(cand)
+        except Exception:
+            continue
+    if not same:
+        return [], [], "", ""
+    v_src = _pool_file_name(item)
+    if v_src is None:
+        return [], [], (
+            f"{len(same)} same-span audio item(s) overlap the video "
+            f"item and its source will not read - refusing to guess "
+            f"which audio is linked"), ""
+    linked, skipped = [], []
+    for cand in same:
+        try:
+            cand_name = cand.GetName()
+        except Exception:
+            cand_name = "?"
+        cand_src = _pool_file_name(cand)
+        if cand_src is None:
+            return [], [], (
+                f"same-span audio {cand_name!r} will not read its "
+                f"source - refusing to guess linkage"), ""
+        if cand_src == v_src:
+            linked.append(cand)
+        else:
+            skipped.append(cand_name)
+    return linked, skipped, "", ""
 
 
 def _presence(timeline, uid: str) -> bool:
@@ -3225,6 +3339,16 @@ def cmd_edit_speed(args) -> int:
     40.0 with the timeline rippled, and 0.0 re-reads 0.0 on a fresh
     item; 0.0 after a rippled speed change re-reads 100.0 (the
     pixels still freeze), and that case refuses here.
+
+    The linked dialogue rides the same write (finding 17): after the
+    video item verifies, every same-span audio item from the SAME
+    source file is retimed to the same Percentage and judged by its
+    own re-read - a retimed talking shot without its dialogue loses
+    sync. Same-span audio from another source (the bed) is left at
+    full speed AND named; an unreadable source refuses rather than
+    guesses; an audio refusal fails the verb and puts the video item
+    back to its pre-op speed. The dry run names the audio it would
+    touch.
     """
     try:
         resolve = _connect()
@@ -3267,7 +3391,7 @@ def cmd_edit_speed(args) -> int:
             current_opts = item.GetSpeed()
             current = (current_opts or {}).get("Percentage", "")
         except AttributeError:
-            current = "(GetSpeed absent on this build)"
+            current = "    (GetSpeed absent on this build)"
         except Exception:
             current = ""
         if args.apply:
@@ -3276,6 +3400,28 @@ def cmd_edit_speed(args) -> int:
             except AxiError as exc:
                 return fail(str(exc), exc.fix)
         else:
+            _dry_linked, _dry_skipped, _dry_refused, _dry_unchecked = \
+                _linked_audio_for_speed(timeline, item, span)
+            if _dry_refused:
+                _dry_audio = f"would refuse - {_dry_refused}"
+            elif _dry_unchecked:
+                _dry_audio = f"unchecked - {_dry_unchecked}"
+            elif _dry_linked:
+                _dry_names = []
+                for _a in _dry_linked:
+                    try:
+                        _dry_names.append(_a.GetName())
+                    except Exception:
+                        _dry_names.append("?")
+                _dry_audio = "would also retime: " + ", ".join(_dry_names)
+                if _dry_skipped:
+                    _dry_audio += (" (left at full speed: "
+                                   + ", ".join(_dry_skipped) + ")")
+            elif _dry_skipped:
+                _dry_audio = ("video only for the retime - left at full "
+                              "speed: " + ", ".join(_dry_skipped))
+            else:
+                _dry_audio = "video only - no same-span audio"
             emit([kv_block("speed_plan", {
                       "timeline": timeline.GetName() +
                       (" (current)" if is_current else ""),
@@ -3283,6 +3429,7 @@ def cmd_edit_speed(args) -> int:
                       "current_percent": current,
                       "percent": percent,
                       "ripple": "yes" if ripple else "no",
+                      "audio": _dry_audio,
                       "note": ("constant speed only - the 21.1 stub "
                                "carries no speed-curve API"),
                   }),
@@ -3331,12 +3478,70 @@ def cmd_edit_speed(args) -> int:
                 f"SetSpeed reports True and re-reads {back} for "
                 f"{percent} - refusing to claim it.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        # Finding 17: a retimed talking shot without its dialogue
+        # loses sync, so the linked audio rides the same write -
+        # selected by `_linked_audio_for_speed` (same span, same
+        # source), each judged by its own `GetSpeed` re-read. An
+        # audio refusal fails the verb AND puts the video item back
+        # to its pre-op speed rather than leave the pair split.
+        _linked, _skipped, _refused, _unchecked = \
+            _linked_audio_for_speed(timeline, item, span)
+        if _refused:
+            return fail(
+                f"SetSpeed({percent}%) on {span['name']!r} verified, "
+                f"but {_refused}.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if _unchecked:
+            audio_note = f"linkage unchecked - {_unchecked}"
+        elif _linked:
+            try:
+                _fps = float(timeline.GetSetting("timelineFrameRate"))
+            except Exception:
+                return fail(
+                    f"SetSpeed({percent}%) on {span['name']!r} "
+                    f"verified, but the timeline rate will not "
+                    f"read and {len(_linked)} linked audio "
+                    f"item(s) need retiming - refusing to "
+                    f"judge them.",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\"")
+            from library.tools import native_ops_apply as _apply
+            _audio_ok, _audio_bad = _apply.retime_linked_audio(
+                item, span["name"], percent, _fps, _linked, set())
+            if _audio_bad is not None:
+                _restored = ""
+                try:
+                    _pre = float(current)
+                    if bool(item.SetSpeed({"Percentage": _pre,
+                                           "RippleTimeline": ripple})):
+                        _restored = (f" the video item was put "
+                                     f"back to {_pre:g}%")
+                except Exception:
+                    pass
+                return fail(
+                    f"SetSpeed({percent}%) on {span['name']!r} "
+                    f"verified, but its linked audio refused - "
+                    f"{_audio_bad['what']}."
+                    f"{_restored or ' the video item could not be put back - verify the pair by hand'}",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\"")
+            audio_note = ("retimed with the picture: "
+                          + ", ".join(r["item"] for r in _audio_ok))
+            if _skipped:
+                audio_note += (" (left at full speed, different "
+                               "source: " + ", ".join(_skipped) + ")")
+        elif _skipped:
+            audio_note = ("left at full speed, different source: "
+                          + ", ".join(_skipped))
+        else:
+            audio_note = "video only - no same-span audio"
         emit([kv_block("speed", {
                   "timeline": timeline.GetName(),
                   "name": span["name"],
                   "percent": percent,
                   "ripple": "yes" if ripple else "no",
                   "verified": "yes (GetSpeed re-reads equal)",
+                  "audio": audio_note,
               }),
               note,
               help_block([f"{TOOL} items --timeline "

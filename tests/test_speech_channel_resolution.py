@@ -14,6 +14,7 @@ import pytest
 
 from library.steps.step_6_01_render.resolve_build_timeline import (
     SpeechChannelRefused,
+    mapping_carries_program,
     resolve_speech_channel,
 )
 
@@ -81,3 +82,19 @@ def test_a_garbage_manifest_declaration_refuses_not_tracebacks():
         resolve_speech_channel(
             "a", "Akshita", "CH1", {"a.MXF"}, {"a.MXF": 1}, {}, None,
             set())
+
+
+def test_stereo_speech_carries_the_program_stream():
+    """Finding 4: iPhone stereo speech maps CH[1, 2] and carries
+    program CH1 in it. Exact-equality (`channels == [1]`) deleted
+    every such item as "non-program audio" - twelve deletions, an
+    export at -91 dB over the spoken hook, the step green."""
+    assert mapping_carries_program([1, 2], 1) is True
+    assert mapping_carries_program([1], 1) is True
+
+
+def test_a_mapping_without_the_program_stream_still_goes():
+    assert mapping_carries_program([2], 1) is False
+    assert mapping_carries_program([3, 4], 1) is False
+    assert mapping_carries_program([], 1) is False
+    assert mapping_carries_program(None, 1) is False

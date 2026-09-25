@@ -271,6 +271,97 @@ def _map_clips_to_items(clips, items):
     return mapping
 
 
+def unmapped_comp_failures(comp_tracks, items_by_track,
+                            transition_by_clip, per_clip_effects):
+    """Planned comps reaching no timeline item, NAMED (finding 15).
+
+    `comp_tracks` is `fusion_comp_tracks(manifest)` -
+    `(track_index, track_clips, applies_transitions)` rows -
+    `items_by_track` the placed items per track. A spec the manifest
+    keyed a comp onto (per_clip by label) or a transition half onto
+    (transition_by_clip by clip index) whose file matches no placed
+    item is a planned effect the viewer never sees; it used to drop
+    silently while the step stayed green ("Fusion .comp: 1 VFX" then
+    nothing). Returns one failure string per such spec, each naming
+    the clip, the spec file and the files really placed.
+    """
+    failures = []
+    for track_index, track_clips, applies_transitions in comp_tracks:
+        if not track_clips:
+            continue
+        track_items = items_by_track.get(track_index, [])
+        track_map = _map_clips_to_items(track_clips, track_items)
+        for ci, spec in enumerate(track_clips):
+            if ci in track_map:
+                continue
+            label = spec.get('label', f'clip_{ci}')
+            carries_comp = bool(per_clip_effects.get(label))
+            carries_trans = bool(applies_transitions
+                                 and ci in transition_by_clip)
+            if not (carries_comp or carries_trans):
+                continue
+            placed_files = []
+            for item in track_items or []:
+                try:
+                    mpi = item.GetMediaPoolItem()
+                    placed_files.append(
+                        mpi.GetClipProperty("File Path") if mpi else "")
+                except Exception:
+                    placed_files.append("")
+            failures.append(
+                f"[V{track_index}:{ci}] {label}: planned comp reaches "
+                f"no timeline item (spec file "
+                f"{spec.get('source_file', '')!r}; placed files "
+                f"{placed_files[:4]!r})")
+    return failures
+
+
+def legacy_vfx_effects(vfx_entries, v1_clips, v1_items, orig_to_item,
+                       fps):
+    """Per-label effects for vfx entries no per_clip key covers.
+
+    The legacy fallback: compile_manifest resolves every entry to
+    `fusion_effects.per_clip` by label, so the caller runs this only
+    when per_clip is empty. Routed entries (native speed, neural
+    stabilization) never ride it - they have their own applicators.
+    A window must sit WHOLLY inside one placed item (frame-exact):
+    matching on the start edge alone drew one block's VFX on its
+    neighbour through a one-frame seconds-to-frames overlap
+    (finding 27). Returns `{label: params}`; an entry matching no
+    item is absent, never guessed at.
+    """
+    extra = {}
+    for vfx in vfx_entries or []:
+        if (vfx.get('route') in ("native_resolve", "neural_engine")
+                or vfx.get('effect_type')
+                in ("speed_ramp", "freeze_frame", "stabilize")):
+            continue
+        start_sec = vfx.get('timeline_start', 0)
+        end_sec = vfx.get('timeline_end', start_sec)
+        start_f = round(start_sec * fps)
+        end_f = round(end_sec * fps)
+        if end_f <= start_f:
+            end_f = start_f + 1
+        params = vfx.get('params', {})
+        preset = vfx.get('effect_type', vfx.get('preset', ''))
+
+        for idx, clip in enumerate(v1_items or []):
+            if clip.GetStart() <= start_f and end_f <= clip.GetEnd():
+                orig_ci = next(
+                    (k for k, v in (orig_to_item or {}).items()
+                     if v == idx), None)
+                if orig_ci is not None:
+                    label = v1_clips[orig_ci].get('label',
+                                                 f'clip_{orig_ci}')
+                    effect = extra.setdefault(label, {})
+                    if preset:
+                        effect['_preset'] = preset
+                    for k, v in params.items():
+                        effect[k] = v
+                break
+    return extra
+
+
 @under_lease("apply fusion comps")
 def apply_fusion_comps(manifest, project_folder,
                        expected_project=None, expected_timeline=None,
@@ -357,6 +448,17 @@ def apply_fusion_comps(manifest, project_folder,
     # the look-before-you-ship evidence lives where the other skill
     # receipts live - readable back from disk, never a self-report.
     treatment_report = []
+    # Every planned comp that reached no timeline item, imported
+    # nothing, or imported an empty comp, NAMED. A comp that fails
+    # to map was dropped here while the step stayed green (finding
+    # 15: "Fusion .comp: 1 VFX" then nothing, QA flagging "expected
+    # a comp on speech_12_seg0, got no comp" with no failure). The
+    # pass returns False when this is non-empty, so the build fails
+    # naming the clip instead of shipping the picture without it. A
+    # treatment the verify check undid is NOT a failure: undoing an
+    # undeclared offer is recorded in treatment_report, and a
+    # declared one already raises above.
+    comp_failures = []
     # One row per comp whose media window was read back after import -
     # the conform's receipt, for the same reason `treatment_report`
     # exists: the window is what decides whether the reel renders at
@@ -389,26 +491,17 @@ def apply_fusion_comps(manifest, project_folder,
     orig_to_item = _map_clips_to_items(v1_clips, v1_items)
 
     vfx_entries = manifest.get('vfx', [])
-    if vfx_entries and v1_items:
-        for vfx in vfx_entries:
-            start_sec = vfx.get('timeline_start', 0)
-            start_f = round(start_sec * fps)
-            params = vfx.get('params', {})
-            preset = vfx.get('effect_type', vfx.get('preset', ''))
-            
-            for idx, clip in enumerate(v1_items):
-                if clip.GetStart() <= start_f < clip.GetEnd():
-                    orig_ci = next((k for k, v in orig_to_item.items() if v == idx), None)
-                    if orig_ci is not None:
-                        label = v1_clips[orig_ci].get('label', f'clip_{orig_ci}')
-                        if label not in per_clip_effects:
-                            per_clip_effects[label] = {}
-                        if preset:
-                            per_clip_effects[label]['_preset'] = preset
-                        for k, v in params.items():
-                            per_clip_effects[label][k] = v
-                        has_any_effects = True
-                    break
+    # Legacy fallback ONLY: compile_manifest resolves every entry to
+    # fusion_effects.per_clip by label, and re-deriving the same
+    # windows from rounded frames here was a SECOND writer that
+    # disagreed - see `legacy_vfx_effects` (finding 27). With
+    # per_clip present compile is the single writer.
+    if vfx_entries and v1_items and not per_clip_effects:
+        for _label, _effect in legacy_vfx_effects(
+                vfx_entries, v1_clips, v1_items, orig_to_item,
+                fps).items():
+            per_clip_effects[_label] = _effect
+            has_any_effects = True
 
     if has_any_effects:
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, {len(transition_specs)} transitions ──", file=sys.stderr)
@@ -422,19 +515,24 @@ def apply_fusion_comps(manifest, project_folder,
         # One flat work list over every track that carries comps, so the
         # per-clip body below is written once. Each entry is a clip that
         # was really placed - a spec with no matching timeline item is
-        # dropped by _map_clips_to_items rather than guessed at.
+        # recorded in comp_failures rather than guessed at (finding 15).
         work = []
+        _items_by_track = {}
         for track_index, track_clips, applies_transitions in comp_tracks:
             if not track_clips:
                 continue
             track_items = (
                 v1_items if track_index == 1
                 else (timeline.GetItemListInTrack("video", track_index) or []))
+            _items_by_track[track_index] = track_items
             track_map = _map_clips_to_items(track_clips, track_items)
             for ci, spec in enumerate(track_clips):
                 if ci in track_map:
                     work.append((track_index, track_items, track_map[ci],
                                  ci, spec, applies_transitions))
+        comp_failures.extend(unmapped_comp_failures(
+            comp_tracks, _items_by_track, transition_by_clip,
+            per_clip_effects))
 
         for (track_index, track_items, item_idx, orig_ci, clip_spec,
              applies_transitions) in work:
@@ -511,6 +609,9 @@ def apply_fusion_comps(manifest, project_folder,
                     print(f"  ✓ [{where}] {label}: Imported built-in effect {builtin_effect}", file=sys.stderr)
                 else:
                     print(f"  ✗ [{where}] {label}: Import built-in effect {builtin_effect} failed", file=sys.stderr)
+                    comp_failures.append(
+                        f"[{where}] {label}: built-in effect "
+                        f"{builtin_effect} imported nothing")
                 continue
 
             preset_name = effects.pop('_preset', None)
@@ -524,10 +625,26 @@ def apply_fusion_comps(manifest, project_folder,
                 effects.update(trans_params)
 
             if not effects:
+                # A plain clip rides the work list with nothing to draw
+                # and is skipped - but a clip the manifest keyed a comp
+                # onto that names no drawable parameter is a planned
+                # effect the viewer never sees (finding 15), said here.
+                # (trans_params cannot be the cause: non-empty halves
+                # would have filled `effects` above.)
+                if (preset_name is not None
+                        or per_clip_effects.get(label)):
+                    comp_failures.append(
+                        f"[{where}] {label}: planned comp names no "
+                        f"drawable parameter (preset "
+                        f"{preset_name!r}) - nothing was built")
                 continue
 
             mpi = tl_clip.GetMediaPoolItem()
             if not mpi:
+                comp_failures.append(
+                    f"[{where}] {label}: timeline item carries no media "
+                    f"pool clip, so no comp canvas can be sized - "
+                    f"nothing was built")
                 continue
             frames_prop = mpi.GetClipProperty('Frames')
             clip_dur = int(frames_prop) if frames_prop else tl_clip.GetDuration()
@@ -591,10 +708,16 @@ def apply_fusion_comps(manifest, project_folder,
                 if key.endswith("_declared") and effects.get(key)}
             effects, tv_rows = verify_and_undo(
                 effects, clip_dur, played, source_res=source_res)
+            # Whether the check undid anything here: an empty comp after
+            # an undo is the look's own offer withdrawn, recorded in
+            # treatment_report - not a delivery failure (finding 15
+            # counts only drawable intent that reached no pixels).
+            undone_here = False
             for row in tv_rows:
                 treatment_report.append({"label": label, "where": where,
                                          **row})
                 if row["undone"]:
+                    undone_here = True
                     if f"{row['treatment']}_declared" in declared_treatments:
                         raise RuntimeError(
                             f"REFUSING to build: [{where}] {label} "
@@ -633,6 +756,7 @@ def apply_fusion_comps(manifest, project_folder,
                 treatment_report.append({"label": label, "where": where,
                                          **drift_row})
                 if drift_row["undone"]:
+                    undone_here = True
                     print(
                         f"  ! [{where}] {label}: drift failed "
                         f"({drift_row['failure']}) - undone, the picture "
@@ -658,6 +782,37 @@ def apply_fusion_comps(manifest, project_folder,
             # string assembly; building it and then asking whether those
             # exact bytes are already banked costs nothing and cannot
             # import a sibling build's leftovers.
+            #
+            # The anchored span as comp frames: compile_manifest keys
+            # each per-clip entry to its absolute timeline window
+            # (`effect_window`), and the comp keys its keyframes to it
+            # rather than to the whole item (finding 36: a cut_in
+            # anchored to the word 'quit' punched the whole hook item
+            # at a constant 1.15, already punched at 0.07 s). Comp
+            # frame 0 is the first played frame, so the window is the
+            # absolute seconds minus this item's own start. Set AFTER
+            # the verify pass so the undo logic judges the full-range
+            # values it understands; a degenerate window (under a
+            # frame, or outside what plays) reads as no window.
+            _window = effects.get('effect_window')
+            try:
+                _item_start_f = int(tl_clip.GetStart())
+            except Exception:
+                _item_start_f = None
+            if (isinstance(_window, (list, tuple)) and len(_window) == 2
+                    and _item_start_f is not None):
+                try:
+                    _w0 = round(float(_window[0]) * fps) - _item_start_f
+                    _w1 = (round(float(_window[1]) * fps)
+                           - _item_start_f - 1)
+                except (TypeError, ValueError):
+                    _w0, _w1 = None, None
+                if _w0 is not None:
+                    _w0 = max(0, _w0)
+                    if played:
+                        _w1 = min(int(played) - 1, _w1)
+                    if _w1 > _w0:
+                        effects['effect_window_frames'] = [_w0, _w1]
             comp_content = build_effect_comp(effects, clip_dur, source_res,
                                              played_frames=played)
             comp_path, reused = bank_comp(project_folder, label,
@@ -705,13 +860,22 @@ def apply_fusion_comps(manifest, project_folder,
                 comp = tl_clip.GetFusionCompByName(comp_names[0])
                 if comp:
                     resolve.OpenPage("fusion")
-                    dummy = comp.AddTool("Merge")
-                    if dummy:
-                        dummy.Delete()
+                    comp.Lock()
+                    try:
+                        dummy = comp.AddTool("Merge")
+                        if dummy:
+                            dummy.Delete()
+                    finally:
+                        comp.Unlock()
                 tools = comp.GetToolList() if comp else {}
                 real_tools = [t for t in tools.values() if t.GetAttrs().get('TOOLS_RegID') not in ('MediaIn', 'MediaOut')]
                 if len(real_tools) == 0:
                     print(f"  ✗ [{where}] {label}: empty comp (bad file)", file=sys.stderr)
+                    if not undone_here:
+                        comp_failures.append(
+                            f"[{where}] {label}: imported an empty comp "
+                            f"(bad file) - drawable intent reached no "
+                            f"pixels")
                     continue
                 parts = []
                 xf = comp.FindTool("Transform1")
@@ -734,6 +898,9 @@ def apply_fusion_comps(manifest, project_folder,
                 # deliberately no file-backed delivery here.
             else:
                 print(f"  ✗ [{where}] {label}: ImportFusionComp failed", file=sys.stderr)
+                comp_failures.append(
+                    f"[{where}] {label}: ImportFusionComp imported "
+                    f"nothing - planned comp reaches no pixels")
 
 
     # ── Generator overlays ──
@@ -762,6 +929,10 @@ def apply_fusion_comps(manifest, project_folder,
                         f"  X [{gi}] {gen['effect_name']}: no carrier clip",
                         file=sys.stderr,
                     )
+                    comp_failures.append(
+                        f"generator overlay {gen['effect_name']}: no "
+                        f"carrier clip - planned pixels reach no "
+                        f"timeline item")
                     continue
                 tl_clip = v5_items[gi]
                 effect_name = gen['effect_name']
@@ -785,11 +956,18 @@ def apply_fusion_comps(manifest, project_folder,
                         f"import failed",
                         file=sys.stderr,
                     )
+                    comp_failures.append(
+                        f"generator overlay {gen['effect_name']}: "
+                        f"import failed - planned pixels reach no "
+                        f"timeline item")
         else:
             print(
                 "  WARNING: generator_overlays present but no carrier clips",
                 file=sys.stderr,
             )
+            comp_failures.append(
+                "generator overlays planned but no carrier clips on "
+                "their rows - planned pixels reach no timeline item")
 
     # The pass's own account of what the treatment check saw: one row
     # per armed treatment, written by this code - never by a model's
@@ -816,6 +994,14 @@ def apply_fusion_comps(manifest, project_folder,
              "comps_checked": len(comp_window_receipts),
              "windows_repaired": repaired,
              "rows": comp_window_receipts})
+    # A planned comp that reached no pixels fails the pass by name,
+    # after the receipts above are written. The nonzero exit fails
+    # the build step with the clip named (finding 15) - the receipts
+    # stay on disk so the failure reads with its evidence.
+    if comp_failures:
+        for failure in comp_failures:
+            print(f"  ✗ {failure}", file=sys.stderr)
+        return False
     return True
 
 if __name__ == "__main__":

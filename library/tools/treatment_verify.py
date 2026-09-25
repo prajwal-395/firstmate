@@ -572,7 +572,25 @@ def verify_drift(effects: dict, clip_dur: int,
     normalized = dict(effects or {})
     normalize_effects(normalized, True)
     start, mid, end, pan_end = _drift_values(normalized)
-    if start == mid == end:
+    first, last, horizon = _played_horizon(clip_dur, effects or {},
+                                           played_frames)
+    played = (last - first + 1) if played_frames is None else int(
+        played_frames)
+    played = max(1, played)
+
+    # A sub-block punch is neutral outside its resolved span. Preserve
+    # that window in the probe comp and do not treat a constant zoom as
+    # an unwindowed, whole-clip reframe before measuring it.
+    window = (effects or {}).get("effect_window_frames")
+    partial_window = False
+    if isinstance(window, (list, tuple)) and len(window) == 2:
+        try:
+            window_start, window_end = int(window[0]), int(window[1])
+        except (TypeError, ValueError):
+            window_start, window_end = first, last
+        partial_window = window_start > first or window_end < last
+
+    if start == mid == end and not partial_window:
         if start != 1.0 or pan_end is not None:
             return {
                 "treatment": "drift",
@@ -604,15 +622,10 @@ def verify_drift(effects: dict, clip_dur: int,
             "elapsed_seconds": round(time.perf_counter() - t0, 3),
         }
 
-    first, last, horizon = _played_horizon(clip_dur, effects or {},
-                                           played_frames)
-    played = (last - first + 1) if played_frames is None else int(
-        played_frames)
-    played = max(1, played)
-
     alone = {k: v for k, v in normalized.items()
              if k in DRIFT_KEYS + DRIFT_CURVE_KEYS
-             + ("source_in_frame", "source_out_frame")}
+             + ("source_in_frame", "source_out_frame",
+                "effect_window_frames")}
     comp = build_treated(alone, clip_dur, source_res=source_res,
                          played_frames=played_frames)
     curves = evaluate_comp(comp, played)
@@ -642,8 +655,8 @@ def verify_drift(effects: dict, clip_dur: int,
     first_value = values[0]
     last_value = values[rendered - 1]
     changed = [f for f in range(rendered)
-               if abs(values[f] - first_value) > EPSILON]
-    motion = abs(last_value - first_value) > EPSILON
+               if abs(values[f] - 1.0) > EPSILON]
+    motion = max(values[:rendered]) - min(values[:rendered]) > EPSILON
     # The shape between the endpoints, off the serialized keys - what
     # Resolve holds. The straight line is between the first and last
     # RENDERED values, so a ramp cut short by the pool-to-timeline
@@ -658,8 +671,8 @@ def verify_drift(effects: dict, clip_dur: int,
         max_linear_deviation = 0.0
     return {
         "treatment": "drift",
-        "passed": motion,
-        "failure": None if motion else "drew_nothing",
+        "passed": bool(changed),
+        "failure": None if changed else "drew_nothing",
         "armed_nothing": False,
         "motion_over_time": motion,
         "played_frames": played,
@@ -671,8 +684,8 @@ def verify_drift(effects: dict, clip_dur: int,
         "eased": bool(max_linear_deviation > EASED_THRESHOLD),
         "changed_count": len(changed),
         "changed_frames": changed,
-        "detail": (None if motion else
-                   "the Size spline is flat over everything rendered"),
+        "detail": (None if changed else
+                   "the Size spline stays neutral over everything rendered"),
         "elapsed_seconds": round(time.perf_counter() - t0, 3),
     }
 

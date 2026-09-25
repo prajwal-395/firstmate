@@ -115,21 +115,53 @@ def _spine(*positions):
     return {"structure": blocks, "total_estimated_duration_seconds": 20.0}
 
 
-def test_a_ramp_resolves_to_stepped_segments():
+def test_a_single_step_ramp_resolves_whole_block():
     from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
+    # One step spanning the whole block matches the one item the
+    # block places as. Multi-step ramps subdividing one block are
+    # refused (finding 35) - nothing blades.
     (entry,) = resolve_vfx(
         [{"target_block_position": 1, "effect_type": "speed_ramp",
-          "params": {"segments": [{"percent": 50}, {"percent": 150}]},
-          "rationale": "montage ramp"}],
+          "params": {"segments": [{"percent": 50}]},
+          "rationale": "slow the whole beat"}],
         _spine((1, "clip_a")), 30.0, dropped=[])
     assert entry["route"] == "native_resolve"
-    (first, second) = entry["params"]["segments"]
-    assert first["percent"] == 50.0
-    assert second["percent"] == 150.0
-    # The steps divide the span equally: the plan states the percents,
-    # not the split.
-    assert (first["timeline_start"], first["timeline_end"]) == (0.0, 2.5)
-    assert (second["timeline_start"], second["timeline_end"]) == (2.5, 5.0)
+    (only,) = entry["params"]["segments"]
+    assert only["percent"] == 50.0
+    assert (only["timeline_start"], only["timeline_end"]) == (0.0, 5.0)
+
+
+def test_a_ramp_subdividing_one_block_is_dropped_with_its_reason():
+    """Finding 35: a resolved ramp whose steps subdivide the one
+    block (B8: 24.400-25.057 s and 25.057-25.714 s inside the b-roll
+    block) failed the whole build with "no timeline item spans ...
+    - nothing was written", because nothing blades the item. The
+    ONE entry is refused here, with its reason, instead."""
+    from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
+    dropped = []
+    assert resolve_vfx(
+        [{"target_block_position": 1, "effect_type": "speed_ramp",
+          "params": {"segments": [{"percent": 200},
+                                  {"percent": 50}]},
+          "rationale": "montage ramp"}],
+        _spine((1, "clip_a")), 30.0, dropped=dropped) == []
+    assert dropped[0].reason == "speed_span_subdivides_block"
+    # The steps still divide the span equally - the drop names them.
+    assert "0.000-2.500" in dropped[0].detail
+    assert "blade" in dropped[0].detail
+
+
+def test_a_freeze_on_a_word_span_is_dropped_with_its_reason():
+    """A freeze spans one op on one item: a sub-block word span
+    matches no placed item either, so it is refused the same way."""
+    from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
+    dropped = []
+    assert resolve_vfx(
+        [{"target_block_position": 1, "effect_type": "freeze_frame",
+          "anchor": {"frame": 30}, "anchor_end": {"frame": 60},
+          "rationale": "hold the word"}],
+        _spine((1, "clip_a")), 30.0, dropped=dropped) == []
+    assert dropped[0].reason == "speed_span_subdivides_block"
 
 
 def test_a_freeze_resolves_with_no_params():

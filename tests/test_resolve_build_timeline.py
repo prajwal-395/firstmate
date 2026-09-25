@@ -18,6 +18,10 @@ from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E40
     build_timeline,
     _preflight_check,
     _allocate_audio_tracks,
+    source_frame_span_for_timeline,
+    project_frame_rate_refusal,
+    timeline_frame_rate_refusal,
+    v1_plan_overlap_refusal,
 )
 from library.tools import resolve_bin_layout  # noqa: E402
 
@@ -40,6 +44,7 @@ def mock_resolve():
     resolve.GetProjectManager.return_value = project_manager
     
     project = MagicMock()
+    project.GetTimelineCount.return_value = 0
     project_manager.GetCurrentProject.return_value = project
     project_manager.LoadProject.return_value = project
     
@@ -160,6 +165,119 @@ def sample_manifest():
             }
         }
     }
+
+
+def test_b8_v1_source_length_uses_the_shared_timeline_boundary():
+    """B8's adjacent V1 spans share frame 287 after one rounding pass."""
+    timeline_start = round(7.185 * 30)
+    timeline_end = round(9.583 * 30)
+    next_start = round(9.583 * 30)
+    source_start, source_end, refusal = source_frame_span_for_timeline(
+        0.836, 3.234, timeline_start, timeline_end, 30, 30,
+        "speech_1_seg0")
+
+    assert (timeline_start, timeline_end, next_start) == (216, 287, 287)
+    assert (round(0.836 * 30), round(3.234 * 30)) == (25, 97)
+    assert (source_start, source_end) == (25, 96)
+    assert source_end - source_start == timeline_end - timeline_start
+    assert not refusal
+
+
+def test_v1_source_length_uses_boundaries_for_another_fractional_pair():
+    timeline_start = round(2.0 * 30)
+    timeline_end = round(3.02 * 30)
+    source_start, source_end, refusal = source_frame_span_for_timeline(
+        0.02, 1.04, timeline_start, timeline_end, 30, 30,
+        "fractional_clip")
+
+    assert (timeline_start, timeline_end) == (60, 91)
+    assert (round(0.02 * 30), round(1.04 * 30)) == (1, 31)
+    assert (source_start, source_end) == (1, 32)
+    assert source_end - source_start == timeline_end - timeline_start
+    assert not refusal
+
+
+def test_v1_plan_overlap_refuses_by_both_clip_names():
+    assert v1_plan_overlap_refusal(
+        216, 287, 287, 377, "speech_1_seg0", "speech_2_seg0") == ""
+    refusal = v1_plan_overlap_refusal(
+        286, 300, 216, 287, "speech_1_seg0", "speech_2_seg0")
+
+    assert "speech_1_seg0" in refusal
+    assert "speech_2_seg0" in refusal
+    assert "1 frame" in refusal
+
+
+def test_v1_frame_mapping_refuses_a_named_source_length_mismatch():
+    source_start, source_end, refusal = source_frame_span_for_timeline(
+        0.0, 1.0, 0, 45, 30, 30, "speech_mismatch")
+
+    assert source_start is None
+    assert source_end is None
+    assert "speech_mismatch" in refusal
+    assert "planned timeline span maps to 45 source frames" in refusal
+
+
+def test_resolve_timeline_frame_rate_must_match_the_manifest_grid():
+    assert timeline_frame_rate_refusal(True, "30", 30) == ""
+    refusal = timeline_frame_rate_refusal(True, "24", 30)
+
+    assert "requested 30 fps" in refusal
+    assert "read back '24'" in refusal
+    assert "different frame grid" in refusal
+
+
+def test_resolve_false_frame_rate_write_refuses_even_if_readback_matches():
+    refusal = timeline_frame_rate_refusal(False, "30", 30)
+
+    assert "Resolve refused" in refusal
+
+
+def test_24fps_project_with_existing_timelines_refuses_a_30fps_build():
+    """A timeline-local write is lost when OTIO rebuilds from project FPS."""
+    project = MagicMock()
+    project.GetTimelineCount.return_value = 2
+    project.GetSetting.return_value = "24"
+
+    refusal = project_frame_rate_refusal(project, 30)
+
+    assert "requested 30 fps" in refusal
+    assert "project reads '24'" in refusal
+    assert "2 existing timeline(s)" in refusal
+    assert "OTIO rebuild inherits the project rate" in refusal
+    project.SetSetting.assert_not_called()
+
+
+def test_build_refuses_project_rate_conflict_before_creating_timeline(
+        mock_resolve, sample_manifest):
+    project = mock_resolve["project"]
+    project.GetTimelineCount.return_value = 1
+    project.SetSetting("timelineFrameRate", "24")
+
+    with patch("os.path.exists", return_value=True):
+        result = build_timeline(sample_manifest)
+
+    assert not result["success"]
+    assert "project reads '24'" in result["errors"][0]
+    mock_resolve["media_pool"].CreateEmptyTimeline.assert_not_called()
+
+
+def test_empty_project_sets_and_reads_back_requested_frame_rate():
+    project = MagicMock()
+    project.GetTimelineCount.return_value = 0
+    rate = {"timelineFrameRate": "24"}
+    project.GetSetting.side_effect = lambda key: rate[key]
+
+    def set_setting(key, value):
+        rate[key] = str(value)
+        return True
+
+    project.SetSetting.side_effect = set_setting
+
+    assert project_frame_rate_refusal(project, 30) == ""
+    project.SetSetting.assert_called_once_with("timelineFrameRate", "30")
+    assert rate["timelineFrameRate"] == "30"
+
 
 def test_resolve_connection_failure():
     """Test error handling when Resolve is not connected."""
@@ -659,7 +777,8 @@ def test_a_project_that_will_not_hold_the_shape_fails_the_build(
 
     project.SetSetting.side_effect = _refuse
     project.GetSetting.side_effect = lambda key=None: (
-        {"timelineResolutionWidth": "1920",
+        {"timelineFrameRate": "30",
+         "timelineResolutionWidth": "1920",
          "timelineResolutionHeight": "1080"}.get(str(key), "")
         if key is not None else {})
 

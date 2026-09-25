@@ -296,14 +296,63 @@ def _reel_tail_manifest():
 def _mock_resolve(monkeypatch, played):
     import library.tools.execution.apply_fusion_comps as afc
 
+    class MockFusionTool:
+        def __init__(self, comp, name, reg_id):
+            self.comp = comp
+            self.name = name
+            self.reg_id = reg_id
+
+        def GetAttrs(self):
+            return {"TOOLS_Name": self.name, "TOOLS_RegID": self.reg_id}
+
+        def GetInput(self, name, frame=0):
+            return 1.0
+
+        def Delete(self):
+            self.comp.tools.pop(self.name, None)
+
+    class MockFusionComp:
+        def __init__(self):
+            self.locked = False
+            self.tools = {}
+            for name, reg_id in (
+                    ("MediaIn1", "MediaIn"), ("MediaOut1", "MediaOut"),
+                    ("Transform1", "Transform"), ("Merge1", "Merge")):
+                self.tools[name] = MockFusionTool(self, name, reg_id)
+
+        def Lock(self):
+            self.locked = True
+
+        def Unlock(self):
+            self.locked = False
+
+        def AddTool(self, reg_id):
+            assert self.locked, "Fusion node creation must hold comp.Lock()"
+            name = f"Probe{len(self.tools)}"
+            tool = MockFusionTool(self, name, reg_id)
+            self.tools[name] = tool
+            return tool
+
+        def GetToolList(self):
+            return dict(self.tools)
+
+        def FindTool(self, name):
+            return self.tools.get(name)
+
     class MockClip:
+        def __init__(self):
+            self.comps = {}
+
         def GetStart(self): return 0
         def GetEnd(self): return played
         def GetDuration(self): return played
         def GetMediaPoolItem(self): return MockPool()
-        def GetFusionCompNameList(self): return []
-        def ImportFusionComp(self, path): return True
-        def DeleteFusionCompByName(self, name): pass
+        def GetFusionCompNameList(self): return list(self.comps)
+        def GetFusionCompByName(self, name): return self.comps.get(name)
+        def ImportFusionComp(self, path):
+            self.comps["Imported"] = MockFusionComp()
+            return True
+        def DeleteFusionCompByName(self, name): self.comps.pop(name, None)
 
     class MockPool:
         def GetClipProperty(self, prop):
@@ -331,6 +380,9 @@ def _mock_resolve(monkeypatch, played):
 
     class MockResolve:
         def GetProjectManager(self): return MockPM()
+        def OpenPage(self, page):
+            assert page == "fusion"
+            return True
 
     monkeypatch.setattr(afc.dvr, "scriptapp", lambda x: MockResolve())
     return afc

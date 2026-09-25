@@ -111,6 +111,50 @@ BASIS_HEAD_AFTER_THE_CUTAWAY = (
 BASIS_OUTGOING_ON_V2 = "outgoing {outgoing} on V2: no V1 clip ends here"
 BASIS_NOTHING_FOLLOWS = "outgoing {outgoing} on V1 but it ends the V1 track"
 
+# The bound a cut must sit within to count as a track cut. The same
+# bound `compile_manifest._v1_index_ending_at` matches V1 clip tails
+# within, so plan-time buildability and compile-time placement cannot
+# disagree about where a cut is (finding 16: a native transition "into"
+# V2 b-roll landed on the V1 clip underneath instead of the b-roll
+# edge it was planned into).
+CUT_TOLERANCE_SECONDS = 0.25
+
+
+def v2_pair_at(v2_spans: list, cut_time: float,
+               tolerance: float = CUT_TOLERANCE_SECONDS):
+    """The (outgoing, incoming) V2 pair abutting `cut_time`, or None.
+
+    `v2_spans` is [(timeline_start, timeline_end), ...] - b-roll
+    assignments and interjections, the clips that play on V2. Returns
+    indices into the TIMELINE order (sorted by start), because that is
+    the order the build places and the applicator reads back. A
+    native Resolve transition is a tail on the outgoing item and a
+    head on the incoming one, so a lone V2 clip with no neighbour on
+    the track carries nothing - exactly the V1 rule one track over.
+    """
+    if cut_time is None:
+        return None
+    try:
+        cut = float(cut_time)
+    except (TypeError, ValueError):
+        return None
+    order = sorted(range(len(v2_spans)),
+                   key=lambda i: (float(v2_spans[i][0]), float(v2_spans[i][1])))
+    for pos, i in enumerate(order):
+        try:
+            end = float(v2_spans[i][1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if abs(end - cut) <= tolerance and pos + 1 < len(order):
+            try:
+                nxt_start = float(v2_spans[order[pos + 1]][0])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if abs(nxt_start - cut) <= tolerance:
+                return (pos, pos + 1)
+    return None
+
+
 def block_reaches_v1(block: dict) -> bool:
     """True when this spine block puts a clip on the V1 video track.
 

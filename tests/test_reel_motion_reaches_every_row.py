@@ -141,6 +141,15 @@ class _FakeMediaPoolItem:
 
 
 class _FakeComp:
+    def __init__(self):
+        self.locked = False
+
+    def Lock(self):
+        self.locked = True
+
+    def Unlock(self):
+        self.locked = False
+
     def GetToolList(self):
         class _Tool:
             def __init__(self, regid):
@@ -154,6 +163,7 @@ class _FakeComp:
         return {1: _Tool("MediaIn"), 2: _Tool("Merge"), 3: _Tool("MediaOut")}
 
     def AddTool(self, _name):
+        assert self.locked, "Fusion node creation must hold comp.Lock()"
         class _Dummy:
             def Delete(self):
                 return True

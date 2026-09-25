@@ -134,6 +134,14 @@ DROP_REASONS = {
         "0% step - and Resolve 21.1 draws no curve, only stepped "
         "constant segments (measured 2026-09-24)"
     ),
+    "speed_span_subdivides_block": (
+        "a native speed step spans no single spine block: each step is "
+        "one constant SetSpeed on the one timeline item spanning "
+        "exactly that step, and nothing blades one placed item into "
+        "steps (no split call in the 21.1 stub), so a step subdividing "
+        "one block would fail the whole build on it (finding 35).  "
+        "The entry is refused at plan time instead"
+    ),
     "no_clip_at_that_position": (
         "no clip on V1 or V2 covers the block the entry names, so there "
         "is no picture to draw the effect on.  An effect is a per-clip "

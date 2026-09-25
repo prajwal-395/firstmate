@@ -591,6 +591,51 @@ def resolve_vfx(
                     "timeline_start": round(step_start, 3),
                     "timeline_end": round(step_end, 3),
                 })
+            # Each step is one constant SetSpeed on the ONE timeline
+            # item spanning exactly that step, and nothing blades an
+            # item into steps (no split call in the 21.1 stub) - so a
+            # step subdividing one block subdivides the one item that
+            # block places as, and the build fails the whole run on it
+            # (finding 35: a resolved ramp "inside the b-roll block"
+            # failed 6.01 with "no timeline item spans ... - nothing
+            # was written"). Refuse the ONE entry here, with its
+            # reason: a step must span exactly one spine block.
+            _step_tol = 1.5 / (frame_rate or 30.0) + 1e-6
+            _block_spans = [
+                (b.get("timeline_start"), b.get("timeline_end"))
+                for b in spine_blocks
+                if isinstance(b, dict)
+                and isinstance(b.get("timeline_start"), (int, float))
+                and isinstance(b.get("timeline_end"), (int, float))]
+            _bad_step = None
+            for _step in (steps or [{"timeline_start": span_start,
+                                    "timeline_end": span_end}]):
+                if not any(
+                        abs(_step["timeline_start"] - _s) <= _step_tol
+                        and abs(_step["timeline_end"] - _e) <= _step_tol
+                        for _s, _e in _block_spans):
+                    _bad_step = _step
+                    break
+            if _bad_step is not None:
+                if len(steps) > 1:
+                    _fix = ("plan a single speed for the block (one "
+                            "constant SetSpeed per item is all the build "
+                            "places), or withdraw the ramp - the build "
+                            "cannot blade one placed item into steps")
+                else:
+                    _fix = ("plan the op on a whole spine block, with "
+                            "no anchor narrowing it onto a sub-block span")
+                _drop(
+                    pos, raw_type, "speed_span_subdivides_block",
+                    f"Dropped VFX {raw_type!r} on block {pos!r}: step "
+                    f"{_bad_step['timeline_start']:.3f}-"
+                    f"{_bad_step['timeline_end']:.3f}s spans no single "
+                    f"spine block, and nothing blades one placed item "
+                    f"into steps - the build would fail the run on it. "
+                    f"{_fix}.",
+                )
+                covered_positions.discard(str(pos))
+                continue
             resolved.append({
                 "vfx_id": f"vfx_{len(resolved)+1:03d}",
                 "target_block_position": block["position"],

@@ -54,13 +54,53 @@ def _mock_resolve(monkeypatch, imported):
     """Resolve, reduced to the one call this asks about: what was imported."""
     import library.tools.execution.apply_fusion_comps as afc
 
+    class MockTool:
+        def __init__(self, reg_id):
+            self._reg_id = reg_id
+
+        def GetAttrs(self):
+            return {"TOOLS_RegID": self._reg_id}
+
+        def GetInput(self, name, time=None):
+            return None
+
+        def Delete(self):
+            return True
+
+    class MockComp:
+        def __init__(self):
+            self.locked = False
+
+        def Lock(self):
+            self.locked = True
+
+        def Unlock(self):
+            self.locked = False
+
+        def AddTool(self, name):
+            assert self.locked, "Fusion node creation must hold comp.Lock()"
+            return MockTool(name)
+
+        def GetToolList(self):
+            return {"MediaIn1": MockTool("MediaIn"),
+                    "Transform1": MockTool("Transform"),
+                    "MediaOut1": MockTool("MediaOut")}
+
+        def FindTool(self, name):
+            return None
+
     class MockClip:
         def GetStart(self): return 0
         def GetEnd(self): return 72
         def GetDuration(self): return 72
         def GetMediaPoolItem(self): return MockPool()
-        def GetFusionCompNameList(self): return []
+        # Production ImportFusionComp creates the comp (finding 15).
+        def GetFusionCompNameList(self):
+            return ["Comp1"] if imported else []
         def DeleteFusionCompByName(self, name): pass
+
+        def GetFusionCompByName(self, name):
+            return MockComp() if imported else None
 
         def ImportFusionComp(self, path):
             # Read it here, as Resolve does: what reached the timeline
@@ -95,6 +135,7 @@ def _mock_resolve(monkeypatch, imported):
 
     class MockResolve:
         def GetProjectManager(self): return MockPM()
+        def OpenPage(self, page): return True
 
     monkeypatch.setattr(afc.dvr, "scriptapp", lambda x: MockResolve())
     return afc

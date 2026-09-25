@@ -12,11 +12,17 @@ read-back, never claimed off the write's True alone.
   `GetSpeed` re-reading equal within 1e-6. `speed_ramp` is a SEQUENCE
   of constant steps (Resolve 21.1 carries no speed-curve API), so each
   segment is matched to the ONE timeline item spanning exactly that
-  segment and given its own write plus its own read-back.
+  segment and given its own write plus its own read-back. The linked
+  dialogue audio rides the same write (finding 17): every dialogue
+  item sharing the video item's record span is retimed to the same
+  Percentage and judged by its own re-read, and an audio refusal
+  fails the op (restoring the video item) rather than shipping the
+  pair split across two speeds.
 - Freeze: `SetSpeed` 0.0, judged by `GetSpeed` re-reading 0.0. A freeze
   after a retime refuses exactly as the verb does (measured 2026-09-24:
   the write answers True while `GetSpeed` re-reads 100.0).
-- Transitions: `TimelineItem.AddTransition` at the V1 cut, judged by
+- Transitions: `TimelineItem.AddTransition` at the cut on the track
+  of the clip the transition was planned into (finding 16), judged by
   the returned transition item whose span reads. An empty answer
   refuses naming the type and category tried, with the handles hint.
 
@@ -88,7 +94,117 @@ def _read_speed_percent(item):
         return None, f"GetSpeed re-reads {opts!r}"
 
 
-def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0) -> dict:
+def retime_linked_audio(video_item, video_name: str, percent: float,
+                         fps: float, audio_items: list,
+                         retimed_ids: set) -> tuple:
+    """SetSpeed the dialogue items sharing one video item's record span.
+
+    Finding 17: `SetSpeed` on a talking shot left its audio at full
+    speed - picture playing source 25-61 in 72 record frames while
+    audio1 still played 25-97 - so a retimed talking shot lost sync
+    while the build reported success. Every dialogue item playing the
+    video item's own record span rides the same write, each judged by
+    its own `GetSpeed` re-read.
+
+    Args:
+        video_item: the just-retimed video item (its CURRENT record
+            span selects the audio - plan ops never ripple, so the
+            span the op matched is the span still playing).
+        video_name: the video item's name, for failure messages.
+        percent: the Percentage just written on the video item.
+        fps: the timeline rate.
+        audio_items: the dialogue-row audio items to select from -
+            the caller scopes these (the build passes its speech rows
+            only, never the bed or SFX rows), so a span match here is
+            linkage, not coincidence.
+        retimed_ids: the build's already-retimed set, shared with the
+            video path - a freeze on an already-retimed item refuses
+            exactly as the video freeze does.
+
+    Returns (applied, failed): `applied` is one row per judged audio
+    write; `failed` is None, or the one failure naming the audio item
+    that refused. On failure the caller restores the video item - a
+    half-retimed (picture fast, sound slow) pair must never ship as
+    an applied op.
+    """
+    try:
+        span = _item_span_seconds(video_item, fps)
+    except Exception as exc:
+        return [], {"item": "?",
+                    "what": f"the retimed video item {video_name!r} "
+                            f"would not read its span ({exc}) - its "
+                            f"linked audio cannot be found, refusing "
+                            f"to claim the retime",
+                    "fix": "verify the item by hand"}
+    try:
+        namespaced = [(a, _item_span_seconds(a, fps)) for a in audio_items]
+    except Exception:
+        namespaced = []
+    cands = [a for a, s in namespaced if _spans_match(s, span, fps)]
+    applied = []
+    for audio in cands:
+        try:
+            name = audio.GetName()
+        except Exception:
+            name = "?"
+        is_freeze = abs(percent) <= 1e-9
+        if is_freeze:
+            if id(audio) in retimed_ids:
+                return applied, {
+                    "item": name,
+                    "what": f"freeze on linked audio {name!r} refuses: "
+                            f"it was already retimed by this build",
+                    "fix": "plan the freeze on an item this build has "
+                           "not retimed"}
+            current, reason = _read_speed_percent(audio)
+            if current is None:
+                return applied, {
+                    "item": name,
+                    "what": f"freeze on linked audio {name!r} refuses: "
+                            f"{reason}",
+                    "fix": "verify the item by hand"}
+            if abs(current - 100.0) > SPEED_TOLERANCE:
+                return applied, {
+                    "item": name,
+                    "what": f"freeze on linked audio {name!r} refuses: "
+                            f"it already plays at {current:g}%",
+                    "fix": "plan the freeze on an item at 100%"}
+        try:
+            wrote = bool(audio.SetSpeed({"Percentage": percent,
+                                         "RippleTimeline": False}))
+        except Exception as exc:
+            return applied, {
+                "item": name,
+                "what": f"SetSpeed({percent:g}%) on linked audio "
+                        f"{name!r} raised ({exc}) - the video item "
+                        f"{video_name!r} is already retimed, verify "
+                        f"by hand",
+                "fix": "restore the video item to its pre-op speed "
+                       "and verify the pair by hand"}
+        if not wrote:
+            return applied, {
+                "item": name,
+                "what": f"SetSpeed({percent:g}%) answered False on "
+                        f"linked audio {name!r} - nothing was claimed "
+                        f"for it",
+                "fix": "verify the pair by hand"}
+        back, reason = _read_speed_percent(audio)
+        if back is None or abs(back - percent) > SPEED_TOLERANCE:
+            detail = reason or f"re-reads {back:g}"
+            return applied, {
+                "item": name,
+                "what": f"SetSpeed({percent:g}%) on linked audio "
+                        f"{name!r} {detail} - refusing to claim it",
+                "fix": "verify the pair by hand"}
+        if not is_freeze:
+            retimed_ids.add(id(audio))
+        applied.append({"item": name, "percent": percent,
+                        "verified": "GetSpeed re-reads equal"})
+    return applied, None
+
+
+def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0,
+                            dialogue_tracks: list = None) -> dict:
     """Apply each native speed op; judge each by `GetSpeed`.
 
     Args:
@@ -98,6 +214,11 @@ def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0) -> dict:
             `op_id`, `effect_type` (`speed_ramp` with `segments`, or
             `freeze_frame`), and its timeline span.
         fps: the timeline rate, for frame/second conversion.
+        dialogue_tracks: the Resolve audio track indices carrying
+            dialogue (the build's speech rows) - linked audio is
+            selected from these rows only, never the bed or SFX rows.
+            None reads no audio: the video retime is still judged,
+            but no linked-audio claim is made.
 
     Returns a report with `applied` (one row per judged write) and
     `failed` (one row per refusal or failed read-back, each naming the
@@ -110,6 +231,13 @@ def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0) -> dict:
         try:
             items.extend(timeline.GetItemListInTrack("video", track_index)
                          or [])
+        except Exception:
+            continue
+    dialogue_items = []
+    for track_index in dialogue_tracks or []:
+        try:
+            dialogue_items.extend(
+                timeline.GetItemListInTrack("audio", track_index) or [])
         except Exception:
             continue
     report: dict = {"applied": [], "failed": []}
@@ -176,6 +304,12 @@ def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0) -> dict:
                 name = item.GetName()
             except Exception:
                 name = "?"
+            # The pre-op speed, read BEFORE the write: an audio
+            # refusal below puts the video item back to this rather
+            # than leave the pair split across two speeds (finding
+            # 17). None where it will not read - then no restore is
+            # attempted and the failure says the pair needs a hand.
+            pre, _ = _read_speed_percent(item)
             is_freeze = abs(percent) <= 1e-9
             if is_freeze:
                 if id(item) in retimed_ids:
@@ -233,30 +367,64 @@ def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0) -> dict:
                 continue
             if not is_freeze:
                 retimed_ids.add(id(item))
+            # The linked audio rides the same write (finding 17): a
+            # talking shot retimed without its dialogue loses sync.
+            audio_applied, audio_failed = retime_linked_audio(
+                item, name, percent, fps, dialogue_items, retimed_ids)
+            if audio_failed is not None:
+                restored = ""
+                if pre is not None:
+                    try:
+                        if bool(item.SetSpeed(
+                                {"Percentage": pre,
+                                 "RippleTimeline": False})):
+                            back_pre, _ = _read_speed_percent(item)
+                            if (back_pre is not None and abs(back_pre - pre)
+                                    <= SPEED_TOLERANCE):
+                                restored = (f" the video item was put "
+                                            f"back to {pre:g}%")
+                    except Exception:
+                        pass
+                _fail(op_id,
+                      f"SetSpeed({percent:g}%) on {name!r} verified, but "
+                      f"its linked audio refused - "
+                      f"{audio_failed['what']}."
+                      f"{restored or ' the video item could not be put back - verify the pair by hand'}",
+                      audio_failed["fix"])
+                continue
             report["applied"].append({
                 "op_id": op_id,
                 "item": name,
                 "percent": percent,
                 "span": [round(span[0], 3), round(span[1], 3)],
                 "verified": "GetSpeed re-reads equal",
+                "audio": (audio_applied if audio_applied
+                          else "no linked dialogue audio on rows "
+                               f"{list(dialogue_tracks or [])} - video only"),
             })
     return report
 
 
 def apply_native_transitions(timeline, v1_items: list, ops: list,
-                             fps: float = 30.0) -> dict:
-    """Place each native transition at its V1 cut; judge each by return.
+                              fps: float = 30.0, v2_items: list = None
+                              ) -> dict:
+    """Place each native transition at its cut; judge each by return.
 
     Args:
         timeline: the live Resolve timeline (unused except for future
             span checks; the writes go through the items).
         v1_items: the V1 timeline items in timeline order - `after_clip`
-            indexes into this list.
+            indexes into this list for `track: "v1"` ops.
         ops: `native_transitions` rows from the manifest - each carrying
             `transition_id`, `resolve_name`, `category`, `after_clip`
-            (the OUTGOING clip's index) and `duration_frames`.
+            (the OUTGOING clip's index on its track), `track`
+            (`"v1"` or `"v2"` - the track of the clip the transition
+            was planned into, finding 16) and `duration_frames`.
         fps: the timeline rate (recorded, not converted - durations ride
             in frames as Resolve takes them).
+        v2_items: the V2 timeline items in timeline order, for
+            `track: "v2"` ops. None where the timeline carries no
+            b-roll row - a V2 op then refuses by name.
 
     Returns a report with `applied` and `failed`, shaped like
     `apply_native_speed_ops`'s. A transition whose span will not read,
@@ -275,14 +443,25 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
         category = op.get("category", "simple")
         after_clip = op.get("after_clip")
         duration = op.get("duration_frames")
+        track = op.get("track", "v1")
+        track_items = v2_items if track == "v2" else v1_items
+        track_name = "V2" if track == "v2" else "V1"
+        if track == "v2" and track_items is None:
+            _fail(trans_id,
+                  f"planned on the b-roll track but this timeline "
+                  f"carries no V2 items - nothing was written",
+                  "re-plan the transition onto a V1 cut, or place "
+                  "b-roll first")
+            continue
         if (not isinstance(after_clip, int) or isinstance(after_clip, bool)
                 or after_clip < 0
-                or after_clip + 1 >= len(v1_items)):
+                or after_clip + 1 >= len(track_items or [])):
             _fail(trans_id,
-                  f"after_clip {after_clip!r} is no V1 cut "
-                  f"({len(v1_items)} item(s)) - nothing was written",
+                  f"after_clip {after_clip!r} is no {track_name} cut "
+                  f"({len(track_items or [])} item(s)) - nothing was "
+                  f"written",
                   "re-plan the transition onto a cut with an outgoing "
-                  "and an incoming clip")
+                  "and an incoming clip on the same track")
             continue
         if (not isinstance(duration, (int, float))
                 or isinstance(duration, bool) or duration < 1):
@@ -292,7 +471,7 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
                   "re-plan the transition with a duration_feel so the "
                   "build knows how long to hold it")
             continue
-        incoming = v1_items[after_clip + 1]
+        incoming = track_items[after_clip + 1]
         try:
             incoming_name = incoming.GetName()
         except Exception:
@@ -334,6 +513,7 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
             "transition_id": trans_id,
             "type": want_type,
             "category": category,
+            "track": track_name,
             "transition": tr_span["name"],
             "duration": tr_span["duration"],
             "verified": "returned a transition item whose span reads",

@@ -97,7 +97,7 @@ from library.tools.music_bed import resolve_bed
 from tools.bookends import block_bookend
 from library.tools import cohesion_scope
 from library.tools.music_behavior import resolve_music_behavior
-from library.tools.transition_carriers import block_reaches_v1
+from library.tools.transition_carriers import block_reaches_v1, v2_pair_at
 from library.tools.vfx_plan_basis import (
     DroppedEntry, amend_with_drops, basis_summary,
 )
@@ -628,6 +628,25 @@ def _assert_subtitle_overlay_matches_plan(manifest: dict) -> None:
         segments_by_block.setdefault(seg["block_position"], []).append(seg)
 
     problems = []
+    # Finding 21 first: a tight segment with no tight_box placement
+    # ships centred at Tilt 0, inside the picture - the one shape in
+    # the placement chain that lands mutely. Refuse it HERE, naming
+    # the segment, rather than let the build skip it (or worse, an
+    # older build centre it): a missing placement on a declared-tight
+    # segment is a render-side programming error, and re-running the
+    # build cannot fix what the render did not record. Full-canvas
+    # segments draw their text natively and need no placement; a
+    # segment too old to declare a geometry is too old to judge, and
+    # the build refuses it there if it must. Every segment is judged,
+    # not just the ones in captioned blocks.
+    for seg in segments:
+        if (seg.get("geometry") == "tight"
+                and not (seg.get("tight_box") or {}).get("placement")):
+            problems.append(
+                f"segment {seg.get('segment_id', '?')} declares tight "
+                f"geometry with no tight_box placement - re-render "
+                f"step_4_05_render_subtitles"
+            )
     for position, (lo, hi) in sorted(by_block.items(), key=lambda kv: str(kv[0])):
         segs = segments_by_block.get(position, [])
         if not segs:
@@ -943,7 +962,7 @@ def _v1_index_ending_at(v1_clips: list, cut_time, tolerance: float = 0.25):
 
 
 def _downgrade_misplaced_transition(t: dict, transition_id: str,
-                                    reason: str) -> None:
+                                     reason: str) -> None:
     """Ship the hard cut the boundary already is, in place.
 
     Finding 32: one entry dropped with its reason, never a failed run.
@@ -951,14 +970,33 @@ def _downgrade_misplaced_transition(t: dict, transition_id: str,
     with it - it was the plan's wrong claim about which cut this sits
     on, and leaving it on a hard-cut row would fail downstream
     validation against a cut that is not one. The reason, which names
-    the cut time, lives in `transitions_downgraded`.
+    the cut time,     lives in `transitions_downgraded` AND on the row
+    itself (`requested_type` / `downgrade_reason`): the manifest's
+    per-item `transitions` list is the user-facing record, and a hard
+    cut there with no trace of what was asked reads as planned.
     """
+    requested = t.get("requested_type") or t.get("transition_type")
     t["transition_type"] = "hard_cut"
     t["duration_frames"] = 0
     for key in ("after_clip", "from_block", "to_block"):
         t.pop(key, None)
+    _stamp_downgrade(t, requested, reason)
     print(f"  Transition {transition_id} misplaced ({reason}), "
           f"shipping a hard cut", file=sys.stderr)
+
+
+def _stamp_downgrade(t: dict, requested_type, reason: str) -> None:
+    """Stamp what was asked and why it shipped a hard cut, on the row.
+
+    Every hard-cut fallback - misplaced, no stated hold, withdrawn
+    type - carries the same two keys, so any per-item reader of the
+    manifest's `transitions` list surfaces the miss, not only
+    `transitions_downgraded` on disk.
+    """
+    if t.get("requested_type") in (None, "", "hard_cut"):
+        t["requested_type"] = requested_type or t.get("transition_type",
+                                                      "hard_cut")
+    t["downgrade_reason"] = reason
 
 
 def _resolve_v2_overlaps(v2_clips: list, fps: float, kinds: dict) -> list:
@@ -2099,6 +2137,15 @@ def compile_manifest(out_dir: str) -> dict:
         effect = per_clip_effects.setdefault(label, {})
         effect["_preset"] = v.get("preset", v.get("fusion_preset")) or v["effect_type"]
         effect.update(v.get("params", {}))
+        # The anchored span, in absolute timeline seconds: a punch on
+        # one word resolves to a sub-block window, and the comp keys
+        # its keyframes to it rather than to the whole item (finding
+        # 36). The comp treats a window covering the whole played
+        # range as no window, so unanchored entries behave exactly as
+        # before. Absolute (not clip-relative) so later re-cuts of the
+        # clip list cannot stale it.
+        effect["effect_window"] = [v.get("timeline_start"),
+                                   v.get("timeline_end")]
 
     # ── The designed film look (color_grade node_4) ──
     # Glow, grain and vignette are Fusion nodes, so the only route to the
@@ -2403,19 +2450,25 @@ def compile_manifest(out_dir: str) -> dict:
         if native_type is not None:
             # A drawn-by-Resolve transition. It still needs a hold
             # nobody may invent (same honesty rule as the Fusion path),
-            # a V1 cut to sit on, and an incoming clip.
+            # a cut to sit on, and an incoming clip - on the track of
+            # the clip it was planned into (finding 16: a transition
+            # "into" V2 b-roll landed where the V1 clip underneath
+            # ended, not at the b-roll edge). V1 first, which keeps
+            # every existing placement exactly where it was; then the
+            # V2 pair abutting the cut.
             dur = t.get("duration_frames")
             if (not isinstance(dur, (int, float)) or isinstance(dur, bool)
                     or dur <= 0):
+                _no_hold_reason = (
+                    "the plan states no duration_feel and no selected "
+                    "brand template states a single transition "
+                    "duration, so nothing has said how long to hold it"
+                )
                 transitions_downgraded.append({
                     "transition_id": t.get("transition_id", "?"),
                     "requested_type": raw_type,
                     "shipped_type": "hard_cut",
-                    "reason": (
-                        "the plan states no duration_feel and no selected "
-                        "brand template states a single transition "
-                        "duration, so nothing has said how long to hold it"
-                    ),
+                    "reason": _no_hold_reason,
                 })
                 print(
                     f"  Transition {t.get('transition_id', '?')} requested "
@@ -2425,33 +2478,49 @@ def compile_manifest(out_dir: str) -> dict:
                 )
                 t["transition_type"] = "hard_cut"
                 t["duration_frames"] = 0
+                _stamp_downgrade(t, raw_type, _no_hold_reason)
                 continue
             cut_time = t.get("cut_point_timeline",
                              t.get("cut_point_original"))
             after_clip = _v1_index_ending_at(v1_clips, cut_time)
-            if after_clip is None:
+            track = "v1"
+            if (after_clip is None
+                    or after_clip + 1 >= len(v1_clips)):
+                # No V1 cut here - or the last V1 clip, which has no
+                # incoming half. Before downgrading, ask V2: a cut the
+                # b-roll plan brackets carries a native transition on
+                # the b-roll's own track, at the planned edge.
+                v2_pair = v2_pair_at(
+                    [(c.get("timeline_in"), c.get("timeline_out"))
+                     for c in v2_clips], cut_time)
+                if v2_pair is not None:
+                    after_clip = v2_pair[0]
+                    track = "v2"
+            if track == "v1" and after_clip is None:
                 # Finding 32: a transition 4.02 accepts can sit where no
                 # V1 clip ends (a cut out of b-roll on V2). The boundary
                 # is still real, so the one entry is DROPPED with its
                 # reason - the hard cut the boundary already is, recorded
                 # in `transitions_downgraded` - and the run builds. What
                 # must never happen is failing the whole run over one
-                # entry (AGENTS.md 10.5).
+                # entry (AGENTS.md 10.5). The reason names both tracks
+                # tried: V1 first, then the V2 pair.
+                _no_cut_reason = (
+                    f"no V1 clip ends at {cut_time}s and no V2 pair "
+                    f"abuts it - the cut the plan named is not a cut "
+                    f"on either track, so the transition has no "
+                    f"outgoing clip to sit on"
+                )
                 transitions_downgraded.append({
                     "transition_id": t.get("transition_id", "?"),
                     "requested_type": raw_type,
                     "shipped_type": "hard_cut",
-                    "reason": (
-                        f"no V1 clip ends at {cut_time}s - the cut the "
-                        f"plan named is not a V1 cut, so the transition "
-                        f"has no outgoing clip to sit on"
-                    ),
+                    "reason": _no_cut_reason,
                 })
                 _downgrade_misplaced_transition(
-                    t, t.get("transition_id", "?"),
-                    f"no V1 clip ends at {cut_time}s")
+                    t, t.get("transition_id", "?"), _no_cut_reason)
                 continue
-            if after_clip + 1 >= len(v1_clips):
+            if track == "v1" and after_clip + 1 >= len(v1_clips):
                 transitions_downgraded.append({
                     "transition_id": t.get("transition_id", "?"),
                     "requested_type": raw_type,
@@ -2476,6 +2545,7 @@ def compile_manifest(out_dir: str) -> dict:
                 "resolve_name": resolve_transition_name(native_type),
                 "category": category,
                 "after_clip": after_clip,
+                "track": track,
                 "duration_frames": t["duration_frames"],
                 "cut_point_timeline": cut_time,
                 "requested_type": t.get("requested_type", raw_type),
@@ -2514,6 +2584,7 @@ def compile_manifest(out_dir: str) -> dict:
             )
             t["transition_type"] = "hard_cut"
             t["duration_frames"] = 0
+            _stamp_downgrade(t, raw_type, reason)
             continue
         if is_cut(comp_type):
             continue
@@ -2555,6 +2626,11 @@ def compile_manifest(out_dir: str) -> dict:
             )
             t["transition_type"] = "hard_cut"
             t["duration_frames"] = 0
+            _stamp_downgrade(t, raw_type,
+                             "the plan states no duration_feel and no "
+                             "selected brand template states a single "
+                             "transition duration, so nothing has said "
+                             "how long to hold it")
             continue
 
         cut_time = t.get("cut_point_timeline", t.get("cut_point_original"))

@@ -203,12 +203,54 @@ def _drive_comp_pass(monkeypatch, tmp_path, after_import):
 
     state = {"windows": [None], "pending": list(after_import), "imports": []}
 
+    class MockTool:
+        def __init__(self, reg_id):
+            self._reg_id = reg_id
+
+        def GetAttrs(self):
+            return {"TOOLS_RegID": self._reg_id}
+
+        def GetInput(self, name, time=None):
+            return None
+
+        def Delete(self):
+            return True
+
+    class MockComp:
+        def __init__(self):
+            self.locked = False
+
+        def Lock(self):
+            self.locked = True
+
+        def Unlock(self):
+            self.locked = False
+
+        def AddTool(self, name):
+            assert self.locked, "Fusion node creation must hold comp.Lock()"
+            return MockTool(name)
+
+        def Delete(self):
+            return True
+
+        def GetToolList(self):
+            return {"MediaIn1": MockTool("MediaIn"),
+                    "Transform1": MockTool("Transform"),
+                    "MediaOut1": MockTool("MediaOut")}
+
+        def FindTool(self, name):
+            return None
+
     class MockClip:
         def GetStart(self): return 0
         def GetEnd(self): return 72
         def GetDuration(self): return 72
         def GetMediaPoolItem(self): return MockPool()
-        def GetFusionCompNameList(self): return []
+        # Production ImportFusionComp creates the comp: the name list
+        # reads back what the import put there (finding 15 - an
+        # import that leaves no comp behind fails the pass by name).
+        def GetFusionCompNameList(self):
+            return ["Comp1"] if state["imports"] else []
         def DeleteFusionCompByName(self, name): pass
         def GetFusionCompCount(self): return 1
 
@@ -216,7 +258,7 @@ def _drive_comp_pass(monkeypatch, tmp_path, after_import):
             return _Comp(state["windows"][0]) if state["windows"][0] else None
 
         def GetFusionCompByName(self, name):
-            return None
+            return MockComp() if state["imports"] else None
 
         def ImportFusionComp(self, path):
             state["imports"].append(pathlib.Path(path).name)
@@ -271,5 +313,4 @@ def test_the_comp_pass_conforms_a_drifted_window_it_just_imported(
         "the pass imported once and never read the window back - a comp "
         "whose MediaIn misses the frames its item plays fails the whole "
         "render job")
-
 

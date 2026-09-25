@@ -134,6 +134,73 @@ def _framing_spans(assembly_manifest: dict) -> list:
     return spans
 
 
+def _grade_spans(assembly_manifest: dict):
+    """One `render_qa.GradeSpan` per graded picture clip.
+
+    Finding 28: the build judges the write (`cdl_readback` off
+    `GetCDL`); 6.02 judges the exported pixels. Each track clip whose
+    source carries a per-clip CDL becomes a span bounded by its
+    timeline in/out, with the source file as the ungraded reference
+    and the four specified terms as the demand. V1 first and V2
+    second, the same order the picture reads in. A clip with an empty
+    CDL (identity) still becomes a span: it demands nothing and reads
+    as info, which keeps "graded nowhere" distinct from "judged
+    nowhere". Returns None when the manifest names no color grade at
+    all - ungraded by declaration, not by measurement.
+    """
+    from library.tools.render_qa import GradeSpan
+
+    color_grade = assembly_manifest.get("color_grade")
+    if color_grade is None:
+        return None
+    import os
+    lookup = {}
+    for adj in color_grade.get("per_clip_adjustments", []) or []:
+        src = adj.get("source_file", "")
+        if src:
+            lookup[os.path.basename(src).lower()] = adj.get("cdl_values",
+                                                            {}) or {}
+    spans = []
+    project_fps = (assembly_manifest.get("project", {})
+                   .get("frame_rate", 30.0)) or 30.0
+    for track in ("V1", "V2"):
+        for clip in assembly_manifest.get("tracks", {}).get(
+                track, {}).get("clips", []):
+            src = clip.get("source_file", "")
+            if not src:
+                continue
+            cdl = lookup.get(os.path.basename(src).lower())
+            if cdl is None:
+                continue
+            # Seconds first; frames (over the project rate) only where
+            # the seconds were never written - mixing the two without
+            # converting judges a span hundreds of seconds long.
+            try:
+                if (clip.get("timeline_in") is not None
+                        and clip.get("timeline_out") is not None):
+                    start = float(clip["timeline_in"])
+                    end = float(clip["timeline_out"])
+                else:
+                    start = float(clip["timeline_in_frame"]) / project_fps
+                    end = float(clip["timeline_out_frame"]) / project_fps
+                if (clip.get("source_in") is not None
+                        and clip.get("source_out") is not None):
+                    source_start = float(clip["source_in"])
+                    source_end = float(clip["source_out"])
+                else:
+                    source_start = source_end = None
+            except (TypeError, ValueError, KeyError, ZeroDivisionError):
+                continue
+            if end <= start:
+                continue
+            spans.append(GradeSpan(
+                label=clip.get("label") or os.path.basename(src),
+                timeline_start=start, timeline_end=end,
+                source_path=src, cdl=dict(cdl),
+                source_start=source_start, source_end=source_end))
+    return spans
+
+
 # The manifest keys carrying a rendered overlay, and the fps each track
 # declares its `source_in_frame` in. Kept in step with
 # `step_5_04_compile_manifest.OVERLAY_TRACKS`, which is the enumeration
@@ -507,6 +574,10 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             # overlays really touched rather than the strips a centred
             # caption was assumed to leave alone.
             overlay_segments=_overlay_segments(assembly_manifest),
+            # The per-clip grades, so P11 judges each graded span's
+            # exported pixels against the source they were cut from
+            # (finding 28 - SetCDL's return is not the verdict).
+            grade_spans=_grade_spans(assembly_manifest),
         )
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)
@@ -551,6 +622,11 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     # lands here so a failing caption reads in the verdict instead of
     # passing silently beside it.
     subtitle_check = {"pass": True, "issues": []}
+    # Reporting-only, the same shape: every grade metric lands here so
+    # a span whose exported pixels contradict its grade (finding 28)
+    # reads in the verdict instead of passing silently beside it.
+    # Promoting it to the gate is a captain's call, not a change here.
+    grade_check = {"pass": True, "issues": []}
     
     qa_report = []
     
@@ -619,6 +695,14 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             if not r.passed:
                 subtitle_check["pass"] = False
                 subtitle_check["issues"].append(r.detail)
+        elif r.metric == "grade_delivery":
+            # P11 REPORTED, not gated, the same shape: a span whose
+            # pixels contradict its grade is visible in
+            # checks/all_issues/qa_report without moving status or
+            # distribution_ready.
+            if not r.passed:
+                grade_check["pass"] = False
+                grade_check["issues"].append(r.detail)
         elif r.metric in ("render_qa", "subtitle_qa"):
             # The toolkit itself failed - fail the technical check so the
             # verdict and distribution_ready reflect an unvalidated render
@@ -635,16 +719,17 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     checks["black_frames"] = black_frame_check
     checks["audio_levels"] = audio_check
     checks["subtitles"] = subtitle_check
+    checks["grades"] = grade_check
     checks["transitions_at_seams"] = geometry["transitions_at_seams"]
     checks["v1_tiling"] = geometry["v1_tiling"]
 
     # ── Aggregate result ──
-    # `subtitles` is deliberately outside the gate: its issues reach the
-    # verdict through checks/all_issues/qa_report, but status and
-    # distribution_ready move only on the checks above. The set below is
-    # exactly the keys the old `all(checks.values())` read, plus the two
-    # plan-geometry checks this step now holds so the prompt no longer
-    # has to.
+    # `subtitles` and `grades` are deliberately outside the gate: their
+    # issues reach the verdict through checks/all_issues/qa_report, but
+    # status and distribution_ready move only on the checks above. The
+    # set below is exactly the keys the old `all(checks.values())`
+    # read, plus the two plan-geometry checks this step now holds so
+    # the prompt no longer has to.
     gating = ("file_exists", "technical", "framing", "duration",
               "black_frames", "audio_levels", "transitions_at_seams",
               "v1_tiling")

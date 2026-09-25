@@ -77,6 +77,7 @@ class FakeTimeline:
     def __init__(self):
         self.tracks = {("video", 1): [], ("audio", 1): []}
         self.names = {("video", 1): "Video 1", ("audio", 1): "Audio 1"}
+        self.settings = {}
         self.link_calls = []
         self.deleted_items = []
         self.deleted_tracks = []
@@ -118,8 +119,10 @@ class FakeTimeline:
         return True
     def GetUniqueId(self): return "fake-timeline"
     def GetName(self): return "Fake"
-    def SetSetting(self, k, v): return True
-    def GetSetting(self, k): return ""
+    def SetSetting(self, k, v):
+        self.settings[k] = str(v)
+        return True
+    def GetSetting(self, k): return self.settings.get(k, "")
 
 
 class FakePoolItem:
@@ -312,6 +315,7 @@ def test_caption_inside_speech_joins_one_three_group(fake_world, monkeypatch):
     manifest = _two_angle_manifest()
     manifest["subtitle_overlay"] = {"segments": [{
         "overlay_path": "/media/cap_akshita.mov",
+        "geometry": "full",
         "timeline_start": 0.5, "timeline_end": 1.5,
         "total_frames": 24,
     }]}

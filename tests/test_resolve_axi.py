@@ -75,6 +75,7 @@ from library.tools.resolve_axi import (
     cmd_timeline_get,
     cmd_timeline_list,
     table,
+    _item_span,
 )
 
 
@@ -1105,6 +1106,29 @@ def test_run_unsafe_writes_under_exclusive_lease(patched, capsys):
     assert "cursor_moved: no" in out
     assert patched["timeline"].added == [
         (20, "Blue", "note", "new words", 1, "")]
+
+
+def test_run_after_report_survives_a_mid_run_project_switch(
+        patched, monkeypatch, capsys):
+    """A script that switches projects (setup/teardown scripts
+    legitimately do) leaves the held timeline proxy stale - GetName
+    reads None. The after-report must read the cursor fresh rather
+    than crash with TypeError and lose the script's own result
+    (measured 2026-09-25: the proof setup switched to its scratch
+    project and cmd_run died on the stale proxy)."""
+    import library.tools.resolve_axi as axi
+
+    class _Stale:
+        def GetName(self):
+            return None
+
+    monkeypatch.setattr(axi, "_target_timeline",
+                        lambda project, name: (_Stale(), True, ""))
+    assert cmd_run(_run_ns(
+        script="result = {'switched': True}")) == 0
+    out = capsys.readouterr().out
+    assert "switched" in out
+    assert "Reel 29 - salvage" in out
 
 
 # ── pool: the ingest/catalog read ────────────────────────────────
@@ -2586,3 +2610,57 @@ def test_sense_switch_refuses_a_false_answer(edit_patched, capsys):
         project="", timeline="Reel 29 - salvage", track="video1",
         index=0, min_edit=1.0, apply=True)) == 1
     assert "answered False" in capsys.readouterr().out
+
+
+# ── Finding 6: spans off Resolve proxies ─────────────────────────────
+
+class _ProxyItem(_Item):
+    """A Resolve scripting proxy (finding 6, measured 2026-09-24).
+
+    The instance shadows `__getattribute__` with None, so the
+    explicit `item.__getattribute__('GetName')` spelling answers
+    None - calling it raises `TypeError: 'NoneType' object is not
+    callable` - while `getattr` serves the bound method."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__dict__["__getattribute__"] = None
+
+
+def test_proxy_item_shadows_getattribute():
+    """The measured proxy shape: the explicit dunder spelling fails
+    exactly the way the scout's probe saw it fail."""
+    item = _ProxyItem("clip_017", 0, 72, uid="uid-clip_017")
+    assert item.__getattribute__ is None
+    with __import__("pytest").raises(TypeError):
+        item.__getattribute__("GetName")()
+    assert getattr(item, "GetName")() == "clip_017"
+
+
+def test_item_span_reads_every_field_off_a_proxy():
+    """Finding 6: `_item_span` through `getattr` reads name, spans
+    and uid off a Resolve proxy. The old `__getattribute__`
+    spelling read every field blank, so `edit trim` and `edit move`
+    refused ("would not report its spans") and every verb printed
+    `name: ''`."""
+    item = _ProxyItem("clip_017", 100, 172, uid="uid-clip_017")
+    span = _item_span(item)
+    assert span["name"] == "clip_017"
+    assert span["record_in"] == 100
+    assert span["record_out"] == 172
+    assert span["uid"] == "uid-clip_017"
+    assert span["source_in"] != "" and span["source_out"] != ""
+
+
+def test_delete_dry_run_names_the_clip_it_will_touch(edit_patched,
+                                                     capsys):
+    """Finding 6, second half: `edit delete` by index names the clip
+    in its dry run, so removing index 2 with transitions interleaved
+    in the listing says which clip `--apply` will touch."""
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    items[0].__dict__["__getattribute__"] = None
+    assert cmd_edit_delete(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, ripple=False, apply=False)) == 0
+    out = capsys.readouterr().out
+    assert items[0].GetName() in out
