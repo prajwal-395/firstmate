@@ -30,6 +30,39 @@ from library.tools.project_layout import Area, ProjectLayout
 CLIP_ANALYSIS_TIMEOUT_S = int(os.environ.get("PIPELINE_CLIP_ANALYSIS_TIMEOUT_S", 3600))
 
 
+def _run_clip_vision(cmd):
+    """Run one per-clip vision child without letting it write our stdout.
+
+    The step's contract with the runner is JSON on stdout, logs on
+    stderr (`library/tools/step_stdout.py`), and the final `json.dump`
+    below is parsed whole. The vision child prints progress chatter to
+    its own stdout ("Model loaded/bound in ...", window lines); run
+    uncaptured, that chatter inherits this process's stdout and is
+    prepended to the result, so the runner rejects the whole step as
+    "Step produced invalid JSON" AFTER every clip was analysed
+    (measured 2026-09-24 on the rung-0a proof run: 11 profiles
+    collected, step failed, retry burned the same wall twice). Capture
+    both streams and forward them to stderr, where the runner streams
+    them as the step's log. `check`/`timeout` semantics are unchanged:
+    a nonzero exit still raises `CalledProcessError`, an overrun still
+    raises `TimeoutExpired`, and the caller skips the clip either way.
+    """
+    completed = subprocess.run(
+        cmd,
+        check=True,
+        timeout=CLIP_ANALYSIS_TIMEOUT_S,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if completed.stdout:
+        print(completed.stdout, file=sys.stderr, end="")
+    if completed.stderr:
+        print(completed.stderr, file=sys.stderr, end="")
+    return completed
+
+
 # Profiles are keyed by the media file's STEM, and that is deliberate.
 #
 # `vision_pipeline_v3` writes `clip_profile_<stem>_v3.json` and skips a
@@ -178,11 +211,7 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
                        '--output-dir', analysis_dir]
                 if project_folder:
                     cmd += ['--project-folder', project_folder]
-                subprocess.run(
-                    cmd,
-                    check=True,
-                    timeout=CLIP_ANALYSIS_TIMEOUT_S,
-                )
+                _run_clip_vision(cmd)
             except subprocess.TimeoutExpired:
                 print(f"  ⚠ Timeout on {os.path.basename(clip_path)}, skipping", file=sys.stderr)
             except subprocess.CalledProcessError as e:

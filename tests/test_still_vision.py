@@ -277,6 +277,44 @@ def test_analyzer_stills_route_through_host_without_a_model(tmp_path):
     assert text == '[{"label": "microphone"}]'
 
 
+# ── Finding 1 (rung 0): the ready marker must never ride bridge stdout ──
+
+def test_still_request_marker_leaves_bridge_stdout_pure_json(
+        tmp_path, capsys):
+    """Finding 1: every agent-mode run failed at colour grading because
+    `request_host_answer` printed LLM_REQUEST_READY on stdout inside step
+    5.01's bridge, whose stdout must be pure JSON
+    (`PreBridgeError: bridge.py produced invalid JSON` - even when the
+    stills request was answered in time). The marker is routed so bridge
+    stdout stays JSON: the runner streams bridge stderr as the step's
+    log, which is the channel the driver watches.
+    """
+    still = _still(tmp_path)
+    project = tmp_path / "proj"
+    project.mkdir()
+    holder = {}
+    thread = threading.Thread(
+        target=lambda: holder.setdefault(
+            "request", _answer_as_host(
+                str(project), "step_5_01_color_grade__stills",
+                "neutral, judged on the wall.")),
+        daemon=True)
+    thread.start()
+    try:
+        text = request_host_answer(
+            "Judge the white balance.", [still], str(project),
+            "step_5_01_color_grade", label="colour stills",
+            timeout_seconds=60)
+        # The bridge's own result, printed after the stills answer lands.
+        print(json.dumps({"still_colour_notes": {"text": text}}))
+    finally:
+        thread.join(timeout=60)
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {
+        "still_colour_notes": {"text": "neutral, judged on the wall."}}
+    assert llm_handshake.READY_MARKER in captured.err
+
+
 def test_analyzer_gemma_path_files_no_handshake(tmp_path, monkeypatch):
     """No host: the analyzer delegates to the gemma fallback and files
     nothing - pinned without loading weights."""

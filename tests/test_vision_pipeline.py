@@ -490,3 +490,83 @@ def test_analyze_windows_full_fallback_recovers_the_window():
     assert entry["scene"][0]["notable_features"] == ["whiteboard"]
     assert entry["analysis_time_s"] == 39.0
 
+
+# ── Findings 2 and 3 (rung 0): still paths the host can open ──
+
+def test_coarse_frames_from_a_relative_cache_are_absolute_and_handable(
+        tmp_path, monkeypatch):
+    """Finding 2: `vision_pipeline_v3` handed the host relative still
+    paths (`.vision_cache/IMG_1806/frames/frame_0000.jpg`) and
+    `llm_handshake._checked_images` refused them (`not an absolute
+    path`), so every clip's object pass failed in agent mode. The
+    extractor resolves the cache, so what it returns is handable -
+    pinned here with the scout's own stem, without running ffmpeg (the
+    frames are pre-extracted, so the usable cache is read, not written).
+    """
+    import os as _os
+
+    from library.tools import llm_handshake
+
+    monkeypatch.chdir(tmp_path)
+    stem = "IMG_1806"
+    frame_dir = tmp_path / ".vision_cache" / stem / "frames"
+    frame_dir.mkdir(parents=True)
+    for i in range(4):  # 12 s at 1 frame per 5 s, plus the clamped tail
+        (frame_dir / f"frame_{i:04d}.jpg").write_bytes(
+            b"\xff\xd8" + b"0" * 64)
+    frames = vp.extract_frames(
+        Path(f"{stem}.MOV"), 12.0, Path(".vision_cache"))
+    assert len(frames) == 4
+    paths = [f["path"] for f in frames]
+    assert all(_os.path.isabs(p) for p in paths), paths
+    request = llm_handshake.build_request(
+        "objects__stills", "p", "", "c", "[]", str(tmp_path), "t",
+        images=paths)
+    assert request["images"] == paths
+
+
+def test_detail_frames_from_a_relative_cache_are_absolute(
+        tmp_path, monkeypatch):
+    """Finding 2, detail half: the same relative-cache refusal through
+    `extract_detail_frames` - the frames a detail pass hands the host
+    must already be absolute when they leave the extractor.
+    """
+    import os as _os
+
+    monkeypatch.chdir(tmp_path)
+    frame_dir = tmp_path / ".vision_cache" / "IMG_1809" / "detail_frames"
+    frame_dir.mkdir(parents=True)
+    for i in range(2):
+        (frame_dir / f"detail_{i:04d}.jpg").write_bytes(
+            b"\xff\xd8" + b"0" * 64)
+    out = vp.extract_detail_frames(
+        Path("IMG_1809.MOV"), Path(".vision_cache"), [(0.0, 2.0)])
+    frames = out[(0.0, 2.0)]
+    assert len(frames) == 2
+    assert all(_os.path.isabs(f["path"]) for f in frames)
+
+
+def test_detail_extraction_with_a_cache_miss_returns_the_range_map(
+        tmp_path, monkeypatch):
+    """Finding 3: `extract_detail_frames` assigned `subprocess.run`'s
+    return over the result dict, so any clip needing detail frames
+    (IMG_1809 on the scout run) died with
+    `TypeError: 'CompletedProcess' object does not support item
+    assignment`. A cache miss must return the {(start, end): frames}
+    map - ffmpeg is stubbed (it writes the frame), the shadowing is
+    what is pinned.
+    """
+    from subprocess import CompletedProcess
+
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run(cmd, **kwargs):
+        Path(cmd[-1]).write_bytes(b"\xff\xd8" + b"0" * 64)
+        return CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(vp.subprocess, "run", fake_run)
+    out = vp.extract_detail_frames(
+        Path("IMG_1809.MOV"), Path(".vision_cache"), [(0.0, 2.0)])
+    assert set(out) == {(0.0, 2.0)}
+    assert [f["timestamp"] for f in out[(0.0, 2.0)]] == [0.0, 2.0]
+

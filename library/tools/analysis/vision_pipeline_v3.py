@@ -744,7 +744,15 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
     `marker_capture`'s "WHEN THE ROUTE FAILS".  An empty file is also
     re-extracted rather than reused, so one bad run does not poison the
     cache for every later one.
+
+    The cache resolves to an absolute directory first: these paths are
+    handed to the driving host as the still-vision request's `images`,
+    and `llm_handshake._checked_images` refuses a relative one (`not an
+    absolute path`). The default cache (`.vision_cache`) is relative to
+    wherever the pipeline was launched, which is nowhere the host can
+    open. See tests/test_vision_pipeline.py (finding 2).
     """
+    cache_dir = Path(cache_dir).resolve()
     frame_dir = cache_dir / clip_path.stem / "frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
 
@@ -807,7 +815,12 @@ def extract_detail_frames(clip_path, cache_dir, ranges, fps=DETAIL_FPS):
 
     Returns:
         Dict mapping (start, end) tuples to lists of {timestamp, path}.
+
+    The cache resolves to an absolute directory first, for the same
+    reason as `extract_frames`: these paths reach the driving host as
+    the still-vision request's `images` (finding 2).
     """
+    cache_dir = Path(cache_dir).resolve()
     frame_dir = cache_dir / clip_path.stem / "detail_frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
 
@@ -824,7 +837,7 @@ def extract_detail_frames(clip_path, cache_dir, ranges, fps=DETAIL_FPS):
             out_path = frame_dir / f"detail_{frame_counter:04d}.jpg"
 
             if not _usable_frame(out_path):
-                result = subprocess.run(
+                subprocess.run(
                     ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(clip_path),
                      "-vframes", "1", "-q:v", "2", str(out_path)],
                     capture_output=True,

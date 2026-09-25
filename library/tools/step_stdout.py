@@ -3,8 +3,8 @@
 A step's contract with the runner is: **JSON on stdout, logs on stderr**
 (`run_pipeline.run_deterministic_step` parses stdout and raises "Step
 produced invalid JSON" otherwise). Nothing in the runtime enforces it,
-and on project 001 it was broken twice in one run, by two different
-dependencies, after the step had already done all of its work:
+and on project 001 it was broken three times across two runs, by three
+different dependencies, after the step had already done all of its work:
 
 - `temporal_index` indexed all 17 clips - "Indexed: 17, Failed: 0", about
   forty minutes of CPU - and whisperx's `setup_logging` had attached
@@ -14,6 +14,14 @@ dependencies, after the step had already done all of its work:
 - `render_subtitles` rendered all 8 segments and `vision_model` printed
   "Loading mlx-community/gemma-4-12b-it-4bit..." to stdout ahead of the
   JSON, with the same outcome.
+- `semantic_analysis` collected all 11 clip profiles on the rung-0a
+  proof run and its per-clip vision children inherited the step's
+  stdout, so their progress chatter ("Model loaded/bound in ...")
+  prepended the result. Children are a hole `claim_stdout` cannot
+  close (it rebinds the step's `sys.stdout`; the child's fd 1 still
+  points at the capture pipe), so the step captures each child and
+  forwards both streams to stderr
+  (`step_1_03_semantic_analysis.step._run_clip_vision`).
 
 Both were correct work discarded by a logging default. The lesson is not
 "silence that logger" - it is that a step cannot know what its imports

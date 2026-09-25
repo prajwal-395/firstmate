@@ -169,12 +169,13 @@ def request_host_answer(prompt: str, image_paths: list,
     """Ask the driving host to look at stills. Returns its answer text.
 
     Files the handshake request (prompt, the stills as `images`),
-    prints `LLM_REQUEST_READY` on stderr, and polls for the response.
-    Stderr, not stdout: this is called from inside pre-bridges whose
-    stdout the runner parses as JSON, and a marker line there reads
-    as a broken bridge (measured 2026-09-24: every host-answered
-    stills request failed its step). The request file is what the
-    host watches; the line is only the nudge. The
+    prints `LLM_REQUEST_READY` on stderr (never stdout - see below),
+    and polls for the response. Stderr, not stdout: this is called
+    from inside pre-bridges whose stdout the runner parses as JSON,
+    and a marker line there reads as a broken bridge (measured
+    2026-09-24: every host-answered stills request failed its step).
+    The request file is what the host watches; the line is only the
+    nudge. The
     response is validated exactly as today
     (`validate_response` + `require_text_answer`): malformed answers
     refuse with the fix, and an unanswered request raises
@@ -209,8 +210,16 @@ def request_host_answer(prompt: str, image_paths: list,
     )
     with open(req_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
-    print(f"{_handshake.READY_MARKER}: {req_path}", flush=True,
-          file=sys.stderr)
+    # The marker rides STDERR, never stdout: this function is called from
+    # inside bridge and step subprocesses whose stdout IS the JSON result
+    # the runner parses (`run_subprocess` refuses anything else as
+    # `PreBridgeError: bridge.py produced invalid JSON`), and a vision
+    # child inherits its step's stdout too. The runner streams bridge
+    # stderr as the step's log, so the driver watches the marker there.
+    # See tests/test_still_vision.py (finding 1: every agent-mode run
+    # failed at colour grading on this line).
+    print(f"{_handshake.READY_MARKER}: {req_path}", file=sys.stderr,
+          flush=True)
     print(f"  [still-vision] {label}: host looking at "
           f"{len(image_paths)} still(s) (timeout {timeout_seconds:g}s)...",
           file=sys.stderr)
