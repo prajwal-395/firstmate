@@ -174,12 +174,13 @@ def resolve_tv_frame(project_folder: Optional[str] = None,
             f"tv_frame declaration in {source} must be a mapping, got "
             f"{type(declared).__name__}: {declared!r}"
         )
-    unknown = set(declared) - {"asset", "punch_in", "power", "rotate"}
+    unknown = set(declared) - {"asset", "punch_in", "power", "rotate",
+                               "offset_y"}
     if unknown:
         raise ValueError(
             f"tv_frame declaration in {source} names unknown "
             f"keys {sorted(unknown)}; known: ['asset', 'punch_in', "
-            f"'power', 'rotate']"
+            f"'power', 'rotate', 'offset_y']"
         )
     if declared.get("asset") is None:
         return None
@@ -191,13 +192,36 @@ def resolve_tv_frame(project_folder: Optional[str] = None,
     )
     power = _validate_power_timing(declared.get("power"), source)
     rotate = validate_rotation(declared.get("rotate", AUTO_ROTATE), source)
+    offset_y = validate_offset_y(declared.get("offset_y", 0), source)
     return {
         "asset": asset,
         "punch_in": punch,
         "power": power,
         "rotate": rotate,
+        "offset_y": offset_y,
         "origin": source,
     }
+
+
+def validate_offset_y(value, source: str) -> int:
+    """Where the frame and its picture sit, as DELIVERY pixels down.
+
+    0 is the frame centred on the delivery, which is every look before
+    this existed. A positive value moves the frame, its window and the
+    picture inside it down together - the captain, 2026-09-25, wanted
+    the post header inside the platforms' safe zone "and move the video
+    itself down", letting the picture's bottom (the table) sit in the
+    bottom zones. Not a creative default: an unstated offset is no
+    offset. A non-integer or an offset that pushes the window off the
+    frame is refused by the caller that knows the frame.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"tv_frame.offset_y in {source} must be a number of "
+                         f"delivery pixels, got {value!r}")
+    if float(value) != int(value):
+        raise ValueError(f"tv_frame.offset_y in {source} must be whole "
+                         f"pixels, got {value!r}")
+    return int(value)
 
 
 def v1_zoom_for_look(punch_in: float) -> float:
@@ -386,7 +410,8 @@ def screen_window_rect(look, frame_width: int, frame_height: int,
     fit = min(frame_width / oriented[0], frame_height / oriented[1])
     scale = fit * zoom
     origin_x = frame_width / 2.0 - oriented[0] * scale / 2.0
-    origin_y = frame_height / 2.0 - oriented[1] * scale / 2.0
+    origin_y = (frame_height / 2.0 - oriented[1] * scale / 2.0
+                + int(look.get("offset_y") or 0))
     return (origin_x + x0 * scale, origin_y + y0 * scale,
             origin_x + x1 * scale, origin_y + y1 * scale)
 

@@ -132,6 +132,7 @@ path:
 | `propose-reels` | publish step 3.04's chosen moments as PROPOSED (needs `--force` to overwrite a ruled proposal) |
 | `build-reels` | the build loop above (ask + build + verify) |
 | `drift` | compare each reel's build snapshot against its live timeline; REPORTS, never repairs |
+| `shift-rows [N ...] --move ROW[,ROW]=PX --draw-gain G [--skip PREFIX]` | move named rows of accepted reels up/down by delivery pixels as one journaled touch (Tilt per item from its own media size; G measured, 1.0 on geo-podcast 2026-09-25) |
 | `safe-zones [N ...] [--overlay tiktok\|instagram_reels\|youtube_shorts\|linkedin\|combined] [--remove]` | put a platform UI guide on a reel on its own row, the clip switched OFF so it never renders (enable the clip to look); a rebuild drops it |
 | `deliver-reel <project> <N>` | render reel N to a file |
 | `watch-reel` / `hear-reel` | show/hear a DELIVERED reel against its plan; report-only |

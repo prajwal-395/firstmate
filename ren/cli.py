@@ -79,6 +79,7 @@ VERBS = (
     Verb("hear", "Reels", "Hear a delivered reel against its plan", subcommand="hear-reel"),
     Verb("drift", "Reels", "Compare each reel's build snapshot with the live timeline", subcommand="drift"),
     Verb("post-header", "Reels", "Put each reel's social-post header on its final, as a journaled touch", subcommand="post-header"),
+    Verb("shift-rows", "Reels", "Move named rows of each reel up or down by pixels, as a journaled touch", subcommand="shift-rows"),
     Verb("safe-zones", "Reels", "Put a platform safe-zone guide on reel timelines, switched off so it never renders", subcommand="safe-zones"),
     Verb("sign-off", "Reels", "Record the captain's sign-off on a built reel", subcommand="sign-off"),
     Verb("purge", "Reels", "Plan (default) or --apply the lean-retention purge", subcommand="purge"),

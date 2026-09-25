@@ -813,7 +813,8 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
 
 
 def frame_properties(look: dict, frame_width: int,
-                     frame_height: int) -> Dict[str, float]:
+                     frame_height: int,
+                     draw_gain: float = None) -> Dict[str, float]:
     """The transform the frame overlay plays under: the COVER zoom.
 
     Derived by `tv_frame.cover_zoom` from the size the overlay was
@@ -833,7 +834,17 @@ def frame_properties(look: dict, frame_width: int,
     drawn = cover_size(oriented_size(asset_size, rotation),
                        frame_width, frame_height)
     zoom = cover_zoom(drawn, frame_width, frame_height)
-    return {"ZoomX": zoom, "ZoomY": zoom}
+    properties = {"ZoomX": zoom, "ZoomY": zoom}
+    offset = int(look.get("offset_y") or 0)
+    if offset:
+        # The frame moves with its window (`tv_frame.screen_window_rect`
+        # adds the same offset), down being a NEGATIVE Tilt.
+        from library.tools.resolve_transform import (
+            FALLBACK_DRAW_GAIN, units_for_shift)
+        properties["Tilt"] = -units_for_shift(
+            offset, drawn[1], frame_height,
+            draw_gain=FALLBACK_DRAW_GAIN if draw_gain is None else draw_gain)
+    return properties
 
 
 PUNCH_IN_REFUSED_NO_SUBJECT = "no_subject_measured"

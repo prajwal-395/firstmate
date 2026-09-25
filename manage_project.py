@@ -63,7 +63,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "drift",
-    "post-header", "safe-zones", "deliver-reel",
+    "post-header", "shift-rows", "safe-zones", "deliver-reel",
     "watch-reel", "hear-reel", "touch-reel", "undo", "ren-dry-run",
     "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
@@ -1887,6 +1887,50 @@ def cmd_post_header(args):
         sys.exit(1)
 
 
+def cmd_shift_rows(args):
+    """Move named rows of each built reel by delivery pixels, as a touch.
+
+    `library/tools/row_shift.py`: one journaled `set_properties` Tilt per
+    item, converted from pixels by each item's own media size and the
+    draw gain the caller MEASURED. `--dry-run` prints without writing.
+    """
+    import json as _json
+
+    from library.tools import reel_touchup, row_shift
+
+    project_folder = _reel_project_folder(args.project)
+    try:
+        moves = row_shift.parse_moves(args.move)
+    except row_shift.RowShiftError as exc:
+        print(f"shift-rows: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    def spec_for(tracks, number):
+        return row_shift.shift_spec(
+            tracks, number, moves, frame=(1080, 1920),
+            draw_gain=args.draw_gain, skip_prefixes=args.skip)
+
+    def dry(folder, spec):
+        return {"edits": spec["edits"]}
+
+    result = reel_touchup.touchup_all_reels(
+        project_folder, reels=args.reel or None, spec_for=spec_for,
+        applier=dry if args.dry_run else None,
+        supersede=args.supersede or None)
+    for entry in result["reels"]:
+        status = ("PLAN" if args.dry_run else "DONE") if entry["ok"] \
+            else "REFUSED"
+        print(f"{status} reel {entry['reel']} {entry['final']}"
+              + (f": {entry['refused']}" if entry.get("refused") else ""))
+        if args.dry_run and entry["ok"]:
+            for edit in (entry.get("receipt") or {}).get("edits") or ():
+                print(f"    {_json.dumps(edit)}")
+    print(f"{result['landed']} reel(s) {'planned' if args.dry_run else 'done'}"
+          f", {result['refused']} refused")
+    if result["refused"]:
+        sys.exit(1)
+
+
 def cmd_safe_zones(args):
     """Place a platform safe-zone guide on reel timelines, switched off.
 
@@ -2432,6 +2476,36 @@ def main():
         "--dry-run", action="store_true",
         help="Read the reels and print each change; write nothing")
     post_header_parser.set_defaults(func=cmd_post_header)
+
+    shift_rows_parser = sub.add_parser(
+        "shift-rows", help="Move named rows of each built reel up or down "
+                           "by delivery pixels, as a journaled touch")
+    shift_rows_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    shift_rows_parser.add_argument(
+        "reel", type=int, nargs="*",
+        help="Approved reel numbers; none means every approved reel")
+    shift_rows_parser.add_argument(
+        "--move", action="append", default=[], required=True,
+        metavar="ROW[,ROW]=PIXELS",
+        help="Rows by name and pixels to move them; positive is DOWN. "
+             "Repeatable")
+    shift_rows_parser.add_argument(
+        "--draw-gain", type=float, required=True,
+        help="What the renderer draws per Tilt unit on these timelines, "
+             "as MEASURED (no default: a guessed gain moves the wrong "
+             "number of pixels)")
+    shift_rows_parser.add_argument(
+        "--skip", action="append", default=[], metavar="PREFIX",
+        help="Leave items whose name starts with this where they are")
+    shift_rows_parser.add_argument(
+        "--supersede", action="append", default=[], metavar="REEL",
+        help="A signed-off reel this touch may replace. Repeatable")
+    shift_rows_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Read the reels and print each change; write nothing")
+    shift_rows_parser.set_defaults(func=cmd_shift_rows)
 
     safe_zones_parser = sub.add_parser(
         "safe-zones", help="Place a platform safe-zone guide on reel "
