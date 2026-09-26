@@ -35,6 +35,7 @@ from library.tools.timeline_conformance import (
 )
 from library.tools.timeline_ingest import TimelineClip
 from library.tools.timeline_layout import plan_layout
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 
 
 # ── Faithful fakes ─────────────────────────────────────────────
@@ -289,13 +290,14 @@ def _semantic(start, total, name="sem"):
 
 
 def _build(timeline, pool, project, clips, captions=(), semantic=(),
-           look=None, program_channels=None, edit_ledger_rows=None):
+           look=None, program_channels=None, edit_ledger_rows=None,
+           draw_gain=FALLBACK_DRAW_GAIN):
     return build_reel_timeline(
         project, FakeMoment(), clips, list(captions),
         23.976, 1080, 1920, "/tmp/no-such-project", _transcript(),
         look=look, semantic_segments=list(semantic) or None,
         master_timeline=None, program_channels=program_channels,
-        edit_ledger_rows=edit_ledger_rows)
+        edit_ledger_rows=edit_ledger_rows, draw_gain=draw_gain)
 
 
 # ── Angles come from the master's own picture rows ──
@@ -328,6 +330,33 @@ def test_two_angles_get_two_picture_rows_and_two_named_speech_rows():
     assert timeline.GetTrackName("video", 2) == "Craig"
     assert timeline.GetTrackName("audio", 1) == "Akshita CH1"
     assert timeline.GetTrackName("audio", 2) == "Craig CH1"
+
+
+def test_captain_override_window_check_uses_the_builds_measured_draw_gain(
+        monkeypatch):
+    """The override recheck must use the same 1.0 gain as the placed aim.
+
+    Geo Podcast measured 1.0 while the machine fallback is 2.0. Using
+    that fallback only for the captain's Pan=-8 recheck doubles the
+    predicted vertical shift and falsely refuses a picture that covers
+    the TV window at the measured gain.
+    """
+    import library.tools.reel_build as reel_build
+
+    received = {}
+
+    def capture_override_recheck(*args, **kwargs):
+        received.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(reel_build, "apply_transform_overrides",
+                        capture_override_recheck)
+    timeline, pool, project = _world()
+
+    record = _build(timeline, pool, project, _master_clips(),
+                    program_channels={"1": 1, "2": 1}, draw_gain=1.0)
+
+    assert received["draw_gain"] == pytest.approx(1.0)
     v1 = timeline.GetItemListInTrack("video", 1)
     a1 = timeline.GetItemListInTrack("audio", 1)
     v2 = timeline.GetItemListInTrack("video", 2)

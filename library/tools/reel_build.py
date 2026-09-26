@@ -7849,7 +7849,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     held = apply_transform_overrides(
         name, track_plan, video_row_by_angle, placements_list,
         timeline, transcript, project_folder, width, height,
-        look=look, screen_window=screen_window)
+        look=look, screen_window=screen_window, draw_gain=draw_gain)
     if held:
         print(f"  {name}: {held} captain's transform hold(s) in force",
               file=sys.stderr)
