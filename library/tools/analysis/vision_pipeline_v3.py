@@ -57,6 +57,7 @@ from model_lifecycle import managed_model
 # (conftest already has the root on sys.path) and fails only in a run.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
+from library.tools.heavy_work_lock import heavy_work_locked
 from library.tools.analysis import picture_quality
 from library.tools.camera_stability import read_camera_stability
 from library.tools.segment_coverage import (
@@ -2911,6 +2912,7 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
 #  Pipeline Runner
 # ═══════════════════════════════════════════════════════════════════════
 
+@heavy_work_locked("Gemma video analysis")
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                  harness=None, project_folder=None):
     """Run the v3 vision pipeline on a list of clip paths.

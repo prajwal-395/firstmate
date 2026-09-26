@@ -43,6 +43,10 @@ import time
 from pathlib import Path
 
 from library.tools import eval_corpus
+from library.tools.heavy_work_lock import (
+    release_heavy_lock,
+    take_heavy_lock,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VEP = REPO_ROOT / "bin" / "vep"
@@ -50,7 +54,6 @@ RESOLVE_AXI = REPO_ROOT / "bin" / "resolve-axi"
 MANAGE_PROJECT = REPO_ROOT / "manage_project.py"
 
 LOCK_DIR = Path(os.path.expanduser("~/.local/share/vep/resolve-driver.lock"))
-HEAVY_LOCK_DIR = Path(os.path.expanduser("~/.local/share/vep/heavy-work.lock"))
 SCRATCH_PREFIX = "ren-eval-scratch-"
 
 # The edit chain the scout ran: everything downstream of analysis, minus
@@ -637,47 +640,6 @@ def take_resolve_lock(owner: str) -> None:
     except OSError:
         LOCK_DIR.rmdir()
         raise
-
-
-def take_heavy_lock(owner: str) -> None:
-    """Wait for the shared lock used only around locally heavy work.
-
-    The lock has no timeout: a running heavy job is an expected wait, not a
-    failed eval. Keep the task id in the owner file so another lane can tell
-    which job owns the machine.
-    """
-    HEAVY_LOCK_DIR.parent.mkdir(parents=True, exist_ok=True)
-    while True:
-        try:
-            HEAVY_LOCK_DIR.mkdir(parents=True, exist_ok=False)
-            break
-        except FileExistsError:
-            holder = ""
-            try:
-                holder = (HEAVY_LOCK_DIR / "owner").read_text(
-                    encoding="utf-8").strip()
-            except OSError:
-                pass
-            print(f"eval: heavy-work lock held ({holder}); waiting",
-                  flush=True)
-            time.sleep(60)
-    try:
-        (HEAVY_LOCK_DIR / "owner").write_text(owner + "\n",
-                                               encoding="utf-8")
-    except OSError:
-        HEAVY_LOCK_DIR.rmdir()
-        raise
-
-
-def release_heavy_lock() -> None:
-    """Release the shared heavy-work lock by removing its owned directory."""
-    try:
-        owner = HEAVY_LOCK_DIR / "owner"
-        if owner.exists():
-            owner.unlink()
-        HEAVY_LOCK_DIR.rmdir()
-    except OSError as exc:
-        raise RuntimeError(f"eval: could not release heavy-work lock: {exc}")
 
 
 def release_resolve_lock() -> None:

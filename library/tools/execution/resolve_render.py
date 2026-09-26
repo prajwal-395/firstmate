@@ -20,6 +20,7 @@ import os
 import sys
 import time
 from library.tools.resolve_lock import assert_current_timeline, under_lease
+from library.tools.heavy_work_lock import heavy_work_locked
 
 # Resolve's Python API is not importable until these are set - see
 # AGENTS.md section 5.
@@ -145,6 +146,7 @@ def _files_written_since(output_dir: str, name: str, since: float) -> list:
     return [f for _, f in sorted(fresh)]
 
 
+@heavy_work_locked("Resolve timeline render")
 @under_lease("render out")
 def render_timeline(
     timeline_name: str = "",

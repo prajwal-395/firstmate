@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from library.tools import eval_corpus, eval_harness
+from library.tools import eval_corpus, eval_harness, heavy_work_lock
 
 
 def test_unknown_filter_keys_raise():
@@ -741,7 +741,7 @@ def test_memory_gate_counts_reclaimable_macos_pages():
     assert eval_harness.memory_free_mb(vm_stat) == 60 * 16384 / 1048576
 
 
-def test_heavy_work_lock_records_task_and_releases_by_removing_directory(
+def test_heavy_work_lock_records_owner_and_releases_by_removing_directory(
         tmp_path, monkeypatch):
     """The local heavy-work mutex names its owner and is fully released.
 
@@ -749,11 +749,12 @@ def test_heavy_work_lock_records_task_and_releases_by_removing_directory(
     lane after its Resolve job has finished.
     """
     lock_dir = tmp_path / "heavy-work.lock"
-    monkeypatch.setattr(eval_harness, "HEAVY_LOCK_DIR", lock_dir)
+    monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
 
     eval_harness.take_heavy_lock("task-123 resolve render")
-    assert (lock_dir / "owner").read_text(encoding="utf-8").strip() == (
-        "task-123 resolve render")
+    owner = json.loads((lock_dir / "owner").read_text(encoding="utf-8"))
+    assert owner["owner"] == "task-123 resolve render"
+    assert owner["token"]
 
     eval_harness.release_heavy_lock()
     assert not lock_dir.exists()

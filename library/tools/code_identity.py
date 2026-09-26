@@ -148,6 +148,8 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).
         "library/tools/analysis/vision_pipeline_v3.py",
+        # The model run is serialized against other local heavy work.
+        "library/tools/heavy_work_lock.py",
         # Its measurement imports: soft-picture ranges and the steadiness
         # reading both land in the cached profile.
         "library/tools/analysis/picture_quality.py",

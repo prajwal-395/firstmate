@@ -75,6 +75,16 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "${REPO_ROOT}"
 
+# Every lane that can contend with local model inference, render or Resolve
+# work uses the same machine lock. The wrapper owns the lock for the gate's
+# full lifetime and forwards termination signals to its child. When a lane
+# already holds it, the inherited owner token makes this check succeed and
+# the gate runs reentrantly under that existing acquisition.
+if ! python3 -m library.tools.heavy_work_lock owns; then
+  exec python3 -m library.tools.heavy_work_lock run \
+    --owner "scripts/full_suite_gate.sh" -- bash "$0" "$@"
+fi
+
 # `FULL_SUITE_GATE_PYTHON` still wins.  Without it, ASK the resolution
 # rather than taking the ambient `python3`: on this machine that is 3.14
 # with none of the ML stack, so the heavy tier went unmeasured unless

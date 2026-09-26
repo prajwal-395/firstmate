@@ -97,6 +97,7 @@ from library.tools import timeline_decisions  # noqa: E402
 from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
 )
+from library.tools.heavy_work_lock import heavy_work_locked  # noqa: E402
 from library.tools.timeline_ingest import resolve_project_exactly  # noqa: E402
 from library.tools.resolve_lock import (  # noqa: E402
     assert_current_timeline, under_lease)
@@ -893,6 +894,7 @@ def mapping_carries_program(channels, expected) -> bool:
     return expected in list(channels or [])
 
 
+@heavy_work_locked("edit timeline placement")
 @under_lease("render the edit timeline")
 def build_timeline(
     manifest: dict,
