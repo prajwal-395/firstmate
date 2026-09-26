@@ -224,6 +224,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # alignment where its environment is present, so a fix here
         # moves the cached word timings.
         "library/tools/mfa_align.py",
+        # Imported by mfa_align: the shared caption acronym vocabulary
+        # determines the words forced alignment hears, so a fix here
+        # changes the cached word timings.
+        "library/tools/caption_reading.py",
         # Imported by hybrid_transcription: the contained third-party
         # transcriber behind the hybrid arm, so a fix here changes what
         # the cached segments heard.

@@ -37,15 +37,13 @@ The two required pieces, both measured, both here
    transcript text the rest of the pipeline consumes is unchanged; the
    merge below writes the ORIGINAL tokens back onto the segments.
 
-Also measured and worth knowing: out-of-vocabulary brand words are
-FINE. ChatGPT, CRM and GEO all received timings through the
-grapheme-to-phoneme fallback with no special handling. What actually
-fails is a small named class - backchannel "Mm-hmm", hyphenated
-compounds, possessive "AI's" - which MFA may not place. The hybrid
-keeps the transcriber's per-word spans beside each alignment window, so
-a dropped MFA token can keep its source timing. Only a token with no
-source span is emitted untimed for the timeline transcript to
-interpolate.
+MFA's dictionary is not a transcript normalizer. Hyphenated compounds,
+letter acronyms, camel-case brands, domains and possessives must be
+expanded for the aligner while retaining a many-to-one map to the
+original token. An original token is timed from MFA only when every
+normalized piece was aligned. An exact, measured one-to-one transcriber
+span is the only fallback; otherwise the word stays explicitly
+untimed. Downstream reel spines do not turn that absence into a timing.
 
 Where the decline goes
 ----------------------
@@ -452,11 +450,95 @@ def normalization_map(text: str) -> List[Tuple[str, str]]:
     A token with no digits that is not a symbol amount maps to itself;
     the transcript text is never rewritten, only accompanied.
     """
-    pairs = []
-    for token in text.split():
-        spelled = _spell_token(token) if re.search(r"\d", token) else None
-        pairs.append((token, spelled or token))
-    return pairs
+    return [(token, normalize_token_for_aligner(token))
+            for token in text.split()]
+
+
+_LETTER_NAMES = {
+    "a": "ay", "b": "bee", "c": "see", "d": "dee",
+    "e": "ee", "f": "eff", "g": "gee", "h": "aitch",
+    "i": "eye", "j": "jay", "k": "kay", "l": "ell",
+    "m": "em", "n": "en", "o": "oh", "p": "pee",
+    "q": "cue", "r": "are", "s": "ess", "t": "tee",
+    "u": "you", "v": "vee", "w": "doubleyou", "x": "ex",
+    "y": "why", "z": "zee",
+}
+
+
+def _letter_spelling(value: str) -> str:
+    return " ".join(_LETTER_NAMES[letter.lower()] for letter in value)
+
+
+def _known_acronym_spelling(value: str) -> Optional[str]:
+    """Expand a declared caption acronym without changing its source token."""
+    from library.tools.caption_reading import CAPTION_ACRONYMS
+
+    lowered = value.lower()
+    for acronym in CAPTION_ACRONYMS:
+        base = acronym.lower()
+        if lowered == base:
+            return _letter_spelling(acronym)
+        if lowered in {base + "'s", base + "s"}:
+            suffix = lowered[len(base):]
+            return _letter_spelling(acronym) + " " + (
+                "ess" if suffix else "")
+    # Mixed-case brands such as ChatGPT expose their initialism as an
+    # uppercase suffix. Spell a short all-caps run letter by letter so
+    # the same merge handles other initialisms without a brand-specific
+    # branch.
+    if re.fullmatch(r"[A-Z]{2,6}", value):
+        return _letter_spelling(value)
+    return None
+
+
+def normalize_token_for_aligner(token: str) -> str:
+    """Normalize one original token to dictionary-friendly spoken words.
+
+    Each returned piece still maps to the single original token in
+    ``normalization_map``. The inverse merge therefore needs every piece
+    before it can publish a measured original-word interval.
+    """
+    # Keep punctuation at the edges attached to the original token. The
+    # comparable form used by the merge strips the same punctuation.
+    leading = token[:len(token) - len(token.lstrip(".,?!;:\"'()[]"))]
+    trailing = token[len(token.rstrip(".,?!;:\"'()[]")):]
+    core = token[len(leading):len(token) - len(trailing) if trailing else None]
+    if not core:
+        return token
+
+    # Numeric, hyphenated and domain pieces all share one original token.
+    numeric = _spell_token(core) if re.search(r"\d", core) else None
+    if numeric:
+        return leading + numeric + trailing
+
+    acronym = _known_acronym_spelling(core)
+    if acronym:
+        return leading + acronym + trailing
+
+    if not re.search(r"\d|[-.]", core) and not re.search(
+            r"[a-z0-9][A-Z]|[a-z][A-Z]{2,}", core):
+        return token
+
+    # Split a mixed-case brand first, then spell any uppercase acronym
+    # suffix (ChatGPT -> chat gee pee tee).
+    camel = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", core)
+    camel = re.sub(r"([a-z])([A-Z]{2,})", r"\1 \2", camel)
+    pieces = re.split(r"([-.]|\s+)", camel)
+    normalized = []
+    for piece in pieces:
+        if piece in {"-", "."}:
+            if piece == ".":
+                normalized.append("dot")
+            continue
+        if not piece:
+            continue
+        for atom in piece.split():
+            sub_acronym = _known_acronym_spelling(atom)
+            sub_number = (_spell_token(atom)
+                          if re.search(r"\d", atom) else None)
+            normalized.append(sub_acronym or sub_number or atom.lower())
+    phrase = " ".join(part for part in normalized if part)
+    return leading + (phrase or core) + trailing
 
 
 def normalize_for_aligner(text: str) -> str:
@@ -489,12 +571,17 @@ def merge_window(
         for piece in phrase.split():
             norm_words.append((piece, index))
 
-    starts: Dict[int, float] = {}
-    ends: Dict[int, float] = {}
+    spans: Dict[int, Tuple[float, float]] = {}
+    matched: Dict[int, set[int]] = {}
     cursor = 0
-    current: Optional[int] = None
     for surface, start, end in aligned:
         wanted = _comparable(surface)
+        try:
+            start, end = float(start), float(end)
+        except (TypeError, ValueError):
+            continue
+        if not isfinite(start) or not isfinite(end) or end <= start:
+            continue
         found = next(
             (
                 at
@@ -504,23 +591,26 @@ def merge_window(
             None,
         )
         if found is None:
-            # MFA timed something the transcript has no name for (a
-            # tokenizer split, an `<unk>`). Its span extends the
-            # current token rather than inventing a word the pipeline
-            # would then caption.
-            if current is not None:
-                ends[current] = offset + end
+            # Unknown output has no transcript owner. Extending a nearby
+            # word across it invents coverage, so ignore it.
             continue
         index = norm_words[found][1]
-        starts.setdefault(index, offset + start)
-        ends[index] = offset + end
-        current = index
+        prior = spans.get(index)
+        spans[index] = ((min(prior[0], start), max(prior[1], end))
+                        if prior else (start, end))
+        matched.setdefault(index, set()).add(found)
         cursor = found + 1
+
+    expected: Dict[int, set[int]] = {}
+    for piece_index, (_piece, original_index) in enumerate(norm_words):
+        expected.setdefault(original_index, set()).add(piece_index)
 
     source_spans: Dict[int, Tuple[float, float]] = {}
     if source_words is not None and len(source_words) == len(pairs):
         for index, ((token, _), source_word) in enumerate(
                 zip(pairs, source_words)):
+            if source_word.get("timed", True) is False:
+                continue
             if _comparable(str(source_word.get("word") or "")) != \
                     _comparable(token):
                 continue
@@ -534,14 +624,17 @@ def merge_window(
 
     words = []
     for index, (token, _) in enumerate(pairs):
-        if index in starts:
-            words.append({"word": token, "start": starts[index], "end": ends[index]})
+        if expected.get(index) and matched.get(index) == expected[index]:
+            start, end = spans[index]
+            words.append({"word": token, "start": offset + start,
+                          "end": offset + end})
         elif index in source_spans:
             start, end = source_spans[index]
             words.append({"word": token, "start": start, "end": end,
                           "timed": True, "timing_source": "transcriber"})
         else:
-            words.append({"word": token})
+            words.append({"word": token, "timed": False,
+                          "timing_reason": "mfa_word_not_fully_aligned"})
     return words
 
 

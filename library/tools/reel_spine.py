@@ -108,6 +108,8 @@ fabricated block (AGENTS.md 10.5).
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
+from math import isfinite
 from collections.abc import Sequence
 
 from library.tools import region as region_mod
@@ -203,6 +205,90 @@ reader tell a reel spine from a preflight one.
 
 class ReelSpineError(ValueError):
     """A reel that cannot be turned into a spine, and says why."""
+
+
+def _measured_word_span(word: dict) -> bool:
+    """Whether a transcript word carries a measured, usable interval."""
+    if word.get("timed") is False:
+        return False
+    try:
+        start, end = float(word["start"]), float(word["end"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return isfinite(start) and isfinite(end) and end > start
+
+
+def _token_key(value: str) -> str:
+    """Compare transcript tokens without punctuation or case noise."""
+    return "".join(character for character in value.casefold()
+                   if character.isalnum())
+
+
+def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
+    """Return one-to-one measured words and per-token timing failures.
+
+    The transcript's sentence text is the expected sequence. Its word
+    array is evidence only where a token maps one-to-one onto a measured
+    interval. Phrase entries like ``"AI sees"`` cannot time either word
+    individually, and a text token with no array entry remains visible in
+    the undetermined list instead of disappearing from a caption silently.
+    Transcript-only array extras are ignored; they are not words in the
+    segment text (for example a duplicated ``it`` or leading ``Um``).
+    """
+    text_tokens = str(segment.get("text") or "").split()
+    raw_words = list(segment.get("words") or [])
+    array_tokens: list[str] = []
+    owners: list[tuple[int, int]] = []
+    for word_index, word in enumerate(raw_words):
+        pieces = str(word.get("word") or "").split()
+        for piece in pieces:
+            array_tokens.append(piece)
+            owners.append((word_index, len(pieces)))
+    if not text_tokens:
+        text_tokens = list(array_tokens)
+
+    matcher = SequenceMatcher(
+        a=[_token_key(token) for token in text_tokens],
+        b=[_token_key(token) for token in array_tokens],
+        autojunk=False,
+    )
+    matched: dict[int, int] = {}
+    for tag, text_start, text_end, array_start, array_end in matcher.get_opcodes():
+        if tag == "equal":
+            matched.update((text_index, array_index)
+                           for text_index, array_index in
+                           zip(range(text_start, text_end),
+                               range(array_start, array_end)))
+
+    undetermined: list[dict] = []
+    selected_word_indexes: set[int] = set()
+    for text_index, token in enumerate(text_tokens):
+        array_index = matched.get(text_index)
+        if array_index is None:
+            undetermined.append({
+                "word": token,
+                "reason": "word_not_present_in_transcript_alignment",
+            })
+            continue
+        word_index, phrase_size = owners[array_index]
+        if phrase_size != 1:
+            undetermined.append({
+                "word": token,
+                "reason": "phrase_token_has_no_individual_word_timing",
+            })
+            continue
+        raw_word = raw_words[word_index]
+        if not _measured_word_span(raw_word):
+            undetermined.append({
+                "word": token,
+                "reason": raw_word.get("timing_reason")
+                or "no_measured_word_interval",
+            })
+            continue
+        selected_word_indexes.add(word_index)
+
+    return ([word for index, word in enumerate(raw_words)
+             if index in selected_word_indexes], undetermined)
 
 
 def _touches(segment_start: float, segment_end: float,
@@ -460,7 +546,7 @@ def _split_segments_at_removed_spans(segments: list,
     for segment in segments:
         words = segment.get("words") or []
         kept = [w for w in words
-                if w.get("start") is not None
+                if _measured_word_span(w)
                 and reel_time(float(w["start"]), ranges) is not None]
         if len(kept) == len(words):
             split.append(segment)
@@ -529,6 +615,22 @@ def spine_for_reel(moment, transcript: dict,
             "the transcript carries no segments; a reel's spine is its "
             "own timeline audio, and there is none to read")
 
+    undetermined_words = []
+    for segment in segments:
+        start, end = segment.get("timeline_start"), segment.get("timeline_end")
+        if start is None or end is None or not _touches(start, end, ranges):
+            continue
+        _, failures = _segment_word_alignment(segment)
+        for failure in failures:
+            undetermined_words.append({
+                "word": failure["word"],
+                "speaker": segment.get("speaker"),
+                "master_segment_start": round(float(start), 3),
+                "master_segment_end": round(float(end), 3),
+                "reason": failure["reason"],
+                "reel_membership": "unknown_without_word_timing",
+            })
+
     blocks: list[dict] = []
     dropped_no_binding = 0
     range_clipped: list[dict] = []
@@ -544,6 +646,8 @@ def spine_for_reel(moment, transcript: dict,
         sorted(segments, key=lambda s: s.get("timeline_start", 0.0)),
         ranges)
     for segment in segments:
+        aligned_words, _ = _segment_word_alignment(segment)
+        segment = dict(segment, words=aligned_words)
         master_start = segment.get("timeline_start")
         master_end = segment.get("timeline_end")
         if master_start is None or master_end is None:
@@ -566,7 +670,7 @@ def spine_for_reel(moment, transcript: dict,
             # because a dropped row's own span is what the reel is
             # missing and a count cannot say where it is.
             inside = [w for w in (segment.get("words") or [])
-                      if w.get("start") is not None
+                      if _measured_word_span(w)
                       and reel_time(float(w["start"]), ranges) is not None]
             if CAPTION_UNANCHORED_ROWS:
                 # The ROW straddles a cut; the part this reel plays may
@@ -604,7 +708,7 @@ def spine_for_reel(moment, transcript: dict,
         # whole segment loses speech the reel really plays - silently,
         # which is the worst way to lose it.
         kept = [w for w in (segment.get("words") or [])
-                if w.get("start") is not None
+                if _measured_word_span(w)
                 and reel_time(float(w["start"]), ranges) is not None]
         if not kept:
             # Its speech was CUT entirely - a dropped bad take takes its
@@ -678,7 +782,10 @@ def spine_for_reel(moment, transcript: dict,
             "word_timestamps": words,
             "alignment_method": ALIGNMENT_METHOD,
             "speaker": segment.get("speaker"),
-            "content": {"text": segment.get("text", "").strip()},
+            # A word with no measured timing cannot enter a card's text
+            # while its timing is absent. Its per-word reason is returned
+            # in `undetermined_words` below.
+            "content": {"text": " ".join(w["word"] for w in words).strip()},
         })
 
     # ORDER BY THE REEL, not by the master.  A reel's closer may be cut
@@ -730,6 +837,7 @@ def spine_for_reel(moment, transcript: dict,
         block["position"] = position
 
     return {"structure": blocks,
+            "undetermined_words": undetermined_words,
             "dropped_segments": dropped_no_binding,
             "bleed_blocks_dropped": bled,
             # A card carrying two speakers is what the captain saw on
@@ -1300,16 +1408,17 @@ def _source_words(segment: dict, master_start: float,
     eight speech blocks had eight distinct offsets spread over 146.5
     seconds, and the sign was not constant either.
     """
-    from library.tools.timeline_transcript import interpolate_untimed_words
-
     raw = list(segment.get("words") or [])
     if not raw:
         return []
 
-    # Untimed words get timing from their neighbours rather than being
-    # dropped - dropping them loses real speech from the caption.
-    timed = interpolate_untimed_words(raw)
-    named = region_mod.read_words(timed, region_mod.TIMELINE)
+    # The reel spine is the boundary between measured source words and
+    # caption placement. Interpolated spans and invalid intervals are
+    # not evidence that a word was played at a particular frame.
+    measured = [word for word in raw if _measured_word_span(word)]
+    if not measured:
+        return []
+    named = region_mod.read_words(measured, region_mod.TIMELINE)
 
     offset = float(source_start) - float(master_start)
     out = []

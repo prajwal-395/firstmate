@@ -4368,6 +4368,13 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
         print(f"  {name}: dropped "
               f"{spine['bleed_blocks_dropped']} mic-bleed block(s)",
               file=sys.stderr)
+    for item in spine.get("undetermined_words") or []:
+        print(f"  {name}: UNDETERMINED WORD {item['word']!r} "
+              f"({item['speaker'] or 'unknown speaker'}, master "
+              f"{item['master_segment_start']:.2f}-"
+              f"{item['master_segment_end']:.2f}s): {item['reason']}; "
+              f"reel membership is unknown without a measured word span",
+              file=sys.stderr)
     # A row the transcriber split mid-sentence is too short to carry a
     # legible card and is given back to its sentence upstream of the
     # grouping.  Both halves are SAID: how many were rejoined, and the

@@ -12,10 +12,10 @@ What these pin, and why each is here
   benefit ONLY: the transcript text the pipeline consumes is byte for
   byte what was said (`data/vep-try-mfa-instead-of-wav2vec2/report.md`
   Q2: "20%" and "3.5" silently drop without it).
-- A token MFA drops (the measured class: backchannel "Mm-hmm",
-  hyphenated compounds, possessive "AI's") is UNTIMED, never lost and
-  never mis-timed - the same shape whisperx emits for a word it could
-  not place, which `interpolate_untimed_words` already handles.
+- Hyphenated compounds, acronym/camel-case spellings and digit phrases
+  are normalized for MFA and mapped back to their original tokens. A
+  token is timed only when every normalized piece aligns or an exact
+  measured one-to-one transcriber span exists.
 - A transiently empty chunk (~0.9% of sentences, recovered 12 of
   12 on rerun) is RETRIED; only a chunk still empty after the retry
   declines the run.
@@ -103,6 +103,54 @@ def test_digits_and_symbols_are_spelled_out_for_the_aligner():
     )
 
 
+def test_mfa_splits_hyphenated_numeric_compounds_and_unions_their_windows():
+    assert mfa_align.normalize_for_aligner("10-man 50-person eye-opening") == (
+        "ten man fifty person eye opening")
+    words = mfa_align.merge_window(
+        "50-person", [("fifty", 0.2, 0.45), ("person", 0.46, 0.8)], 4.0)
+    assert words == [{"word": "50-person", "start": 4.2, "end": 4.8}]
+
+
+def test_mfa_expands_initialisms_and_camel_case_brands_for_alignment():
+    assert mfa_align.normalize_for_aligner("CRM ChatGPT AI's") == (
+        "see are em chat gee pee tee ay eye ess")
+    words = mfa_align.merge_window(
+        "CRM ChatGPT",
+        [("see", 0.0, 0.1), ("are", 0.11, 0.2), ("em", 0.21, 0.3),
+         ("chat", 0.4, 0.6), ("gee", 0.61, 0.7), ("pee", 0.71, 0.8),
+         ("tee", 0.81, 0.9)],
+        2.0,
+    )
+    assert [(w["word"], w["start"], w["end"]) for w in words] == [
+        ("CRM", 2.0, 2.3), ("ChatGPT", 2.4, 2.9)]
+
+
+def test_mfa_does_not_mark_a_partially_aligned_expansion_as_timed():
+    words = mfa_align.merge_window(
+        "50-person", [("fifty", 0.2, 0.45)], 4.0)
+    assert words == [{
+        "word": "50-person", "timed": False,
+        "timing_reason": "mfa_word_not_fully_aligned",
+    }]
+
+
+def test_mfa_keeps_twenty_percent_as_two_measured_source_words():
+    words = mfa_align.merge_window(
+        "20 percent", [("twenty", 0.2, 0.5), ("percent", 0.51, 0.9)], 1.0)
+    assert [(w["word"], w["start"], w["end"]) for w in words] == [
+        ("20", 1.2, 1.5), ("percent", 1.51, 1.9)]
+
+
+def test_mfa_does_not_copy_one_grouped_phrase_span_to_multiple_words():
+    words = mfa_align.merge_window(
+        "20 percent", [], 1.0,
+        source_words=[{"word": "20 percent", "start": 1.2, "end": 1.9}],
+    )
+    assert [word["word"] for word in words] == ["20", "percent"]
+    assert all(word["timed"] is False for word in words)
+    assert all("start" not in word for word in words)
+
+
 # ── 2. TextGrid parsing reads the words tier
 
 
@@ -137,9 +185,7 @@ def test_merge_times_original_tokens_through_spelled_out_phrases():
 
 
 def test_a_token_mfa_dropped_is_untimed_never_lost():
-    """The measured failure class - "Mm-hmm", hyphenated compounds,
-    possessive "AI's" - degrades to an untimed word, the shape
-    whisperx already emits and `interpolate_untimed_words` handles."""
+    """An incompletely aligned original token is explicit and untimed."""
     words = mfa_align.merge_window(
         "Well Mm-hmm eye-opening AI's model",
         [("well", 0.0, 0.3), ("model", 1.5, 1.9)],

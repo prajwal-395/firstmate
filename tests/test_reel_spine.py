@@ -126,6 +126,88 @@ def test_word_timings_are_SOURCE_seconds_not_timeline_seconds(transcript,
             block["source_start"], abs=0.01)
 
 
+def test_the_reel_spine_never_promotes_an_interpolated_word_to_timing():
+    row = segment(
+        "host", "alpha unavailable omega", 10.0, 13.0,
+        "cam_a.mov", 100.0,
+        [word("alpha", 10.0, 10.5),
+         {"word": "unavailable", "start": 11.0, "end": 11.4,
+          "timed": False},
+         word("omega", 12.0, 13.0)],
+    )
+    spine = spine_for_reel(Moment(10.0, 13.0), {"segments": [row]},
+                           ranges=[(10.0, 13.0)])
+
+    block = spine["structure"][0]
+    assert [item["word"] for item in block["word_timestamps"]] == [
+        "alpha", "omega"]
+    assert block["content"]["text"] == "alpha omega"
+    assert block["word_timestamps"][1]["source_start"] == pytest.approx(102.0)
+    assert spine["undetermined_words"] == [{
+        "word": "unavailable",
+        "speaker": "host",
+        "master_segment_start": 10.0,
+        "master_segment_end": 13.0,
+        "reason": "no_measured_word_interval",
+        "reel_membership": "unknown_without_word_timing",
+    }]
+
+
+def test_the_reel_spine_does_not_interpolate_a_missing_word(monkeypatch):
+    from library.tools import timeline_transcript
+
+    def no_interpolation(_words):
+        raise AssertionError("reel caption timing must stay measured")
+
+    monkeypatch.setattr(timeline_transcript, "interpolate_untimed_words",
+                        no_interpolation)
+    row = segment(
+        "host", "alpha unavailable omega", 10.0, 13.0,
+        "cam_a.mov", 100.0,
+        [word("alpha", 10.0, 10.5), {"word": "unavailable"},
+         word("omega", 12.0, 13.0)],
+    )
+    spine = spine_for_reel(Moment(10.0, 13.0), {"segments": [row]},
+                           ranges=[(10.0, 13.0)])
+    assert spine["undetermined_words"][0]["word"] == "unavailable"
+
+
+def test_segment_text_words_missing_from_the_alignment_are_named():
+    row = segment(
+        "host", "alpha missing omega", 10.0, 12.0,
+        "cam_a.mov", 100.0,
+        [word("alpha", 10.0, 10.5), word("omega", 11.5, 12.0)],
+    )
+    spine = spine_for_reel(Moment(10.0, 12.0), {"segments": [row]},
+                           ranges=[(10.0, 12.0)])
+
+    assert spine["structure"][0]["content"]["text"] == "alpha omega"
+    assert spine["undetermined_words"] == [{
+        "word": "missing",
+        "speaker": "host",
+        "master_segment_start": 10.0,
+        "master_segment_end": 12.0,
+        "reason": "word_not_present_in_transcript_alignment",
+        "reel_membership": "unknown_without_word_timing",
+    }]
+
+
+def test_a_phrase_token_does_not_give_each_word_the_same_timing():
+    row = segment(
+        "host", "AI sees it", 10.0, 11.0,
+        "cam_a.mov", 100.0,
+        [word("AI sees", 10.0, 10.6), word("it", 10.6, 11.0)],
+    )
+    spine = spine_for_reel(Moment(10.0, 11.0), {"segments": [row]},
+                           ranges=[(10.0, 11.0)])
+
+    assert spine["structure"][0]["content"]["text"] == "it"
+    assert [entry["word"] for entry in spine["undetermined_words"]] == [
+        "AI", "sees"]
+    assert {entry["reason"] for entry in spine["undetermined_words"]} == {
+        "phrase_token_has_no_individual_word_timing"}
+
+
 # ── What a reel cannot supply is SAID, not invented ─────────────────
 
 
@@ -534,5 +616,3 @@ def test_a_reel_whose_speech_all_binds_reports_nothing(transcript, moment):
     spine = spine_for_reel(moment, transcript)
     assert spine["unbindable_spans"] == []
     assert spine["unbindable_seconds"] == 0.0
-
-
