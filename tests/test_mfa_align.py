@@ -34,7 +34,8 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import hybrid_transcription, mfa_align
+from library.tools import (heard_speech, hybrid_transcription, mfa_align,
+                           timeline_transcript, transcript_fit)
 from library.tools import shared_environment as se
 
 
@@ -155,6 +156,33 @@ def test_a_token_mfa_dropped_is_untimed_never_lost():
     assert words[4]["start"] == pytest.approx(1.5)
     for word in words[1:4]:
         assert "start" not in word and "end" not in word
+
+
+def test_mfa_dropped_word_keeps_transcriber_timing_through_transcript(
+        monkeypatch, tmp_path):
+    """A source-timed token MFA drops keeps its span through the full seam."""
+    spoken = heard_speech.HeardSpeech(
+        words=[heard_speech.HeardWord(word, start, end) for word, start, end in
+               [("Hello", 10.10, 10.30), ("there", 10.40, 10.55),
+                ("friend", 10.70, 10.90)]],
+        sentences=[heard_speech.HeardSentence(
+            "Hello there friend", 10.10, 10.90)])
+    window = hybrid_transcription.alignment_windows(spoken)[0]
+    monkeypatch.setattr(
+        mfa_align, "_chunk_words",
+        lambda _path: [("hello", 0.25, 0.45), ("friend", 0.85, 1.05)])
+
+    aligned = mfa_align._merge_all([window], tmp_path)
+    words = timeline_transcript.interpolate_untimed_words(
+        aligned["segments"][0]["words"])
+    recovered = next(word for word in words if word["word"] == "there")
+
+    assert recovered["start"] == pytest.approx(10.40)
+    assert recovered["end"] == pytest.approx(10.55)
+    assert recovered["timed"] is True
+    assert recovered["timing_source"] == "transcriber"
+    assert transcript_fit.row_fit({
+        "text": "Hello there friend", "words": words}) is None
 
 
 # ── 4. the retry, then the decline

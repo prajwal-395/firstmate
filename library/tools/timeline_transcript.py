@@ -93,11 +93,12 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
-from library.tools.word_boundaries import sanitize_word_boundaries
+from library.tools.word_boundaries import (MIN_WORD_SECONDS,
+                                           sanitize_word_boundaries)
 
 AUDIO_CACHE_KEYS = ("source_file", "source_in", "source_out",
                     "sample_rate", "channels")
@@ -241,6 +242,56 @@ def extract_span(source_file: str, source_in: float, source_out: float,
             f"came out. Check the range against the media - see "
             f"timeline_ingest.verify_against_media.")
     tmp.replace(out)
+    return out
+
+
+def _serialize_same_clip_overlaps(
+        segments: Sequence[SpokenSegment], clips: Sequence
+        ) -> List[SpokenSegment]:
+    """Trim an aligner overlap between rows on one source clip.
+
+    MFA aligns each window separately. Adjacent windows can therefore
+    leave the last word in one row crossing the first word in the next,
+    even though both came from the same clip and speaker. One mouth
+    cannot say both words at once: end the earlier word at the later
+    word's measured onset, and bring its row envelope with it so a reel
+    boundary can stay at that onset.
+    """
+    by_clip: Dict[tuple, List[int]] = {}
+    for index, segment in enumerate(segments):
+        if segment.resolve_item_id:
+            by_clip.setdefault((segment.resolve_item_id, segment.speaker),
+                               []).append(index)
+    clips_by_id = {clip.resolve_item_id: clip for clip in clips}
+    out = list(segments)
+    for (clip_id, _speaker), indices in by_clip.items():
+        ordered = sorted(indices,
+                         key=lambda i: (out[i].timeline_start,
+                                        out[i].timeline_end))
+        clip = clips_by_id[clip_id]
+        for left_index, right_index in zip(ordered, ordered[1:]):
+            left, right = out[left_index], out[right_index]
+            if not left.words or not right.words:
+                continue
+            earlier = left.words[-1]
+            later = right.words[0]
+            try:
+                word_start = float(earlier["start"])
+                word_end = float(earlier["end"])
+                later_start = float(later["start"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if (later_start <= word_start + MIN_WORD_SECONDS
+                    or word_end <= later_start):
+                continue
+            words = [dict(word) for word in left.words]
+            words[-1]["end"] = later_start
+            out[left_index] = replace(
+                left,
+                timeline_end=min(left.timeline_end, later_start),
+                source_end=to_source_time(clip, later_start),
+                words=tuple(words),
+            )
     return out
 
 
@@ -497,11 +548,14 @@ def interpolate_untimed_words(words: List[dict]) -> List[dict]:
     out: List[dict] = []
     for index, word in enumerate(words):
         if "start" in word and "end" in word:
-            out.append({"word": word.get("word", ""),
-                        "start": float(word["start"]),
-                        "end": float(word["end"]),
-                        "timed": True,
-                        ALIGNMENT_SCORE: _score(word)})
+            placed = {"word": word.get("word", ""),
+                      "start": float(word["start"]),
+                      "end": float(word["end"]),
+                      "timed": bool(word.get("timed", True)),
+                      ALIGNMENT_SCORE: _score(word)}
+            if "timing_source" in word:
+                placed["timing_source"] = word["timing_source"]
+            out.append(placed)
             continue
         previous = next((words[j]["end"] for j in range(index - 1, -1, -1)
                          if "end" in words[j]), None)
@@ -611,7 +665,7 @@ def segments_for_speaker(aligned: dict, speaker: Optional[str],
 
         out.extend(read_from_words(speaker, text, words, clips,
                                    avg_logprob=confidence))
-    return out
+    return _serialize_same_clip_overlaps(out, clips)
 
 
 def read_from_words(speaker, text: str, words: Sequence[dict],

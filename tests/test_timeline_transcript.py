@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import timeline_transcript as tt
+from library.tools import reel_proposal, timeline_transcript as tt
 from library.tools.timeline_ingest import TimelineClip
 
 pytestmark = pytest.mark.skipif(
@@ -132,6 +132,35 @@ def test_an_untimed_word_is_interpolated_not_dropped():
 def test_an_untimed_word_with_no_neighbours_is_dropped():
     """Nothing to interpolate FROM. Dropping is honest; inventing is not."""
     assert tt.interpolate_untimed_words([{"word": "alone"}]) == []
+
+
+def test_overlapping_rows_on_one_clip_serialize_at_the_later_word_onset():
+    """A reel edge must not expand through an earlier row's overlapped tail."""
+    clips = [_clip("/m/a.MOV", 100.0, 110.0, 0.0, 10.0)]
+    aligned = {"segments": [
+        {"start": 0.5, "end": 2.1, "text": "in the AI space.",
+         "words": [_word("in", 0.8, 1.0), _word("the", 1.05, 1.15),
+                   _word("AI", 1.2, 1.5), _word("space.", 1.5, 2.1)]},
+        {"start": 1.9, "end": 3.0, "text": "So for small", "words": [
+            _word("So", 1.9, 2.05), _word("for", 2.1, 2.2),
+            _word("small", 2.4, 2.7)]},
+    ]}
+
+    segments = tt.segments_for_speaker(aligned, "Craig", clips)
+    first = segments[0]
+
+    assert first.timeline_end == pytest.approx(1.9)
+    assert first.source_end == pytest.approx(101.9)
+    assert first.words[-1]["end"] == pytest.approx(1.9)
+    transcript = {"segments": [
+        {"resolve_item_id": segment.resolve_item_id,
+         "timeline_start": segment.timeline_start,
+         "timeline_end": segment.timeline_end,
+         "words": list(segment.words)}
+        for segment in segments
+    ]}
+    assert reel_proposal.snap_to_speech(0.0, 1.9, transcript) == \
+        pytest.approx((0.0, 1.9))
 
 
 # ── The document ─────────────────────────────────────────────────────

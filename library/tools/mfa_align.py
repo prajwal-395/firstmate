@@ -41,11 +41,11 @@ Also measured and worth knowing: out-of-vocabulary brand words are
 FINE. ChatGPT, CRM and GEO all received timings through the
 grapheme-to-phoneme fallback with no special handling. What actually
 fails is a small named class - backchannel "Mm-hmm", hyphenated
-compounds, possessive "AI's" - which degrades gracefully here: a
-token the alignment has no timing for is emitted UNTIMED (no
-start/end), exactly what whisperx emits for a word it could not place,
-and `timeline_transcript.interpolate_untimed_words` already knows what
-to do with those.
+compounds, possessive "AI's" - which MFA may not place. The hybrid
+keeps the transcriber's per-word spans beside each alignment window, so
+a dropped MFA token can keep its source timing. Only a token with no
+source span is emitted untimed for the timeline transcript to
+interpolate.
 
 Where the decline goes
 ----------------------
@@ -77,6 +77,7 @@ import subprocess
 import sys
 import tempfile
 import wave
+from math import isfinite
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -471,14 +472,15 @@ def _comparable(word: str) -> str:
 
 
 def merge_window(
-    text: str, aligned: Sequence[Tuple[str, float, float]], offset: float
+    text: str, aligned: Sequence[Tuple[str, float, float]], offset: float,
+    source_words: Optional[Sequence[dict]] = None,
 ) -> List[dict]:
     """MFA's chunk-time words as the window's words, in ORIGINAL text.
 
     Each spelled-out phrase keeps a pointer to its original token; the
-    alignment walks both sequences in order, so a token MFA dropped -
-    a hyphenated compound, a backchannel, a possessive - is emitted
-    UNTIMED rather than mis-timed or lost. Timings are shifted by the
+    alignment walks both sequences in order. If MFA dropped a token, its
+    transcriber's own word span is the fallback; only a token with no
+    source span is emitted untimed. MFA timings are shifted by the
     window's start in the source audio.
     """
     pairs = normalization_map(text)
@@ -515,10 +517,29 @@ def merge_window(
         current = index
         cursor = found + 1
 
+    source_spans: Dict[int, Tuple[float, float]] = {}
+    if source_words is not None and len(source_words) == len(pairs):
+        for index, ((token, _), source_word) in enumerate(
+                zip(pairs, source_words)):
+            if _comparable(str(source_word.get("word") or "")) != \
+                    _comparable(token):
+                continue
+            try:
+                start = float(source_word["start"])
+                end = float(source_word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if isfinite(start) and isfinite(end) and end > start:
+                source_spans[index] = (start, end)
+
     words = []
     for index, (token, _) in enumerate(pairs):
         if index in starts:
             words.append({"word": token, "start": starts[index], "end": ends[index]})
+        elif index in source_spans:
+            start, end = source_spans[index]
+            words.append({"word": token, "start": start, "end": end,
+                          "timed": True, "timing_source": "transcriber"})
         else:
             words.append({"word": token})
     return words
@@ -539,6 +560,7 @@ def _merge_all(
             str(window.get("text") or ""),
             _chunk_words(out_dir / f"{name}.TextGrid"),
             float(window["start"]),
+            source_words=window.get("source_words"),
         )
         timed = [w for w in words if "start" in w and "end" in w]
         out_segments.append(

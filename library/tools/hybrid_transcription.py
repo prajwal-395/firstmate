@@ -316,6 +316,11 @@ def alignment_windows(spoken: heard_speech.HeardSpeech,
             "start": max(0.0, run[0]["start"] - pad),
             "end": run[-1]["end"] + pad,
             "text": " ".join(span["word"] for span in run).strip(),
+            "source_words": [
+                {"word": span["word"], "start": span["start"],
+                 "end": span["end"]}
+                for span in run
+            ],
         })
     return [window for window in windows if window["text"]]
 
