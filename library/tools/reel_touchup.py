@@ -43,6 +43,9 @@ edit (`_check_single_claim`).
   transform properties are CARRIED from its own live read and declared
   in the receipt - carried, never invented (AGENTS.md 10.5) - unless
   the edit declares `properties` for a file cut to a different canvas.
+  Its source trim is carried too, unless the edit explicitly declares
+  `left_offset`: rendered overlays can include head handles, and
+  replacing a trimmed item with one starting at frame 0 exposes them.
 - `add_overlay` - a new overlay item at a stated record frame, on an
   OVERLAY row (V3+).  Adding to a comp-bearing row (V1/V2,
   `FUSION_COMP_TRACKS`) refuses: every clip there carries a
@@ -925,6 +928,35 @@ def _op_swap_pixels(edit, position, tracks, spans, changes, insertions,
             "is no route from the old comp to the new item",
             "rebuild the reel (`ren build <project>`) instead of "
             "touching it up")
+    # A replacement is a NEW timeline item. Preserve the old item's
+    # source trim unless the edit explicitly chooses another one: a
+    # caption render carries head/tail handles, and resetting a trimmed
+    # caption to frame 0 exposes its head handle as a visible delay.
+    # The touchup log records these as pixel swaps, but the trim is part
+    # of how those pixels are timed.
+    if "left_offset" in edit:
+        left_offset = edit["left_offset"]
+    else:
+        left_offset = clip.get("left_offset")
+    if left_offset is None:
+        raise TouchupRefused(
+            f"edit {position} (`swap_pixels`) replaces {row}[{item_index}], "
+            "and the read did not say which source frame the item starts "
+            "on (`left_offset` unreadable)",
+            "a replacement timeline item does not inherit the old "
+            "item's source trim, so a rendered handle could become "
+            "visible and move its content",
+            f"re-read the reel or state `left_offset` explicitly in edit "
+            f"{position}, then re-run `ren touch`")
+    try:
+        left_offset = int(left_offset)
+    except (TypeError, ValueError) as exc:
+        raise TouchupRefused(
+            f"edit {position} (`swap_pixels`) has invalid `left_offset` "
+            f"{left_offset!r}",
+            "the replacement's source frame must be a whole frame",
+            f"state an integer `left_offset` in edit {position}, then "
+            f"re-run `ren touch`") from exc
     duration = int(edit.get("duration") or clip["duration"])
     removals.append({"row": row, "item_index": int(item_index),
                      "record_frame": int(clip["record_in"]),
@@ -938,7 +970,7 @@ def _op_swap_pixels(edit, position, tracks, spans, changes, insertions,
     insertions.append(_PendingSwap(
         row=row, record_frame=int(clip["record_in"]),
         duration=duration, media=str(media),
-        left_offset=int(edit.get("left_offset") or 0),
+        left_offset=left_offset,
         carry_from=None if properties is not None else (row,
                                                         int(item_index)),
         declared_properties=(dict(properties) if properties is not None

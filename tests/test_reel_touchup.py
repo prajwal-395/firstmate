@@ -431,6 +431,39 @@ def _overlay_swap(tmp_path):
     return overlay, pending, pending[0].left_offset + pending[0].duration
 
 
+def test_swap_pixels_preserves_trimmed_caption_preroll(tmp_path):
+    """Replacing pixels must not expose the render's 12-frame head handle."""
+    timeline, _pool, _media = build_reel(tmp_path)
+    timeline.rows["V4"][0].left_offset = 12
+    overlay = tmp_path / "caption-with-head-handle.mov"
+    overlay.write_bytes(b"fake-rendered-overlay")
+
+    qualification = tu.qualify(
+        _tracks(timeline),
+        {"reel": 1, "edits": [{
+            "op": "swap_pixels", "row": "V4", "item": 0,
+            "media": str(overlay),
+        }]})
+
+    assert qualification.insertions[0].left_offset == 12
+
+
+def test_swap_pixels_honors_an_explicit_source_trim(tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    timeline.rows["V4"][0].left_offset = 12
+    overlay = tmp_path / "caption-starting-at-frame-zero.mov"
+    overlay.write_bytes(b"fake-rendered-overlay")
+
+    qualification = tu.qualify(
+        _tracks(timeline),
+        {"reel": 1, "edits": [{
+            "op": "swap_pixels", "row": "V4", "item": 0,
+            "media": str(overlay), "left_offset": 0,
+        }]})
+
+    assert qualification.insertions[0].left_offset == 0
+
+
 def test_an_overlay_rendered_longer_at_its_path_is_reread_not_refused(
         tmp_path):
     """The geo-podcast fit-picture run, 2026-09-25: the TV overlay was
@@ -556,5 +589,4 @@ def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path):
     # The approved reel stands untouched behind the staging.
     assert approved.rows["V1"][0].GetDuration() == 479
     assert approved.rows["V1"][0].GetNumNodes() == 8
-
 
