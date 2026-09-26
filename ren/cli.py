@@ -80,6 +80,9 @@ VERBS = (
     Verb("drift", "Reels", "Compare each reel's build snapshot with the live timeline", subcommand="drift"),
     Verb("post-header", "Reels", "Put each reel's social-post header on its final, as a journaled touch", subcommand="post-header"),
     Verb("shift-rows", "Reels", "Move named rows of each reel up or down by pixels, as a journaled touch", subcommand="shift-rows"),
+    Verb("scale-rows", "Reels", "Shrink or grow named rows of each reel about a point, as a journaled touch", subcommand="scale-rows"),
+    Verb("fit-picture", "Reels", "Put each reel's TV picture at a scale no phone crops, as a journaled touch", subcommand="fit-picture"),
+    Verb("caption-width", "Reels", "Narrow each reel's captions to the width the platforms leave clear, as a journaled touch", subcommand="caption-width"),
     Verb("safe-zones", "Reels", "Put a platform safe-zone guide on reel timelines, switched off so it never renders", subcommand="safe-zones"),
     Verb("sign-off", "Reels", "Record the captain's sign-off on a built reel", subcommand="sign-off"),
     Verb("purge", "Reels", "Plan (default) or --apply the lean-retention purge", subcommand="purge"),
@@ -136,8 +139,8 @@ def _assert_every_subcommand_has_a_verb() -> None:
 
 def usage() -> str:
     lines = ["usage: ren <verb> [args...]", "",
-             "Ren is the front door to the video editing engine. "
-             "`ren <verb> --help` shows a verb's own options.", ""]
+             ("Ren is the front door to the video editing engine. "
+              "`ren <verb> --help` shows a verb's own options."), ""]
     width = max(len(verb.name) for verb in VERBS)
     group = None
     for verb in VERBS:

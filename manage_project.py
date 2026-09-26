@@ -63,7 +63,10 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "drift",
-    "post-header", "shift-rows", "safe-zones", "deliver-reel",
+    "post-header", "shift-rows", "scale-rows", "fit-picture",
+    "caption-width",
+    "safe-zones",
+    "deliver-reel",
     "watch-reel", "hear-reel", "touch-reel", "undo", "ren-dry-run",
     "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
@@ -1933,6 +1936,217 @@ def cmd_shift_rows(args):
         sys.exit(1)
 
 
+def cmd_scale_rows(args):
+    """Shrink (or grow) named rows of each built reel about a point, as a touch.
+
+    `library/tools/row_shift.scale_spec`: zoom times the factor and the
+    drawn centre pulled toward the anchor, one journaled
+    `set_properties` per item. `@picture` names the camera rows under
+    the TV frame (`fit-picture` scales the frame with them);
+    `--move-with` rows keep their size and their place on the picture. `--fit` takes the factor the project's safe-zone policy
+    needs for its TV-frame picture (`safe-zones --describe` prints it)
+    and the anchor defaults to the frame's own centre.
+    """
+    import json as _json
+
+    from library.tools import reel_touchup, row_shift
+    from library.tools.tv_frame import picture_fit, resolve_tv_frame
+
+    project_folder = _reel_project_folder(args.project)
+    look = resolve_tv_frame(project_folder)
+    factor = args.by
+    if args.fit:
+        fit = picture_fit(project_folder)
+        if fit is None:
+            print("scale-rows: --fit needs a TV frame (pipeline.tv_frame)",
+                  file=sys.stderr)
+            sys.exit(2)
+        factor = fit["scale_needed"] / fit["scale"]
+        print(f"--fit: the picture needs x{factor:.4f} to sit inside "
+              f"x {fit['visible'][0]}..{fit['visible'][2]}")
+    if factor is None:
+        print("scale-rows: give --by FACTOR or --fit", file=sys.stderr)
+        sys.exit(2)
+    if args.about:
+        try:
+            x, y = (float(v) for v in args.about.split(","))
+        except ValueError:
+            print(f"scale-rows: --about {args.about!r} is not X,Y",
+                  file=sys.stderr)
+            sys.exit(2)
+    elif look is not None:
+        x, y = 540.0, 960.0 + int(look.get("offset_y") or 0)
+    else:
+        print("scale-rows: no TV frame to scale about; give --about X,Y",
+              file=sys.stderr)
+        sys.exit(2)
+    rows = [r.strip() for r in args.rows.split(",") if r.strip()]
+    move = [r.strip() for r in (args.move_with or "").split(",")
+            if r.strip()]
+
+    def spec_for(tracks, number):
+        spec = row_shift.scale_spec(
+            tracks, number, rows, factor, move_rows=move, anchor=(x, y),
+            frame=(1080, 1920), draw_gain=args.draw_gain,
+            skip_prefixes=args.skip)
+        spec.pop("rows", None)
+        for row in spec.pop("absent", ()):
+            print(f"  reel {number}: no {row!r} row, nothing rides on its "
+                  f"picture there", file=sys.stderr)
+        return spec
+
+    def dry(folder, spec):
+        return {"edits": spec["edits"]}
+
+    try:
+        result = reel_touchup.touchup_all_reels(
+            project_folder, reels=args.reel or None, spec_for=spec_for,
+            applier=dry if args.dry_run else None,
+            supersede=args.supersede or None)
+    except row_shift.RowShiftError as exc:
+        print(f"scale-rows: {exc}", file=sys.stderr)
+        sys.exit(2)
+    for entry in result["reels"]:
+        status = ("PLAN" if args.dry_run else "DONE") if entry["ok"] \
+            else "REFUSED"
+        print(f"{status} reel {entry['reel']} {entry['final']}"
+              + (f": {entry['refused']}" if entry.get("refused") else ""))
+        if args.dry_run and entry["ok"]:
+            for edit in (entry.get("receipt") or {}).get("edits") or ():
+                print(f"    {_json.dumps(edit)}")
+    print(f"{result['landed']} reel(s) {'planned' if args.dry_run else 'done'}"
+          f", {result['refused']} refused")
+    if result["refused"]:
+        sys.exit(1)
+
+
+def cmd_fit_picture(args):
+    """Put each built reel's TV picture at a scale, as a journaled touch.
+
+    `library/tools/reel_look.fit_picture_spec`: the camera rows zoom and
+    close in on the frame's centre, the frame's pixels are swapped for the
+    TV drawn at that scale inside an opaque black surround, and
+    `--move-with` rows keep their size and place on the picture. `--fit`
+    takes the scale the project's safe-zone policy needs
+    (`safe-zones --describe`). Declare the same `pipeline.tv_frame.scale`
+    afterwards so a rebuild lands where the touch put the reels.
+    """
+    import json as _json
+
+    from library.tools import reel_look, reel_touchup, row_shift
+    from library.tools.tv_frame import picture_fit
+
+    project_folder = _reel_project_folder(args.project)
+    scale = args.scale
+    if args.fit:
+        fit = picture_fit(project_folder)
+        if fit is None:
+            print("fit-picture: the project declares no TV frame",
+                  file=sys.stderr)
+            sys.exit(2)
+        scale = fit["scale_needed"]
+        print(f"--fit: tv_frame.scale {scale} puts the picture inside "
+              f"x {fit['visible'][0]}..{fit['visible'][2]}")
+    if scale is None or not 0 < scale <= 1:
+        print("fit-picture: give --scale (0 < S <= 1) or --fit",
+              file=sys.stderr)
+        sys.exit(2)
+    move = [r.strip() for r in (args.move_with or "").split(",")
+            if r.strip()]
+
+    def spec_for(tracks, number):
+        spec = reel_look.fit_picture_spec(
+            project_folder, tracks, number, scale, fps=24000 / 1001,
+            draw_gain=args.draw_gain, move_rows=move,
+            skip_prefixes=args.skip)
+        spec.pop("rows", None)
+        for row in spec.pop("absent", ()):
+            print(f"  reel {number}: no {row!r} row, nothing rides on its "
+                  f"picture there", file=sys.stderr)
+        return spec
+
+    def dry(folder, spec):
+        return {"edits": spec["edits"]}
+
+    try:
+        result = reel_touchup.touchup_all_reels(
+            project_folder, reels=args.reel or None, spec_for=spec_for,
+            applier=dry if args.dry_run else None,
+            supersede=args.supersede or None)
+    except row_shift.RowShiftError as exc:
+        print(f"fit-picture: {exc}", file=sys.stderr)
+        sys.exit(2)
+    for entry in result["reels"]:
+        status = ("PLAN" if args.dry_run else "DONE") if entry["ok"] \
+            else "REFUSED"
+        print(f"{status} reel {entry['reel']} {entry['final']}"
+              + (f": {entry['refused']}" if entry.get("refused") else ""))
+        if args.dry_run and entry["ok"]:
+            for edit in (entry.get("receipt") or {}).get("edits") or ():
+                print(f"    {_json.dumps(edit)}")
+    print(f"{result['landed']} reel(s) {'planned' if args.dry_run else 'done'}"
+          f", {result['refused']} refused")
+    if not args.dry_run and result["landed"]:
+        print(f"declare pipeline.tv_frame.scale: {scale} so a rebuild "
+              f"lands where these reels now are")
+    if result["refused"]:
+        sys.exit(1)
+
+
+def cmd_caption_width(args):
+    """Narrow each built reel's captions to the width the platforms leave.
+
+    `library/tools/caption_width.py`: only a card whose words wrap wider
+    than the width is re-rendered, through the caption step's own
+    renderer, and swapped in place as one journaled touch per reel. The
+    width is `--max-width`, or the widest centred box clear of every
+    platform's safe zones over the rows the captions draw on.
+    """
+    import json as _json
+
+    from library.tools import caption_width, reel_touchup
+    from library.tools.reel_touchup import resolve_final_name
+
+    project_folder = _reel_project_folder(args.project)
+    widths: dict = {}
+
+    def spec_for(tracks, number):
+        spec = caption_width.touch_spec(
+            project_folder, number, tracks,
+            timeline_label=resolve_final_name(project_folder, int(number)),
+            draw_gain=args.draw_gain, max_width=args.max_width)
+        widths[int(number)] = (spec.pop("max_width"), spec.pop("narrowed"),
+                               spec.pop("cards"))
+        return spec
+
+    def dry(folder, spec):
+        return {"edits": spec["edits"]}
+
+    try:
+        result = reel_touchup.touchup_all_reels(
+            project_folder, reels=args.reel or None, spec_for=spec_for,
+            applier=dry if args.dry_run else None,
+            supersede=args.supersede or None)
+    except caption_width.CaptionWidthError as exc:
+        print(f"caption-width: {exc}", file=sys.stderr)
+        sys.exit(2)
+    for entry in result["reels"]:
+        status = ("PLAN" if args.dry_run else "DONE") if entry["ok"] \
+            else "REFUSED"
+        known = widths.get(int(entry["reel"]))
+        what = (f": {known[1]} of {known[2]} card(s) to {known[0]}px"
+                if known and entry["ok"] else "")
+        print(f"{status} reel {entry['reel']} {entry['final']}{what}"
+              + (f": {entry['refused']}" if entry.get("refused") else ""))
+        if args.dry_run and entry["ok"]:
+            for edit in (entry.get("receipt") or {}).get("edits") or ():
+                print(f"    {_json.dumps(edit)}")
+    print(f"{result['landed']} reel(s) {'planned' if args.dry_run else 'done'}"
+          f", {result['refused']} refused")
+    if result["refused"]:
+        sys.exit(1)
+
+
 def cmd_safe_zones(args):
     """Place a platform safe-zone guide on reel timelines, switched off.
 
@@ -1946,6 +2160,26 @@ def cmd_safe_zones(args):
     from library.tools import safe_zone_guide
 
     project_folder = _reel_project_folder(args.project)
+    if args.describe:
+        from library.tools.safe_zone_policy import (
+            SafeZonePolicyError,
+            project_layout,
+        )
+        from library.tools.tv_frame import picture_fit
+        try:
+            print("\n".join(project_layout(project_folder).describe()))
+            fit = picture_fit(project_folder)
+            if fit is not None:
+                x0, _y0, x1, _y1 = fit["window"]
+                print(f"picture (TV window) at tv_frame.scale "
+                      f"{fit['scale']}: x {x0}..{x1} - "
+                      + ("inside what every phone shows" if fit["fits"]
+                         else f"cropped by the phones; tv_frame.scale "
+                              f"{fit['scale_needed']} fits it"))
+        except SafeZonePolicyError as exc:
+            print(f"safe-zones: {exc}", file=sys.stderr)
+            sys.exit(2)
+        return
     overlay = None if args.remove else args.overlay
     try:
         with resolve_lock.resolve_lease("safe-zone guides", exclusive=True):
@@ -2514,6 +2748,108 @@ def main():
         help="Read the reels and print each change; write nothing")
     shift_rows_parser.set_defaults(func=cmd_shift_rows)
 
+    scale_rows_parser = sub.add_parser(
+        "scale-rows", help="Shrink or grow named rows of each built reel "
+                           "about a point, as a journaled touch")
+    scale_rows_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    scale_rows_parser.add_argument(
+        "reel", type=int, nargs="*",
+        help="Approved reel numbers; none means every approved reel")
+    scale_rows_parser.add_argument(
+        "--rows", required=True, metavar="ROW[,ROW]",
+        help="Rows to scale, by name; @picture is the camera rows under "
+             "the TV frame (to scale the frame too, use fit-picture)")
+    scale_rows_parser.add_argument(
+        "--move-with", default="", metavar="ROW[,ROW]",
+        help="Rows riding on the picture: moved with it, not resized")
+    scale_rows_parser.add_argument(
+        "--by", type=float, default=None, metavar="FACTOR",
+        help="The scale, below 1 to shrink")
+    scale_rows_parser.add_argument(
+        "--fit", action="store_true",
+        help="The scale the project's safe-zone policy needs for its "
+             "TV-frame picture")
+    scale_rows_parser.add_argument(
+        "--about", default=None, metavar="X,Y",
+        help="The point to scale about, in delivery pixels; default the "
+             "TV frame's centre")
+    scale_rows_parser.add_argument(
+        "--draw-gain", type=float, required=True,
+        help="What the renderer draws per Pan/Tilt unit on these "
+             "timelines, as MEASURED")
+    scale_rows_parser.add_argument(
+        "--skip", action="append", default=[], metavar="PREFIX",
+        help="Leave items whose name starts with this as they are")
+    scale_rows_parser.add_argument(
+        "--supersede", action="append", default=[], metavar="REEL",
+        help="A signed-off reel this touch may replace. Repeatable")
+    scale_rows_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Read the reels and print each change; write nothing")
+    scale_rows_parser.set_defaults(func=cmd_scale_rows)
+
+    fit_picture_parser = sub.add_parser(
+        "fit-picture", help="Put each built reel's TV picture at a scale "
+                            "no phone crops, as a journaled touch")
+    fit_picture_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    fit_picture_parser.add_argument(
+        "reel", type=int, nargs="*",
+        help="Approved reel numbers; none means every approved reel")
+    fit_picture_parser.add_argument(
+        "--scale", type=float, default=None, metavar="S",
+        help="The TV frame's scale, as pipeline.tv_frame.scale states it")
+    fit_picture_parser.add_argument(
+        "--fit", action="store_true",
+        help="The scale the project's safe-zone policy needs")
+    fit_picture_parser.add_argument(
+        "--move-with", default="", metavar="ROW[,ROW]",
+        help="Rows riding on the picture: moved with it, not resized")
+    fit_picture_parser.add_argument(
+        "--draw-gain", type=float, required=True,
+        help="What the renderer draws per Pan/Tilt unit on these "
+             "timelines, as MEASURED")
+    fit_picture_parser.add_argument(
+        "--skip", action="append", default=[], metavar="PREFIX",
+        help="Leave items whose name starts with this as they are")
+    fit_picture_parser.add_argument(
+        "--supersede", action="append", default=[], metavar="REEL",
+        help="A signed-off reel this touch may replace. Repeatable")
+    fit_picture_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Read the reels and print each change; write nothing")
+    fit_picture_parser.set_defaults(func=cmd_fit_picture)
+
+    caption_width_parser = sub.add_parser(
+        "caption-width", help="Narrow each built reel's captions to the "
+                              "width the platforms leave clear, as a "
+                              "journaled touch")
+    caption_width_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    caption_width_parser.add_argument(
+        "reel", type=int, nargs="*",
+        help="Approved reel numbers; none means every approved reel")
+    caption_width_parser.add_argument(
+        "--draw-gain", type=float, required=True,
+        help="What the renderer draws per Tilt unit on these timelines, "
+             "as MEASURED - it says which rows the captions draw on")
+    caption_width_parser.add_argument(
+        "--max-width", type=int, default=None, metavar="PX",
+        help="The wrap width; default: the widest centred box clear of "
+             "every platform's safe zones over the captions' rows")
+    caption_width_parser.add_argument(
+        "--supersede", action="append", default=[], metavar="REEL",
+        help="A signed-off reel this touch may replace. Repeatable")
+    caption_width_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Render the narrowed cards and print each change; touch no "
+             "timeline")
+    caption_width_parser.set_defaults(func=cmd_caption_width)
+
     safe_zones_parser = sub.add_parser(
         "safe-zones", help="Place a platform safe-zone guide on reel "
                            "timelines, switched off so it never renders")
@@ -2523,10 +2859,18 @@ def main():
     safe_zones_parser.add_argument(
         "reel", type=int, nargs="*",
         help="Approved reel numbers; none means every approved reel")
-    from library.tools.platform_safe_zones import COMBINED, OVERLAY_NAMES
+    from library.tools.platform_safe_zones import OVERLAY_NAMES
+    from library.tools.safe_zone_policy import PROJECT_OVERLAY
     safe_zones_parser.add_argument(
-        "--overlay", choices=OVERLAY_NAMES, default=COMBINED,
-        help="Which platform's guide, or all four combined (default)")
+        "--overlay", choices=(PROJECT_OVERLAY,) + OVERLAY_NAMES,
+        default=PROJECT_OVERLAY,
+        help="The project's own policy (default: pipeline.safe_zones, "
+             "or every platform on every phone), one platform's guide, "
+             "or all four combined")
+    safe_zones_parser.add_argument(
+        "--describe", action="store_true",
+        help="Print the project's safe-zone policy and what it resolves "
+             "to; touch nothing")
     safe_zones_parser.add_argument(
         "--remove", action="store_true",
         help="Take the guide row away instead of placing one")

@@ -48,3 +48,50 @@ def test_a_row_the_reel_does_not_carry_is_refused():
     with pytest.raises(row_shift.RowShiftError):
         row_shift.shift_spec(_tracks(), 1, {"Frame": 220}, frame=(1080, 1920),
                              draw_gain=1.0, size_of=SIZES.__getitem__)
+
+
+def test_scaling_the_picture_keeps_what_it_frames_and_what_rides_on_it():
+    # 2026-09-25: shrinking the picture so no phone crops its edges. A
+    # punched-in shot is panned to frame the speaker; scaling its zoom
+    # but not its pan would slide the speaker off the window's centre,
+    # and a title riding on the picture must move with it, not shrink.
+    fit = fit_base_scale(3840, 2160, 1080, 1920)
+    tracks = [
+        {"type": "video", "index": 1, "name": "Craig", "clips": [
+            {"name": "A.MXF", "source_file": "pic",
+             "transform": {"Pan": 120.0, "Tilt": -0.79,
+                           "ZoomX": 2.3, "ZoomY": 2.3}}]},
+        {"type": "video", "index": 2, "name": "Frame", "clips": [
+            {"name": "tv.mov", "source_file": "card",
+             "transform": {"Pan": 0.0, "Tilt": -220.0,
+                           "ZoomX": 1.0, "ZoomY": 1.0}}]},
+        {"type": "video", "index": 6, "name": "Motion Graphics", "clips": [
+            {"name": "title.mov", "source_file": "cap",
+             "transform": {"Pan": -400.0, "Tilt": -1500.0,
+                           "ZoomX": 1.0, "ZoomY": 1.0}}]},
+    ]
+    anchor = (540.0, 960.0 + 220)
+    spec = row_shift.scale_spec(
+        tracks, 1, [row_shift.PICTURE], 0.8,
+        move_rows=["Motion Graphics", "Explainer"], anchor=anchor,
+        frame=(1080, 1920), draw_gain=1.0, size_of=SIZES.__getitem__)
+    assert spec["absent"] == ["Explainer"]
+    props = {e["row"]: e["properties"] for e in spec["edits"]}
+
+    def centre(transform, size, base):
+        dx = shift_px(abs(transform["Pan"]), size[0], 1080, base, 1.0)
+        dy = shift_px(abs(transform["Tilt"]), size[1], 1920, base, 1.0)
+        return (540 + (dx if transform["Pan"] >= 0 else -dx),
+                960 + (-dy if transform["Tilt"] >= 0 else dy))
+
+    # The frame is not zoomed: a smaller TV is drawn inside its overlay.
+    assert "V2" not in props
+    for row, size, base, old in (
+            ("V1", SIZES["pic"], fit, tracks[0]["clips"][0]["transform"]),
+            ("V6", SIZES["cap"], 1.0, tracks[2]["clips"][0]["transform"])):
+        before, after = centre(old, size, base), centre(props[row], size,
+                                                        base)
+        for b, a, c in zip(before, after, anchor):
+            assert a - c == pytest.approx(0.8 * (b - c), abs=0.01)
+    assert props["V1"]["ZoomX"] == pytest.approx(2.3 * 0.8)
+    assert "ZoomX" not in props["V6"]  # the title keeps its size

@@ -629,9 +629,9 @@ def declared_zoom_over(declared_crop_factor: float, look) -> float:
     """
     if look is None:
         return declared_crop_factor
-    from library.tools.tv_frame import v1_zoom_for_look
+    from library.tools.tv_frame import look_scale, v1_zoom_for_look
     return float(declared_crop_factor or 1.0) * v1_zoom_for_look(
-        look["punch_in"])
+        look["punch_in"], look_scale(look))
 
 
 def screen_window_rect_for(look, frame_width: int, frame_height: int):
@@ -745,7 +745,7 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
 
     from library.tools.project_layout import Area, ProjectLayout
     from library.tools.tv_frame import (
-        applied_rotation, cover_size, oriented_size)
+        applied_rotation, cover_size, look_scale, oriented_size)
 
     out_dir = os.path.join(
         str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
@@ -764,9 +764,19 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
     drawn_width, drawn_height = cover_size(
         oriented_size(asset_size, rotation), width, height)
 
+    # A scaled look (`tv_frame.validate_scale`) draws the television
+    # smaller INSIDE the same canvas and fills the rest with opaque
+    # black: the overlay still covers the whole delivery at the same
+    # zoom and offset, and the picture - wider than the window it shows
+    # through - cannot spill past the smaller bezel. Zooming the overlay
+    # instead uncovered the frame's edges and showed the picture there
+    # (the captain's shrink previews, 2026-09-25).
+    shrink = look_scale(look)
     stamp = hashlib.sha1(
         f"{asset}|{os.path.getmtime(asset)}|{drawn_width}x{drawn_height}"
-        f"|r{rotation}|{fps}".encode("utf-8")).hexdigest()[:10]
+        f"|r{rotation}|{fps}".encode("utf-8")
+        + (f"|s{shrink}".encode() if shrink != 1.0 else b"")
+    ).hexdigest()[:10]
 
     # `transpose=1` is a quarter turn clockwise, `2` anticlockwise, and
     # 180 is two of them. Named here rather than computed, because
@@ -791,7 +801,13 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
             "-t", f"{longest / fps:.5f}",
             "-r", f"{fps:.6f}",
             "-vf", (f"{transpose}"
-                    f"scale={drawn_width}:{drawn_height}:flags=lanczos"),
+                    f"scale={drawn_width}:{drawn_height}:flags=lanczos"
+                    + ("" if shrink == 1.0 else
+                       f",scale={_even(drawn_width * shrink)}:"
+                       f"{_even(drawn_height * shrink)}:flags=lanczos,"
+                       f"format=yuva444p10le,"
+                       f"pad={drawn_width}:{drawn_height}:"
+                       f"(ow-iw)/2:(oh-ih)/2:color=black@1.0")),
             "-c:v", "prores_ks", "-profile:v", "4444",
             "-pix_fmt", "yuva444p10le", path,
         ], capture_output=True, encoding="utf-8", check=False)
@@ -810,6 +826,11 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
             "total_frames": end_frame - start_frame,
         })
     return segments
+
+
+def _even(value: float) -> int:
+    """Round to an even pixel count, which every encoder here accepts."""
+    return max(2, round(value / 2) * 2)
 
 
 def frame_properties(look: dict, frame_width: int,
@@ -833,6 +854,8 @@ def frame_properties(look: dict, frame_width: int,
     rotation = applied_rotation(look, asset_size, frame_width, frame_height)
     drawn = cover_size(oriented_size(asset_size, rotation),
                        frame_width, frame_height)
+    # A scaled look is drawn smaller INSIDE the overlay
+    # (`frame_overlay_segments`), so the overlay itself keeps this zoom.
     zoom = cover_zoom(drawn, frame_width, frame_height)
     properties = {"ZoomX": zoom, "ZoomY": zoom}
     offset = int(look.get("offset_y") or 0)
@@ -902,7 +925,11 @@ def punch_in_properties(look: dict, subject, source_width: int,
       placed.  That is the defect the captain has had to catch twice,
       and a post-condition is what stops a third time.
     """
-    from library.tools.tv_frame import v1_zoom_for_look, window_cover_zoom
+    from library.tools.tv_frame import (
+        look_scale,
+        v1_zoom_for_look,
+        window_cover_zoom,
+    )
     from library.tools.resolve_transform import (
         fit_base_scale, pan_tilt_for_centre)
 
@@ -916,7 +943,7 @@ def punch_in_properties(look: dict, subject, source_width: int,
             "covering the delivery frame instead is the defect this "
             "argument exists to make impossible to repeat.")
 
-    declared = v1_zoom_for_look(look["punch_in"])
+    declared = v1_zoom_for_look(look["punch_in"], look_scale(look))
     required = window_cover_zoom(source_width, source_height, window,
                                  frame_width, frame_height)
     zoom = max(declared, required)
@@ -1445,3 +1472,50 @@ def apply_comps(manifest: dict, project_folder: str,
 def _slug(text: str) -> str:
     import re
     return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
+
+
+def fit_picture_spec(project_folder: str, tracks, reel: int, scale: float,
+                     *, fps: float, draw_gain: float,
+                     move_rows: Sequence[str] = (),
+                     skip_prefixes: Sequence[str] = (),
+                     frame: tuple[int, int] = (1080, 1920)) -> dict:
+    """The `touch-reel` spec that puts a built reel's TV picture at ``scale``.
+
+    Three parts, one touch: the camera rows under the frame zoom and
+    close in on the frame's centre (`row_shift.scale_spec`); each
+    ``Frame`` item's pixels are SWAPPED for the overlay drawn at
+    ``scale`` inside an opaque black surround (`frame_overlay_segments`),
+    keeping the item's own transform; ``move_rows`` - graphics riding on
+    the picture - keep their size and their place on it. ``scale`` is
+    ABSOLUTE, as ``pipeline.tv_frame.scale`` states it; the reel is
+    taken to be at the project's declared scale now.
+    """
+    from library.tools import row_shift
+    from library.tools.timeline_layout import FRAME_NAME
+    from library.tools.tv_frame import look_scale, resolve_tv_frame
+
+    look = resolve_tv_frame(project_folder)
+    if look is None:
+        raise row_shift.RowShiftError(
+            "the project declares no TV frame (pipeline.tv_frame)")
+    factor = float(scale) / look_scale(look)
+    anchor = (frame[0] / 2, frame[1] / 2 + int(look.get("offset_y") or 0))
+    spec = row_shift.scale_spec(
+        tracks, reel, [row_shift.PICTURE], factor, move_rows=move_rows,
+        anchor=anchor, frame=frame, draw_gain=draw_gain,
+        skip_prefixes=skip_prefixes)
+    frame_row = next(t for t in tracks
+                     if str(t.get("type", "")).lower().startswith("v")
+                     and t.get("name") == FRAME_NAME)
+    items = list(frame_row.get("clips") or ())
+    runs = [(int(c["record_in"]), int(c["record_in"]) + int(c["duration"]))
+            for c in items]
+    segments = frame_overlay_segments(dict(look, scale=float(scale)), runs,
+                                      fps, frame[0], frame[1],
+                                      project_folder)
+    spec["edits"] += [{"op": "swap_pixels",
+                       "row": f"V{int(frame_row['index'])}", "item": index,
+                       "media": segment["overlay_path"]}
+                      for index, segment in enumerate(segments)]
+    return spec
+

@@ -169,17 +169,22 @@ def _caption_segment(tmp_path, canvas=(904, 480), tilt=-1744.0,
 def test_caption_row_path_refuses_a_stale_sidecar_placement(tmp_path):
     """Reel 28's shape: 18 tight captions placed under a superseded row
     draw ~220px below the declared one. The row path refuses them."""
+    from library.tools.safe_area import resolve_safe_area
+
     project = _project_with_caption_row(tmp_path)
-    segment = _caption_segment(tmp_path)
+    insets = resolve_safe_area(project, width=FRAME[0], height=FRAME[1])
+    intended = constant_caption_box({
+        "width": FRAME[0], "height": FRAME[1],
+        "style": {"safeArea": {**insets.as_props(),
+                               "bottom": insets.bottom + 1},
+                  "captionMaxWidth": insets.centered_usable_width,
+                  "position": "bottom"},
+        "subtitles": [{"text": ""}]})
+    segment = _caption_segment(tmp_path,
+                               canvas=(intended.width, intended.height))
     draw_intent = caption_draw_intent(
         segment, frame_wh=FRAME, project_folder=project)
     assert draw_intent is not None
-    intended = constant_caption_box({
-        "width": FRAME[0], "height": FRAME[1],
-        "style": {"safeArea": {"top": 120, "right": 120,
-                               "bottom": 321, "left": 90},
-                  "captionMaxWidth": 840, "position": "bottom"},
-        "subtitles": [{"text": ""}]})
     stale_tilt = intended.placement["tilt"] - 220.0 * (FRAME[1] / 480.0)
     reason = _intent_reason(
         draw_intent, {"scaling": 1, "pan": 0.0, "tilt": stale_tilt},

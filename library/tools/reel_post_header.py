@@ -36,7 +36,8 @@ graphics? that way we can just change the positioning freely".
 
 Where it sits is MEASURED after the render, not asserted: the drawn ink
 is read off the still and checked against every platform's UI band
-(``platform_safe_zones.intrusions``) and against the picture window.
+(``safe_zone_policy``, the project's policy) and against the picture
+window.
 Those are REPORTED on the run, never refused - the zones are a guide the
 captain holds the reel up against, and a header he placed inside one
 knowingly is his call.
@@ -245,29 +246,29 @@ def hook_for(project_folder: str, reel_number) -> dict | None:
 
 # ── Geometry ─────────────────────────────────────────────────────────
 
-def layout_box(declared: dict, width: int, height: int) -> dict[str, int]:
-    """Where the header lays out: the declared row, between the
-    combined platform safe columns.
+def layout_box(declared: dict, width: int, height: int,
+               project_folder: str | None = None) -> dict[str, int]:
+    """Where the header lays out: the declared row, across the columns
+    no phone crops off.
 
-    The horizontal span is not chosen here - it is the columns clear of
-    every platform's side strips (``platform_safe_zones``), so no phone
-    crops the hook off.
+    The horizontal span is not chosen here - it is the project's
+    safe-zone policy's visible region (``safe_zone_policy``), so no
+    phone the project is made for crops the hook off.
     """
-    from library.tools import platform_safe_zones as psz
+    from library.tools.safe_zone_policy import project_layout
 
-    x0, x1 = _combined_safe_columns()
-    sx = width / psz.REFERENCE_SIZE[0]
-    left = round(x0 * sx)
-    right = round(x1 * sx)
-    return {"left": left, "top": round(declared["top"] * height),
-            "width": right - left}
+    x0, _y0, x1, _y1 = project_layout(project_folder,
+                                      (width, height)).visible()
+    x0, x1 = x0 + EDGE_GUARD_PX, x1 - EDGE_GUARD_PX
+    return {"left": int(x0), "top": round(declared["top"] * height),
+            "width": int(x1 - x0)}
 
 
-def _combined_safe_columns() -> tuple[int, int]:
-    from library.tools import platform_safe_zones as psz
-
-    columns = [p.safe_columns() for p in psz.PLATFORMS.values()]
-    return (max(c[0] for c in columns), min(c[1] for c in columns))
+#: Pixels the layout keeps inside the visible columns: the avatar's and
+#: the glyphs' antialiased edges draw about a pixel past the box they lay
+#: out in (measured on the geo-podcast finals, 2026-09-25: ink at x117
+#: against a box from x118).
+EDGE_GUARD_PX = 2
 
 
 def ink_box(png_path: str) -> tuple[int, int, int, int] | None:
@@ -290,7 +291,7 @@ def _data_uri(path: str) -> str:
 
 
 def props_for(declared: dict, hook: str, width: int, height: int,
-              fps: float) -> dict:
+              fps: float, project_folder: str | None = None) -> dict:
     return {
         "avatarSrc": _data_uri(declared["avatar"]),
         "avatarShape": declared["avatar_shape"],
@@ -303,7 +304,7 @@ def props_for(declared: dict, hook: str, width: int, height: int,
         "nameSize": declared["name_size"],
         "handleSize": declared["handle_size"],
         "hookSize": declared["hook_size"],
-        "box": layout_box(declared, width, height),
+        "box": layout_box(declared, width, height, project_folder),
         "fps": fps,
         "width": int(width),
         "height": int(height),
@@ -433,7 +434,7 @@ def _still_for(declared: dict, hook: str, width: int, height: int,
     """The reel's header still, rendered once and keyed by its props."""
     from library.tools.project_layout import Area, ProjectLayout
 
-    props = props_for(declared, hook, width, height, fps)
+    props = props_for(declared, hook, width, height, fps, project_folder)
     stamp = hashlib.sha1(json.dumps(props, sort_keys=True).encode(
         "utf-8")).hexdigest()[:10]
     out_dir = str(ProjectLayout(project_folder).write_dir(
@@ -479,7 +480,7 @@ def plan_for_reel(reel_name: str, reel_number, runs: Sequence[tuple[int, int]],
     tight graphic with (``resolve_transform``); the header's Pan/Tilt
     is computed with the same one.
     """
-    from library.tools import platform_safe_zones as psz
+    from library.tools.safe_zone_policy import project_layout
 
     plan = HeaderPlan(reel_name=reel_name,
                       reel_number=(int(reel_number)
@@ -507,8 +508,8 @@ def plan_for_reel(reel_name: str, reel_number, runs: Sequence[tuple[int, int]],
 
     plan.ink_box = ink_box(png)
     if plan.ink_box is not None:
-        plan.intrusions = psz.intrusions(plan.ink_box, psz.COMBINED,
-                                         frame=(width, height))
+        plan.intrusions = project_layout(
+            project_folder, (width, height)).intrusions(plan.ink_box)
         for hit in plan.intrusions:
             print(f"  {reel_name}: post header inside {hit['platform']} "
                   f"{hit['band']} zone ({hit['ui']}) at {hit['overlap']}",

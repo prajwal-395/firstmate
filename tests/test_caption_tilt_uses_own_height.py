@@ -78,7 +78,10 @@ def _declared_centre(project_folder):
         "width": FRAME_W, "height": FRAME_H, "style": style,
         "subtitles": [{"text": "a caption"}],
     })
-    assert (box.width, box.height) == (904, 480), (
+    wrap = style["captionMaxWidth"]
+    assert (box.width, box.height) == (
+        tight_box._ceil_even(wrap + 2 * tight_box.PAD_X
+                             + tight_box.TRAILING_MARGIN_PX), 480), (
         "the structural canvas moved - recheck what this pin assumes")
     assert box.placement["pan"] == pytest.approx(0.0), (
         "captions are centred; a pan here is a layout change, not sizing")

@@ -26,26 +26,25 @@ nothing:
 
 Where the numbers come from
 ---------------------------
-The vertical profile is the published short-form safe-area map for
-1080x1920, recorded in the motion-graphics research report (§2.5, from
-``iart-ai/tiktok-video-skills``' ``short-form-video`` skill):
+The vertical profile is DERIVED, never typed. The apps' own UI is
+measured on the captain's phone and laid out on every modelled phone
+(``platform_safe_zones``); the project's safe-zone POLICY picks which
+platforms and phones it is made for and adds its own rules
+(``safe_zone_policy``, declared at ``pipeline.safe_zones``); and the
+four insets are that layout's zones, each counted against the edge it
+hugs (``SafeLayout.insets``). Under the default policy - every platform
+on every phone, the captain's 2026-08-25 ruling that one master serves
+them all - that is top 277 (TikTok's tabs under a short Android status
+bar), right 212 (LinkedIn's action rail), bottom 334 (TikTok's caption
+block) and left 118 (LinkedIn's side crop on a 21:9 phone).
 
-===========================  ==========================================
-Zone                         Keep clear
-===========================  ==========================================
-Universal safe box           centre 900x1400
-Top                          ~120px (profile / sound UI)
-Bottom                       **~320px** (captions, CTA, hashtags, audio bar)
-Right                        ~120px (like / comment / share rail)
-===========================  ==========================================
-
-Taken per edge, strictest wins: top 120px, bottom 320px, right 120px, and
-left 90px - the left edge is constrained only by the 900px-wide universal
-safe box, ``(1080 - 900) / 2``.  The asymmetry is real and is kept rather
-than averaged away, because the right rail genuinely is the wider
-obstruction.  Content that is CENTRED cannot use it: a centred box can
-only be as wide as twice the distance to the nearer edge, which is what
-:attr:`SafeAreaInsets.centered_usable_width` returns.
+The published map this replaced (top ~120, bottom ~320, right ~120, a
+900px universal safe box; the motion-graphics research report section
+2.5, from ``iart-ai/tiktok-video-skills``' ``short-form-video`` skill)
+put the longest caption lines under the apps' action rails (the
+captain, 2026-09-25). A consumer that can use a SPAN rather than an
+inset - the rails are a notch, not an edge - asks the layout directly
+(``safe_zone_policy.project_layout``).
 
 Insets are stored as FRACTIONS of the frame, not pixels, and resolved
 against whatever ``(width, height)`` the caller actually renders at.  The
@@ -88,7 +87,6 @@ Four consumers read it: `subtitle_style.SubtitleStyle.resolve` (the `safeArea`/`
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 from library.tools.delivery_format import (
     DEFAULT_DELIVERY_FORMAT,
@@ -119,10 +117,10 @@ class SafeAreaProfile:
             raise ValueError(
                 f"safe area needs a real frame, got {width}x{height}")
         return SafeAreaInsets(
-            top=int(round(self.top * height)),
-            right=int(round(self.right * width)),
-            bottom=int(round(self.bottom * height)),
-            left=int(round(self.left * width)),
+            top=round(self.top * height),
+            right=round(self.right * width),
+            bottom=round(self.bottom * height),
+            left=round(self.left * width),
             width=int(width),
             height=int(height),
             profile=self.name,
@@ -160,7 +158,7 @@ class SafeAreaInsets:
         """
         return self.width - 2 * max(self.left, self.right)
 
-    def as_props(self) -> Dict[str, int]:
+    def as_props(self) -> dict[str, int]:
         """The four pixel insets, for serialising into Remotion props."""
         return {
             "top": self.top,
@@ -178,21 +176,40 @@ class SafeAreaInsets:
 
 # The short-form platform map. One profile, two vertical formats: 4K
 # vertical is the same product in more pixels, and the fractions carry it.
-_SHORTFORM_VERTICAL = SafeAreaProfile(
-    name="shortform_vertical",
-    top=120 / 1920,      # 0.0625  - profile / sound UI
-    right=120 / 1080,    # 0.1111  - like / comment / share rail
-    bottom=320 / 1920,   # 0.1667  - caption, CTA, hashtags, audio bar
-    left=90 / 1080,      # 0.0833  - the 900px universal safe box
-    derived_from=(
-        "The published 1080x1920 short-form safe-area map (top ~120px, "
-        "bottom ~320px, right ~120px, universal safe box 900x1400), "
-        "recorded in the motion-graphics research report section 2.5 from "
-        "iart-ai/tiktok-video-skills' short-form-video skill. Strictest "
-        "per edge, per the captain's ruling of 2026-08-25 that one master "
-        "serves Reels, TikTok and Shorts."
-    ),
-)
+#
+# DERIVED, never typed: the insets are the project's safe-zone policy
+# (`safe_zone_policy`) resolved over the platform zones MEASURED on the
+# captain's phone and laid out on every modelled phone
+# (`platform_safe_zones`) - each app element counted against the edge it
+# hugs. The published map this replaced (top 120, bottom 320, right 120,
+# left 90; `iart-ai/tiktok-video-skills`' short-form-video skill) put the
+# captions under the apps' action rails: the rails start 212px in, not
+# 120 (the captain, 2026-09-25).
+SHORTFORM_VERTICAL = "shortform_vertical"
+
+
+def _shortform_profile(policy=None) -> "SafeAreaProfile":
+    from library.tools.safe_zone_policy import resolve_layout
+
+    layout = resolve_layout(policy)
+    width, height = layout.frame
+    insets = layout.insets()
+    return SafeAreaProfile(
+        name=SHORTFORM_VERTICAL,
+        top=insets["top"] / height,
+        right=insets["right"] / width,
+        bottom=insets["bottom"] / height,
+        left=insets["left"] / width,
+        derived_from=(
+            "platform_safe_zones: every app's UI measured on the "
+            "captain's phone and laid out on "
+            f"{', '.join(layout.policy.platforms)} x "
+            f"{len(layout.policy.devices)} phone(s), each element counted "
+            "against the edge it hugs (safe_zone_policy.SafeLayout."
+            "insets)" + (" under the project's declared policy"
+                         if layout.policy.declared else "")),
+    )
+
 
 # A frame with no platform UI over it. Not a guess and not a default:
 # it is the broadcast title-safe convention, and it is what a format
@@ -213,9 +230,9 @@ _TITLE_SAFE = SafeAreaProfile(
 
 # Keyed by the names in library/tools/delivery_format.py. A format added
 # there must be added here, or resolving its safe area raises.
-SAFE_AREAS: Dict[str, SafeAreaProfile] = {
-    "vertical_1080x1920": _SHORTFORM_VERTICAL,
-    "vertical_2160x3840": _SHORTFORM_VERTICAL,
+SAFE_AREAS: dict[str, object] = {
+    "vertical_1080x1920": SHORTFORM_VERTICAL,
+    "vertical_2160x3840": SHORTFORM_VERTICAL,
     "square_1080x1080": _TITLE_SAFE,
     "horizontal_1920x1080": _TITLE_SAFE,
 }
@@ -230,24 +247,37 @@ class UnknownSafeArea(KeyError):
     """
 
 
-def profile_names() -> List[str]:
+def profile_names() -> list[str]:
     """Every delivery format that has a safe-area profile."""
     return sorted(SAFE_AREAS)
 
 
-def safe_area_profile(format_name: str) -> SafeAreaProfile:
-    """The profile for a delivery format name, or a raise naming it."""
+def safe_area_profile(format_name: str,
+                      project_folder: str | None = None
+                      ) -> SafeAreaProfile:
+    """The profile for a delivery format name, or a raise naming it.
+
+    A vertical format's profile is derived from ``project_folder``'s
+    safe-zone policy (``safe_zone_policy``), or from the default policy
+    - every platform on every modelled phone - where none is given.
+    """
     key = (format_name or DEFAULT_DELIVERY_FORMAT).strip()
     try:
-        return SAFE_AREAS[key]
+        entry = SAFE_AREAS[key]
     except KeyError:
-        raise UnknownSafeArea(
-            f"No safe area declared for delivery format {format_name!r}. "
-            f"Formats with one: {profile_names()}. Add a row to "
-            f"library/tools/safe_area.py - and say where its numbers came "
-            f"from, because an invented inset is a caption under the "
-            f"platform's own UI with nothing to notice."
-        ) from None
+        entry = None
+    if entry == SHORTFORM_VERTICAL:
+        from library.tools.safe_zone_policy import project_policy
+
+        return _shortform_profile(project_policy(project_folder))
+    if entry is not None:
+        return entry
+    raise UnknownSafeArea(
+        f"No safe area declared for delivery format {format_name!r}. "
+        f"Formats with one: {profile_names()}. Add a row to "
+        f"library/tools/safe_area.py - and say where its numbers came "
+        f"from, because an invented inset is a caption under the "
+        f"platform's own UI with nothing to notice.")
 
 
 def safe_area_for_format(format_name: str) -> SafeAreaInsets:
@@ -274,10 +304,10 @@ def safe_area_for_frame(width: int, height: int) -> SafeAreaInsets:
     )
 
 
-def resolve_safe_area(project_folder: Optional[str] = None,
-                      templates_dir: Optional[str] = None,
-                      width: Optional[int] = None,
-                      height: Optional[int] = None) -> SafeAreaInsets:
+def resolve_safe_area(project_folder: str | None = None,
+                      templates_dir: str | None = None,
+                      width: int | None = None,
+                      height: int | None = None) -> SafeAreaInsets:
     """The safe area one project renders under. The call every consumer makes.
 
     Mirrors ``delivery_format.resolve_delivery_format``: a function of the
@@ -290,7 +320,7 @@ def resolve_safe_area(project_folder: Optional[str] = None,
     against changes.
     """
     name = delivery_format_name(project_folder, templates_dir=templates_dir)
-    profile = safe_area_profile(name)
+    profile = safe_area_profile(name, project_folder)
     if width is None or height is None:
         fmt_w, fmt_h = resolve_format_name(name)
         width = fmt_w if width is None else width

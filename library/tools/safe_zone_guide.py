@@ -3,8 +3,10 @@
 The captain, 2026-09-25, asked for overlays "that allows us to make sure
 our video and all of the elements in it are positioned outside of the
 boundings of where the UI elements for these apps are". The overlays
-are ``library/presets/safe-zones/`` (``platform_safe_zones``); this
-module is how one reaches a timeline.
+are ``library/presets/safe-zones/`` (``platform_safe_zones``), one per
+platform and one combined, and the PROJECT's own policy
+(``safe_zone_policy``, ``--overlay project``) drawn into the project;
+this module is how one reaches a timeline.
 
 A guide goes on its OWN video row, named ``timeline_layout.GUIDES_NAME``,
 above every row the build placed, and its ITEM is switched OFF - Resolve
@@ -31,6 +33,8 @@ import os
 import sys
 from collections.abc import Sequence
 
+from library.tools.safe_zone_policy import PROJECT_OVERLAY
+
 
 class SafeZoneGuideError(RuntimeError):
     """A guide that could not be placed, disabled or removed - RAISED."""
@@ -48,18 +52,36 @@ def guide_movie(project_folder: str, overlay: str, frames: int,
     from library.tools.project_layout import Area, ProjectLayout
     from library.tools.reel_post_header import carry_still
 
-    png = psz.overlay_path(overlay)
+    out_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.REEL_SAFE_ZONE_GUIDES))
+    os.makedirs(out_dir, exist_ok=True)
+    if overlay == PROJECT_OVERLAY:
+        png = project_overlay_png(project_folder, out_dir)
+    else:
+        png = psz.overlay_path(overlay)
     if not os.path.isfile(png):
         raise SafeZoneGuideError(
             f"no overlay at {png}; regenerate with "
             f"`python3 -m library.tools.platform_safe_zones --write`")
-    out_dir = str(ProjectLayout(project_folder).write_dir(
-        Area.REEL_SAFE_ZONE_GUIDES))
-    os.makedirs(out_dir, exist_ok=True)
     stamp = f"{os.path.getsize(png)}_{int(os.path.getmtime(png))}"
     return carry_still(png, int(frames), float(fps),
                        os.path.join(out_dir,
                                     f"safe_zones_{overlay}_{stamp}.mov"))
+
+
+def project_overlay_png(project_folder: str, out_dir: str) -> str:
+    """The project policy's guide, drawn into ``out_dir`` and named by
+    what it draws, so a changed policy is a new file."""
+    import hashlib
+
+    from library.tools.safe_zone_policy import project_layout, render_layout
+
+    layout = project_layout(project_folder)
+    stamp = hashlib.sha1(repr(layout.zones).encode("utf-8")).hexdigest()[:10]
+    png = os.path.join(out_dir, f"safe_zones_{PROJECT_OVERLAY}_{stamp}.png")
+    if not os.path.isfile(png):
+        render_layout(layout).save(png)
+    return png
 
 
 def _guide_rows(timeline) -> list[int]:
@@ -159,7 +181,7 @@ def place_guides(project_folder: str, reel_numbers: Sequence[int] | None,
         timeline_named,
     )
 
-    if overlay is not None:
+    if overlay is not None and overlay != PROJECT_OVERLAY:
         psz.platforms_for(overlay)
     moments = approved_only(read_proposal(proposal_path(project_folder)))
     if reel_numbers:

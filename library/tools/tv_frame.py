@@ -38,7 +38,6 @@ today there is one sample and it says 1:1.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from library.tools.tv_power import validate_timing as _validate_power_timing
 
@@ -102,7 +101,7 @@ def validate_punch_in(value, source: str) -> float:
     return factor
 
 
-def resolve_asset_path(declared: str, project_folder: Optional[str],
+def resolve_asset_path(declared: str, project_folder: str | None,
                        source: str) -> str:
     """A declared frame asset as an absolute path, or raise.
 
@@ -127,7 +126,7 @@ def resolve_asset_path(declared: str, project_folder: Optional[str],
     return os.path.abspath(candidate)
 
 
-def _read_declaration(project_folder: Optional[str], template) -> tuple:
+def _read_declaration(project_folder: str | None, template) -> tuple:
     """The raw ``tv_frame`` mappings, (project, template), each or None."""
     project_decl = None
     if project_folder:
@@ -145,8 +144,8 @@ def _read_declaration(project_folder: Optional[str], template) -> tuple:
     return project_decl, template_decl
 
 
-def resolve_tv_frame(project_folder: Optional[str] = None,
-                     template=None) -> Optional[dict]:
+def resolve_tv_frame(project_folder: str | None = None,
+                     template=None) -> dict | None:
     """The TV-frame look this run renders under, or None for no look.
 
     Precedence is project over template - the same project-over-template
@@ -174,13 +173,12 @@ def resolve_tv_frame(project_folder: Optional[str] = None,
             f"tv_frame declaration in {source} must be a mapping, got "
             f"{type(declared).__name__}: {declared!r}"
         )
-    unknown = set(declared) - {"asset", "punch_in", "power", "rotate",
-                               "offset_y"}
+    known = ("asset", "punch_in", "power", "rotate", "offset_y", "scale")
+    unknown = set(declared) - set(known)
     if unknown:
         raise ValueError(
             f"tv_frame declaration in {source} names unknown "
-            f"keys {sorted(unknown)}; known: ['asset', 'punch_in', "
-            f"'power', 'rotate', 'offset_y']"
+            f"keys {sorted(unknown)}; known: {list(known)}"
         )
     if declared.get("asset") is None:
         return None
@@ -193,14 +191,41 @@ def resolve_tv_frame(project_folder: Optional[str] = None,
     power = _validate_power_timing(declared.get("power"), source)
     rotate = validate_rotation(declared.get("rotate", AUTO_ROTATE), source)
     offset_y = validate_offset_y(declared.get("offset_y", 0), source)
+    scale = validate_scale(declared.get("scale", 1.0), source)
     return {
         "asset": asset,
         "punch_in": punch,
         "power": power,
         "rotate": rotate,
         "offset_y": offset_y,
+        "scale": scale,
         "origin": source,
     }
+
+
+def validate_scale(value, source: str) -> float:
+    """How large the frame and its picture are drawn, as a fraction.
+
+    1.0 is the frame covering the delivery, every look before this
+    existed. Below 1 the frame, its window and the picture inside it
+    shrink together about the frame's own centre - the captain,
+    2026-09-25: the picture may need to "be shrunk a little bit so that
+    the short form platforms don't cut off the edges of our videos".
+    The number that does that for a project is MEASURED, not chosen
+    here: ``ren safe-zones --describe`` prints the scale the project's
+    safe-zone policy needs (``safe_zone_policy.SafeLayout.fit_scale``).
+    """
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not 0.0 < float(value) <= 1.0):
+        raise ValueError(f"tv_frame.scale in {source} must be a number "
+                         f"above 0 and at most 1 (the frame covering the "
+                         f"delivery), got {value!r}")
+    return float(value)
+
+
+def look_scale(look) -> float:
+    """The declared ``scale`` of a look, 1.0 where it declares none."""
+    return float((look or {}).get("scale") or 1.0)
 
 
 def validate_offset_y(value, source: str) -> int:
@@ -215,17 +240,18 @@ def validate_offset_y(value, source: str) -> int:
     offset. A non-integer or an offset that pushes the window off the
     frame is refused by the caller that knows the frame.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"tv_frame.offset_y in {source} must be a number of "
-                         f"delivery pixels, got {value!r}")
-    if float(value) != int(value):
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or float(value) != int(value)):
         raise ValueError(f"tv_frame.offset_y in {source} must be whole "
-                         f"pixels, got {value!r}")
+                         f"delivery pixels, got {value!r}")
     return int(value)
 
 
-def v1_zoom_for_look(punch_in: float) -> float:
+def v1_zoom_for_look(punch_in: float, scale: float = 1.0) -> float:
     """The absolute V1 ZoomX/ZoomY a clip plays under the frame.
+
+    ``scale`` is the look's (:func:`validate_scale`): the picture shrinks
+    with its window, so the framing inside it does not change.
 
     ABSOLUTE, not multiplied over the conform fill: under the frame the
     bezel is the framing - letterbox-versus-fill has nothing left to
@@ -234,7 +260,7 @@ def v1_zoom_for_look(punch_in: float) -> float:
     crop, Pan 0.  The conform pan/tilt still apply, so subject tracking
     survives the look.
     """
-    return float(punch_in)
+    return float(punch_in) * float(scale)
 
 
 AUTO_ROTATE = "auto"
@@ -365,8 +391,8 @@ def cover_size(asset_size, frame_width: int, frame_height: int) -> tuple:
     """
     asset_width, asset_height = int(asset_size[0]), int(asset_size[1])
     cover = max(frame_width / asset_width, frame_height / asset_height)
-    width = int(round(asset_width * cover)) // 2 * 2
-    height = int(round(asset_height * cover)) // 2 * 2
+    width = round(asset_width * cover) // 2 * 2
+    height = round(asset_height * cover) // 2 * 2
     return (max(width, 2), max(height, 2))
 
 
@@ -412,8 +438,14 @@ def screen_window_rect(look, frame_width: int, frame_height: int,
     origin_x = frame_width / 2.0 - oriented[0] * scale / 2.0
     origin_y = (frame_height / 2.0 - oriented[1] * scale / 2.0
                 + int(look.get("offset_y") or 0))
-    return (origin_x + x0 * scale, origin_y + y0 * scale,
-            origin_x + x1 * scale, origin_y + y1 * scale)
+    # A scaled look shrinks about the frame item's own centre, which is
+    # where Resolve zooms it.
+    shrink = look_scale(look)
+    cx = frame_width / 2.0
+    cy = frame_height / 2.0 + int(look.get("offset_y") or 0)
+    return tuple(c + (v - c) * shrink for v, c in (
+        (origin_x + x0 * scale, cx), (origin_y + y0 * scale, cy),
+        (origin_x + x1 * scale, cx), (origin_y + y1 * scale, cy)))
 
 
 def window_cover_zoom(source_width: int, source_height: int,
@@ -506,8 +538,8 @@ def assert_frameable(look, frame_width: int, frame_height: int,
     # 2. Covering must not upscale.
     cover = max(frame_width / asset_width, frame_height / asset_height)
     if cover > 1.0:
-        drawn_w = int(round(asset_width * cover))
-        drawn_h = int(round(asset_height * cover))
+        drawn_w = round(asset_width * cover)
+        drawn_h = round(asset_height * cover)
         turned = f" (turned {rotation} degrees)" if rotation else ""
         raise ValueError(
             f"tv_frame asset {os.path.basename(asset)} is "
@@ -546,3 +578,27 @@ def screen_window(asset_path: str, threshold: int = 8) -> tuple:
             f"tv_frame asset has no transparent window: {asset_path!r}"
         )
     return bbox
+
+
+def picture_fit(project_folder: str | None,
+                frame: tuple[int, int] = (1080, 1920)) -> dict | None:
+    """Whether the project's TV-frame picture survives every phone's crop,
+    and the ``tv_frame.scale`` that makes it. None with no TV frame.
+
+    The picture is the frame's screen window (:func:`screen_window_rect`) at the declared scale; it shrinks about the
+    frame's own centre, as Resolve zooms it.
+    """
+    from library.tools.safe_zone_policy import project_layout
+
+    look = resolve_tv_frame(project_folder)
+    if look is None:
+        return None
+    layout = project_layout(project_folder, frame)
+    window = screen_window_rect(look, frame[0], frame[1])
+    anchor = (frame[0] / 2, frame[1] / 2 + int(look.get("offset_y") or 0))
+    fit = layout.fit_scale(tuple(round(v) for v in window), anchor)
+    scale = look_scale(look)
+    return {"window": tuple(round(v) for v in window),
+            "visible": layout.visible(), "scale": scale,
+            "fits": fit >= 1.0,
+            "scale_needed": round(scale * fit, 4) if fit < 1 else scale}

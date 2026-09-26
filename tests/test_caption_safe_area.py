@@ -85,26 +85,25 @@ def _spine(text):
 
 # ── The enumeration ──
 
-def test_vertical_profile_is_the_published_shortform_map():
-    """The numbers the captain's ruling of 2026-08-25 resolves to."""
+def test_vertical_profile_keeps_captions_off_every_apps_ui():
+    """The captain, 2026-09-25: the published map (top 120, bottom 320,
+    right 120) put the longest caption lines under the apps' action
+    rails. The profile is DERIVED from the measured zones, so a centred
+    caption as wide as it allows, on the row it hangs from, touches no
+    app element on any modelled phone."""
+    from library.tools.safe_zone_policy import resolve_layout
+
     insets = safe_area_for_format("vertical_1080x1920")
-    assert (insets.top, insets.right, insets.bottom, insets.left) == (
-        120, 120, 320, 90)
-    assert insets.usable_width == 870
-    # A caption is CENTRED, so it reaches the nearer edge first.
-    assert insets.centered_usable_width == 840
-
-
-def test_bottom_inset_clears_the_platform_ui_band():
-    """320px, not the 200px `SubtitleOverlay` used to hardcode.
-
-    200/1920 is 10.4% of the frame; the published map keeps ~16.7% clear
-    for the platform's caption, CTA, hashtags and audio bar.
-    """
-    insets = safe_area_for_format("vertical_1080x1920")
-    assert insets.bottom == 320
-    assert insets.bottom / FRAME_H == pytest.approx(0.1667, abs=0.001)
-    assert insets.bottom > 200
+    layout = resolve_layout()
+    width = insets.centered_usable_width
+    bottom = FRAME_H - insets.bottom
+    caption = ((1080 - width) // 2, bottom - 240,
+               (1080 + width) // 2, bottom)
+    assert layout.intrusions(caption) == []
+    # ...and it is no narrower than it has to be: one pixel wider on
+    # each side meets a rail.
+    wider = (caption[0] - 1, caption[1], caption[2] + 1, caption[3])
+    assert layout.intrusions(wider)
 
 
 def test_insets_are_fractions_so_4k_vertical_needs_no_second_row():
@@ -112,7 +111,8 @@ def test_insets_are_fractions_so_4k_vertical_needs_no_second_row():
     hd = safe_area_for_format("vertical_1080x1920")
     uhd = safe_area_for_format("vertical_2160x3840")
     assert uhd.profile == hd.profile
-    assert (uhd.top, uhd.right, uhd.bottom, uhd.left) == (240, 240, 640, 180)
+    for edge in ("top", "right", "bottom", "left"):
+        assert abs(getattr(uhd, edge) - 2 * getattr(hd, edge)) <= 1
 
 
 
@@ -178,8 +178,11 @@ def test_the_step_runs_the_fitter_on_a_real_invocation():
     # renderer. Written against the constant rather than today's value:
     # it was 11 before #979 corrected it to 1, and a test spelling the
     # number fails on the next correction instead of grading it.
-    assert plan["style"]["safeArea"]["bottom"] == 320 + CAPTION_LIFT_PX
-    assert plan["style"]["captionMaxWidth"] == 840
+    platform = safe_area_for_format("vertical_1080x1920")
+    assert plan["style"]["safeArea"]["bottom"] == (platform.bottom
+                                                   + CAPTION_LIFT_PX)
+    assert (plan["style"]["captionMaxWidth"]
+            == platform.centered_usable_width)
     # The fitter's own report. It only ever prints when it measured a
     # card too wide for the frame, which is what the grouper could not
     # see before.
@@ -298,7 +301,8 @@ def test_consumer_subtitle_style_resolves_the_inset():
                                  "bottom": platform["bottom"]
                                  + CAPTION_LIFT_PX}
     # `captionMaxWidth` derives from the UNLIFTED left/right insets.
-    assert props["captionMaxWidth"] == 840
+    assert props["captionMaxWidth"] == 1080 - 2 * max(platform["left"],
+                                                      platform["right"])
 
 
 

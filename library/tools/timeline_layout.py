@@ -95,9 +95,10 @@ SINGLETON_NAMES = frozenset({
     "Timed Text", "Post Header", "Safe Zones", "Music", "SFX",
 })
 
-#: The standard names of the two rows above.
+#: The standard names of the two rows above, and of the TV frame's row.
 POST_HEADER_NAME = "Post Header"
 GUIDES_NAME = "Safe Zones"
+FRAME_NAME = "Frame"
 
 #: Names Resolve itself gives tracks nobody named. A row carrying one
 #: was never organised.

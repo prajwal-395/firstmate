@@ -66,10 +66,7 @@ the cache.  An operator who wants to force the recompute can
 """
 
 import hashlib
-import os
 from pathlib import Path
-from typing import Dict, Optional
-
 
 # The extensions that count as executable source for a step.
 # .md is deliberately excluded - a prose edit in handoff.md is not a code
@@ -117,6 +114,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # the scan's declaration parsing validates against (same chain
         # as the overlay_mode row above).
         "library/tools/graphics_renderer.py",
+        # Imported by project_config: the pipeline.safe_zones policy
+        # the declaration parsing validates against (same chain).
+        "library/tools/safe_zone_policy.py",
+        # Imported by safe_zone_policy: the platform zones a policy
+        # names and is checked against.
+        "library/tools/platform_safe_zones.py",
     ),
     "step_1_02_catalog_footage": (
         # Read by step.py for the source block's declared program stream
@@ -135,6 +138,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # declaration parsing validates against (same chain as the
         # overlay_mode row above).
         "library/tools/graphics_renderer.py",
+        # Imported by project_config: the pipeline.safe_zones policy
+        # the declaration parsing validates against (same chain).
+        "library/tools/safe_zone_policy.py",
+        # Imported by safe_zone_policy: the platform zones a policy
+        # names and is checked against.
+        "library/tools/platform_safe_zones.py",
     ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).
@@ -177,6 +186,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # the declaration parsing validates against (same chain as the
         # overlay_mode entry above).
         "library/tools/graphics_renderer.py",
+        # Imported by project_config: the pipeline.safe_zones policy
+        # the declaration parsing validates against (same chain).
+        "library/tools/safe_zone_policy.py",
+        # Imported by safe_zone_policy: the platform zones a policy
+        # names and is checked against.
+        "library/tools/platform_safe_zones.py",
         # Face measurement feeding the per-clip index.
         "library/tools/subject_framing.py",
         # Span extraction feeding region re-measurement.
@@ -304,7 +319,7 @@ EXEMPT_IMPORTS = {
 }
 
 
-def hash_asset_file(path: str) -> Optional[str]:
+def hash_asset_file(path: str) -> str | None:
     """SHA-256 of a declared asset's bytes, or None when it is absent.
 
     The same shape as `plan_content_hash`: raw bytes, hex digest. None
@@ -328,7 +343,7 @@ def hash_asset_file(path: str) -> Optional[str]:
         return None
 
 
-def step_code_hash(step_dir: str, extra_files=()) -> Optional[str]:
+def step_code_hash(step_dir: str, extra_files=()) -> str | None:
     """A content hash of every source file in a step's directory.
 
     Returns None if the directory does not exist or contains no source
@@ -386,7 +401,7 @@ def step_code_hash(step_dir: str, extra_files=()) -> Optional[str]:
 CODE_STAMP_FILENAME = ".step_code_hash"
 
 
-def current_code_hash(step_dir, repo_root=None) -> Optional[str]:
+def current_code_hash(step_dir, repo_root=None) -> str | None:
     """This step's code identity, by the same rule the ledger checks.
 
     ``step_dir`` is the step's own directory (or anything
@@ -399,12 +414,12 @@ def current_code_hash(step_dir, repo_root=None) -> Optional[str]:
     root = Path(repo_root) if repo_root is not None else REPO_ROOT
     try:
         deps = implementation_deps(str(step_dir), root)
-    except Exception:
+    except Exception:  # noqa: BLE001 - no deps hashes the step alone
         deps = []
     return step_code_hash(str(step_dir), extra_files=deps)
 
 
-def read_code_stamp(output_dir: str) -> Optional[str]:
+def read_code_stamp(output_dir: str) -> str | None:
     """The hash the cached artifacts in ``output_dir`` were written under.
 
     None when no stamp is on disk - a cache from before stamps existed,
@@ -419,7 +434,7 @@ def read_code_stamp(output_dir: str) -> Optional[str]:
     return digest or None
 
 
-def write_code_stamp(output_dir: str, code_hash: Optional[str]) -> None:
+def write_code_stamp(output_dir: str, code_hash: str | None) -> None:
     """Record which code wrote this run's artifacts. Best-effort.
 
     A stamp that cannot be written must not fail the analysis it
@@ -450,8 +465,8 @@ def implementation_deps(step_dir: str, repo_root=None) -> list:
     return [str(root / rel) for rel in rels]
 
 
-def code_hashes_for(step_dirs: Dict[str, str],
-                    repo_root=None) -> Dict[str, str]:
+def code_hashes_for(step_dirs: dict[str, str],
+                    repo_root=None) -> dict[str, str]:
     """{node_id: hash} for every step directory provided.
 
     A step whose directory is missing or empty is simply absent from the
@@ -459,7 +474,7 @@ def code_hashes_for(step_dirs: Dict[str, str],
     ``STEP_IMPLEMENTATION_DEPS`` files, so a change to shared
     measurement code invalidates exactly the steps that execute it.
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for node_id, step_dir in step_dirs.items():
         h = step_code_hash(
             step_dir,

@@ -1010,9 +1010,25 @@ def set_properties(item: Any, properties: Mapping[str, Any]) -> dict:
             continue
         if isinstance(value, str) and value.startswith("<"):
             continue
-        if key in now and now[key] != value:
+        if key in now and not _same_value(now[key], value):
             diff[key] = [value, now[key]]
     return diff
+
+
+#: How far a numeric property may read back from what was written and
+#: still be the value written. Resolve stores doubles and hands some back
+#: one ulp off (2026-09-25: Pan -8.610478359908884 read back as
+#: ...885, refusing two correct post-header swaps); a millionth of a
+#: Pan/Tilt unit or a zoom is far below a drawn pixel.
+READBACK_TOLERANCE = 1e-6
+
+
+def _same_value(got: Any, wanted: Any) -> bool:
+    numbers = (int, float)
+    if (isinstance(got, numbers) and isinstance(wanted, numbers)
+            and not isinstance(got, bool) and not isinstance(wanted, bool)):
+        return abs(float(got) - float(wanted)) <= READBACK_TOLERANCE
+    return got == wanted
 
 
 def treat_insertion(item: Any, insertion: Insertion) -> dict:

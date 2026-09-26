@@ -368,15 +368,21 @@ def zones_on(key: str, device: Device, fill: str = "cover") -> list[Zone]:
     return zones
 
 
-def _agnostic(platform: str) -> tuple[Zone, ...]:
-    """Each element's bounding box over every view of the platform,
-    every phone and every fill, and the widest side crop."""
+def zones_for(platform: str,
+              devices: Sequence[str] | None = None) -> tuple[Zone, ...]:
+    """Each element's bounding box over every view of the platform, every
+    phone in ``devices`` (all modelled phones by default) and every fill,
+    and the widest side crop among them."""
     w, h = REFERENCE_SIZE
     boxes: dict[str, list[int]] = {}
     ui: dict[str, str] = {}
     crop = 0.0
     views = [k for k, c in CAPTURES.items() if c.platform == platform]
-    for key, device in ((k, d) for k in views for d in DEVICES):
+    phones = [d for d in DEVICES
+              if devices is None or d.name in set(devices)]
+    if not views or not phones:
+        raise KeyError(f"no capture of {platform!r} on {devices!r}")
+    for key, device in ((k, d) for k in views for d in phones):
         for fill in CAPTURES[key].fills:
             crop = max(crop, side_crop(key, device.name, fill))
             for zone in zones_on(key, device, fill):
@@ -398,7 +404,7 @@ def _agnostic(platform: str) -> tuple[Zone, ...]:
 TIKTOK = PlatformZones(
     key="tiktok",
     label="TikTok",
-    zones=_agnostic("tiktok"),
+    zones=zones_for("tiktok"),
     colour=(0, 242, 234),
     basis="measured",
     source=("MEASURED on the captain's iPhone 17 screenshot (phone-tiktok.png, "
@@ -414,7 +420,7 @@ TIKTOK = PlatformZones(
 INSTAGRAM_REELS = PlatformZones(
     key="instagram_reels",
     label="Instagram Reels",
-    zones=_agnostic("instagram_reels"),
+    zones=zones_for("instagram_reels"),
     colour=(225, 48, 108),
     basis="measured",
     source=("MEASURED on the captain's iPhone 17 screenshot "
@@ -430,7 +436,7 @@ INSTAGRAM_REELS = PlatformZones(
 YOUTUBE_SHORTS = PlatformZones(
     key="youtube_shorts",
     label="YouTube Shorts",
-    zones=_agnostic("youtube_shorts"),
+    zones=zones_for("youtube_shorts"),
     colour=(255, 48, 48),
     basis="measured",
     source=("MEASURED on the captain's iPhone 17 screenshot "
@@ -444,7 +450,7 @@ YOUTUBE_SHORTS = PlatformZones(
 LINKEDIN = PlatformZones(
     key="linkedin",
     label="LinkedIn",
-    zones=_agnostic("linkedin"),
+    zones=zones_for("linkedin"),
     colour=(10, 102, 194),
     basis="measured",
     source=("MEASURED on the captain's iPhone 17 screenshots "
@@ -502,6 +508,33 @@ def intrusions(box: Rect, name: str = COMBINED,
                             "overlap": (max(x0, a), max(y0, b),
                                         min(x1, c), min(y1, d))})
     return out
+
+
+def centred_clear_width(y0: int, y1: int, name: str = COMBINED,
+                        frame: tuple[int, int] = REFERENCE_SIZE
+                        ) -> tuple[int, dict | None]:
+    """The widest box CENTRED on the frame, over rows ``y0..y1``, that
+    clears every zone of the named overlay - and the zone that bounds
+    it (None when nothing does).
+
+    A centred box can only be as wide as twice the distance to the
+    nearer zone, so a zone over the centre line leaves 0: that band is
+    not a place for centred content at any width.
+    """
+    centre = frame[0] / 2
+    half, bound = centre, None
+    for platform in platforms_for(name):
+        for zone in platform.zones:
+            a, b, c, d = _scale(zone.rect, *frame)
+            if min(y1, d) - max(y0, b) <= 0:
+                continue
+            reach = (0.0 if a <= centre < c
+                     else centre - c if c <= centre else a - centre)
+            if reach < half:
+                half = reach
+                bound = {"platform": platform.key, "band": zone.name,
+                         "ui": zone.ui, "rect": (a, b, c, d)}
+    return int(2 * half), bound
 
 
 def covered_mask(name: str, width: int, height: int):
@@ -570,7 +603,7 @@ def _outline_inside_zones(draw, platform: PlatformZones, width: int,
                            width=min(LINE_WIDTH, (c - a) // 2, (d - b) // 2))
 
 
-def _legend(image, platforms: list[PlatformZones], name: str) -> None:
+def _legend(image, platforms: list[PlatformZones], title: str) -> None:
     """The legend, set vertically inside the widest left strip - the one
     place every overlay covers the whole height of."""
     from PIL import Image, ImageDraw
@@ -580,8 +613,7 @@ def _legend(image, platforms: list[PlatformZones], name: str) -> None:
                 for p in platforms for z in p.zones if z.name == "left")
     size = max(8, round(strip * 0.42))
     font = _font(size)
-    parts = [("SAFE ZONES" + (" - ALL PLATFORMS" if name == COMBINED
-                              else ""), (255, 255, 255))]
+    parts = [(title, (255, 255, 255))]
     for platform in platforms:
         parts.append((platform.label + {"measured": " (measured)",
                                         "third-party": " (unofficial)"}.get(
@@ -607,25 +639,40 @@ def render_overlay(name: str, width: int = REFERENCE_SIZE[0],
     solid line on the covered side, and a legend naming the platforms
     and their source status runs up the left strip.
     """
+    return render_platforms(
+        platforms_for(name), width, height,
+        title="SAFE ZONES" + (" - ALL PLATFORMS" if name == COMBINED
+                              else ""),
+        wash=(255, 64, 64) if name == COMBINED else None)
+
+
+def render_platforms(platforms: list[PlatformZones],
+                     width: int = REFERENCE_SIZE[0],
+                     height: int = REFERENCE_SIZE[1], *, title: str,
+                     wash: tuple[int, int, int] | None = None):
+    """A guide drawing ``platforms``' zones, as a transparent RGBA image.
+
+    ``wash`` is the fill for every zone (a neutral one where several
+    platforms share the overlay); None fills in the first platform's
+    colour. Zone rects are on the reference frame.
+    """
     from PIL import Image, ImageDraw
 
-    platforms = platforms_for(name)
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    wash = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    wash_draw = ImageDraw.Draw(wash)
-    fill = ((255, 64, 64) if name == COMBINED
-            else platforms[0].colour) + (FILL_ALPHA,)
+    wash_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    wash_draw = ImageDraw.Draw(wash_layer)
+    fill = (wash or platforms[0].colour) + (FILL_ALPHA,)
     for platform in platforms:
         for zone in platform.zones:
             a, b, c, d = _scale(zone.rect, width, height)
             wash_draw.rectangle((a, b, c - 1, d - 1), fill=fill)
-    image.alpha_composite(wash)
+    image.alpha_composite(wash_layer)
 
     draw = ImageDraw.Draw(image)
     for platform in platforms:
         _outline_inside_zones(draw, platform, width, height,
                               platform.colour + (LINE_ALPHA,))
-    _legend(image, platforms, name)
+    _legend(image, platforms, title)
     return image
 
 

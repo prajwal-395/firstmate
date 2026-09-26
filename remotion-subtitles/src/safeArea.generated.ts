@@ -12,10 +12,10 @@
 export const DELIVERY_FORMAT = "vertical_1080x1920";
 
 export const SAFE_AREA = {
-  top: 120,
-  right: 120,
-  bottom: 320,
-  left: 90,
+  top: 277,
+  right: 212,
+  bottom: 334,
+  left: 118,
 };
 
-export const CAPTION_MAX_WIDTH = 840;
+export const CAPTION_MAX_WIDTH = 656;

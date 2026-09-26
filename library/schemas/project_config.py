@@ -17,8 +17,6 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
-
 
 # A language code: two or three letters, optional region (`en`,
 # `es`, `pt-BR`). Permissive on purpose - the transcriber, not the
@@ -65,7 +63,7 @@ class SourceConfig:
     `library/tools/footage_identity.enumerate_footage`, which is the one
     place that resolves this."""
 
-    program_stream: Optional[int] = None
+    program_stream: int | None = None
     """The 1-based audio channel ordinal that is this footage's program
     mix - the ONE channel that reaches a timeline.
 
@@ -102,7 +100,7 @@ class SourceConfig:
     speech-led - and reads the same everywhere. The spine is the
     reader; intake only scaffolds the declaration."""
 
-    speakers: Optional[list] = None
+    speakers: list | None = None
     """Who speaks in this footage, as `[{name, role?}]`. The COUNT is
     what the pipeline reads: reel selection no longer requires two
     voices, a one-speaker project is cut as a monologue, and a
@@ -179,17 +177,17 @@ class PipelineConfig:
     # `codec` only - anything else is refused as a declaration nothing
     # reads. `deliver_naming` is a filename optionally carrying
     # `{timeline}` and `{ext}`.
-    deliver_preset: Optional[dict] = None
+    deliver_preset: dict | None = None
     deliver_naming: str = ""
     # Per-project override of how much of that frame the picture fills:
     # 0.0 letterbox, 1.0 fill. None means "take the brand template's",
     # which in turn defaults to fill. See library/tools/framing_intent.py.
-    framing_intent: Optional[float] = None
+    framing_intent: float | None = None
     # Per-project caption typography, in the same {font, size, weight}
     # shape a brand template's `style.typography` uses, overriding it key
     # by key. None means "take the template's". See
     # library/tools/subtitle_style.py, "And the PROJECT".
-    subtitle_typography: Optional[dict] = None
+    subtitle_typography: dict | None = None
     # How caption overlays are carried: the delivery frame or only the
     # drawn bounds (`subtitle_overlay_geometry`: full|tight), stitched
     # video or the frame sequence itself
@@ -223,20 +221,27 @@ class PipelineConfig:
     # rather than dropping it - `tv_frame.resolve_tv_frame` reads the
     # raw pipeline block, so a dropped key here is a look the editor
     # declared, the run honoured and the schema denied.
-    tv_frame: Optional[dict] = None
+    tv_frame: dict | None = None
+    # The project's safe-zone POLICY: which platforms and phones it is
+    # made for, the room left round the apps' UI, and its own keep-out
+    # rules. None means every platform on every modelled phone. Shape
+    # and reader: library/tools/safe_zone_policy.py - this field exists
+    # so manage_project.py validates and round-trips the key rather
+    # than dropping it.
+    safe_zones: dict | None = None
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
     # Whether that brief is ATTACHED to the planning prompts. Three
     # states, and None is not "false": an undeclared key means the PATH
     # is the declaration. See library/tools/brief_attachment.py, which
     # is what the runner reads - this field exists so manage_project.py
     # validates and round-trips the key rather than dropping it.
-    attach_creative_brief: Optional[bool] = None
+    attach_creative_brief: bool | None = None
     # Headings of the brief this project wants carried INLINE rather than
     # reached by path.  Clause 3 of the rule in
     # library/tools/brief_reference.py: which sections are about THIS
     # video is a judgement belonging to whoever owns the video, so the
     # engine keeps no default list.  Empty means "the map is enough".
-    creative_brief_inline: List[str] = field(default_factory=list)
+    creative_brief_inline: list[str] = field(default_factory=list)
     # Which series this video belongs to - the membership anchor for a
     # channel brief that names several (#258, library/tools/
     # brief_reference.py).  Empty means the project names none, and the
@@ -250,7 +255,7 @@ class PipelineConfig:
     # some projects need (reel selection is the first). Each entry is a
     # mapping - see library/tools/creative_tasks.py, which is the one
     # place that reads them. Empty means the project declares none.
-    creative_tasks: List[dict] = field(default_factory=list)
+    creative_tasks: list[dict] = field(default_factory=list)
     sfx_library: str = ""    # resolved from env if empty
     music_library: str = ""  # resolved from env if empty
 
@@ -295,7 +300,7 @@ class ProjectConfig:
     description: str = ""
 
     # Runtime - not serialized to YAML
-    _project_root: Optional[Path] = field(default=None, repr=False)
+    _project_root: Path | None = field(default=None, repr=False)
 
     @property
     def project_root(self) -> Path:
@@ -447,6 +452,15 @@ class ProjectConfig:
                 f"pipeline.graphics_renderer must be one of "
                 f"{list(ENGINES)}, got "
                 f"{self.pipeline.graphics_renderer!r}.")
+        if self.pipeline.safe_zones is not None:
+            from library.tools.safe_zone_policy import (
+                SafeZonePolicyError,
+                parse_policy,
+            )
+            try:
+                parse_policy(self.pipeline.safe_zones)
+            except SafeZonePolicyError as exc:
+                errors.append(str(exc))
         if self.pipeline.subtitle_typography is not None:
             from library.tools.subtitle_style import TYPOGRAPHY_KEYS
             declared = self.pipeline.subtitle_typography
@@ -514,7 +528,8 @@ def _parse_speakers(raw) -> object:
     return raw
 
 
-def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectConfig:
+def _dict_to_project_config(data: dict,
+                            project_root: Path | None = None) -> ProjectConfig:
     """Convert a raw dict (from YAML) to a ProjectConfig dataclass."""
     source_data = data.get("source", {})
     pipeline_data = data.get("pipeline", {})
@@ -551,6 +566,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
             pipeline_data.get("graphics_renderer", "remotion")
             or "remotion"),
         tv_frame=pipeline_data.get("tv_frame"),
+        safe_zones=pipeline_data.get("safe_zones"),
         creative_brief=pipeline_data.get("creative_brief", ""),
         attach_creative_brief=pipeline_data.get("attach_creative_brief"),
         creative_brief_inline=list(
@@ -671,6 +687,10 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if config.pipeline.graphics_renderer == "remotion"
                else {"graphics_renderer":
                      config.pipeline.graphics_renderer}),
+            # Only when declared: the default policy is every platform
+            # on every phone, and writing it out would read as a choice.
+            **({} if config.pipeline.safe_zones is None
+               else {"safe_zones": dict(config.pipeline.safe_zones)}),
             "creative_brief": config.pipeline.creative_brief,
             # Omitted when undeclared: an explicit null in every
             # project.yaml reads as a decision nobody made, and the

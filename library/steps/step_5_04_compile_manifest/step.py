@@ -1825,7 +1825,8 @@ def compile_manifest(out_dir: str) -> dict:
             # ABSOLUTE, not over the conform: under the frame the bezel
             # is the framing (tv_frame.v1_zoom_for_look).  The conform
             # pan/tilt still apply, so subject tracking survives.
-            clip["fill_zoom"] = v1_zoom_for_look(punch)
+            clip["fill_zoom"] = v1_zoom_for_look(
+                punch, float(tv_look.get("scale") or 1.0))
             clip["needs_conform"] = True
             clip["tv_punch_in"] = punch
         # One frame clip per contiguous run of content: the set dresses

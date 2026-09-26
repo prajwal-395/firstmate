@@ -388,7 +388,7 @@ def grow_to_minimum(canvas_h: int, anchor: str,
 
 def _ceil_even(value: float) -> int:
     """Round up to an even int, so no codec clips half a pixel row."""
-    return int(math.ceil(value / 2.0)) * 2
+    return math.ceil(value / 2.0) * 2
 
 
 @dataclass(frozen=True)
@@ -602,6 +602,45 @@ def verify_ink_against_intent(canvas_w: float, canvas_h: float,
             + (" - ENTIRELY OUTSIDE THE FRAME" if off_frame else ""))
 
 
+def card_union(style: dict, subtitles: list, max_width: float,
+               project_folder: str = "") -> tuple[float, float]:
+    """(width, height) of the widest and tallest card in ``subtitles``
+    when wrapped at ``max_width`` - the layout the component draws,
+    measured with the face it loads."""
+    fitter = _fitter_for_style(style, max_width, project_folder)
+
+    union_w = 0.0
+    union_h = 0.0
+    for card in subtitles:
+        fit = float(card.get("fitScale") or 1.0)
+        font_size = float(style.get("fontSize", 58)) * fit
+        # The fitter measures at the STYLE size; a shrunk card draws
+        # every word and every gap smaller, so the measurement scales
+        # with it.
+        gap = WORD_GAP_EM * font_size
+        emphasis = {_normalise(e) for e in card.get("emphasisWords") or []}
+        text_words = [w.get("word", "") for w in card.get("words") or []]
+        if not text_words:
+            text_words = str(card.get("text", "")).split()
+
+        def bare_width(word: str, _emphasis=emphasis, _fit=fit) -> float:
+            scale = (EMPHASIS_SCALE
+                     if _normalise(word) in _emphasis else 1.0)
+            return fitter.word_width(word) * _fit * scale
+
+        lines = _wrap_card(text_words, emphasis, bare_width, gap,
+                           max_width)
+
+        card_w = max((w for w, _ in lines), default=0.0)
+        card_h = sum(
+            LINE_HEIGHT_EM * font_size * (EMPHASIS_SCALE if emph else 1.0)
+            for _, emph in lines) + CARD_VERTICAL_PADDING
+        union_w = max(union_w, card_w)
+        union_h = max(union_h, card_h)
+
+    return union_w, union_h
+
+
 def tighten_subtitle_props(props: dict,
                            project_folder: str = "",
                            draw_gain: float = FALLBACK_DRAW_GAIN
@@ -633,36 +672,8 @@ def tighten_subtitle_props(props: dict,
     max_width = float(style["captionMaxWidth"])
     position = style.get("position") or "bottom"
 
-    fitter = _fitter_for_style(style, max_width, project_folder)
-
-    union_w = 0.0
-    union_h = 0.0
-    for card in subtitles:
-        fit = float(card.get("fitScale") or 1.0)
-        font_size = float(style.get("fontSize", 58)) * fit
-        # The fitter measures at the STYLE size; a shrunk card draws
-        # every word and every gap smaller, so the measurement scales
-        # with it.
-        gap = WORD_GAP_EM * font_size
-        emphasis = {_normalise(e) for e in card.get("emphasisWords") or []}
-        text_words = [w.get("word", "") for w in card.get("words") or []]
-        if not text_words:
-            text_words = str(card.get("text", "")).split()
-
-        def bare_width(word: str, _emphasis=emphasis, _fit=fit) -> float:
-            scale = (EMPHASIS_SCALE
-                     if _normalise(word) in _emphasis else 1.0)
-            return fitter.word_width(word) * _fit * scale
-
-        lines = _wrap_card(text_words, emphasis, bare_width, gap,
-                           max_width)
-
-        card_w = max((w for w, _ in lines), default=0.0)
-        card_h = sum(
-            LINE_HEIGHT_EM * font_size * (EMPHASIS_SCALE if emph else 1.0)
-            for _, emph in lines) + CARD_VERTICAL_PADDING
-        union_w = max(union_w, card_w)
-        union_h = max(union_h, card_h)
+    union_w, union_h = card_union(style, subtitles, max_width,
+                                  project_folder)
 
     canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
     measured_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
@@ -1092,7 +1103,7 @@ def placement_holds(placement: dict | None,
         return (f"Resolve's Pan/Tilt rail has never been measured on a "
                 f"{timeline_w}x{timeline_h} timeline, and the rail "
                 f"measured at "
-                f"{'x'.join(str(v) for v in sorted(MEASURED_RAILS)[0])} "
+                f"{'x'.join(str(v) for v in min(MEASURED_RAILS))} "
                 f"is not evidence about this one (see "
                 f"tight_box.MEASURED_RAILS). Refusing the transform "
                 f"rather than placing against a guess - the caller "
@@ -1342,7 +1353,7 @@ def canvas_offset(box: TightBox) -> tuple[int, int]:
                           box.full_width, box.full_height,
                           box.placement["pan"], box.placement["tilt"],
                           NATIVE_BASE_SCALE, None, None, box.gain)
-    return (int(round(ox)), int(round(oy)))
+    return (round(ox), round(oy))
 
 
 def crop_probe_to_tight(probe_mov: str, overlay_path: str,
