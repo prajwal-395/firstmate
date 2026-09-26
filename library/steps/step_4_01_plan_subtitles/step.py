@@ -50,6 +50,11 @@ MIN_DISPLAY_DURATION = 0.7
 # so nothing downstream of the split can lengthen one.
 MIN_CAPTION_FLASH_SECONDS = 0.5
 
+# A caption also has to stay on screen long enough for its text to be read
+# at the QA ceiling. `MIN_DISPLAY_DURATION` remains the normal target; this
+# is the maximum rate the partitioner is allowed to plan around.
+MAX_CHARACTERS_PER_SECOND = 25.0
+
 # Below this a subtitle flashes rather than reads; clamping a block's
 # entries to its bounds can leave a sliver, and a sliver is worth dropping.
 MIN_VISIBLE_DURATION = 0.08
@@ -591,21 +596,11 @@ def split_into_groups(
     """
     Split a list of {word, start, end} dicts into display groups.
 
-    The split is BALANCED, not greedy. A greedy fill packs each card to
-    the width limit and leaves whatever is left over as the next card, so
-    a run of words that wants four even cards comes out as three full ones
-    and a runt - and a runt card is on screen only until the next card's
-    first word, which is what makes it flash. On project 001 that is where
-    76 of 96 cards under half a second came from. This chooses, among the
-    partitions that all fit the caption box, the one with the fewest cards
-    below `min_display`, breaking ties towards the longest shortest card
-    and then towards ending cards on punctuation.
-
-    A card's time on screen is the gap to the NEXT card's first word, so
-    the partition is what sets it; `display_until` supplies the same
-    number for the last card (the end of the block or segment it is drawn
-    over). Without it the last card is measured to its own last word,
-    which is very nearly zero.
+    The partition and timing are chosen together. Each group is anchored
+    to word boundaries, then scheduled after the previous group with at
+    least `min_display` seconds and enough time to stay at or under the
+    reading-speed ceiling. A card that cannot fit before `display_until`
+    remains in the plan and is named by the plan's readability report.
 
     Args:
         fits_fn: callable(text) -> bool, deciding whether the text fits
@@ -656,80 +651,119 @@ def split_into_groups(
         for k in range(i, j - 1):
             if _ends_sentence(words[k]["word"]):
                 return False
-        for k in range(i + 1, j):
-            if words[k]["start"] - words[k - 1]["end"] > max_gap:
-                return False
         return bool(fits_fn(" ".join(w["word"] for w in words[i:j])))
 
-    def _room_until(j: int) -> float:
-        """When the card ending before word j must be gone."""
-        if j < n:
-            return words[j]["start"]
-        if display_until is not None:
-            return float(display_until)
-        return words[n - 1]["end"]
+    # A state is a word boundary, the end of its last scheduled card, the
+    # accumulated quality score and the chosen groups. A later start can
+    # need to move past the next word's onset when the previous card needs
+    # more reading time; it is still valid only while it starts before the
+    # last word on that card ends.
+    frontiers = [[] for _ in range(n + 1)]
+    frontiers[0].append({
+        "cursor": float("-inf"),
+        "score": (0, 0, 0, 0, 0, 0, 0, 0),
+        "groups": [],
+    })
 
-    def _time_on_screen(i: int, j: int) -> float:
-        """How long words[i:j] is actually displayed for.
+    def _dominates(left, right) -> bool:
+        """Whether left leaves no worse timing or partition for a suffix."""
+        return (
+            left["cursor"] <= right["cursor"] + 1e-9
+            and all(a <= b for a, b in zip(left["score"], right["score"]))
+        )
 
-        This mirrors the per-block pass at the end of the step exactly: a
-        card is on screen for as long as its own words last, and a card
-        shorter than `min_display` is extended towards that floor but no
-        further than the next card's first word. Optimising anything else
-        optimises a number nobody renders.
-        """
-        start = words[i]["start"]
-        span = words[j - 1]["end"] - start
-        if span >= min_display:
-            return span
-        return max(span, min(min_display, _room_until(j) - start))
+    def _add_state(index: int, candidate: dict) -> None:
+        frontier = frontiers[index]
+        if any(_dominates(old, candidate) for old in frontier):
+            return
+        frontier[:] = [old for old in frontier
+                       if not _dominates(candidate, old)]
+        frontier.append(candidate)
 
-    # best[i] = (flashing, under_floor, -shortest, -punctuated_ends, j) for
-    # the optimal partition of words[i:]. `flashing` counts cards below the
-    # HARD floor - the one `manifest_validator` fails a build on - and
-    # `under_floor` the softer one this step declares, so the partition is
-    # chosen against the number that actually rejects a render first.
-    # Solved from the end back.
-    best = [None] * (n + 1)
-    best[n] = (0, 0, 0.0, 0, None)
-    for i in range(n - 1, -1, -1):
-        chosen = None
-        for j in range(i + 1, min(n, i + max_words) + 1):
-            if not _feasible(i, j):
-                continue
-            tail = best[j]
-            if tail is None:
-                continue
-            duration = _time_on_screen(i, j)
-            flashing = tail[0] + (1 if duration < MIN_CAPTION_FLASH_SECONDS
-                                  else 0)
-            under = tail[1] + (1 if duration < min_display else 0)
-            shortest = min(-tail[2], duration) if j < n else duration
-            punctuated = tail[3] + (1 if _ends_a_thought(words[j - 1]["word"])
-                                    else 0)
-            candidate = (flashing, under, -shortest, -punctuated, j)
-            if chosen is None or candidate[:4] < chosen[:4]:
-                chosen = candidate
-        best[i] = chosen
+    for i in range(n):
+        if not frontiers[i]:
+            continue
+        for state in frontiers[i]:
+            for j in range(i + 1, min(n, i + max_words) + 1):
+                if not _feasible(i, j):
+                    continue
 
-    groups = []
-    i = 0
-    while i < n and best[i] is not None:
-        j = best[i][4]
-        card = words[i:j]
-        groups.append({
-            "text": " ".join(w["word"] for w in card),
-            "start": card[0]["start"],
-            "end": card[-1]["end"],
-            "word_count": len(card),
-            "_words": [
-                {"word": w["word"], "start": w["start"], "end": w["end"]}
-                for w in card
-            ],
-        })
-        i = j
+                card = words[i:j]
+                text = " ".join(w["word"] for w in card)
+                card_start = max(float(card[0]["start"]),
+                                 float(state["cursor"]))
+                last_word_end = float(card[-1]["end"])
+                desired_duration = max(
+                    float(min_display),
+                    len(text) / MAX_CHARACTERS_PER_SECOND,
+                )
+                desired_end = max(
+                    last_word_end, card_start + desired_duration)
+                card_end = (
+                    min(desired_end, float(display_until))
+                    if display_until is not None else desired_end
+                )
+                card_start_for_display = card_start
+                if display_until is not None:
+                    card_start_for_display = min(
+                        card_start_for_display, float(display_until))
+                card_start_for_display = round(card_start_for_display, 3)
+                card_end = max(card_start_for_display, card_end)
+                card_end = round(card_end, 3)
+                duration = card_end - card_start_for_display
+                cps = (len(text) / duration) if duration > 0 else float("inf")
+                too_short = duration < MIN_CAPTION_FLASH_SECONDS
+                too_fast = cps > MAX_CHARACTERS_PER_SECOND
+                late = card_start_for_display > last_word_end + 1e-9
+                long_gaps = sum(
+                    words[k]["start"] - words[k - 1]["end"] > max_gap
+                    for k in range(i + 1, j)
+                )
+                under_target = duration < min_display
+                # A card that would only meet the rate after its final word
+                # has already been spoken is not a usable partition either.
+                violates_readability = too_short or too_fast or late
+                punctuated = _ends_a_thought(card[-1]["word"])
 
-    return groups
+                # Long pauses are costly, but not forbidden: a merge across
+                # one is justified when it removes a readability violation.
+                # Keep the pause penalty behind the hard readability counts
+                # so a viable card wins over a flash or an over-rate card.
+                score = state["score"]
+                next_score = (
+                    score[0] + int(violates_readability),
+                    score[1] + int(too_short),
+                    score[2] + int(too_fast),
+                    score[3] + int(late),
+                    score[4] + long_gaps,
+                    score[5] + int(under_target),
+                    score[6] + 1,
+                    score[7] - int(punctuated),
+                )
+                groups = state["groups"] + [{
+                    "text": text,
+                    "start": card_start_for_display,
+                    "end": card_end,
+                    "word_count": len(card),
+                    "_words": [
+                        {"word": w["word"], "start": w["start"],
+                         "end": w["end"]}
+                        for w in card
+                    ],
+                }]
+                _add_state(j, {
+                    "cursor": card_end,
+                    "score": next_score,
+                    "groups": groups,
+                })
+
+    if not frontiers[n]:
+        return []
+    chosen = min(
+        frontiers[n],
+        key=lambda state: (*state["score"], state["cursor"]),
+    )
+    return chosen["groups"]
 
 
 def _merge_target(group: list, entry: dict, kept: list):
@@ -767,6 +801,36 @@ def _merge_entry(entry: dict, target: dict) -> None:
             target["timeline_end"], entry["timeline_end"])
     target["word_count"] = len(target["text"].split())
     target["emphasis_words"] = identify_emphasis_words(target["text"])
+
+
+def _readability_issues(entries: list) -> list:
+    """Name final cards below the readable-duration or reading-speed floor."""
+    issues = []
+    for entry in entries:
+        duration = max(
+            0.0, float(entry["timeline_end"]) - float(entry["timeline_start"]))
+        text = entry["text"]
+        cps = len(text) / duration if duration > 0 else None
+        reasons = []
+        if duration < MIN_CAPTION_FLASH_SECONDS:
+            reasons.append("duration_below_0.5_seconds")
+        if cps is None or cps > MAX_CHARACTERS_PER_SECOND:
+            reasons.append("reading_speed_over_25_characters_per_second")
+        words = entry["words"]
+        if words and float(entry["timeline_start"]) > max(
+                float(word["end"]) for word in words) + 1e-9:
+            reasons.append("caption_starts_after_its_last_word")
+        if reasons:
+            issues.append({
+                "card_id": entry["id"],
+                "spine_block_position": entry["spine_block_position"],
+                "text": text,
+                "duration_seconds": round(duration, 3),
+                "characters_per_second": round(cps, 2) if cps is not None
+                else None,
+                "reasons": reasons,
+            })
+    return issues
 
 
 def identify_emphasis_words(text: str) -> list:
@@ -1282,7 +1346,12 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                         "id": _next_id(block["position"]),
                         "card_index": _next_card_index(block["position"]),
                         "timeline_start": max(g["start"], seg_tl_start),
-                        "timeline_end": min(g["end"], seg_tl_end),
+                        # The duration planner schedules against the block's
+                        # real display boundary. Clamping back to the speech
+                        # segment here would discard that time and recreate a
+                        # fast or flashing card before the block pass can see
+                        # it.
+                        "timeline_end": min(g["end"], block_end),
                         "text": entry_text,
                         "emphasis_words": identify_emphasis_words(entry_text),
                         "spine_block_position": block["position"],
@@ -1544,6 +1613,21 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
         print(f"WARNING: captain caption edits could not apply ({exc}); "
               f"continuing without them.", file=sys.stderr)
 
+    readability_issues = _readability_issues(subtitle_entries)
+    if readability_issues:
+        print(
+            f"WARNING: {len(readability_issues)} subtitle card(s) still "
+            f"miss the readable-duration or 25 characters/second limit: "
+            + "; ".join(
+                f"{issue['card_id']} {issue['text']!r} "
+                f"({issue['duration_seconds']:.3f}s, "
+                f"{issue['characters_per_second']} cps; "
+                f"{', '.join(issue['reasons'])})"
+                for issue in readability_issues
+            ),
+            file=sys.stderr,
+        )
+
     # C4 fix: Wrap output under subtitle_plan key to match manifest contract.
     # Manifest declares output as 'subtitle_plan', and DAG edge
     # plan_subtitles -> render_subtitles maps subtitle_plan -> subtitle_plan.
@@ -1561,6 +1645,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             # Rung 7: the word ceiling every card above was grouped
             # at - the plan value, not the literal it replaced.
             "max_words": max_words_per_card,
+            # Card-level constraints after all timing, overlap and captain
+            # edit passes. Empty means the plan has no readability misses.
+            "readability_issues": readability_issues,
             # Only when the project declared any: an empty mapping in
             # every plan would read as a decision nobody made.
             **({"styles_by_speaker": styles_by_speaker}
