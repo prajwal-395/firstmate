@@ -554,15 +554,15 @@ def transcribe_clips_batched(requests: list,
     from library.tools import timeline_transcript
     from library.tools import shared_environment
 
-    # Phase 1, still per clip: the transcriber hears each file in its
-    # own timebase, and the windows are offset into the concat.
+    # Phase 1, still per clip: Voz writes the words first, then `da ear`
+    # identifies language from the most continuous window of those words.
+    # This prevents a silent or music lead-in from choosing the MFA model.
+    # The windows are then offset into the concat.
     heard = []       # (key, audio_path, onsets, detected, windows)
     fallback_keys = []
     for request in requests or []:
         key = request["key"]
         try:
-            detected = heard_speech.identify_language(
-                request["audio_path"]).language
             spoken = heard_speech.transcribe(request["audio_path"])
         except heard_speech.TranscriberUnavailable as unheard:
             print(f"  {key}: transcriber unavailable ({unheard}); "
@@ -573,6 +573,15 @@ def transcribe_clips_batched(requests: list,
         if not windows:
             # No words: the seam would raise HEARD_NOTHING and take
             # the full fallback, so the batch sends it there directly.
+            fallback_keys.append(key)
+            continue
+        try:
+            detected = hybrid_transcription.identify_speech_language(
+                request["audio_path"], windows).language
+        except hybrid_transcription.FallbackRequired as declined:
+            print(f"  {key}: speech language identification declined "
+                  f"({declined.reason}); per-clip fallback",
+                  file=sys.stderr)
             fallback_keys.append(key)
             continue
         heard.append((key, request["audio_path"],

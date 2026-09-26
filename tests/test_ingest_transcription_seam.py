@@ -18,6 +18,8 @@ project: the seam is stubbed, the cache is a tmp file.
 import json
 import os
 
+import pytest
+
 from library.steps.step_1_04_temporal_index import step as temporal_index
 from library.tools import hybrid_transcription
 
@@ -245,14 +247,21 @@ def test_reindex_invalidates_only_what_no_current_instrument_timed(tmp_path):
     assert report["unrecognized"] == ["notes.json"]
 
 
-def test_two_clips_pay_one_aligner_run(monkeypatch, tmp_path):
+def test_speech_window_language_avoids_language_not_covered_for_batch(
+        monkeypatch, tmp_path):
     """Batching is the cost fix: two clips' windows align in ONE
-    call, and every word comes back on its own clip's clock."""
+    call, and every word comes back on its own clip's clock. Language
+    detection samples those word windows rather than the file lead-in,
+    so music cannot choose an uncovered MFA language."""
     from library.tools import heard_speech
 
-    monkeypatch.setattr(
-        heard_speech, "identify_language",
-        lambda path, **kw: heard_speech.HeardLanguage("en", 0.98))
+    language_probes = []
+
+    def _identify_speech(path, **kwargs):
+        language_probes.append((path, kwargs))
+        return heard_speech.HeardLanguage("en", 0.98)
+
+    monkeypatch.setattr(heard_speech, "identify_language", _identify_speech)
     monkeypatch.setattr(
         heard_speech, "transcribe",
         lambda path, **kw: heard_speech.HeardSpeech(
@@ -303,6 +312,10 @@ def test_two_clips_pay_one_aligner_run(monkeypatch, tmp_path):
 
     assert len(calls) == 1
     assert calls[0] == (2, "en")
+    assert [path for path, _ in language_probes] == audios
+    for _path, probe in language_probes:
+        assert probe["sample_start_seconds"] == pytest.approx(0.35)
+        assert probe["sample_duration_seconds"] == pytest.approx(0.7)
     first = results["clip_001"][0][0]
     second = results["clip_002"][0][0]
     assert results["clip_001"][1]["aligner"] == "mfa"

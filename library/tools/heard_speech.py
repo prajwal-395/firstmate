@@ -60,6 +60,8 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
+import wave
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -357,14 +359,20 @@ def transcribe(media_path: str,
     return read_payload(payload, media_path)
 
 
-def identify_language(media_path: str,
-                      timeout: float = TIMEOUT_SECONDS) -> HeardLanguage:
-    """Which language `media_path` is spoken in. The ONE call to `da ear`.
+def identify_language(
+    media_path: str,
+    timeout: float = TIMEOUT_SECONDS,
+    *,
+    sample_start_seconds: float | None = None,
+    sample_duration_seconds: float | None = None,
+) -> HeardLanguage:
+    """Which language is spoken in a file or a sample of it.
 
-    Raises `TranscriberUnavailable` for exactly the reasons `transcribe`
-    does, and for the same reason: an unanswered language question and
-    "this is English" must never arrive as the same object, because the
-    caller uses the answer to decide whether it may transcribe at all.
+    A sample is copied from PCM WAV input into a temporary WAV before
+    asking `da ear`. The hybrid supplies a window drawn from Voz's word
+    timings, so language identification hears speech rather than a
+    silent or music lead-in. Both sample bounds must be supplied
+    together; omitted bounds preserve the whole-file behavior.
     """
     binary = executable()
     if not binary:
@@ -372,6 +380,51 @@ def identify_language(media_path: str,
     if not media_path or not os.path.isfile(media_path):
         raise TranscriberUnavailable(
             f"there is no file at {media_path!r} to identify.")
+
+    if ((sample_start_seconds is None)
+            != (sample_duration_seconds is None)):
+        raise ValueError(
+            "sample_start_seconds and sample_duration_seconds must be "
+            "supplied together")
+
+    if sample_start_seconds is not None:
+        if sample_start_seconds < 0 or sample_duration_seconds <= 0:
+            raise ValueError("language sample bounds must be positive")
+        with tempfile.TemporaryDirectory(prefix="da-language-") as scratch:
+            sample_path = os.path.join(scratch, "speech.wav")
+            try:
+                with wave.open(media_path, "rb") as source:
+                    frame_rate = source.getframerate()
+                    first_frame = round(sample_start_seconds * frame_rate)
+                    frame_count = round(
+                        sample_duration_seconds * frame_rate)
+                    first_frame = min(max(first_frame, 0),
+                                      source.getnframes())
+                    frame_count = min(frame_count,
+                                      source.getnframes() - first_frame)
+                    if frame_count < 1:
+                        raise TranscriberUnavailable(
+                            f"the language sample at "
+                            f"{sample_start_seconds:.3f}s for "
+                            f"{sample_duration_seconds:.3f}s is outside "
+                            f"{os.path.basename(media_path)}")
+                    source.setpos(first_frame)
+                    frames = source.readframes(frame_count)
+                    with wave.open(sample_path, "wb") as sample:
+                        sample.setparams(source.getparams())
+                        sample.writeframes(frames)
+            except (OSError, EOFError, wave.Error) as unreadable:
+                raise TranscriberUnavailable(
+                    f"could not sample speech from "
+                    f"{os.path.basename(media_path)}: {unreadable}") \
+                    from unreadable
+            return _identify_language_file(binary, sample_path, timeout)
+
+    return _identify_language_file(binary, media_path, timeout)
+
+
+def _identify_language_file(binary: str, media_path: str,
+                            timeout: float) -> HeardLanguage:
     try:
         out = subprocess.run([binary, EAR_SUBCOMMAND, media_path, *FLAGS],
                              capture_output=True, encoding="utf-8",

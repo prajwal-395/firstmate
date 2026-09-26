@@ -61,22 +61,21 @@ The refusal is real, and it is triggered by measurement
 full-WhisperX arm went with the whisperx pin. What the refusal becomes
 is the SEAM's decision (`timeline_transcript.transcribe_audio`) -
 silence is returned empty and attributed, anything else propagates.
-Three conditions, each detectable and each with a counted reason:
+Two conditions refuse a hybrid result:
 
-  1. **The language.** The transcriber covers 25 languages, its CLI does
-     not enumerate which 25, and on one it does not cover it writes
-     confident nonsense rather than an error. `da ear` answers the
-     language question in 0.22s, and its answer is checked against the
-     languages the ALIGNER has a model for. That is a narrower test than
-     the one worth having and this is the honest statement of the gap:
-     **membership of the transcriber's own 25 cannot be tested, because
-     the vendor does not publish the list.** What IS tested is exact -
-     an uncovered language means the hybrid cannot run at all.
+  1. **The language.** Voz writes text but not its language, so `da ear`
+     identifies a speech window selected from Voz's word timings. This
+     keeps silence or a music lead-in from deciding which MFA model is
+     used. An uncovered language still refuses rather than getting
+     forced through an English aligner.
   2. **A window that produced no words.** The aligner logs `backtrack
-     failed, resorting to original` and emits an empty word list. Exact,
-     free, and measured at 0 across 150.7 minutes under this window.
-  3. **A word still over the clamp after alignment.** Measured at 0 under
-     this window, against 33 in the transcriber's raw output.
+     failed, resorting to original` and emits an empty word list. A
+     measured alignment failure still refuses rather than publishing a
+     hollow transcript.
+
+An MFA word that runs over the shared clamp is corrected at the same
+boundary used by temporal indexing and the reel transcript path. It no
+longer rejects every other window in its batch.
 
 Two more are not measurements of the audio but of the machine, and they
 are kept apart on purpose: the transcriber is **not installed**, or it
@@ -161,6 +160,9 @@ on where a measurement may be trusted, swept over 21 configurations."""
 
 WINDOW_PAD_SECONDS = 0.15
 """Widen every alignment window by this at both ends."""
+
+LANGUAGE_PROBE_SECONDS = 8.0
+"""Maximum speech sample used for language identification."""
 
 MAX_WORD_SECONDS = heard_speech.LONG_WORD_SECONDS
 """The clamp, spelled once and shared with the hearing pass: a word held
@@ -325,12 +327,45 @@ def alignment_windows(spoken: heard_speech.HeardSpeech,
     return [window for window in windows if window["text"]]
 
 
+def language_probe_span(windows: Sequence[dict]) -> tuple[float, float]:
+    """Select a representative speech window for language detection.
+
+    The most continuous run carries the most speech and least silence.
+    Long runs are sampled around their center, away from a clip lead-in.
+    """
+    if not windows:
+        raise ValueError("language identification needs a speech window")
+    window = max(
+        windows,
+        key=lambda item: (item["end"] - item["start"],
+                          len(item["source_words"])),
+    )
+    span = window["end"] - window["start"]
+    duration = min(span, LANGUAGE_PROBE_SECONDS)
+    start = window["start"] + max(0.0, (span - duration) / 2.0)
+    return start, duration
+
+
+def identify_speech_language(audio_path: str,
+                             windows: Sequence[dict]
+                             ) -> heard_speech.HeardLanguage:
+    """Identify language from transcribed speech, not the file lead-in."""
+    start, duration = language_probe_span(windows)
+    try:
+        return heard_speech.identify_language(
+            audio_path,
+            sample_start_seconds=start,
+            sample_duration_seconds=duration,
+        )
+    except heard_speech.TranscriberUnavailable as absent:
+        raise _not_here_or_refused(absent) from absent
+
+
 # ── The triggers ─────────────────────────────────────────────────────
 
 LANGUAGE_NOT_COVERED = "language_not_covered"
 HEARD_NOTHING = "heard_nothing"
 SEGMENT_PRODUCED_NO_WORDS = "segment_produced_no_words"
-WORD_OVER_THE_CLAMP = "word_over_the_clamp"
 TRANSCRIBER_UNAVAILABLE = "transcriber_unavailable"
 TRANSCRIBER_REFUSED = "transcriber_refused"
 
@@ -338,7 +373,6 @@ TRIGGERS = (
     LANGUAGE_NOT_COVERED,
     HEARD_NOTHING,
     SEGMENT_PRODUCED_NO_WORDS,
-    WORD_OVER_THE_CLAMP,
     TRANSCRIBER_UNAVAILABLE,
     TRANSCRIBER_REFUSED,
 )
@@ -371,11 +405,14 @@ def _not_here_or_refused(failure: heard_speech.TranscriberUnavailable
 
 
 def _check_alignment(aligned: dict) -> None:
-    """Raise `FallbackRequired` for what the alignment itself measured."""
+    """Reject empty MFA output and sanitize stretched word boundaries."""
+    from library.tools.word_boundaries import sanitize_word_boundaries
+
     segments = [s for s in aligned.get("segments") or [] if isinstance(s, dict)]
 
     for segment in segments:
-        if not (segment.get("words") or []):
+        words = segment.get("words") or []
+        if not words:
             raise FallbackRequired(
                 SEGMENT_PRODUCED_NO_WORDS,
                 f"forced alignment emitted no words for "
@@ -384,22 +421,21 @@ def _check_alignment(aligned: dict) -> None:
                 f"{(segment.get('text') or '').strip()[:80]!r}. This "
                 f"window measured 0 failures over 150.7 minutes, so one "
                 f"means this audio is not the material it was proved on.")
-
-    for segment in segments:
-        for word in segment.get("words") or []:
-            if not isinstance(word, dict):
-                continue
+        timed_run = []
+        for word in words:
             try:
-                span = float(word["end"]) - float(word["start"])
+                start = float(word["start"])
+                end = float(word["end"])
             except (KeyError, TypeError, ValueError):
+                if timed_run:
+                    sanitize_word_boundaries(timed_run)
+                    timed_run = []
                 continue
-            if span > MAX_WORD_SECONDS:
-                raise FallbackRequired(
-                    WORD_OVER_THE_CLAMP,
-                    f"{str(word.get('word') or '').strip()!r} was aligned "
-                    f"across {span:.2f}s, over the {MAX_WORD_SECONDS}s "
-                    f"clamp. A word held that long spans a silence; this "
-                    f"window measured 0 of them over 150.7 minutes.")
+            word["start"] = start
+            word["end"] = end
+            timed_run.append(word)
+        if timed_run:
+            sanitize_word_boundaries(timed_run)
 
 
 # ── The pass ─────────────────────────────────────────────────────────
@@ -418,18 +454,6 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
     partial answer this function is willing to hand back.
     """
     try:
-        spoken_language = heard_speech.identify_language(audio_path)
-    except heard_speech.TranscriberUnavailable as absent:
-        raise _not_here_or_refused(absent) from absent
-
-    if not aligner.covers(spoken_language.language):
-        raise FallbackRequired(
-            LANGUAGE_NOT_COVERED,
-            f"the language identifier heard {spoken_language.language!r} "
-            f"and the forced aligner has no model for it, so the hybrid "
-            f"cannot place a word boundary in this audio at all.")
-
-    try:
         spoken = heard_speech.transcribe(audio_path)
     except heard_speech.TranscriberUnavailable as absent:
         raise _not_here_or_refused(absent) from absent
@@ -442,6 +466,16 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
             f"{label or audio_path}. Silence and a failed hearing are "
             f"the same object from here, so the question is asked again "
             f"of the path that can tell them apart.")
+
+    spoken_language = identify_speech_language(audio_path, windows)
+    if not aligner.covers(spoken_language.language):
+        raise FallbackRequired(
+            LANGUAGE_NOT_COVERED,
+            f"the speech-window identifier heard "
+            f"{spoken_language.language!r} "
+            f"(confidence {spoken_language.confidence!r}) and the forced "
+            f"aligner has no model for it, so the hybrid cannot place a "
+            f"word boundary in this audio at all.")
 
     aligned = aligner.align(windows, spoken_language.language, audio_path)
     _check_alignment(aligned)

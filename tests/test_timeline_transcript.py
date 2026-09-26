@@ -534,7 +534,7 @@ def test_silence_is_returned_empty_and_attributed(monkeypatch):
 
 
 def test_a_refusal_the_seam_cannot_answer_propagates(monkeypatch):
-    """A misaligned word means speech exists the seam cannot place.
+    """A window with no aligned words means speech exists the seam cannot place.
 
     With no second instrument left, an empty transcript would read as
     "no speech" where the honest answer is "could not hear" - so the
@@ -546,13 +546,13 @@ def test_a_refusal_the_seam_cannot_answer_propagates(monkeypatch):
     asked = _stub_seam(
         monkeypatch,
         hybrid=hybrid_transcription.FallbackRequired(
-            hybrid_transcription.WORD_OVER_THE_CLAMP,
-            "'starting' spans 62.63s"))
+            hybrid_transcription.SEGMENT_PRODUCED_NO_WORDS,
+            "the aligner returned no words for 'Yeah.'"))
     with pytest.raises(hybrid_transcription.FallbackRequired) as exc:
         tt.transcribe_audio(Path("craig.wav"))
     assert asked == {"hybrid": 1}
-    assert exc.value.reason == hybrid_transcription.WORD_OVER_THE_CLAMP
-    assert "62.63s" in exc.value.detail
+    assert exc.value.reason == hybrid_transcription.SEGMENT_PRODUCED_NO_WORDS
+    assert "no words" in exc.value.detail
 
 
 

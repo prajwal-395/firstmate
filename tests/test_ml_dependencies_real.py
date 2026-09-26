@@ -1,34 +1,33 @@
-import subprocess
+import math
 import sys
+import wave
+from array import array
 
 import pytest
 
 @pytest.fixture
-def hello_wav(tmp_path):
-    wav_path = tmp_path / "hello.wav"
-    raw_path = tmp_path / "raw_hello.wav"
-    aiff_path = tmp_path / "hello.aiff"
-    
-    test_sentence = "Hello there, this is a test of the speech detection pipeline. We need a long enough sentence so that the voice activity detector can recognize this as human speech."
-    
-    if sys.platform == "darwin":
-        subprocess.run(["say", "-o", str(aiff_path), test_sentence], check=True)
-        subprocess.run([
-            "ffmpeg", "-y", "-i", str(aiff_path),
-            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(wav_path)
-        ], check=True, capture_output=True)
-    else:
-        subprocess.run(["espeak", "-w", str(raw_path), test_sentence], check=True)
-        subprocess.run([
-            "ffmpeg", "-y", "-i", str(raw_path),
-            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(wav_path)
-        ], check=True, capture_output=True)
-        
+def synthetic_wav(tmp_path):
+    """Write stable harmonic audio without depending on a host TTS service."""
+    wav_path = tmp_path / "harmonic-tone.wav"
+    sample_rate = 16000
+    samples = array(
+        "h",
+        (int(10000 * math.sin(2 * math.pi * 180 * frame / sample_rate))
+         for frame in range(sample_rate * 12)),
+    )
+    if sys.byteorder != "little":
+        samples.byteswap()
+    with wave.open(str(wav_path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        audio.writeframes(samples.tobytes())
     return wav_path
 
 @pytest.mark.heavy
 @pytest.mark.heavy_ml
-def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
+def test_prosody_speaking_rate_comes_from_handed_regions(synthetic_wav,
+                                                         tmp_path):
     """speaking_rate is computed from the speech_regions handed in, during a
     REAL parselmouth measurement - not a mocked one.
 
@@ -55,7 +54,7 @@ def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
     out_dir.mkdir()
 
     result = analyze_speech_advanced(
-        audio_path=str(hello_wav),
+        audio_path=str(synthetic_wav),
         speech_regions=regions,
         output_dir=str(out_dir),
         clip_id="clip_rate",

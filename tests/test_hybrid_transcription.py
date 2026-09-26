@@ -166,6 +166,10 @@ def test_an_uncovered_language_falls_back(monkeypatch):
     monkeypatch.setattr(heard_speech, "identify_language",
                         lambda path, **kw: heard_speech.HeardLanguage("xh",
                                                                       0.99))
+    monkeypatch.setattr(
+        heard_speech, "transcribe",
+        lambda path, **kw: _heard([("bonjour", 5.0, 5.5)],
+                                  [("bonjour", 5.0, 5.5)]))
     with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
         hybrid_transcription.transcribe_and_align(
             "audio.wav", _aligner(_one_word_per_window))
@@ -240,23 +244,90 @@ def test_a_window_that_aligned_to_no_words_falls_back(monkeypatch):
     assert "Yeah." in refused.value.detail
 
 
-def test_a_word_still_over_the_clamp_after_alignment_falls_back(monkeypatch):
+def test_2026_word_over_the_clamp_is_sanitized_without_losing_speech(
+        monkeypatch):
     monkeypatch.setattr(heard_speech, "identify_language",
                         lambda path, **kw: heard_speech.HeardLanguage("en", 1.0))
     monkeypatch.setattr(
         heard_speech, "transcribe",
-        lambda path, **kw: _heard([("starting", 1.0, 1.4)],
-                                  [("starting", 1.0, 1.4)]))
+        lambda path, **kw: _heard(
+            [("today", 1.0, 1.3), ("is", 1.31, 1.45),
+             ("march", 1.46, 1.9), ("25th,", 1.91, 2.15),
+             ("2026.", 2.2, 2.5)],
+            [("today is march 25th, 2026.", 1.0, 2.5)]))
 
     def _stretched(windows, language, audio_path):
-        return {"segments": [{"start": 1.0, "end": 64.0, "text": "starting",
-                              "words": [{"word": "starting", "start": 1.0,
-                                         "end": 63.6, "score": 0.2}]}]}
+        words = [
+            {"word": "today", "start": 1.0, "end": 1.3},
+            {"word": "is", "start": 1.31, "end": 1.45},
+            {"word": "march", "start": 1.46, "end": 1.9},
+            {"word": "25th,", "start": 1.91, "end": 2.15},
+            {"word": "2026.", "start": 2.2, "end": 4.87},
+        ]
+        return {"segments": [{"start": 1.0, "end": 4.87,
+                              "text": "today is march 25th, 2026.",
+                              "words": words}]}
+
+    result = hybrid_transcription.transcribe_and_align(
+        "audio.wav", _aligner(_stretched))
+    words = result.aligned["segments"][0]["words"]
+    assert words[-1]["word"] == "2026."
+    assert words[-1]["end"] == pytest.approx(2.5)
+    assert words[-1]["end"] - words[-1]["start"] <= \
+        hybrid_transcription.MAX_WORD_SECONDS
+
+
+def test_music_leadin_cannot_make_english_speech_language_not_covered(
+        monkeypatch):
+    """A full-file language guess can sample a silent or music lead-in.
+    Probe a sustained word window so a short lead-in cannot label speech
+    English as Nynorsk (nn).
+    """
+    spoken = _heard(
+        [("Today", 18.0, 18.3), ("is", 18.31, 18.45),
+         ("march", 18.46, 18.9), ("2026.", 18.91, 19.25)],
+        [("Today is march 2026.", 18.0, 19.25)])
+    monkeypatch.setattr(heard_speech, "transcribe",
+                        lambda path, **kw: spoken)
+    probes = []
+
+    def _speech_window(path, **kwargs):
+        probes.append((path, kwargs))
+        return heard_speech.HeardLanguage("en", 0.99)
+
+    monkeypatch.setattr(heard_speech, "identify_language", _speech_window)
+    asked = {}
+
+    def _remember(windows, language, audio_path):
+        asked["language"] = language
+        return _one_word_per_window(windows, language, audio_path)
+
+    result = hybrid_transcription.transcribe_and_align(
+        "audio.wav", _aligner(_remember))
+
+    assert asked["language"] == "en"
+    assert probes == [("audio.wav", {
+        "sample_start_seconds": pytest.approx(17.85),
+        "sample_duration_seconds": pytest.approx(1.55),
+    })]
+    assert result.record["language"]["language"] == "en"
+
+
+def test_a_speech_window_in_a_genuinely_non_english_clip_is_not_forced_to_english(
+        monkeypatch):
+    monkeypatch.setattr(heard_speech, "identify_language",
+                        lambda path, **kw: heard_speech.HeardLanguage("es", 0.99))
+    monkeypatch.setattr(
+        heard_speech, "transcribe",
+        lambda path, **kw: _heard([("hola", 2.0, 2.5)],
+                                  [("hola", 2.0, 2.5)]))
 
     with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
         hybrid_transcription.transcribe_and_align(
-            "audio.wav", _aligner(_stretched))
-    assert refused.value.reason == hybrid_transcription.WORD_OVER_THE_CLAMP
+            "audio.wav", _aligner(_one_word_per_window))
+
+    assert refused.value.reason == hybrid_transcription.LANGUAGE_NOT_COVERED
+    assert "'es'" in refused.value.detail
 
 
 def test_every_declared_trigger_is_proved_by_a_test_in_this_file():
@@ -340,11 +411,12 @@ def test_a_fallback_record_names_the_trigger_and_what_was_measured():
     """The refusal travels with its reason: no arm answered ("none",
     nothing timed), so the trigger and detail are the whole account."""
     failure = hybrid_transcription.FallbackRequired(
-        hybrid_transcription.WORD_OVER_THE_CLAMP, "'starting' spans 62.63s")
+        hybrid_transcription.LANGUAGE_NOT_COVERED,
+        "speech window language 'nn' is not covered")
     record = hybrid_transcription.fallback_record(failure, attempted="craig.wav")
     assert record["arm"] == "none"
     assert record["aligner"] is None
     assert record["fell_back_because"]["trigger"] == \
-        hybrid_transcription.WORD_OVER_THE_CLAMP
-    assert "62.63s" in record["fell_back_because"]["detail"]
+        hybrid_transcription.LANGUAGE_NOT_COVERED
+    assert "'nn'" in record["fell_back_because"]["detail"]
     assert record["attempted_on"] == "craig.wav"

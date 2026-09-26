@@ -441,14 +441,15 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
       returned as an empty segment list with the refusal on the
       record - the same outcome the fallback produced, minus the
       wasted transcription run, and still attributed.
-    * Anything else - an uncovered language, an alignment window that
-      produced no words, a word still over the clamp, MFA declining
-      the run, the transcriber not installed at all - propagates as
-      `hybrid_transcription.FallbackRequired`. The seam cannot answer
-      those without a second instrument, and an empty transcript would
-      read as "no speech" where the honest answer is "could not hear".
-      Step 1.04 catches that per clip and carries on with a warning;
-      the reels path (`build_and_transcribe` below) fails loudly.
+    * Anything else - an uncovered speech-window language, an alignment
+      window that produced no words, MFA declining the run, the
+      transcriber not installed at all - propagates as
+      `hybrid_transcription.FallbackRequired`. Stretched MFA word tails
+      are sanitized by `word_boundaries` before they reach this seam's
+      callers. An empty transcript would read as "no speech" where the
+      honest answer is "could not hear". Step 1.04 catches a refusal per
+      clip and carries on with a warning; the reels path
+      (`build_and_transcribe` below) fails loudly.
 
     The captain's ruling, 2026-09-16: *"augment all systems to take this
     superior variant and have the whisperX as a backup / fallback"*. The

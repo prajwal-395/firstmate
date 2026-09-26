@@ -11,6 +11,9 @@ Nothing here runs the transcriber. The payload is the recorded one from
 `tests/fixtures/reel_hearing/`, replayed through the mapper.
 """
 import json
+import struct
+import subprocess
+import wave
 from pathlib import Path
 
 import pytest
@@ -98,6 +101,48 @@ def test_a_language_payload_that_names_nothing_refuses():
     transcribe at all from this answer."""
     with pytest.raises(heard_speech.TranscriberUnavailable):
         heard_speech.read_language_payload({"confidence": 0.99})
+
+
+def test_language_identifier_can_read_a_word_timed_wav_sample(
+        monkeypatch, tmp_path):
+    """Language ID receives speech selected by Voz, not a file's lead-in."""
+    media_path = tmp_path / "clip.wav"
+    with wave.open(str(media_path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"".join(
+            struct.pack("<h", value) * 16000
+            for value in (100, 200, 300, 400)))
+
+    monkeypatch.setattr(heard_speech, "executable",
+                        lambda: "/usr/local/bin/da")
+    observed = {}
+
+    def _run(command, **kwargs):
+        observed["command"] = command
+        sample_path = command[2]
+        with wave.open(sample_path, "rb") as sample:
+            observed["duration"] = (
+                sample.getnframes() / sample.getframerate())
+            observed["rate"] = sample.getframerate()
+            observed["first_frame"] = sample.readframes(1)
+        return subprocess.CompletedProcess(
+            command, 0,
+            stdout=json.dumps({"language": "en", "confidence": 0.99}),
+            stderr="")
+
+    monkeypatch.setattr(heard_speech.subprocess, "run", _run)
+    language = heard_speech.identify_language(
+        str(media_path), sample_start_seconds=1.25,
+        sample_duration_seconds=1.5)
+
+    assert language == heard_speech.HeardLanguage("en", 0.99)
+    assert observed["command"][1:2] == [heard_speech.EAR_SUBCOMMAND]
+    assert observed["command"][2] != str(media_path)
+    assert observed["duration"] == pytest.approx(1.5)
+    assert observed["rate"] == 16000
+    assert struct.unpack("<h", observed["first_frame"])[0] == 200
 
 
 # ── 2. What it returns ───────────────────────────────────────────────
