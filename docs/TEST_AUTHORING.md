@@ -1,10 +1,7 @@
-# Tests are written on evidence of a defect, not on coverage
+# Test authoring
 
-Captain's ruling, 2026-09-23 - his words, unedited:
-
-The default answer to "should this have a test" is NO.
-A test earns its place by naming the defect it would catch; coverage, symmetry with a neighbouring
-module, and "this code is untested" are not reasons.
+See [AGENTS.md 10.4](../AGENTS.md) for the test-authoring rule. The guidance below expands on
+that rule.
 
 Never write a test whose failure mode is a correct edit.
 A test that asserts a count, a registry size, a file tally, or a snapshot of structure fires on every

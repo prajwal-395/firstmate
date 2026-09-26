@@ -1,9 +1,9 @@
 """The two AGENTS.md gates must be able to FAIL.
 
-AGENTS.md 10.4: a gate that cannot fail is worse than no gate, because it
-reads as coverage.  Both of these guard a file that regrew 34,848 characters
-in the two working days after the 2026-09-01 condensation, so a future worker
-weakening either one silently is the failure this pins down.
+See AGENTS.md 10.4 for the test-authoring rule. Both gates below guard a file
+that regrew 34,848 characters in the two working days after the 2026-09-01
+condensation, so a future worker weakening either one silently is the failure
+this pins down.
 
 The size gate runs in CI and fails the build.  The preservation check is a
 manual restructure tool - it needs a `--before` - so it is exercised here
@@ -161,5 +161,4 @@ def test_a_token_dump_still_fails(tmp_path):
     code, out = run(PRESERVE, "--before", AGENTS, "--after", f)
     assert code == 1
     assert "TOKEN DUMPS" in out
-
 
