@@ -988,6 +988,7 @@ DECLARATIONS = {
     "tail_extend_authorizations": (
         "library.tools.tail_extend_authorization", "load_authorizations"),
     "edit_ledger": ("library.tools.edit_ledger", "load_rows"),
+    "reel_post_header": ("library.tools.reel_post_header", "read_hooks"),
 }
 
 

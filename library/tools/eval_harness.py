@@ -50,6 +50,7 @@ RESOLVE_AXI = REPO_ROOT / "bin" / "resolve-axi"
 MANAGE_PROJECT = REPO_ROOT / "manage_project.py"
 
 LOCK_DIR = Path(os.path.expanduser("~/.local/share/vep/resolve-driver.lock"))
+HEAVY_LOCK_DIR = Path(os.path.expanduser("~/.local/share/vep/heavy-work.lock"))
 SCRATCH_PREFIX = "ren-eval-scratch-"
 
 # The edit chain the scout ran: everything downstream of analysis, minus
@@ -527,16 +528,9 @@ def _is_heavy_process(line: str) -> bool:
                    "llama-server"}:
         return True
     if (command.startswith("python")
-            and ("manage_project.py" in basenames and "run" in cleaned
-                 or "run_pipeline.py" in basenames
-                 or any("step_6_01_render" in token for token in cleaned)
-                 or "vision_pipeline_v3.py" in basenames
-                 or ("run" in cleaned
-                     and any(token == "-m"
-                             and cleaned[index + 1]
-                             == "library.tools.eval_harness"
-                             for index, token
-                             in enumerate(cleaned[:-1])))
+            and (any("step_6_01_render" in token for token in cleaned)
+                 or ("--step" in cleaned
+                     and "render" in cleaned[cleaned.index("--step") + 1:])
                  or any(token == "-m"
                         and cleaned[index + 1].split(".", 1)[0]
                         in ("mlx_lm", "mlx_vlm")
@@ -598,10 +592,11 @@ def memory_free_mb(vm_stat_text: str = "") -> float:
 
 def wait_for_quiet(timeout_seconds: int = 6 * 3600,
                    min_free_mb: float = 2048.0) -> None:
-    """Wait while another lane's model, render or gate is running.
+    """Wait for locally heavy work and enough reclaimable memory.
 
-    Heavy means processes AND memory: a quiet ps with 100 MB free still
-    OOM-kills the run. Both must clear before the Resolve lock is taken.
+    Remote-bound pipeline replays do not block an eval. Local model loaders,
+    encoders, renders and gates remain serialized; cooperating lanes also
+    coordinate with the heavy-work mkdir lock.
     """
     start = time.time()
     while True:
@@ -621,9 +616,8 @@ def wait_for_quiet(timeout_seconds: int = 6 * 3600,
         time.sleep(60)
 
 
-def take_resolve_lock(owner: str, timeout_seconds: int = 3600) -> None:
-    """The mkdir lock, first. Waits while held; the owner file says by whom."""
-    start = time.time()
+def take_resolve_lock(owner: str) -> None:
+    """Wait for the Resolve-driver mkdir lock; the owner file says by whom."""
     while True:
         try:
             LOCK_DIR.mkdir(parents=True, exist_ok=False)
@@ -635,13 +629,55 @@ def take_resolve_lock(owner: str, timeout_seconds: int = 3600) -> None:
                     encoding="utf-8").strip()
             except OSError:
                 pass
-            if time.time() - start > timeout_seconds:
-                raise TimeoutError(
-                    f"resolve lock held past timeout by: {holder}")
             print(f"eval: resolve lock held ({holder}); waiting",
                   flush=True)
             time.sleep(20)
-    (LOCK_DIR / "owner").write_text(owner + "\n", encoding="utf-8")
+    try:
+        (LOCK_DIR / "owner").write_text(owner + "\n", encoding="utf-8")
+    except OSError:
+        LOCK_DIR.rmdir()
+        raise
+
+
+def take_heavy_lock(owner: str) -> None:
+    """Wait for the shared lock used only around locally heavy work.
+
+    The lock has no timeout: a running heavy job is an expected wait, not a
+    failed eval. Keep the task id in the owner file so another lane can tell
+    which job owns the machine.
+    """
+    HEAVY_LOCK_DIR.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            HEAVY_LOCK_DIR.mkdir(parents=True, exist_ok=False)
+            break
+        except FileExistsError:
+            holder = ""
+            try:
+                holder = (HEAVY_LOCK_DIR / "owner").read_text(
+                    encoding="utf-8").strip()
+            except OSError:
+                pass
+            print(f"eval: heavy-work lock held ({holder}); waiting",
+                  flush=True)
+            time.sleep(60)
+    try:
+        (HEAVY_LOCK_DIR / "owner").write_text(owner + "\n",
+                                               encoding="utf-8")
+    except OSError:
+        HEAVY_LOCK_DIR.rmdir()
+        raise
+
+
+def release_heavy_lock() -> None:
+    """Release the shared heavy-work lock by removing its owned directory."""
+    try:
+        owner = HEAVY_LOCK_DIR / "owner"
+        if owner.exists():
+            owner.unlink()
+        HEAVY_LOCK_DIR.rmdir()
+    except OSError as exc:
+        raise RuntimeError(f"eval: could not release heavy-work lock: {exc}")
 
 
 def release_resolve_lock() -> None:
@@ -661,7 +697,10 @@ def resolve_bracket_start(scratch: str) -> dict:
     """Save the captain's open project first, open the scratch project.
 
     Refuses a scratch name outside the eval prefix: the bracket deletes
-    this project at the end, and it must never be the captain's.
+    this project at the end, and it must never be the captain's. If
+    opening or saving the scratch project fails after the captain was
+    saved, restore the captain and remove any partially created scratch
+    before raising the original failure.
     """
     if not scratch.startswith(SCRATCH_PREFIX):
         raise ValueError(f"scratch project must start with "
@@ -670,6 +709,8 @@ def resolve_bracket_start(scratch: str) -> dict:
     from library.tools.resolve_lock import resolve_lease
 
     resolve = connect_resolve()
+    start_error = None
+    state = None
     with resolve_lease(f"open eval scratch {scratch}"):
         manager = resolve.GetProjectManager()
         current = manager.GetCurrentProject()
@@ -677,6 +718,11 @@ def resolve_bracket_start(scratch: str) -> dict:
             raise RuntimeError(
                 "eval: Resolve has no open captain project to save and "
                 "restore")
+        if (current.GetName() or "").startswith(SCRATCH_PREFIX):
+            raise RuntimeError(
+                "eval: Resolve is already open on an eval scratch project; "
+                "the captain's saved project and timeline are unknown, so "
+                "refusing to switch projects")
         timeline = current.GetCurrentTimeline()
         if not timeline:
             raise RuntimeError(
@@ -690,17 +736,39 @@ def resolve_bracket_start(scratch: str) -> dict:
             "timeline": timeline.GetName(),
             "saved": True,
         }
-        if (state["project"] or "").startswith(SCRATCH_PREFIX):
-            print("eval: current project is already an eval scratch; "
-                  "captain record kept from the earlier start", flush=True)
         listed = manager.GetProjectListInCurrentFolder() or []
-        project = (manager.LoadProject(scratch) if scratch in listed
-                   else manager.CreateProject(scratch))
-        if not project:
+        try:
+            project = (manager.LoadProject(scratch) if scratch in listed
+                       else manager.CreateProject(scratch))
+            if not project:
+                raise RuntimeError(
+                    f"eval: could not open scratch project {scratch}")
+            if not manager.SaveProject():
+                raise RuntimeError(
+                    f"eval: could not save scratch project {scratch}")
+        except Exception as exc:  # noqa: BLE001 - restoration is mandatory
+            start_error = exc
+
+    if start_error is not None:
+        try:
+            restored = resolve_bracket_end(scratch, state)
+        except Exception as exc:  # noqa: BLE001 - report both failures
             raise RuntimeError(
-                f"eval: could not open scratch project {scratch}")
-        manager.SaveProject()
-        return state
+                f"eval: opening scratch project {scratch} failed with "
+                f"{start_error}; captain restoration also failed: {exc}") \
+                from start_error
+        if (not restored.get("project_restored")
+                or not restored.get("timeline_restored")
+                or restored.get("scratch_deleted") is False):
+            raise RuntimeError(
+                f"eval: opening scratch project {scratch} failed with "
+                f"{start_error}; captain restoration was incomplete: "
+                f"{restored}") from start_error
+        raise RuntimeError(
+            f"eval: opening scratch project {scratch} failed: "
+            f"{start_error}; captain project and timeline were restored") \
+            from start_error
+    return state
 
 
 def resolve_bracket_end(scratch: str, state: dict) -> dict:
@@ -1073,9 +1141,19 @@ def decide_answer(step: str, target_exists: bool, stored_exists: bool,
 
 
 def parse_run_status(log_text: str) -> str | None:
-    """The run summary's status (the LAST one printed), or None."""
-    matches = re.findall(r'"status":\s*"([A-Z_]+)"', log_text)
-    return matches[-1] if matches else None
+    """The current pipeline summary's status, or None while it is running.
+
+    A run log can contain status fields from restart history and prior-run
+    records before the current invocation prints its summary.  Treating any
+    such field as terminal let the answer loop return while the current
+    pipeline was still waiting on a model response.  The complete summary is
+    the only terminal record; `pipeline_summary_from_log` requires its full
+    contract, so a prior status field cannot end this run.
+    """
+    try:
+        return pipeline_summary_from_log(log_text)["status"]
+    except ValueError:
+        return None
 
 
 def answer_loop(log_path: Path, project_dir: str, answers_dir: str,
@@ -1090,9 +1168,9 @@ def answer_loop(log_path: Path, project_dir: str, answers_dir: str,
     and asked again for - stops the loop LOUDLY: the operator - the
     product's own model, which is what makes host-answered runs the
     understanding upper bound - writes the response file, and the loop
-    resumes. A FAILED summary raises: the edit never proceeds to a build.
-    A scoped stage may opt into PARTIAL here, then must verify its completed
-    steps against `pipeline_run.json` before it proceeds.
+    resumes. A FAILED summary raises for an unscoped run. A scoped stage may
+    opt into PARTIAL or FAILED here, then must verify its completed steps and
+    failure scope against the pipeline summary before it proceeds.
     Returns the fresh-answer ledger.
     """
     project_path = Path(project_dir)
@@ -1110,16 +1188,14 @@ def answer_loop(log_path: Path, project_dir: str, answers_dir: str,
             text = ""
         status = parse_run_status(text)
         if status is not None:
-            if status == "SUCCESS" or (allow_partial and status == "PARTIAL"):
+            if status == "SUCCESS" or (
+                    allow_partial and status in {"PARTIAL", "FAILED"}):
                 return {"run_status": status,
                         "fresh_answers": fresh,
                         "auto_answered": sorted(answered_by_harness)}
             raise RuntimeError(
                 f"eval: run ended {status} - see log tail:\n"
                 + "\n".join(text.splitlines()[-15:]))
-        if re.search(r"✗ FAILED|Traceback", text):
-            raise RuntimeError("eval: run failed - see log tail:\n"
-                               + "\n".join(text.splitlines()[-15:]))
         seen, requests = _watch_log_for_request(log_path, seen)
         for step, request_path in requests:
             target = responses / f"{step}.json"
@@ -1168,11 +1244,12 @@ def pipeline_summary_from_log(log_text: str) -> dict:
 def validate_scoped_run(log_path: str, stage: str,
                         expected_steps, expected_skipped,
                         run_status: str) -> dict:
-    """Accept PARTIAL only when all requested scoped work completed.
+    """Accept scoped work with no current or in-scope failures.
 
     The pipeline calls an invocation PARTIAL when it deliberately skips work
-    outside its scope. The eval still refuses missing requested steps, failed
-    work, or any unexpected skip before it can build or score the run.
+    outside its scope. The eval refuses missing requested steps, failed work,
+    or unexpected skips. A recorded failure outside the requested scope stays
+    visible in the ledger but does not prevent an independent scoped build.
     """
     try:
         summary = pipeline_summary_from_log(
@@ -1183,25 +1260,37 @@ def validate_scoped_run(log_path: str, stage: str,
             f"{log_path}: {exc}") from exc
 
     summary_status = summary["status"].upper()
-    if summary_status not in {"SUCCESS", "PARTIAL"}:
-        raise RuntimeError(
-            f"eval: {stage} stage ended {summary_status}, not a completed "
-            "scoped run")
     if run_status != summary_status:
         raise RuntimeError(
             f"eval: {stage} status disagrees: log says {run_status}, "
             f"pipeline summary says {summary_status}")
 
-    failed = summary["failed"]
-    outstanding = summary["outstanding_failures"]
-    stranded = summary["stranded_failures"]
-    if failed or outstanding or stranded:
+    expected_steps = set(expected_steps)
+    failed = set(summary["failed"])
+    outstanding = set(summary["outstanding_failures"])
+    stranded = set(summary["stranded_failures"])
+    # A scoped run cannot repair a failure in a step it deliberately leaves
+    # alone. Preserve that failure in the ledger, but let the requested work
+    # proceed when every step in scope completed and no in-scope or current
+    # failure remains. This matters for edit evals, which skip validation:
+    # an existing validation failure describes the base, not this edit.
+    carry_forward = sorted(outstanding - expected_steps)
+    blocking_outstanding = sorted(outstanding & expected_steps)
+    if failed or blocking_outstanding or stranded:
         raise RuntimeError(
-            f"eval: {stage} stage recorded failures: failed={failed}, "
-            f"outstanding={outstanding}, stranded={stranded}")
+            f"eval: {stage} stage recorded failures: "
+            f"failed={sorted(failed)}, "
+            f"outstanding_in_scope={blocking_outstanding}, "
+            f"stranded={sorted(stranded)}")
+
+    if summary_status not in {"SUCCESS", "PARTIAL"} and not (
+            summary_status == "FAILED" and carry_forward):
+        raise RuntimeError(
+            f"eval: {stage} stage ended {summary_status}, not a completed "
+            "scoped run")
 
     completed = set(summary["completed"])
-    missing_steps = set(expected_steps) - completed
+    missing_steps = expected_steps - completed
     if missing_steps:
         raise RuntimeError(
             f"eval: {stage} stage did not complete required steps: "
@@ -1214,7 +1303,10 @@ def validate_scoped_run(log_path: str, stage: str,
             f"eval: {stage} stage skipped {sorted(skipped)}, expected "
             f"{sorted(expected_skipped)}")
     return {"completed_steps": sorted(completed),
-            "skipped_steps": sorted(skipped)}
+            "skipped_steps": sorted(skipped),
+            "scope_status": "COMPLETED",
+            "carry_forward_failures": carry_forward,
+            "stranded_failures": []}
 
 
 def run_pipeline_edit(project_dir: str, log_path: str, answers_dir: str,
@@ -1239,15 +1331,10 @@ def run_pipeline_edit(project_dir: str, log_path: str, answers_dir: str,
         finally:
             if proc.poll() is None:
                 proc.wait(timeout=600)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"eval: edit stage did not succeed "
-            f"(exit {proc.returncode}, status "
-            f"{ledger.get('run_status')}) - see {log}")
     checked = validate_scoped_run(
         str(log), "edit", (*extra_reruns, *EDIT_RERUN_CHAIN),
         ("render", "validate"), ledger["run_status"])
-    return {"exit": proc.returncode, **ledger, **checked}
+    return {"process_exit": proc.returncode, **ledger, **checked}
 
 
 def run_pipeline_render(project_dir: str, log_path: str,
@@ -1268,14 +1355,9 @@ def run_pipeline_render(project_dir: str, log_path: str,
         finally:
             if proc.poll() is None:
                 proc.wait(timeout=3600)
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"eval: render step did not succeed "
-            f"(exit {proc.returncode}, status "
-            f"{ledger.get('run_status')}) - see {log}")
     checked = validate_scoped_run(
         str(log), "render", ("render",), (), ledger["run_status"])
-    return {"exit": proc.returncode, **ledger, **checked}
+    return {"process_exit": proc.returncode, **ledger, **checked}
 
 
 def readback_timeline(scratch: str, timeline: str, out_path: str) -> str:
@@ -1633,37 +1715,48 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
             path_rewrites=path_rewrites)
     else:
         answers.mkdir(parents=True, exist_ok=True)
-    wait_for_quiet()
-    edit = run_pipeline_edit(
-        clone["dest"], str(out / "edit.log"), str(answers))
-    ledger["edit"] = edit
-    wait_for_quiet()
     scratch = f"{SCRATCH_PREFIX}{batch}"
     stamp = _dt.datetime.now(_dt.UTC).strftime("%FT%TZ")
-    take_resolve_lock(f"ren-eval-harness {batch} {stamp}")
+    task_id = (os.environ.get("VEP_TASK_ID")
+               or os.environ.get("FIRSTMATE_TASK_ID", "ren-eval-harness"))
+    owner = f"{task_id} ren-eval-harness {batch} {stamp}"
+    # One request's model decisions and its Resolve build are one serial job.
+    # Take the shared mutex before the first model request, then keep it
+    # through render/readback so another lane cannot start a model or render
+    # between this request's declared edits and the timeline that replays them.
+    wait_for_quiet()
+    take_heavy_lock(owner)
     try:
-        captain = resolve_bracket_start(scratch)
-        ledger["captain_saved"] = captain
+        edit = run_pipeline_edit(
+            clone["dest"], str(out / "edit.log"), str(answers))
+        ledger["edit"] = edit
+        take_resolve_lock(owner)
         try:
-            build = run_pipeline_render(
-                clone["dest"], str(out / "build.log"), str(answers))
-            ledger["build"] = build
-            timeline = _built_timeline_name(out / "build.log",
-                                            clone["timeline"])
-            ledger["timeline"] = timeline
-            readback_timeline(scratch, timeline, str(out / "readback.txt"))
-            ledger["export"] = find_export(clone["dest"])
+            captain = resolve_bracket_start(scratch)
+            ledger["captain_saved"] = captain
+            try:
+                build = run_pipeline_render(
+                    clone["dest"], str(out / "build.log"), str(answers))
+                ledger["build"] = build
+                timeline = _built_timeline_name(out / "build.log",
+                                                clone["timeline"])
+                ledger["timeline"] = timeline
+                readback_timeline(scratch, timeline,
+                                  str(out / "readback.txt"))
+                ledger["export"] = find_export(clone["dest"])
+            finally:
+                ledger["restore"] = resolve_bracket_end(scratch, captain)
+                restore = ledger["restore"]
+                if (not restore.get("project_restored")
+                        or not restore.get("timeline_restored")
+                        or restore.get("scratch_deleted") is False):
+                    raise RuntimeError(
+                        "eval: Resolve session did not restore the captain's "
+                        f"project and timeline cleanly: {restore}")
         finally:
-            ledger["restore"] = resolve_bracket_end(scratch, captain)
-            restore = ledger["restore"]
-            if (not restore.get("project_restored")
-                    or not restore.get("timeline_restored")
-                    or restore.get("scratch_deleted") is False):
-                raise RuntimeError(
-                    "eval: Resolve session did not restore the captain's "
-                    f"project and timeline cleanly: {restore}")
+            release_resolve_lock()
     finally:
-        release_resolve_lock()
+        release_heavy_lock()
     ledger["finished_at"] = _dt.datetime.now(_dt.UTC).isoformat()
     (out / "run.json").write_text(json.dumps(ledger, indent=2)
                                   + "\n", encoding="utf-8")
@@ -1805,11 +1898,12 @@ look-good judge records `captain_label_agreement` as agree/disagree.
 
 Weekly (not scheduled here - run by hand or from cron on the edit Mac):
   ren eval run --base <base> --out eval-$(date +%F) --rung 0
-  Heavy compute runs one job at a time: the harness waits while another
-  lane's model, render or gate is running. Resolve is standing-authorized:
-  the harness takes ~/.local/share/vep/resolve-driver.lock first, saves
-  the captain's open project first, restores project plus timeline after,
-  never touches his timelines, and deletes its scratch projects.
+  Remote-bound edit replays can overlap. Locally heavy work is serialized
+  by ~/.local/share/vep/heavy-work.lock; the harness takes it only around
+  render and Resolve readback. It then takes
+  ~/.local/share/vep/resolve-driver.lock before touching Resolve, saves the
+  captain's open project first, restores project plus timeline after, never
+  touches his timelines, and deletes its scratch projects.
   The captain's footage is read-only: the base is cloned, never written.
 
 The base: a built project with analysis done (any checkout that built it),

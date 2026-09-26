@@ -519,7 +519,8 @@ def reel_track_material(master_clips,
                         semantic_spans=None,
                         lower_third_spans=None,
                         card_role=None,
-                        card_spans=()) -> dict:
+                        card_spans=(),
+                        picture_angle_keys=None) -> dict:
     """The material `timeline_layout.plan_layout` answers with a plan.
 
     Angles come from the master's own picture rows (`reel_angles`) and
@@ -580,7 +581,7 @@ def reel_track_material(master_clips,
                 channel),
             "program_channel": channel,
         })
-    return {
+    material = {
         "angles": described,
         "has_broll": False,
         "has_frame": bool(has_frame),
@@ -608,6 +609,9 @@ def reel_track_material(master_clips,
         "card_role": card_role,
         "card_spans": [tuple(s) for s in (card_spans or [])],
     }
+    if picture_angle_keys is not None:
+        material["picture_angles"] = list(picture_angle_keys)
+    return material
 
 
 def _placed_channel(item) -> Optional[int]:
@@ -4789,6 +4793,37 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
     return ranges, cards, _ending_decl
 
 
+def plan_reel_picture(shots: list, project_folder: str, name: str,
+                      master_clips, ranges, transcript: dict, fps: float,
+                      lead_in_frames: int = 0, rows=None) -> list:
+    """`shots` as this reel's declared angle plan will place them.
+
+    ONE spelling of "which picture this reel plays" for everything that
+    plans against it before or beside the build - the motion ask and the
+    Fusion manifest. `build_reel_timeline` places through the same
+    `reel_angle_plan` calls; a caller reading `placements(...)` alone
+    describes the master's per-speaker shots, and the Fusion pass then
+    refuses every comp as reaching no timeline item (measured
+    2026-09-25, Reel 02 of a scratch geo-podcast). `rows` are this
+    reel's edit-ledger rows, read from the project when None. No
+    angle-plan row: `shots` come back unchanged.
+    """
+    from library.tools import edit_ledger as _ledger
+    from library.tools import reel_angle_plan as _angle_plan
+
+    try:
+        if rows is None:
+            rows = _ledger.load_rows(project_folder)
+        planned, _ = _angle_plan.planned_picture(
+            shots, _ledger.rows_for_reel(rows, name), master_clips,
+            ranges, transcript, fps, name, lead_in_frames=lead_in_frames)
+    except (_ledger.EditLedgerError, _angle_plan.AnglePlanError) as exc:
+        raise ReelBuildError(
+            f"{name}: the reel's planned picture cannot be derived: "
+            f"{exc}") from exc
+    return planned
+
+
 def write_visual_asks(moment, transcript: dict, ranges, master_clips,
                       project_folder: str, fps: float, name: str,
                       cards, look_decl) -> dict:
@@ -4825,13 +4860,16 @@ def write_visual_asks(moment, transcript: dict, ranges, master_clips,
     motion_path = ""
     spine = None
     if look_decl is not None:
-        spine = _look.motion_spine(
-            # The TRIMMED ranges, not a recompute from the moment: a
-            # recompute un-trims the captain's span_retime pins and
-            # plans motion for seconds the reel no longer plays.
-            placements(list(ranges), master_clips, fps,
-                       lead_frames=lead_frames(cards, fps)),
-            fps)
+        lead = lead_frames(cards, fps)
+        # The TRIMMED ranges, not a recompute from the moment: a
+        # recompute un-trims the captain's span_retime pins and plans
+        # motion for seconds the reel no longer plays. And the shots
+        # the declared angle plan places, not the master's: the motion
+        # answer is keyed by shot position.
+        spine = _look.motion_spine(plan_reel_picture(
+            placements(list(ranges), master_clips, fps, lead_frames=lead),
+            project_folder, name, master_clips, ranges, transcript, fps,
+            lead_in_frames=lead), fps)
         motion_path = _look.write_motion_request(
             moment.number, name, spine,
             transcript.get("segments") or [], project_folder)
@@ -7019,7 +7057,8 @@ def _place_transition_element(pool, project, timeline, name: str,
 
 
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
-                      draw_gain: float = FALLBACK_DRAW_GAIN):
+                      draw_gain: float = FALLBACK_DRAW_GAIN,
+                      edit_ledger_rows=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -7114,6 +7153,32 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
     name = timeline_name or moment.timeline_name
 
+    from library.tools import edit_ledger as _ledger
+    try:
+        ledger_rows = (list(edit_ledger_rows)
+                       if edit_ledger_rows is not None
+                       else _ledger.load_rows(project_folder))
+    except _ledger.EditLedgerError as exc:
+        raise ReelBuildError(
+            f"edit_ledger cannot be read: {exc}. A recorded direct edit "
+            f"the build cannot read must refuse, never build silently "
+            f"past it.") from exc
+    if ledger_rows:
+        try:
+            ledger_rows = _ledger.validate_rows(ledger_rows)
+        except _ledger.EditLedgerError as exc:
+            raise ReelBuildError(
+                f"{name}: edit_ledger declaration is invalid: {exc}") \
+                from exc
+    ledger_rows = _ledger.rows_for_reel(ledger_rows, name)
+    try:
+        ledger_rows = _ledger.resolve_grade_assets(
+            ledger_rows, project_folder, name)
+    except _ledger.EditLedgerError as exc:
+        raise ReelBuildError(
+            f"{name}: edit_ledger grade cannot be resolved before the "
+            f"timeline is created: {exc}") from exc
+
     # The graphics the captain deleted (`external/do_not_draw.json`,
     # loaded by the caller - [] where they declared none). Read once
     # here so every placer below - TV frame, captions, explainer,
@@ -7137,6 +7202,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if ranges is None:
         ranges = reel_ranges(moment, transcript, extra_cuts=extra_cuts)
     lead = lead_frames(cards, fps)
+    from library.tools import camera_sync as _camera_sync
+    from library.tools import reel_angle_plan as _angle_plan
+    angles = reel_angles(master_clips)
+    try:
+        resolved_angle_plan = _angle_plan.resolve(
+            ledger_rows, angles, ranges, transcript, fps, name,
+            lead_in_frames=lead)
+    except _angle_plan.AnglePlanError as exc:
+        raise ReelBuildError(f"{name}: {exc}") from exc
     # The declared card row is required BEFORE anything derives from
     # the cards: a reel whose head/tail cards name no row refuses here,
     # with the declaration named - never further down as a missing row,
@@ -7167,6 +7241,27 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     (placements_list, subtitle_segments, offset_links,
      offset_reports) = apply_offset_specs(
         placements_list, fps, subtitle_segments, j_cut, cutaway)
+    if resolved_angle_plan["declared"] and cutaway is not None:
+        raise ReelBuildError(
+            f"{name}: an explicit angle plan and a cutaway both choose "
+            f"which camera supplies picture over the same reel. Declare "
+            f"the reveal camera in the angle plan before combining them.")
+    try:
+        placements_list, angle_plan_record = (
+            _angle_plan.select_picture_placements(
+                placements_list, resolved_angle_plan, fps,
+                master_clips=master_clips,
+                sync=(_camera_sync.measure(master_clips, fps)
+                      if resolved_angle_plan["declared"] else None)))
+    except _angle_plan.AnglePlanError as exc:
+        raise ReelBuildError(f"{name}: {exc}") from exc
+    if angle_plan_record["declared"]:
+        print(f"  {name}: angle plan - "
+              + " | ".join(f"{shot['camera']} {shot['start_frame']}-"
+                           f"{shot['end_frame']}"
+                           for shot in angle_plan_record["shots"])
+              + f"; {angle_plan_record['synced_placements']} picture "
+              f"span(s) from a camera's own synced file", file=sys.stderr)
 
     # ── The declared FREEZE tail ──
     # `library/tools/reel_ending.py`. A declared `tail_hold: freeze`
@@ -7230,7 +7325,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # reel's own additive rows (transitions, explainer, semantic, and
     # the frame under the look) arrive as roles, not hardcoded indices
     # - so there is exactly one thing that decides a track index.
-    angles = reel_angles(master_clips)
     resolved_channels = resolve_reel_program_channels(
         angles, master_clips, project_folder,
         master_timeline=master_timeline, explicit=program_channels)
@@ -7267,7 +7361,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         card_role=card_row_role,
         card_spans=[(int(card.reel_start_frame), int(card.reel_end_frame))
                     for card in (cards or ())
-                    if getattr(card, "placement", "") in ("head", "tail")])
+                    if getattr(card, "placement", "") in ("head", "tail")],
+        picture_angle_keys=(resolved_angle_plan["camera_keys"]
+                            if resolved_angle_plan["declared"] else None))
     material["has_post_header"] = bool(post_header.segments)
     track_plan = plan_layout(material)
     video_row_by_angle = {}
@@ -7288,6 +7384,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         "link_groups": [], "caption_links": [], "link_warnings": [],
         "deleted_empty_tracks": [], "skipped_clips": [],
         "offsets": offset_reports,
+        "angle_plan": angle_plan_record,
         # The declared hold, so the Fusion pass places the tail element
         # on it without re-deriving what this build already rendered.
         "freeze": freeze_tail,
@@ -7722,17 +7819,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # fixes, closer redraws) replay through the existing appliers via
     # the merged `captain_edits` view - never here, or every hold
     # would land twice.
-    from library.tools import edit_ledger as _ledger
-    try:
-        _ledger_rows = _ledger.load_rows(project_folder)
-    except _ledger.EditLedgerError as exc:
-        raise ReelBuildError(
-            f"edit_ledger cannot be read: {exc}. A recorded direct "
-            f"edit the build cannot read must refuse, never build "
-            f"silently past it.") from exc
     if any(row.get("op") in _ledger.REPLAYED_OPS
            or row.get("op") in _ledger.CARRIER_OPS
-           for row in _ledger_rows):
+           for row in ledger_rows):
         _video_places = [
             p for p in placements_list
             if getattr(p["clip"], "track_type", "video") == "video"]
@@ -7754,7 +7843,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 _span_items[_position.get(
                     id(_row_places[_index]), -1)] = _item
         _replay = _ledger.replay_on_timeline(
-            name, _ledger_rows, _video_places, transcript, timeline,
+            name, ledger_rows, _video_places, transcript, timeline,
             item_for_span=_span_items.get, reel_name=name)
         build_record["edit_ledger"] = {
             "applied": _replay["applied"],
@@ -11525,6 +11614,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # declared none): a rebuild holds the deletion without
                     # being told again.
                     do_not_draw=suppression_rules,
+                    edit_ledger_rows=_ledger_mine,
                 )
                 _header_record = build_result.get("post_header")
                 if isinstance(_header_record, dict):
@@ -11589,10 +11679,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         # last one there - so the tail element is armed on
                         # the held frames rather than on the live tail.
                         _with_freeze(
-                            placements(
-                                ranges, master_clips,
-                                24000/1001,
-                                lead_frames=lead_frames(cards, 24000/1001)),
+                            plan_reel_picture(
+                                placements(
+                                    ranges, master_clips,
+                                    24000/1001,
+                                    lead_frames=lead_frames(
+                                        cards, 24000/1001)),
+                                project_folder, name, master_clips,
+                                ranges, transcript, 24000/1001,
+                                lead_in_frames=lead_frames(
+                                    cards, 24000/1001),
+                                rows=_ledger_mine),
                             build_result.get("freeze"), 24000/1001),
                         reel_look_decl, reel_motion, 24000/1001,
                         track_plan=build_result["track_plan"],
@@ -12829,6 +12926,15 @@ def build_reel_variants(project_slug: str, reel_number: int,
         # loudly on anything but this attribute.
         project_folder = str(proj.project_root)
 
+    from library.tools import edit_ledger as _ledger_mod
+    try:
+        edit_ledger_rows = _ledger_mod.load_rows(project_folder)
+    except _ledger_mod.EditLedgerError as exc:
+        raise ReelBuildError(
+            f"edit_ledger cannot be read: {exc}. A recorded direct edit "
+            f"the build cannot read must refuse, never build silently "
+            f"past it.") from exc
+
     with open(os.path.join(project_folder, "project.yaml")) as f:
         config = yaml.safe_load(f)
     resolve_config = config.get("resolve", {})
@@ -13216,7 +13322,13 @@ def build_reel_variants(project_slug: str, reel_number: int,
                         moment, ranges, fps))
             reel_motion = []
             if reel_look_decl is not None:
-                spine = _reel_look.motion_spine(base_placements, fps)
+                # The shots the declared angle plan will place, as the
+                # rebuild's ask describes them (`write_visual_asks`).
+                spine = _reel_look.motion_spine(plan_reel_picture(
+                    base_placements, project_folder, final, master_clips,
+                    ranges, transcript, fps,
+                    lead_in_frames=lead_frames(cards, fps),
+                    rows=edit_ledger_rows), fps)
                 _reel_look.write_motion_request(
                     moment.number, final, spine,
                     transcript.get("segments") or [], project_folder)
@@ -13305,14 +13417,20 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 # them - a declaring variant differs here, with no
                 # second builder anywhere.
                 do_not_draw=variant_suppressions,
+                edit_ledger_rows=_ledger_mod.rows_for_reel(
+                    edit_ledger_rows, final),
             )
             if reel_look_decl is not None:
                 manifest = _reel_look.fusion_manifest(
-                    apply_offset_specs(
-                        placements(ranges, clips, fps,
-                                   lead_frames=lead_frames(cards, fps)),
-                        fps, None, spec.get("j_cut"),
-                        spec.get("cutaway"))[0],
+                    plan_reel_picture(
+                        apply_offset_specs(
+                            placements(ranges, clips, fps,
+                                       lead_frames=lead_frames(cards, fps)),
+                            fps, None, spec.get("j_cut"),
+                            spec.get("cutaway"))[0],
+                        project_folder, final, clips, ranges, transcript,
+                        fps, lead_in_frames=lead_frames(cards, fps),
+                        rows=edit_ledger_rows),
                     reel_look_decl, reel_motion, fps,
                     track_plan=build_result["track_plan"],
                     angle_key=_angle_key)

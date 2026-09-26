@@ -509,11 +509,65 @@ def test_failed_summary_is_not_a_done_run():
     Catches: a failed edit stage marching on to the Resolve build - the
     proof's base run did exactly this before the fix.
     """
-    assert eval_harness.parse_run_status('  "status": "SUCCESS",\n') == (
-        "SUCCESS")
-    assert eval_harness.parse_run_status('  "status": "FAILED",\n') == (
-        "FAILED")
+    def summary(status):
+        return json.dumps({
+            "status": status, "completed": [], "failed": [],
+            "outstanding_failures": [], "stranded_failures": [],
+            "skipped": [],
+        }, indent=2)
+
+    assert eval_harness.parse_run_status(summary("SUCCESS")) == "SUCCESS"
+    assert eval_harness.parse_run_status(summary("FAILED")) == "FAILED"
     assert eval_harness.parse_run_status("still running\n") is None
+
+
+def test_prior_failed_run_history_does_not_end_the_current_edit():
+    """A prior failure is not the current invocation's terminal summary.
+
+    Catches: restart history's `status: FAILED` making the eval leave an
+    in-flight edit replay and strand its pipeline process at an LLM handoff.
+    """
+    stale_record = json.dumps({
+        "status": "FAILED", "current_step": "review_rough_cut",
+        "run_history": [{"status": "FAILED"}],
+    })
+    assert eval_harness.parse_run_status(stale_record) is None
+
+
+def test_recovered_post_bridge_traceback_does_not_end_answer_loop(
+        tmp_path, monkeypatch):
+    """A rejected answer can be retried while the same run keeps going.
+
+    Catches: the eval answer loop treating a recovered post-bridge traceback
+    as terminal, abandoning later handshakes before the pipeline summary.
+    """
+    log = tmp_path / "edit.log"
+    summary = json.dumps({
+        "status": "SUCCESS", "completed": [], "failed": [],
+        "outstanding_failures": [], "stranded_failures": [],
+        "skipped": [],
+    }, indent=2)
+    log.write_text(
+        "Traceback (most recent call last):\npost-bridge rejected attempt 1\n",
+        encoding="utf-8")
+
+    def finish_after_poll(_seconds):
+        log.write_text(
+            "Traceback (most recent call last):\n"
+            "post-bridge rejected attempt 1\n" + summary + "\n",
+            encoding="utf-8")
+
+    # The harness's own `time` name, never the global module: a stray
+    # thread calling time.sleep must not run this stub
+    # (`tests/test_agent_wait_narrowing.py`).
+    import time as _time
+    from types import SimpleNamespace
+    monkeypatch.setattr(eval_harness, "time", SimpleNamespace(
+        time=_time.time, sleep=finish_after_poll))
+    result = eval_harness.answer_loop(
+        log, str(tmp_path), str(tmp_path / "answers"), set())
+
+    assert result["run_status"] == "SUCCESS"
 
 
 def test_answer_loop_can_return_partial_only_for_a_scoped_stage(tmp_path):
@@ -523,7 +577,14 @@ def test_answer_loop_can_return_partial_only_for_a_scoped_stage(tmp_path):
     reflects render and validate being intentionally skipped.
     """
     log = tmp_path / "edit.log"
-    log.write_text('{"status": "PARTIAL"}\n', encoding="utf-8")
+    def summary(status):
+        return json.dumps({
+            "status": status, "completed": [], "failed": [],
+            "outstanding_failures": [], "stranded_failures": [],
+            "skipped": [],
+        }, indent=2)
+
+    log.write_text(summary("PARTIAL") + "\n", encoding="utf-8")
 
     result = eval_harness.answer_loop(
         log, str(tmp_path), str(tmp_path / "answers"), set(),
@@ -531,6 +592,15 @@ def test_answer_loop_can_return_partial_only_for_a_scoped_stage(tmp_path):
 
     assert result["run_status"] == "PARTIAL"
     with pytest.raises(RuntimeError, match="run ended PARTIAL"):
+        eval_harness.answer_loop(
+            log, str(tmp_path), str(tmp_path / "answers"), set())
+
+    log.write_text(summary("FAILED") + "\n", encoding="utf-8")
+    result = eval_harness.answer_loop(
+        log, str(tmp_path), str(tmp_path / "answers"), set(),
+        allow_partial=True)
+    assert result["run_status"] == "FAILED"
+    with pytest.raises(RuntimeError, match="run ended FAILED"):
         eval_harness.answer_loop(
             log, str(tmp_path), str(tmp_path / "answers"), set())
 
@@ -580,11 +650,56 @@ def test_edit_stage_accepts_partial_when_only_render_and_validate_are_skipped(
             ("render", "validate"), "PARTIAL")
 
 
-def test_heavy_gate_matches_working_processes_not_prompt_mentions(monkeypatch):
-    """Actual pipeline/model work blocks; task prose mentioning it does not.
+def test_edit_eval_carries_validation_failure_outside_its_scope(tmp_path):
+    """A base validation failure does not hide a completed edit-stage run.
 
-    Catches: prompt text in Codex's argv self-matching the heavy pattern
-    and blocking every eval even after the machine is quiet.
+    Catches: the eval refusing its edit chain because validation is skipped
+    and an earlier validation failure remains recorded on the fixture.
+    """
+    log_path = tmp_path / "edit.log"
+    summary = {
+        "status": "failed",
+        "completed": list(eval_harness.EDIT_RERUN_CHAIN),
+        "failed": [],
+        "outstanding_failures": ["validate"],
+        "stranded_failures": [],
+        "skipped": ["render", "validate"],
+    }
+    log_path.write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+
+    result = eval_harness.validate_scoped_run(
+        str(log_path), "edit", eval_harness.EDIT_RERUN_CHAIN,
+        ("render", "validate"), "FAILED")
+
+    assert result["carry_forward_failures"] == ["validate"]
+    assert result["stranded_failures"] == []
+    assert result["scope_status"] == "COMPLETED"
+
+    summary["outstanding_failures"] = ["compile_manifest"]
+    log_path.write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="outstanding_in_scope"):
+        eval_harness.validate_scoped_run(
+            str(log_path), "edit", eval_harness.EDIT_RERUN_CHAIN,
+            ("render", "validate"), "FAILED")
+
+    summary["outstanding_failures"] = ["validate"]
+    summary["stranded_failures"] = ["retired_step"]
+    log_path.write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="stranded"):
+        eval_harness.validate_scoped_run(
+            str(log_path), "edit", eval_harness.EDIT_RERUN_CHAIN,
+            ("render", "validate"), "FAILED")
+
+
+def test_heavy_gate_matches_local_heavy_processes_not_remote_replays(
+        monkeypatch):
+    """Only local heavy work blocks; API-bound pipeline replays may overlap.
+
+    Catches: an eval waiting for a remote-bound semantic-analysis run even
+    though neither job needs the machine's local model, render or Resolve.
     """
     from types import SimpleNamespace
 
@@ -597,17 +712,20 @@ def test_heavy_gate_matches_working_processes_not_prompt_mentions(monkeypatch):
                     "103 /venv/bin/python3 -m mlx_lm.server\n"
                     "104 python3 -m library.tools.eval_harness run "
                     "--base x --out other\n"
+                    "105 python3 vision_pipeline_v3.py --api\n"
+                    "106 python3 manage_project.py run /tmp/other "
+                    "--step render\n"
+                    "107 sh scripts/full_suite_gate.sh\n"
                     f"{os.getpid()} python3 -m library.tools.eval_harness "
                     "run --base x --out own\n"
-                    "105 codex --model gpt-6-luna 'brief mentions ffmpeg "
+                    "108 codex --model gpt-6-luna 'brief mentions ffmpeg "
                     "mlx_lm llama-server full_suite_gate.sh'\n")))
     jobs = eval_harness.heavy_jobs()
-    assert len(jobs) == 5
-    assert "manage_project.py run" in jobs[0]
-    assert "run_pipeline.py" in jobs[1]
-    assert "ffmpeg" in jobs[2]
-    assert "mlx_lm.server" in jobs[3]
-    assert "eval_harness run" in jobs[4]
+    assert len(jobs) == 4
+    assert "ffmpeg" in jobs[0]
+    assert "mlx_lm.server" in jobs[1]
+    assert "--step render" in jobs[2]
+    assert "full_suite_gate.sh" in jobs[3]
     assert all("--out own" not in job for job in jobs)
 
 
@@ -621,6 +739,24 @@ def test_memory_gate_counts_reclaimable_macos_pages():
                "Pages purgeable: 30.\nPages speculative: 1000.")
 
     assert eval_harness.memory_free_mb(vm_stat) == 60 * 16384 / 1048576
+
+
+def test_heavy_work_lock_records_task_and_releases_by_removing_directory(
+        tmp_path, monkeypatch):
+    """The local heavy-work mutex names its owner and is fully released.
+
+    Catches: an eval leaving an ownerless or stale lock that blocks the next
+    lane after its Resolve job has finished.
+    """
+    lock_dir = tmp_path / "heavy-work.lock"
+    monkeypatch.setattr(eval_harness, "HEAVY_LOCK_DIR", lock_dir)
+
+    eval_harness.take_heavy_lock("task-123 resolve render")
+    assert (lock_dir / "owner").read_text(encoding="utf-8").strip() == (
+        "task-123 resolve render")
+
+    eval_harness.release_heavy_lock()
+    assert not lock_dir.exists()
 
 
 def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
@@ -747,11 +883,172 @@ def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
     assert f"delete:{scratch}" in events
 
 
-def test_run_waits_for_quiet_before_starting_the_model(tmp_path, monkeypatch):
-    """Quiet-machine coordination gates both editing and Resolve build.
+def test_eval_bracket_start_failure_restores_captain_and_removes_scratch(
+        monkeypatch):
+    """A partial Resolve project switch cannot strand the captain elsewhere.
 
-    Catches: starting the product model concurrently with another lane,
-    then only checking for a quiet machine after the edit already ran.
+    Catches: CreateProject succeeding before SaveProject fails, leaving the
+    shared Resolve cursor on a scratch project with no restoration attempt.
+    """
+    from contextlib import contextmanager
+
+    from library.tools import marker_feedback, resolve_lock
+
+    events = []
+
+    class Timeline:
+        def __init__(self, name):
+            self.name = name
+
+        def GetName(self):
+            return self.name
+
+    class Project:
+        def __init__(self, name, timeline=None):
+            self.name = name
+            self.current_timeline = timeline
+            self.timelines = [timeline] if timeline else []
+
+        def GetName(self):
+            return self.name
+
+        def GetCurrentTimeline(self):
+            return self.current_timeline
+
+        def GetTimelineCount(self):
+            return len(self.timelines)
+
+        def GetTimelineByIndex(self, index):
+            return self.timelines[index - 1]
+
+    timeline = Timeline("captain timeline")
+    captain = Project("captain project", timeline)
+
+    class Manager:
+        def __init__(self):
+            self.current = captain
+            self.projects = {}
+
+        def GetCurrentProject(self):
+            return self.current
+
+        def SaveProject(self):
+            events.append(f"save:{self.current.GetName()}")
+            return not self.current.GetName().startswith(
+                eval_harness.SCRATCH_PREFIX)
+
+        def GetProjectListInCurrentFolder(self):
+            return list(self.projects)
+
+        def CreateProject(self, name):
+            events.append(f"create:{name}")
+            project = Project(name)
+            self.projects[name] = project
+            self.current = project
+            return project
+
+        def LoadProject(self, name):
+            events.append(f"load:{name}")
+            self.current = self.projects.get(name, captain)
+            return self.current
+
+        def DeleteProject(self, name):
+            events.append(f"delete:{name}")
+            self.projects.pop(name, None)
+            return True
+
+    manager = Manager()
+
+    class Resolve:
+        def GetProjectManager(self):
+            return manager
+
+    @contextmanager
+    def fake_lease(purpose, **kwargs):
+        events.append(f"lease:{purpose}")
+        yield None
+
+    @contextmanager
+    def fake_cursor_fence(project, selected, purpose):
+        events.append(f"fence:{purpose}")
+        project.current_timeline = selected
+        yield None
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", fake_lease)
+    monkeypatch.setattr(resolve_lock, "cursor_fence", fake_cursor_fence)
+    monkeypatch.setattr(marker_feedback, "connect_resolve",
+                        lambda: Resolve())
+
+    scratch = f"{eval_harness.SCRATCH_PREFIX}failed-start"
+    with pytest.raises(RuntimeError, match="captain project and timeline "
+                       "were restored"):
+        eval_harness.resolve_bracket_start(scratch)
+
+    assert manager.current is captain
+    assert captain.current_timeline is timeline
+    assert scratch not in manager.projects
+    assert events.index("save:captain project") < events.index(
+        f"create:{scratch}")
+    assert f"delete:{scratch}" in events
+
+
+def test_eval_bracket_refuses_unknown_captain_state_on_scratch_project(
+        monkeypatch):
+    """A leftover scratch project is never mistaken for the captain.
+
+    Catches: the bracket recording an eval scratch name as the captain and
+    later deleting the only open project without knowing what to restore.
+    """
+    from contextlib import contextmanager
+
+    from library.tools import marker_feedback, resolve_lock
+
+    scratch_current = f"{eval_harness.SCRATCH_PREFIX}orphan"
+
+    class Project:
+        def GetName(self):
+            return scratch_current
+
+    project = Project()
+
+    class Manager:
+        def GetCurrentProject(self):
+            return project
+
+        def SaveProject(self):
+            raise AssertionError("the unknown scratch must not be saved")
+
+        def CreateProject(self, name):
+            raise AssertionError("no new scratch may be opened")
+
+    manager = Manager()
+
+    class Resolve:
+        def GetProjectManager(self):
+            return manager
+
+    @contextmanager
+    def fake_lease(purpose, **kwargs):
+        yield None
+
+    monkeypatch.setattr(resolve_lock, "resolve_lease", fake_lease)
+    monkeypatch.setattr(marker_feedback, "connect_resolve",
+                        lambda: Resolve())
+
+    with pytest.raises(RuntimeError, match="captain's saved project and "
+                       "timeline are unknown"):
+        eval_harness.resolve_bracket_start(
+            f"{eval_harness.SCRATCH_PREFIX}next")
+
+    assert manager.GetCurrentProject() is project
+
+
+def test_run_serializes_model_decisions_and_resolve_build(
+        tmp_path, monkeypatch):
+    """The shared mutex covers model decisions through readback.
+
+    Catches: overlapping another lane's model run with the edit, or letting
+    a render begin without serializing the edit that decides what it builds.
     """
     events = []
     out = tmp_path / "eval"
@@ -773,6 +1070,8 @@ def test_run_waits_for_quiet_before_starting_the_model(tmp_path, monkeypatch):
                             "run_status": "SUCCESS"})
     monkeypatch.setattr(eval_harness, "take_resolve_lock",
                         lambda *args: events.append("lock"))
+    monkeypatch.setattr(eval_harness, "take_heavy_lock",
+                        lambda *args: events.append("heavy-lock"))
     monkeypatch.setattr(eval_harness, "resolve_bracket_start",
                         lambda *args: events.append("save-and-open") or {
                             "project": "captain", "timeline": "master"})
@@ -795,11 +1094,52 @@ def test_run_waits_for_quiet_before_starting_the_model(tmp_path, monkeypatch):
                             "scratch_deleted": True})
     monkeypatch.setattr(eval_harness, "release_resolve_lock",
                         lambda: events.append("unlock"))
+    monkeypatch.setattr(eval_harness, "release_heavy_lock",
+                        lambda: events.append("heavy-unlock"))
     monkeypatch.setattr(eval_harness, "build_measures",
                         lambda *args: {"hunks": []})
 
     request = eval_corpus.select(request_id="ST1.1")[0]
     eval_harness.run_request(request, str(base), str(out), "T1")
-    assert events[:4] == ["note", "quiet", "edit", "quiet"]
-    assert events[4:] == ["lock", "save-and-open", "build", "readback",
-                          "restore-and-delete", "unlock"]
+    assert events == ["note", "quiet", "heavy-lock", "edit", "lock",
+                      "save-and-open", "build", "readback",
+                      "restore-and-delete", "unlock", "heavy-unlock"]
+
+
+def test_run_releases_heavy_lock_when_edit_stage_fails(tmp_path, monkeypatch):
+    """A refused model decision cannot strand the shared work lock.
+
+    Catches: an exception in the edit replay leaving other lanes waiting on
+    a heavy-work lock after this request has already stopped.
+    """
+    events = []
+    out = tmp_path / "eval"
+    base = tmp_path / "base"
+    dest = out / "ST1.1" / "run"
+
+    def clone(base_arg, dest_arg, batch, extra_rewrites=()):
+        Path(dest_arg).mkdir(parents=True)
+        return {"base": str(base), "dest": str(dest),
+                "timeline": "EVAL_T1", "answers": str(dest / "answers")}
+
+    def fail_edit(*args):
+        events.append("edit")
+        raise RuntimeError("test edit refusal")
+
+    monkeypatch.setattr(eval_harness, "clone_base", clone)
+    monkeypatch.setattr(eval_harness, "inject_request",
+                        lambda *args: events.append("note") or "pull.json")
+    monkeypatch.setattr(eval_harness, "wait_for_quiet",
+                        lambda: events.append("quiet"))
+    monkeypatch.setattr(eval_harness, "take_heavy_lock",
+                        lambda *args: events.append("heavy-lock"))
+    monkeypatch.setattr(eval_harness, "run_pipeline_edit", fail_edit)
+    monkeypatch.setattr(eval_harness, "release_heavy_lock",
+                        lambda: events.append("heavy-unlock"))
+
+    request = eval_corpus.select(request_id="ST1.1")[0]
+    with pytest.raises(RuntimeError, match="test edit refusal"):
+        eval_harness.run_request(request, str(base), str(out), "T1")
+
+    assert events == ["note", "quiet", "heavy-lock", "edit",
+                      "heavy-unlock"]

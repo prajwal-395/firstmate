@@ -40,6 +40,13 @@ def _lut(phrase="ive quit every single day", reel="Reel 09 - hook",
             "reason": "kodak print feel on the hook"}
 
 
+_GRADE_PROVENANCE = {
+    "source": "Resolve Color page export",
+    "authorised_by": "captain",
+    "licence": "captain's own asset",
+}
+
+
 def _transcript(words, start=10.0, step=0.4):
     segs = []
     cursor = start
@@ -113,6 +120,16 @@ def test_editing_one_reel_invalidates_only_its_build_digest():
     assert one != other
     assert _need.derivation_digest(reel_number=9, extra={}, **kwargs) \
         == bare
+    camera = {
+        "op": "angle_plan", "anchor": {"kind": "reel"},
+        "reel": "Reel 09 - hook",
+        "params": {"camera": "Akshita", "min_shot_seconds": 2,
+                   "lead_frames": 0},
+        "stated_by": "requester", "reason": "show the host",
+    }
+    with_angle = _need.derivation_digest(
+        reel_number=9, extra={"edit_ledger": [row, camera]}, **kwargs)
+    assert with_angle != one
 
 
 # ── The merged view: one store, every existing applier ───────────────
@@ -129,7 +146,9 @@ def test_recorded_plan_edits_reach_the_existing_replayers(tmp_path):
     edit_ledger.record_row(str(project), _isolate())
     carrier = {"op": "angle_plan",
                "anchor": {"kind": "words", "phrase": "akshitas line"},
-               "params": {"camera": "close-up"},
+               "reel": "Reel 09 - hook",
+               "params": {"camera": "close-up",
+                          "min_shot_seconds": 3, "lead_frames": 12},
                "stated_by": "requester", "reason": "cut to the speaker"}
     edit_ledger.record_row(str(project), carrier)
     edits = captain_edits.load_edits(str(project))
@@ -155,6 +174,10 @@ class _Graph:
 
     def GetLUT(self, node):
         return self.luts.get(node, "")
+
+    def ApplyGradeFromDRX(self, path, _mode):
+        self.drx = path
+        return True
 
 
 class _Item:
@@ -210,6 +233,104 @@ def test_k3_hands_edits_replay_with_resolve_readback(tmp_path):
     assert items[0].GetNodeGraph().GetLUT(1) == "Film Looks/Kodak 2383"
 
 
+def test_grade_row_replays_lut_on_each_picture_span():
+    """A declared reel grade must be read by the rebuilt timeline, or
+    a grade plan is painted over even though the ledger kept the row."""
+    row = {"op": "grade", "anchor": {"kind": "reel"},
+           "params": {"lut": "Film Looks/Kodak 2383", "node": 1},
+           "stated_by": "requester", "reason": "print grade"}
+    timeline = _Timeline()
+    items = [_Item(), _Item()]
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09 - hook", [row], _spans(), _speech(), timeline,
+        item_for_span=items.__getitem__, reel_name="Reel 09 - hook")
+    assert report["unreplayable"] == []
+    assert len(report["applied"]) == 2
+    assert all(item.GetNodeGraph().GetLUT(1) ==
+               "Film Looks/Kodak 2383" for item in items)
+
+
+def test_power_grade_ledger_row_requires_authorisation(tmp_path):
+    """A ledger row must use the same provenance gate as the project
+    grade declaration, or it bypasses the captain's .drx ruling."""
+    project = _project(tmp_path)
+    path = project / "Podcast.drx"
+    path.write_bytes(b"DRX")
+    row = {"op": "grade", "anchor": {"kind": "reel"},
+           "params": {"drx": "Podcast.drx"},
+           "stated_by": "requester", "reason": "podcast look"}
+
+    with pytest.raises(EditLedgerError, match="without provenance"):
+        edit_ledger.record_row(str(project), row)
+    assert edit_ledger.load_rows(str(project)) == []
+
+    row["params"]["provenance"] = dict(_GRADE_PROVENANCE)
+    stored, action = edit_ledger.record_row(str(project), row)
+    assert action == "recorded"
+    assert stored["params"]["drx"] == str(path)
+    assert edit_ledger.load_rows(str(project))[0]["params"]["drx"] \
+        == str(path)
+
+
+def test_power_grade_ledger_row_refuses_missing_asset_before_build(tmp_path):
+    """An authorized path that is gone must stop before Resolve creates
+    a reel with the declared look missing."""
+    project = _project(tmp_path)
+    row = {"op": "grade", "anchor": {"kind": "reel"},
+           "params": {"drx": "gone.drx",
+                      "provenance": dict(_GRADE_PROVENANCE)},
+           "stated_by": "requester", "reason": "podcast look"}
+
+    with pytest.raises(EditLedgerError, match="not on disk"):
+        edit_ledger.record_row(str(project), row)
+    assert edit_ledger.load_rows(str(project)) == []
+
+
+def test_power_grade_row_requires_node_graph_readback():
+    """A hand-set PowerGrade survives only when the rebuilt item reads
+    back the grade nodes; a True API return is not enough."""
+    row = {"op": "grade", "anchor": {"kind": "reel"},
+           "params": {"drx": "/looks/Podcast.drx",
+                      "provenance": dict(_GRADE_PROVENANCE)},
+           "stated_by": "requester", "reason": "podcast look"}
+    timeline = _Timeline()
+    item = _Item()
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09 - hook", [row], _spans(), _speech(), timeline,
+        item_for_span=lambda _index: item, reel_name="Reel 09 - hook")
+    assert report["unreplayable"] == []
+    assert len(report["applied"]) == 2
+    assert all(row["write_readback"] == "fresh node graph read-back"
+               for row in report["applied"])
+    assert all(row["pixel_verification"] == edit_ledger.PIXELS_UNMEASURED
+               for row in report["applied"])
+    assert item.GetNodeGraph().drx == "/looks/Podcast.drx"
+
+
+def test_grade_rows_cannot_claim_pixel_verification_from_api_readback():
+    """Resolve's accepted write and node list are not proof that pixels
+    changed; the build record must say its pixels are unmeasured."""
+    row = {"op": "grade", "anchor": {"kind": "reel"},
+           "params": {"lut": "Film Looks/Kodak 2383"},
+           "stated_by": "requester", "reason": "print grade"}
+    report = edit_ledger.replay_on_timeline(
+        "Reel 09", [row], _spans(), _speech(), _Timeline(),
+        item_for_span=lambda _index: _Item(), reel_name="Reel 09")
+
+    assert len(report["applied"]) == 2
+    assert all(row["pixel_verification"] == edit_ledger.PIXELS_UNMEASURED
+               for row in report["applied"])
+
+
+def test_grade_row_refuses_a_parameter_the_replayer_ignores():
+    row = {"op": "grade", "anchor": {"kind": "reel"},
+           "params": {"lut": "Film Looks/Kodak 2383", "mix": 50},
+           "stated_by": "requester", "reason": "half strength"}
+
+    with pytest.raises(EditLedgerError, match="does not read"):
+        edit_ledger.validate_rows([row])
+
+
 def test_word_anchor_survives_a_spine_change():
     """The version-control ruling, proved: the spine re-times around
     the words (same speech, new seconds) and the row still grades the
@@ -242,10 +363,10 @@ def test_unreplayable_rows_are_reported_by_name(tmp_path, capsys):
     rows = [_isolate(track=4),
             _lut(node=9),
             _lut(phrase="words nobody ever spoke"),
-            {"op": "angle_plan",
+            {"op": "retime",
              "anchor": {"kind": "words", "phrase": "ive quit"},
-             "params": {"camera": "close-up"}, "stated_by": "requester",
-             "reason": "cut to whoever is speaking"}]
+             "params": {"percent": 80}, "stated_by": "requester",
+             "reason": "slow the shot"}]
     report = edit_ledger.replay_on_timeline(
         "Reel 09 - hook", rows, _spans(), _speech(), timeline,
         item_for_span=lambda _i: _Item(),
@@ -255,7 +376,7 @@ def test_unreplayable_rows_are_reported_by_name(tmp_path, capsys):
     names = " ".join(r["name"] for r in report["unreplayable"])
     assert "voice_isolation" in names
     assert "clip_lut" in names
-    assert "angle_plan" in names
+    assert "retime" in names
     out = capsys.readouterr().err
     assert out.count("UNREPLAYABLE LEDGER ROW") == 4
 

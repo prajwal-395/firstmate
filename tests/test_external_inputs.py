@@ -738,6 +738,27 @@ def test_a_declaration_is_checked_by_its_owner_and_not_supplied(tmp_path):
     assert external_inputs.load(root, {}) == {}
 
 
+def test_the_post_header_hooks_do_not_refuse_the_build(tmp_path):
+    """Measured 2026-09-25 on `lucie/geo-podcast`: the post-header lane
+    wrote `external/reel_post_header.json`, which no row here named, and
+    every `build-reels` on that project refused at input gathering with
+    "declares key None" - the 2026-09-11 defect again, one owner later."""
+    import json as _json
+
+    from library.tools import external_inputs, reel_post_header
+
+    external = tmp_path / "project" / "external"
+    external.mkdir(parents=True)
+    (external / reel_post_header.HOOKS_FILE).write_text(_json.dumps({
+        "format": "reel_post_header/1",
+        "hooks": {"3": {"hook": "People stopped searching.",
+                        "basis": "Akshita, verbatim"}}}), encoding="utf-8")
+    root = tmp_path / "project"
+    assert external_inputs.checked_declarations(root) == {
+        "reel_post_header": "1 entry"}
+    assert external_inputs.load(root, {}) == {}
+
+
 def test_a_malformed_declaration_still_refuses_in_its_owners_words(tmp_path):
     import json as _json
 

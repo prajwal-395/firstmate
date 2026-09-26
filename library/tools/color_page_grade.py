@@ -229,6 +229,18 @@ def _resolve_grade_mapping(
             "cdl_node": cdl_node.strip() if cdl_node else None}
 
 
+def resolve_power_grade_mapping(
+        declaration: dict, project_folder: str, where: str
+        ) -> Optional[dict[str, Any]]:
+    """Validate and resolve a PowerGrade declaration from another owner.
+
+    The edit ledger stores the same path and provenance contract as
+    ``project.yaml``. Keeping resolution here means those two declaration
+    routes cannot drift on authorization, file existence, or extension.
+    """
+    return _resolve_grade_mapping(declaration, project_folder, where)
+
+
 def apply_power_grade(timeline_item: Any, drx_path: str) -> dict[str, Any]:
     """Apply a PowerGrade file to one timeline item's node graph.
 

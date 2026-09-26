@@ -320,6 +320,9 @@ def plan_layout(material: dict) -> TrackPlan:
       used to sit here was removed with it, and a stale
       `collapse_picture` key in the material is ignored rather than
       honoured).
+    - picture_angles: optional subset of `angles` that the declared
+      per-reel camera plan actually shows. Speech rows still use every
+      angle so selecting a picture never removes a speaker's audio.
     - has_broll: bool.
     - has_frame: bool. The TV-frame look's set row, directly above the
       picture rows it dresses. (`tv_frame.LAYER_TRACKS` reads footage
@@ -366,10 +369,33 @@ def plan_layout(material: dict) -> TrackPlan:
         angles = [Angle(key=DEFAULT_ANGLE_KEY, label=DEFAULT_ANGLE_LABEL,
                         speech_name=DEFAULT_SPEECH_NAME, program_channel=1)]
 
+    raw_picture_angles = material.get("picture_angles")
+    if raw_picture_angles is None:
+        picture_angles = angles
+    else:
+        by_key = {angle.key: angle for angle in angles}
+        unknown = [key for key in raw_picture_angles if key not in by_key]
+        if unknown:
+            raise ValueError(
+                f"picture_angles names unknown angle key(s) {unknown!r}; "
+                f"declared angles are {sorted(by_key)!r}.")
+        if not raw_picture_angles:
+            raise ValueError(
+                "picture_angles is empty: a declared camera plan must show "
+                "at least one picture angle.")
+        # In the MASTER's angle order, never the plan's first-shot order:
+        # a reel whose plan opens on the second camera otherwise swaps
+        # the picture rows, and every reader that maps a row to its
+        # speaker by the master's order reads the other person (scratch
+        # Reels 04/18/19/25, 2026-09-25: "Craig planned 16.43s, got
+        # 15.64s" - the freeze counted on the wrong row).
+        wanted = set(raw_picture_angles)
+        picture_angles = [angle for angle in angles if angle.key in wanted]
+
     video = []
     audio = []
 
-    for angle in angles:
+    for angle in picture_angles:
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
                                role=A_ROLL, name=angle.label,
                                occupant=angle.key))

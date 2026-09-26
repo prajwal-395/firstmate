@@ -5840,6 +5840,17 @@ def _derive_plan_from_master(
     placed = ([] if span_present
               else compute_placements(kr, master_clips, fps,
                                       lead_frames=lead_frames))
+    # And as the reel's declared angle plan places them - the build's
+    # own composition (`reel_build.plan_reel_picture`), so a reel that
+    # shows the listener is not graded against the master's per-speaker
+    # shots ("planned 4 picture items, found 6", scratch Reel 04,
+    # 2026-09-25).
+    if placed and project_folder:
+        from library.tools.reel_build import plan_reel_picture
+
+        placed = plan_reel_picture(
+            placed, project_folder, reel_name, master_clips, kr,
+            transcript or {}, fps, lead_in_frames=lead_frames)
 
     # The declared FREEZE, re-derived with the owner's own planner:
     # the hold is a picture clip on the ending shot's row, so a plan

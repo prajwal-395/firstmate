@@ -69,16 +69,15 @@ a taste profile plugs in later - not scoped further here.
 
 The ops
 -------
-Hands ops the build replays today: `voice_isolation` (track-level
-Resolve Voice Isolation, the Hands-probe MX2.1 row) and `clip_lut`
-(a node LUT on the clips speaking the anchor, the C1.3-class row).
-Plan-level kinds, replayed through the existing appliers via the
-merged view: `transform_override`, `span_retime`, `drop_fragment`,
-`caption_fix`, `redraw_closer`. Carriers for later rungs, validated
-and stored but NOT replayed yet: `retime` (rung 8 hands), `grade`
-(rung 8 hands) and `angle_plan` (the E5 declared per-reel angle
-plan: camera, minimum shot, lead). The schema carries them now so
-a later rung wires the replayer, not the store.
+Hands ops replayed on the new timeline: `voice_isolation` (track-level
+Resolve Voice Isolation), `clip_lut` (a node LUT on the clips speaking
+the anchor) and `grade` (a declared LUT or PowerGrade on the anchored
+picture). `angle_plan` is applied before placement: camera rows and
+switch boundaries come from its reel/word anchors. Plan-level kinds
+replay through the existing appliers via the merged view:
+`transform_override`, `span_retime`, `drop_fragment`, `caption_fix` and
+`redraw_closer`. `retime` remains a carrier until its edit can be
+replayed without breaking the picture/audio link.
 
 Replay discipline
 -----------------
@@ -109,7 +108,10 @@ EDIT_LEDGER_VERSION = 1
 EDIT_LEDGER_FILENAME = "edit_ledger.json"
 
 #: Ops the build replays onto the live timeline after its own passes.
-REPLAYED_OPS = ("voice_isolation", "clip_lut")
+REPLAYED_OPS = ("voice_isolation", "clip_lut", "grade")
+
+#: Ops applied while deriving placements and the track plan.
+PLAN_OPS = ("angle_plan",)
 
 #: Plan-level kinds, replayed through the existing `captain_edits`
 #: appliers via the merged view (`project_onto_captain_edits`), never
@@ -117,14 +119,11 @@ REPLAYED_OPS = ("voice_isolation", "clip_lut")
 PROJECTED_OPS = ("transform_override", "span_retime", "drop_fragment",
                  "caption_fix", "redraw_closer")
 
-#: Carriers for later rungs: validated and stored now, reported by
-#: name (never silently dropped) until their rung wires a replayer.
-#: `retime`/`grade` are the rung-8 hands; `angle_plan` is the E5
-#: declared per-reel angle plan (camera, minimum shot, lead).
-CARRIER_OPS = ("retime", "grade", "angle_plan")
+#: Carriers not yet replayed; each is reported by name.
+CARRIER_OPS = ("retime",)
 
 #: The complete vocabulary.
-OPS = REPLAYED_OPS + PROJECTED_OPS + CARRIER_OPS
+OPS = REPLAYED_OPS + PLAN_OPS + PROJECTED_OPS + CARRIER_OPS
 
 #: Anchor kinds. Words survive a rebuild; the whole reel is the
 #: track-level scope. Frames do not survive one and are refused.
@@ -133,6 +132,13 @@ ANCHOR_KINDS = ("words", "reel")
 #: Who stated the value - the taste seam as a tier, not a scope.
 #: `decided_value`'s stated-preference tier is where a taste profile
 #: plugs in later.
+# What a replayed grade record says about its pixels. Resolve accepting a
+# write and re-reading it is not a delivered grade (AGENTS.md 12): only an
+# export says so, and the build renders none - so the record says
+# unmeasured rather than promising a check nothing performs.
+PIXELS_UNMEASURED = ("unmeasured: the build reads the write back; only an "
+                     "export shows whether the grade delivers (AGENTS.md 12)")
+
 STATED_BY = ("captain", "requester", "model")
 
 
@@ -338,23 +344,103 @@ def _validate_params(label: str, row: dict, anchor: dict) -> None:
                 f"{label} wants percent {percent!r}: a positive speed, "
                 f"100 for sync.")
     elif op == "grade":
-        if not any(key in params for key in ("lut", "cdl", "drx")):
+        routes = [key for key in ("lut", "drx") if key in params]
+        if len(routes) != 1:
             raise EditLedgerError(
-                f"{label} is a grade naming no route - one of 'lut' "
-                f"(a Resolve LUT path), 'cdl' or 'drx'.")
-    elif op == "angle_plan":
-        camera = params.get("camera")
-        if camera is not None and not isinstance(camera, str):
+                f"{label} is a grade naming {routes!r}: choose exactly one "
+                f"verified route, 'lut' or 'drx'. SetCDL alone is not "
+                f"evidence that Resolve changed the picture.")
+        allowed = ({"lut", "node"} if routes[0] == "lut" else
+                   {"drx", "provenance", "cdl", "cdl_node"})
+        unknown = sorted(set(params) - allowed)
+        if unknown:
             raise EditLedgerError(
-                f"{label} names camera {camera!r}: the angle to hold, "
-                f"in the project's own camera words.")
-        for key in ("min_shot_seconds", "lead_frames"):
-            number = params.get(key)
-            if number is not None and (
-                    not _is_number(number) or number < 0):
+                f"{label} carries {unknown!r}, which the grade replayer "
+                f"does not read.")
+        if "lut" in params:
+            lut = params.get("lut")
+            if not isinstance(lut, str) or not lut.strip():
                 raise EditLedgerError(
-                    f"{label} carries {key} {number!r}: a non-negative "
-                    f"number in the requester's units.")
+                    f"{label} names no LUT path - name the Resolve LUT "
+                    f"the build should set and read back.")
+            node = params.get("node", 1)
+            if (isinstance(node, bool) or not isinstance(node, int)
+                    or node < 1):
+                raise EditLedgerError(
+                    f"{label} names node {node!r}: a positive node index "
+                    f"from 1.")
+        if "drx" in params:
+            path = params.get("drx")
+            if (not isinstance(path, str) or not path.strip()
+                    or not path.lower().endswith(".drx")):
+                raise EditLedgerError(
+                    f"{label} names PowerGrade {path!r}: name a .drx file "
+                    f"that Resolve can apply and whose nodes can be read "
+                    f"back.")
+            provenance = params.get("provenance")
+            if not isinstance(provenance, dict):
+                raise EditLedgerError(
+                    f"{label} names a PowerGrade without provenance. "
+                    f"Record source, authorised_by and licence; an "
+                    f"unattributed .drx is refused (AGENTS.md 11).")
+            for key in ("source", "authorised_by", "licence"):
+                if not isinstance(provenance.get(key), str) \
+                        or not provenance[key].strip():
+                    raise EditLedgerError(
+                        f"{label} PowerGrade provenance is missing "
+                        f"{key!r}; record where it came from, who "
+                        f"authorised it and its licence.")
+            if "cdl" in params and not isinstance(params["cdl"], dict):
+                raise EditLedgerError(
+                    f"{label} carries cdl={params['cdl']!r}: the correction "
+                    f"inside a PowerGrade must be an object.")
+            if "cdl" in params:
+                cdl = params["cdl"]
+                terms = {"slope_r", "slope_g", "slope_b", "offset_r",
+                         "offset_g", "offset_b", "power_r", "power_g",
+                         "power_b", "saturation"}
+                unknown = sorted(set(cdl) - terms)
+                if unknown or not cdl or any(
+                        not _is_number(value) for value in cdl.values()):
+                    raise EditLedgerError(
+                        f"{label} carries cdl={cdl!r}: use one or more "
+                        f"finite numeric terms from {sorted(terms)!r}.")
+            if "cdl" in params and not params.get("cdl_node"):
+                raise EditLedgerError(
+                    f"{label} carries a CDL correction with no cdl_node "
+                    f"label - the build must name the PowerGrade node, "
+                    f"never guess its index.")
+            if "cdl_node" in params and "cdl" not in params:
+                raise EditLedgerError(
+                    f"{label} names cdl_node without a cdl correction; "
+                    f"the node label would be stored but never read.")
+    elif op == "angle_plan":
+        unknown = sorted(set(params) - {
+            "camera", "min_shot_seconds", "lead_frames"})
+        if unknown:
+            raise EditLedgerError(
+                f"{label} carries {unknown!r}, which the angle-plan "
+                f"builder does not read.")
+        camera = params.get("camera")
+        if not isinstance(camera, str) or not camera.strip():
+            raise EditLedgerError(
+                f"{label} names camera {camera!r}: a declared angle plan "
+                f"must choose one of the project's camera names.")
+        minimum = params.get("min_shot_seconds")
+        if not _is_number(minimum) or minimum <= 0:
+            raise EditLedgerError(
+                f"{label} carries min_shot_seconds {minimum!r}: declare a "
+                f"positive minimum in seconds for this camera shot.")
+        lead = params.get("lead_frames")
+        if (isinstance(lead, bool) or not isinstance(lead, int)
+                or lead < 0):
+            raise EditLedgerError(
+                f"{label} carries lead_frames {lead!r}: a non-negative "
+                f"whole number of frames in the requester's units.")
+        if not row.get("reel"):
+            raise EditLedgerError(
+                f"{label} has no reel scope: angle plans are per-reel "
+                f"declarations and must name the timeline they hold on.")
 
 
 # ── Reading: the file the captain writes ─────────────────────────────
@@ -417,6 +503,40 @@ def rows_for_reel(rows: list, reel_name: str = "") -> list:
         elif _edits._reel_in_scope(scope, reel_name or ""):
             kept.append(row)
     return kept
+
+
+def resolve_grade_assets(rows: list, project_folder,
+                        reel_name: str = "") -> list:
+    """Resolve declared PowerGrade files before a timeline is created.
+
+    The project color-grade owner checks provenance, extension and file
+    existence. A ledger row uses the same contract and carries the
+    resolved absolute path into the replayer, so an unlicensed or missing
+    grade cannot leave a partially built reel behind.
+    """
+    from library.tools import color_page_grade
+
+    scoped = rows_for_reel(rows, reel_name) if reel_name else list(rows or [])
+    resolved_by_identity = {}
+    for row in scoped:
+        params = row.get("params") or {}
+        if row.get("op") != "grade" or "drx" not in params:
+            continue
+        try:
+            declaration = color_page_grade.resolve_power_grade_mapping(
+                {"path": params["drx"],
+                 "provenance": params["provenance"],
+                 "cdl_node": params.get("cdl_node")},
+                str(project_folder or ""), _row_name(row))
+        except color_page_grade.ColorPageGradeError as exc:
+            raise EditLedgerError(str(exc)) from exc
+        copy = json.loads(json.dumps(row, ensure_ascii=False))
+        copy["params"]["drx"] = declaration["path"]
+        if declaration.get("cdl_node"):
+            copy["params"]["cdl_node"] = declaration["cdl_node"]
+        resolved_by_identity[_ledger_key(row)] = copy
+    return [resolved_by_identity.get(_ledger_key(row), row)
+            for row in (rows or [])]
 
 
 def _row_identity(row: dict) -> tuple:
@@ -483,6 +603,9 @@ def record_row(project_folder, row: dict) -> tuple:
 
     validate_rows([row])
     row = json.loads(json.dumps(row, ensure_ascii=False))
+    if row.get("op") == "grade" and "drx" in row.get("params", {}):
+        row = resolve_grade_assets([row], project_folder,
+                                   row.get("reel") or "")[0]
     anchor = row.get("anchor") or {}
     if anchor.get("kind") == "words":
         transcript = _edits.load_transcript(project_folder)
@@ -538,6 +661,19 @@ def describe_rows(rows: list) -> list:
                 f"{number}. Grade: LUT {params.get('lut')!r} on node "
                 f"{params.get('node', 1)} wherever the speech says "
                 f"{phrase!r}{where} ({stated}) - {reason}")
+        elif op == "grade":
+            route = (f"LUT {params['lut']!r} on node "
+                     f"{params.get('node', 1)}" if "lut" in params
+                     else f"PowerGrade {params['drx']!r}")
+            lines.append(
+                f"{number}. Grade: {route} on {phrase!r}{where} "
+                f"({stated}) - {reason}")
+        elif op == "angle_plan":
+            lines.append(
+                f"{number}. Camera: {params.get('camera')!r} from "
+                f"{phrase!r}; minimum {params.get('min_shot_seconds')}s, "
+                f"lead {params.get('lead_frames')}f{where} "
+                f"({stated}) - {reason}")
         elif op == "transform_override":
             lines.append(
                 f"{number}. Framing: wherever the speech says "
@@ -767,6 +903,63 @@ def apply_lut_to_item(item, lut: str, node: int = 1) -> dict:
     return {"lut": lut, "node": node, "verified": "GetLUT re-read"}
 
 
+def match_grade_rows(spans: list, transcript: dict, rows: list,
+                     reel_name: str = "") -> tuple:
+    """Match declared whole-reel or word-anchored grades to picture spans."""
+    from library.tools import captain_edits as _edits
+
+    matched, stale = [], []
+    stream = _edits._word_stream(transcript or {})
+    for row in (rows or []):
+        if row.get("op") != "grade":
+            continue
+        anchor = row["anchor"]
+        phrase = anchor.get("phrase", "")
+        scope = row.get("reel")
+        if scope is not None and not _edits._reel_in_scope(
+                scope, reel_name or ""):
+            stale.append({
+                "name": _row_name(row), "scope": "reel",
+                "reason": (f"STALE - not on this reel: scoped to reel "
+                           f"{scope!r} and this build is "
+                           f"{reel_name or '(no reel named)'!r}.")})
+            continue
+        hits = []
+        if anchor["kind"] == "reel":
+            hits = list(range(len(spans or [])))
+        else:
+            tokens = _edits._tokens(phrase)
+            for index, span in enumerate(spans or []):
+                master = span.get("master") if isinstance(span, dict) else None
+                if not master:
+                    continue
+                try:
+                    start, end = float(master[0]), float(master[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                words = _edits._span_word_tokens(transcript, start, end)
+                if _edits._contains_run(words, tokens):
+                    hits.append(index)
+        if not hits:
+            if anchor["kind"] == "words" and _edits._run_starts(
+                    stream, phrase):
+                reason = (f"STALE - not on this reel: {phrase!r} is spoken "
+                          f"in the transcript but in no picture span this "
+                          f"reel placed, so it grades nothing here.")
+            else:
+                reason = (f"STALE - the grade anchor "
+                          f"{(phrase or 'whole reel')!r} "
+                          f"matches no placed picture span on this reel.")
+            stale.append({"name": _row_name(row), "scope": "picture",
+                          "reason": reason})
+            continue
+        for index in hits:
+            matched.append({"span_index": index, "params": row["params"],
+                            "anchor_phrase": phrase,
+                            "reason": row["reason"]})
+    return matched, stale
+
+
 def replay_on_timeline(name: str, rows: list, spans: list,
                        transcript: dict, timeline,
                        item_for_span=None,
@@ -778,12 +971,13 @@ def replay_on_timeline(name: str, rows: list, spans: list,
     spans in play order (with `master` ranges); `item_for_span` maps
     a span index to its live timeline item (or None). Voice-isolation
     rows ride `dialogue_cleanup.apply_voice_isolation` with its own
-    read-back; LUT rows ride `apply_lut_to_item`. Returns
+    read-back; grade and LUT rows ride their Resolve setters and
+    read-backs. Returns
     `{"applied": [...], "unreplayable": [...]}` - and every
     unreplayable row is REPORTED BY NAME, never dropped silently.
-    Carrier rows (`retime`, `grade`, `angle_plan`) have no replayer
-    yet: they are reported by name as awaiting their rung, which is
-    what keeps a stored decision from reading as a held one.
+    The `angle_plan` was already applied before placement; `retime`
+    remains a named carrier until the reel path can replay it without
+    breaking its linked audio.
     """
     from library.tools import dialogue_cleanup as _dclean
 
@@ -805,8 +999,10 @@ def replay_on_timeline(name: str, rows: list, spans: list,
             applied.append({"name": _row_name(row), "op": op,
                             "track": params.get("track"),
                             "amount": params.get("amount")})
-        elif op == "clip_lut":
-            continue  # matched below, per span
+        elif op in ("clip_lut", "grade"):
+            continue  # matched below, per picture span
+        elif op in PLAN_OPS:
+            continue  # the angle plan already shaped placements
         elif op in PROJECTED_OPS:
             continue  # the existing appliers hold these, never here
         elif op in CARRIER_OPS:
@@ -819,13 +1015,79 @@ def replay_on_timeline(name: str, rows: list, spans: list,
             unreplayable.append({
                 "name": _row_name(row), "scope": "op",
                 "reason": f"unknown op {op!r} - nothing holds it."})
+    grade_matches, grade_stale = match_grade_rows(
+        spans, transcript, scoped, reel_name or name)
+    unreplayable.extend(grade_stale)
+    resolve_item = item_for_span or (lambda _index: None)
+    for record in grade_matches:
+        item = resolve_item(record["span_index"])
+        row_name = (f"grade at {record['anchor_phrase']!r}"
+                    if record["anchor_phrase"]
+                    else "grade on the whole reel")
+        if item is None:
+            unreplayable.append({
+                "name": row_name, "scope": "timeline",
+                "reason": "could not replay: no timeline item for the "
+                          "matched picture span."})
+            continue
+        params = record["params"]
+        if "lut" in params:
+            try:
+                proof = apply_lut_to_item(
+                    item, params["lut"], params.get("node", 1))
+            except EditLedgerError as exc:
+                unreplayable.append({
+                    "name": row_name, "scope": "timeline",
+                    "reason": f"could not replay: {exc}"})
+                continue
+            applied.append({"name": row_name, "op": "grade",
+                            "lut": proof["lut"], "node": proof["node"],
+                            "write_readback": proof["verified"],
+                            "pixel_verification": PIXELS_UNMEASURED})
+            continue
+        from library.tools import color_page_grade as _color_grade
+        proof = _color_grade.apply_power_grade(item, params["drx"])
+        if not proof.get("applied") or not isinstance(
+                proof.get("nodes"), int) or proof["nodes"] <= 1:
+            detail = (proof.get("reason")
+                      or "the node graph did not read back the grade nodes")
+            unreplayable.append({
+                "name": row_name, "scope": "timeline",
+                "reason": (f"could not replay PowerGrade: {detail} - "
+                           f"nodes={proof.get('nodes')!r}")})
+            continue
+        cdl_result = None
+        if params.get("cdl"):
+            index = _color_grade.node_index_by_label(
+                item, params["cdl_node"])
+            if index is None:
+                unreplayable.append({
+                    "name": row_name, "scope": "timeline",
+                    "reason": (f"PowerGrade landed, but node "
+                               f"{params['cdl_node']!r} is absent; the "
+                               f"CDL was not guessed onto another node.")})
+                continue
+            cdl_result = _color_grade.apply_cdl_to_node(
+                item, index, params["cdl"])
+            if not cdl_result.get("landed"):
+                unreplayable.append({
+                    "name": row_name, "scope": "timeline",
+                    "reason": ("PowerGrade landed, but its named-node "
+                               f"CDL failed: {cdl_result.get('reason')}.")})
+                continue
+        applied.append({"name": row_name, "op": "grade",
+                        "drx": params["drx"], "nodes": proof["nodes"],
+                        "cdl_node": params.get("cdl_node"),
+                        "write_readback": "fresh node graph read-back",
+                        "pixel_verification": PIXELS_UNMEASURED,
+                        "cdl": cdl_result})
+
     matched, stale = match_clip_lut_rows(spans, transcript, scoped,
                                          reel_name or name)
     # Rows scoped elsewhere already reported inside the matcher as
     # routine reel-scope; only the transcript-lost kind is new here -
     # both arrive named, so report them all the same way.
     unreplayable.extend(stale)
-    resolve_item = item_for_span or (lambda _index: None)
     for record in matched:
         item = resolve_item(record["span_index"])
         if item is None:

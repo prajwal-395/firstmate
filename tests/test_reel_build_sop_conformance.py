@@ -289,12 +289,13 @@ def _semantic(start, total, name="sem"):
 
 
 def _build(timeline, pool, project, clips, captions=(), semantic=(),
-           look=None, program_channels=None):
+           look=None, program_channels=None, edit_ledger_rows=None):
     return build_reel_timeline(
         project, FakeMoment(), clips, list(captions),
         23.976, 1080, 1920, "/tmp/no-such-project", _transcript(),
         look=look, semantic_segments=list(semantic) or None,
-        master_timeline=None, program_channels=program_channels)
+        master_timeline=None, program_channels=program_channels,
+        edit_ledger_rows=edit_ledger_rows)
 
 
 # ── Angles come from the master's own picture rows ──
@@ -335,6 +336,57 @@ def test_two_angles_get_two_picture_rows_and_two_named_speech_rows():
     assert "akshita" in v1[0].GetName() and "craig" in v2[0].GetName()
     assert "akshita" in a1[0].GetName() and "craig" in a2[0].GetName()
     assert record["track_plan"]["material"]["angles"][0]["label"] == "Akshita"
+
+
+def test_declared_angle_plan_limits_picture_rows_but_keeps_all_speech():
+    """An E5 camera plan must drive picture placement independently of
+    speech placement, or the reel keeps copying every master camera row."""
+    timeline, pool, project = _world()
+    clips = [
+        _clip("video", 1, "Akshita", "Akshita", "/m/akshita.MXF",
+              0.0, 20.0),
+        _clip("video", 2, "Craig", "Craig", "/m/craig.MXF",
+              0.0, 20.0),
+        _clip("audio", 1, "Akshita CH1", "Akshita", "/m/akshita.MXF",
+              0.0, 20.0),
+        _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF",
+              0.0, 20.0),
+    ]
+    row = {"op": "angle_plan", "anchor": {"kind": "reel"},
+           "reel": FakeMoment.timeline_name,
+           "params": {"camera": "Akshita", "min_shot_seconds": 3,
+                      "lead_frames": 0},
+           "stated_by": "requester", "reason": "stay on the host"}
+    record = _build(timeline, pool, project, clips,
+                    program_channels={"1": 1, "2": 1},
+                    edit_ledger_rows=[row])
+    assert timeline.GetTrackCount("video") == 1
+    assert timeline.GetTrackCount("audio") == 2
+    assert timeline.GetTrackName("video", 1) == "Akshita"
+    assert timeline.GetTrackName("audio", 1) == "Akshita CH1"
+    assert timeline.GetTrackName("audio", 2) == "Craig CH1"
+    assert record["angle_plan"]["declared"] is True
+    assert record["angle_plan"]["picture_placements"] == 1
+
+
+def test_missing_ledger_powergrade_refuses_before_timeline_creation():
+    """A grade row whose declared asset vanished must not leave a
+    half-built reel behind without that look."""
+    timeline, pool, project = _world()
+    grade = {"op": "grade", "anchor": {"kind": "reel"},
+             "params": {
+                 "drx": "missing.drx",
+                 "provenance": {"source": "Resolve export",
+                                "authorised_by": "captain",
+                                "licence": "captain's own asset"}},
+             "stated_by": "requester", "reason": "apply the look"}
+
+    with pytest.raises(ReelBuildError,
+                       match="grade cannot be resolved before the timeline"):
+        _build(timeline, pool, project, _master_clips(),
+               program_channels={"1": 1, "2": 1},
+               edit_ledger_rows=[grade])
+    assert not hasattr(pool, "created_name")
 
 
 def test_non_program_streams_are_deleted_on_the_spot_and_recorded():
