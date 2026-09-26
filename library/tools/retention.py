@@ -242,6 +242,36 @@ def _files_under(root: Path, exclude: Path | None = None):
             yield os.path.join(dirpath, name)
 
 
+def _path_key(path, layout: ProjectLayout) -> str:
+    resolved = layout.resolve_project_relative(path)
+    return os.path.normcase(os.path.abspath(os.path.normpath(str(resolved))))
+
+
+def _declared_step_file_inputs(project_folder: str) -> dict[str, list[str]]:
+    """Project files declared as inputs by any process step.
+
+    Step manifests own these paths. Enumerate the processes through their
+    registry and resolve each path against the project so a declared input
+    survives even when it sits in a purgeable area.
+    """
+    from library.tools import processes
+
+    layout = ProjectLayout(project_folder)
+    by_path: dict[str, list[str]] = {}
+    for process_id in processes.process_ids():
+        dag = processes.load_dag(process_id)
+        manifests = processes.load_manifests(dag)
+        for node_id, manifest in manifests.items():
+            inputs = ((manifest.get("interface") or {}).get("inputs") or [])
+            for declared in inputs:
+                if "file_path" not in declared:
+                    continue
+                key = _path_key(declared["file_path"], layout)
+                by_path.setdefault(key, []).append(
+                    f"{node_id}.{declared['name']}")
+    return by_path
+
+
 def ledger_timelines(project_folder: str) -> set:
     """Every timeline the caption render ledger binds an entry to."""
     layout = ProjectLayout(project_folder)
@@ -380,7 +410,14 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
     for path, reason in _journal_candidates(layout):
         found.append((path, STALE_JOURNAL, reason))
 
+    declared_inputs = _declared_step_file_inputs(project_folder)
     for path, category, reason in found:
+        input_names = declared_inputs.get(_path_key(path, layout))
+        if input_names:
+            plan.kept.append({"path": path, "category": category,
+                              "why": ("declared build input: "
+                                      + ", ".join(input_names))})
+            continue
         if path in reachable:
             plan.kept.append({"path": path, "category": category,
                               "why": "referenced by a current root"})
@@ -498,6 +535,20 @@ def apply_purge(manifest_path: str, db_paths,
             f"manifest")
     by_path = {c.path: c for c in planned.candidates}
     listed = listed_paths(manifest_path)
+    layout = ProjectLayout(planned.project_folder)
+    declared_inputs = _declared_step_file_inputs(planned.project_folder)
+    requested_inputs = [
+        (path, declared_inputs[_path_key(path, layout)])
+        for path in listed
+        if _path_key(path, layout) in declared_inputs
+    ]
+    if requested_inputs:
+        path, names = requested_inputs[0]
+        raise PurgeRefused(
+            f"{path} is a declared build input ({', '.join(names)})",
+            "a purge must never remove a file a build step declares as an "
+            "input. Nothing was removed",
+            "remove that path from the hand-edited manifest and re-plan")
     unplanned = [p for p in listed if p not in by_path]
     if unplanned:
         raise PurgeRefused(

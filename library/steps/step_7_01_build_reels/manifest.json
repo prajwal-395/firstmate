@@ -16,6 +16,7 @@
         "name": "timeline_transcript",
         "type": "object",
         "required": true,
+        "file_path": "pipeline_output/scratch/timeline_transcript/transcript.json",
         "description": "The master timeline's speech, REBUILT from source by `python3 -m library.tools.timeline_transcript <project> --write`. NO STEP PRODUCES IT - it needs Resolve open and WhisperX loaded - so it has no producing edge and reaches this step because the manifest declares it. Declaring it required is what derives requirements.timeline_transcript.on_file for this node."
       },
       {

@@ -17,7 +17,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from library.tools import reel_signoff, retention
+from library.tools import processes, reel_signoff, retention
+from library.tools.timeline_transcript import transcript_path
 from tests.test_build_sweep import (
     _asset_dir,
     _database,
@@ -129,6 +130,62 @@ def test_live_records_and_the_newest_journal_are_never_named(tmp_path):
     planned = _planned(root, db)
     assert old in planned
     assert not planned & {live, new, touchup}
+
+
+def test_purge_keeps_and_names_the_declared_build_transcript(tmp_path):
+    """The build reads this scratch file as a required input. Purge must
+    exclude it, and refuse if a hand-edited manifest asks for it by name."""
+    root = _project(tmp_path)
+    inputs = processes.load_manifests(
+        processes.load_dag(processes.REELS))["build_reels"]["interface"][
+            "inputs"]
+    transcript_decl = next(item for item in inputs
+                           if item["name"] == "timeline_transcript")
+    expected = transcript_path(root)
+    assert transcript_decl["file_path"] == expected.relative_to(root).as_posix()
+    expected.parent.mkdir(parents=True, exist_ok=True)
+    expected.write_text('{"segments": []}', encoding="utf-8")
+    loose = _write(os.path.join(root, "pipeline_output", "scratch",
+                                "unneeded.tmp"))
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+
+    plan = retention.plan_purge(root, [db])
+    candidates = {candidate.path for candidate in plan.candidates}
+    assert loose in candidates
+    assert str(expected) not in candidates
+    kept = next(item for item in plan.kept if item["path"] == str(expected))
+    assert "build_reels.timeline_transcript" in kept["why"]
+
+    manifest = retention.write_plan(plan)
+    with open(manifest, "a", encoding="utf-8") as stream:
+        stream.write(f"\n1\t{retention.SCRATCH}\t{expected}\n")
+    with pytest.raises(retention.PurgeRefused,
+                       match="build_reels.timeline_transcript"):
+        retention.apply_purge(manifest, [db], project_folder=root)
+    assert expected.is_file()
+    assert os.path.isfile(loose)
+
+
+def test_purge_protects_declared_build_input_in_quarantine(
+        tmp_path, monkeypatch):
+    """Protection follows the manifest's path, not a special scratch rule."""
+    root = _project(tmp_path)
+    dag = processes.load_dag(processes.REELS)
+    manifests = processes.load_manifests(dag)
+    input_decl = next(item for item in manifests["build_reels"]["interface"][
+                      "inputs"] if item["name"] == "timeline_transcript")
+    input_decl["file_path"] = (
+        "pipeline_output/quarantine/declared-input/transcript.json")
+    monkeypatch.setattr(processes, "load_manifests", lambda _dag: manifests)
+    declared = os.path.join(root, input_decl["file_path"])
+    _write(declared)
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+
+    plan = retention.plan_purge(root, [db])
+
+    assert declared not in {candidate.path for candidate in plan.candidates}
+    kept = next(item for item in plan.kept if item["path"] == declared)
+    assert "build_reels.timeline_transcript" in kept["why"]
 
 
 def test_keep_plans_nothing_and_an_unknown_setting_refuses(
