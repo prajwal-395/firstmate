@@ -63,7 +63,7 @@ EPSILON = 1e-6
 #: beside `TREATMENT_KEYS`: a key spelled twice is this repository's
 #: dominant bug class (AGENTS.md 10.1).
 DRIFT_KEYS = ("zoom_start", "zoom_mid", "zoom_end",
-              "pan_start", "pan_end")
+              "pan_start", "pan_end", "zoom_windows")
 
 #: Drift metadata that shapes the curve but arms nothing on its own:
 #: `zoom_easing` with no zoom values draws an empty block, so a still
@@ -590,7 +590,8 @@ def verify_drift(effects: dict, clip_dur: int,
             window_start, window_end = first, last
         partial_window = window_start > first or window_end < last
 
-    if start == mid == end and not partial_window:
+    if (start == mid == end and not partial_window
+            and not (effects or {}).get("zoom_windows")):
         if start != 1.0 or pan_end is not None:
             return {
                 "treatment": "drift",

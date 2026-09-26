@@ -40,7 +40,8 @@ from .effects import DRIFT_EASING, fx
 from .engine import CompEngine
 
 
-ZOOM_KEYS = ('zoom_start', 'zoom_mid', 'zoom_end', 'pan_start', 'pan_end')
+ZOOM_KEYS = ('zoom_start', 'zoom_mid', 'zoom_end', 'pan_start', 'pan_end',
+             'zoom_windows')
 
 
 def normalize_effects(effects, has_zoom):
@@ -194,6 +195,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             source_in=src_in,
             source_out=src_out,
             window=_win,
+            windows=effects.get('zoom_windows'),
         ))
 
     if 'grade_gain' in effects or 'grade_contrast' in effects or 'grade_saturation' in effects:
@@ -324,4 +326,3 @@ def build_effect_comp(effects: dict, clip_dur: int,
             source_in=src_in, source_out=src_out))
 
     return engine.serialize()
-

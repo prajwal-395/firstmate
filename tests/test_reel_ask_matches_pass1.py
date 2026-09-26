@@ -117,7 +117,7 @@ def _pass1_sequence(moment, transcript, ranges, master_clips,
         spine = look.motion_spine(
             build.placements(ranges, master_clips, FPS,
                              lead_frames=build.lead_frames(cards, FPS)),
-            FPS)
+            FPS, transcript.get("segments") or [])
         look.write_motion_request(
             moment.number, name, spine,
             transcript.get("segments") or [], project_folder)

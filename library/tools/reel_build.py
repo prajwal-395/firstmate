@@ -4919,10 +4919,12 @@ def write_visual_asks(moment, transcript: dict, ranges, master_clips,
         spine = _look.motion_spine(plan_reel_picture(
             placements(list(ranges), master_clips, fps, lead_frames=lead),
             project_folder, name, master_clips, ranges, transcript, fps,
-            lead_in_frames=lead), fps)
+            lead_in_frames=lead), fps,
+            transcript.get("segments") or [])
         motion_path = _look.write_motion_request(
             moment.number, name, spine,
-            transcript.get("segments") or [], project_folder)
+            transcript.get("segments") or [], project_folder,
+            call_to_action=getattr(moment, "call_to_action", None))
     return {"reel_semantic": semantic_path, "reel_span": span_path,
             "reel_motion": motion_path, "motion_spine": spine}
 
@@ -5886,6 +5888,80 @@ def assert_punch_took(name: str, item, source_file: str, properties: dict,
             "shows the set's own background through it",
             "fix the transform Resolve holds (or the aim feeding it) "
             "and rebuild the reel")
+
+
+def verify_motion_screen_coverage(name: str, track_plan,
+                                  placements_list: list,
+                                  video_row_by_angle: dict, timeline,
+                                  motion: Sequence[dict], frame_width: int,
+                                  frame_height: int, screen_window,
+                                  draw_gain: float) -> list:
+    """Prove each drift envelope on its placed shot before comp import."""
+    if screen_window is None or not motion:
+        return []
+    import sys
+
+    from library.tools import reel_look as _look
+
+    video_places = [
+        p for p in placements_list
+        if getattr(p["clip"], "track_type", "video") == "video"]
+    position_by_place = {id(place): index
+                         for index, place in enumerate(video_places)}
+    by_position: dict[int, list] = {}
+    for spec in motion:
+        by_position.setdefault(int(spec["target_block_position"]), []).append(
+            spec)
+
+    records = []
+    for aroll_row in track_plan.aroll_rows():
+        items = timeline.GetItemListInTrack("video", aroll_row.index) or []
+        places = [
+            p for p in video_places
+            if video_row_by_angle.get(_angle_key(p["clip"]))
+            == aroll_row.index]
+        places.sort(key=lambda p: p["snapped_record"])
+        for item, place in zip(items, places):
+            position = position_by_place[id(place)]
+            specs = by_position.get(position, [])
+            if not specs:
+                continue
+            held = {key: _held_property(item, key)
+                    for key in ("ZoomX", "ZoomY", "Pan", "Tilt")}
+            if any(value is None for value in held.values()):
+                missing = [key for key, value in held.items()
+                           if value is None]
+                raise ReelBuildError(
+                    f"{name}: cannot prove Ken Burns screen coverage for "
+                    f"picture shot {position}; Resolve did not return "
+                    f"{', '.join(missing)}."
+                )
+            try:
+                coverage = _look.assert_motion_covers_window(
+                    held, specs, _source_frame_size(item), frame_width,
+                    frame_height, screen_window, draw_gain)
+            except Exception as exc:
+                raise ReelBuildError(
+                    f"{name}: Ken Burns move on picture shot {position} "
+                    f"uncovers the measured TV screen window: {exc}"
+                ) from exc
+            records.append({
+                "target_block_position": position,
+                "source_file": place["clip"].source_file,
+                **coverage,
+            })
+            for spec in specs:
+                direction = ("in" if spec["effect_type"] == "slow_zoom_in"
+                             else "out")
+                print(
+                    f"  {name}: Ken Burns {direction} on shot {position} "
+                    f"{spec['timeline_start']:.3f}-"
+                    f"{spec['timeline_end']:.3f}s, scale "
+                    f"{spec['params'].get('zoom_start', 1.0):g}->"
+                    f"{spec['params'].get('zoom_end', 1.0):g}; "
+                    f"screen window covered at draw_gain {draw_gain:g}",
+                    file=sys.stderr)
+    return records
 
 
 def _recorded_first_measure(project_folder: str):
@@ -8312,6 +8388,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     build_record["transition_placements"] = [
         p.as_dict() if hasattr(p, "as_dict") else dict(p)
         for p in stamped_placements]
+
+    # The animated Fusion drift rides the static Resolve punch-in. Prove
+    # the most zoomed-out frame against the same measured window and draw
+    # gain before the separate process imports any comps.
+    if look is not None and screen_window is not None:
+        build_record["motion_coverage"] = verify_motion_screen_coverage(
+            name, track_plan, placements_list, video_row_by_angle, timeline,
+            motion or [], width, height, screen_window, draw_gain)
+    else:
+        build_record["motion_coverage"] = []
 
     return build_record
 
@@ -11358,6 +11444,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 reel_motion, motion_record = _look.resolve_motion(
                     _look.read_motion_answer(project_folder, moment.number),
                     spine, 24000/1001)
+                motion_record["locked_closing_positions"] = sorted(
+                    _look.locked_closing_positions(project_folder,
+                                                   moment.number))
                 motion_record["reel"] = name
                 motion_records.append(motion_record)
                 if motion_record["basis"] == _look.MOTION_AWAITING_ANSWER:
@@ -11755,7 +11844,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         # end" would arm the element on a clip the build
                         # did not freeze.
                         ending=_reel_ending.resolve_ending(
-                            project_folder, name, moment, transcript))
+                            project_folder, name, moment, transcript),
+                        locked_closing_positions=motion_record[
+                            "locked_closing_positions"])
                     if not _look.apply_comps(manifest, project_folder,
                                              resolve_name, name):
                         raise ReelBuildError(
@@ -13380,14 +13471,19 @@ def build_reel_variants(project_slug: str, reel_number: int,
                     base_placements, project_folder, final, master_clips,
                     ranges, transcript, fps,
                     lead_in_frames=lead_frames(cards, fps),
-                    rows=edit_ledger_rows), fps)
+                    rows=edit_ledger_rows), fps,
+                    transcript.get("segments") or [])
                 _reel_look.write_motion_request(
                     moment.number, final, spine,
-                    transcript.get("segments") or [], project_folder)
+                    transcript.get("segments") or [], project_folder,
+                    call_to_action=getattr(moment, "call_to_action", None))
                 reel_motion, motion_record = _reel_look.resolve_motion(
                     _reel_look.read_motion_answer(project_folder,
                                                  moment.number),
                     spine, fps)
+                motion_record["locked_closing_positions"] = sorted(
+                    _reel_look.locked_closing_positions(
+                        project_folder, moment.number))
                 motion_record["reel"] = final
                 if motion_record["basis"] == _reel_look.MOTION_AWAITING_ANSWER:
                     print(f"  {final}: NO PICTURE MOTION - no model "
@@ -13485,7 +13581,9 @@ def build_reel_variants(project_slug: str, reel_number: int,
                         rows=edit_ledger_rows),
                     reel_look_decl, reel_motion, fps,
                     track_plan=build_result["track_plan"],
-                    angle_key=_angle_key)
+                    angle_key=_angle_key,
+                    locked_closing_positions=motion_record[
+                        "locked_closing_positions"])
                 if not _reel_look.apply_comps(manifest, project_folder,
                                              resolve_name, final):
                     raise ReelBuildError(

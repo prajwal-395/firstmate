@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Sequence
 
 from .nodes import EASING_FUNCTIONS, BezierSpline, FusionNode
 from .played_window import assert_ramp_fits, played_range
@@ -396,6 +396,7 @@ class fx:
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
         window: Optional[tuple] = None,
+        windows: Optional[Sequence[dict]] = None,
     ) -> EffectBlock:
         """Animated Ken Burns zoom with optional pan offset.
 
@@ -437,7 +438,8 @@ class fx:
         the static pan_end position is used. This is visually
         indistinguishable for the ranges we use.
         """
-        has_anim = not (start == mid == end)
+        windows = list(windows or ())
+        has_anim = not (start == mid == end) or bool(windows)
 
         if not has_anim and start == 1.0 and pan_end is None:
             # Identity: no zoom, no pan - skip entirely
@@ -452,6 +454,68 @@ class fx:
         # Keyframes in the comp's own frames, which are the
         # PLAYED frames numbered from zero.
         first, last = played_range(clip_dur, source_in, source_out)
+        if windows:
+            if window is not None:
+                raise ValueError(
+                    "zoom_windows and one effect window cannot be combined")
+            if pan_end is not None:
+                raise ValueError(
+                    "a multi-window Ken Burns move cannot carry pan_end")
+            spline_name = f"{tf_name}Size"
+            held: dict[int, float] = {first: 1.0}
+            cursor = first
+            current = 1.0
+            previous_end = first - 1
+            for index, item in enumerate(windows):
+                try:
+                    w0 = int(item["first_frame"])
+                    w1 = int(item["last_frame"])
+                    zoom_start = float(item["zoom_start"])
+                    zoom_end = float(item["zoom_end"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"zoom window {index} is incomplete") from exc
+                if (w0 < first or w1 > last or w1 <= w0
+                        or w0 <= previous_end):
+                    raise ValueError(
+                        f"zoom window {index} frames [{w0}, {w1}] do not "
+                        f"fit as a separate span inside [{first}, {last}]")
+                if not math.isclose(zoom_start, current, rel_tol=0.0,
+                                    abs_tol=1e-4):
+                    raise ValueError(
+                        f"zoom window {index} starts at {zoom_start:g}, "
+                        f"but the held camera scale is {current:g}")
+                easing = item.get("easing", easing)
+                if easing not in EASING_FUNCTIONS:
+                    raise ValueError(
+                        f"Unknown drift easing {easing!r}: choose one of "
+                        f"{', '.join(sorted(EASING_FUNCTIONS))}.")
+                if w0 > cursor:
+                    held[w0] = current
+                ramp = BezierSpline.sampled(
+                    spline_name, start_frame=w0, end_frame=w1,
+                    easing=easing, scale=zoom_end - zoom_start,
+                    offset=zoom_start, color=(233, 217, 11))
+                for keyframe in ramp.keyframes:
+                    held[keyframe.frame] = keyframe.value
+                held[w1] = zoom_end
+                current = zoom_end
+                cursor = w1 + 1
+                previous_end = w1
+            if cursor <= last:
+                held[last] = current
+            spline = BezierSpline(spline_name)
+            for frame in sorted(held):
+                spline.add_key(frame, round(held[frame], 6))
+            spline.linearize()
+            tf.set_input("Size", spline)
+            nodes.append(spline)
+            tf.pos = (110, 0)
+            nodes.insert(0, tf)
+            return EffectBlock(
+                nodes=nodes, input_name=tf_name, input_key="Input",
+                output_name=tf_name)
+
         w0, w1 = first, last
         if window is not None:
             try:
@@ -1321,4 +1385,3 @@ class fx:
     # route and is unaffected.  Removed rather than left: dead code that
     # states a capability the renderer does not have is the defect
     # AGENTS.md 10.2 names.
-

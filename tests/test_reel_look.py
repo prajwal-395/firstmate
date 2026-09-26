@@ -9,6 +9,7 @@ them, no collapse).
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -143,6 +144,302 @@ def test_a_reasoned_drift_resolves_and_reaches_the_manifest():
     # comp builder reads both from.
     assert effects["tv_power_head"] is True
     assert manifest["tracks"]["V1"]["clips"][0]["source_file"] == "/a.mxf"
+
+
+def test_no_ken_burns_moves_outside_cta_sections(tmp_path):
+    """The sparse-plan defect: the ask left body cadence unstated.
+
+    It now calls for recurring body moves, and a revised answer cannot
+    replace the existing closer/CTA move with a newly chosen one.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project_folder = os.fspath(tmp_path / "project")
+    response_dir = str(ProjectLayout(project_folder).read_dir(
+        Area.LLM_RESPONSES))
+    os.makedirs(response_dir, exist_ok=True)
+    closer = {
+        "target_block_position": 1,
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.04, "zoom_end": 1.0},
+        "rationale": "the existing CTA pull-back",
+    }
+    response_path = os.path.join(response_dir, "reel_motion_42.json")
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump({"reel_motion_plan": [closer]}, handle)
+
+    placements = [
+        _placement("/body.mxf", 0, 12.0),
+        _placement("/closer.mxf", 288, 4.0),
+    ]
+    placements[0]["source_in"] = 2.0
+    placements[0]["source_out"] = 14.0
+    placements[0]["clip"] = _Clip(
+        "/body.mxf", timeline_start=100.0, source_in=2.0)
+    words = [
+        {"word": "we", "start": 101.0, "end": 101.2},
+        {"word": "bridge", "start": 105.5, "end": 105.7},
+        {"word": "next", "start": 106.1, "end": 106.3},
+        {"word": "idea", "start": 110.5, "end": 110.7},
+    ]
+    spine = reel_look.motion_spine(
+        placements, 24.0,
+        [{"source_file": "/body.mxf", "timeline_start": 100.0,
+          "timeline_end": 112.0, "source_start": 2.0,
+          "source_end": 14.0, "words": words}])
+    path = reel_look.write_motion_request(
+        42, "Reel 42", spine,
+        [{"timeline_start": 0.0, "timeline_end": 12.0,
+          "text": "We explain the idea."}], project_folder)
+    with open(path, "r", encoding="utf-8") as handle:
+        request = json.load(handle)
+
+    assert "one move per roughly 6-8 seconds" in request["prompt"]
+    assert "body" in request["prompt"].lower()
+    assert request["context"]["shots"][0]["word_spans"][0] == {
+        "word": "we", "start": 1.0, "end": 1.2}
+    assert request["context"]["locked_closing_moves"] == [closer]
+
+    body_in = {
+        "target_block_position": 0,
+        "anchor": {"word": "we"},
+        "anchor_end": {"word": "bridge", "edge": "end"},
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+        "rationale": "the explanation builds toward the point",
+    }
+    body_out = {
+        "target_block_position": 0,
+        "anchor": {"word": "next"},
+        "anchor_end": {"word": "idea", "edge": "end"},
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.03, "zoom_end": 1.0},
+        "rationale": "the speaker opens the frame for the conclusion",
+    }
+    altered_closer = dict(closer)
+    altered_closer["params"] = {"zoom_start": 1.0, "zoom_end": 1.1}
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump({"reel_motion_plan": [body_in, body_out, altered_closer]},
+                  handle)
+    answer = reel_look.read_motion_answer(project_folder, 42)
+    assert answer == [body_in, body_out, closer]
+    assert reel_look.locked_closing_positions(project_folder, 42) == {1}
+
+    resolved, record = reel_look.resolve_motion(answer, spine, 24.0)
+    assert record["resolved"] == 3
+    assert [move["effect_type"] for move in record["moves"]] == [
+        "slow_zoom_in", "slow_zoom_out", "slow_zoom_out"]
+    assert [move["target_block_position"] for move in record["moves"]] == [
+        0, 0, 1]
+
+
+def test_existing_cta_motion_is_locked_by_its_span_not_the_last_shot(
+        tmp_path):
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project_folder = os.fspath(tmp_path / "project")
+    response_dir = str(ProjectLayout(project_folder).read_dir(
+        Area.LLM_RESPONSES))
+    os.makedirs(response_dir, exist_ok=True)
+    cta_move = {
+        "target_block_position": 1,
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.05, "zoom_end": 1.0},
+        "rationale": "the existing CTA pull-back",
+    }
+    later_move = {
+        "target_block_position": 2,
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+        "rationale": "the later body shot",
+    }
+    response_path = os.path.join(response_dir, "reel_motion_43.json")
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump({"reel_motion_plan": [cta_move, later_move]}, handle)
+
+    placements = [
+        _placement("/body.mxf", 0, 4.0),
+        _placement("/cta.mxf", 96, 4.0),
+        _placement("/tail.mxf", 192, 4.0),
+    ]
+    placements[1]["clip"] = _Clip("/cta.mxf", timeline_start=4.0)
+    placements[2]["clip"] = _Clip("/tail.mxf", timeline_start=8.0)
+    spine = reel_look.motion_spine(placements, 24.0)
+    request_path = reel_look.write_motion_request(
+        43, "Reel 43", spine,
+        [{"timeline_start": 0.0, "timeline_end": 12.0,
+          "text": "A body, then the CTA, then a trailing shot."}],
+        project_folder,
+        call_to_action={"timeline_start": 4.0, "timeline_end": 8.0})
+    with open(request_path, "r", encoding="utf-8") as handle:
+        request = json.load(handle)
+
+    assert request["context"]["locked_closing_positions"] == [1]
+    assert request["context"]["locked_closing_moves"] == [cta_move]
+
+    changed_cta = dict(cta_move)
+    changed_cta["params"] = {"zoom_start": 1.0, "zoom_end": 1.1}
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump({"reel_motion_plan": [changed_cta, later_move]}, handle)
+
+    assert reel_look.read_motion_answer(project_folder, 43) == [
+        later_move, cta_move]
+
+
+def test_two_anchored_body_moves_compose_inside_one_picture_cut():
+    fps = 24.0
+    placements = [_placement("/a.mxf", 0, 12.0, fps)]
+    words = [
+        {"word": "one", "start": 1.0, "end": 1.2},
+        {"word": "bridge", "start": 5.5, "end": 5.7},
+        {"word": "next", "start": 6.1, "end": 6.3},
+        {"word": "idea", "start": 10.5, "end": 10.7},
+    ]
+    spine = reel_look.motion_spine(
+        placements, fps, [{"source_file": "/a.mxf",
+                           "timeline_start": 0.0,
+                           "timeline_end": 12.0,
+                           "source_start": 0.0,
+                           "source_end": 12.0,
+                           "words": words}])
+    resolved, record = reel_look.resolve_motion([
+        {"target_block_position": 0,
+         "anchor": {"word": "one"},
+         "anchor_end": {"word": "bridge", "edge": "end"},
+         "effect_type": "ken_burns",
+         "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+         "rationale": "the explanation builds"},
+        {"target_block_position": 0,
+         "anchor": {"word": "next"},
+         "anchor_end": {"word": "idea", "edge": "end"},
+         "effect_type": "ken_burns",
+         "params": {"zoom_start": 1.03, "zoom_end": 1.0},
+         "rationale": "the speaker widens the conclusion"},
+    ], spine, fps)
+    assert record["resolved"] == 2
+    assert [move["effect_type"] for move in record["moves"]] == [
+        "slow_zoom_in", "slow_zoom_out"]
+
+    manifest = reel_look.fusion_manifest(
+        placements, {"power": {}}, resolved, fps)
+    effects = manifest["fusion_effects"]["per_clip"][
+        reel_look.clip_label(0)]
+    assert effects["zoom_windows"] == [
+        {"first_frame": 24, "last_frame": 136,
+         "zoom_start": 1.0, "zoom_end": 1.03},
+        {"first_frame": 146, "last_frame": 256,
+         "zoom_start": 1.03, "zoom_end": 1.0},
+    ]
+    from library.tools.treatment_verify import verify_drift
+    verdict = verify_drift(effects, 288, played_frames=288,
+                           source_res=(3840, 2160))
+    assert verdict["passed"] is True
+    assert verdict["motion_over_time"] is True
+
+
+def test_closing_cta_ken_burns_keeps_its_existing_full_shot_window():
+    fps = 24.0
+    placements = [
+        _placement("/body.mxf", 0, 12.0, fps),
+        _placement("/cta.mxf", 288, 4.0, fps),
+    ]
+    body = {
+        "target_block_position": 0,
+        "timeline_start": 1.0,
+        "timeline_end": 5.0,
+        "effect_type": "slow_zoom_in",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+        "anchor_method": "word",
+    }
+    cta = {
+        "target_block_position": 1,
+        "timeline_start": 12.5,
+        "timeline_end": 15.0,
+        "effect_type": "slow_zoom_out",
+        "params": {"zoom_start": 1.05, "zoom_end": 1.0},
+        "anchor_method": "word",
+    }
+    manifest = reel_look.fusion_manifest(
+        placements, {"power": {}}, [body, cta], fps,
+        locked_closing_positions={1})
+    effects = manifest["fusion_effects"]["per_clip"]
+    closing = effects[reel_look.clip_label(1)]
+    assert closing["_preset"] == "slow_zoom_out"
+    assert closing["zoom_start"] == 1.05
+    assert closing["zoom_end"] == 1.0
+    assert "effect_window_frames" not in closing
+
+
+def test_body_ken_burns_refuses_a_punch_sized_scale_change():
+    fps = 24.0
+    placement = _placement("/body.mxf", 0, 12.0, fps)
+    punch = {
+        "target_block_position": 0,
+        "timeline_start": 1.0,
+        "timeline_end": 5.0,
+        "effect_type": "slow_zoom_in",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.12},
+        "anchor_method": "word",
+    }
+    with pytest.raises(reel_look.ReelLookRefused,
+                       match="subtle 1.0-1.05 body scale envelope"):
+        reel_look.fusion_manifest(
+            [placement], {"power": {}}, [punch], fps)
+
+
+def test_whole_shot_body_ken_burns_cannot_bypass_subtle_scale_contract():
+    import pytest
+
+    fps = 24.0
+    placement = _placement("/body.mxf", 0, 12.0, fps)
+    spine = reel_look.motion_spine([placement], fps)
+    resolved, _ = reel_look.resolve_motion([
+        {"target_block_position": 0,
+         "effect_type": "ken_burns",
+         "params": {"zoom_start": 1.0, "zoom_end": 1.07},
+         "rationale": "the old whole-shot body push"},
+    ], spine, fps)
+
+    with pytest.raises(reel_look.ReelLookRefused,
+                       match="exceeds the subtle 1.0-1.05 body scale"):
+        reel_look.fusion_manifest(
+            [placement], {"power": {}}, resolved, fps)
+
+
+def test_anchored_body_ken_burns_cannot_straddle_a_picture_cut():
+    fps = 24.0
+    placements = [
+        _placement("/first.mxf", 0, 5.0, fps),
+        _placement("/second.mxf", 120, 5.0, fps),
+    ]
+    move = {
+        "target_block_position": 0,
+        "timeline_start": 4.5,
+        "timeline_end": 5.5,
+        "effect_type": "slow_zoom_in",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+        "anchor_method": "word",
+    }
+    with pytest.raises(reel_look.ReelLookRefused,
+                       match="does not fit inside picture shot 0"):
+        reel_look.fusion_manifest(
+            placements, {"power": {}}, [move], fps)
+
+
+def test_ken_burns_draw_gain_check_rejects_a_zoom_out_that_uncovers_the_frame():
+    safe = {"ZoomX": 3.2, "ZoomY": 3.2, "Pan": 0.0, "Tilt": 0.0}
+    move = [{"target_block_position": 0,
+             "params": {"zoom_start": 1.0, "zoom_end": 1.03}}]
+    window = (0.0, 0.0, 1080.0, 1920.0)
+    proof = reel_look.assert_motion_covers_window(
+        safe, move, (3840, 2160), 1080, 1920, window, draw_gain=1.0)
+    assert proof["draw_gain"] == 1.0
+    exposed = [{"target_block_position": 0,
+                "params": {"zoom_start": 1.0, "zoom_end": 0.1}}]
+    with pytest.raises(reel_look.PunchInLeavesBlack):
+        reel_look.assert_motion_covers_window(
+            safe, exposed, (3840, 2160), 1080, 1920, window,
+            draw_gain=1.0)
 
 
 class _FakeItem:

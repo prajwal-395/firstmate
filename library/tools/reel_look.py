@@ -23,11 +23,11 @@ This module is that route, and it adds no look of its own:
   declaration first and its brand template second.  A project that
   declares nothing gets `None` here and the reel it got before.
 - WHICH shots drift, HOW FAR and WHY is a model's answer, resolved by
-  step 4.03's own `post_bridge.resolve_vfx`.  The captain's ruling of
-  2026-09-08 - motion is never a blanket rule, and an entry with no
-  per-shot rationale is dropped as `no_stated_reason` - therefore holds
-  on a reel by being the same code, not by being restated here.  There
-  is no default drift and no fallback direction.
+  step 4.03's own `post_bridge.resolve_vfx`. The captain's body-cadence
+  direction is in `MOTION_HANDOFF`; the planner can skip a shot or span
+  that conflicts with its picture, words, or existing treatment. Each
+  move still needs its own rationale (`no_stated_reason`) and direction
+  (`ken_burns_without_direction`). No movement is injected downstream.
 - HOW a comp reaches the picture is
   `library/tools/execution/apply_fusion_comps.py`, unchanged, driven
   with a manifest built from the reel's own placements.  Process
@@ -60,6 +60,7 @@ V2, captions V3 - that is the MASTER path's shape in
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -1033,6 +1034,50 @@ def assert_covers_window(properties, source_width: int, source_height: int,
             "until the picture covers the screen window, then rebuild")
 
 
+def assert_motion_covers_window(properties: dict, motion: Sequence[dict],
+                                 source_size: tuple, frame_width: int,
+                                 frame_height: int, window,
+                                 draw_gain: float) -> dict:
+    """Prove the least zoom of a drift still covers the measured window.
+
+    The base punch-in has already been read back and checked on the actual
+    Resolve item. Ken Burns scales are relative to it, so the smallest scale
+    in every move is composed with that held transform and sent through the
+    same black-edge predicate with this build's measured draw gain.
+    """
+    factors = [1.0]
+    for spec in motion:
+        params = spec["params"]
+        for key in ("zoom_start", "zoom_mid", "zoom_end"):
+            value = params.get(key)
+            if value is None:
+                continue
+            if (isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))):
+                raise ReelLookRefused(
+                    f"the Ken Burns move on picture shot "
+                    f"{spec['target_block_position']} has a non-finite "
+                    f"{key} scale {value!r}.",
+                    "A non-finite transform cannot prove that the measured "
+                    "screen window stays covered.",
+                    "Replace the scale with finite values and rebuild the "
+                    "reel.",
+                )
+            factors.append(float(value))
+    minimum = min(factors)
+    effective = dict(properties)
+    effective["ZoomX"] = float(properties["ZoomX"]) * minimum
+    effective["ZoomY"] = float(properties["ZoomY"]) * minimum
+    assert_covers_window(
+        effective, int(source_size[0]), int(source_size[1]),
+        frame_width, frame_height, window, draw_gain=draw_gain)
+    return {"minimum_relative_scale": minimum,
+            "draw_gain": float(draw_gain),
+            "checked_zoom_x": effective["ZoomX"],
+            "checked_zoom_y": effective["ZoomY"]}
+
+
 def power_effects(look: dict, first_label: str,
                   last_label: str, ending=None) -> Dict[str, dict]:
     """The switch-on / switch-off comp keys, per clip label.
@@ -1087,7 +1132,8 @@ def clip_label(index: int) -> str:
     return f"reel_picture_{index:02d}"
 
 
-def motion_spine(placements: Sequence[dict], fps: float) -> dict:
+def motion_spine(placements: Sequence[dict], fps: float,
+                 word_segments: Sequence[dict] = ()) -> dict:
     """The reel's picture as a SPINE step 4.03's resolver can read.
 
     One block per picture placement, positions counted from zero, with
@@ -1115,23 +1161,78 @@ def motion_spine(placements: Sequence[dict], fps: float) -> dict:
             "master_start": round(master_start, 3),
             "master_end": round(master_start
                                 + (p["source_out"] - p["source_in"]), 3),
+            "source_start": float(p["source_in"]),
+            "source_end": float(p["source_out"]),
             "source_file": p["clip"].source_file,
             "speaker": p.get("speaker") or "",
+            "word_timestamps": [],
         })
+    for block in structure:
+        for segment in word_segments or ():
+            if (segment["source_file"] != block["source_file"]
+                    or segment["source_start"] is None):
+                continue
+            segment_timeline_start = float(segment["timeline_start"])
+            segment_source_start = float(segment["source_start"])
+            for word in segment["words"]:
+                # Transcript word spans are in master-timeline seconds;
+                # motion anchors are resolved against the source range
+                # played by this picture clip.
+                try:
+                    source_start = (segment_source_start
+                                    + float(word["start"])
+                                    - segment_timeline_start)
+                    source_end = (segment_source_start
+                                  + float(word["end"])
+                                  - segment_timeline_start)
+                except (TypeError, ValueError):
+                    continue
+                if (source_start < block["source_end"]
+                        and source_end > block["source_start"]):
+                    block["word_timestamps"].append({
+                        "word": word["word"],
+                        "source_start": source_start,
+                        "source_end": source_end,
+                    })
+        block["word_timestamps"].sort(
+            key=lambda word: word["source_start"])
     return {"structure": structure}
 
 
 MOTION_HANDOFF = """Plan this reel's picture MOTION, shot by shot.
 
-Every shot in this reel is a locked-off frame of somebody talking.  Under
-the TV-frame look each one plays punched in behind a bezel, and a punched-in
-still frame is still a still frame.  You are deciding which of these shots
-drift, in which direction, how far, and - for each one - WHY THAT SHOT.
+The camera stays on the picture layer. Captions and graphics stay on their
+own tracks above it. Add gentle Ken Burns movement through the speaking BODY,
+not only on the opener or the closer: aim for one move per roughly 6-8 seconds
+of continuous talking-head footage when the image and words leave room for it.
+On a long uncut shot, use several non-overlapping word-anchored moves rather
+than one crawl across the whole take. Alternate zoom-in and zoom-out across
+successive body moves within each continuous shot. After a cut, start a new
+move sequence from the already-framed picture. Keep each move slow and
+subtle, never a punch.
 
 Rules that are not yours to change:
 
-- There is no default and no blanket.  A shot you say nothing about gets no
-  motion, and that is a legitimate answer for every shot in the reel.
+- `context.locked_closing_moves` are the existing CTA moves. Copy each entry
+  exactly, with the same target, timing, direction, values and rationale.
+  Do not add a new move to any CTA shot. `context.existing_reel_motion_plan`
+  is the prior plan. If adding cadence to a body shot with an existing
+  whole-shot Ken Burns entry, replace that entry with anchored windows; do not
+  layer the new windows over it. Leave unchosen body entries and other picture
+  treatments alone.
+- The cadence is a target, not a move on every shot. Skip a shot or span that
+  is too short, visually busy, or would fight its words or another picture
+  treatment. Do not put a Ken Burns move on a shot that already has a punch
+  or other camera treatment. Captions, graphics and their timing stay intact.
+- Every new move belongs wholly inside one `target_block_position`. On a long
+  shot, set `anchor` and `anchor_end` to words inside that shot so no move
+  straddles a cut. Use the listed `word_spans` and keep successive spans
+  separate and ordered.
+- A move is a slow drift, not `zoom_emphasis` or a punch. Across adjacent
+  spans on the same shot, each move starts at the scale where the previous
+  move ended. Start the first body move at 1.0. A zoom-out returns to 1.0 or
+  above, never below the already-framed picture; this keeps the measured
+  screen-window coverage.
 - `rationale` is per shot and about THAT shot.  An entry whose rationale is
   missing or blank is dropped as `no_stated_reason` (captain's ruling,
   2026-09-08).  "adds movement" is not a reason; what the shot is doing at
@@ -1139,18 +1240,27 @@ Rules that are not yours to change:
 - `ken_burns` reads its DIRECTION off your own values: `zoom_end` above
   `zoom_start` pushes in, below pulls out.  Equal or missing is dropped as
   `ken_burns_without_direction`.  Nothing is defaulted.
-- The magnitude is yours.  The engine offers no scale, no intensity map and
-  no bounds.
+- Keep the scale change small over each several-second span. Keep every body
+  scale between 1.0 and 1.05, and let each move take at least 3 seconds. The
+  engine does not turn a Ken Burns move into a punch or alter the base speaker
+  punch-in.
 
-`shots` lists the reel's picture blocks with the seconds they play and what
-is being said across them.  `target_block_position` is a shot's position.
+`shots` lists picture blocks, their spoken words and word timings.
+`target_block_position` is a shot's position. `anchor` / `anchor_end` take
+the same word forms as the shared sub-block anchor contract.
 """
 
+BODY_KEN_BURNS_MAX_SCALE = 1.05
+BODY_KEN_BURNS_MIN_SECONDS = 3.0
+
 MOTION_EXPECTED_SCHEMA = (
-    '{"reel_motion_plan": [{"target_block_position": 0, '
+    '{"reel_motion_plan": [{"target_block_position": 1, '
+    '"anchor": {"word": "first"}, '
+    '"anchor_end": {"word": "phrase", "edge": "end"}, '
     '"effect_type": "ken_burns", "params": {"zoom_start": 1.0, '
-    '"zoom_end": 1.08}, "rationale": "why THIS shot drifts"}]}. '
-    'An empty list plans no motion, which leaves every shot still.'
+    '"zoom_end": 1.03}, "rationale": "why this body span drifts"}]}. '
+    'Long shots may have several distinct anchored entries; preserve every '
+    'entry in context.locked_closing_moves exactly.'
 )
 
 
@@ -1159,9 +1269,79 @@ def motion_request_stem(reel_number: int) -> str:
     return f"reel_motion_{int(reel_number):02d}"
 
 
+def _motion_path(project_folder: str, reel_number: int, area) -> str:
+    from library.tools.project_layout import ProjectLayout
+
+    return os.path.join(str(ProjectLayout(project_folder).read_dir(area)),
+                        motion_request_stem(reel_number) + ".json")
+
+
+def _read_motion_plan_file(path: str) -> Optional[list]:
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict) and isinstance(
+            payload.get(MOTION_PLAN_KEY), list):
+        return payload[MOTION_PLAN_KEY]
+    return None
+
+
+def locked_closing_positions(project_folder: str,
+                             reel_number: int) -> set[int]:
+    """The request's closing/CTA blocks whose existing plan is protected."""
+    from library.tools.project_layout import Area
+
+    path = _motion_path(project_folder, reel_number, Area.LLM_REQUESTS)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            request = json.load(handle)
+    except (OSError, ValueError):
+        return set()
+    return {
+        int(position)
+        for position in request["context"].get(
+            "locked_closing_positions", [])
+    }
+
+
+def _is_locked_motion_entry(entry: Any, locked_positions: set[int]) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    try:
+        return int(entry["target_block_position"]) in locked_positions
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _closing_positions(spine: dict, call_to_action) -> list[int]:
+    structure = spine["structure"]
+    if call_to_action is None:
+        return ([max((int(block["position"]) for block in structure))]
+                if structure else [])
+    if isinstance(call_to_action, dict):
+        cta_start = float(call_to_action["timeline_start"])
+        cta_end = float(call_to_action["timeline_end"])
+    else:
+        cta_start = float(call_to_action.timeline_start)
+        cta_end = float(call_to_action.timeline_end)
+    return [
+        int(block["position"])
+        for block in structure
+        if block["master_start"] < cta_end
+        and block["master_end"] > cta_start
+    ]
+
+
 def write_motion_request(reel_number: int, reel_name: str,
                          spine: dict, says: Sequence[dict],
-                         project_folder: str) -> str:
+                         project_folder: str,
+                         call_to_action=None) -> str:
     """Write the ask, and return where it went.
 
     Same three-part file interface the reel's V6 overlay ask uses
@@ -1178,6 +1358,17 @@ def write_motion_request(reel_number: int, reel_name: str,
         spoken = [s for s in says
                   if s.get("timeline_start", 0.0) < block["master_end"]
                   and s.get("timeline_end", 0.0) > block["master_start"]]
+        word_spans = []
+        for word in block["word_timestamps"]:
+            word_spans.append({
+                "word": word["word"],
+                "start": round(
+                    block["timeline_start"]
+                    + word["source_start"] - block["source_start"], 3),
+                "end": round(
+                    block["timeline_start"]
+                    + word["source_end"] - block["source_start"], 3),
+            })
         rows.append({
             "target_block_position": block["position"],
             "timeline_start": block["timeline_start"],
@@ -1186,6 +1377,7 @@ def write_motion_request(reel_number: int, reel_name: str,
             "speaker": block.get("speaker", ""),
             "says": " ".join(" ".join(str(s.get("text", "")).split())
                              for s in spoken)[:900],
+            "word_spans": word_spans,
         })
     empty = [r["target_block_position"] for r in rows if not r["says"]]
     if empty:
@@ -1196,18 +1388,29 @@ def write_motion_request(reel_number: int, reel_name: str,
               f"transcript has nothing over the master seconds they were "
               f"cut from, so any motion planned for them is planned blind",
               file=sys.stderr)
+    existing_plan = _read_motion_plan_file(
+        _motion_path(project_folder, reel_number, Area.LLM_RESPONSES)) or []
+    closing_positions = set(_closing_positions(spine, call_to_action))
+    locked_closing_moves = [
+        entry for entry in existing_plan
+        if _is_locked_motion_entry(entry, closing_positions)]
     payload = {
         "step_id": "reel_motion",
         "reel_number": int(reel_number),
         "reel_name": reel_name,
         "prompt": MOTION_HANDOFF,
-        "context": {"shots": rows},
+        "context": {
+            "shots": rows,
+            "existing_reel_motion_plan": existing_plan,
+            "locked_closing_positions": sorted(closing_positions),
+            "locked_closing_moves": locked_closing_moves,
+        },
         "expected_schema": MOTION_EXPECTED_SCHEMA,
         "project_folder": project_folder,
     }
     directory = str(ProjectLayout(project_folder).read_dir(Area.LLM_REQUESTS))
     os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, motion_request_stem(reel_number) + ".json")
+    path = _motion_path(project_folder, reel_number, Area.LLM_REQUESTS)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
     # The ask, logged AT THE ASK: request files are rewritten on every
@@ -1233,24 +1436,31 @@ def read_motion_answer(project_folder: str,
     empty plan, for the reason `reel_semantic_visual.read_answer` gives:
     a malformed answer is not a decision for no motion.
     """
-    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.project_layout import Area
 
-    path = os.path.join(
-        str(ProjectLayout(project_folder).read_dir(Area.LLM_RESPONSES)),
-        motion_request_stem(reel_number) + ".json")
-    if not os.path.isfile(path):
+    plan = _read_motion_plan_file(
+        _motion_path(project_folder, reel_number, Area.LLM_RESPONSES))
+    if plan is None:
         return None
+    request_path = _motion_path(
+        project_folder, reel_number, Area.LLM_REQUESTS)
+    request = None
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        with open(request_path, "r", encoding="utf-8") as handle:
+            request = json.load(handle)
     except (OSError, ValueError):
-        return None
-    if isinstance(payload, list):
-        return payload
-    if isinstance(payload, dict) and isinstance(
-            payload.get(MOTION_PLAN_KEY), list):
-        return payload[MOTION_PLAN_KEY]
-    return None
+        pass
+    context = (request or {}).get("context") or {}
+    locked_positions = {
+        int(position)
+        for position in context.get("locked_closing_positions", [])
+    }
+    if locked_positions:
+        locked_moves = context["locked_closing_moves"]
+        plan = [entry for entry in plan
+                if not _is_locked_motion_entry(entry, locked_positions)]
+        plan.extend(locked_moves)
+    return plan
 
 
 def resolve_motion(plan: Optional[list], spine: dict,
@@ -1275,6 +1485,15 @@ def resolve_motion(plan: Optional[list], spine: dict,
     resolved = post_bridge.resolve_vfx(list(plan), spine, frame_rate=fps,
                                        dropped=dropped)
     record["resolved"] = len(resolved)
+    record["moves"] = [{
+        "target_block_position": int(spec["target_block_position"]),
+        "timeline_start": float(spec["timeline_start"]),
+        "timeline_end": float(spec["timeline_end"]),
+        "effect_type": spec["effect_type"],
+        "zoom_start": spec["params"].get("zoom_start"),
+        "zoom_end": spec["params"].get("zoom_end"),
+        "anchor_method": spec.get("anchor_method"),
+    } for spec in resolved]
     record["dropped"] = [
         {"target_block_position": d.target_block_position,
          "effect_type": d.effect_type, "reason": d.reason,
@@ -1347,11 +1566,124 @@ def _reel_row_for(placement: dict, rows: Dict[str, int],
     return first_row
 
 
+def _motion_window_frames(spec: dict, placement: dict,
+                          fps: float) -> dict:
+    """The motion span in the placed clip's comp frames.
+
+    Legacy plans have no word anchor and keep their existing whole-shot
+    treatment. New body moves carry an explicit word-anchored span.
+    """
+    start = int(placement["snapped_record"])
+    played = int(round((placement["source_out"]
+                        - placement["source_in"]) * fps))
+    if ("timeline_start" not in spec and "timeline_end" not in spec):
+        return {"first_frame": 0, "last_frame": played - 1}
+    if "timeline_start" not in spec or "timeline_end" not in spec:
+        raise ReelLookRefused(
+            f"Ken Burns window on picture shot "
+            f"{spec['target_block_position']} has an incomplete time span.",
+            "An anchored move needs both start and end times to remain "
+            "inside one picture shot.",
+            "Provide both timeline_start and timeline_end, then rebuild.",
+        )
+    first = int(round(float(spec["timeline_start"]) * fps)) - start
+    last = int(round(float(spec["timeline_end"]) * fps)) - start - 1
+    if first < 0 or last >= played or last <= first:
+        raise ReelLookRefused(
+            f"Ken Burns window {spec['timeline_start']:.3f}-"
+            f"{spec['timeline_end']:.3f}s does not fit inside picture shot "
+            f"{spec['target_block_position']} at "
+            f"{start / fps:.3f}s for {played} played frames.",
+            "The anchored motion window would escape the clip's played "
+            "frames or collapse to no movement.",
+            "Anchor both words inside this picture cut and rebuild.",
+        )
+    return {"first_frame": first, "last_frame": last}
+
+
+def _assert_subtle_body_move(spec: dict, position: int,
+                             window: dict, fps: float,
+                             allow_mid: bool = True) -> tuple[float, float]:
+    """Reject an anchored body drift that plays as a punch."""
+    params = spec["params"]
+    scales = []
+    for key in ("zoom_start", "zoom_mid", "zoom_end"):
+        value = params.get(key)
+        if value is None and key == "zoom_mid":
+            continue
+        if (isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))):
+            raise ReelLookRefused(
+                f"Ken Burns move on picture shot {position} has an invalid "
+                f"{key} scale {value!r}.",
+                "The camera curve cannot be composed or checked with a "
+                "missing or non-finite scale.",
+                "Provide finite start and end scales and rebuild.",
+            )
+        scales.append(float(value))
+    start_zoom, end_zoom = scales[0], scales[-1]
+    if (not allow_mid and len(scales) == 3):
+        raise ReelLookRefused(
+            f"Ken Burns move on picture shot {position} has a midpoint "
+            "scale that multi-window composition cannot preserve.",
+            "The anchored-window compositor reads only each window's start "
+            "and end scale.",
+            "Remove `zoom_mid` from each anchored window and rebuild.",
+        )
+    if any(value < 1.0 or value > BODY_KEN_BURNS_MAX_SCALE
+           for value in scales):
+        raise ReelLookRefused(
+            f"Ken Burns move on picture shot {position} exceeds the subtle "
+            f"1.0-{BODY_KEN_BURNS_MAX_SCALE:.2f} body scale envelope.",
+            "A larger scale change reads as a punch rather than a slow "
+            "Ken Burns drift.",
+            f"Keep both scales between 1.0 and "
+            f"{BODY_KEN_BURNS_MAX_SCALE:.2f} and rebuild.",
+        )
+    move_type = spec["effect_type"]
+    if move_type not in ("slow_zoom_in", "slow_zoom_out"):
+        raise ReelLookRefused(
+            f"picture shot {position} combines a Ken Burns window with "
+            f"{move_type!r}.",
+            "A punch or other camera effect on the same shot would clash "
+            "with the slow body movement.",
+            "Remove the new Ken Burns move from this treated shot or remove "
+            "the conflicting treatment before rebuilding.",
+        )
+    increasing = (move_type == "slow_zoom_in")
+    is_monotonic = all(
+        (left <= right if increasing else left >= right)
+        for left, right in zip(scales, scales[1:]))
+    if not is_monotonic or start_zoom == end_zoom:
+        raise ReelLookRefused(
+            f"Ken Burns {move_type} on picture shot {position} does not "
+            "move in its declared direction.",
+            "A scale curve that runs against its declared direction is not "
+            "the planned camera move.",
+            "Reverse the scale endpoints or correct the move direction and "
+            "rebuild.",
+        )
+    duration = (window["last_frame"] - window["first_frame"] + 1) / fps
+    if duration < BODY_KEN_BURNS_MIN_SECONDS:
+        raise ReelLookRefused(
+            f"Ken Burns move on picture shot {position} lasts "
+            f"{duration:.2f}s; body camera moves must take at least "
+            f"{BODY_KEN_BURNS_MIN_SECONDS:.1f}s so they read as a drift, "
+            "not a punch.",
+            "The scale changes too quickly to read as a slow camera drift.",
+            f"Choose a word-anchored span of at least "
+            f"{BODY_KEN_BURNS_MIN_SECONDS:.1f} seconds and rebuild.",
+        )
+    return start_zoom, end_zoom
+
+
 def fusion_manifest(placements: Sequence[dict], look: dict,
                     motion: Sequence[dict], fps: float,
                     track_plan=None, angle_key=None,
                     grade_look: Optional[dict] = None,
-                    ending=None) -> dict:
+                    ending=None,
+                    locked_closing_positions: Sequence[int] = ()) -> dict:
     """The manifest `apply_fusion_comps` reads for one reel.
 
     Only the keys that pass actually reads: `tracks.V{row}.clips` in
@@ -1413,13 +1745,167 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
     # The drift, joined to the clip it covers by the shot position the
     # plan targeted - the same join `compile_manifest` makes by seconds,
     # done by index here because a reel's shots ARE its picture clips.
+    # A single legacy entry still draws across the full shot. Multiple
+    # anchored entries on one long shot become one Fusion spline with
+    # held scale between their disjoint windows.
+    by_position: Dict[int, list] = {}
     for spec in motion or ():
-        position = int(spec.get("target_block_position", -1))
-        if not (0 <= position < len(picture)):
-            continue
+        position = int(spec["target_block_position"])
+        if 0 <= position < len(picture):
+            by_position.setdefault(position, []).append(spec)
+
+    locked_closing = {int(position)
+                      for position in locked_closing_positions}
+    for position, specs in by_position.items():
         effect = per_clip.setdefault(clip_label(position), {})
-        effect["_preset"] = spec["effect_type"]
-        effect.update(spec.get("params", {}))
+        placement = picture[position]
+        if position in locked_closing:
+            # The closing shot carries the existing CTA treatment. Keep
+            # its pre-window composition semantics byte-for-byte: an
+            # anchor added to the request must never shorten or reshape
+            # a locked closer that already plays over that full shot.
+            for spec in specs:
+                effect["_preset"] = spec["effect_type"]
+                effect.update(spec["params"])
+            continue
+        if len(specs) == 1:
+            spec = specs[0]
+            effect["_preset"] = spec["effect_type"]
+            effect.update(spec["params"])
+            if spec["effect_type"] in ("slow_zoom_in", "slow_zoom_out"):
+                if spec["params"].get("pan_end") is not None:
+                    raise ReelLookRefused(
+                        f"Ken Burns move on picture shot {position} adds a "
+                        "pan.",
+                        "The measured draw-gain coverage check proves the "
+                        "scale envelope, not an animated pan envelope.",
+                        "Remove `pan_end` from the slow body move and rebuild.",
+                    )
+                window = _motion_window_frames(spec, placement, fps)
+                start_zoom, _ = _assert_subtle_body_move(
+                    spec, position, window, fps)
+                if not math.isclose(start_zoom, 1.0,
+                                    rel_tol=0.0, abs_tol=1e-4):
+                    raise ReelLookRefused(
+                        f"the first Ken Burns move on picture shot {position} "
+                        "must start at the already-framed 1.0 scale.",
+                        "No earlier body drift establishes a larger held "
+                        "scale for this shot.",
+                        "Start this shot's first body window at 1.0 and "
+                        "rebuild.",
+                    )
+                if spec.get("anchor_method"):
+                    effect["effect_window_frames"] = window
+            continue
+
+        ordered = sorted(
+            specs,
+            key=lambda entry: float(entry.get("timeline_start", -math.inf)))
+        windows = []
+        previous_last = -1
+        previous_end = None
+        previous_direction = None
+        for index, spec in enumerate(ordered):
+            if not spec.get("anchor_method"):
+                raise ReelLookRefused(
+                    f"picture shot {position} has multiple camera moves and "
+                    "one spans the full shot; anchor each move to a distinct "
+                    "word span or leave the shot with one move.",
+                    "Combining a full-shot treatment with anchored windows "
+                    "would make their camera curves overlap.",
+                    "Anchor each move to a distinct word span or keep the "
+                    "existing single-shot treatment unchanged.",
+                )
+            params = spec["params"]
+            start_zoom = params["zoom_start"]
+            end_zoom = params["zoom_end"]
+            if any(isinstance(value, bool)
+                   or not isinstance(value, (int, float))
+                   or not math.isfinite(float(value))
+                   for value in (start_zoom, end_zoom)):
+                raise ReelLookRefused(
+                    f"picture shot {position} has a Ken Burns scale that is "
+                    "not a finite number.",
+                    "The camera curve cannot be composed or checked with a "
+                    "non-finite scale.",
+                    "Replace the scale endpoints with finite numbers and "
+                    "rebuild.",
+                )
+            start_zoom, end_zoom = float(start_zoom), float(end_zoom)
+            if start_zoom < 1.0 or end_zoom < 1.0:
+                raise ReelLookRefused(
+                    f"picture shot {position} has a zoom below the already-"
+                    "framed 1.0 scale. A zoom-out must return to 1.0 or "
+                    "above so it cannot uncover the measured screen window.",
+                    "The held picture transform is the coverage baseline, "
+                    "and a smaller relative scale can reveal black edges.",
+                    "Return the zoom-out to 1.0 or above and rebuild.",
+                )
+            if index == 0 and not math.isclose(start_zoom, 1.0,
+                                               abs_tol=1e-4):
+                raise ReelLookRefused(
+                    f"the first Ken Burns move on picture shot {position} "
+                    "must start at the already-framed 1.0 scale.",
+                    "No earlier body drift establishes a larger held scale "
+                    "for this shot.",
+                    "Start this shot's first body window at 1.0 and rebuild.",
+                )
+            direction = spec["effect_type"]
+            if direction not in ("slow_zoom_in", "slow_zoom_out"):
+                raise ReelLookRefused(
+                    f"picture shot {position} combines a Ken Burns move "
+                    f"with {direction!r}. Keep the existing picture "
+                    "treatment separate from body drift.",
+                    "A punch or other camera effect on the same shot would "
+                    "clash with the slow body movement.",
+                    "Remove the new Ken Burns move from this treated shot "
+                    "or remove the conflicting treatment before rebuilding.",
+                )
+            if (previous_direction is not None
+                    and direction == previous_direction):
+                raise ReelLookRefused(
+                    f"successive Ken Burns moves on picture shot {position} "
+                    "must alternate between zoom-in and zoom-out.",
+                    "Consecutive same-direction moves would make a single "
+                    "long push or pull rather than a cadence.",
+                    "Alternate the move directions within this shot and "
+                    "rebuild.",
+                )
+            if (previous_end is not None
+                    and not math.isclose(start_zoom, previous_end,
+                                         rel_tol=0.0, abs_tol=1e-4)):
+                raise ReelLookRefused(
+                    f"Ken Burns moves on picture shot {position} do not "
+                    "meet at the same scale; the camera would jump between "
+                    "anchored spans.",
+                    "Each later window must begin at the scale the prior "
+                    "window holds when it ends.",
+                    "Match the adjacent scale endpoints and rebuild.",
+                )
+            window = _motion_window_frames(spec, placement, fps)
+            _assert_subtle_body_move(
+                spec, position, window, fps, allow_mid=False)
+            if window["first_frame"] <= previous_last:
+                raise ReelLookRefused(
+                    f"Ken Burns windows overlap inside picture shot "
+                    f"{position} at frame {window['first_frame']}; move "
+                    "spans must remain separate.",
+                    "Overlapping camera curves would compose as one move "
+                    "and obscure the intended cadence.",
+                    "Move the word anchors so the windows are ordered and "
+                    "disjoint, then rebuild.",
+                )
+            windows.append({
+                **window,
+                "zoom_start": start_zoom,
+                "zoom_end": end_zoom,
+            })
+            previous_last = window["last_frame"]
+            previous_end = end_zoom
+            previous_direction = direction
+
+        effect["_preset"] = ordered[0]["effect_type"]
+        effect["zoom_windows"] = windows
 
     return {
         "tracks": tracks,
@@ -1518,4 +2004,3 @@ def fit_picture_spec(project_folder: str, tracks, reel: int, scale: float,
                        "media": segment["overlay_path"]}
                       for index, segment in enumerate(segments)]
     return spec
-
