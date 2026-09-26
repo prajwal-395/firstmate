@@ -39,8 +39,8 @@ from library.tools.subtitle_style import resolve_subtitle_style
 
 # ── Minimum display duration (seconds) ──
 # Matches Palmier Pro's AppTheme.Caption.minDisplayDuration.
-# Subtitles shorter than this are extended; subsequent groups
-# are shifted forward to prevent overlap.
+# Subtitles shorter than this are extended. Any resulting overlap is
+# trimmed or merged later without shifting a card away from its first word.
 MIN_DISPLAY_DURATION = 0.7
 
 # The hard floor, below which a card flashes rather than reads.  Same
@@ -338,48 +338,21 @@ def build_caption_fitter(style: dict, safe_area, project_folder="") -> CaptionFi
 
 
 def enforce_min_duration(groups, min_dur=MIN_DISPLAY_DURATION):
-    """Extend short display groups and shift later ones to prevent overlap.
+    """Extend short cards without moving later cards off their speech.
 
-    Ported from Palmier Pro's CaptionBuilder.swift:
-    - If a group is shorter than min_dur, extend its end time.
-    - If extending causes overlap with the next group, shift the next
-      group's start forward.
-    - Repeat for the cascade.
-
-    This prevents subtitle flicker where a 2-word group appears for
-    only 0.2s — unreadable at normal playback speed.
-
-    **The shift is bounded by the HARD floor.**  A group is pushed
-    forward only as far as leaves it `MIN_CAPTION_FLASH_SECONDS` of its
-    own, and where there is no such room the earlier group's end is
-    pulled back to meet it instead - the overlap is always removed, but
-    never by pushing another card below the length at which it flashes
-    rather than reads.  Measured on the nineteen approved reels of
-    `lucie/geo-podcast`: an unbounded cascade fixed one flashing card and
-    manufactured four more at the block boundaries the caller clamps to,
-    which is moving a flash rather than removing one.
+    The cards' start times are anchored to their first word. Extending an
+    earlier card can therefore overlap the next one; the later overlap
+    pass trims or merges that pair while keeping its spoken start. Shifting
+    the next start to preserve a reading hold can put its first word
+    entirely before the card, producing a reversed karaoke window.
     """
     if not groups:
         return groups
 
-    for i, g in enumerate(groups):
-        dur = g["end"] - g["start"]
-        if dur < min_dur:
-            g["end"] = round(g["start"] + min_dur, 3)
-
-        # Prevent overlap with next group
-        if i + 1 < len(groups):
-            next_g = groups[i + 1]
-            if next_g["start"] < g["end"]:
-                hard_floor = min(min_dur, MIN_CAPTION_FLASH_SECONDS)
-                latest = round(next_g["end"] - hard_floor, 3)
-                pushed = min(round(g["end"], 3),
-                             max(next_g["start"], latest))
-                next_g["start"] = pushed
-                g["end"] = round(min(g["end"], pushed), 3)
-                # Ensure next group still has positive duration
-                if next_g["end"] <= next_g["start"]:
-                    next_g["end"] = round(next_g["start"] + min_dur, 3)
+    for group in groups:
+        duration = group["end"] - group["start"]
+        if duration < min_dur:
+            group["end"] = round(group["start"] + min_dur, 3)
 
     return groups
 
@@ -653,14 +626,13 @@ def split_into_groups(
                 return False
         return bool(fits_fn(" ".join(w["word"] for w in words[i:j])))
 
-    # A state is a word boundary, the end of its last scheduled card, the
-    # accumulated quality score and the chosen groups. A later start can
-    # need to move past the next word's onset when the previous card needs
-    # more reading time; it is still valid only while it starts before the
-    # last word on that card ends.
+    # A state is a word boundary, the last card's end (a tie-break only),
+    # the accumulated quality score and the chosen groups. Card starts are
+    # fixed by their first words; overlap repair below handles reading holds
+    # without delaying those spoken anchors.
     frontiers = [[] for _ in range(n + 1)]
     frontiers[0].append({
-        "cursor": float("-inf"),
+        "tail_end": float("-inf"),
         "score": (0, 0, 0, 0, 0, 0, 0, 0),
         "groups": [],
     })
@@ -668,7 +640,7 @@ def split_into_groups(
     def _dominates(left, right) -> bool:
         """Whether left leaves no worse timing or partition for a suffix."""
         return (
-            left["cursor"] <= right["cursor"] + 1e-9
+            left["tail_end"] <= right["tail_end"] + 1e-9
             and all(a <= b for a, b in zip(left["score"], right["score"]))
         )
 
@@ -690,8 +662,7 @@ def split_into_groups(
 
                 card = words[i:j]
                 text = " ".join(w["word"] for w in card)
-                card_start = max(float(card[0]["start"]),
-                                 float(state["cursor"]))
+                card_start = float(card[0]["start"])
                 last_word_end = float(card[-1]["end"])
                 desired_duration = max(
                     float(min_display),
@@ -714,7 +685,10 @@ def split_into_groups(
                 cps = (len(text) / duration) if duration > 0 else float("inf")
                 too_short = duration < MIN_CAPTION_FLASH_SECONDS
                 too_fast = cps > MAX_CHARACTERS_PER_SECOND
-                late = card_start_for_display > last_word_end + 1e-9
+                late = any(
+                    card_start_for_display >= float(word["end"]) - 1e-9
+                    for word in card
+                )
                 long_gaps = sum(
                     words[k]["start"] - words[k - 1]["end"] > max_gap
                     for k in range(i + 1, j)
@@ -752,7 +726,7 @@ def split_into_groups(
                     ],
                 }]
                 _add_state(j, {
-                    "cursor": card_end,
+                    "tail_end": card_end,
                     "score": next_score,
                     "groups": groups,
                 })
@@ -761,7 +735,7 @@ def split_into_groups(
         return []
     chosen = min(
         frontiers[n],
-        key=lambda state: (*state["score"], state["cursor"]),
+        key=lambda state: (*state["score"], state["tail_end"]),
     )
     return chosen["groups"]
 
@@ -1394,14 +1368,11 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 pos, (float("-inf"), float("inf"))
             )
 
-            # `enforce_min_duration` is the rule, CALLED - it used to be
-            # hand-inlined here, extending a short card only as far as the
-            # next card's first word, which leaves the card exactly as
-            # short as it started. The function cascades instead: the card
-            # reaches the floor and the next card's start is pushed to
-            # meet it. The same clause is what closes an overlap the ASR's
-            # own word timings opened. It reads `start`/`end`, so the
-            # entries are projected onto those keys and written back.
+            # `enforce_min_duration` extends a short card's end but keeps
+            # every card anchored to its first word. The following overlap
+            # pass trims or merges the extended spans without losing words.
+            # It reads `start`/`end`, so entries are projected onto those
+            # keys and written back.
             spans = [
                 {"start": entry["timeline_start"],
                  "end": entry["timeline_end"]}
@@ -1413,10 +1384,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 entry["timeline_end"] = span["end"]
 
             # Clamp EVERY subtitle in the block to the block's range.
-            # The min-duration cascade above can push more than one
-            # trailing entry past the boundary, and clamping only the last
-            # left the rest bleeding into the next block - which then made
-            # that block's rendered overlay overlap its neighbour.
+            # Extension can carry more than one trailing entry past the
+            # boundary, and clamping only the last would leave the rest
+            # bleeding into the next block and overlapping its neighbour.
             for entry in group:
                 entry["timeline_start"] = round(
                     max(entry["timeline_start"], block_start), 3)

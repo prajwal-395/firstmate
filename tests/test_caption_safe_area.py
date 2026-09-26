@@ -352,9 +352,9 @@ def _code_only(source: str) -> str:
 # leaves the remainder as the next card, and a card is on screen only
 # until the NEXT card's first word - so the remainder flashes. On project
 # 001 that produced 76 cards under half a second out of 96. Nothing
-# downstream can repair it: `enforce_min_duration` extends a card only up
-# to its neighbour's start, and a greedy card's neighbour starts
-# immediately.
+# downstream can repair it: `enforce_min_duration` extends a card while
+# preserving the next card's spoken start, then overlap repair trims or
+# merges the pair. A greedy card's neighbour starts immediately.
 
 # The real opening line of project 001, at its real delivery speed.
 # Greedy grouping leaves "me." alone for 0.24s - 7 frames at 30fps.
