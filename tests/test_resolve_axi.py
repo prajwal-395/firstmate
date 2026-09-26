@@ -1113,22 +1113,61 @@ def test_run_after_report_survives_a_mid_run_project_switch(
     """A script that switches projects (setup/teardown scripts
     legitimately do) leaves the held timeline proxy stale - GetName
     reads None. The after-report must read the cursor fresh rather
-    than crash with TypeError and lose the script's own result
-    (measured 2026-09-25: the proof setup switched to its scratch
-    project and cmd_run died on the stale proxy)."""
+    than crash with TypeError and lose the script's own result. Exercise
+    the unsafe path required for LoadProject and make the fake cursor
+    switch to a second scratch project, like the live run that exposed
+    this defect (measured 2026-09-25)."""
     import library.tools.resolve_axi as axi
+
+    original_project = patched["project"]
+    switched_timeline = _Timeline("Scratch run target")
+    switched_project = _Project("run scratch", [switched_timeline],
+                                current=switched_timeline)
+
+    class _Manager:
+        def __init__(self):
+            self.current = original_project
+
+        def GetCurrentProject(self):
+            return self.current
+
+        def LoadProject(self, name):
+            assert name == switched_project.GetName()
+            self.current = switched_project
+            return self.current
+
+    class _Resolve:
+        def __init__(self, manager):
+            self.manager = manager
+
+        def GetProjectManager(self):
+            return self.manager
+
+    manager = _Manager()
+    resolve = _Resolve(manager)
 
     class _Stale:
         def GetName(self):
-            return None
+            if manager.current is not original_project:
+                return None
+            return patched["timeline"].GetName()
 
+        def __getattr__(self, name):
+            return getattr(patched["timeline"], name)
+
+    monkeypatch.setattr(axi, "_connect", lambda: resolve)
     monkeypatch.setattr(axi, "_target_timeline",
                         lambda project, name: (_Stale(), True, ""))
     assert cmd_run(_run_ns(
-        script="result = {'switched': True}")) == 0
+        script="manager.LoadProject('run scratch'); "
+               "result = {'switched': True}",
+        unsafe=True)) == 0
     out = capsys.readouterr().out
     assert "switched" in out
-    assert "Reel 29 - salvage" in out
+    assert "Scratch run target (current)" in out
+    assert "cursor_before: Reel 29 - salvage" in out
+    assert "cursor_after: Scratch run target" in out
+    assert "cursor_moved: yes" in out
 
 
 # ── pool: the ingest/catalog read ────────────────────────────────
