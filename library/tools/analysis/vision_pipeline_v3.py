@@ -931,6 +931,85 @@ def _file_has_audio(path):
         return False
 
 
+# Source-audio probes, cached per (path, size, mtime) so repeated
+# `extract_video_clips` calls over one source in a process - the passes
+# cut different window sets from the same clip - probe it once.
+_SOURCE_AUDIO_CACHE = {}
+
+
+def _source_has_audio(clip_path):
+    """Whether the source clip carries audio, probed once per file state.
+
+    Thin cache over `_file_has_audio`: the extractor derives every
+    window's `has_audio` from this one probe instead of re-probing each
+    cut, so a clip pays one audio probe no matter how many windows it
+    is cut into or how many passes cut it.
+    """
+    try:
+        st = Path(clip_path).stat()
+        key = (str(clip_path), st.st_size, st.st_mtime_ns)
+    except OSError:
+        return _file_has_audio(clip_path)
+    if key not in _SOURCE_AUDIO_CACHE:
+        _SOURCE_AUDIO_CACHE[key] = _file_has_audio(clip_path)
+    return _SOURCE_AUDIO_CACHE[key]
+
+
+def _probe_window_streams(path):
+    """One ffprobe for a window file's (has_video, has_audio, height).
+
+    The extractor calls this at most once per pre-existing cached
+    window, to validate the two staleness rules (audio-policy mismatch,
+    pre-720p-cap height) from a single spawn instead of one probe per
+    question. Fresh cuts never pay it: their audio follows the cut
+    recipe and their readability is an open-check, not a probe.
+    """
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", str(path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False,
+        )
+        if result.returncode != 0:
+            return False, False, 0
+        streams = json.loads(result.stdout).get("streams", [])
+        has_video = any(s.get("codec_type") == "video" for s in streams)
+        has_audio = any(s.get("codec_type") == "audio" for s in streams)
+        height = 0
+        for s in streams:
+            if s.get("codec_type") == "video":
+                try:
+                    height = int(s.get("height", 0))
+                except (TypeError, ValueError):
+                    height = 0
+                break
+        return has_video, has_audio, height
+    except (json.JSONDecodeError, OSError):
+        return False, False, 0
+
+
+def _clip_opens(path):
+    """Whether a cut window opens as video (no subprocess).
+
+    The one open-check per cut: a tail-sliver husk ffmpeg writes but no
+    decoder can open is dropped by the extractor on this, never handed
+    to a pass. cv2 is imported lazily, the way the rest of the library
+    reaches it; where it is unavailable the video-stream probe answers.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return _file_has_video(path)
+    try:
+        cap = cv2.VideoCapture(str(path))
+        opened = cap.isOpened()
+        cap.release()
+        return opened
+    except Exception:
+        return False
+
+
 def _video_height(path):
     """Height in px of a file's first video stream, or 0 when unknown."""
     try:
@@ -984,7 +1063,9 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
     clip_dir = cache_dir / clip_path.stem / subdir
     clip_dir.mkdir(parents=True, exist_ok=True)
 
-    source_has_audio = _file_has_audio(clip_path) if with_audio else False
+    # One audio probe for the whole clip: every window's `has_audio`
+    # derives from it, so a 408-window clip pays 1 probe, not ~1000.
+    source_has_audio = _source_has_audio(clip_path) if with_audio else False
 
     n_windows = max(1, int(math.ceil(duration / window_s)))
     clips = []
@@ -1000,22 +1081,40 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
         out_path = clip_dir / f"{prefix}_{i:03d}.mp4"
 
         want_audio = with_audio and source_has_audio
+        # Fresh cuts carry exactly what the recipe below encodes, so
+        # `has_audio` derives from `want_audio` with no per-window
+        # probe; a cached file keeps its probed value (equal to
+        # `want_audio`, else it is re-cut just below).
+        has_audio = want_audio
+        needs_cut = not out_path.exists()
         if out_path.exists():
-            cached_has_audio = _file_has_audio(out_path)
+            # One spawn validates both staleness rules (audio policy,
+            # 720p cap) and the video stream at once.
+            cached_has_video, cached_has_audio, cached_height = (
+                _probe_window_streams(out_path))
             if cached_has_audio != want_audio:
                 # Stale cache from the other audio policy - re-cut below.
                 try:
                     out_path.unlink()
                 except OSError:
                     pass
-            elif _video_height(out_path) > WINDOW_CLIP_HEIGHT:
+                needs_cut = True
+            elif cached_height > WINDOW_CLIP_HEIGHT:
                 # Stale cache from before the 720p cap - re-cut below.
                 try:
                     out_path.unlink()
                 except OSError:
                     pass
+                needs_cut = True
+            elif not cached_has_video:
+                print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
+                      f"cut carries no video stream, dropped",
+                      file=sys.stderr)
+                continue
+            else:
+                has_audio = cached_has_audio
 
-        if not out_path.exists():
+        if needs_cut:
             cmd = ["ffmpeg", "-y", "-i", str(clip_path),
                    "-ss", str(start), "-t", str(end - start),
                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
@@ -1027,10 +1126,23 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
                 # cannot hear anything in it.
                 cmd += ["-an"]
             cmd += ["-loglevel", "error", str(out_path)]
-            subprocess.run(cmd, capture_output=True, check=False)
+            cut = subprocess.run(cmd, capture_output=True, check=False)
+            if cut.returncode != 0 and out_path.exists():
+                # The encode failed: do not trust the recipe, ground-
+                # truth the survivor before handing it to a pass.
+                cut_has_video, cut_has_audio, _ = (
+                    _probe_window_streams(out_path))
+                if not cut_has_video:
+                    print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
+                          f"cut carries no video stream, dropped",
+                          file=sys.stderr)
+                    continue
+                has_audio = cut_has_audio
 
         if out_path.exists():
-            if not _file_has_video(out_path):
+            # One open-check per cut, no probe: a husk no decoder can
+            # open is dropped, never handed to a pass.
+            if not _clip_opens(out_path):
                 print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
                       f"cut carries no video stream, dropped",
                       file=sys.stderr)
@@ -1040,7 +1152,7 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
                 "start": round(start, 2),
                 "end": round(end, 2),
                 "path": str(out_path),
-                "has_audio": _file_has_audio(out_path),
+                "has_audio": has_audio,
             })
 
     return clips

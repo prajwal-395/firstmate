@@ -339,3 +339,45 @@ def test_extract_recuts_oversize_cached_window(tmp_path):
     assert len(clips) == 2
     assert vp._video_height(Path(clips[0]["path"])) == 720
     assert all(c["has_audio"] for c in clips)
+
+
+def test_extract_pays_one_source_probe_and_no_per_window_probes(tmp_path):
+    """ffprobe thrift: a re-added per-window probe fails this test.
+
+    Cold, a clip pays one ffprobe (the source-audio probe) plus one
+    ffmpeg per window; window audio derives from the source probe and
+    cut readability is an open-check, not a probe. Warm, with every
+    window cached, it pays no ffmpeg and one combined staleness probe
+    per cached window - never the four-probes-per-window shape
+    (audio + height + video + audio) this replaced.
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs ffmpeg")
+    source = _synth_clip(tmp_path / "src.mp4", 22, with_audio=True)
+    cache = tmp_path / "cache"
+    real_run = subprocess.run
+    spawns = []
+
+    def counting(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and cmd:
+            name = Path(cmd[0]).name
+            if name in ("ffprobe", "ffmpeg"):
+                spawns.append(name)
+        return real_run(cmd, *args, **kwargs)
+
+    subprocess.run = counting
+    try:
+        clips = vp.extract_video_clips(Path(source), 22.0, cache)
+        assert len(clips) == 3
+        assert all(c["has_audio"] for c in clips)
+        assert spawns.count("ffmpeg") == 3
+        assert spawns.count("ffprobe") == 1
+
+        del spawns[:]
+        clips = vp.extract_video_clips(Path(source), 22.0, cache)
+        assert len(clips) == 3
+        assert all(c["has_audio"] for c in clips)
+        assert spawns.count("ffmpeg") == 0
+        assert spawns.count("ffprobe") == 3
+    finally:
+        subprocess.run = real_run
