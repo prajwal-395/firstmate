@@ -28,8 +28,11 @@ Usage:
 import argparse
 import json
 import math
+import queue
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -153,25 +156,29 @@ MAX_TOKENS = {
 # through, alongside the call - including the thrift's own combined
 # probe, so the count judges the thrift instead of missing it.
 _FFPROBE_SPAWNS = 0
+_FFPROBE_SPAWNS_LOCK = threading.Lock()
 
 
 def _note_ffprobe_spawn() -> None:
     """One ffprobe process started. The counter is process-local and
-    serial like the loop it measures; it is reset per clip by the
-    runner, so a clip's count is that clip's."""
+    locked because the window extractor runs on a producer thread. The
+    runner resets it per clip, so a clip's count is that clip's."""
     global _FFPROBE_SPAWNS
-    _FFPROBE_SPAWNS += 1
+    with _FFPROBE_SPAWNS_LOCK:
+        _FFPROBE_SPAWNS += 1
 
 
 def ffprobe_spawn_count() -> int:
     """How many ffprobe processes started since the last reset."""
-    return _FFPROBE_SPAWNS
+    with _FFPROBE_SPAWNS_LOCK:
+        return _FFPROBE_SPAWNS
 
 
 def reset_ffprobe_spawn_count() -> None:
     """Zero the spawn counter. The runner calls this per clip."""
     global _FFPROBE_SPAWNS
-    _FFPROBE_SPAWNS = 0
+    with _FFPROBE_SPAWNS_LOCK:
+        _FFPROBE_SPAWNS = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1064,8 +1071,103 @@ def _video_height(path):
         return 0
 
 
+class _WindowClipPrefetch:
+    """Bounded, ordered producer for window cuts consumed during inference."""
+
+    _STOP = object()
+
+    class _Failure:
+        def __init__(self, error):
+            self.error = error
+
+    def __init__(self, producer, expected_count):
+        self.expected_count = expected_count
+        self.extraction_wall_s = None
+        self.ffprobe_spawns = None
+        self._probe_start = ffprobe_spawn_count()
+        self._queue = queue.Queue(maxsize=1)
+        self._stop = threading.Event()
+        self._started = time.perf_counter()
+        self._count = 0
+        self._has_audio_count = 0
+        self._clips = []
+        self._iterated = False
+        self._complete = False
+        self._producer = producer
+        self._thread = threading.Thread(
+            target=self._run,
+            name="vision-window-extractor",
+            daemon=False,
+        )
+        self._thread.start()
+
+    def __len__(self):
+        return self._count if self._complete else self.expected_count
+
+    @property
+    def has_audio_count(self):
+        return self._has_audio_count
+
+    @property
+    def thread_alive(self):
+        return self._thread.is_alive()
+
+    def _publish(self, item):
+        while not self._stop.is_set():
+            try:
+                self._queue.put(item, timeout=0.1)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def _run(self):
+        failure = None
+        try:
+            for item in self._producer(self._stop):
+                if self._stop.is_set() or not self._publish(item):
+                    break
+        except BaseException as exc:  # noqa: BLE001 - wake the consumer for any worker failure
+            failure = self._Failure(exc)
+        finally:
+            self.extraction_wall_s = time.perf_counter() - self._started
+            self.ffprobe_spawns = ffprobe_spawn_count() - self._probe_start
+        if failure is not None:
+            self._publish(failure)
+        self._publish(self._STOP)
+
+    def __iter__(self):
+        if self._iterated:
+            raise RuntimeError("prefetched window clips can only be read once")
+        self._iterated = True
+        try:
+            while True:
+                item = self._queue.get()
+                if item is self._STOP:
+                    self._complete = True
+                    return
+                if isinstance(item, self._Failure):
+                    raise item.error
+                self._count += 1
+                self._has_audio_count += bool(item.get("has_audio"))
+                self._clips.append(item)
+                yield item
+        finally:
+            self.close()
+
+    def close(self):
+        self._stop.set()
+        while self._thread.is_alive():
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                pass
+            self._thread.join(timeout=0.05)
+
+
 def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S,
-                        subdir="clips", prefix="clip", with_audio=True):
+                        subdir="clips", prefix="clip", with_audio=True,
+                        prefetch=False, window_starts_s=None):
     """Extract video clips for windowed native-video analysis.
 
     Uses ffmpeg to cut the source video into ~`window_s` segments. Each
@@ -1095,104 +1197,155 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
     would raise "Cannot open video" on it. The sliver stays undescribed;
     the coverage record says so.
 
-    Returns list of {index, start, end, path, has_audio}.
+    Input seeking uses ffmpeg's accurate transcode seek; a failed or
+    unreadable fast cut retries the former output-seek recipe. With
+    `prefetch=True`, return a single-use stream with at most one cut
+    queued ahead of its consumer. `window_starts_s` selects source-time
+    starts for measured slices; the default tiles the full clip.
+
+    Returns ordered {index, start, end, path, has_audio} entries, as a
+    list by default or a single-use stream when prefetching.
     """
+    clip_path = Path(clip_path)
     clip_dir = cache_dir / clip_path.stem / subdir
     clip_dir.mkdir(parents=True, exist_ok=True)
 
-    # One audio probe for the whole clip: every window's `has_audio`
-    # derives from it, so a 408-window clip pays 1 probe, not ~1000.
-    source_has_audio = _source_has_audio(clip_path) if with_audio else False
+    if window_starts_s is None:
+        n_windows = max(1, math.ceil(duration / window_s))
+        window_specs = [
+            (i, i * window_s, min((i + 1) * window_s, duration))
+            for i in range(n_windows)
+        ]
+    else:
+        window_specs = []
+        for i, raw_start in enumerate(window_starts_s):
+            start = float(raw_start)
+            if start < 0 or start >= duration:
+                raise ValueError(f"window start outside clip: {start}")
+            window_specs.append((i, start, min(start + window_s, duration)))
 
-    n_windows = max(1, int(math.ceil(duration / window_s)))
-    clips = []
+    def produce_windows(stop_event):
+        # One audio probe for the whole clip: every window's `has_audio`
+        # derives from it, so a 408-window clip pays 1 probe, not ~1000.
+        source_has_audio = _source_has_audio(clip_path) if with_audio else False
 
-    for i in range(n_windows):
-        start = i * window_s
-        end = min((i + 1) * window_s, duration)
-        if end - start < MIN_WINDOW_S:
-            print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                  f"only {end - start:.2f}s, too short to analyze, dropped",
-                  file=sys.stderr)
-            continue
-        out_path = clip_dir / f"{prefix}_{i:03d}.mp4"
-
-        want_audio = with_audio and source_has_audio
-        # Fresh cuts carry exactly what the recipe below encodes, so
-        # `has_audio` derives from `want_audio` with no per-window
-        # probe; a cached file keeps its probed value (equal to
-        # `want_audio`, else it is re-cut just below).
-        has_audio = want_audio
-        needs_cut = not out_path.exists()
-        if out_path.exists():
-            # One spawn validates both staleness rules (audio policy,
-            # 720p cap) and the video stream at once.
-            cached_has_video, cached_has_audio, cached_height = (
-                _probe_window_streams(out_path))
-            if cached_has_audio != want_audio:
-                # Stale cache from the other audio policy - re-cut below.
-                try:
-                    out_path.unlink()
-                except OSError:
-                    pass
-                needs_cut = True
-            elif cached_height > WINDOW_CLIP_HEIGHT:
-                # Stale cache from before the 720p cap - re-cut below.
-                try:
-                    out_path.unlink()
-                except OSError:
-                    pass
-                needs_cut = True
-            elif not cached_has_video:
+        for i, start, end in window_specs:
+            if stop_event.is_set():
+                return
+            if end - start < MIN_WINDOW_S:
                 print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                      f"cut carries no video stream, dropped",
+                      f"only {end - start:.2f}s, too short to analyze, dropped",
                       file=sys.stderr)
                 continue
-            else:
-                has_audio = cached_has_audio
+            out_path = clip_dir / f"{prefix}_{i:03d}.mp4"
+            want_audio = with_audio and source_has_audio
+            has_audio = want_audio
+            needs_cut = not out_path.exists()
 
-        if needs_cut:
-            cmd = ["ffmpeg", "-y", "-i", str(clip_path),
-                   "-ss", str(start), "-t", str(end - start),
-                   "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                   "-vf", f"scale=-2:min({WINDOW_CLIP_HEIGHT}\\,ih)"]
-            if want_audio:
-                cmd += ["-c:a", "aac"]
-            else:
-                # No audio in the window clip. The model therefore
-                # cannot hear anything in it.
-                cmd += ["-an"]
-            cmd += ["-loglevel", "error", str(out_path)]
-            cut = subprocess.run(cmd, capture_output=True, check=False)
-            if cut.returncode != 0 and out_path.exists():
-                # The encode failed: do not trust the recipe, ground-
-                # truth the survivor before handing it to a pass.
-                cut_has_video, cut_has_audio, _ = (
+            if out_path.exists():
+                cached_has_video, cached_has_audio, cached_height = (
                     _probe_window_streams(out_path))
-                if not cut_has_video:
+                if (cached_has_audio != want_audio
+                        or cached_height > WINDOW_CLIP_HEIGHT):
+                    # Audio policy and the 720p cap are the two cache
+                    # properties that require a re-cut.
+                    out_path.unlink(missing_ok=True)
+                    needs_cut = True
+                elif not cached_has_video:
                     print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                          f"cut carries no video stream, dropped",
+                          "cut carries no video stream, dropped",
                           file=sys.stderr)
                     continue
-                has_audio = cut_has_audio
+                else:
+                    has_audio = cached_has_audio
 
-        if out_path.exists():
-            # One open-check per cut, no probe: a husk no decoder can
-            # open is dropped, never handed to a pass.
-            if not _clip_opens(out_path):
+            if needs_cut:
+                def make_temp_output(out_path=out_path):
+                    with tempfile.NamedTemporaryFile(
+                            prefix=f".{out_path.stem}.", suffix=".tmp.mp4",
+                            dir=clip_dir, delete=False) as temp:
+                        temp_path = Path(temp.name)
+                    temp_path.unlink()
+                    return temp_path
+
+                def cut_command(temp_path, fast_seek, start=start, end=end,
+                                want_audio=want_audio):
+                    if fast_seek:
+                        cmd = ["ffmpeg", "-y", "-ss", str(start),
+                               "-accurate_seek", "-i", str(clip_path)]
+                    else:
+                        cmd = ["ffmpeg", "-y", "-i", str(clip_path),
+                               "-ss", str(start)]
+                    cmd += ["-t", str(end - start), "-c:v", "libx264",
+                            "-preset", "ultrafast", "-crf", "23", "-vf",
+                            f"scale=-2:min({WINDOW_CLIP_HEIGHT}\\,ih)"]
+                    if want_audio:
+                        cmd += ["-c:a", "aac"]
+                    else:
+                        cmd += ["-an"]
+                    cmd += ["-loglevel", "error", str(temp_path)]
+                    return cmd
+
+                temp_path = make_temp_output()
+                try:
+                    fast_cut = subprocess.run(
+                        cut_command(temp_path, fast_seek=True),
+                        capture_output=True, check=False)
+                    usable = (fast_cut.returncode == 0
+                              and _clip_opens(temp_path))
+                    if not usable:
+                        # Input seeking is accurate for transcodes when
+                        # ffmpeg can seek the source. If it cannot produce
+                        # a readable window, retry the former decode-from-
+                        # start recipe before dropping the window.
+                        temp_path.unlink(missing_ok=True)
+                        temp_path = make_temp_output()
+                        accurate_cut = subprocess.run(
+                            cut_command(temp_path, fast_seek=False),
+                            capture_output=True, check=False)
+                        if accurate_cut.returncode != 0 and temp_path.exists():
+                            cut_has_video, cut_has_audio, _ = (
+                                _probe_window_streams(temp_path))
+                            if not cut_has_video:
+                                print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
+                                      "cut carries no video stream, dropped",
+                                      file=sys.stderr)
+                                continue
+                            has_audio = cut_has_audio
+                        usable = temp_path.exists() and _clip_opens(temp_path)
+
+                    if not usable:
+                        print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
+                              "cut carries no video stream, dropped",
+                              file=sys.stderr)
+                        continue
+                    if stop_event.is_set():
+                        return
+                    temp_path.replace(out_path)
+                    temp_path = None
+                finally:
+                    if temp_path is not None:
+                        temp_path.unlink(missing_ok=True)
+
+            elif not _clip_opens(out_path):
                 print(f"    ⚠ Window [{start:.0f}-{end:.0f}s]: "
-                      f"cut carries no video stream, dropped",
+                      "cut carries no video stream, dropped",
                       file=sys.stderr)
                 continue
-            clips.append({
+
+            if stop_event.is_set():
+                return
+            yield {
                 "index": i,
                 "start": round(start, 2),
                 "end": round(end, 2),
                 "path": str(out_path),
                 "has_audio": has_audio,
-            })
+            }
 
-    return clips
+    if prefetch:
+        return _WindowClipPrefetch(produce_windows, len(window_specs))
+    return list(produce_windows(threading.Event()))
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2560,6 +2713,7 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     windows = analyze_windows(analyzer, video_clips, duration, temporal_index,
                               transcript, fps=fps)
     window_inference_wall_s = round(time.time() - _inference_t0, 2)
+    n_window_calls = len(windows)
     window_time = sum(a.get("analysis_time_s", 0) for a in windows)
     total_action_count = sum(len(a.get("actions", [])) for a in windows)
     total_time += window_time
@@ -2850,29 +3004,40 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             frames = extract_frames(clip_path, duration, cache_dir)
             print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
 
-            # Extract video clips (every native-video pass runs on these
-            # 10s segments at 2 fps, 720p, audio kept). Timed apart
-            # from inference, per clip, so the decode-ahead and
-            # fast-seek work can be judged against a split rather than
-            # a suspicion: extraction wall here, inference wall in the
-            # profile's `window_inference_wall_s`, ffprobe spawns in
-            # `window_extraction_ffprobe_spawns`.
+            # Start the bounded window producer before inference. It
+            # keeps one cut ahead while `analyze_windows` consumes clips
+            # in order; extraction timing and probe count are read back
+            # once the producer has joined.
             reset_ffprobe_spawn_count()
-            _extract_t0 = time.time()
-            video_clips = extract_video_clips(clip_path, duration, cache_dir)
-            window_extraction_wall_s = round(time.time() - _extract_t0, 2)
-            window_extraction_ffprobe_spawns = ffprobe_spawn_count()
-            n_aud = sum(1 for c in video_clips if c.get("has_audio"))
-            print(f"  Video clips extracted: {len(video_clips)} × {ACTION_WINDOW_S}s "
-                  f"({n_aud} with audio) "
-                  f"[{window_extraction_wall_s:.1f}s extraction, "
-                  f"{window_extraction_ffprobe_spawns} ffprobe spawns]")
+            video_clips = extract_video_clips(
+                clip_path, duration, cache_dir, prefetch=True)
+            print(f"  Video window cuts queued: {len(video_clips)} × "
+                  f"{ACTION_WINDOW_S}s; extraction overlaps inference")
 
             # Run analysis
-            profile = analyze_clip(
-                analyzer, meta, frames, video_clips, transcript,
-                temporal_idx, cache_dir,
-            )
+            try:
+                profile = analyze_clip(
+                    analyzer, meta, frames, video_clips, transcript,
+                    temporal_idx, cache_dir,
+                )
+            finally:
+                if isinstance(video_clips, _WindowClipPrefetch):
+                    video_clips.close()
+
+            if isinstance(video_clips, _WindowClipPrefetch):
+                window_extraction_wall_s = round(
+                    video_clips.extraction_wall_s, 2)
+                window_extraction_ffprobe_spawns = (
+                    video_clips.ffprobe_spawns)
+                n_aud = video_clips.has_audio_count
+            else:
+                window_extraction_wall_s = 0.0
+                window_extraction_ffprobe_spawns = ffprobe_spawn_count()
+                n_aud = sum(1 for c in video_clips if c.get("has_audio"))
+            print(f"  Video clips extracted: {len(video_clips)} × "
+                  f"{ACTION_WINDOW_S}s ({n_aud} with audio) "
+                  f"[{window_extraction_wall_s:.1f}s extraction, "
+                  f"{window_extraction_ffprobe_spawns} ffprobe spawns]")
             profile.setdefault("analysis_metadata", {}).update({
                 "window_extraction_wall_s": window_extraction_wall_s,
                 "window_extraction_ffprobe_spawns": (

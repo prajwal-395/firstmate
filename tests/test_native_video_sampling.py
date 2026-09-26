@@ -27,8 +27,10 @@ These tests name that contract:
    taller than the cap is re-cut, not silently reused (it would keep
    the slow full-resolution decode path).
 """
+import json
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -381,3 +383,155 @@ def test_extract_pays_one_source_probe_and_no_per_window_probes(tmp_path):
         assert spawns.count("ffprobe") == 3
     finally:
         subprocess.run = real_run
+
+
+def _decoded_video_signature(path):
+    decoded = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0",
+         "-f", "framemd5", "-"],
+        capture_output=True, text=True, encoding="utf-8", check=True)
+    return tuple(
+        (row.split(",")[2].strip(), row.split(",")[-1].strip())
+        for row in decoded.stdout.splitlines()
+        if row and not row.startswith("#")
+    )
+
+
+def _decoded_audio_content(path):
+    decoded = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0",
+         "-c:a", "pcm_s16le", "-f", "s16le", "-"],
+        capture_output=True, check=True)
+    return decoded.stdout
+
+
+def test_fast_seek_matches_accurate_cut_frames_and_audio(tmp_path):
+    """Input seeking retains the old output-seek frames and audio."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs ffmpeg")
+    source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True)
+    fast = vp.extract_video_clips(
+        Path(source), 12.0, tmp_path / "fast-cache",
+        window_starts_s=[3.5])[0]
+    accurate_path = tmp_path / "accurate.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", str(source), "-ss", "3.5", "-t", "8.5",
+         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+         "-vf", f"scale=-2:min({vp.WINDOW_CLIP_HEIGHT}\\,ih)",
+         "-c:a", "aac", "-loglevel", "error", str(accurate_path)],
+        capture_output=True, check=True)
+
+    assert _decoded_video_signature(fast["path"]) == (
+        _decoded_video_signature(accurate_path))
+    assert _decoded_audio_content(fast["path"]) == (
+        _decoded_audio_content(accurate_path))
+
+
+def test_prefetched_windows_preserve_order_and_close_after_early_exit():
+    produced = []
+
+    def producer(stop):
+        for index in range(5):
+            produced.append(index)
+            yield {"index": index, "has_audio": index % 2 == 0}
+
+    windows = vp._WindowClipPrefetch(producer, expected_count=5)
+    assert [window["index"] for window in windows] == list(range(5))
+
+    assert not windows.thread_alive
+    assert windows.extraction_wall_s is not None
+    assert windows._count == 5
+    assert produced == list(range(5))
+
+    early = vp._WindowClipPrefetch(producer, expected_count=5)
+    iterator = iter(early)
+    assert next(iterator)["index"] == 0
+    iterator.close()
+    assert not early.thread_alive
+    assert early._count == 1
+
+
+def test_prefetch_producer_error_cleans_up_thread_and_temp_output(
+        tmp_path, monkeypatch):
+    source = tmp_path / "source.mxf"
+    source.touch()
+    cache = tmp_path / "cache"
+
+    def failed_cut(cmd, **kwargs):
+        Path(cmd[-1]).write_bytes(b"partial output")
+        raise OSError("simulated ffmpeg failure")
+
+    monkeypatch.setattr(vp.subprocess, "run", failed_cut)
+    windows = vp.extract_video_clips(
+        source, 10.0, cache, with_audio=False, prefetch=True)
+
+    with pytest.raises(OSError, match="simulated ffmpeg failure"):
+        list(windows)
+
+    assert not windows.thread_alive
+    assert list((cache / "source" / "clips").iterdir()) == []
+
+
+def test_unreadable_fast_cut_retries_with_accurate_seek(tmp_path, monkeypatch):
+    source = tmp_path / "source.mxf"
+    source.touch()
+    calls = []
+
+    def fake_cut(cmd, **kwargs):
+        calls.append(cmd)
+        target = Path(cmd[-1])
+        if len(calls) == 1:
+            target.write_bytes(b"unreadable fast cut")
+            return subprocess.CompletedProcess(cmd, 1, b"", b"seek failed")
+        target.write_bytes(b"accurate fallback")
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(vp.subprocess, "run", fake_cut)
+    monkeypatch.setattr(
+        vp, "_clip_opens", lambda path: path.read_bytes() == b"accurate fallback")
+
+    clips = vp.extract_video_clips(
+        source, 10.0, tmp_path / "cache", with_audio=False,
+        window_starts_s=[0.0])
+
+    assert len(clips) == 1
+    assert Path(clips[0]["path"]).read_bytes() == b"accurate fallback"
+    assert calls[0].index("-ss") < calls[0].index("-i")
+    assert calls[1].index("-i") < calls[1].index("-ss")
+    assert list((tmp_path / "cache" / "source" / "clips").iterdir()) == [
+        Path(clips[0]["path"])]
+
+
+def test_window_inference_overlaps_the_next_cut_in_order():
+    inference_started = threading.Event()
+    next_cut_ready = threading.Event()
+    answer = json.dumps({"a": [], "s": [], "c": [], "t": "scenery",
+                         "p": []})
+
+    def producer(stop):
+        yield {"index": 0, "start": 0.0, "end": 10.0,
+               "path": "/tmp/window-0.mp4", "has_audio": True}
+        assert inference_started.wait(timeout=2)
+        next_cut_ready.set()
+        yield {"index": 1, "start": 10.0, "end": 20.0,
+               "path": "/tmp/window-1.mp4", "has_audio": True}
+
+    class Analyzer:
+        def __init__(self):
+            self.video_paths = []
+
+        def analyze_with_retry(self, prompt, parse_fn, **kwargs):
+            self.video_paths.append(kwargs["video"])
+            if len(self.video_paths) == 1:
+                inference_started.set()
+                assert next_cut_ready.wait(timeout=2)
+            return parse_fn(answer), answer, 0.01
+
+    windows = vp._WindowClipPrefetch(producer, expected_count=2)
+    analyzer = Analyzer()
+    entries = vp.analyze_windows(analyzer, windows, 20.0, None, "")
+
+    assert [entry["window"] for entry in entries] == [
+        [0.0, 10.0], [10.0, 20.0]]
+    assert analyzer.video_paths == ["/tmp/window-0.mp4", "/tmp/window-1.mp4"]
+    assert not windows.thread_alive
