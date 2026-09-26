@@ -176,3 +176,11 @@ Return one `audio_delivery_plan` object with exactly these keys:
 The final file is re-measured after mastering. A normalization write
 does not count as proof; the measured LUFS and dBTP are recorded on the
 render report and checked before delivery.
+
+## Timeline notes
+
+If the input includes `timeline_notes`, read and weigh each note. A
+`typed_operations` entry is the declared edit-spec operation and its values;
+use its stated units and do not reinterpret the original words to select a
+different step or operation. Return a `note_acknowledgements` entry for every
+note, including what changed or why you left it unchanged.

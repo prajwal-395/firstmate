@@ -104,6 +104,8 @@ VERBS = (
 
     Verb("eval", "Eval", "Run the standing request-following eval (report only; gates nothing)",
          module_argv=("library.tools.eval_harness",)),
+    Verb("spec", "Projects", "Translate, clarify and record a natural-language edit spec",
+         module_argv=("library.tools.edit_spec",)),
 )
 
 _BY_NAME = {verb.name: verb for verb in VERBS}

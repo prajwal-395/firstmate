@@ -7847,11 +7847,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             item_for_span=_span_items.get, reel_name=name)
         build_record["edit_ledger"] = {
             "applied": _replay["applied"],
+            "planned": _replay["planned"],
             "unreplayable": _replay["unreplayable"],
         }
         if _replay["applied"]:
             print(f"  {name}: {len(_replay['applied'])} edit-ledger "
                   f"row(s) replayed", file=sys.stderr)
+        if _replay["planned"]:
+            print(f"  {name}: {len(_replay['planned'])} edit-ledger "
+                  f"plan change(s) carried to their owner step",
+                  file=sys.stderr)
 
     # ── The freeze inherits the shot it holds ──
     # A freeze IS the ending shot's last frame, so it must look exactly

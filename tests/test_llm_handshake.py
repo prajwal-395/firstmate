@@ -146,3 +146,30 @@ def test_hook_suggests_a_verb_per_note(tmp_path):
     assert [n["text"] for n in notes] == [
         "lower the caption a touch", "Trim tighten the head"]
     assert "touch" in hook.suggest_verb(notes[0]["text"])
+
+
+def test_hook_suggestion_links_the_marker_it_names(tmp_path):
+    """The printed command translates THIS marker, not a copy of it.
+
+    Catches: the hook printing `ren spec prepare --request ...` with no
+    `--note-id`, so running it filed a duplicate note while the marker
+    itself stayed untranslated and kept holding the run.
+    """
+    import shlex
+
+    import ren.hooks.marker_hook as hook
+    from library.tools import marker_routing
+
+    project = tmp_path / "proj"
+    marker = project / "marker_feedback"
+    marker.mkdir(parents=True)
+    raw = {"source": "timeline_marker", "frame": 120,
+           "text": "cut the long pause"}
+    pull = marker / "pull-1.json"
+    pull.write_text(json.dumps({"timeline": "Reel 01", "notes": [raw]}),
+                    encoding="utf-8")
+    [note] = hook.pending_notes(str(project))
+    expected = marker_routing.edit_link_id(raw, "Reel 01", str(pull))
+    assert note["note_id"] == expected
+    command = hook.suggest_verb(note["text"], note["note_id"], str(project))
+    assert f"--note-id {shlex.quote(expected)}" in command

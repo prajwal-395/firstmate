@@ -69,9 +69,10 @@ RESPONSES_SUBDIR = os.path.join("pipeline_output", "llm_responses")
 #: Marker printed on stdout when a request is ready. One spelling, here.
 READY_MARKER = "LLM_REQUEST_READY"
 
-#: Request kinds. `llm_step` is a pipeline step's prompt; only
-#: `briefing_interview` may be answered by asking the USER in chat.
-KINDS = ("llm_step", "briefing_interview")
+#: Request kinds. `llm_step` is a pipeline step's prompt; briefing,
+#: edit translation and intent review may ask the USER through the host.
+KINDS = ("llm_step", "briefing_interview", "edit_spec",
+         "edit_spec_intent")
 
 #: Keys every request file carries. `kind` is optional (default
 #: `llm_step`); the rest are required.

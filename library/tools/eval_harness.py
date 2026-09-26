@@ -1676,6 +1676,128 @@ def find_export(project_dir: str) -> str:
     return str(candidates[-1])
 
 
+def prepare_edit_spec(project_dir: str, pull_path: str, request: dict,
+                      answer_timeout_seconds: int = 3 * 3600):
+    """Translate a branch request before its keyword route can run.
+
+    The base checkout predates the edit-spec layer and keeps its measured
+    keyword behavior. A checkout that has the layer asks the host for one
+    typed spec, records resolved rows, or returns the editor's clarification
+    question so that the eval can score the ask without building around it.
+    """
+    if not Path(__file__).with_name("edit_spec.py").is_file():
+        return None
+    from library.tools import edit_spec, llm_handshake, marker_routing
+
+    pull = json.loads(Path(pull_path).read_text(encoding="utf-8"))
+    notes = pull.get("notes") or []
+    if len(notes) != 1:
+        raise ValueError(
+            f"eval {request['id']}: injected request pull must contain one note")
+    raw = notes[0]
+    note_id = marker_routing.edit_link_id(
+        raw, pull.get("timeline", ""), pull_path)
+    spec_id, spec_path, linked_id = edit_spec.prepare_request(
+        project_dir, request["text"], note_id=note_id)
+    if linked_id != note_id:
+        raise RuntimeError(
+            f"eval {request['id']}: edit spec linked {linked_id!r}, "
+            f"expected {note_id!r}")
+    response_path = Path(llm_handshake.response_path(project_dir, spec_id))
+    print(
+        f"eval: NEEDS BRAIN (edit spec translation): {spec_path}\n"
+        f"  write the answer to: {response_path}\n"
+        f"  use only the request context; ask the editor for unresolved "
+        "referents",
+        flush=True)
+    start = time.time()
+    while not response_path.is_file():
+        if time.time() - start > answer_timeout_seconds:
+            raise TimeoutError(
+                f"eval {request['id']}: timed out waiting for the edit spec "
+                f"answer at {response_path}")
+        time.sleep(5)
+
+    spec = edit_spec.load_response_spec(project_dir, spec_id)
+    questions = edit_spec.questions_for_spec(spec)
+    if questions:
+        print(f"eval: {request['id']} NEEDS EDITOR CLARIFICATION:",
+              flush=True)
+        for question in questions:
+            print(f"  {question['clause_id']}: {question['question']}",
+                  flush=True)
+        return {"status": "needs_clarification", "request_id": spec_id,
+                "note_id": note_id, "questions": questions}
+
+    recorded = edit_spec.record_spec(project_dir, spec)
+    return {"status": "recorded", "request_id": spec_id,
+            "note_id": note_id,
+            "routes": [{"op": clause["op"],
+                        "owner": edit_spec.owner_for_op(clause["op"]),
+                        "ledger_action": action}
+                       for clause, (_row, action)
+                       in zip(spec["clauses"], recorded)]}
+
+
+def _translated_owner_reruns(ledger: dict) -> tuple:
+    """Owners a recorded translation routed to that the edit chain skips.
+
+    The chain replans the steps a keyword route could reach; a typed
+    operation can name another planner (`music_selection`,
+    `select_reels`). Without its rerun, a correctly translated request is
+    scored as not followed. `render` is the build itself.
+    """
+    translation = ledger.get("edit_spec") or {}
+    if translation.get("status") != "recorded":
+        return ()
+    return tuple(dict.fromkeys(
+        route["owner"] for route in translation["routes"]
+        if route["owner"] not in EDIT_RERUN_CHAIN
+        and route["owner"] != "render"))
+
+
+def _write_clarification_result(request: dict, out: Path, ledger: dict,
+                                measures_base_readback: str) -> dict:
+    """Score a correct ask as Q evidence without running a guessed edit."""
+    if not measures_base_readback or not Path(measures_base_readback).is_file():
+        raise FileNotFoundError(
+            "eval clarification result needs the standing base readback")
+    base_project = _base_project_for_readback(
+        measures_base_readback, out, ledger["clone"]["base"])
+    base_text = normalise_readback(
+        Path(measures_base_readback).read_text(encoding="utf-8"),
+        base_project, ledger["clone"].get("timeline", ""))
+    (out / "readback.txt").write_text(base_text, encoding="utf-8")
+    ledger["timeline"] = ledger["clone"].get("timeline", "")
+    ledger["export"] = ""
+    ledger["execution_status"] = "NEEDS_EDITOR_CLARIFICATION"
+    ledger["execution_skipped_reason"] = (
+        "the edit spec asked the editor to resolve a missing referent; "
+        "planning and building around it would be an invented choice")
+    ledger["finished_at"] = _dt.datetime.now(_dt.UTC).isoformat()
+    (out / "run.json").write_text(
+        json.dumps(ledger, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    measures = build_measures(request["id"], out, measures_base_readback,
+                              "", ledger)
+    measures["execution_skipped_reason"] = ledger[
+        "execution_skipped_reason"]
+    measures["frames"] = {
+        "measured": False,
+        "reason": "the build was held for editor clarification; "
+                  "there is no run export to compare"}
+    measures["lufs"] = measures["frames"]
+    (out / "measures.json").write_text(
+        json.dumps(measures, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    judgement = judgement_template(request, measures.get("hunks", []))
+    judgement["clarification_questions"] = ledger["edit_spec"]["questions"]
+    (out / "judgement.json").write_text(
+        json.dumps(judgement, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    return ledger
+
+
 # ── per-request run ──────────────────────────────────────────────────
 
 def run_request(request: dict | None, base: str, out_dir: str, batch: str,
@@ -1727,8 +1849,18 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
     wait_for_quiet()
     take_heavy_lock(owner)
     try:
+        if request is not None:
+            translation = prepare_edit_spec(
+                clone["dest"], ledger["pull"], request,
+                answer_timeout_seconds=answer_timeout_seconds)
+            if translation is not None:
+                ledger["edit_spec"] = translation
+                if translation["status"] == "needs_clarification":
+                    return _write_clarification_result(
+                        request, out, ledger, base_readback)
         edit = run_pipeline_edit(
-            clone["dest"], str(out / "edit.log"), str(answers))
+            clone["dest"], str(out / "edit.log"), str(answers),
+            extra_reruns=_translated_owner_reruns(ledger))
         ledger["edit"] = edit
         take_resolve_lock(owner)
         try:

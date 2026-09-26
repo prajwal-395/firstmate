@@ -119,8 +119,10 @@ PLAN_OPS = ("angle_plan",)
 PROJECTED_OPS = ("transform_override", "span_retime", "drop_fragment",
                  "caption_fix", "redraw_closer")
 
-#: Carriers not yet replayed; each is reported by name.
-CARRIER_OPS = ("retime",)
+#: Carriers not yet replayed; each is reported by name. `plan_change`
+#: is delivered to its declared planning node from the linked marker
+#: note instead of being replayed onto the timeline.
+CARRIER_OPS = ("retime", "plan_change")
 
 #: The complete vocabulary.
 OPS = REPLAYED_OPS + PLAN_OPS + PROJECTED_OPS + CARRIER_OPS
@@ -224,6 +226,7 @@ def validate_rows(value) -> list:
                 f"the requester's units (dB, frames, percent, LUT path) "
                 f"is what the build replays.")
         _validate_params(label, row, anchor)
+        _validate_value_provenance(label, row)
         stated_by = row.get("stated_by")
         if stated_by not in STATED_BY:
             raise EditLedgerError(
@@ -238,7 +241,53 @@ def validate_rows(value) -> list:
                 f"{label} carries no 'reason' - the requester's or "
                 f"captain's own words, which is what any listing reads "
                 f"back. A row nobody can read back is not reviewable.")
+        source_note_id = row.get("source_note_id")
+        if source_note_id is not None and (
+                not isinstance(source_note_id, str)
+                or not source_note_id.strip()):
+            raise EditLedgerError(
+                f"{label}.source_note_id must be a non-empty marker note id.")
     return value
+
+
+def _validate_value_provenance(label: str, row: dict) -> None:
+    """Check per-value source and unit maps when a row carries them.
+
+    Existing captain and resolve-axi rows predate this metadata and stay
+    readable. Natural-language specs write both maps so an amount and
+    its unit keep the requester/model seam through a rebuild.
+    """
+    params = row.get("params") or {}
+    sources = row.get("value_sources")
+    units = row.get("value_units")
+    if sources is None and units is None:
+        return
+    if not isinstance(sources, dict) or set(sources) != set(params):
+        raise EditLedgerError(
+            f"{label}.value_sources must name every params value exactly "
+            f"once ({', '.join(sorted(params))}).")
+    if not isinstance(units, dict) or set(units) != set(params):
+        raise EditLedgerError(
+            f"{label}.value_units must name every params value exactly "
+            f"once ({', '.join(sorted(params))}).")
+    for key, source in sources.items():
+        if source not in STATED_BY:
+            raise EditLedgerError(
+                f"{label}.value_sources[{key!r}] is {source!r}: one of "
+                f"{', '.join(STATED_BY)}.")
+        if not isinstance(units[key], str) or not units[key].strip():
+            raise EditLedgerError(
+                f"{label}.value_units[{key!r}] needs a unit tag, such as "
+                f"frames, percent, dB, seconds or a named feel.")
+    for key in ("anchor_source", "reel_source"):
+        source = row.get(key)
+        if source is not None and source not in STATED_BY:
+            raise EditLedgerError(
+                f"{label}.{key} is {source!r}: one of {', '.join(STATED_BY)}.")
+    source = row.get("op_source")
+    if source is not None and source not in STATED_BY:
+        raise EditLedgerError(
+            f"{label}.op_source is {source!r}: one of {', '.join(STATED_BY)}.")
 
 
 def _validate_params(label: str, row: dict, anchor: dict) -> None:
@@ -441,6 +490,33 @@ def _validate_params(label: str, row: dict, anchor: dict) -> None:
             raise EditLedgerError(
                 f"{label} has no reel scope: angle plans are per-reel "
                 f"declarations and must name the timeline they hold on.")
+    elif op == "plan_change":
+        from library.tools.edit_operations import PLAN_OPERATION_OWNERS
+
+        operation_type = params.get("operation_type")
+        if operation_type not in PLAN_OPERATION_OWNERS:
+            raise EditLedgerError(
+                f"{label} names plan operation {operation_type!r}: choose "
+                f"one of {', '.join(PLAN_OPERATION_OWNERS)}.")
+        owner = params.get("owner")
+        if owner != PLAN_OPERATION_OWNERS[operation_type]:
+            raise EditLedgerError(
+                f"{label} routes {operation_type!r} to {owner!r}; its "
+                f"declared owner is {PLAN_OPERATION_OWNERS[operation_type]!r}.")
+        values = params.get("values")
+        if not isinstance(values, dict) or not values:
+            raise EditLedgerError(
+                f"{label} plan change needs one or more typed values.")
+        for key, value in values.items():
+            if (not isinstance(key, str) or not key.strip()
+                    or not isinstance(value, dict)
+                    or "value" not in value
+                    or not isinstance(value.get("unit"), str)
+                    or not value["unit"].strip()
+                    or value.get("stated_by") not in STATED_BY):
+                raise EditLedgerError(
+                    f"{label}.params.values[{key!r}] needs value, unit and "
+                    f"stated_by from {', '.join(STATED_BY)}.")
 
 
 # ── Reading: the file the captain writes ─────────────────────────────
@@ -568,6 +644,8 @@ def _row_identity(row: dict) -> tuple:
         return base + (_edits.normalize(params.get("from_phrase", "")),)
     if op == "caption_fix":
         return base
+    if op == "plan_change":
+        return base + (params.get("operation_type"),)
     return base
 
 
@@ -599,43 +677,91 @@ def record_row(project_folder, row: dict) -> tuple:
     write is atomic and merged, so two agents recording different
     rows do not lose one (`declaration_keys`).
     """
-    from library.tools import captain_edits as _edits
+    return record_rows(project_folder, [row])[0]
 
-    validate_rows([row])
-    row = json.loads(json.dumps(row, ensure_ascii=False))
-    if row.get("op") == "grade" and "drx" in row.get("params", {}):
-        row = resolve_grade_assets([row], project_folder,
-                                   row.get("reel") or "")[0]
-    anchor = row.get("anchor") or {}
-    if anchor.get("kind") == "words":
-        transcript = _edits.load_transcript(project_folder)
-        _edits.check_anchor_spoken(
-            {"kind": "drop_fragment",
-             "anchor_phrase": anchor.get("phrase", "")},
-            transcript)
-        if row.get("op") == "span_retime" and transcript is not None:
-            resolved = _edits._resolve_single_edge(
-                transcript, anchor.get("phrase", ""),
-                (row.get("params") or {}).get("edge"))
-            if resolved is not None:
-                params = dict(row.get("params") or {},
-                              recorded_edge=resolved)
-                row = dict(row, params=params)
-    from library.tools.declaration_keys import (
-        read_entries, write_entries)
+
+def record_rows(project_folder, rows: list,
+                replace_source_note_id: str | None = None) -> list:
+    """Validate and merge several rows with one atomic ledger write.
+
+    A translated note can contain several clauses. They are one declared
+    spec, so a bad anchor or repeated target must refuse before any
+    clause lands; otherwise the next build could replay only part of the
+    request.
+    """
+    from library.tools import captain_edits as _edits
+    from library.tools.declaration_keys import read_entries, write_entries
+
+    if not isinstance(rows, list) or not rows:
+        raise EditLedgerError("record_rows needs one or more edit rows.")
+    validate_rows(rows)
+    if replace_source_note_id is not None:
+        if (not isinstance(replace_source_note_id, str)
+                or not replace_source_note_id.strip()):
+            raise EditLedgerError(
+                "replace_source_note_id must be a non-empty marker note id.")
+        if any(row.get("source_note_id") != replace_source_note_id
+               for row in rows):
+            raise EditLedgerError(
+                "every replacement row must name the replaced source note id")
+    prepared = []
+    for original in rows:
+        row = json.loads(json.dumps(original, ensure_ascii=False))
+        if row.get("op") == "grade" and "drx" in row.get("params", {}):
+            row = resolve_grade_assets([row], project_folder,
+                                       row.get("reel") or "")[0]
+        anchor = row.get("anchor") or {}
+        if anchor.get("kind") == "words":
+            transcript = _edits.load_transcript(project_folder)
+            _edits.check_anchor_spoken(
+                {"kind": "drop_fragment",
+                 "anchor_phrase": anchor.get("phrase", "")}, transcript)
+            if row.get("op") == "span_retime" and transcript is not None:
+                resolved = _edits._resolve_single_edge(
+                    transcript, anchor.get("phrase", ""),
+                    (row.get("params") or {}).get("edge"))
+                if resolved is not None:
+                    row = dict(row, params=dict(
+                        row.get("params") or {}, recorded_edge=resolved))
+                    if row.get("value_sources") is not None:
+                        row["value_sources"] = dict(
+                            row["value_sources"], recorded_edge="model")
+                        row["value_units"] = dict(
+                            row["value_units"], recorded_edge="seconds")
+        prepared.append(row)
+    validate_rows(prepared)
+
     store_key = "edit_ledger"
     base, _envelope = read_entries(project_folder, store_key)
     mine = dict(base)
-    key = _ledger_key(row)
-    action = "superseded" if key in base else "recorded"
-    if row in [entry for entry in base.values()]:
-        raise EditLedgerError(
-            f"already in force: {describe_rows([row])[0]} - recording "
-            f"it again would list the same decision twice.")
-    mine[key] = row
+    if replace_source_note_id is not None:
+        for key, current in tuple(mine.items()):
+            if current.get("source_note_id") == replace_source_note_id:
+                del mine[key]
+    actions = []
+    seen = {}
+    for row in prepared:
+        key = _ledger_key(row)
+        if key in seen:
+            raise EditLedgerError(
+                "one edit spec names the same ledger decision twice: "
+                f"{describe_rows([seen[key]])[0]} and "
+                f"{describe_rows([row])[0]}.")
+        seen[key] = row
+        if row in base.values():
+            if (replace_source_note_id is not None
+                    and row.get("source_note_id") == replace_source_note_id):
+                mine[key] = row
+                actions.append("unchanged")
+                continue
+            raise EditLedgerError(
+                f"already in force: {describe_rows([row])[0]} - recording "
+                "it again would list the same decision twice.")
+        actions.append("superseded" if key in base else "recorded")
+        mine[key] = row
     write_entries(project_folder, store_key, mine, base,
                   envelope={"version": EDIT_LEDGER_VERSION})
-    return row, action
+    return list(zip(prepared, actions))
 
 
 def describe_rows(rows: list) -> list:
@@ -701,7 +827,9 @@ def describe_rows(rows: list) -> list:
                 f"{params.get('from_phrase', '')!r} now opens on "
                 f"{phrase!r}, end fixed{where} ({stated}) - {reason}")
         else:
-            lines.append(f"{number}. {op}: {phrase!r}{where} "
+            shown_op = (params.get("operation_type", op)
+                        if op == "plan_change" else op)
+            lines.append(f"{number}. {shown_op}: {phrase!r}{where} "
                          f"({stated}) - {reason}")
     for line in lines:
         print(line)
@@ -754,7 +882,10 @@ def _row_name(row: dict) -> str:
     where = (anchor.get("phrase", "") if anchor.get("kind") == "words"
              else "whole reel")
     reel = row.get("reel") or "every reel"
-    return f"{row.get('op')} on {reel} at {where!r}"
+    op = row.get("op")
+    if op == "plan_change":
+        op = (row.get("params") or {}).get("operation_type", op)
+    return f"{op} on {reel} at {where!r}"
 
 
 def report_unreplayable(records: list) -> list:
@@ -977,12 +1108,14 @@ def replay_on_timeline(name: str, rows: list, spans: list,
     unreplayable row is REPORTED BY NAME, never dropped silently.
     The `angle_plan` was already applied before placement; `retime`
     remains a named carrier until the reel path can replay it without
-    breaking its linked audio.
+    breaking its linked audio. `plan_change` rows are returned as
+    `planned`: their linked note delivers typed values to the operation's
+    owning planner, which writes the normal step outputs for the build.
     """
     from library.tools import dialogue_cleanup as _dclean
 
     scoped = rows_for_reel(rows, reel_name or name)
-    applied, unreplayable = [], []
+    applied, planned, unreplayable = [], [], []
     for row in scoped:
         op = row.get("op")
         if op == "voice_isolation":
@@ -1005,6 +1138,15 @@ def replay_on_timeline(name: str, rows: list, spans: list,
             continue  # the angle plan already shaped placements
         elif op in PROJECTED_OPS:
             continue  # the existing appliers hold these, never here
+        elif op == "plan_change":
+            params = row["params"]
+            from library.tools.edit_operations import PLAN_OPERATION_OWNERS
+            planned.append({
+                "name": _row_name(row),
+                "operation_type": params["operation_type"],
+                "owner": PLAN_OPERATION_OWNERS[params["operation_type"]],
+                "values": params["values"],
+            })
         elif op in CARRIER_OPS:
             unreplayable.append({
                 "name": _row_name(row), "scope": "rung",
@@ -1114,7 +1256,8 @@ def replay_on_timeline(name: str, rows: list, spans: list,
                         "op": "clip_lut",
                         "lut": record["lut"], "node": record["node"]})
     report_unreplayable(unreplayable)
-    return {"applied": applied, "unreplayable": unreplayable}
+    return {"applied": applied, "planned": planned,
+            "unreplayable": unreplayable}
 
 
 def main(argv=None) -> int:

@@ -334,6 +334,14 @@ cannot be argued with.
 If something cannot be determined from what you were given, say so in
 `undetermined` rather than guessing at it.
 
+### Timeline Notes
+
+If the input includes `timeline_notes`, read and weigh each note. A
+`typed_operations` entry is the declared edit-spec operation and values;
+honour it when this step owns it. Include a `note_acknowledgements` entry for
+each note, saying what you did and why, including a reasoned decline when
+you cannot act on it.
+
 ---
 
 ## Authority

@@ -445,6 +445,24 @@ def test_a_project_with_no_notes_routes_nothing(tmp_path):
     assert marker_routing.route_project(str(tmp_path)) == []
 
 
+def test_unplaced_notes_on_one_timeline_get_stable_distinct_ids():
+    """Two editor notes without frames must not share one ledger link.
+
+    Catches: same-timeline unplaced requests overwriting one another's
+    edit specs because both used the old `timeline:source:unplaced` id.
+    """
+    first = {"source": "timeline_marker", "name": "question A",
+             "note": "use the logo"}
+    second = {"source": "timeline_marker", "name": "question B",
+              "note": "remove the pause"}
+
+    first_id = marker_routing._note_id(first, "Edit", "pull-a.json")
+    assert first_id == marker_routing._note_id(
+        first, "Edit", "pull-from-later.json")
+    assert first_id != marker_routing._note_id(
+        second, "Edit", "pull-a.json")
+
+
 def test_the_report_names_every_note_and_where_it_went(tmp_path):
     project = _project(tmp_path)
     result = marker_routing.write_record(project)

@@ -11,10 +11,10 @@ This hook is the session side of that pair: it never probes Resolve
 (a hook that calls Resolve at every session start would probe a
 possibly-closed app on every session for every lane). What it does is
 disk-only - it scans the projects root for pulled notes no routing
-record has carried yet, and prints each note with its owning step and
-the `ren` verb that works it. The host LLM reads that and acts; the
-pull itself (`ren markers pull`, Resolve open) stays an explicit
-invocation.
+record has carried yet, and prints each note with the `ren spec` verb
+that translates it. The typed operation, not a word
+hit, supplies its owner; the pull itself (`ren markers pull`, Resolve
+open) stays an explicit invocation.
 
 Subcommands (all read-only, exit 0 even when there is work - a hook
 must never fail a session start):
@@ -22,7 +22,7 @@ must never fail a session start):
 * `check`: scan every project for pending notes and print the work
   queue. No arguments, no Resolve, milliseconds.
 * `work --project <dir>`: the pending notes for ONE project with the
-  owning step and suggested verb per note.
+  suggested translation command per note.
 
 Installed by `ren setup-hooks [--app claude-code|opencode|codex
 --write]` (`ren/setup_hooks.py`); templates live in
@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 
 MARKER_DIRNAME = "marker_feedback"
@@ -85,6 +86,7 @@ def pending_notes(project_folder: str) -> list:
     rather than dropping the note.
     """
     pending = []
+    link_id = _edit_link_id_reader()
     for path in _pull_files(project_folder):
         try:
             with open(path, "r", encoding="utf-8") as handle:
@@ -100,30 +102,52 @@ def pending_notes(project_folder: str) -> list:
                     p for p in (note.get("name", ""), note.get("note", ""))
                     if p).strip())
                 if text:
+                    timeline = (payload.get("timeline", "")
+                                if isinstance(payload, dict) else "")
                     pending.append({"text": text, "source": path,
                                     "reel": note.get("reel", ""),
-                                    "timeline": note.get("timeline", "")})
+                                    "timeline": note.get("timeline", ""),
+                                    "note_id": link_id(note, timeline, path),
+                                    "project": project_folder})
     routed = _routed_note_count(project_folder)
     return pending[routed:] if routed and routed < len(pending) else pending
 
 
-def suggest_verb(note_text: str) -> str:
-    """The `ren` verb that works a note, by its words.
+def _edit_link_id_reader():
+    """`marker_routing.edit_link_id`, or a reader that names no id.
 
-    A routing hint, not the routing itself - `ren notes <project>`
-    names the owning step. Notes naming a small change point at
-    `touch` (with `undo` behind it); notes questioning the cut point
-    at the owning step's rerun; everything else starts with `notes`
-    so the owner is read, not guessed.
+    A hook must never fail a session start, so a library that cannot be
+    imported here degrades the suggestion rather than the hook.
     """
-    lowered = note_text.lower()
-    if any(word in lowered for word in ("small", "trim", "nudge", "swap",
-                                        "lower", "louder", "typo", "caption")):
-        return "ren touch <project> --help (small change, in place; ren undo reverses it)"
-    if any(word in lowered for word in ("rebuild", "re-cut", "recut",
-                                        "restructure", "reorder")):
-        return "ren edit <project> --rerun <step> (redo the owning step's work)"
-    return "ren notes <project> (read the owning step first)"
+    try:
+        from library.tools.marker_routing import edit_link_id
+    except Exception:
+        return lambda note, timeline, path: ""
+
+    def read(note, timeline, path):
+        try:
+            return edit_link_id(note, timeline, path)
+        except Exception:
+            return ""
+    return read
+
+
+def suggest_verb(note_text: str, note_id: str = "",
+                 project: str = "<project>") -> str:
+    """Point every note at the typed translation path.
+
+    Choosing a Ren verb from words in the note is the same false-match
+    defect as routing a step from those words. The edit spec names an op
+    first; its declared type supplies the owner. The command carries the
+    marker's own link id: without it `ren spec prepare` files a second,
+    duplicate note and the marker itself stays untranslated.
+    """
+    if not note_id:
+        return ("ren spec prepare <project> --request "
+                f"{shlex.quote(note_text)} (use --note-id from `ren notes` "
+                "to link this marker to its typed operations)")
+    return (f"ren spec prepare {shlex.quote(project)} --note-id "
+            f"{shlex.quote(note_id)} --request {shlex.quote(note_text)}")
 
 
 def cmd_check(args) -> int:
@@ -144,7 +168,8 @@ def cmd_check(args) -> int:
         print(f"{entry}: {len(notes)} pending note(s)")
         for note in notes[:5]:
             print(f"  - {note['text'][:120]}")
-            print(f"    work it with: {suggest_verb(note['text'])}")
+            print(f"    work it with: "
+                  f"{suggest_verb(note['text'], note.get('note_id', ''), project_folder)}")
         if len(notes) > 5:
             print(f"  ... and {len(notes) - 5} more "
                   f"(`ren notes {project_folder}` lists them all)")
@@ -167,7 +192,8 @@ def cmd_work(args) -> int:
     for note in notes:
         where = note.get("timeline") or note.get("reel") or "?"
         print(f"[{where}] {note['text']}")
-        print(f"  work it with: {suggest_verb(note['text'])}")
+        print(f"  work it with: "
+              f"{suggest_verb(note['text'], note.get('note_id', ''), args.project)}")
     return 0
 
 

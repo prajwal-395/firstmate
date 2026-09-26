@@ -82,6 +82,14 @@ def render_row(row: dict) -> str:
         camera = params.get("camera") or "the planned angle"
         return (f"- ANGLE: the clips speaking {_q(phrase)} hold "
                 f"{camera}")
+    if op == "plan_change":
+        values = ", ".join(
+            f"{key} {value.get('value')!r} {value.get('unit', '')}".rstrip()
+            for key, value in (params.get("values") or {}).items())
+        where = (f"where the speech says {_q(phrase)}"
+                 if anchor.get("kind") == "words" else "across the whole reel")
+        return (f"- PLAN: {params.get('operation_type')} for "
+                f"{params.get('owner')} {where}: {values}")
     return f"- {op}: {_q(phrase)} -> {params!r}"
 
 

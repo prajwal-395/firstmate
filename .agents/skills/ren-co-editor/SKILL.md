@@ -60,8 +60,8 @@ each request, in order:
    carries `step_id`, `prompt` (brand constraints included),
    `constraints`, `context` (the ONLY material you may decide from),
    `expected_schema` (the shape your answer must satisfy),
-   `project_folder`, `timestamp`, and `kind` (`llm_step`, or
-   `briefing_interview` - see section 3).
+   `project_folder`, `timestamp`, and `kind` (`llm_step`,
+   `briefing_interview`, or `edit_spec`).
 2. **Do the work** the prompt asks, from `context` alone. Never invent
    footage, timings, or measurements; a step that cannot decide from
    its own context says so in the shape its schema allows.
@@ -157,6 +157,48 @@ python3 -m library.tools.marker_feedback pull --project <project>
 ren notes <project>              # which note went to which step
 ren-marker-hook work --project <absolute path>   # pending work queue
 ```
+
+The old word-based route shown by `ren notes` is diagnostic only. Translate
+each natural-language request before running the pipeline. Link the existing
+note id for a pulled marker; a direct chat or CLI request creates its own
+durable note id:
+
+```sh
+ren spec prepare <project> --request "<the note's exact text>" \
+  --note-id <id shown in the full ren notes report> --reel "<timeline name>"
+```
+
+Omit `--note-id` for a direct request. Omit `--reel` unless the editor named
+the exact reel.
+
+Read the `edit_spec` request printed as `LLM_REQUEST_READY`, then answer
+its `expected_schema` in `pipeline_output/llm_responses/<request id>.json`.
+Use only the transcript, reel and footage facts carried in `context`.
+Return one operation per clause, preserve stated numbers with their units,
+and source each value. If a brand, logo, or shot is missing or ambiguous,
+ask the user in chat and return the clause as `needs_clarification` with
+one direct question. Do not guess or write `could_not_determine`.
+
+Run `ren spec resolve <project> --id <request id>`. If it returns
+questions, ask them in chat, update that same response file with the user's
+answer, and resolve again. A linked note blocks `ren edit` until every
+clause is resolved and recorded in `external/edit_ledger.json`. The route
+to each planning step comes from the operation type. Proxy preview is out
+of scope for this rung.
+
+After the build, check the exact timeline readback and final export against
+the recorded spec:
+
+```sh
+ren spec intent prepare <project> --id <edit spec id> \
+  --timeline-readback <built timeline readback file> --export <final export>
+ren spec intent resolve <project> --id <edit intent id>
+```
+
+Inspect both artifact paths named in the intent request. If the result is
+`revise`, ask the editor the returned question before changing or recording
+the spec. This check uses the final export; proxy preview remains out of
+scope.
 
 ## 7. What you never do
 

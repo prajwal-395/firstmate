@@ -1457,7 +1457,7 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 node_id, manifest, routed_notes)
             if mine:
                 inputs[marker_routing.STEP_INPUT_NAME] = (
-                    marker_routing.prompt_block(mine))
+                    marker_routing.prompt_block(mine, node_id=node_id))
 
     from library.tools.context_projector import declared_context_fields
     declared = declared_context_fields(manifest, node_id)
@@ -2785,6 +2785,49 @@ def run_pipeline(
 
     dag = load_dag()
     state = load_pipeline_state(project_dir)
+    try:
+        from library.tools import edit_spec
+        pending_specs = edit_spec.pending_note_states(project_dir)
+        pending_specs = {
+            note_id: state for note_id, state in pending_specs.items()
+            if state.get("state") != "superseded"}
+    except (OSError, ValueError) as exc:
+        pending_specs = {"edit_spec_state": {
+            "reason": f"edit spec state cannot be read: {exc}",
+            "questions": []}}
+    if pending_specs:
+        lines = []
+        for note_id, pending in sorted(pending_specs.items()):
+            request_id = pending.get("request_id")
+            request_suffix = (f" (request {request_id})"
+                              if request_id else "")
+            lines.append(f"note {note_id}: {pending['reason']}"
+                         f"{request_suffix}")
+            if pending.get("prepare_command"):
+                lines.append(
+                    f"  translate it with: {pending['prepare_command']}")
+            elif request_id:
+                lines.append(
+                    "  resolve it with `ren spec resolve <project> "
+                    f"--id {request_id}`")
+            lines.extend(
+                f"  ask the editor: {question['question']}"
+                for question in pending.get("questions", []))
+        reason = (
+            "the edit pipeline is held because a natural-language "
+            "note has no fully resolved, recorded edit spec:\n"
+            + "\n".join(lines)
+            + "\nTranslate or resolve every listed note, then rerun "
+              "`ren edit`.")
+        if dry_run:
+            print(f"\n  PENDING EDIT SPEC (dry run only)\n{reason}\n",
+                  file=sys.stderr)
+        else:
+            print(f"\n  ✗ REFUSED - pending edit spec\n{reason}\n",
+                  file=sys.stderr)
+            summary = {"status": "REFUSED", "reason": reason}
+            json.dump(summary, sys.stdout, indent=2)
+            return summary
     order = topological_sort(dag)
     nodes = {n["id"]: n for n in dag["nodes"]}
 

@@ -35,6 +35,12 @@
         "type": "string",
         "required": false,
         "description": "Path to the project folder. Read by the ladder for a preference the project STATES under pipeline.creative_preferences, which wins over the model's judgement (library/tools/decided_value.py)."
+      },
+      {
+        "name": "timeline_notes",
+        "type": "object",
+        "required": false,
+        "description": "Collected editor notes routed here by the declared audio_mix operation type; includes typed operation values and their requester/model provenance."
       }
     ],
     "outputs": [

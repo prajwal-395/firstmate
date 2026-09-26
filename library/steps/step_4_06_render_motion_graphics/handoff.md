@@ -359,6 +359,14 @@ dropped).
   `motion_graphics_frame` says the frame is unknown, the delivery format was
   never declared: plan nothing that needs pixel positions until it is.
 
+### Timeline Notes
+
+If the input includes `timeline_notes`, read and weigh each note. A
+`typed_operations` entry is the declared edit-spec operation and values;
+honour it when this step owns it. Include a `note_acknowledgements` entry for
+each note, saying what you did and why, including a reasoned decline when
+you cannot act on it.
+
 ## Your answer
 
 One entry per graphic, in one of two shapes - a timed entry is timed by

@@ -115,8 +115,8 @@ the pipeline has two kinds of step:
   hands it `prompt_block()` - the captain's words with a legend saying
   what they are.  The NOTES are per-run data and can only travel as
   data; the legend beside them is the same sentence for every step, so
-  it is single-sourced here rather than copied into twelve prompts.
-  Not the handoff freeze, lifted 2026-09-09 - every one of the twelve
+  it is single-sourced here rather than copied into fifteen prompts.
+  Not the handoff freeze, lifted 2026-09-09 - every one of the fifteen
   now carries a "Timeline Notes" section of its own.
 * `DELIVERY_REPORT` - the step is deterministic and has no prompt at all.
   The note is still routed, still recorded and still reported; it is
@@ -157,7 +157,7 @@ One enumeration, `library/tools/marker_routing.py`.
 - **Two bases, and two non-answers.** `declared` is authoritative. Otherwise the note's words must name EXACTLY ONE step's decision. Two is `ambiguous`; none is `unrouted`. No score, no ranking, no tie-break, no default.
 - **Delivery is `prompt` or `report`, declared per step.** A step with a `handoff.md` declares
   the `timeline_notes` input and `gather_step_inputs` hands it `prompt_block()` - the words
-  plus a legend, single-sourced here because it is the same sentence for all twelve, not
+  plus a legend, single-sourced here because it is the same sentence for all fifteen, not
   because of the handoff freeze, which was lifted 2026-09-09. A deterministic step has no prompt at all; the note is still routed, recorded
   and reported, with that reason stated. `run_pipeline.project_step_context` restores
   `timeline_notes` BY NAME, so a `context_fields` allow-list neither has to list it nor can
@@ -179,6 +179,7 @@ One enumeration, `library/tools/marker_routing.py`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -203,8 +204,8 @@ STEP_INPUT_NAME = "timeline_notes"
 """The ONE input name a step declares to accept the captain's notes.
 
 One name, one injection point, one restore around the projection.  The
-alternative surveyed was a bespoke key per step, which is twelve names to
-keep in step with twelve manifests and nothing that fails when one of
+alternative surveyed was a bespoke key per step, which is fifteen names to
+keep in step with fifteen manifests and nothing that fails when one of
 them goes stale."""
 
 KIND_ROUTE = "route"
@@ -353,6 +354,13 @@ STEP_DECISIONS = (
         terms=("rough cut",),
     ),
     StepDecision(
+        "select_reels", "3.04",
+        "which conversation stretches become reels, where they start and "
+        "end, and which closer each reel uses",
+        DELIVERY_PROMPT,
+        terms=("standalone reel", "reel selection", "reel closer"),
+    ),
+    StepDecision(
         "plan_subtitles", "4.01",
         "how the words are grouped into caption cards, at the caption "
         "style the project and the template resolve to",
@@ -400,7 +408,7 @@ STEP_DECISIONS = (
         "render_motion_graphics", "4.06",
         "the motion-graphic overlays, the speaker lower thirds and the "
         "timed text cards",
-        DELIVERY_REPORT, _NO_PROMPT,
+        DELIVERY_PROMPT,
         # `lower third` and the captain's own three words for it. Their
         # marker of 2026-09-12 asked for "a little label graphic", and
         # none of "lower third", "label graphic" or "name tag" matched
@@ -429,7 +437,7 @@ STEP_DECISIONS = (
         "color_grade", "5.01",
         "the declared look and the exposure normalisation applied to "
         "each clip",
-        DELIVERY_REPORT, _NO_PROMPT,
+        DELIVERY_PROMPT,
         terms=("grade", "grading", "colour", "color", "exposure",
                "too dark", "too bright", "saturation", "washed out",
                "contrast"),
@@ -438,7 +446,7 @@ STEP_DECISIONS = (
         "audio_mix", "5.02",
         "the per-block levels - the music bed's curve and each clip's "
         "own gain",
-        DELIVERY_REPORT, _NO_PROMPT,
+        DELIVERY_PROMPT,
         terms=("volume", "levels", "the mix", "too loud", "too quiet",
                "inaudible", "clipping",
                # His 2026-09-19 Reel 15 note: "only use the main audio
@@ -597,6 +605,9 @@ def matched_terms(text: str) -> dict:
 BASIS_DECLARED = "declared"
 BASIS_VOCABULARY = "vocabulary"
 BASIS_STAMPED = "stamped"
+BASIS_EDIT_SPEC = "edit_spec"
+BASIS_EDIT_SPEC_PENDING = "edit_spec_pending"
+BASIS_EDIT_SPEC_SUPERSEDED = "edit_spec_superseded"
 """The clip this note is attached to carries the decision that produced
 it - `library/tools/timeline_decisions.py`, the producer side of this
 loop.  It ranks BELOW the words on purpose; `STAMP_RANKS_BELOW_THE_WORDS`
@@ -661,6 +672,10 @@ class RoutedNote:
     timeline_fps: float = 0.0
     """The timeline's own frame rate, off the pull file's `timeline_fps`.
     Recorded at pull time and read by nobody until now."""
+
+    edit_link_id: str = ""
+    """The id an edit spec and its ledger rows link to (`edit_link_id`):
+    the note id plus its words, so two notes on one frame stay apart."""
 
     timeline_start_frame: int = 0
     """Where the timeline's own frame numbering starts, off the pull
@@ -733,8 +748,35 @@ def _note_id(raw: dict, timeline: str, pull_file: str) -> str:
     stem = timeline or Path(pull_file).name.split(".")[0] or "timeline"
     stem = "".join(c if c.isalnum() or c in "-_." else "_" for c in stem)
     frame = raw.get("frame")
-    where = "unplaced" if frame is None else str(frame)
+    if frame is None:
+        from library.tools.marker_feedback import _attachment_identity
+
+        identity = [raw.get("source", ""), raw.get("name", ""),
+                    raw.get("note") or raw.get("text", ""),
+                    raw.get("frame_in_timeline_space"),
+                    _attachment_identity(raw.get("attachments"))]
+        digest = hashlib.sha256(json.dumps(
+            identity, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()[:12]
+        where = f"unplaced-{digest}"
+    else:
+        where = str(frame)
     return f"{stem}:{raw.get('source', 'note')}:{where}"
+
+
+def edit_link_id(raw: dict, timeline: str, pull_file: str) -> str:
+    """The id an edit spec and its ledger rows are linked to.
+
+    `_note_id` names a marker by where it sits, so two notes typed on one
+    frame share it - harmless for a report, wrong for a translation: the
+    second note would inherit the first one's typed operations and never
+    be translated. The words join the id here, not in `_note_id`, because
+    marker resolutions are already stored under `_note_id`.
+    """
+    words = raw.get("text") or raw.get("note") or raw.get("name") or ""
+    digest = hashlib.sha256(
+        words.strip().encode("utf-8")).hexdigest()[:10]
+    return f"{_note_id(raw, timeline, pull_file)}~{digest}"
 
 
 def _same_placement(a: dict, b: dict) -> bool:
@@ -892,7 +934,8 @@ def stamped_decision(target: dict, custom_data=None, ledger=None) -> dict:
 
 def route_note(raw: dict, timeline: str = "", pull_file: str = "",
                ledger=None, timeline_fps: float = 0.0,
-               timeline_start_frame: int = 0) -> RoutedNote:
+               timeline_start_frame: int = 0, edit_rows=None,
+               pending_edit_spec=None) -> RoutedNote:
     """Route ONE collected note.  Never raises on the note's content.
 
     `timeline_fps` and `timeline_start_frame` are the PULL FILE's own
@@ -904,6 +947,7 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
         p for p in (raw.get("name") or "", raw.get("note") or "") if p)
     routed = RoutedNote(
         note_id=_note_id(raw, timeline, pull_file),
+        edit_link_id=edit_link_id(raw, timeline, pull_file),
         source=raw.get("source", ""),
         name=raw.get("name", ""),
         note=raw.get("note", ""),
@@ -929,6 +973,62 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
             timeline_decisions.placements_at_frame(
                 ledger or {}, raw.get("frame"))
         ]
+
+    if pending_edit_spec:
+        if pending_edit_spec.get("state") == "superseded":
+            routed.basis = BASIS_EDIT_SPEC_SUPERSEDED
+            routed.outcome = OUTCOME_UNROUTED
+            routed.evidence = {"superseded_edit_spec": pending_edit_spec}
+            routed.reason = (
+                "this note's typed edit has been superseded by a later "
+                "ledger decision; it must not reach planning again")
+            return routed
+        routed.basis = BASIS_EDIT_SPEC_PENDING
+        routed.outcome = OUTCOME_UNROUTED
+        routed.evidence = {"pending_edit_spec": pending_edit_spec}
+        routed.reason = (
+            "this note has an edit spec waiting for translation or editor "
+            "clarification; it must not reach a planning step yet. "
+            + str(pending_edit_spec.get("reason", "")))
+        return routed
+
+    typed_rows = [row for row in (edit_rows or [])
+                  if row.get("source_note_id") == routed.edit_link_id]
+    if typed_rows:
+        from library.tools.edit_operations import owner_for_row
+        operations = []
+        for row in typed_rows:
+            params = row["params"]
+            op = (params["operation_type"] if row["op"] == "plan_change"
+                  else row["op"])
+            owner = owner_for_row(row)
+            op_params = (params["values"] if row["op"] == "plan_change"
+                         else params)
+            operations.append({"op": op, "owner": owner,
+                               "ledger_op": row["op"],
+                               "anchor": row["anchor"],
+                               "params": op_params,
+                               "value_units": row.get("value_units", {}),
+                               "value_sources": row.get("value_sources", {}),
+                               "carry_stated_numbers_in":
+                                   _stated_number_fields(row, owner)})
+        routed.basis = BASIS_EDIT_SPEC
+        routed.evidence = {"edit_spec_ops": operations}
+        routed.steps = list(dict.fromkeys(op["owner"] for op in operations))
+        unknown = [step for step in routed.steps if step not in BY_NODE_ID]
+        if unknown:
+            routed.unknown_names = unknown
+            routed.outcome = OUTCOME_UNKNOWN_STEP
+            routed.reason = (
+                "the edit spec names operation owners that are not in this "
+                f"pipeline: {', '.join(unknown)}")
+        else:
+            routed.outcome = OUTCOME_ROUTED
+            routed.reason = (
+                "the resolved edit spec routes each clause by operation "
+                "type: " + ", ".join(
+                    f"{op['op']} -> {op['owner']}" for op in operations))
+        return routed
 
     declared, unknown = declared_steps(text, raw.get("custom_data"))
     routed.unknown_names = list(unknown)
@@ -1040,11 +1140,19 @@ def route_project(project_folder, timelines=None) -> list:
     unscoped record works ghosts alongside the captain's current words.
     """
     from library.tools.marker_feedback import _attachment_identity
+    from library.tools import edit_ledger, edit_spec
 
     wanted = set(timelines or [])
     # Read once for the whole project: the ledger is one file and every
     # note is looked up in the same one.
     ledger = timeline_decisions.read_ledger(project_folder)
+    edit_rows = edit_ledger.load_rows(project_folder)
+    # Keep `ren notes` useful as a routing diagnostic: it shows the old
+    # vocabulary guess for an untranslated note, but the run guard refuses
+    # that guess before planning. Only an opened/recorded edit spec changes
+    # what this report says.
+    pending_specs = edit_spec.pending_note_states(
+        project_folder, rows=edit_rows, include_untranslated=False)
     seen: dict = {}
     order: list = []
     for path, payload in _pull_payloads(project_folder):
@@ -1059,7 +1167,11 @@ def route_project(project_folder, timelines=None) -> list:
             routed = route_note(
                 raw, payload.get("timeline", ""), str(path), ledger=ledger,
                 timeline_fps=payload.get("timeline_fps") or 0.0,
-                timeline_start_frame=payload.get("timeline_start_frame") or 0)
+                timeline_start_frame=payload.get("timeline_start_frame") or 0,
+                edit_rows=edit_rows,
+                pending_edit_spec=pending_specs.get(
+                    edit_link_id(raw, payload.get("timeline", ""),
+                                 str(path))))
             if identity not in seen:
                 order.append(identity)
             seen[identity] = routed
@@ -1087,8 +1199,35 @@ PROMPT_LEGEND = (
     "means. Read them as context "
     "for the decision you are about to make. They do not replace any "
     "input you were given, and a note you cannot act on is one to leave "
-    "alone rather than to guess at."
+    "alone rather than to guess at. `typed_operations`, when present, "
+    "carries the resolved edit-spec clauses for this note. Their operation "
+    "type and values are the declared request; do not choose an owner from "
+    "keyword matches in the note. A value stated in frames or seconds is "
+    "the requester's number: carry it in one of the fields its "
+    "`carry_stated_numbers_in` names, never as a feel word."
 )
+
+
+def _stated_number_fields(row: dict, owner: str) -> dict:
+    """Per typed value in frames or seconds, the owner's rung 7 fields.
+
+    A plan row carries `{value, unit, stated_by}` per value; a direct row
+    carries its units beside its params. Only a timing unit maps.
+    """
+    from library.tools.edit_operations import stated_number_fields
+
+    params = row["params"]
+    if row["op"] == "plan_change":
+        units = {key: value["unit"]
+                 for key, value in params["values"].items()}
+    else:
+        units = row.get("value_units", {})
+    carried = {}
+    for key, unit in units.items():
+        fields = stated_number_fields(owner, unit)
+        if fields:
+            carried[key] = list(fields)
+    return carried
 
 
 def _decision_summary(decision: dict) -> dict:
@@ -1161,14 +1300,23 @@ def _target_summary(target: dict) -> dict:
     }
 
 
-def prompt_block(routed_notes) -> dict:
+def prompt_block(routed_notes, node_id: str = "") -> dict:
     """What `gather_step_inputs` hands a step that declares the input.
 
     A legend plus the notes, in the shape `MEASUREMENT_LEGEND` and
     a derived column's definition travels in: the legend is one
-    sentence shared by twelve steps, so
-    a new input has to say what it is inside the data itself.
+    sentence shared by fifteen steps, so
+    a new input has to say what it is inside the data itself. When the
+    current node is supplied, a multi-clause edit carries only the
+    operations owned by that node; another owner must not act on them.
     """
+    def operations_for(note):
+        operations = note.evidence.get("edit_spec_ops", [])
+        if node_id:
+            return [operation for operation in operations
+                    if operation["owner"] == node_id]
+        return operations
+
     return {
         "legend": PROMPT_LEGEND,
         "note_count": len(routed_notes),
@@ -1181,6 +1329,7 @@ def prompt_block(routed_notes) -> dict:
                 collected_at=n.collected_at,
                 timeline=n.timeline,
                 routed_because=n.reason,
+                typed_operations=operations_for(n),
                 **_target_summary(n.target),
                 **_decision_summary(n.decision),
             )
@@ -1251,9 +1400,10 @@ def undelivered(routed_notes) -> list:
         if note.outcome != OUTCOME_ROUTED:
             out.append((note, note.outcome, note.reason))
             continue
-        decision = BY_NODE_ID.get(note.steps[0])
-        if decision and decision.delivery != DELIVERY_PROMPT:
-            out.append((note, DELIVERY_REPORT, decision.delivery_note))
+        for step in note.steps:
+            decision = BY_NODE_ID.get(step)
+            if decision and decision.delivery != DELIVERY_PROMPT:
+                out.append((note, DELIVERY_REPORT, decision.delivery_note))
     return out
 
 
@@ -1266,7 +1416,8 @@ def routing_record(project_folder, routed_notes=None, timelines=None) -> dict:
     by_step: dict = {}
     for note in routed_notes:
         if note.outcome == OUTCOME_ROUTED:
-            by_step.setdefault(note.steps[0], []).append(note.note_id)
+            for step in note.steps:
+                by_step.setdefault(step, []).append(note.note_id)
     counts = {outcome: 0 for outcome in (
         OUTCOME_ROUTED, OUTCOME_AMBIGUOUS, OUTCOME_UNROUTED,
         OUTCOME_UNKNOWN_STEP)}
@@ -1485,10 +1636,13 @@ def render_report(project_folder, routed_notes=None, timelines=None) -> str:
         first = next((line for line in note.text.splitlines()
                       if line.strip()), "(no text)")
         if note.outcome == OUTCOME_ROUTED:
-            decision = BY_NODE_ID[note.steps[0]]
-            went = f"**{decision.number} {decision.node_id}**"
-            how = ("prompt" if decision.delivery == DELIVERY_PROMPT
-                   else "report only")
+            decisions = [BY_NODE_ID[step] for step in note.steps]
+            went = ", ".join(
+                f"**{decision.number} {decision.node_id}**"
+                for decision in decisions)
+            how = ("prompt" if any(
+                decision.delivery == DELIVERY_PROMPT
+                for decision in decisions) else "report only")
         elif note.outcome == OUTCOME_AMBIGUOUS:
             went = "AMBIGUOUS: " + ", ".join(
                 f"{BY_NODE_ID[s].number} {s}" for s in note.steps)
@@ -1516,21 +1670,27 @@ def render_report(project_folder, routed_notes=None, timelines=None) -> str:
             f"`{note.timeline}`",
         ]
         if note.outcome == OUTCOME_ROUTED:
-            decision = BY_NODE_ID[note.steps[0]]
+            decisions = [BY_NODE_ID[step] for step in note.steps]
             lines += [
-                f"- **Routed to**: {decision.number} `{decision.node_id}` "
-                f"- {decision.owns}",
+                "- **Routed to**: " + "; ".join(
+                    f"{decision.number} `{decision.node_id}` - "
+                    f"{decision.owns}" for decision in decisions),
                 f"- **Why**: {note.reason}",
             ]
-            if decision.delivery == DELIVERY_PROMPT:
+            prompt_decisions = [d for d in decisions
+                                if d.delivery == DELIVERY_PROMPT]
+            if prompt_decisions:
                 lines.append(
-                    f"- **Delivery**: reaches that step's prompt as "
+                    f"- **Delivery**: reaches each prompt-capable step as "
                     f"`{STEP_INPUT_NAME}`. Re-run it with "
-                    f"`manage_project.py run <project> --rerun "
-                    f"{decision.node_id}`.")
+                    + " or ".join(
+                        f"`manage_project.py run <project> --rerun "
+                        f"{decision.node_id}`"
+                        for decision in prompt_decisions) + ".")
             else:
                 lines.append(
-                    f"- **Delivery**: none - {decision.delivery_note}")
+                    "- **Delivery**: none - " + "; ".join(
+                        decision.delivery_note for decision in decisions))
         else:
             lines += [
                 f"- **Routed to**: nothing ({note.outcome})",
@@ -1603,9 +1763,10 @@ def _print_report(project_folder, routed_notes) -> None:
         for line in note.text.splitlines():
             print(f"    | {line}")
         if note.outcome == OUTCOME_ROUTED:
-            decision = BY_NODE_ID[note.steps[0]]
-            print(f"    ROUTED   -> {decision.number} {decision.node_id} "
-                  f"({decision.delivery}) [{note.basis}]")
+            owners = ", ".join(
+                f"{BY_NODE_ID[step].number} {step} "
+                f"({BY_NODE_ID[step].delivery})" for step in note.steps)
+            print(f"    ROUTED   -> {owners} [{note.basis}]")
         else:
             print(f"    {note.outcome.upper()}")
         print(f"    why      : {note.reason}")

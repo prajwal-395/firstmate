@@ -1063,10 +1063,13 @@ def test_run_serializes_model_decisions_and_resolve_build(
     monkeypatch.setattr(eval_harness, "clone_base", clone)
     monkeypatch.setattr(eval_harness, "inject_request",
                         lambda *args: events.append("note") or "pull.json")
+    monkeypatch.setattr(eval_harness, "prepare_edit_spec",
+                        lambda *args, **kwargs: events.append("translate") or {
+                            "status": "recorded", "routes": []})
     monkeypatch.setattr(eval_harness, "wait_for_quiet",
                         lambda: events.append("quiet"))
     monkeypatch.setattr(eval_harness, "run_pipeline_edit",
-                        lambda *args: events.append("edit") or {
+                        lambda *args, **kwargs: events.append("edit") or {
                             "run_status": "SUCCESS"})
     monkeypatch.setattr(eval_harness, "take_resolve_lock",
                         lambda *args: events.append("lock"))
@@ -1101,7 +1104,8 @@ def test_run_serializes_model_decisions_and_resolve_build(
 
     request = eval_corpus.select(request_id="ST1.1")[0]
     eval_harness.run_request(request, str(base), str(out), "T1")
-    assert events == ["note", "quiet", "heavy-lock", "edit", "lock",
+    assert events == ["note", "quiet", "heavy-lock", "translate", "edit",
+                      "lock",
                       "save-and-open", "build", "readback",
                       "restore-and-delete", "unlock", "heavy-unlock"]
 
@@ -1122,13 +1126,16 @@ def test_run_releases_heavy_lock_when_edit_stage_fails(tmp_path, monkeypatch):
         return {"base": str(base), "dest": str(dest),
                 "timeline": "EVAL_T1", "answers": str(dest / "answers")}
 
-    def fail_edit(*args):
+    def fail_edit(*args, **kwargs):
         events.append("edit")
         raise RuntimeError("test edit refusal")
 
     monkeypatch.setattr(eval_harness, "clone_base", clone)
     monkeypatch.setattr(eval_harness, "inject_request",
                         lambda *args: events.append("note") or "pull.json")
+    monkeypatch.setattr(eval_harness, "prepare_edit_spec",
+                        lambda *args, **kwargs: events.append("translate") or {
+                            "status": "recorded", "routes": []})
     monkeypatch.setattr(eval_harness, "wait_for_quiet",
                         lambda: events.append("quiet"))
     monkeypatch.setattr(eval_harness, "take_heavy_lock",
@@ -1141,5 +1148,119 @@ def test_run_releases_heavy_lock_when_edit_stage_fails(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="test edit refusal"):
         eval_harness.run_request(request, str(base), str(out), "T1")
 
-    assert events == ["note", "quiet", "heavy-lock", "edit",
+    assert events == ["note", "quiet", "heavy-lock", "translate", "edit",
                       "heavy-unlock"]
+
+
+def test_eval_translation_records_typed_rows_before_pipeline_edit(
+        tmp_path, monkeypatch):
+    """The report-only runner uses the same ledger-backed translation.
+
+    Catches: eval silently bypassing the new spec handshake and running
+    each branch request through word matching instead.
+    """
+    from library.tools import edit_ledger, edit_spec, llm_handshake
+    from library.tools.project_layout import ProjectLayout
+
+    project = tmp_path / "project"
+    project.mkdir()
+    ProjectLayout(str(project)).ensure()
+    pull = tmp_path / "eval-pull.json"
+    raw = {"source": "timeline_marker", "name": "eval request",
+           "note": "isolate the host mic by 60 percent",
+           "text": "isolate the host mic by 60 percent", "frame": None,
+           "custom_data": {"eval_request_id": "ST1.1"}}
+    payload = {"timeline": "EVAL_T1", "notes": [raw]}
+    pull.write_text(json.dumps(payload), encoding="utf-8")
+
+    original_prepare = edit_spec.prepare_request
+
+    def prepare_and_answer(project_path, request_text, note_id="", **kwargs):
+        request_id, request_path, linked_id = original_prepare(
+            project_path, request_text, note_id=note_id, **kwargs)
+        response = {
+            "format": edit_spec.FORMAT,
+            "request": request_text,
+            "clauses": [{
+                "id": "op-1", "text": request_text,
+                "op": "voice_isolation", "op_source": "model",
+                "status": "resolved",
+                "anchor": {"kind": "reel"},
+                "anchor_source": "requester",
+                "values": {
+                    "track": {"value": 1, "unit": "track index",
+                              "stated_by": "model"},
+                    "amount": {"value": 60, "unit": "percent",
+                               "stated_by": "requester"},
+                },
+            }],
+        }
+        Path(llm_handshake.response_path(project_path, request_id)).write_text(
+            json.dumps(response), encoding="utf-8")
+        return request_id, request_path, linked_id
+
+    monkeypatch.setattr(edit_spec, "prepare_request", prepare_and_answer)
+    result = eval_harness.prepare_edit_spec(
+        str(project), str(pull),
+        {"id": "ST1.1", "text": raw["text"]})
+
+    assert result["status"] == "recorded"
+    assert result["routes"] == [{
+        "op": "voice_isolation", "owner": "render",
+        "ledger_action": "recorded"}]
+    assert edit_ledger.load_rows(str(project))[0]["source_note_id"] == \
+        result["note_id"]
+
+
+def test_eval_records_clarification_and_skips_guessing_a_build(tmp_path):
+    """An editor question is scored as asking; eval never builds around it.
+
+    Catches: the benchmark treating a correct referent question as a failed
+    pipeline or manufacturing a run readback for an edit it did not make.
+    """
+    out = tmp_path / "eval" / "RT1.2"
+    out.mkdir(parents=True)
+    base_run = out.parent / "BASE" / "run"
+    base_run.mkdir(parents=True)
+    (base_run / "pipeline_data.json").write_text("{}", encoding="utf-8")
+    base_readback = out.parent / "BASE" / "readback.txt"
+    base_readback.write_text("same timeline\n", encoding="utf-8")
+    question = {"clause_id": "op-1", "question": "Which shot?"}
+    ledger = {
+        "clone": {"base": str(base_run), "dest": str(out / "run"),
+                  "timeline": "EVAL_T1"},
+        "edit_spec": {"status": "needs_clarification",
+                      "questions": [question]},
+    }
+
+    eval_harness._write_clarification_result(
+        {"id": "RT1.2"}, out, ledger, str(base_readback))
+
+    judgement = json.loads(
+        (out / "judgement.json").read_text(encoding="utf-8"))
+    measures = json.loads(
+        (out / "measures.json").read_text(encoding="utf-8"))
+    assert ledger["execution_status"] == "NEEDS_EDITOR_CLARIFICATION"
+    assert judgement["clarification_questions"] == [question]
+    assert judgement["hunks"] == []
+    assert measures["hunks"] == []
+    assert measures["frames"]["measured"] is False
+
+
+def test_a_translated_owner_outside_the_chain_is_replanned():
+    """A typed music request re-runs music_selection in the edit stage.
+
+    Catches: the translation routing "swap the track" to music_selection
+    while the eval's rerun chain skipped that step, so a correctly
+    translated request was scored as not followed.
+    """
+    ledger = {"edit_spec": {"status": "recorded", "routes": [
+        {"op": "music_selection", "owner": "music_selection"},
+        {"op": "transition", "owner": "plan_transitions"},
+        {"op": "voice_isolation", "owner": "render"},
+        {"op": "redraw_closer", "owner": "select_reels"},
+    ]}}
+    assert eval_harness._translated_owner_reruns(ledger) == (
+        "music_selection", "select_reels")
+    assert eval_harness._translated_owner_reruns(
+        {"edit_spec": {"status": "needs_clarification"}}) == ()

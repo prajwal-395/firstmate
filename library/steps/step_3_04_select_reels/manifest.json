@@ -47,6 +47,12 @@
         "type": "object",
         "required": false,
         "description": "The merged video preferences (style.yaml project layer, video.yaml per-video layer - see library/tools/video_prefs). Injected by the runner when the video declares any; absent otherwise. The bridge publishes its SOFT target_length_seconds and content_rules beside the candidates."
+      },
+      {
+        "name": "timeline_notes",
+        "type": "object",
+        "required": false,
+        "description": "Collected editor notes, routed here by the typed edit operation that changes reel selection or its closer."
       }
     ],
     "outputs": [

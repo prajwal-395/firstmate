@@ -85,6 +85,13 @@ def test_every_known_op_has_a_dedicated_rendering():
         "angle_plan": {
             "anchor": {"kind": "words", "phrase": "the hook"},
             "params": {"camera": "wide"}},
+        "plan_change": {
+            "anchor": {"kind": "reel"},
+            "params": {"operation_type": "transition",
+                       "owner": "plan_transitions",
+                       "values": {"duration": {
+                           "value": 12, "unit": "frames",
+                           "stated_by": "requester"}}}},
     }
     assert set(samples) == set(edit_ledger.OPS)
     for op, partial in samples.items():
