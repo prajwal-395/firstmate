@@ -71,7 +71,7 @@ ALL_COMMANDS = (
     "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
-    "check", "run", "archive", "notes",
+    "check", "run", "archive", "notes", "take-pick-preview",
     "round-diff", "pr-body", "sign-off", "purge", "discharge-uncarried", "variant",
     "relink", "reindex", "setup-hooks",
 )
@@ -630,6 +630,31 @@ def cmd_notes(args):
 
     argv = ["write" if args.write else "report", "--project", project_folder]
     sys.exit(marker_routing.main(argv))
+
+
+def cmd_take_pick_preview(args):
+    """Print one reel's take-pick question in a single output.
+
+    What a worker currently gathers between reels by re-reading
+    several large records - each candidate take's freshness, the
+    boundary-snap deltas, and the words at each boundary once.
+    Read-only: no Resolve, no model, no state write. See
+    library/tools/take_pick_preview.py.
+    """
+    from library.tools import take_pick_preview
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    argv = [project_folder, "--reel", args.reel]
+    if args.threshold is not None:
+        argv += ["--threshold", str(args.threshold)]
+    if args.json:
+        argv.append("--json")
+    sys.exit(take_pick_preview.main(argv))
 
 
 def cmd_round_diff(args):
@@ -3259,6 +3284,24 @@ def main():
              "the project's marker_feedback/ folder")
     p_notes.set_defaults(func=cmd_notes)
 
+    p_take_pick = sub.add_parser(
+        "take-pick-preview",
+        help="Print one reel's candidate takes, trim freshness, "
+             "snap deltas and boundary words in a single read")
+    p_take_pick.add_argument("slug", metavar="PROJECT",
+                             help="Project slug, or an absolute path")
+    p_take_pick.add_argument("--reel", required=True, metavar="REEL",
+                             help="Reel number, slug or full timeline "
+                                  "name (e.g. 21, lucy-origin, "
+                                  "'Reel 21 - lucy-origin')")
+    p_take_pick.add_argument("--threshold", type=float, default=None,
+                             help="Snap moves over this many seconds "
+                                  "need a decision (default 2.0)")
+    p_take_pick.add_argument("--json", action="store_true",
+                             help="Print the report as JSON instead of "
+                                  "text")
+    p_take_pick.set_defaults(func=cmd_take_pick_preview)
+
     p_round = sub.add_parser(
         "round-diff",
         help="What changed between two rounds of the captain's feedback")
@@ -3477,5 +3520,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 

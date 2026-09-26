@@ -91,6 +91,7 @@ VERBS = (
     Verb("rounds", "Reels", "What changed between two feedback rounds", subcommand="round-diff"),
     Verb("pr-body", "Reels", "Generate the PR-body enumeration for a ledger change (read only)", subcommand="pr-body"),
     Verb("notes", "Reels", "Show which timeline note went to which step", subcommand="notes"),
+    Verb("take-pick", "Reels", "Print one reel's takes, freshness, snap deltas and boundary words in one read", subcommand="take-pick-preview"),
 
     Verb("pool-organize", "Resolve", "File a Resolve project's media pool", subcommand="resolve-organize"),
     Verb("pool-prune", "Resolve", "Remove media-pool items no timeline plays", subcommand="resolve-prune"),
