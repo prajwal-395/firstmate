@@ -57,6 +57,8 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+from pathlib import Path
 
 #: Subdirectory names under `<project>/pipeline_output/`. Mirrors
 #: `library/tools/project_layout.Area.LLM_REQUESTS/LLM_RESPONSES` - the
@@ -118,6 +120,36 @@ def request_path(project_folder: str, step_id: str) -> str:
 def response_path(project_folder: str, step_id: str) -> str:
     """Absolute path of the response file for a step."""
     return os.path.join(project_folder, RESPONSES_SUBDIR, f"{step_id}.json")
+
+
+def publish_request(request: Path, response: Path, payload: dict) -> None:
+    """Publish a fresh request without exposing the preceding turn.
+
+    The request filename is stable across bounded retries. Remove its old
+    contents before clearing the old response, then atomically replace it
+    with the new payload. A polling host can therefore never pair the
+    newly-cleared response slot with the previous attempt's request, or
+    read a partially written JSON document.
+    """
+    request = Path(request)
+    response = Path(response)
+    request.unlink(missing_ok=True)
+    response.unlink(missing_ok=True)
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=request.parent,
+                prefix=f".{request.name}.", suffix=".tmp",
+                delete=False) as handle:
+            temp_path = Path(handle.name)
+            json.dump(payload, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, request)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def resume_command(project_folder: str) -> str:

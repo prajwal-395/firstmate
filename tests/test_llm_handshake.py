@@ -11,10 +11,41 @@ start.
 import json
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
 from library.tools import briefing_chat, llm_handshake
+
+
+def test_publishing_retry_request_hides_old_request_before_clearing_response(
+        tmp_path, monkeypatch):
+    request = tmp_path / "llm_requests" / "mesh_spine.json"
+    response = tmp_path / "llm_responses" / "mesh_spine.json"
+    request.parent.mkdir()
+    response.parent.mkdir()
+    request.write_text('{"context": "old"}', encoding="utf-8")
+    response.write_text('{"answer": "old"}', encoding="utf-8")
+
+    original_unlink = Path.unlink
+    saw_response_clear = []
+
+    def observe_unlink(path, *args, **kwargs):
+        if path == response:
+            saw_response_clear.append(True)
+            assert not request.exists(), (
+                "the previous request remained visible after its response "
+                "was cleared")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", observe_unlink)
+    new_payload = {"context": "retry includes violation"}
+    llm_handshake.publish_request(request, response, new_payload)
+
+    assert saw_response_clear == [True]
+    assert not response.exists()
+    assert json.loads(request.read_text(encoding="utf-8")) == new_payload
+    assert list(request.parent.iterdir()) == [request]
 
 
 def test_valid_object_is_accepted():

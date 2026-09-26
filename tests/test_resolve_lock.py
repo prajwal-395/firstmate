@@ -168,6 +168,23 @@ def _spawn(source, lock_dir):
                             text=True, encoding="utf-8")
 
 
+_SYNCHRONIZED_WAITER = textwrap.dedent("""
+    import sys
+    sys.path.insert(0, {repo!r})
+    from library.tools import resolve_lock
+    original_flock = resolve_lock._flock
+    def observed_flock(handle, exclusive, blocking):
+        acquired = original_flock(handle, exclusive, blocking)
+        if not acquired:
+            print("CONTENDED", flush=True)
+        return acquired
+    resolve_lock._flock = observed_flock
+    with resolve_lock.resolve_lease("waiting for the demonstration",
+                                    owner="waiter", timeout=10.0) as lease:
+        print("ACQUIRED %s" % lease.waited_on, flush=True)
+""")
+
+
 @pytest.mark.heavy
 def test_a_waiter_waits(lock_dir):
     """Two processes, one guarded operation, and the second one waits.
@@ -175,16 +192,19 @@ def test_a_waiter_waits(lock_dir):
     The demonstration the design is worth nothing without: not a mock
     of a lock, two real processes on one real `flock`.
     """
-    holder = _spawn(_HOLDER.format(repo=REPO_ROOT, seconds=1.0), lock_dir)
+    holder = _spawn(_HOLDER.format(repo=REPO_ROOT, seconds=60.0), lock_dir)
     assert holder.stdout.readline().strip() == "HELD"
 
-    waiter = _spawn(_WAITER.format(repo=REPO_ROOT, timeout=10.0), lock_dir)
-    waited, _ = waiter.communicate(timeout=30)
+    waiter = _spawn(_SYNCHRONIZED_WAITER.format(repo=REPO_ROOT), lock_dir)
+    assert waiter.stdout.readline().strip() == "CONTENDED"
+    # Observe a failed non-blocking flock while the holder is alive.
+    holder.kill()
     holder.communicate(timeout=30)
+    acquired = waiter.stdout.readline().strip()
+    waiter.communicate(timeout=30)
 
-    assert waited.startswith("ACQUIRED"), waited
-    # It did not walk straight in: the holder was there for a second.
-    assert float(waited.split()[1]) >= 0.7, waited
+    assert acquired.startswith("ACQUIRED"), acquired
+    assert "holder" in acquired and "holding for the demonstration" in acquired
 
 
 def test_a_waiter_that_gives_up_names_the_holder(lock_dir):

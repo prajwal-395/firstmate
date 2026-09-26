@@ -127,6 +127,15 @@ def _cases(step_dir: str, tmp_path: Path):
         project.mkdir()
         return [({"project_folder": str(project)},
                  {"PIPELINE_SFX_LIBRARY": str(lib)})]
+    if step_dir == "step_2_04_music_selection":
+        project = tmp_path / "music_probe"
+        project.mkdir()
+        (project / "project.yaml").write_text(
+            "pipeline:\n  music_search: false\n", encoding="utf-8")
+        library = tmp_path / "empty_music_library"
+        library.mkdir()
+        return [({"project_folder": str(project)},
+                 {"PIPELINE_MUSIC_LIBRARY": str(library)})]
     return [({}, {})]
 
 

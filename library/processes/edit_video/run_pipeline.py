@@ -2191,9 +2191,6 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             req_file = requests_dir / f"{node_id}.json"
             res_file = responses_dir / f"{node_id}.json"
             
-            if res_file.exists():
-                res_file.unlink()
-                
             req_data = {
                 "step_id": node_id,
                 # The brand's constraints are PROMPT TEXT: the request
@@ -2211,8 +2208,8 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
             }
             
-            with open(req_file, "w") as f:
-                json.dump(req_data, f, indent=2)
+            from library.tools import llm_handshake
+            llm_handshake.publish_request(req_file, res_file, req_data)
                 
             print(f"LLM_REQUEST_READY: {req_file}", file=sys.stdout)
             sys.stdout.flush()
