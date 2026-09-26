@@ -15,6 +15,7 @@ from library.tools.logo_bulb import (
     parse_ground,
     text_full_frames,
     text_layer,
+    text_element_bounds,
     text_motion_layer,
     text_motion_state,
 )
@@ -70,3 +71,36 @@ def test_animated_lines_arrive_and_leave_instead_of_sitting_static():
         ClosingText(lines=text.lines, color=text.color), 1080, 1920,
         profile)
     assert np.array_equal(layers[2], static)
+
+
+def test_every_closing_text_line_stays_inside_all_shortform_safe_zones():
+    from library.tools.safe_zone_policy import default_policy, resolve_layout
+
+    profile = ClosingProfile()
+    motion = ClosingTextMotion(
+        style="rise",
+        line1_in=(0, 7),
+        line2_in=(4, 11),
+        lines_out=(61, 66),
+        rise_px=28,
+        exit_px=14,
+    )
+    text = ClosingText(
+        lines=("See your brand the way AI does", "luciecontent.com"),
+        color=parse_ground("#F5F5F5"),
+        motion=motion,
+    )
+    safe = resolve_layout(default_policy(), frame=(1080, 1920))
+
+    assert safe.policy.platforms == (
+        "tiktok", "instagram_reels", "youtube_shorts", "linkedin")
+    for frame in range(72):
+        boxes = text_element_bounds(text, 1080, 1920, profile, frame)
+        assert len(boxes) == 2
+        assert boxes[0][3] < boxes[1][1], (
+            f"line order crossed at frame {frame}: {boxes}")
+        for line, box in zip(text.lines, boxes):
+            intrusions = safe.intrusions(box)
+            assert not intrusions, (
+                f"closing line {line!r} leaves the safe zone at frame "
+                f"{frame}, bounds={box}, intrusions={intrusions}")

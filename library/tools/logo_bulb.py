@@ -225,6 +225,16 @@ an ending the engine made up.
   a half-declared or out-of-range motion rather than completing or
   clipping one. Full legibility (:func:`text_full_frames`) is the
   envelope's own numbers then, not beat 5's.
+
+  The safe-zone placement
+  ----------------------
+  The captain, 2026-09-26: keep one line above the logo and put the URL
+  below it. The rendered two-bottom-line lockup intrudes on the project
+  policy's action rails, side crops and bottom caption region during its
+  motion. The same copy, Montserrat Bold face and weight, colour and
+  `rise` timing stay; the sentence takes the top seat and the URL the
+  lower seat. The sentence is 50px so its rendered width clears the
+  device-agnostic side crop under the all-platform policy.
   """
 from __future__ import annotations
 
@@ -381,33 +391,29 @@ asset.
  there would be the fade failing."""
 
 
-LINE1_PX = 52
+LINE1_PX = 50
 LINE2_PX = 44
 """How big the two lines are set, in pixels on the 1080x1920 frame.
 
 His picture sets the family (Montserrat, the one face this repository
 can deliver - :mod:`library.tools.render_fonts`) and the weight
-(bold, the template's own declared typography weight), but its
-relative scale does not survive the trip from a white lockup card to
-the bottom of a navy closing animation. So these are solved for the
-frame they sit on: line 1, a sentence of the lockup's length,
-measures 865 px wide at 52 - inside the safe margins with a hundred
-pixels to spare each side - and 64 would put it at 1059, off the
-frame's manners if not off the frame. Line 2 steps down to 44, the
-hierarchy the lockup draws between the sentence and the URL.
+(bold, the template's own declared typography weight), and both stay
+unchanged. The top sentence is 50px: Montserrat Bold renders it 832px
+wide, inside the narrowest device crop span (844px). At 52px it is
+864px wide and the tallest modeled phone crops 10px from each side.
+Line 2 stays at 44px, preserving the hierarchy between the sentence
+and the URL.
 """
 
-LINE1_CENTER_Y = 1485
-LINE2_CENTER_Y = 1578
-"""Where the two lines sit, as centre heights on the 1920-tall frame.
+LINE1_CENTER_Y = 400
+LINE2_CENTER_Y = 1470
+"""Where the lines sit, as centre heights on the 1920-tall frame.
 
-Measured against the completed mark on ``logo_reveal_23976.mov``,
-whose ink (with its authored halo) ends at y 1172: line 1 spans
-roughly 1460-1510, so nearly 300 px of clear navy stand between the
-mark and the type, and line 2 ends near 1600, leaving 320 px of navy
-below it. The type clears the mark by daylight and the frame by
-daylight, and the two lines sit closer to each other (47 px) than to
-anything else, which is what makes them one lockup.
+The sentence sits above the completed mark; the URL sits below it.
+Both clear the logo's ink and the project safe zones through their
+full entrance, hold and exit travel. The URL's lower seat leaves 71px
+of clearance above TikTok's bottom caption region at its lowest animated
+position.
 """
 
 TEXT_SAFE_MARGIN_PX = 90
@@ -420,7 +426,7 @@ worse version of the same decision.
 """
 
 MAX_TEXT_LINES = 2
-"""How many lines the bottom of this animation has a layout for.
+"""How many lines this animation has a layout for.
 
 The captain asked for two. A third line has no position, no size and
 no spacing decided for it, and inventing one is the same class of
@@ -496,7 +502,7 @@ class ClosingTextMotion:
 
 @dataclass(frozen=True)
 class ClosingText:
-    """The two lines at the bottom, as declared data.
+    """The two closing lines, as declared data.
 
     Lines plus the colour they are set in, exactly as
     :func:`lines_from_brand_template` read them off the template - this
@@ -1078,13 +1084,19 @@ def _draw_text_layer(text: ClosingText, width: int, height: int,
         strength = int(round(255.0 * min(1.0, max(0.0, alpha))))
         if strength <= 0:
             continue
-        draw.text((width / 2, center_y + offset), line, font=font,
-                  fill=strength, anchor="mm")
+        _draw_text_line(draw, width, line, font, center_y, strength, offset)
     alpha = np.asarray(mask, dtype=np.float64) / 255.0
     layer = np.empty((height, width, 4), dtype=np.float64)
     layer[..., :3] = np.asarray(text.color, dtype=np.float64)
     layer[..., 3] = alpha
     return layer
+
+
+def _draw_text_line(draw, width: int, line: str, font,
+                    center_y: int, strength: int, offset: float) -> None:
+    """The one glyph draw shared by rendering and bounds measurement."""
+    draw.text((width / 2, center_y + offset), line, font=font,
+              fill=strength, anchor="mm")
 
 
 def text_motion_state(index: int, motion: ClosingTextMotion,
@@ -1150,6 +1162,40 @@ def text_motion_layer(text: ClosingText, width: int, height: int,
         text, width, height, fonts, seats,
         alphas=tuple(presence for presence, _ in states),
         offsets_px=tuple(offset for _, offset in states))
+
+
+def text_element_bounds(text: ClosingText, width: int, height: int,
+                        profile: ClosingProfile, index: int
+                        ) -> tuple[tuple[int, int, int, int], ...]:
+    """Rendered glyph bounds for every declared line at animation frame.
+
+    Uses the production font, anchor, seat, and Pillow draw call. Presence
+    is deliberately set to full for measurement so a zero-opacity endpoint
+    still checks the position the line travels through.
+    """
+    if not text.lines:
+        return ()
+    from PIL import Image, ImageDraw
+
+    fonts, seats = _text_setup(text, width, profile)
+    if text.motion is None:
+        offsets = (0.0,) * len(text.lines)
+    else:
+        offsets = tuple(
+            text_motion_state(index, text.motion, line + 1)[1]
+            for line in range(len(text.lines)))
+    boxes = []
+    for line, font, center_y, offset in zip(
+            text.lines, fonts, seats, offsets):
+        mask = Image.new("L", (width, height), 0)
+        _draw_text_line(ImageDraw.Draw(mask), width, line, font, center_y,
+                        255, offset)
+        box = mask.getbbox()
+        if box is None:
+            raise SourceNotClosed(
+                f"closing line {line!r} rendered no measurable glyphs")
+        boxes.append(box)
+    return tuple(boxes)
 
 def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
                profile: ClosingProfile, standing: float = 1.0,
