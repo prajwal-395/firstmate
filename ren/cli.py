@@ -89,6 +89,7 @@ VERBS = (
     Verb("discharge", "Reels", "Discharge a dropped note a promotion filed", subcommand="discharge-uncarried"),
     Verb("variant", "Reels", "Two versions of one reel: new, build, list, diff, choose, merge", subcommand="variant"),
     Verb("rounds", "Reels", "What changed between two feedback rounds", subcommand="round-diff"),
+    Verb("pr-body", "Reels", "Generate the PR-body enumeration for a ledger change (read only)", subcommand="pr-body"),
     Verb("notes", "Reels", "Show which timeline note went to which step", subcommand="notes"),
 
     Verb("pool-organize", "Resolve", "File a Resolve project's media pool", subcommand="resolve-organize"),

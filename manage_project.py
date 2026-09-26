@@ -72,7 +72,7 @@ ALL_COMMANDS = (
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "archive", "notes",
-    "round-diff", "sign-off", "purge", "discharge-uncarried", "variant",
+    "round-diff", "pr-body", "sign-off", "purge", "discharge-uncarried", "variant",
     "relink", "reindex", "setup-hooks",
 )
 
@@ -660,6 +660,30 @@ def cmd_round_diff(args):
     if args.later is not None:
         argv += ["--to", str(args.later)]
     sys.exit(rounds.main(argv))
+
+
+def cmd_pr_body(args):
+    """Generate the per-item enumeration section of a PR body.
+
+    Reads the edit ledger (`external/edit_ledger.json`) and prints
+    which reels, cards or placements a change touched with before and
+    after values, in the shape a worker pastes into the PR body -
+    so a small edit is not hand-enumerated card by card. Read only:
+    no ledger schema change, nothing written. See
+    library/tools/ledger_pr_body.py.
+    """
+    from library.tools import ledger_pr_body
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    argv = [project_folder]
+    for prefix in args.reel or []:
+        argv += ["--reel", prefix]
+    sys.exit(ledger_pr_body.main(argv))
 
 
 def cmd_sign_off(args):
@@ -3253,6 +3277,19 @@ def main():
     p_round.add_argument("--list", dest="list_rounds", action="store_true",
                          help="list the rounds instead of diffing")
     p_round.set_defaults(func=cmd_round_diff)
+
+    p_pr_body = sub.add_parser(
+        "pr-body",
+        help="Generate the PR-body enumeration for a ledger change "
+             "(read only)")
+    p_pr_body.add_argument("slug", metavar="PROJECT",
+                           help="Project slug, or an absolute path")
+    p_pr_body.add_argument("--reel", action="append", default=[],
+                           metavar="PREFIX",
+                           help="Only rows scoped to this reel-name "
+                                "prefix (plus unscoped rows, which hold "
+                                "everywhere). Repeatable")
+    p_pr_body.set_defaults(func=cmd_pr_body)
 
     p_signoff = sub.add_parser(
         "sign-off",
