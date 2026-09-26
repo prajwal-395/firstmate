@@ -302,6 +302,19 @@ def test_step2_a_gap_refuses_before_anything_is_deleted(tmp_path):
     assert "gap" in str(refusal.value)
 
 
+def test_step2_ripple_refuses_to_replace_subtitles_with_unknown_trim(
+        tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    tracks = reel_read.read_tracks(timeline)
+    subtitles = next(track for track in tracks if track["index"] == 4)
+    subtitles["name"] = "Subtitles"
+    subtitles["clips"][0]["left_offset"] = None
+
+    with pytest.raises(ce.CaptionSourceTrimUnreadable,
+                       match=r"V4\[0\].*left_offset"):
+        ce.plan_ripple(tracks, CUT, RESTORE)
+
+
 
 
 def test_step2_an_unreadable_comp_counts_as_a_treatment(tmp_path):
@@ -549,5 +562,3 @@ def test_the_composition_is_one_delete_and_one_place(tmp_path):
                            rederiver=_Rederiver(timeline))
     assert timeline.delete_calls == [len(changes)]
     assert pool.calls == [len(changes)]
-
-

@@ -11,12 +11,12 @@ module is that capability with a reader, reached through the
 
 The swap is by pool item, not by placement: media pool items are
 project-wide, so one `ReplaceClip` per pool item swaps every timeline
-at once. Placements never move - record frames, trims, transforms and
-the captain's caption pins survive by construction, because the
-timeline items are never touched. Every placement is verified by
-read-back (the pool item's file path, and the item's own start/end),
-and a post-check refuses the run while any old file remains placed
-anywhere.
+at once. Placements never move - record frames, source trims,
+transforms and the captain's caption pins survive by construction,
+because the timeline items are never touched. Every placement is
+verified by read-back (the pool item's file path, the item's start/end
+and source trim), and a post-check refuses the run while any old file
+remains placed anywhere.
 
 Nothing is deleted anywhere: old files stay on disk as superseded
 generations for the asset GC, exactly as after any rebuild.
@@ -62,6 +62,7 @@ class Placement:
     timeline: str
     start: int
     end: int
+    left_offset: Any
     pool_path: str
     item: Any
     pool_item: Any
@@ -128,11 +129,22 @@ def find_placements(project, basenames: set) -> dict:
                 if path and os.path.basename(path) in wanted:
                     try:
                         start, end = item.GetStart(), item.GetEnd()
+                        left_offset = item.GetLeftOffset()
                     except Exception:  # noqa: BLE001 - unmeasurable skips
-                        continue
+                        raise CaptionSwapError(
+                            f"caption placement on {name} for "
+                            f"{os.path.basename(path)} has unreadable "
+                            f"record frames or source trim - refusing to "
+                            f"replace it") from None
+                    if left_offset is None:
+                        raise CaptionSwapError(
+                            f"caption placement on {name} for "
+                            f"{os.path.basename(path)} has no readable "
+                            f"source trim - refusing to replace it")
                     found.setdefault(name, []).append(Placement(
                         timeline=name, start=start, end=end,
-                        pool_path=path, item=item, pool_item=pool_item))
+                        left_offset=left_offset, pool_path=path, item=item,
+                        pool_item=pool_item))
     return found
 
 
@@ -143,9 +155,10 @@ def swap_files(project, old_to_new: dict, stream=sys.stderr) -> dict:
     absolute path. One `ReplaceClip` per pool item, then
     `apply_clip_attributes` (a replace resets what the carriage set),
     then a per-placement read-back: the pool item must report the new
-    path and the item must sit on its recorded frames. A placement that
-    moved, or a pool item that still reports the old path, fails the
-    run by name rather than reading as swapped.
+    path and the item must keep its recorded frames and source trim. A
+    placement that moved or lost its trim, or a pool item that still
+    reports the old path, fails the run by name rather than reading as
+    swapped.
 
     The inventory, the swaps and the post-check hold ONE exclusive
     lease, so a placement cannot appear between the scan and the swap.
@@ -212,6 +225,7 @@ def swap_files(project, old_to_new: dict, stream=sys.stderr) -> dict:
                 try:
                     now = (placement.item.GetStart(),
                            placement.item.GetEnd())
+                    now_left_offset = placement.item.GetLeftOffset()
                 except Exception as exc:  # noqa: BLE001 - unreadable moved
                     failure = (f"placement on {placement.timeline} "
                                f"cannot be re-read after the swap: {exc}")
@@ -227,11 +241,21 @@ def swap_files(project, old_to_new: dict, stream=sys.stderr) -> dict:
                                              "new": new_path,
                                              "reason": failure})
                     raise CaptionSwapError(failure, report)
+                if now_left_offset != placement.left_offset:
+                    failure = (
+                        f"source trim moved on {placement.timeline}: "
+                        f"{placement.left_offset!r} is now "
+                        f"{now_left_offset!r}")
+                    report["failed"].append({"old": old_path,
+                                             "new": new_path,
+                                             "reason": failure})
+                    raise CaptionSwapError(failure, report)
                 report["swapped"].append({
                     "timeline": placement.timeline,
                     "old": os.path.basename(old_path),
                     "new": os.path.basename(new_path),
-                    "start": placement.start, "end": placement.end})
+                    "start": placement.start, "end": placement.end,
+                    "left_offset": placement.left_offset})
             print(f"  swapped {os.path.basename(old_path)} -> "
                   f"{os.path.basename(new_path)} on "
                   f"{len(group['items'])} placement(s)", file=stream)

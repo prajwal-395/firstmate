@@ -288,6 +288,15 @@ def _track_exists(tracks: Sequence[Mapping], row: str) -> bool:
     return any(_row_of(t["type"], int(t["index"])) == want for t in tracks)
 
 
+def _is_caption_row(tracks: Sequence[Mapping], row: str) -> bool:
+    want = str(row).upper()
+    return any(
+        _row_of(track["type"], int(track["index"])) == want
+        and str(track.get("name") or "").strip().casefold()
+        in {"subtitles", "captions"}
+        for track in tracks)
+
+
 def _video_rows_of(tracks: Sequence[Mapping]) -> list:
     """Every video row the track read carries, in track-index order."""
     rows = []
@@ -877,6 +886,15 @@ def _op_move(edit, position, tracks, spans, changes, insertions,
             f"plus `add_overlay` on {to_row} carrying the treatment "
             f"explicitly - then re-run `ren touch`")
     clip = _find_clip(tracks, row, int(item_index))
+    left_offset = clip.get("left_offset")
+    if left_offset is None and _is_caption_row(tracks, row):
+        raise TouchupRefused(
+            f"edit {position} (`move`) moves caption {row}[{item_index}], "
+            "and its `left_offset` was unreadable",
+            "the replacement item would default to frame 0 and expose any "
+            "transparent preroll",
+            "re-read the reel so the caption's source trim is known, then "
+            "re-run `ren touch`")
     duration = int(clip["duration"])
     own_span = (int(clip["record_in"]), int(clip["record_out"]))
     _check_free(spans.get(to_row, []), to_row, int(to_record),
@@ -889,7 +907,7 @@ def _op_move(edit, position, tracks, spans, changes, insertions,
     change = _ce.ItemChange(
         track_type=track_type, track_index=track_index,
         item_index=int(item_index), record_frame=int(to_record),
-        duration=duration, left_offset=int(clip["left_offset"] or 0),
+        duration=duration, left_offset=int(left_offset or 0),
         previous_record=int(clip["record_in"]),
         previous_duration=duration, how=_ce.SHIFT,
         comp_count=_ce.treatment_comps(clip),
@@ -1011,6 +1029,24 @@ def _op_add_overlay(edit, position, tracks, spans, changes, insertions,
             "the gate never invents a track",
             "name a row the timeline already carries in the --edits "
             "JSON, then re-run `ren touch`")
+    left_offset = edit.get("left_offset")
+    if left_offset is None and _is_caption_row(tracks, row):
+        raise TouchupRefused(
+            f"edit {position} (`add_overlay`) adds to caption row {row} "
+            "without an explicit `left_offset`",
+            "the new item would default to frame 0 and expose any "
+            "transparent preroll",
+            f"state the caption render's source trim as `left_offset` in "
+            f"edit {position}, then re-run `ren touch`")
+    try:
+        left_offset = int(left_offset or 0)
+    except (TypeError, ValueError) as exc:
+        raise TouchupRefused(
+            f"edit {position} (`add_overlay`) has invalid `left_offset` "
+            f"{left_offset!r}",
+            "the source trim must be a whole frame",
+            f"state an integer `left_offset` in edit {position}, then "
+            f"re-run `ren touch`") from exc
     if row in COMP_ROWS:
         raise TouchupRefused(
             f"edit {position} adds a new item on {row}, "
@@ -1028,7 +1064,7 @@ def _op_add_overlay(edit, position, tracks, spans, changes, insertions,
                 what=f"edit {position} (`add_overlay`)")
     insertions.append(_PendingSwap(
         row=row, record_frame=int(record), duration=int(duration),
-        media=str(media), left_offset=int(edit.get("left_offset") or 0),
+        media=str(media), left_offset=left_offset,
         carry_from=None, declared_properties=dict(properties),
         name=str(edit.get("name") or ""), position=position))
     notes.append(f"edit {position}: add {row}@{record} ({duration}f) "
@@ -1076,13 +1112,24 @@ def _op_remove_overlay(edit, position, tracks, spans, changes,
                 track.get("clips", []) or ()):
             if int(other_index) == int(item_index):
                 continue
+            other_left_offset = other.get("left_offset")
+            if (other_left_offset is None
+                    and _is_caption_row(tracks, row)):
+                raise TouchupRefused(
+                    f"edit {position} (`remove_overlay`) would re-place "
+                    f"caption {row}[{other_index}], and its `left_offset` "
+                    "was unreadable",
+                    "the kept item would default to frame 0 and expose "
+                    "any transparent preroll",
+                    "re-read the reel so every caption source trim is "
+                    "known, then re-run `ren touch`")
             changes.append(_ce.ItemChange(
                 track_type=track["type"],
                 track_index=int(track["index"]),
                 item_index=int(other_index),
                 record_frame=int(other["record_in"]),
                 duration=int(other["duration"]),
-                left_offset=int(other["left_offset"] or 0),
+                left_offset=int(other_left_offset or 0),
                 previous_record=int(other["record_in"]),
                 previous_duration=int(other["duration"]),
                 how=_ce.SHIFT,
@@ -1126,6 +1173,13 @@ def _op_retime(edit, position, tracks, spans, changes, insertions,
     try:
         planned = _ce.plan_ripple(tracks, cut_frame, delta,
                                   exclude=exclude)
+    except _ce.CaptionSourceTrimUnreadable as unreadable:
+        raise TouchupRefused(
+            f"edit {position} (`retime`) would move a subtitle item whose "
+            f"source trim is unreadable: {unreadable}",
+            "the ripple would place a replacement caption at frame 0",
+            "re-read the reel so each caption's source trim is known, then "
+            "re-run `ren touch`") from unreadable
     except _ce.SourceHeadroomExhausted as starved:
         raise TouchupRefused(
             f"edit {position} retimes {row}[{item_index}] "

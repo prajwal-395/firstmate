@@ -54,11 +54,13 @@ class FakePoolItem:
 class FakeItem:
     """A timeline item on a track, holding a pool item at fixed frames."""
 
-    def __init__(self, pool_item, start, end, moves_on_swap=False):
+    def __init__(self, pool_item, start, end, moves_on_swap=False,
+                 left_offset=0):
         self._pool = pool_item
         self._start = start
         self._end = end
         self._moves = moves_on_swap
+        self._left_offset = left_offset
 
     def GetMediaPoolItem(self):
         return self._pool
@@ -71,6 +73,9 @@ class FakeItem:
 
     def GetEnd(self):
         return self._end
+
+    def GetLeftOffset(self):
+        return self._left_offset
 
 
 class FakeTimeline:
@@ -148,6 +153,35 @@ def test_one_replace_per_pool_item_swaps_every_timeline(no_lease, tmp_path):
                {(100, 140), (300, 340), (400, 440)} for row in report["swapped"])
 
 
+def test_rerender_swap_preserves_caption_item_source_trim(no_lease, tmp_path):
+    new = tmp_path / "new_a.mov"
+    new.write_bytes(b"x")
+    pool = FakePoolItem("/seg/old_a.mov")
+    placement = FakeItem(pool, 100, 140, left_offset=12)
+    project = FakeProject([FakeTimeline("Reel 01", {
+        "Subtitles": [placement],
+    })])
+
+    report = swap_files(project, {"/seg/old_a.mov": str(new)})
+
+    assert placement.GetLeftOffset() == 12
+    assert report["swapped"][0]["left_offset"] == 12
+
+
+def test_rerender_swap_refuses_a_caption_with_unreadable_source_trim(
+        no_lease, tmp_path):
+    new = tmp_path / "new_a.mov"
+    new.write_bytes(b"x")
+    pool = FakePoolItem("/seg/old_a.mov")
+    project = FakeProject([FakeTimeline("Reel 01", {
+        "Subtitles": [FakeItem(pool, 100, 140, left_offset=None)],
+    })])
+
+    with pytest.raises(CaptionSwapError, match="no readable source trim"):
+        swap_files(project, {"/seg/old_a.mov": str(new)})
+    assert pool.replace_calls == []
+
+
 
 
 def test_a_refused_replace_fails_naming_the_file(no_lease, tmp_path):
@@ -175,5 +209,4 @@ def test_a_missing_new_file_refuses_before_anything_moves(no_lease):
     with pytest.raises(CaptionSwapError, match="no new file"):
         swap_files(project, {"/seg/old_a.mov": "/seg/absent.mov"})
     assert shared.replace_calls == []
-
 

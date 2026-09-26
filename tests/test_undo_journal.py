@@ -133,6 +133,19 @@ def test_undo_refuses_a_timeline_changed_since_the_touch(tmp_path):
     assert staged.rows["V4"][-1].properties["Pan"] == 40.0
 
 
+def test_undo_refuses_to_replay_a_caption_with_unreadable_source_trim(
+        tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    tracks = reel_read.read_tracks(timeline)
+    captions = next(track for track in tracks
+                    if track["type"] == "video" and track["index"] == 4)
+    captions["clips"][0]["left_offset"] = None
+
+    with pytest.raises(uj.UndoRefused,
+                       match="undo comparison cannot preserve V4 item's source trim"):
+        uj.plan_inverse(tracks, tracks)
+
+
 def _write_plan(folder, reel_one_end):
     path = folder / "pipeline_output" / "review" / "reel_proposals_v2.json"
     path.parent.mkdir(parents=True, exist_ok=True)

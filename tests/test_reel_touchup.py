@@ -75,6 +75,33 @@ def test_move_overlay_qualifies_composed(tmp_path):
     assert qualification.moves[0]["from_row"] == "V4"
 
 
+def test_move_caption_refuses_when_its_source_trim_was_not_read(tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    tracks = _tracks(timeline)
+    subtitles = next(track for track in tracks if track["index"] == 4)
+    subtitles["name"] = "Subtitles"
+    subtitles["clips"][0]["left_offset"] = None
+
+    with pytest.raises(tu.TouchupRefused, match="was unreadable"):
+        tu.qualify(tracks, {"reel": 1, "edits": [{
+            "op": "move", "row": "V4", "item": 0, "to_record": 1300,
+        }]})
+
+
+def test_retime_ripple_refuses_to_zero_a_caption_source_trim(tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    tracks = _tracks(timeline)
+    subtitles = next(track for track in tracks if track["index"] == 4)
+    subtitles["name"] = "Subtitles"
+    subtitles["clips"][0]["left_offset"] = None
+
+    with pytest.raises(tu.TouchupRefused,
+                       match="would move a subtitle item whose source trim"):
+        tu.qualify(tracks, {"reel": 1, "edits": [{
+            "op": "retime", "row": "V1", "item": 0, "duration": 480,
+        }]})
+
+
 # ── The length-changing class ────────────────────────────────────────
 
 
@@ -126,6 +153,44 @@ def test_add_overlay_without_properties_refuses(tmp_path):
                         "media": "/lab/card.mov", "record": 1300,
                         "duration": 40}]})
     assert "declares no `properties`" in str(refusal.value)
+
+
+def test_add_overlay_on_subtitles_requires_an_explicit_source_trim(tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    tracks = _tracks(timeline)
+    next(track for track in tracks if track["index"] == 4)["name"] = "Subtitles"
+    with pytest.raises(tu.TouchupRefused,
+                       match="without an explicit `left_offset`"):
+        tu.qualify(tracks, {"reel": 1, "edits": [{
+            "op": "add_overlay", "row": "V4", "media": "/lab/new.mov",
+            "record": 1300, "duration": 40, "properties": {},
+        }]})
+
+
+def test_add_overlay_on_subtitles_keeps_the_declared_source_trim(tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    tracks = _tracks(timeline)
+    next(track for track in tracks if track["index"] == 4)["name"] = "Subtitles"
+    qualification = tu.qualify(tracks, {"reel": 1, "edits": [{
+        "op": "add_overlay", "row": "V4", "media": "/lab/new.mov",
+        "record": 1300, "duration": 40, "left_offset": 12,
+        "properties": {},
+    }]})
+    assert qualification.insertions[0].left_offset == 12
+
+
+def test_remove_overlay_refuses_to_replace_a_caption_with_unknown_trim(
+        tmp_path):
+    timeline, _pool, _media = build_reel(tmp_path)
+    tracks = _tracks(timeline)
+    subtitles = next(track for track in tracks if track["index"] == 4)
+    subtitles["name"] = "Subtitles"
+    subtitles["clips"][1]["left_offset"] = None
+    with pytest.raises(tu.TouchupRefused,
+                       match=r"would re-place caption V4\[1\]"):
+        tu.qualify(tracks, {"reel": 1, "edits": [{
+            "op": "remove_overlay", "row": "V4", "item": 0,
+        }]})
 
 
 def test_swap_on_a_comp_carrying_item_refuses(tmp_path):
@@ -589,4 +654,3 @@ def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path):
     # The approved reel stands untouched behind the staging.
     assert approved.rows["V1"][0].GetDuration() == 479
     assert approved.rows["V1"][0].GetNumNodes() == 8
-

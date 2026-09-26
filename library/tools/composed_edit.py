@@ -144,6 +144,10 @@ class SourceHeadroomExhausted(ComposedEditError):
     """An item was asked to play frames its source file does not have."""
 
 
+class CaptionSourceTrimUnreadable(ComposedEditError):
+    """A ripple would re-place a caption whose source trim was not read."""
+
+
 class PlacementNotVerified(ComposedEditError):
     """Re-reading the track did not find what the place asked for."""
 
@@ -620,7 +624,9 @@ def plan_ripple(tracks: Sequence[Mapping], cut_frame: int,
             changes.append(ItemChange(
                 track_type=track_type, track_index=track_index,
                 item_index=item_index, record_frame=record,
-                duration=new_duration, left_offset=int(clip["left_offset"] or 0),
+                duration=new_duration,
+                left_offset=_ripple_left_offset(
+                    clip, track, row, item_index),
                 previous_record=start, previous_duration=duration, how=how,
                 comp_count=treatment_comps(clip),
                 right_offset=None if right is None else int(right),
@@ -635,6 +641,19 @@ def plan_ripple(tracks: Sequence[Mapping], cut_frame: int,
             f"and not a timeline operation - or name it in `exclude` and "
             f"say what covers those frames instead.")
     return changes
+
+
+def _ripple_left_offset(clip: Mapping, track: Mapping,
+                        row: str, item_index: int) -> int:
+    """Never let a ripple turn an unreadable caption trim into frame 0."""
+    value = clip.get("left_offset")
+    name = str(track.get("name") or "").strip().casefold()
+    if value is None and name in {"subtitles", "captions"}:
+        raise CaptionSourceTrimUnreadable(
+            f"{row}[{item_index}] ({name}) has no readable left_offset; "
+            "a ripple would re-place it at frame 0 and expose any "
+            "transparent preroll")
+    return int(value or 0)
 
 
 def post_edit_spans(tracks: Sequence[Mapping],

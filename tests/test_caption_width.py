@@ -11,6 +11,7 @@ import json
 import pytest
 
 from library.tools import caption_width as cw
+from library.tools import reel_touchup as touchup
 from library.tools.tight_box import placement_for_box
 
 FRAME = (1080, 1920)
@@ -86,3 +87,20 @@ def test_captions_inside_a_zone_are_refused_by_name(tmp_path):
                       timeline_label="Reel 01", draw_gain=1.0,
                       render=lambda *a: pytest.fail("rendered"))
 
+
+def test_caption_width_swap_preserves_the_placed_caption_source_trim(
+        tmp_path):
+    card = _card(tmp_path, "wide", "Everybody wants the visibility nobody measures",
+                 1560)
+    card.update({"record_out": 12, "left_offset": 12,
+                 "right_offset": 100})
+    generated = cw.touch_spec(
+        str(tmp_path), 1, _tracks([card]), timeline_label="Reel 01",
+        draw_gain=1.0,
+        render=lambda _folder, pairs, _gain: {
+            pair["old_mov"]: pair["old_mov"][:-4] + "_narrow.mov"
+            for pair in pairs})
+
+    qualification = touchup.qualify(_tracks([card]), generated)
+
+    assert qualification.insertions[0].left_offset == 12

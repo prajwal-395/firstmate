@@ -227,7 +227,7 @@ def _identity_change(detail: Mapping) -> _ce.ItemChange:
         track_type=detail["track_type"], track_index=int(detail["track_index"]),
         item_index=0, record_frame=int(detail["record_in"]),
         duration=int(detail["duration"]),
-        left_offset=int(detail["left_offset"] or 0),
+        left_offset=_source_trim(detail, "undo capture"),
         previous_record=int(detail["record_in"]),
         previous_duration=int(detail["duration"]), how="journal",
         comp_count=int((detail.get("fusion") or {}).get("comp_count") or 0),
@@ -283,7 +283,7 @@ def open_entry(project_folder, *, final: str, reel: int,
         removed.append({
             "row": row, "record_frame": frame,
             "duration": int(detail["duration"]),
-            "left_offset": int(detail["left_offset"] or 0),
+            "left_offset": _source_trim(detail, "undo capture"),
             "source_file": detail.get("source_file") or "",
             "name": detail.get("name") or "",
             "clip_color": detail.get("clip_color") or "",
@@ -353,6 +353,27 @@ def _row(detail: Mapping) -> str:
     return _ce.row_label(detail["track_type"], int(detail["track_index"]))
 
 
+def _source_trim(detail: Mapping, context: str) -> int:
+    value = detail.get("left_offset")
+    if value is None:
+        raise UndoRefused(
+            f"{context} cannot preserve {_row(detail)} item's source trim "
+            "because `left_offset` was unreadable",
+            "undo would re-place it at frame 0 and expose any "
+            "transparent preroll",
+            "re-read the reel so the item's source trim is known, then "
+            "re-run `ren undo`")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise UndoRefused(
+            f"{context} cannot preserve {_row(detail)} item's invalid "
+            f"source trim {value!r}",
+            "undo needs an integer source frame",
+            "re-read the reel so the item's source trim is known, then "
+            "re-run `ren undo`") from exc
+
+
 def _transform(detail: Mapping) -> dict:
     return {key: value for key, value in
             sorted((detail.get("transform") or {}).items())
@@ -367,7 +388,7 @@ def _windows(detail: Mapping) -> list:
 def _key(detail: Mapping) -> tuple:
     """Which item this is: row, span, source offset, file, name."""
     return (_row(detail), int(detail["record_in"]), int(detail["duration"]),
-            int(detail.get("left_offset") or 0),
+            _source_trim(detail, "undo comparison"),
             str(detail.get("source_file") or ""),
             str(detail.get("name") or ""))
 
@@ -483,7 +504,7 @@ def plan_inverse(before: Sequence[Mapping], after: Sequence[Mapping]) -> Inverse
 
     def pairing(detail):
         return (_row(detail), str(detail.get("source_file") or ""),
-                int(detail.get("left_offset") or 0),
+                _source_trim(detail, "undo comparison"),
                 str(detail.get("name") or ""))
 
     unpaired_after = list(after_only)
@@ -527,7 +548,7 @@ def _change_for(after: Mapping, before: Mapping, index: int) -> _ce.ItemChange:
         track_type=after["track_type"], track_index=int(after["track_index"]),
         item_index=int(index), record_frame=int(before["record_in"]),
         duration=int(before["duration"]),
-        left_offset=int(before.get("left_offset") or 0),
+        left_offset=_source_trim(before, "undo placement"),
         previous_record=int(after["record_in"]),
         previous_duration=int(after["duration"]), how="undo",
         comp_count=int((after.get("fusion") or {}).get("comp_count") or 0),
