@@ -420,9 +420,11 @@ def test_the_serve_path_renders_prores_4444_like_the_cli_path():
     """Bite 3 from the brief: the current call passes `--codec prores
     --prores-profile 4444`. The persistent path must carry the same
     codec and profile, or the finding is that it cannot - not a quiet
-    format change. Pinned off the script both modes share."""
-    script = (REMOTION and open(
-        os.path.join(REMOTION, "render-batch.mjs")).read())
+    format change. Pinned off the entry point and the shared renderer it
+    imports, because both batch and serve modes use the latter."""
+    script = "\n".join(open(
+        os.path.join(REMOTION, filename), encoding="utf-8").read()
+        for filename in ("render-batch.mjs", "render-batch-core.mjs"))
     assert 'codec: "prores"' in script
     assert 'proResProfile: "4444"' in script
 
@@ -452,7 +454,6 @@ def _unit_dirs(tmp_path):
     out_dir = str(tmp_path / "out")
     os.makedirs(out_dir)
     return rdir, out_dir
-
 
 
 

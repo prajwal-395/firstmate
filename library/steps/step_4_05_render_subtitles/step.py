@@ -67,6 +67,7 @@ from library.tools.delivery_format import resolve_delivery_format
 from library.tools.remotion_batch import (
     PersistentRenderer,
     RendererUnavailable,
+    run_caption_card_workers,
 )
 from library.tools.overlay_carriage import (
     OVERLAY_FORMAT_NAME,
@@ -1776,28 +1777,39 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     renderer_fallback = None
 
     def _render_all(active_engine):
-        """Draw every planned card through one renderer, in order.
+        """Draw every planned card, keeping results in plan order.
 
-        Appends into `segments` rather than returning a list, so the
-        `except` below can tell a startup failure (nothing recorded)
-        from a mid-run death (cards already on the record). An
-        assignment (`segments = _render_all(...)`) would only land on
-        success and read empty exactly when the distinction matters.
+        Persistent Remotion delegates its CPU-derived card bound to the
+        shared renderer module. Other renderer kinds keep their existing
+        sequential behavior. A failed renderer stops new submissions,
+        waits for already-running cards, records their results, and raises
+        so fallback still distinguishes startup from mid-run death.
         """
-        for i, props in enumerate(props_list):
-            segment = render_one_segment(
+        parallel = (
+            renderer is None and renderer_kind == "persistent"
+            and engine_name != _engines.ENGINE_HYPERFRAMES)
+        results = {}
+
+        def render_at(index, props):
+            return render_one_segment(
                 props, sub_output_dir, timeline_label,
                 remotion_dir=remotion_dir,
-                progress=f"[{i+1}/{len(props_list)}]",
+                progress=f"[{index+1}/{len(props_list)}]",
                 reuse=reuse, renderer=active_engine,
                 overlay_geometry=geometry,
                 overlay_container=container,
                 project_folder=project_folder)
-            # Appended unconditionally, failures included.  A dropped
-            # segment is one the manifest never learns about, and 5.04
-            # then refuses the compile citing a missing block rather than
-            # the render that actually failed.
-            segments.append(segment)
+
+        try:
+            run_caption_card_workers(
+                props_list, render_at,
+                on_result=lambda index, segment: results.__setitem__(
+                    index, segment),
+                parallel=parallel)
+        finally:
+            # Completed entries remain visible to startup-fallback logic
+            # even when a later in-flight renderer call raises.
+            segments.extend(results[index] for index in sorted(results))
 
     segments = []
     try:

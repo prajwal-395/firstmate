@@ -36,9 +36,10 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence, TypeVar
 
 from library.tools import shared_environment as _node_env
 
@@ -141,6 +142,113 @@ def encoder_threads() -> int:
     FREE, read live, so the captain keeps the other half while he works.
     """
     return _cores_for_rendering()
+
+
+MAX_CARD_CONCURRENCY = 4
+"""The largest measured card-level fan-out on one shared browser."""
+
+
+def card_concurrency() -> int:
+    """Cards rendered at once, capped at the measured shared-browser knee.
+
+    On the 10-core caption machine, four cards in flight on one Chrome
+    instance beat both four frames per card and two cards in flight. The
+    cap keeps the pool finite on larger hosts; smaller hosts scale down
+    with their CPU count rather than opening four tabs on every machine.
+    """
+    cpus = os.cpu_count() or 2
+    return max(1, min(MAX_CARD_CONCURRENCY, cpus // 2))
+
+
+def renderer_limits() -> tuple[int, int, int]:
+    """Return card, frame, and encoder concurrency for one render server.
+
+    The measured four-card configuration used two browser frames and two
+    encoder threads per card. Keep those inner pools at that measured
+    bound when card-level fan-out is active; the standalone frame sweep
+    remains available when a host scales down to one card at a time.
+    """
+    cards = card_concurrency()
+    frames = frame_concurrency()
+    encoders = encoder_threads()
+    if cards > 1:
+        frames = min(frames, 2)
+        encoders = min(encoders, 2)
+    return cards, frames, encoders
+
+
+CardT = TypeVar("CardT")
+SegmentT = TypeVar("SegmentT")
+
+
+def run_caption_card_workers(
+        cards: Sequence[CardT],
+        render_card: Callable[[int, CardT], SegmentT],
+        on_result: Optional[Callable[[int, SegmentT], None]] = None,
+        parallel: bool = True) -> List[SegmentT]:
+    """Render cards with the machine-derived limit and preserve plan order.
+
+    The caption step owns which cards are eligible and how results enter
+    its manifest. This module owns the worker bound. On a fatal renderer
+    error, no new cards are submitted; already-running cards finish and
+    `on_result` receives every completed result before the original error
+    is re-raised. This preserves startup-fallback and partial-pass
+    accounting without putting a pool size at the call site.
+    """
+    workers = card_concurrency() if parallel else 1
+    results: dict[int, SegmentT] = {}
+
+    def record(index: int, result: SegmentT) -> None:
+        results[index] = result
+        if on_result is not None:
+            on_result(index, result)
+
+    if workers == 1:
+        for index, card in enumerate(cards):
+            record(index, render_card(index, card))
+        return [results[index] for index in range(len(cards))]
+
+    pending = {}
+    next_index = 0
+    failure = None
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        while next_index < len(cards) and len(pending) < workers:
+            future = executor.submit(render_card, next_index, cards[next_index])
+            pending[future] = next_index
+            next_index += 1
+
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in sorted(done, key=lambda item: pending[item]):
+                index = pending.pop(future)
+                try:
+                    results[index] = future.result()
+                except Exception as exc:
+                    failure = failure or exc
+            if failure:
+                for future in pending:
+                    future.cancel()
+                break
+            while next_index < len(cards) and len(pending) < workers:
+                future = executor.submit(render_card, next_index, cards[next_index])
+                pending[future] = next_index
+                next_index += 1
+
+    for future, index in sorted(
+            pending.items(), key=lambda item: item[1]):
+        if future.cancelled():
+            continue
+        try:
+            results[index] = future.result()
+        except Exception as exc:
+            failure = failure or exc
+
+    if on_result is not None:
+        for index in sorted(results):
+            on_result(index, results[index])
+    if failure:
+        raise failure
+    return [results[index] for index in range(len(cards))]
 
 
 RENDER_FLOOR_DIVISOR = 5
@@ -269,10 +377,12 @@ def render_batch(jobs: Sequence[RenderJob],
     Path(work_dir).mkdir(parents=True, exist_ok=True)
     exclude_from_indexing(work_dir)
     spec_path = Path(work_dir) / "render_batch_jobs.json"
+    cards, frames, encoders = renderer_limits()
     spec_path.write_text(json.dumps({
         "composition": composition,
-        "concurrency": frame_concurrency(),
-        "encoderThreads": encoder_threads(),
+        "cardConcurrency": cards,
+        "concurrency": frames,
+        "encoderThreads": encoders,
         "jobs": [job.as_dict() for job in jobs],
     }), encoding="utf-8")
 
@@ -377,10 +487,30 @@ class PersistentRenderer:
         self._lines: "queue.Queue" = queue.Queue()
         self._reader: Optional[threading.Thread] = None
         self._closed = False
+        self._start_lock = threading.Lock()
+        self._stdin_lock = threading.Lock()
+        self._response_condition = threading.Condition()
+        self._responses: dict[int, dict] = {}
+        self._next_request_id = 0
+        self._stdout_ended = False
+        self._start_error: Optional[RendererUnavailable] = None
 
     # ── construction ────────────────────────────────────────────────
 
     def start(self) -> "PersistentRenderer":
+        """Start once, even when the first cards arrive from worker threads."""
+        with self._start_lock:
+            if self._start_error is not None:
+                raise self._start_error
+            try:
+                return self._start_locked()
+            except RendererUnavailable as exc:
+                # Every first-wave worker must observe one startup failure,
+                # not retry the same bundle four times under the lock.
+                self._start_error = exc
+                raise
+
+    def _start_locked(self) -> "PersistentRenderer":
         if self._proc is not None:
             return self
         directory = remotion_dir(self.repo_root)
@@ -397,10 +527,12 @@ class PersistentRenderer:
                                         prefix="render_serve_")
         os.close(handle)
         self._spec_path = Path(spec)
+        cards, frames, encoders = renderer_limits()
         self._spec_path.write_text(json.dumps({
             "composition": self.composition,
-            "concurrency": frame_concurrency(),
-            "encoderThreads": encoder_threads(),
+            "cardConcurrency": cards,
+            "concurrency": frames,
+            "encoderThreads": encoders,
             "jobs": [],
         }), encoding="utf-8")
 
@@ -435,6 +567,9 @@ class PersistentRenderer:
         # Every read below is therefore bounded by a queue timeout, and
         # `render_timeout` is enforced rather than merely declared.
         self._lines = queue.Queue()
+        self._stdout_ended = False
+        with self._response_condition:
+            self._responses.clear()
         self._reader = threading.Thread(
             target=self._pump, args=(self._proc.stdout,), daemon=True)
         self._reader.start()
@@ -455,10 +590,23 @@ class PersistentRenderer:
         """
         try:
             for line in iter(stream.readline, ""):
-                self._lines.put(line)
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    self._lines.put(line)
+                    continue
+                if isinstance(message, dict) and "requestId" in message:
+                    with self._response_condition:
+                        self._responses[message["requestId"]] = message
+                        self._response_condition.notify_all()
+                else:
+                    self._lines.put(line)
         except (ValueError, OSError):
             pass                      # pipe closed under us; EOF is EOF
         finally:
+            with self._response_condition:
+                self._stdout_ended = True
+                self._response_condition.notify_all()
             self._lines.put(None)
 
     def _next_line(self, timeout: float):
@@ -495,7 +643,7 @@ class PersistentRenderer:
 
     def render(self, props_path: str, overlay_path: str,
                sequence: bool = False):
-        """Draw one card. `(ok, error)` - the step's seam, unchanged.
+        """Draw one card. `(ok, error)` - safe for concurrent card workers.
 
         `sequence` is refused, loudly: this renderer stitches video
         through one bundle, and a sequence it cannot draw reported as
@@ -531,28 +679,38 @@ class PersistentRenderer:
                 f"fallback is attempted, because falling back would "
                 f"silently restore the startup cost this removes.")
 
+        with self._response_condition:
+            request_id = self._next_request_id
+            self._next_request_id += 1
         request = json.dumps({
+            "requestId": request_id,
             "props": json.loads(Path(props_path).read_text(encoding="utf-8")),
             "out": overlay_path,
         })
         try:
-            self._proc.stdin.write(request + "\n")
-            self._proc.stdin.flush()
+            with self._stdin_lock:
+                self._proc.stdin.write(request + "\n")
+                self._proc.stdin.flush()
         except (BrokenPipeError, ValueError) as exc:
             raise RendererUnavailable(
                 f"the renderer's input pipe is closed: {exc}") from exc
 
-        line = self._next_line(self.render_timeout)
-        if line is None:
-            raise RendererUnavailable(
-                "the renderer closed its output without answering; it has "
-                "died mid-run")
-        try:
-            answer = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise RendererUnavailable(
-                f"the renderer answered with something that is not JSON: "
-                f"{line[:200]!r}") from exc
+        deadline = time.monotonic() + self.render_timeout
+        with self._response_condition:
+            while request_id not in self._responses:
+                if self._stdout_ended:
+                    raise RendererUnavailable(
+                        "the renderer closed its output without answering; "
+                        "it has died mid-run")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RendererUnavailable(
+                        f"the renderer did not answer within "
+                        f"{self.render_timeout:g}s. It is alive but not "
+                        f"responding, so the wait is bounded here. Nothing "
+                        f"is retried and no per-card fallback is attempted.")
+                self._response_condition.wait(remaining)
+            answer = self._responses.pop(request_id)
         return bool(answer.get("ok")), str(answer.get("error") or "")
 
     # ── shutdown ────────────────────────────────────────────────────

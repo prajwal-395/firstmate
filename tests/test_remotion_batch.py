@@ -21,10 +21,13 @@ from library.tools.remotion_batch import (
     RemotionBatchError,
     RenderJob,
     _require_dependencies as _real_require_dependencies,
+    card_concurrency,
     encoder_threads,
     frame_concurrency,
     render_batch,
+    renderer_limits,
     remotion_dir,
+    run_caption_card_workers,
 )
 
 
@@ -60,7 +63,7 @@ class _Proc:
 
 
 def test_many_cards_are_one_subprocess(tmp_path):
-    """The whole point: N cards, ONE invocation."""
+    """The whole point: N cards, ONE invocation with the measured fan-out."""
     jobs = _jobs(5, tmp_path)
     out = "\n".join(json.dumps({"ok": True, "out": j.out_path}) for j in jobs)
     with patch("subprocess.run", return_value=_Proc(out)) as run:
@@ -69,6 +72,9 @@ def test_many_cards_are_one_subprocess(tmp_path):
     assert run.call_count == 1
     assert len(results) == 5
     assert all(r["ok"] for r in results)
+    spec_path = run.call_args.args[0][-1]
+    spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    assert spec["cardConcurrency"] == card_concurrency()
 
 
 def test_a_failed_card_is_not_a_failed_batch(tmp_path):
@@ -227,6 +233,81 @@ def test_the_encoder_is_bounded_too():
         assert encoder_threads() == 2
 
 
+def test_card_fanout_is_cpu_sized_and_caps_at_the_measured_four():
+    """The measured four-card winner must not open four slots on every host."""
+    with patch("os.cpu_count", return_value=1):
+        assert card_concurrency() == 1
+    with patch("os.cpu_count", return_value=4):
+        assert card_concurrency() == 2
+    with patch("os.cpu_count", return_value=10):
+        assert card_concurrency() == 4
+    with patch("os.cpu_count", return_value=64):
+        assert card_concurrency() == 4
+
+    with patch("os.cpu_count", return_value=10), \
+         patch("os.getloadavg", return_value=(0.0, 0.0, 0.0)):
+        assert renderer_limits() == (4, 2, 2)
+
+
+def test_caption_card_workers_respect_the_bound_and_return_plan_order(
+        monkeypatch):
+    """A fast card must not reorder the caption plan or exceed its bound."""
+    import threading
+
+    monkeypatch.setattr(
+        "library.tools.remotion_batch.card_concurrency", lambda: 2)
+    guard = threading.Lock()
+    active = [0]
+    maximum = [0]
+    completed = []
+
+    def render(index, card):
+        with guard:
+            active[0] += 1
+            maximum[0] = max(maximum[0], active[0])
+        time.sleep(0.01 * (4 - index))
+        with guard:
+            active[0] -= 1
+        return card * 10
+
+    results = run_caption_card_workers(
+        [1, 2, 3, 4], render,
+        on_result=lambda index, result: completed.append((index, result)))
+    assert results == [10, 20, 30, 40]
+    assert completed == [(0, 10), (1, 20), (2, 30), (3, 40)]
+    assert maximum[0] == 2
+
+
+def test_caption_card_failure_stops_new_submissions_and_keeps_completed(
+        monkeypatch):
+    """A dead renderer must not fan out failures for cards never started."""
+    import threading
+
+    monkeypatch.setattr(
+        "library.tools.remotion_batch.card_concurrency", lambda: 2)
+    both_started = threading.Barrier(2)
+    failure_signaled = threading.Event()
+    started = []
+    completed = []
+
+    def render(index, card):
+        started.append(index)
+        both_started.wait(timeout=2)
+        if index == 0:
+            failure_signaled.set()
+            raise RendererUnavailable("renderer died")
+        failure_signaled.wait(timeout=2)
+        time.sleep(0.05)
+        return card
+
+    with pytest.raises(RendererUnavailable, match="renderer died"):
+        run_caption_card_workers(
+            [0, 1, 2, 3], render,
+            on_result=lambda index, result: completed.append((index, result)))
+    assert sorted(started) == [0, 1]
+    assert completed == [(1, 1)]
+
+
 # ── The persistent renderer's LIFECYCLE ─────────────────────────────
 #
 # A long-lived node process holding a browser is exactly the thing that
@@ -347,12 +428,84 @@ def test_a_card_failure_is_NOT_a_renderer_failure(monkeypatch, tmp_path):
     """
     renderer, proc = _started(
         monkeypatch, tmp_path,
-        answers=['{"ok": false, "out": "x.mov", "error": "bad font"}\n'])
+        answers=[('{"requestId": 0, "ok": false, "out": "x.mov", '
+                  '"error": "bad font"}\n')])
     props = tmp_path / "p.json"
     props.write_text("{}")
     ok, error = renderer.render(str(props), str(tmp_path / "out.mov"))
     assert ok is False and "bad font" in error
     assert renderer.alive, "one bad card must not take the renderer down"
+    renderer.close()
+
+
+def test_concurrent_card_answers_are_matched_to_their_request_ids(
+        monkeypatch, tmp_path):
+    """A fast second card must not answer the first card's blocked caller."""
+    import queue as _queue
+    import threading as _threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    class _QueuedOutput:
+        def __init__(self):
+            self.lines = _queue.Queue()
+            self.closed = False
+
+        def readline(self):
+            return self.lines.get()
+
+        def close(self):
+            self.closed = True
+
+    class _RespondingInput(_FakePipe):
+        def __init__(self, output):
+            super().__init__()
+            self.output = output
+            self.requests = []
+
+        def write(self, text):
+            request = json.loads(text)
+            self.written.append(text)
+            self.requests.append(request)
+            if len(self.requests) == 2:
+                for item in reversed(self.requests):
+                    self.output.lines.put(json.dumps({
+                        "requestId": item["requestId"],
+                        "ok": item["requestId"] == 1,
+                        "out": item["out"],
+                        "error": "first card failed" if item["requestId"] == 0 else "",
+                    }) + "\n")
+
+        def close(self):
+            super().close()
+            self.output.lines.put("")
+
+    class _ConcurrentProc(_FakeProc):
+        def __init__(self):
+            self.stdout = _QueuedOutput()
+            self.stdin = _RespondingInput(self.stdout)
+            self.stderr = _FakePipe()
+            self._returncode = None
+            self.pid = 4243
+            self.terminated = self.killed = False
+
+    renderer = PersistentRenderer(composition="X", render_timeout=5)
+    proc = _ConcurrentProc()
+    renderer._proc = proc
+    renderer._spec_path = tmp_path / "spec.json"
+    renderer._spec_path.write_text("{}")
+    renderer._reader = _threading.Thread(
+        target=renderer._pump, args=(proc.stdout,), daemon=True)
+    renderer._reader.start()
+    PersistentRenderer._open.append(renderer)
+    props = tmp_path / "p.json"
+    props.write_text("{}")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        answers = list(pool.map(
+            lambda name: renderer.render(str(props), str(tmp_path / name)),
+            ["first.mov", "second.mov"]))
+    assert answers == [(False, "first card failed"), (True, "")]
+    assert sorted(request["requestId"] for request in proc.stdin.requests) == [0, 1]
     renderer.close()
 
 
@@ -538,3 +691,81 @@ def test_it_satisfies_the_seam_the_step_declares():
     # draw must refuse loudly rather than report success.
     with pytest.raises(ValueError, match="sequence"):
         renderer.render("props.json", "out", sequence=True)
+
+
+def test_batch_renderer_does_not_leak_chrome_when_a_card_fails():
+    """Two cards share one Chrome process, and a failed card still closes it.
+
+    The defect this catches: opening a browser inside each render, or
+    forgetting to close the shared browser when the serve loop unwinds,
+    leaks a Chrome process per card or after a failed render.
+    """
+    import shutil
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required to exercise the Remotion batch lifecycle")
+
+    root = Path(__file__).resolve().parents[1] / "remotion-subtitles"
+    script = r"""
+import assert from "node:assert/strict";
+import { mapWithConcurrency, withBatchRenderer } from "./render-batch-core.mjs";
+
+const browser = { closeCalls: 0, async close(options) {
+  assert.deepEqual(options, {silent: true});
+  this.closeCalls += 1;
+}};
+let openCalls = 0;
+let selectCalls = 0;
+let renderCalls = 0;
+let activeRenders = 0;
+let maxActiveRenders = 0;
+const common = {
+  serveUrl: "http://localhost:3000",
+  compositionId: "SubtitleOverlay",
+  concurrency: 2,
+  encoderThreads: 2,
+  boundEncoder: ({args}) => ["-threads", "2", ...args],
+  openBrowser: async (name) => {
+    assert.equal(name, "chrome");
+    openCalls += 1;
+    return browser;
+  },
+  selectComposition: async (options) => {
+    assert.equal(options.puppeteerInstance, browser);
+    selectCalls += 1;
+    return {width: 10, height: 10, fps: 30, durationInFrames: 24};
+  },
+  renderMedia: async (options) => {
+    assert.equal(options.puppeteerInstance, browser);
+    renderCalls += 1;
+    activeRenders += 1;
+    maxActiveRenders = Math.max(maxActiveRenders, activeRenders);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    activeRenders -= 1;
+    if (options.outputLocation === "second.mov") throw new Error("render failed");
+  },
+};
+
+await assert.rejects(withBatchRenderer(common, async (renderOne) => {
+  return mapWithConcurrency([
+    {props: {durationInFrames: 24}, out: "first.mov"},
+    {props: {durationInFrames: 24}, out: "second.mov"},
+  ], 2, renderOne);
+}), /render failed/);
+
+assert.equal(openCalls, 1, "both cards must reuse one Chrome process");
+assert.equal(selectCalls, 2);
+assert.equal(renderCalls, 2);
+assert.equal(maxActiveRenders, 2, "two cards must be in flight together");
+assert.equal(browser.closeCalls, 1, "the shared Chrome process must close on failure");
+"""
+    result = _subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

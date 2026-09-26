@@ -13,6 +13,7 @@
  * Reads a job file (argv[2]):
  *   { "composition": "SubtitleOverlay",
  *     "concurrency": 4,
+ *     "cardConcurrency": 2,
  *     "jobs": [ { "props": {...}, "out": "/abs/path.mov" } ] }
  *
  * Writes one line of JSON per finished job to stdout, so the caller can
@@ -41,7 +42,13 @@
  * this holds cannot outlive the run that made it.
  */
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition, ensureBrowser } from "@remotion/renderer";
+import {
+  ensureBrowser,
+  openBrowser,
+  renderMedia,
+  selectComposition,
+} from "@remotion/renderer";
+import { mapWithConcurrency, withBatchRenderer } from "./render-batch-core.mjs";
 import { readFileSync } from "node:fs";
 import readline from "node:readline";
 import path from "node:path";
@@ -57,6 +64,7 @@ const spec = JSON.parse(readFileSync(jobFile, "utf-8"));
 const compositionId = spec.composition;
 const jobs = spec.jobs ?? [];
 const concurrency = spec.concurrency ?? null;
+const cardConcurrency = Math.max(1, Math.floor(spec.cardConcurrency ?? 1));
 // The ENCODER, not the browser, is what costs. Measured on the captain's
 // 10-core machine mid-pass: remotion's bundled ffmpeg at 763% CPU - about
 // 7.6 cores - encoding ProRes 4444, while `concurrency` (which bounds
@@ -80,25 +88,20 @@ const serveUrl = await bundle({
 });
 
 // ONE renderer, used by both modes, so the two cannot drift apart.
-const renderOne = async (job) => {
-  const composition = await selectComposition({
-    serveUrl,
-    id: compositionId,
-    inputProps: job.props,
-  });
-  await renderMedia({
-    composition,
-    serveUrl,
-    codec: "prores",
-    proResProfile: "4444",
-    imageFormat: "png",
-    pixelFormat: "yuva444p10le",
-    outputLocation: job.out,
-    inputProps: job.props,
-    ...(concurrency ? { concurrency } : {}),
-    ...(encoderThreads ? { ffmpegOverride: boundEncoder } : {}),
-  });
-};
+const withRenderer = (run) =>
+  withBatchRenderer(
+    {
+      openBrowser,
+      selectComposition,
+      renderMedia,
+      serveUrl,
+      compositionId,
+      concurrency,
+      encoderThreads,
+      boundEncoder,
+    },
+    run,
+  );
 
 if (serve) {
   // SERVER MODE. Bundle is paid; announce readiness and wait for work.
@@ -108,32 +111,54 @@ if (serve) {
   console.error("bundled once, serving");
   process.stdout.write(JSON.stringify({ ready: true }) + "\n");
 
-  const rl = readline.createInterface({ input: process.stdin });
-  for await (const line of rl) {
-    const text = line.trim();
-    if (!text) continue;
-    let job;
-    try {
-      job = JSON.parse(text);
-    } catch (err) {
-      process.stdout.write(JSON.stringify({
-        ok: false, out: null,
-        error: `unparseable request: ${String(err && err.message)}`,
-      }) + "\n");
-      continue;
+  await withRenderer(async (renderOne) => {
+    const rl = readline.createInterface({ input: process.stdin });
+    const pending = new Set();
+    for await (const line of rl) {
+      const text = line.trim();
+      if (!text) continue;
+      let job;
+      try {
+        job = JSON.parse(text);
+      } catch (err) {
+        process.stdout.write(
+          JSON.stringify({
+            ok: false,
+            out: null,
+            error: `unparseable request: ${String(err && err.message)}`,
+          }) + "\n",
+        );
+        continue;
+      }
+      while (pending.size >= cardConcurrency) await Promise.race(pending);
+      let task;
+      task = (async () => {
+        try {
+          await renderOne(job);
+          process.stdout.write(
+            JSON.stringify({
+              requestId: job.requestId,
+              ok: true,
+              out: job.out,
+            }) + "\n",
+          );
+        } catch (err) {
+          // A card that fails is reported and the server STAYS UP: the
+          // bundle is the expensive thing and one bad card must not cost it.
+          process.stdout.write(
+            JSON.stringify({
+              requestId: job.requestId,
+              ok: false,
+              out: job.out,
+              error: String(err && err.message ? err.message : err),
+            }) + "\n",
+          );
+        }
+      })().finally(() => pending.delete(task));
+      pending.add(task);
     }
-    try {
-      await renderOne(job);
-      process.stdout.write(JSON.stringify({ok: true, out: job.out}) + "\n");
-    } catch (err) {
-      // A card that fails is reported and the server STAYS UP: the
-      // bundle is the expensive thing and one bad card must not cost it.
-      process.stdout.write(JSON.stringify({
-        ok: false, out: job.out,
-        error: String(err && err.message ? err.message : err),
-      }) + "\n");
-    }
-  }
+    await Promise.all(pending);
+  });
   // stdin closed - the parent is done, or the parent is gone. Either way
   // this process must not outlive it.
   console.error("stdin closed, shutting down");
@@ -143,18 +168,28 @@ if (serve) {
 console.error(`bundled once for ${jobs.length} card(s)`);
 
 let failed = 0;
-for (let i = 0; i < jobs.length; i++) {
-  const job = jobs[i];
-  try {
-    await renderOne(job);
-    process.stdout.write(JSON.stringify({ ok: true, out: job.out }) + "\n");
-  } catch (err) {
-    failed += 1;
-    process.stdout.write(
-      JSON.stringify({ ok: false, out: job.out, error: String(err && err.message ? err.message : err) }) + "\n",
-    );
+await withRenderer(async (renderOne) => {
+  const results = await mapWithConcurrency(
+    jobs,
+    cardConcurrency,
+    async (job) => {
+      try {
+        await renderOne(job);
+        return { ok: true, out: job.out };
+      } catch (err) {
+        return {
+          ok: false,
+          out: job.out,
+          error: String(err && err.message ? err.message : err),
+        };
+      }
+    },
+  );
+  for (const result of results) {
+    if (!result.ok) failed += 1;
+    process.stdout.write(JSON.stringify(result) + "\n");
   }
-}
+});
 
 console.error(`rendered ${jobs.length - failed}/${jobs.length}`);
 process.exit(failed ? 1 : 0);
