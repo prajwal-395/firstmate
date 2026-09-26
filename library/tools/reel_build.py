@@ -4607,6 +4607,55 @@ def card_render_dir(project_folder: str) -> str:
                         FULL_FRAME_RENDER_DIRNAME)
 
 
+def _card_rendered_path(card) -> str:
+    """The render this card already carries, or "" when it needs one.
+
+    Cards travel as `PlannedCard` objects; dicts read the same way so a
+    hand-built card still counts as cached rather than as fresh.
+    """
+    if isinstance(card, dict):
+        return str(card.get("rendered_path") or "")
+    return str(getattr(card, "rendered_path", "") or "")
+
+
+def render_reel_cards_timed(project_folder: str, reel_number: int,
+                            reel_name: str, cards, remotion_dir: str):
+    """`render_reel_cards`, plus the phase-log line that times it.
+
+    Timing only: the cards returned are exactly what `render_reel_cards`
+    returns. The line records how many cards the reel planned, how many
+    arrived with a render already on disk (cached), how many the
+    renderer drew fresh, and the call's own wall seconds - which is what
+    splits the 3 s-vs-556 s answers-to-build gap into cached vs cold.
+    A reel with no cards renders nothing and files nothing. Filing never
+    fails a build, and a failed render still files its wall on the way
+    out: a cold tail that raised is still a cold tail.
+    """
+    import time as _time
+
+    from library.tools.full_frame_element import render_reel_cards
+
+    if not cards:
+        return cards
+    total = len(cards)
+    cached = sum(1 for card in cards if _card_rendered_path(card))
+    start = _time.perf_counter()
+    try:
+        return render_reel_cards(
+            cards, str(remotion_dir), card_render_dir(project_folder),
+            project_folder=project_folder)
+    finally:
+        wall = _time.perf_counter() - start
+        try:
+            from library.tools import reel_phase_log as _phase_log
+            _phase_log.log_cards_render(
+                project_folder, int(reel_number), str(reel_name),
+                cards_total=total, cards_cached=cached,
+                cards_rendered=total - cached, wall_seconds=wall)
+        except Exception:
+            pass
+
+
 def moment_cuts_and_insistences(moment, transcript: dict,
                                 keep_exclusions, keep_insistences):
     """This approved moment's own strikes and stay-ins, grown past room tone.
@@ -11142,12 +11191,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # rather than after a timeline exists
             # (`library/tools/full_frame_element.py`).
             if cards:
-                from library.tools.full_frame_element import render_reel_cards
-                cards = render_reel_cards(
-                    cards,
-                    str(REMOTION_DIR),
-                    card_render_dir(project_folder),
-                    project_folder=project_folder)
+                cards = render_reel_cards_timed(
+                    project_folder, moment.number, name,
+                    cards, str(REMOTION_DIR))
             lead = lead_frames(cards, 24000 / 1001) / (24000 / 1001)
 
             # Was: computed by the standalone captioner and then passed as
@@ -13213,10 +13259,9 @@ def build_reel_variants(project_slug: str, reel_number: int,
                        declarations=card_declarations,
                        ending=_ending_decl, look=reel_look_decl)
     if cards:
-        from library.tools.full_frame_element import render_reel_cards
-        cards = render_reel_cards(cards, str(REMOTION_DIR),
-                                 card_render_dir(project_folder),
-                                 project_folder=project_folder)
+        cards = render_reel_cards_timed(
+            project_folder, int(reel_number), moment.timeline_name,
+            cards, str(REMOTION_DIR))
     lead = lead_frames(cards, fps) / fps
     base_placements = placements(ranges, master_clips, fps,
                                  lead_frames=lead_frames(cards, fps))

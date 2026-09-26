@@ -3268,7 +3268,8 @@ def run_pipeline(
                                  argv=sys.argv[1:],
                                  profile=active_profile,
                                  breakpoints=gates.as_record(steps_to_run),
-                                 state=state)
+                                 state=state,
+                                 carry_run_group=bool(resume_mode))
     print(f"  Mode: {run_mode}", file=sys.stderr)
     for _line in run_restart.summary_lines(_restart):
         print(_line, file=sys.stderr)
@@ -4109,6 +4110,14 @@ def run_pipeline(
         held_before_step=held_before_step,
         paused_at_gate=paused_at_gate,
     )
+    # This invocation's own wall, and the running total of the run
+    # GROUP it belongs to - so a plan run spread over several CLI
+    # invocations still sums end to end. Best-effort: an uncomputable
+    # wall is left unwritten, never estimated.
+    try:
+        run_control.record_run_total(project_dir)
+    except Exception:  # noqa: BLE001 - a stamp must not fail a run
+        pass
     _provenance.end_run(_run_id, status.lower(), _steps_this_run)
 
     # Regenerate the two readable documents from what was just recorded.

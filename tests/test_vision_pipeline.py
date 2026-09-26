@@ -570,3 +570,71 @@ def test_detail_extraction_with_a_cache_miss_returns_the_range_map(
     assert set(out) == {(0.0, 2.0)}
     assert [f["timestamp"] for f in out[(0.0, 2.0)]] == [0.0, 2.0]
 
+
+def test_every_ffprobe_spawn_moves_the_counter_even_on_failure():
+    """The thrift work is judged by spawn count, so the counter must see
+    every spawn path - including the ones that fail. A probe of a file
+    that is not there still started a process; a counter that only
+    counts successes undercounts the baseline it is meant to shrink."""
+    vp.reset_ffprobe_spawn_count()
+    assert vp.ffprobe_spawn_count() == 0
+    assert vp._file_has_audio(Path("/nonexistent/clip.mp4")) is False
+    assert vp._file_has_video(Path("/nonexistent/clip.mp4")) is False
+    assert vp._video_height(Path("/nonexistent/clip.mp4")) == 0
+    assert vp.probe_clip(Path("/nonexistent/clip.mp4")) is None
+    assert vp.ffprobe_spawn_count() == 4
+    vp.reset_ffprobe_spawn_count()
+    assert vp.ffprobe_spawn_count() == 0
+
+
+def test_the_combined_window_probe_counts_as_a_spawn():
+    """The thrift validates a cached window with one combined probe
+    instead of three - and the counter must see that one. A spawn site
+    the counter misses undercounts the baseline the thrift is judged
+    against, which is exactly what the merge first did."""
+    vp.reset_ffprobe_spawn_count()
+    has_video, has_audio, height = vp._probe_window_streams(
+        Path("/nonexistent/clip.mp4"))
+    assert (has_video, has_audio, height) == (False, False, 0)
+    assert vp.ffprobe_spawn_count() == 1
+    vp.reset_ffprobe_spawn_count()
+
+
+class _StubWindowAnalyzer:
+    """One canned folded answer per window, no model anywhere near it."""
+
+    def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
+                           max_tokens=512, label="pass", audio=None):
+        if label.startswith("Objects"):
+            return [], json.dumps([]), 0.1
+        result = {
+            "actions": [],
+            "scene": [{"start": 0.0, "end": 10.0, "description": "room"}],
+            "camera": [],
+            "assessment": {"content_type": "person_talking_to_camera",
+                           "primary_subject_visible": [[0, 10]]},
+        }
+        return result, json.dumps(result), 0.1
+
+
+def test_analyze_clip_records_the_inference_wall_beside_the_model_sum():
+    """The extraction-vs-inference split needs both halves: the summed
+    per-window model times are not a wall (retries and gaps hide in
+    them), so the profile carries the measured wall too. Without it the
+    decode-ahead work cannot be judged."""
+    from unittest.mock import patch
+
+    meta = {"clip_id": "IMG_1816", "file_path": "/footage/IMG_1816.MOV",
+            "duration_s": 10.0, "fps": 30.0, "resolution": [1920, 1080]}
+    video_clips = [{"index": 0, "start": 0.0, "end": 10.0,
+                    "path": "/tmp/stub.mp4", "has_audio": False}]
+    with patch.object(vp.picture_quality, "measure_soft_picture",
+                      return_value=[]):
+        profile = vp.analyze_clip(
+            _StubWindowAnalyzer(), meta, [], video_clips, "", None,
+            "/tmp/nonexistent-cache")
+    metadata = profile["analysis_metadata"]
+    assert metadata["window_inference_wall_s"] >= 0.0
+    assert isinstance(metadata["window_inference_wall_s"], float)
+    json.dumps(profile)
+

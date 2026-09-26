@@ -366,3 +366,96 @@ def test_lease_waits_add_up_to_a_contention_reading(tmp_path):
     assert phase_log.summarize_lease_waits([])["acquisitions"] == 0
 
 
+def test_a_card_render_files_cached_vs_cold_not_just_a_wall(tmp_path):
+    """The 3 s-vs-556 s derivation gap is cached vs cold renders, so the
+    line must carry the split - a wall without the counts cannot answer
+    which one a reel paid."""
+    project = _project(tmp_path)
+    event = phase_log.log_cards_render(
+        project, 5, "Reel 05", cards_total=4, cards_cached=3,
+        cards_rendered=1, wall_seconds=12.345)
+    assert event["phase"] == phase_log.CARDS_RENDERED
+    assert event["summary"]["cards_total"] == 4
+    assert event["summary"]["cards_cached"] == 3
+    assert event["summary"]["cards_rendered"] == 1
+    assert event["summary"]["wall_seconds"] == 12.345
+    assert "1 freshly rendered" in event["detail"]
+    assert "3 cached" in event["detail"]
+    events = phase_log.read_events(project)
+    assert [e["phase"] for e in events] == [phase_log.CARDS_RENDERED]
+
+
+def test_a_fully_cached_render_reads_as_cached_not_as_silence(tmp_path):
+    """A zero-fresh render still files: absent and cached differ, and the
+    reader must be able to report "render nothing" either way the log
+    comes out."""
+    project = _project(tmp_path)
+    phase_log.log_cards_render(
+        project, 5, "Reel 05", cards_total=2, cards_cached=2,
+        cards_rendered=0, wall_seconds=0.4)
+    phase_log.log_cards_render(
+        project, 6, "Reel 06", cards_total=3, cards_cached=0,
+        cards_rendered=3, wall_seconds=556.0)
+    report = phase_log.summarize_cards_renders(
+        phase_log.read_events(project))
+    assert report["renders"] == 2
+    assert report["cold_renders"] == 1
+    assert report["fraction_cold"] == 0.5
+    assert report["cards_total"] == 5
+    assert report["cards_cached"] == 2
+    assert report["cards_rendered"] == 3
+    assert report["total_wall_seconds"] == 556.4
+    assert report["max_wall_seconds"] == 556.0
+    assert report["max_render"]["reel"] == "Reel 06"
+    assert phase_log.summarize_cards_renders([])["renders"] == 0
+
+
+def test_the_timed_wrapper_returns_the_renderer_output_untouched(tmp_path):
+    """Timing only: the wrapper must hand back exactly what the renderer
+    returned - a wrapper that reorders, drops or rebuilds cards is a
+    content change wearing an instrument's clothes."""
+    from library.tools import full_frame_element as cards_mod
+    from library.tools import reel_build
+
+    project = _project(tmp_path)
+    planned = [
+        {"render_name": "reel_05_head", "rendered_path": "/disk/head.mov"},
+        {"render_name": "reel_05_tail", "rendered_path": ""},
+    ]
+    drawn = [dict(card, rendered_path=f"/disk/{card['render_name']}.mov")
+             for card in planned]
+
+    def fake_render(cards, remotion_dir, output_dir, project_folder=""):
+        assert list(cards) == planned
+        return drawn
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(cards_mod, "render_reel_cards", fake_render)
+    try:
+        out = reel_build.render_reel_cards_timed(
+            project, 5, "Reel 05", planned, "/remotion")
+    finally:
+        monkeypatch.undo()
+    assert out == drawn
+    assert out is drawn
+    events = phase_log.read_events(project)
+    assert len(events) == 1
+    summary = events[0]["summary"]
+    assert summary["cards_total"] == 2
+    assert summary["cards_cached"] == 1
+    assert summary["cards_rendered"] == 1
+    assert summary["wall_seconds"] >= 0.0
+
+
+def test_the_timed_wrapper_files_nothing_when_there_is_nothing(tmp_path):
+    """A reel with no cards renders nothing: no line, no wall, and the
+    input back untouched - an instrument that files zeros for work that
+    never happened is another silence."""
+    from library.tools import reel_build
+
+    project = _project(tmp_path)
+    assert reel_build.render_reel_cards_timed(
+        project, 5, "Reel 05", [], "/remotion") == []
+    assert phase_log.read_events(project) == []
+
+

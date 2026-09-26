@@ -142,6 +142,38 @@ MAX_TOKENS = {
 }
 
 
+# ── ffprobe spawn count ──────────────────────────────────────────
+#
+# How many ffprobe processes this module started. The window loop
+# used to pay 2-3 spawns per window (source-audio probe, per-cut
+# open-checks), all serial; the thrift probes source audio once per
+# clip and validates each cached window with one combined spawn, so a
+# fresh cut pays ~1 spawn for the whole clip. Counted, never
+# estimated: the counter moves at the one place every spawn goes
+# through, alongside the call - including the thrift's own combined
+# probe, so the count judges the thrift instead of missing it.
+_FFPROBE_SPAWNS = 0
+
+
+def _note_ffprobe_spawn() -> None:
+    """One ffprobe process started. The counter is process-local and
+    serial like the loop it measures; it is reset per clip by the
+    runner, so a clip's count is that clip's."""
+    global _FFPROBE_SPAWNS
+    _FFPROBE_SPAWNS += 1
+
+
+def ffprobe_spawn_count() -> int:
+    """How many ffprobe processes started since the last reset."""
+    return _FFPROBE_SPAWNS
+
+
+def reset_ffprobe_spawn_count() -> None:
+    """Zero the spawn counter. The runner calls this per clip."""
+    global _FFPROBE_SPAWNS
+    _FFPROBE_SPAWNS = 0
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Prompts
 # ═══════════════════════════════════════════════════════════════════════
@@ -694,6 +726,7 @@ def probe_clip(clip_path):
     Returns None if the file is corrupt, not a video, or ffprobe fails.
     """
     try:
+        _note_ffprobe_spawn()
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_format", "-show_streams", str(clip_path)],
@@ -902,6 +935,7 @@ def _file_has_video(path):
     dropped by the extractor below, never handed to a pass.
     """
     try:
+        _note_ffprobe_spawn()
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_streams", "-select_streams", "v:0", str(path)],
@@ -918,6 +952,7 @@ def _file_has_video(path):
 def _file_has_audio(path):
     """Whether a media file carries an audio stream (ffprobe, ms)."""
     try:
+        _note_ffprobe_spawn()
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_streams", "-select_streams", "a:0", str(path)],
@@ -959,12 +994,13 @@ def _probe_window_streams(path):
     """One ffprobe for a window file's (has_video, has_audio, height).
 
     The extractor calls this at most once per pre-existing cached
-    window, to validate the two staleness rules (audio-policy mismatch,
+    window,     to validate the two staleness rules (audio-policy mismatch,
     pre-720p-cap height) from a single spawn instead of one probe per
     question. Fresh cuts never pay it: their audio follows the cut
     recipe and their readability is an open-check, not a probe.
     """
     try:
+        _note_ffprobe_spawn()
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_streams", str(path)],
@@ -1013,6 +1049,7 @@ def _clip_opens(path):
 def _video_height(path):
     """Height in px of a file's first video stream, or 0 when unknown."""
     try:
+        _note_ffprobe_spawn()
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_streams", "-select_streams", "v:0", str(path)],
@@ -2519,8 +2556,10 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
 
     # 1. Folded windows: actions + scene + camera + assessment sections
     print(f"  [Windows] {n_window_calls} windows × {ACTION_WINDOW_S}s (video+audio clips)...")
+    _inference_t0 = time.time()
     windows = analyze_windows(analyzer, video_clips, duration, temporal_index,
                               transcript, fps=fps)
+    window_inference_wall_s = round(time.time() - _inference_t0, 2)
     window_time = sum(a.get("analysis_time_s", 0) for a in windows)
     total_action_count = sum(len(a.get("actions", [])) for a in windows)
     total_time += window_time
@@ -2666,6 +2705,11 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
             "model": MODEL_ID,
             "total_model_calls": total_calls,
             "analysis_time_s": round(total_time, 2),
+            # The folded-window inference wall for THIS clip - the
+            # other half of the extraction-vs-inference split the
+            # runner prints per clip. A sum of per-window model times
+            # is not a wall (retries and gaps hide in it); this is.
+            "window_inference_wall_s": window_inference_wall_s,
             "frames_extracted": len(frames),
             "video_clips_extracted": len(video_clips),
             # What each native-video (`video=`) call actually saw.
@@ -2807,17 +2851,43 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
 
             # Extract video clips (every native-video pass runs on these
-            # 10s segments at 2 fps, 720p, audio kept)
+            # 10s segments at 2 fps, 720p, audio kept). Timed apart
+            # from inference, per clip, so the decode-ahead and
+            # fast-seek work can be judged against a split rather than
+            # a suspicion: extraction wall here, inference wall in the
+            # profile's `window_inference_wall_s`, ffprobe spawns in
+            # `window_extraction_ffprobe_spawns`.
+            reset_ffprobe_spawn_count()
+            _extract_t0 = time.time()
             video_clips = extract_video_clips(clip_path, duration, cache_dir)
+            window_extraction_wall_s = round(time.time() - _extract_t0, 2)
+            window_extraction_ffprobe_spawns = ffprobe_spawn_count()
             n_aud = sum(1 for c in video_clips if c.get("has_audio"))
             print(f"  Video clips extracted: {len(video_clips)} × {ACTION_WINDOW_S}s "
-                  f"({n_aud} with audio)")
+                  f"({n_aud} with audio) "
+                  f"[{window_extraction_wall_s:.1f}s extraction, "
+                  f"{window_extraction_ffprobe_spawns} ffprobe spawns]")
 
             # Run analysis
             profile = analyze_clip(
                 analyzer, meta, frames, video_clips, transcript,
                 temporal_idx, cache_dir,
             )
+            profile.setdefault("analysis_metadata", {}).update({
+                "window_extraction_wall_s": window_extraction_wall_s,
+                "window_extraction_ffprobe_spawns": (
+                    window_extraction_ffprobe_spawns),
+            })
+            _inference_wall = profile["analysis_metadata"].get(
+                "window_inference_wall_s")
+            try:
+                _inference_wall = float(_inference_wall)
+            except (TypeError, ValueError):
+                _inference_wall = 0.0
+            print(f"  Timing: extraction {window_extraction_wall_s:.1f}s "
+                  f"vs inference {_inference_wall:.1f}s "
+                  f"({len(video_clips)} windows, "
+                  f"{window_extraction_ffprobe_spawns} ffprobe spawns)")
             all_profiles.append(profile)
 
             # Save individual profile

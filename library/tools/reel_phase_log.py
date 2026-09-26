@@ -86,9 +86,10 @@ VERIFIED = "verified"
 CONSOLIDATED = "consolidated"
 WAIT = "wait"
 BUILD_SUMMARY = "build_summary"
+CARDS_RENDERED = "cards_rendered"
 
 PHASES = (PLAN_ASKED, ANSWERS_ARRIVED, BUILD_STARTED, BUILD_FINISHED,
-          VERIFIED, CONSOLIDATED, WAIT, BUILD_SUMMARY)
+          VERIFIED, CONSOLIDATED, WAIT, BUILD_SUMMARY, CARDS_RENDERED)
 """Every phase a line may carry. Unknown phases are refused, because a
 line whose phase nothing reads is another silence."""
 
@@ -339,6 +340,151 @@ def _lease_wait_holder(detail: str) -> str:
     if marker in detail:
         return detail.split(marker, 1)[1].strip()
     return ""
+
+
+CARDS_RENDER_KIND = "cards_render"
+CARDS_RENDER_PREFIX = "cards render "
+"""How a per-reel card render files itself: one `cards_rendered` line
+per `render_reel_cards` call, ALWAYS including the fully-cached ones.
+A zero-render call files `0 freshly rendered (N cached)` - an absent
+record and a cached record must not look the same, or nobody can split
+the 3 s-vs-556 s derivation gap into cached vs cold. The human reason
+rides in `detail`; the numbers ride beside it in `summary` for
+`summarize_cards_renders`."""
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        if isinstance(value, bool):
+            return 0
+        return max(0, int(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+def log_cards_render(project_folder: str, reel_number: int, reel_name: str,
+                     *, cards_total: int = 0, cards_cached: int = 0,
+                     cards_rendered: int = 0,
+                     wall_seconds: float = 0.0) -> Dict[str, Any]:
+    """File one `cards_rendered` line for a per-reel card render, never failing.
+
+    `cards_total` is how many cards the reel planned; `cards_cached` how
+    many arrived with a render already on disk; `cards_rendered` how
+    many the renderer drew fresh; `wall_seconds` the call's own wall.
+    Filed under the same never-fail contract as every other line: a
+    filing failure is said on stderr and the build continues.
+    """
+    try:
+        total = _int_or_zero(cards_total)
+    except Exception:  # noqa: BLE001 - the contract is never-fail
+        total = 0
+    try:
+        cached = _int_or_zero(cards_cached)
+    except Exception:  # noqa: BLE001 - the contract is never-fail
+        cached = 0
+    try:
+        rendered = _int_or_zero(cards_rendered)
+    except Exception:  # noqa: BLE001 - the contract is never-fail
+        rendered = 0
+    try:
+        wall = max(0.0, float(wall_seconds or 0.0))
+    except (TypeError, ValueError):
+        wall = 0.0
+    detail = (f"{CARDS_RENDER_PREFIX}{wall:.1f}s: {rendered} freshly "
+              f"rendered, {cached} cached of {total} cards")
+    return log_event(
+        project_folder, reel_number, reel_name, CARDS_RENDERED,
+        detail=detail,
+        summary={"kind": CARDS_RENDER_KIND,
+                 "cards_total": total,
+                 "cards_cached": cached,
+                 "cards_rendered": rendered,
+                 "wall_seconds": round(wall, 3)})
+
+
+def summarize_cards_renders(
+        events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Add up the card-render lines: where did the derivation wall go?
+
+    Reads the `cards_render` lines `log_cards_render` filed and answers
+    the question that splits the 3 s-vs-556 s answers-to-build gap: how
+    many renders, what fraction arrived cached, and how much wall the
+    fresh draws cost in total. A fully-cached run reads as fully-cached
+    - "render nothing" - not as missing data: every call files, so
+    `renders` is the denominator, not a count of incidents.
+
+    Lines are recognised by their `summary.kind`, falling back to the
+    `detail` prefix for hand-written ones; anything else is not a
+    card-render line and is ignored. Never refuses: an empty log reports
+    zeros.
+    """
+    rows: List[Dict[str, Any]] = []
+    for event in events or ():
+        if not isinstance(event, dict):
+            continue
+        if event.get("phase") != CARDS_RENDERED:
+            continue
+        payload = event.get("summary")
+        if isinstance(payload, dict) and payload.get("kind") == (
+                CARDS_RENDER_KIND):
+            try:
+                wall = float(payload.get("wall_seconds") or 0.0)
+            except (TypeError, ValueError):
+                wall = 0.0
+            rows.append({
+                "at": event.get("at"),
+                "reel": event.get("reel") or "",
+                "reel_number": event.get("reel_number"),
+                "cards_total": _int_or_zero(payload.get("cards_total")),
+                "cards_cached": _int_or_zero(payload.get("cards_cached")),
+                "cards_rendered": _int_or_zero(
+                    payload.get("cards_rendered")),
+                "wall_seconds": max(0.0, wall),
+            })
+        elif (isinstance(event.get("detail"), str)
+                and CARDS_RENDER_PREFIX in str(event.get("detail"))):
+            rows.append({
+                "at": event.get("at"),
+                "reel": event.get("reel") or "",
+                "reel_number": event.get("reel_number"),
+                "cards_total": 0,
+                "cards_cached": 0,
+                "cards_rendered": 0,
+                "wall_seconds": _cards_render_seconds(
+                    str(event.get("detail"))),
+            })
+    renders = len(rows)
+    total_wall = round(sum(row["wall_seconds"] for row in rows), 3)
+    total_rendered = sum(row["cards_rendered"] for row in rows)
+    total_cached = sum(row["cards_cached"] for row in rows)
+    cold_rows = [row for row in rows if row["cards_rendered"] > 0]
+    max_row = max(rows, key=lambda row: row["wall_seconds"],
+                  default=None)
+    return {
+        "renders": renders,
+        "cold_renders": len(cold_rows),
+        "fraction_cold": (round(len(cold_rows) / renders, 3)
+                          if renders else 0.0),
+        "cards_total": sum(row["cards_total"] for row in rows),
+        "cards_cached": total_cached,
+        "cards_rendered": total_rendered,
+        "total_wall_seconds": total_wall,
+        "mean_wall_seconds": (round(total_wall / renders, 3)
+                              if renders else 0.0),
+        "max_wall_seconds": (max_row["wall_seconds"]
+                             if max_row is not None else 0.0),
+        "max_render": max_row,
+        "rows": rows,
+    }
+
+
+def _cards_render_seconds(detail: str) -> float:
+    """The seconds off a hand-written card-render line, best-effort."""
+    try:
+        head = detail.split(CARDS_RENDER_PREFIX, 1)[1].split("s", 1)[0]
+        return max(0.0, float(head))
+    except (TypeError, ValueError, IndexError):
+        return 0.0
 
 
 OUTCOME_PROMOTED = "promoted"

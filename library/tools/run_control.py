@@ -175,7 +175,8 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
                      argv: Optional[List[str]] = None,
                      profile: Any = None,
                      breakpoints: Optional[Dict[str, Any]] = None,
-                     state: Optional[Dict[str, Any]] = None
+                     state: Optional[Dict[str, Any]] = None,
+                     carry_run_group: bool = False,
                      ) -> Dict[str, Any]:
     """Replace the run status wholesale at the start of a run.
 
@@ -201,6 +202,17 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
     if previous:
         history.append(run_restart.history_entry(previous, restart))
         del history[:-run_restart.MAX_HISTORY]
+
+    # The run GROUP this invocation belongs to. One plan run is several
+    # CLI invocations (review gates, `--resume`, single steps), and each
+    # one used to start a fresh account - so nothing summed a full plan
+    # run end to end. A `--resume` carries the previous run's group id
+    # forward; anything else mints a new one. The group's wall is the
+    # sum of its invocations' walls, accumulated in `record_run_total`
+    # as each invocation ends. An invocation the previous run never
+    # ended (interrupted, no `finished_at`) contributes nothing it did
+    # not record - `prior_wall_s` is a lower bound, said as one.
+    run_group = _carry_or_mint_run_group(previous, carry_run_group)
 
     # Edit-step input digests (library/tools/edit_input_digest.py): one
     # stamp per step from the run that just ended becomes the baseline
@@ -247,6 +259,10 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         # costs lived in the record this call just replaced, and carrying
         # them forward would read as this run's.
         "step_timings": {},
+        # Which run GROUP this invocation belongs to (see above), and
+        # the wall the group had banked before this invocation started.
+        # This invocation's own wall lands in `record_run_total`.
+        "run_group": run_group,
     }
     try:
         _write_json(run_status_path(project_dir), record)
@@ -374,6 +390,102 @@ def record_step_timing(project_dir: str, node_id: str,
         _write_json(run_status_path(project_dir), current)
         return current
     except (OSError, ValueError, TypeError):
+        return {}
+
+
+# ── Run-group wall clock ──────────────────────────────────────────
+
+def new_run_group() -> str:
+    """Mint a run-group id: the thing several invocations share.
+
+    Random, not time-ordered: `started_at` already orders invocations,
+    and two invocations in one second on one pid must still differ.
+    """
+    import uuid
+
+    return f"rg-{uuid.uuid4().hex[:12]}"
+
+
+def _group_wall_of(record: Dict[str, Any]) -> float:
+    """The wall a previous run account banked, best-effort 0.0."""
+    group = record.get("run_group") or {}
+    try:
+        prior = float(group.get("prior_wall_s") or 0.0)
+    except (TypeError, ValueError):
+        prior = 0.0
+    try:
+        own = float(record.get("invocation_wall_s") or 0.0)
+    except (TypeError, ValueError):
+        own = 0.0
+    return round(max(0.0, prior) + max(0.0, own), 3)
+
+
+def _carry_or_mint_run_group(previous: Dict[str, Any],
+                             carry: bool) -> Dict[str, Any]:
+    """This invocation's `run_group` record: carried or fresh.
+
+    Carried only when asked AND the previous account names a group: a
+    `--resume` after a deleted status file starts a new group rather
+    than inheriting nothing, because a group id that names no first
+    invocation cannot be summed.
+    """
+    group = (previous.get("run_group") or {}) if previous else {}
+    group_id = group.get("id") if isinstance(group, dict) else None
+    if carry and isinstance(group_id, str) and group_id:
+        return {"id": group_id,
+                "prior_wall_s": _group_wall_of(previous)}
+    return {"id": new_run_group(), "prior_wall_s": 0.0}
+
+
+def _invocation_wall_s(record: Dict[str, Any]) -> Optional[float]:
+    """This invocation's own wall, from its recorded start to its end.
+
+    Both endpoints are recorded, never estimated: None where either is
+    missing or unparseable, and the caller then writes nothing rather
+    than a guess.
+    """
+    import datetime
+
+    try:
+        start = datetime.datetime.strptime(
+            str(record.get("started_at")), "%Y-%m-%dT%H:%M:%S")
+        end = datetime.datetime.strptime(
+            str(record.get("finished_at")), "%Y-%m-%dT%H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+    wall = (end - start).total_seconds()
+    return round(wall, 1) if wall >= 0 else None
+
+
+def record_run_total(project_dir: str) -> Dict[str, Any]:
+    """Stamp this invocation's wall and its group's running total.
+
+    Reads `started_at`/`finished_at` off the run's own account and
+    writes `invocation_wall_s` plus `run_group_wall_s` (the group's
+    banked prior wall plus this invocation). Best-effort like every
+    other status write: a wall that cannot be computed honestly is left
+    unwritten, never estimated, and a write failure never takes down a
+    real run.
+    """
+    try:
+        current = read_run_status(project_dir)
+        if not current:
+            return {}
+        wall = _invocation_wall_s(current)
+        if wall is None:
+            return current
+        group = dict(current.get("run_group") or {})
+        prior = group.get("prior_wall_s") or 0.0
+        try:
+            prior = max(0.0, float(prior))
+        except (TypeError, ValueError):
+            prior = 0.0
+        current["invocation_wall_s"] = wall
+        current["run_group_wall_s"] = round(prior + wall, 1)
+        current["updated_at"] = _now()
+        _write_json(run_status_path(project_dir), current)
+        return current
+    except OSError:
         return {}
 
 
