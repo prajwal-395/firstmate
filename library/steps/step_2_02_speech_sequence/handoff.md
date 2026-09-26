@@ -96,6 +96,25 @@ twice. So:
 The `text` is the part that has to be exact. The numbers beside it only
 have to be roughly right.
 
+### A trim the request states (honored to the frame)
+
+The bounds above are a hint, so a request like "trim 4 frames off the
+head of shot 2" cannot ride on them - the aligner would re-anchor the
+bound back to the word. State it beside the hint instead, and it
+applies AFTER alignment, to the aligned span, exactly:
+
+- `trim_head_frames` / `trim_tail_frames` - whole frames, when the
+  request states frames ("4f off the head");
+- `trim_head_seconds` / `trim_tail_seconds` - seconds, when the request
+  states seconds ("half a second off the tail").
+
+State one form per edge, or both agreeing past half a frame - two
+disagreeing numbers refuse the step. A trim that would eat the whole
+passage refuses too: that is a deletion, not a trim. The words stay as
+measured (a head trim can land mid-word, and the request owns that
+cut); only the played bounds move. Where the request states no trim,
+state none - never invent one to "tighten" a passage.
+
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows. The available fields are `clip_id`, `start`, `end`, and `text` for transcripts, and `clip_id`, `topics` for topics.
 
 **Excluded passages**: Document what was considered and why it was cut —

@@ -298,6 +298,8 @@ def _apply_manifest_qa_checks(manifest: dict):
             for i in range(len(clips) - 1):
                 curr_out = clips[i].get('timeline_out', clips[i].get('timeline_out_seconds', 0))
                 next_in = clips[i+1].get('timeline_in', clips[i+1].get('timeline_in_seconds', 0))
+                curr_out_frame = clips[i].get('timeline_out_frame')
+                next_in_frame = clips[i+1].get('timeline_in_frame')
                 # A2 overlaps itself exactly where the plan declared a
                 # CROSSFADE, and nowhere else: two pieces of music have
                 # to play at once for one to fade into the other, and the
@@ -309,12 +311,28 @@ def _apply_manifest_qa_checks(manifest: dict):
                 if declared_fade and \
                         curr_out <= next_in + declared_fade + 0.01:
                     continue
-                if curr_out > next_in + 0.01:
+                frame_boundaries = (
+                    isinstance(curr_out_frame, int)
+                    and not isinstance(curr_out_frame, bool)
+                    and isinstance(next_in_frame, int)
+                    and not isinstance(next_in_frame, bool)
+                )
+                if frame_boundaries:
+                    overlaps = curr_out_frame > next_in_frame
+                    overlap = curr_out_frame - next_in_frame
+                    overlap_detail = f"overlap: {overlap} frame(s)"
+                else:
+                    overlaps = curr_out > next_in + 0.01
+                    overlap_detail = (
+                        f"overlap: {curr_out - next_in:.3f}s"
+                    )
+                if overlaps:
                     raise ValueError(
                         f"Track {track_name}: clip {i} "
                         f"({clips[i].get('label', '?')}) ends at {curr_out:.3f}s "
                         f"and overlaps clip {i+1} "
-                        f"({clips[i+1].get('label', '?')}) at {next_in:.3f}s"
+                        f"({clips[i+1].get('label', '?')}) at {next_in:.3f}s "
+                        f"({overlap_detail})"
                     )
             # Two clips at the IDENTICAL span are the extreme case of the
             # overlap above, so this sits inside the same guard. It used
@@ -328,7 +346,15 @@ def _apply_manifest_qa_checks(manifest: dict):
             # (0, 0) because the reader used keys the planner never wrote.
             positions = {}
             for clip in clips:
-                pos = (clip.get('timeline_in', 0), clip.get('timeline_out', 0))
+                frame_in = clip.get('timeline_in_frame')
+                frame_out = clip.get('timeline_out_frame')
+                if (isinstance(frame_in, int) and not isinstance(frame_in, bool)
+                        and isinstance(frame_out, int)
+                        and not isinstance(frame_out, bool)):
+                    pos = (frame_in, frame_out)
+                else:
+                    pos = (clip.get('timeline_in', 0),
+                           clip.get('timeline_out', 0))
                 if pos in positions:
                     raise ValueError(
                         f"Track {track_name}: {clip.get('label', '?')} and "
@@ -947,8 +973,36 @@ def _picture_label_at(v1_clips: list, v2_clips: list, timeline_time: float):
             or _v1_label_at(v2_clips, timeline_time))
 
 
-def _v1_index_ending_at(v1_clips: list, cut_time, tolerance: float = 0.25):
-    """Index of the V1 clip whose tail sits at a cut point, or None."""
+def _transition_cut_frame(transition: dict):
+    """Return a valid exact anchor frame, refusing malformed declarations."""
+    if "cut_point_frame" not in transition:
+        return None
+    frame = transition["cut_point_frame"]
+    if isinstance(frame, bool) or not isinstance(frame, int) or frame < 0:
+        raise ValueError(
+            f"Transition {transition.get('transition_id', '?')} has an "
+            f"unreadable exact cut frame {frame!r}; re-run plan_transitions "
+            "so the anchor's frame reaches the manifest"
+        )
+    return frame
+
+
+def _v1_index_ending_at(v1_clips: list, cut_time, tolerance: float = 0.25,
+                        *, cut_frame: int | None = None):
+    """Index of the V1 clip whose tail sits at a cut point, or None.
+
+    An anchored frame is an exact edit coordinate, not a hint to find the
+    nearest cut. The seconds tolerance remains for legacy and unanchored
+    plan entries, whose block boundaries may carry rounded seconds.
+    """
+    if cut_frame is not None:
+        matches = [
+            i for i, clip in enumerate(v1_clips)
+            if (isinstance(clip.get("timeline_out_frame"), int)
+                and not isinstance(clip.get("timeline_out_frame"), bool)
+                and clip["timeline_out_frame"] == cut_frame)
+        ]
+        return matches[0] if len(matches) == 1 else None
     if cut_time is None:
         return None
     best_idx = None
@@ -959,6 +1013,34 @@ def _v1_index_ending_at(v1_clips: list, cut_time, tolerance: float = 0.25):
             best_diff = diff
             best_idx = i
     return best_idx
+
+
+def _v2_pair_at_frame(v2_clips: list, cut_frame: int):
+    """Exact V2 pair abutting an anchored frame, or None."""
+    def frame_value(clip, key):
+        value = clip.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
+
+    order = sorted(
+        range(len(v2_clips)),
+        key=lambda i: (
+            frame_value(v2_clips[i], "timeline_in_frame")
+            if frame_value(v2_clips[i], "timeline_in_frame") is not None
+            else float("inf"),
+            frame_value(v2_clips[i], "timeline_out_frame")
+            if frame_value(v2_clips[i], "timeline_out_frame") is not None
+            else float("inf"),
+        ),
+    )
+    for position, index in enumerate(order[:-1]):
+        following = order[position + 1]
+        if (frame_value(v2_clips[index], "timeline_out_frame") == cut_frame
+                and frame_value(v2_clips[following], "timeline_in_frame")
+                == cut_frame):
+            return position, position + 1
+    return None
 
 
 def _downgrade_misplaced_transition(t: dict, transition_id: str,
@@ -976,6 +1058,11 @@ def _downgrade_misplaced_transition(t: dict, transition_id: str,
     cut there with no trace of what was asked reads as planned.
     """
     requested = t.get("requested_type") or t.get("transition_type")
+    if (t.get("duration_source") in (
+                "frames", "stated_frames", "stated_frames_and_seconds")
+            and t.get("requested_duration_frames") is None
+            and t.get("duration_frames") is not None):
+        t["requested_duration_frames"] = t["duration_frames"]
     t["transition_type"] = "hard_cut"
     t["duration_frames"] = 0
     for key in ("after_clip", "from_block", "to_block"):
@@ -1998,7 +2085,10 @@ def compile_manifest(out_dir: str) -> dict:
                 # A sound the plan cut short stops mid-waveform, and that
                 # step to silence clicks. Step 4.04 measured the ramp;
                 # `otio_mix` is what turns it into volume keyframes. 0.0
-                # where the sound plays to its own end.
+                # where the sound plays to its own end. The head ramp
+                # is the plan's stated fade-in (rung 7), 0.0 unstated.
+                "fade_in_seconds": float(
+                    sfx_entry.get("fade_in_seconds") or 0.0),
                 "fade_out_seconds": float(
                     sfx_entry.get("fade_out_seconds") or 0.0),
                 "label": sfx_entry.get("label", f"sfx_{si+1:03d}"),
@@ -2483,17 +2573,24 @@ def compile_manifest(out_dir: str) -> dict:
                 continue
             cut_time = t.get("cut_point_timeline",
                              t.get("cut_point_original"))
-            after_clip = _v1_index_ending_at(v1_clips, cut_time)
+            cut_frame = _transition_cut_frame(t)
+            after_clip = _v1_index_ending_at(
+                v1_clips, cut_time, cut_frame=cut_frame)
             track = "v1"
-            if (after_clip is None
-                    or after_clip + 1 >= len(v1_clips)):
+            at_end = bool(t.get("at_end"))
+            if (not at_end and
+                    (after_clip is None
+                     or after_clip + 1 >= len(v1_clips))):
                 # No V1 cut here - or the last V1 clip, which has no
                 # incoming half. Before downgrading, ask V2: a cut the
                 # b-roll plan brackets carries a native transition on
                 # the b-roll's own track, at the planned edge.
-                v2_pair = v2_pair_at(
-                    [(c.get("timeline_in"), c.get("timeline_out"))
-                     for c in v2_clips], cut_time)
+                if cut_frame is not None:
+                    v2_pair = _v2_pair_at_frame(v2_clips, cut_frame)
+                else:
+                    v2_pair = v2_pair_at(
+                        [(c.get("timeline_in"), c.get("timeline_out"))
+                         for c in v2_clips], cut_time)
                 if v2_pair is not None:
                     after_clip = v2_pair[0]
                     track = "v2"
@@ -2506,8 +2603,11 @@ def compile_manifest(out_dir: str) -> dict:
                 # must never happen is failing the whole run over one
                 # entry (AGENTS.md 10.5). The reason names both tracks
                 # tried: V1 first, then the V2 pair.
+                cut_label = (
+                    f"frame {cut_frame} ({cut_time}s)"
+                    if cut_frame is not None else f"{cut_time}s")
                 _no_cut_reason = (
-                    f"no V1 clip ends at {cut_time}s and no V2 pair "
+                    f"no V1 clip ends at {cut_label} and no V2 pair "
                     f"abuts it - the cut the plan named is not a cut "
                     f"on either track, so the transition has no "
                     f"outgoing clip to sit on"
@@ -2520,6 +2620,54 @@ def compile_manifest(out_dir: str) -> dict:
                 })
                 _downgrade_misplaced_transition(
                     t, t.get("transition_id", "?"), _no_cut_reason)
+                continue
+            if at_end:
+                if track != "v1" or after_clip != len(v1_clips) - 1:
+                    _end_reason = (
+                        f"end slot resolves to V1 clip {after_clip!r}, not "
+                        "the final V1 clip - nothing was placed"
+                    )
+                    transitions_downgraded.append({
+                        "transition_id": t.get("transition_id", "?"),
+                        "requested_type": raw_type,
+                        "shipped_type": "hard_cut",
+                        "reason": _end_reason,
+                    })
+                    _downgrade_misplaced_transition(
+                        t, t.get("transition_id", "?"), _end_reason)
+                    continue
+                # Resolve's native dissolve can trail onto nothing at the
+                # end. Other native types need a picture on both sides.
+                if native_type != "cross_dissolve":
+                    _end_reason = (
+                        f"end-placed {raw_type!r} at the final V1 clip "
+                        f"({after_clip}) has no incoming picture for its "
+                        "head half - only an end-placed cross dissolve "
+                        "trails onto nothing"
+                    )
+                    transitions_downgraded.append({
+                        "transition_id": t.get("transition_id", "?"),
+                        "requested_type": raw_type,
+                        "shipped_type": "hard_cut",
+                        "reason": _end_reason,
+                    })
+                    _downgrade_misplaced_transition(
+                        t, t.get("transition_id", "?"), _end_reason)
+                    continue
+                category = granted_categories(native_type)[0]
+                native_transitions.append({
+                    "transition_id": t.get("transition_id", "?"),
+                    "transition_type": native_type,
+                    "resolve_name": resolve_transition_name(native_type),
+                    "category": category,
+                    "after_clip": after_clip,
+                    "track": "v1",
+                    "at_end": True,
+                    "duration_frames": t["duration_frames"],
+                    "cut_point_timeline": cut_time,
+                    "requested_type": t.get("requested_type", raw_type),
+                    "downgrade_reason": t.get("downgrade_reason", ""),
+                })
                 continue
             if track == "v1" and after_clip + 1 >= len(v1_clips):
                 transitions_downgraded.append({
@@ -2635,7 +2783,9 @@ def compile_manifest(out_dir: str) -> dict:
             continue
 
         cut_time = t.get("cut_point_timeline", t.get("cut_point_original"))
-        after_clip = _v1_index_ending_at(v1_clips, cut_time)
+        cut_frame = _transition_cut_frame(t)
+        after_clip = _v1_index_ending_at(
+            v1_clips, cut_time, cut_frame=cut_frame)
         if after_clip is None:
             # Finding 32, Fusion path: same downgrade as the native path
             # above - one entry dropped with its reason, the run builds.
@@ -2657,17 +2807,34 @@ def compile_manifest(out_dir: str) -> dict:
         # The effect is a tail on the outgoing clip AND a head on the
         # incoming one, so there has to be an incoming clip. Without this
         # a transition on the last clip drew half a transition into
-        # nothing.
+        # nothing. The rung-7 end slot is the exception: an end-addressed
+        # fade draws its tail half on the last clip alone, with no head.
         if after_clip + 1 >= len(v1_clips):
+            if (t.get("at_end") and after_clip == len(v1_clips) - 1
+                    and comp_type == "fade_to_black"):
+                fusion_transitions.append({
+                    "type": comp_type,
+                    "after_clip": after_clip,
+                    "at_end": True,
+                    "duration_frames": t["duration_frames"],
+                })
+                continue
+            reason = (
+                f"the cut sits at the end of the last V1 clip "
+                f"({after_clip}); there is no incoming clip for the "
+                f"transition's head half"
+            )
+            if t.get("at_end"):
+                reason += (
+                    f" - and end-placed {raw_type!r} is not a tail-only "
+                    f"fade: only fade_to_black draws its tail half on "
+                    f"the last clip alone"
+                )
             transitions_downgraded.append({
                 "transition_id": t.get("transition_id", "?"),
                 "requested_type": raw_type,
                 "shipped_type": "hard_cut",
-                "reason": (
-                    f"the cut sits at the end of the last V1 clip "
-                    f"({after_clip}); there is no incoming clip for the "
-                    f"transition's head half"
-                ),
+                "reason": reason,
             })
             _downgrade_misplaced_transition(
                 t, t.get("transition_id", "?"),
@@ -2890,6 +3057,32 @@ def compile_manifest(out_dir: str) -> dict:
               f"the audio intake", file=sys.stderr)
 
     # ── Compile ──
+    # ── Pacing report (rung 7, PA3.2/PA2.2) ──
+    # The ASL windows the spine stated, measured against the picture
+    # this compile placed. Report-only: a target is a target, and the
+    # delta is the finding - nothing here fails a build on a missed
+    # one (AGENTS.md 10.4). Empty on runs whose plan stated no pacing
+    # instruction (E3).
+    from library.tools import pacing as _pacing
+    pacing_report = _pacing.measure_pacing(
+        structure, v1_clips, v2_clips, spine.get("pacing"), fps)
+    for row in pacing_report:
+        if row.get("delivered_asl_seconds") is None:
+            print(f"  Pacing: window {row['start_block']!r}-"
+                  f"{row['end_block']!r}: {row['note']}",
+                  file=sys.stderr)
+        else:
+            target_label = (
+                f"target ASL {row['target_asl_seconds']}s"
+                if row.get("target_asl_seconds") is not None
+                else f"target feel {row['target_feel']!r}")
+            print(
+                f"  Pacing: window {row['start_block']!r}-"
+                f"{row['end_block']!r}: {target_label}, delivered "
+                f"{row['delivered_asl_seconds']}s over "
+                f"{row['window_seconds']}s ({row['cuts']} cuts)",
+                file=sys.stderr)
+
     manifest = {
         "project": {
             # The project says where its own build goes; a project that
@@ -2983,6 +3176,10 @@ def compile_manifest(out_dir: str) -> dict:
         "jl_cuts": jl_cuts,
         "room_tone": room_tone_measurements,
         "room_tone_fills": room_tone_fills,
+        # Rung 7: the plan's ASL windows beside what the placed
+        # picture delivers, measured above. Report-only - read by the
+        # run log and the reviewer, never a gate.
+        "pacing_report": pacing_report,
         "neural_engine_directives": neural_engine_directives,
         # The authoritative record of what creative_cohesion asked for and
         # what actually happened to each request.

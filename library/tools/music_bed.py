@@ -81,6 +81,27 @@ track, so the renderer allocates the bed across A2, A3, ... exactly the
 way it already allocates overlapping SFX, and the SFX bucket starts above
 whatever the bed used.
 
+Ending early, and fading out (rung 7, SD3.2)
+-------------------------------------------
+A segment runs until the next one comes in - unless it declares
+``ends_at_block``: the spine block position it stops at, with an
+optional ``end_offset_seconds`` / ``end_offset_frames`` from that
+block's start (E3: seconds when the request states seconds, frames
+when it states frames; both stated must agree past half a frame).
+What follows is silence under the picture - "music out at 0:48, then
+the last line dry" - never a slide of the next piece.  An end past the
+next piece's start refuses (an overlap no crossfade declared), and an
+end at or before the segment's own start refuses (no time at all).
+
+A segment that ends - early or at the piece's end - may declare
+``fade_out_seconds`` / ``fade_out_frames``: the ramp down over its
+last seconds, delivered by ``otio_mix.music_curve`` exactly the way a
+crossfade-out is.  No fade is invented: a segment naming none stops
+hard, which is the absence of decoration.  A fade beside a crossfade
+on one segment refuses - a piece that hands off AND fades out names
+two endings, and picking one silently would ship a handoff the plan
+did not agree on.
+
 ``tests/test_music_bed.py``.
 
 
@@ -164,6 +185,16 @@ class BedSegment:
     starts_at_block: Any = None
     crossfade_in_seconds: float = 0.0
     crossfade_out_seconds: float = 0.0
+    #: Rung 7: the ramp down over the segment's last seconds, 0.0 for a
+    #: hard stop. Stated by the plan (`fade_out_seconds` /
+    #: `fade_out_frames`), never invented; delivered by
+    #: `otio_mix.music_curve`. Refused beside a crossfade-out on the
+    #: same segment - two endings, one piece.
+    fade_out_seconds: float = 0.0
+    #: Rung 7: where the plan ended this segment early, as stated
+    #: (`ends_at_block` plus its offset), else None. What follows is
+    #: silence under the picture, never a slide of the next piece.
+    ends_at_block: Any = None
     why: str = ""
     track_title: str = ""
 
@@ -305,6 +336,67 @@ def _block_index(blocks: List[Dict[str, Any]], position: Any) -> int:
         f"position on the spine. The spine's blocks are: {known}")
 
 
+def _resolve_end_numbers(entry: Dict[str, Any], index: int,
+                         frame_rate) -> tuple:
+    """`(fade_out_seconds, end_offset_seconds)` a bed entry states.
+
+    E3: seconds when the request states seconds, frames when it states
+    frames; both forms of one number must agree past half a frame.
+    Frames with no spine timebase refuse - there is no grid to honor
+    them on. A negative fade or offset refuses: the end cannot ramp
+    before it starts, and the offset cannot run before the block.
+    """
+    fade_s = entry.get("fade_out_seconds")
+    fade_f = entry.get("fade_out_frames")
+    off_s = entry.get("end_offset_seconds")
+    off_f = entry.get("end_offset_frames")
+    for name, value in (("fade_out_seconds", fade_s),
+                        ("end_offset_seconds", off_s)):
+        if value is None:
+            continue
+        if (isinstance(value, bool)
+                or not isinstance(value, (int, float)) or value < 0):
+            raise MusicBedError(
+                f"audio_spine.{BED_KEY}[{index}].{name} is {value!r}; "
+                f"it must be a non-negative number of seconds")
+    for name, value in (("fade_out_frames", fade_f),
+                        ("end_offset_frames", off_f)):
+        if value is None:
+            continue
+        if (isinstance(value, bool) or not isinstance(value, int)
+                or value < 0):
+            raise MusicBedError(
+                f"audio_spine.{BED_KEY}[{index}].{name} is {value!r}; "
+                f"it must be a non-negative whole number of frames")
+    if (fade_f is not None or off_f is not None) and not frame_rate:
+        raise MusicBedError(
+            f"audio_spine.{BED_KEY}[{index}] states an end in frames "
+            f"but the spine carries no frame_rate - frames have no "
+            f"grid without the timebase")
+    fps = float(frame_rate) if frame_rate else 30.0
+    half = 0.5 / fps
+
+    def _one(seconds, frames, s_name, f_name):
+        if seconds is not None and frames is not None:
+            from_frames = frames / fps
+            if abs(from_frames - float(seconds)) > half + 1e-9:
+                raise MusicBedError(
+                    f"audio_spine.{BED_KEY}[{index}] states {s_name} "
+                    f"{float(seconds):.3f}s and {f_name} {frames} "
+                    f"({from_frames:.3f}s) - two numbers for one end "
+                    f"is an ambiguous spec")
+            return from_frames
+        if frames is not None:
+            return frames / fps
+        if seconds is not None:
+            return float(seconds)
+        return 0.0
+
+    return (_one(fade_s, fade_f, "fade_out_seconds", "fade_out_frames"),
+            _one(off_s, off_f, "end_offset_seconds",
+                 "end_offset_frames"))
+
+
 def read_bed(music_selection: Optional[Dict[str, Any]],
              audio_spine: Optional[Dict[str, Any]],
              timeline_duration: float) -> MusicBed:
@@ -404,6 +496,21 @@ def read_bed(music_selection: Optional[Dict[str, Any]],
             raise MusicBedError(
                 f"audio_spine.{BED_KEY}[{index}].crossfade_seconds is "
                 f"{crossfade}; a crossfade cannot be negative")
+        # Rung 7: ending early, and fading out. `ends_at_block` names
+        # the spine block the piece stops at (default: the next piece's
+        # start, or the piece's end for the last one); `end_offset_*`
+        # moves that end off the block's start, in the requester's
+        # units (E3). `fade_out_*` is the ramp over the last seconds.
+        ends_at = entry.get("ends_at_block")
+        end_index = (_block_index(blocks, ends_at)
+                     if ends_at is not None else None)
+        if ends_at is not None and not blocks:
+            raise MusicBedError(
+                f"audio_spine.{BED_KEY}[{index}] ends at block "
+                f"{ends_at!r}, but the spine carries no blocks to end "
+                f"at")
+        fade_out, end_offset = _resolve_end_numbers(
+            entry, index, (audio_spine or {}).get("frame_rate"))
         raw.append({
             "audio_path": track["audio_path"],
             "track_title": track["title"],
@@ -412,6 +519,10 @@ def read_bed(music_selection: Optional[Dict[str, Any]],
             "starts_at_block": position if index else (
                 blocks[0].get("position") if blocks else None),
             "crossfade": round(float(crossfade), 3),
+            "end_index": end_index,
+            "ends_at_block": ends_at,
+            "end_offset": round(float(end_offset), 3),
+            "fade_out": round(float(fade_out), 3),
             "why": str(entry.get("why") or "").strip(),
         })
 
@@ -423,16 +534,49 @@ def read_bed(music_selection: Optional[Dict[str, Any]],
                 f"is at or before where segment {index - 1} came in. The bed "
                 f"is an ordered sequence and nothing here reorders it.")
 
+    # A fade-out ramps the piece into silence at its end; a crossfade-in
+    # rises the next piece over the same tail. Both on one join names
+    # two endings for it - declare the crossfade where the next piece
+    # comes in over this one, or the fade-out where this piece ends
+    # into silence. (A fade-IN beside a fade-OUT on one piece is fine:
+    # they ramp opposite ends.)
+    for index in range(len(raw) - 1):
+        if raw[index]["fade_out"] and raw[index + 1]["crossfade"]:
+            raise MusicBedError(
+                f"audio_spine.{BED_KEY} segment {index} declares a "
+                f"{raw[index]['fade_out']:.3f}s fade-out where segment "
+                f"{index + 1} declares a "
+                f"{raw[index + 1]['crossfade']:.3f}s crossfade-in - a "
+                f"piece that fades out AND hands off names two endings")
+
     total = round(float(timeline_duration), 3)
     segments: List[BedSegment] = []
     for index, row in enumerate(raw):
         start = 0.0 if index == 0 else _block_start(blocks, row["start_index"])
         if index + 1 < len(raw):
-            end = _block_start(blocks, raw[index + 1]["start_index"])
+            next_start = _block_start(blocks, raw[index + 1]["start_index"])
             crossfade_out = raw[index + 1]["crossfade"]
         else:
-            end = total
+            next_start = total
             crossfade_out = 0.0
+        if row["end_index"] is not None:
+            end = _block_start(blocks, row["end_index"]) + row["end_offset"]
+            if end <= start + 1e-9:
+                raise MusicBedError(
+                    f"audio_spine.{BED_KEY} segment {index} ends at "
+                    f"{end:.3f}s (block {row['ends_at_block']!r} plus "
+                    f"{row['end_offset']:.3f}s), at or before its own "
+                    f"start {start:.3f}s - a piece that ends before it "
+                    f"starts plays no time at all")
+            if end > next_start + 1e-9:
+                raise MusicBedError(
+                    f"audio_spine.{BED_KEY} segment {index} ends at "
+                    f"{end:.3f}s, past where segment {index + 1} comes "
+                    f"in ({next_start:.3f}s) - an overlap no crossfade "
+                    f"declared. End it there or earlier, or move the "
+                    f"next piece's start.")
+        else:
+            end = next_start
         segments.append(BedSegment(
             audio_path=row["audio_path"],
             track_title=row["track_title"],
@@ -442,6 +586,8 @@ def read_bed(music_selection: Optional[Dict[str, Any]],
             starts_at_block=row["starts_at_block"],
             crossfade_in_seconds=row["crossfade"],
             crossfade_out_seconds=crossfade_out,
+            fade_out_seconds=row["fade_out"],
+            ends_at_block=row["ends_at_block"],
             why=row["why"],
         ))
 
@@ -511,6 +657,12 @@ def validate_bed(bed: MusicBed,
                     f"bed segment {index} declares a "
                     f"{seg.crossfade_in_seconds:.2f}s crossfade over a "
                     f"{previous_span:.2f}s outgoing segment")
+        if seg.fade_out_seconds > span + 1e-6:
+            errors.append(
+                f"bed segment {index} declares a "
+                f"{seg.fade_out_seconds:.2f}s fade-out over a "
+                f"{span:.2f}s segment - the fade would outlast the "
+                f"piece it is fading out of")
     return errors
 
 
@@ -562,6 +714,10 @@ def bed_clips(bed: MusicBed, *, fps: float) -> List[Dict[str, Any]]:
             "bed_segment_starts_at_block": seg.starts_at_block,
             "crossfade_in_seconds": seg.crossfade_in_seconds,
             "crossfade_out_seconds": seg.crossfade_out_seconds,
+            # Rung 7: the stated ramp down over the segment's last
+            # seconds, read by `otio_mix.mix_targets` into the A2
+            # curve. 0.0 where the plan named none - a hard stop.
+            "fade_out_seconds": seg.fade_out_seconds,
             "track_title": seg.track_title,
             "why": seg.why,
         })
@@ -582,6 +738,10 @@ def describe(bed: MusicBed) -> str:
         f" at block {seg.starts_at_block!r}"
         + (f" (x-fade {seg.crossfade_in_seconds:.2f}s)"
            if seg.crossfade_in_seconds else " (hard splice)" if index else "")
+        + (f" ends at block {seg.ends_at_block!r}"
+           if seg.ends_at_block is not None else "")
+        + (f" (fade-out {seg.fade_out_seconds:.2f}s)"
+           if seg.fade_out_seconds else "")
         for index, seg in enumerate(bed.segments)
     )
     return (f"music bed: {len(bed.segments)} segments across "

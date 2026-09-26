@@ -46,7 +46,7 @@ reason, rather than passed on to draw nothing.
 | `screen_shake` | Emphasis moments - an impact that settles | `shake_x`, `shake_y` (a FRACTION of frame width), `shake_decay_frames` (modifies the shake; draws nothing alone) |
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam | `zoom_start`, `zoom_mid`, `zoom_end` (all three equal holds the reframe) |
 | `speed_ramp` | A stepped speed change across the block — a montage ramp, a slow push into a moment | `segments`: a non-empty list of `percent` steps, each above 0 (e.g. `[{percent: 50}, {percent: 150}]`) |
-| `freeze_frame` | A held frame — time stops on the block or its anchored span | No params: the span is what freezes |
+| `freeze_frame` | A held frame - time stops on the block or its anchored span | No params: the span is what freezes; OPTIONAL `hold_seconds` / `hold_frames` run the span from the anchor for exactly that long (see below) |
 | `stabilize` | A shaky block you want steadied - Resolve's own Stabilize runs on the clip and its answer is judged | No params: the span is what stabilizes. Name it only where the measured stability (`vfx_suggested` camera text, `view:stability`) says the shot needs it; nothing stabilizes unless you ask. |
 
 A zoom value of `1.0` is the untouched frame; above it is tighter, below
@@ -118,6 +118,18 @@ shake on one beat - says so with `anchor` (where it starts) and
 block boundary; neither spans the block exactly as before. A punch
 that spans the word "quit" carries `anchor: {word: "quit"}` and
 `anchor_end: {word: "quit", edge: end}`.
+
+A stated freeze length (E3): when the request holds the freeze for a
+count - "freeze on 'quit' for 1s 12f" - a `freeze_frame` entry carries
+`anchor` (where the hold starts) and `hold_seconds` (seconds, as
+requested) or `hold_frames` (whole frames, as requested), and the span
+runs from the anchor for exactly that. State one form, or both
+agreeing; two disagreeing numbers refuse the step. A mixed count like
+"1s 12f" is one number in frames: state `hold_frames: 42`, never the
+two halves beside each other. The hold must fit inside the block - a
+freeze past its end refuses. No `anchor_end` beside a hold (two ends),
+no hold without an `anchor` (no start), and no hold on any other
+effect (it is read by nothing there and refuses).
 
 One address per anchor (exactly one):
 

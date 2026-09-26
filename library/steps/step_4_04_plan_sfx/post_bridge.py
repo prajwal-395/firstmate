@@ -119,6 +119,13 @@ SFX_ENTRY_KEYS = frozenset({
     "role",
     "lead_seconds",
     "rationale",
+    # Rung 7: a stated fade in/out - seconds when the request states
+    # seconds, frames when it states frames (E3). The out-fade rides
+    # beside the measured de-click floor, never under it.
+    "fade_in_seconds",
+    "fade_in_frames",
+    "fade_out_seconds",
+    "fade_out_frames",
 } | ANCHOR_ENTRY_KEYS)
 
 
@@ -451,6 +458,63 @@ def _entry_source_in(entry: dict) -> float:
     return float(transient)
 
 
+def _resolve_stated_fade(sfx: dict, plan_index: int,
+                         frame_rate: float) -> tuple:
+    """`(fade_in_seconds, fade_out_seconds)` the plan states, or (0, 0).
+
+    Rung 7 (E3: "fade lengths in frames"): seconds when the request
+    states seconds, frames when it states frames; both forms of one
+    fade must agree past half a frame. A negative fade refuses: a ramp
+    runs forward. Raises `SfxDurationRefused` - a stated fade is a
+    decision against the sound's measured length, and that module owns
+    the plan-vs-measurement refusals.
+    """
+    from library.tools.sfx_duration import SfxDurationRefused
+
+    def _check(value, name, want_int):
+        if value is None:
+            return None
+        if want_int:
+            bad = (isinstance(value, bool)
+                   or not isinstance(value, int) or value < 0)
+            unit = "a non-negative whole number of frames"
+        else:
+            bad = (isinstance(value, bool)
+                   or not isinstance(value, (int, float)) or value < 0)
+            unit = "a non-negative number of seconds"
+        if bad:
+            raise SfxDurationRefused(
+                f"sfx_creative entry {plan_index} states {name} "
+                f"{value!r}, which is not {unit}")
+        return value
+
+    in_s = _check(sfx.get("fade_in_seconds"), "fade_in_seconds", False)
+    in_f = _check(sfx.get("fade_in_frames"), "fade_in_frames", True)
+    out_s = _check(sfx.get("fade_out_seconds"), "fade_out_seconds", False)
+    out_f = _check(sfx.get("fade_out_frames"), "fade_out_frames", True)
+    fps = float(frame_rate or 30.0)
+    half = 0.5 / fps
+
+    def _one(seconds, frames, s_name, f_name):
+        if seconds is not None and frames is not None:
+            from_frames = frames / fps
+            if abs(from_frames - float(seconds)) > half + 1e-9:
+                raise SfxDurationRefused(
+                    f"sfx_creative entry {plan_index} states {s_name} "
+                    f"{float(seconds):.3f}s and {f_name} {frames} "
+                    f"({from_frames:.3f}s) - two numbers for one fade "
+                    f"is an ambiguous spec")
+            return from_frames
+        if frames is not None:
+            return frames / fps
+        if seconds is not None:
+            return float(seconds)
+        return 0.0
+
+    return (_one(in_s, in_f, "fade_in_seconds", "fade_in_frames"),
+            _one(out_s, out_f, "fade_out_seconds", "fade_out_frames"))
+
+
 def _entry_duration(entry: dict, source_in: float = 0.0,
                     requested=None, fps: float = 30.0) -> tuple:
     """How much of the chosen sound plays, and its de-click ramp.
@@ -644,8 +708,27 @@ def resolve_sfx(
         # How long it plays is the PLAN's decision, bounded by the
         # sound's measured length. A request past that is refused by
         # name in `sfx_duration`, never clamped.
-        duration, fade_out = _entry_duration(
+        duration, declick = _entry_duration(
             entry, source_in, sfx.get("duration_seconds"), frame_rate)
+        # A stated fade in/out (rung 7, E3). The out-fade rides beside
+        # the measured de-click floor, never under it: a stated ramp
+        # shorter than the click it would leave is the floor winning,
+        # said on the placement method. Both ramps must fit inside
+        # what plays - a fade outlasting its sound refuses, never
+        # clamps.
+        from library.tools.sfx_duration import SfxDurationRefused
+        fade_in, fade_out_stated = _resolve_stated_fade(
+            sfx, plan_index, frame_rate)
+        fade_out = max(fade_out_stated, declick)
+        if fade_in + fade_out > duration + 1e-9:
+            raise SfxDurationRefused(
+                f"{entry['sfx_id']!r} on block "
+                f"{block.get('position')!r} states fades "
+                f"({fade_in:.3f}s in, {fade_out:.3f}s out) longer than "
+                f"the {duration:.3f}s it plays - the ramps would "
+                f"outlast the sound. Shorten the fades or lengthen "
+                f"the play."
+            )
 
         # A sound's extent is its duration, so an end anchor names
         # nothing placeable. Refused, never ignored: ignoring it would
@@ -747,6 +830,17 @@ def resolve_sfx(
         if lead > 0:
             placement_method += (
                 f"; arrives {lead}s before the cut (J-cut lead)")
+        if fade_in:
+            placement_method += f"; fades in over {fade_in:.3f}s (stated)"
+        if fade_out_stated:
+            if fade_out_stated < declick:
+                placement_method += (
+                    f"; stated {fade_out_stated:.3f}s out-fade under "
+                    f"the {declick:.3f}s de-click floor - the floor "
+                    f"wins, so the truncation does not click")
+            else:
+                placement_method += (
+                    f"; fades out over {fade_out_stated:.3f}s (stated)")
 
         resolved.append({
             "label": f"sfx_{len(resolved)+1:03d}",
@@ -761,9 +855,14 @@ def resolve_sfx(
             "timeline_in_frame": tl_in_frame,
             "timeline_out_frame": tl_out_frame,
             "duration_seconds": duration,
-            "played_whole_sound": fade_out == 0.0,
+            # Whole means not cut short (the de-click floor is zero),
+            # not unfaded: a stated fade-out is the plan fading on
+            # purpose, and must not read as a truncation.
+            "played_whole_sound": declick == 0.0,
             # A truncated sound stops mid-waveform, and that step to
-            # silence clicks. 0.0 where the sound ends by itself.
+            # silence clicks. 0.0 where the sound ends by itself; the
+            # plan's stated fade where it fades on purpose.
+            "fade_in_seconds": round(fade_in, 4),
             "fade_out_seconds": round(fade_out, 4),
             "volume_db": volume_db,
             "rationale": sfx.get("rationale", ""),

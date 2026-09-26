@@ -89,6 +89,21 @@ class NativeSpeedRefused(RenRefusal):
     """A planned speed op names something with no measured write."""
 
 
+def refuse_hold(effect_type: str, target, detail: str) -> NativeSpeedRefused:
+    """Refuse a freeze hold the plan states but nothing can place."""
+    return NativeSpeedRefused(
+        what=(f"step plan_vfx plan entry for block {target!r} plans "
+              f"{effect_type!r} with {detail}"),
+        why=("a freeze holds the span the plan addresses - from its "
+             "anchor, inside its block, for one stated length - and a "
+             "hold naming anything else would freeze a moment the plan "
+             "did not address"),
+        fix=(f"re-plan block {target!r} with `anchor` and one of "
+             f"`hold_seconds` / `hold_frames` stating a span inside "
+             f"the block, and no `anchor_end` beside them"),
+    )
+
+
 def refuse_speed_curve(effect_type: str, target) -> NativeSpeedRefused:
     """Refuse a ramp planned as a curve rather than stepped segments."""
     return NativeSpeedRefused(

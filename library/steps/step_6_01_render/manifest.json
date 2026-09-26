@@ -23,7 +23,7 @@
       {
         "name": "render_output",
         "type": "object",
-        "description": "State output: render_output"
+        "description": "State output: render_output, including a per-item transition_items report with each requested and compiled type, exact anchor frame when stated, requested duration in its stated unit, compiled duration_frames, and any downgrade reason. A transition that cannot sit on a real cut must remain visible as downgraded in this report."
       },
       {
         "name": "render_watch_frames",

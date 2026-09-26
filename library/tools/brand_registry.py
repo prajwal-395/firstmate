@@ -114,6 +114,11 @@ ABSENT_SLOT_READINGS = {
         "every caption card on 001 is lowercase, and which case the copy "
         "is set in is the captain's open decision "
         "(step_4_01_plan_subtitles/step.py)"),
+    "effect.caption_words_per_card": (
+        "6 words per card - the grouping default in "
+        "step_4_01_plan_subtitles/step.py (`DEFAULT_MAX_WORDS_PER_CARD`), "
+        "read because the template declares none. A series that wants "
+        "short cards declares the number (rung 7, finding 31)"),
     "effect.timed_text_overlay": (
         "no timed text (library/tools/timed_text_overlay.py)"),
     "content.bookends": "no intro, no outro, no end card (library/tools/bookends.py)",

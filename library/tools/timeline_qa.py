@@ -117,7 +117,13 @@ def verify_transitions(timeline, track_items, fusion_transitions) -> QAReport:
             report.passed = False
             continue
 
-        for role, index in (("tail", after_clip), ("head", after_clip + 1)):
+        # An end-of-piece transition (rung 7, `at_end`) is a tail on the
+        # last V1 clip alone: nothing follows it, so there is no head to
+        # look for past the end of the track.
+        halves = [("tail", after_clip)]
+        if not spec.get("at_end"):
+            halves.append(("head", after_clip + 1))
+        for role, index in halves:
             present = has_comp(index)
             if present:
                 continue

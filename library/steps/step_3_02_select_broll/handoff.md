@@ -111,6 +111,14 @@ For each block, read its `visual_note` and the speech around it, then filter
    with the framing you want, then express it as `preferred_moment`.
 3. **Clean cut points**: `scene_boundaries` in the temporal indices are cut
    anchors where they exist.
+4. **A stated source slip** (E3): when the request moves the shot inside
+   its own file - "slip it 1s later in its source, keep its position and
+   duration" - state `slip_seconds` (seconds, as requested) or
+   `slip_frames` (whole frames, as requested), or both agreeing. The
+   chosen window shifts by exactly that at the same timeline position
+   and duration. A slip past the file's ends refuses the step, so slip
+   inside the media. Where the request states no slip, state none -
+   the window chooser owns the range.
 
 ### Other criteria:
 - **Mood/energy match** with creative direction

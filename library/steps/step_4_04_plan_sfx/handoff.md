@@ -59,6 +59,14 @@ Select and place sound effects at appropriate moments in the timeline.
   nobody chose is what made the one sound in a previous run inaudible.
 - Be aware of how SFX interact with speech and music - balance is a
   creative decision, not a formula
+- **How a sound fades is a NUMBER when the request states one, and you
+  write it.** `fade_in_seconds` / `fade_in_frames` ramp the head up
+  from silence; `fade_out_seconds` / `fade_out_frames` ramp the tail
+  down to it - seconds as requested, whole frames as requested, both
+  forms of one fade agreeing. A sound naming none starts at level and
+  stops hard (beside the one-frame de-click floor on a truncated
+  sound, which always wins and says so). Fades outlasting the sound
+  refuse the step.
 - Layering is allowed: two or more sounds at the same position is how
   real sound design works (whoosh + bass hit, riser under a textural bed).
   Each layered sound carries its own `volume_db`

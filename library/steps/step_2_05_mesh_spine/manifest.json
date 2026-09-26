@@ -114,7 +114,20 @@
         "type": "list",
         "required": false,
         "may_be_empty": true,
-        "description": "How the music is CONDUCTED across the piece - ordered, one entry per piece of music that plays. The bed is not one continuous stretch of one track unless you decide it is: it may be several sections of one track, disjoint sections included, or sections of several tracks. music_selection.splices names the pieces step 2.04 picked out and music_selection.tracks names every track it chose; you decide which piece plays where. Each entry: track (string, the audio_path or title of one of the chosen tracks - omit it for the primary track, which is the single-track case); source_in (number, the second of THAT file this piece starts at); starts_at_block (the spine block position this piece comes in on - REQUIRED on every entry after the first, which starts the video); crossfade_seconds (OPTIONAL number - how long this piece fades up over the one it replaces. Leave it out for a hard splice: that is the absence of a crossfade, not a request for a default one, and nothing substitutes a length); why (string, what in the measurements and in this moment of the edit decided it). Omit music_bed entirely and the one chosen section plays under the whole video - the absence of a decision, not a decision. A piece runs until the next piece comes in, so its length is the blocks it covers; do not name an end."
+        "description": "How the music is CONDUCTED across the piece - ordered, one entry per piece of music that plays. The bed is not one continuous stretch of one track unless you decide it is: it may be several sections of one track, disjoint sections included, or sections of several tracks. music_selection.splices names the pieces step 2.04 picked out and music_selection.tracks names every track it chose; you decide which piece plays where. Each entry: track (string, the audio_path or title of one of the chosen tracks - omit it for the primary track, which is the single-track case); source_in (number, the second of THAT file this piece starts at); starts_at_block (the spine block position this piece comes in on - REQUIRED on every entry after the first, which starts the video); crossfade_seconds (OPTIONAL number - how long this piece fades up over the one it replaces. Leave it out for a hard splice: that is the absence of a crossfade, not a request for a default one, and nothing substitutes a length); ends_at_block (OPTIONAL - the spine block position this piece stops at; what follows is silence under the picture, never a slide of the next piece. Leave it out and the piece runs until the next piece comes in, or to the piece's end for the last one); end_offset_seconds / end_offset_frames (OPTIONAL - off the ends_at_block's start, in the requester's units; both stated must agree; leave both out for the block's start); fade_out_seconds / fade_out_frames (OPTIONAL - the ramp over the piece's last seconds where it ends into silence; leave both out for a hard stop; refused beside a crossfade into the next piece - two endings); why (string, what in the measurements and in this moment of the edit decided it). Omit music_bed entirely and the one chosen section plays under the whole video - the absence of a decision, not a decision."
+      },
+      {
+        "name": "pacing",
+        "type": "list",
+        "required": false,
+        "may_be_empty": true,
+        "description": "The cut-rate plan, one window per stretch: {start_block, end_block (your own spine block positions), and exactly one of asl_seconds (the average shot length the request states) or feel (the requester's feel words, preserved without inventing a number). The build measures the placed picture against each window into pacing_report, report-only. Windows must not overlap and must name blocks on the spine."
+      },
+      {
+        "name": "max_words",
+        "type": "int",
+        "required": false,
+        "description": "When the request states a caption word limit, preserve that whole number here as the per-card ceiling consumed by plan_subtitles. Omit it when the request states no number; do not infer a count from feel words."
       }
     ]
   },

@@ -16,15 +16,19 @@ Classification: Deterministic / Data Transformation
 Idempotent: Yes
 """
 import json
-import os
-import sys
 import math
+import sys
 from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.ren_refusal import RenRefusal
 from library.tools.spine_contract import (
     block_word_end_times_timeline,
     is_speech_block,
 )
+
+
+class TransitionSpecRefused(RenRefusal):
+    """A planned transition states numbers nothing can build."""
 from library.tools.sub_block_anchor import (
     ANCHOR_ENTRY_KEYS,
     AnchorRefused,
@@ -52,9 +56,21 @@ BEAT_COINCIDENCE_TOLERANCE = 0.05
 # `lead_seconds` / `lag_seconds` state the audio offset of a J/L cut
 # (library/tools/jl_cut.py): the plan's own number for how far the ear
 # crosses before (J) or lingers after (L) the picture cut, or the anchor
-# beside it states it instead. `anchor` on a J/L entry is the AUDIO
-# cut - a word in the outgoing block (J) or the incoming one (L), a
-# beat/downbeat/bar, or a frame - never the picture cut.
+# beside it states it instead. `lead_frames` / `lag_frames` are the
+# same offset in the requester's units, when the request states frames
+# (rung 7, E3: TR3.3's "20 frames before the picture cut"). `anchor`
+# on a J/L entry is the AUDIO cut - a word in the outgoing block (J)
+# or the incoming one (L), a beat/downbeat/bar, or a frame - never the
+# picture cut.
+# `duration_frames` is the same E3 rule for the hold: the requester's
+# stated count ("a 12-frame dissolve"), winning over `duration_feel`.
+# `duration_seconds` carries a hold the requester stated in seconds;
+# the original value remains on the resolved plan beside its frame-grid
+# representation. When both units are stated they must agree within half
+# a frame.
+# `cut_point_position: "end"` addresses the end of the piece, past the
+# last block - the only addressing an end-of-piece transition takes
+# (TR3.1's dip to black out of the final shot).
 TRANSITION_ENTRY_KEYS = frozenset({
     "cut_point_position",
     "cut_point_original",
@@ -64,10 +80,23 @@ TRANSITION_ENTRY_KEYS = frozenset({
     "transition_type",
     "fallback_type",
     "duration_feel",
+    "duration_frames",
+    "duration_seconds",
     "lead_seconds",
     "lag_seconds",
+    "lead_frames",
+    "lag_frames",
     "rationale",
 } | ANCHOR_ENTRY_KEYS)
+
+#: The picture types an end-of-piece entry may carry. The end has an
+#: outgoing clip and nothing after it, so only a tail-only fade
+#: (`fade_to_black`, drawn on the last clip alone) and an end-placed
+#: native dissolve (`cross_dissolve`, which the API trails onto
+#: nothing - measured 2026-09-24) are buildable there. Anything else
+#: drops with its reason: completing it from another type would invent
+#: the gesture.
+END_CAPABLE_TYPES = ("fade_to_black", "cross_dissolve")
 
 # How far back from the end of a block's speech a beat-coincident word end
 # may be taken. About one short word: the point is to nudge a cut onto the
@@ -242,8 +271,15 @@ def _resolve_cut_block_index(trans: dict, spine_blocks: list):
     block) is never a valid cut point.  Returns None when the entry names
     no boundary at all - previously a missing position silently defaulted
     to timeline 0.0, which collapsed every transition onto one boundary.
+
+    `cut_point_position: "end"` addresses the end of the piece, past
+    the last block, and resolves to `len(spine_blocks)` - the one index
+    no block owns. The group loop reads it as the end slot (no incoming
+    block, no J/L offset, tail-only or end-placed types only).
     """
     pos = trans.get("cut_point_position")
+    if isinstance(pos, str) and pos.strip().lower() == "end":
+        return len(spine_blocks)
     if pos is not None:
         for i, b in enumerate(spine_blocks):
             if str(b["position"]) == str(pos):
@@ -363,36 +399,71 @@ def resolve_transitions(
 
     for block_idx in sorted(groups):
         entries = groups[block_idx]
-        block = spine_blocks[block_idx]
-        original_tl = block["timeline_start"]
-        outgoing = spine_blocks[block_idx - 1]
+        # The end slot: `cut_point_position: "end"` resolved past the
+        # last block. There is no incoming block, so no J/L offset and
+        # no word-end/beat-snap - the piece ends where it ends, on the
+        # last block's frame-exact end.
+        is_end = block_idx == len(spine_blocks)
+        if is_end:
+            if not spine_blocks:
+                for trans in entries:
+                    print(
+                        f"  Dropped transition {trans!r}: the spine is "
+                        f"empty, so there is no end to place it on",
+                        file=sys.stderr,
+                    )
+                continue
+            block = None
+            outgoing = spine_blocks[-1]
+            where = "the end of the piece"
+        else:
+            block = spine_blocks[block_idx]
+            outgoing = spine_blocks[block_idx - 1]
+            where = f"spine boundary {block.get('position')!r}"
 
         jl_here = [t for t in entries
                    if _jl_kind(t.get("type",
                                      t.get("transition_type", "")))
                    is not None]
+        if jl_here and is_end:
+            (jl_entry,) = jl_here
+            raise JLCutRefused(
+                what=(f"step plan_transitions J/L entry at {where}"),
+                why=("a J/L cut trims the speech row between two V1 "
+                     "blocks, and the end of the piece has no incoming "
+                     "side - there is no join to offset."),
+                fix=("re-plan the cut at a join between two V1 blocks, "
+                     "or drop it and keep the end transition's picture "
+                     "alone."),
+            )
         if len(jl_here) > 1:
             raise JLCutRefused(
                 what=(f"step plan_transitions plans two audio offsets "
-                      f"at spine boundary "
-                      f"{block.get('position')!r}"),
+                      f"at {where}"),
                 why=("one join carries one audio cut - two offsets is "
                      "an ambiguous spec, and placing one silently "
                      "would ship timing the plan did not agree on."),
-                fix=(f"re-plan a single `j_cut` or `l_cut` entry into "
-                     f"block {block.get('position')!r}, or drop one of "
-                     f"them."),
+                fix=(f"re-plan a single `j_cut` or `l_cut` entry at "
+                     f"{where}, or drop one of them."),
             )
         pic_here = [t for t in entries
                     if all(t is not j for j in jl_here)]
 
         trans_dict = None
         for pos, trans in enumerate(pic_here):
-            candidate = _resolve_picture_entry(
-                trans, block, outgoing, beat_positions, frame_rate,
-                creative_direction, brand_effect,
-                music_analysis, music_selection, index=len(resolved),
-                temporal_indices=temporal_indices)
+            if is_end:
+                candidate = _resolve_end_entry(
+                    trans, outgoing, frame_rate,
+                    creative_direction, brand_effect,
+                    music_analysis, music_selection,
+                    index=len(resolved),
+                    temporal_indices=temporal_indices)
+            else:
+                candidate = _resolve_picture_entry(
+                    trans, block, outgoing, beat_positions, frame_rate,
+                    creative_direction, brand_effect,
+                    music_analysis, music_selection, index=len(resolved),
+                    temporal_indices=temporal_indices)
             if candidate is None:
                 # Dropped for no stated hold (message already printed):
                 # the boundary stays free for the next entry, exactly
@@ -401,8 +472,7 @@ def resolve_transitions(
             trans_dict = candidate
             for dup in pic_here[pos + 1:]:
                 print(
-                    f"  Dropped duplicate transition at spine boundary "
-                    f"{block.get('position')!r}",
+                    f"  Dropped duplicate transition at {where}",
                     file=sys.stderr,
                 )
             break
@@ -415,7 +485,11 @@ def resolve_transitions(
                 index=len(resolved), temporal_indices=temporal_indices)
 
         if trans_dict is not None:
-            if attempt is not None:
+            # End-slot entries have no incoming block. `_resolve_end_entry`
+            # already restricts them to types that can draw on the final
+            # clip; the per-cut carrier table only describes joins between
+            # blocks and must not inspect `block` (which is None here).
+            if attempt is not None and not is_end:
                 reason = _unplaceable_reason(
                     trans_dict.get("transition_type", ""),
                     trans_dict.get("cut_point_timeline"),
@@ -453,6 +527,10 @@ def resolve_transitions(
         # the same surfacing the compile gives a fallback, so the
         # per-item record says what was asked and why it changed.
         t["requested_type"] = t.get("transition_type")
+        if (t.get("duration_source") in (
+                "frames", "stated_frames", "stated_frames_and_seconds")
+                and t.get("duration_frames") is not None):
+            t["requested_duration_frames"] = t["duration_frames"]
         t["transition_type"] = "hard_cut"
         t["duration_frames"] = 0
         t["downgrade_reason"] = reason
@@ -463,6 +541,183 @@ def resolve_transitions(
 
     _assert_transitions_distinct(resolved)
     return resolved
+
+
+def _refuse_duration(what: str, why: str, fix: str) -> TransitionSpecRefused:
+    return TransitionSpecRefused(what=what, why=why, fix=fix)
+
+
+def _resolve_hold(trans: dict, ttype: str, selected_trans: dict,
+                  frame_rate: float, where: str):
+    """How many frames a drawn transition holds, and whose number it is.
+
+    Returns `(dur_frames, duration_source, stated_seconds)` or None
+    when the entry drops for no stated hold (the message is printed
+    here). `stated_seconds` preserves the requester's number when the
+    request used seconds; the renderer receives the frame-grid count.
+    `duration_source` records whether the number came from frames,
+    seconds, a feel word, a brand template, or an instantaneous cut.
+    Raises `TransitionSpecRefused` where the plan states disagreeing
+    numbers, an unplaceable value, or a stated count the brand's own
+    bounds forbid - two declarations in conflict, never a choice to
+    make silently.
+    """
+    from library.tools.transition_vocabulary import is_cut
+
+    if is_cut(ttype):
+        return 0, "cut", None
+    # Duration frame calculation.
+    #
+    # How long a transition holds is PACE, and the plan is what says
+    # it. The handoff asks for the requester's stated frames or seconds,
+    # and a feel word only when the request gives no length. This used
+    # to read the brand template's `transition_duration_ms` FIRST and
+    # consult the plan only if that came out under a frame, so on project 001 a
+    # "quick" defocus and a "medium" defocus were both held for
+    # 500 ms - the top of a range in default_brand.yaml, a template
+    # the project never selected.  The model's own rationale for the
+    # second one reads "'medium' (333ms)".
+    #
+    # `duration_map` is not a choice of pace: it is the rendering of
+    # the word the model wrote into frames, the same way
+    # `audio_mix` renders a declared `music_behavior` into dB.
+    duration_map = {
+        "instant": 0,
+        "quick": int(6 * (frame_rate / 30)),
+        "medium": int(10 * (frame_rate / 30)),
+        "slow": int(15 * (frame_rate / 30)),
+    }
+    feel = trans.get("duration_feel")
+    stated_f = trans.get("duration_frames")
+    stated_s = trans.get("duration_seconds")
+    lo, hi = selected_trans.get("duration_bounds_ms", (None, None))
+    if stated_s is not None and (
+            isinstance(stated_s, bool)
+            or not isinstance(stated_s, (int, float))
+            or not math.isfinite(stated_s)
+            or stated_s < 0):
+        raise _refuse_duration(
+            f"step plan_transitions entry at {where} states "
+            f"duration_seconds {stated_s!r}, which is not a "
+            f"non-negative finite number of seconds",
+            "a transition hold must have a placeable length.",
+            f"re-plan the cut at {where} with a non-negative "
+            f"duration_seconds, or drop it.",
+        )
+    if stated_f is not None and (
+            isinstance(stated_f, bool)
+            or not isinstance(stated_f, int)
+            or stated_f < 0):
+        raise _refuse_duration(
+            f"step plan_transitions entry at {where} states "
+            f"duration_frames {stated_f!r}, which is not a "
+            f"non-negative whole number of frames",
+            "frames place on the timeline's own grid - a fractional, "
+            "negative, or non-numeric frame count is not placeable.",
+            f"re-plan the cut at {where} with duration_frames as "
+            f"non-negative whole frames, or drop it.",
+        )
+
+    seconds_frames = (round(float(stated_s) * frame_rate)
+                      if stated_s is not None else None)
+    if (stated_f is not None and stated_s is not None
+            and abs(float(stated_s) * frame_rate - stated_f) > 0.5 + 1e-9):
+        raise _refuse_duration(
+            f"step plan_transitions entry at {where} states "
+            f"duration_seconds {stated_s:g}s "
+            f"({float(stated_s) * frame_rate:g} frames at "
+            f"{frame_rate:g} fps) and duration_frames {stated_f}",
+            "two numbers for one hold disagree by more than half "
+            "a frame.",
+            f"re-plan the cut at {where} with seconds and frames "
+            f"agreeing, or state only the requester's unit.",
+        )
+
+    explicit_frames = stated_f if stated_f is not None else seconds_frames
+    if (explicit_frames is not None and feel in duration_map
+            and duration_map[feel] != explicit_frames):
+        raise _refuse_duration(
+            f"step plan_transitions entry at {where} states "
+            f"duration_feel {feel!r} "
+            f"({duration_map[feel]} frames at {frame_rate:g} fps) "
+            f"beside an explicit duration of {explicit_frames} frames",
+            "two numbers for one hold is an ambiguous spec - "
+            "picking one silently would ship a hold the plan did "
+            "not agree on.",
+            f"re-plan the cut at {where} with the feel and explicit "
+            f"duration agreeing, or state only one of them.",
+        )
+
+    if explicit_frames is not None:
+        # A brand's {min, max} is a permission, so a stated count it
+        # forbids is two declarations in conflict - refused, never
+        # clamped silently: clamping would ship a hold neither the
+        # requester nor the template agreed on.
+        lo_f = (int((lo / 1000.0) * frame_rate)
+                if lo is not None else None)
+        hi_f = (int((hi / 1000.0) * frame_rate)
+                if hi is not None else None)
+        if ((lo_f is not None and explicit_frames > 0
+             and explicit_frames < lo_f)
+                or (hi_f is not None and explicit_frames > 0
+                    and explicit_frames > hi_f)):
+            raise _refuse_duration(
+                f"step plan_transitions entry at {where} states a "
+                f"{explicit_frames}-frame hold, outside the selected "
+                f"brand template's transition bounds "
+                f"({lo}ms-{hi}ms, {lo_f}-{hi_f} frames at "
+                f"{frame_rate:g} fps)",
+                "the template's bounds are a permission, and the "
+                "stated hold exceeds what it permits.",
+                f"re-plan the cut at {where} inside the template's "
+                f"bounds, or widen the template's transition "
+                f"duration range.",
+            )
+        if stated_f is not None and stated_s is not None:
+            source = "stated_frames_and_seconds"
+        elif stated_f is not None:
+            source = "stated_frames"
+        elif feel in duration_map:
+            source = "stated_seconds_and_feel"
+        else:
+            source = "stated_seconds"
+        return explicit_frames, source, (
+            float(stated_s) if stated_s is not None else None)
+
+    if feel in duration_map:
+        dur_frames = duration_map[feel]
+        # A brand's {min, max} is a permission, so it BOUNDS the
+        # plan's choice rather than replacing it.
+        # `instant` is zero frames: the plan asking for no hold.
+        # Clamping it up to the brand's minimum would give it one.
+        if lo is not None and dur_frames > 0:
+            dur_frames = max(dur_frames, int((lo / 1000.0) * frame_rate))
+        if hi is not None and dur_frames > 0:
+            dur_frames = min(dur_frames, int((hi / 1000.0) * frame_rate))
+        return dur_frames, "feel", None
+    declared_ms = selected_trans.get("duration_ms")
+    if declared_ms:
+        # The plan declared no pace and the brand declared ONE
+        # length (a scalar, not a range). That is a chosen value.
+        return int((declared_ms / 1000.0) * frame_rate), "brand_only", None
+    # DROPPED, with the reason.  A drawn transition needs a
+    # length, and neither the plan nor a selected brand
+    # template gave one - so there is nothing to hold it for
+    # that anybody chose.  Emitting it at zero frames leaves a
+    # `defocus` in the spec that draws nothing and says
+    # nothing, which is the unread-parameter failure of
+    # AGENTS.md 10.2; completing it from a constant is the
+    # invented-taste failure of 10.5.  This is the third
+    # option that rule names: drop it and say so.
+    print(
+        f"  Dropped {ttype!r} at {where}: the plan declares no "
+        f"duration_feel ({feel!r}), duration_frames, or "
+        f"duration_seconds and no selected brand "
+        f"template declares a single transition duration, so "
+        f"nothing has said how long to hold it",
+        file=sys.stderr,
+    )
+    return None
 
 
 def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
@@ -493,66 +748,12 @@ def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
 
     ttype = selected_trans["type"]
 
-# Duration frame calculation.
-#
-# How long a transition holds is PACE, and the plan is what says
-# it.  The handoff asks the model for a `duration_feel` on every
-    # drawn transition and it answers one; this used to read the
-    # brand template's `transition_duration_ms` FIRST and consult the
-    # plan only if that came out under a frame, so on project 001 a
-    # "quick" defocus and a "medium" defocus were both held for
-    # 500 ms - the top of a range in default_brand.yaml, a template
-    # the project never selected.  The model's own rationale for the
-    # second one reads "'medium' (333ms)".
-    #
-    # `duration_map` is not a choice of pace: it is the rendering of
-    # the word the model wrote into frames, the same way
-    # `audio_mix` renders a declared `music_behavior` into dB.
-    if is_cut(ttype):
-        dur_frames = 0
-    else:
-        duration_map = {
-            "instant": 0,
-            "quick": int(6 * (frame_rate / 30)),
-            "medium": int(10 * (frame_rate / 30)),
-            "slow": int(15 * (frame_rate / 30)),
-        }
-        feel = trans.get("duration_feel")
-        declared_ms = selected_trans.get("duration_ms")
-        if feel in duration_map:
-            dur_frames = duration_map[feel]
-            # A brand's {min, max} is a permission, so it BOUNDS the
-            # plan's choice rather than replacing it.
-            lo, hi = selected_trans.get("duration_bounds_ms", (None, None))
-            # `instant` is zero frames: the plan asking for no hold.
-            # Clamping it up to the brand's minimum would give it one.
-            if lo is not None and dur_frames > 0:
-                dur_frames = max(dur_frames, int((lo / 1000.0) * frame_rate))
-            if hi is not None and dur_frames > 0:
-                dur_frames = min(dur_frames, int((hi / 1000.0) * frame_rate))
-        elif declared_ms:
-            # The plan declared no pace and the brand declared ONE
-            # length (a scalar, not a range). That is a chosen value.
-            dur_frames = int((declared_ms / 1000.0) * frame_rate)
-        else:
-            # DROPPED, with the reason.  A drawn transition needs a
-            # length, and neither the plan nor a selected brand
-            # template gave one - so there is nothing to hold it for
-            # that anybody chose.  Emitting it at zero frames leaves a
-            # `defocus` in the spec that draws nothing and says
-            # nothing, which is the unread-parameter failure of
-            # AGENTS.md 10.2; completing it from a constant is the
-            # invented-taste failure of 10.5.  This is the third
-            # option that rule names: drop it and say so.
-            print(
-                f"  Dropped {ttype!r} at spine boundary "
-                f"{block.get('position')!r}: the plan declares no "
-                f"duration_feel ({feel!r}) and no selected brand "
-                f"template declares a single transition duration, so "
-                f"nothing has said how long to hold it",
-                file=sys.stderr,
-            )
-            return None
+    held = _resolve_hold(
+        trans, ttype, selected_trans, frame_rate,
+        where=(f"spine boundary {block.get('position')!r}"))
+    if held is None:
+        return None
+    dur_frames, duration_source, duration_seconds = held
 
     # Resolve the precise cut point. A sub-block anchor wins
     # exactly: the plan named the word, beat or frame, so the
@@ -567,9 +768,19 @@ def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
     trans_dict = {
         "transition_id": f"trans_tmp_{index+1:03d}",
         "cut_point_timeline": round(cut_time, 3),
+        **({"cut_point_frame": cut_info["cut_frame"]}
+           if "cut_frame" in cut_info else {}),
         "cut_point_original": round(original_tl, 3),
         "transition_type": ttype,
         "duration_frames": dur_frames,
+        **({"duration_feel": trans["duration_feel"]}
+           if trans.get("duration_feel") is not None else {}),
+        # E3 receipt: whose number the hold is - the requester's
+        # stated frames / seconds, a feel word, the template's single
+        # length, or zero because the type is a cut.
+        "duration_source": duration_source,
+        **({"duration_seconds": duration_seconds}
+           if duration_seconds is not None else {}),
         "beat_aligned": beat_aligned,
         "snap_delta_seconds": snap_delta,
         # How far the resolved cut ended up from the block boundary
@@ -590,6 +801,117 @@ def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
         "downgrade_reason": selected_trans["downgrade_reason"],
     }
     return trans_dict
+
+
+def _resolve_end_entry(trans: dict, outgoing: dict,
+                       frame_rate: float,
+                       creative_direction: dict, brand_effect: dict,
+                       music_analysis, music_selection,
+                       index: int = 0,
+                       temporal_indices: list = None):
+    """Resolve an end-of-piece transition entry to its spec dict.
+
+    TR3.1's dip to black out of the final shot: the plan addresses the
+    end with `cut_point_position: "end"`, and only a tail-only fade
+    (`fade_to_black`, drawn on the last clip alone) or an end-placed
+    native dissolve (`cross_dissolve`) can sit there - anything else
+    drops with its reason, because completing it from another type
+    would invent the gesture. A cut type drops too: the piece ending
+    is not a cut. Returns None on a drop (message printed here).
+
+    The returned dict carries `at_end: true`, which `compile_manifest`
+    reads to place the tail-only / end-placed build instead of looking
+    for an incoming clip that does not exist.
+    """
+    from library.tools.transition_selector import select_transition
+
+    # The selector reads two clips for its content heuristics; the end
+    # has one. The requested type wins when drawable and allowed, which
+    # is the end-slot case the handoff asks for - so both sides read
+    # the outgoing clip and the heuristics never fire on a stated type.
+    # An end entry with no stated type drops below (nothing to place),
+    # never a heuristic's choice.
+    selected_trans = select_transition(
+        from_clip=outgoing,
+        to_clip=outgoing,
+        brand_effect=brand_effect,
+        creative_direction=creative_direction,
+        requested_type=trans.get("type", trans.get("transition_type", "")),
+        fallback_type=trans.get("fallback_type", ""),
+    )
+
+    ttype = selected_trans["type"]
+
+    if ttype not in END_CAPABLE_TYPES:
+        print(
+            f"  Dropped {ttype!r} at the end of the piece: only "
+            f"{' and '.join(END_CAPABLE_TYPES)} can sit there - the "
+            f"end has an outgoing clip and nothing after it, so a "
+            f"transition needing two pictures has no head half to "
+            f"draw",
+            file=sys.stderr,
+        )
+        return None
+
+    held = _resolve_hold(
+        trans, ttype, selected_trans, frame_rate,
+        where="the end of the piece")
+    if held is None:
+        return None
+    dur_frames, duration_source, duration_seconds = held
+
+    end_time = float(outgoing["timeline_end"])
+    if trans.get("anchor_end") is not None:
+        raise AnchorRefused(
+            what=("step plan_transitions end entry anchor_end names an "
+                  "end anchor on the end of the piece"),
+            why=("the end is one point in time: the entry carries "
+                 "`anchor_end` and nothing in this step reads it "
+                 "as an end."),
+            fix=("re-plan the end transition with `anchor` alone for "
+                 "the point it lands on, or drop `anchor_end` - and "
+                 "note the end defaults to the last block's end."),
+        )
+    cut_frame = None
+    if trans.get("anchor") is not None:
+        from library.tools.sub_block_anchor import resolve_anchor
+        hit = resolve_anchor(
+            trans["anchor"], block=outgoing,
+            music_analysis=music_analysis,
+            music_selection=music_selection,
+            temporal_indices=temporal_indices,
+            frame_rate=frame_rate, step="plan_transitions",
+            plan="transition_creative",
+            index=index)
+        cut_time = hit["timeline_seconds"]
+        cut_frame = hit["frame"]
+        method = f"anchor: {hit['method']}"
+    else:
+        cut_time = end_time
+        method = "timeline-end"
+
+    return {
+        "transition_id": f"trans_tmp_{index+1:03d}",
+        "cut_point_timeline": round(cut_time, 3),
+        **({"cut_point_frame": cut_frame} if cut_frame is not None else {}),
+        "cut_point_original": round(end_time, 3),
+        "transition_type": ttype,
+        "duration_frames": dur_frames,
+        **({"duration_feel": trans["duration_feel"]}
+           if trans.get("duration_feel") is not None else {}),
+        "duration_source": duration_source,
+        **({"duration_seconds": duration_seconds}
+           if duration_seconds is not None else {}),
+        "at_end": True,
+        "beat_aligned": False,
+        "snap_delta_seconds": 0.0,
+        "displacement_seconds": round(cut_time - end_time, 3),
+        "placement_method": method,
+        "word_beat_coincidence": False,
+        "rationale": trans.get("rationale", ""),
+        "requested_type": selected_trans["requested_type"],
+        "downgrade_reason": selected_trans["downgrade_reason"],
+    }
 
 
 def _resolve_picture_cut(trans: dict | None, block: dict, outgoing: dict,
@@ -626,6 +948,7 @@ def _resolve_picture_cut(trans: dict | None, block: dict, outgoing: dict,
             index=index)
         cut_time = hit["timeline_seconds"]
         cut_info = {"cut_time": cut_time,
+                    "cut_frame": hit["frame"],
                     "method": f"anchor: {hit['method']}",
                     "word_beat_coincidence": False}
     else:
@@ -707,8 +1030,22 @@ def _attach_jl_offset(jl_entry: dict, trans_dict: dict | None,
                  f"or drop it."),
         )
     from library.tools.frame_utils import seconds_to_frame
-    boundary_frame = seconds_to_frame(float(block["timeline_start"]),
-                                      frame_rate)
+    if "timeline_start_frame" in block:
+        boundary_frame = block["timeline_start_frame"]
+        if (isinstance(boundary_frame, bool)
+                or not isinstance(boundary_frame, int)):
+            raise JLCutRefused(
+                what=(f"the {join_label} has an unreadable shared boundary "
+                      f"frame {boundary_frame!r}"),
+                why=("the mesh spine carries one authoritative frame at the "
+                     "join; re-rounding a malformed value from seconds would "
+                     "invent a different boundary."),
+                fix=("re-run step 2.05 (mesh_spine) so its shared frame "
+                     "boundary reaches the transition planner."),
+            )
+    else:
+        boundary_frame = seconds_to_frame(float(block["timeline_start"]),
+                                          frame_rate)
     boundary_seconds = boundary_frame / float(frame_rate)
     if trans_dict is None:
         # A J/L-only boundary ships the hard cut it already is, AT

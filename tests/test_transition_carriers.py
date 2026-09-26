@@ -96,10 +96,17 @@ SPINE_001 = [
 def test_a_cut_out_of_a_transition_slot_cannot_carry_one():
     """The rule that failed 001's run, on 001's own spine."""
     rows = {r["position"]: r for r in cut_carriers(SPINE_001)}
-    assert len(rows) == 15
+    # Fifteen cuts plus the rung-7 end-of-piece row: 001 ends on
+    # speech, so the end carries a tail-only fade out of V1.
+    assert len(rows) == 16
 
     unbuildable = sorted(p for p, r in rows.items() if not r["can_carry"])
     assert unbuildable == ["14", "2", "5", "7", "9"]
+    assert rows["end"]["can_carry"] is True
+    assert rows["end"]["cut_time"] == 59.437
+    assert rows["end"]["basis"] == (
+        "outgoing speech on V1, nothing follows: the end of the piece "
+        "- a tail-only fade or an end-placed native dissolve only")
 
     for position in unbuildable:
         assert rows[position]["basis"] == (
@@ -174,6 +181,14 @@ def test_the_compiler_accepts_every_cut_the_table_calls_buildable():
     ]
 
     for row in cut_carriers(SPINE_001):
+        if row["position"] == "end":
+            # The end row's "yes" is a different shape - a tail-only
+            # fade / end-placed dissolve, never a two-picture draw -
+            # so the two-picture agreement below does not reach it.
+            # Its own agreement is tested in
+            # test_end_transition_placement.py, against the compile's
+            # end-slot routing.
+            continue
         idx = module._v1_index_ending_at(v1_clips, row["cut_time"])
         buildable = idx is not None and idx + 1 < len(v1_clips)
         assert buildable == row["can_carry"], (
@@ -204,12 +219,14 @@ def test_the_fact_reaches_the_table_the_prompt_reads():
     })
 
     header = out["cuts_toon"].splitlines()[0]
-    assert header == "[15]{" + ",".join(CUTS_HEADERS) + "}"
+    # Fifteen cuts plus the rung-7 end-of-piece row.
+    assert header == "[16]{" + ",".join(CUTS_HEADERS) + "}"
 
     rows = [line.split("\t") for line in out["cuts_toon"].splitlines()[1:]]
     verdicts = {r[0]: r[3] for r in rows}
     assert [p for p, v in verdicts.items() if v == "no"] == [
         "2", "5", "7", "9", "14"]
+    assert verdicts["end"] == "yes"
 
     # The definition is in the PROMPT now, not shipped beside the table.
     # The freeze that forced a `cuts_legend` dict was lifted 2026-09-09,
@@ -234,8 +251,9 @@ def test_the_bridge_filters_nothing_and_re_ranks_nothing():
         "b_roll_assignments": [],
     })
     rows = [line.split("\t") for line in out["cuts_toon"].splitlines()[1:]]
-    assert [r[0] for r in rows] == [b["position"] for b in SPINE_001[1:]]
-    assert len(rows) == len(SPINE_001) - 1
+    assert [r[0] for r in rows] == (
+        [b["position"] for b in SPINE_001[1:]] + ["end"])
+    assert len(rows) == len(SPINE_001)
 
 
 def _derived_column_prose() -> str:
@@ -275,6 +293,13 @@ def test_the_definition_states_what_a_column_is_and_never_what_to_do():
         assert steer not in lowered, f"{steer!r} in the column definitions"
 
 
-@pytest.mark.parametrize("structure", [None, [], [speech("1", 0.0, 1.0)]])
+@pytest.mark.parametrize("structure", [None, []])
 def test_a_spine_with_no_cuts_yields_no_rows(structure):
     assert cut_carriers(structure) == []
+
+
+def test_a_single_block_spine_yields_only_the_end_row():
+    """No cuts, but the piece still ends: the end row is not a cut row."""
+    (row,) = cut_carriers([speech("1", 0.0, 1.0)])
+    assert row["position"] == "end"
+    assert row["can_carry"] is True

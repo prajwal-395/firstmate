@@ -151,6 +151,83 @@ ANCHOR_BACKUP_SECONDS = 2.0
 SOURCE_OVERLAP_EPSILON = 1e-3
 
 
+def _resolve_stated_trim(passage: dict, label: str, frame_rate):
+    """`(head_seconds, tail_seconds, note)` the plan stated on a passage.
+
+    Rung 7 (finding 33, C3.1): a trim the request states in frames or
+    seconds ("trim 4f off the head of shot 2") is honored to the frame
+    AFTER word alignment - the aligner no longer re-anchors the bound
+    back to the word. E3: frames when the request states frames,
+    seconds when it states seconds; both forms on one edge must agree
+    past half a frame. Frames with no timebase refuse - there is no
+    grid to honor them on. A negative trim refuses: cutting past the
+    bound's own edge is not a trim.
+    """
+    head_f = passage.get("trim_head_frames")
+    tail_f = passage.get("trim_tail_frames")
+    head_s = passage.get("trim_head_seconds")
+    tail_s = passage.get("trim_tail_seconds")
+    for name, value in (("trim_head_frames", head_f),
+                        ("trim_tail_frames", tail_f)):
+        if value is None:
+            continue
+        if (isinstance(value, bool) or not isinstance(value, int)
+                or value < 0):
+            raise PassageAlignmentError(
+                f"{label}: {name} {value!r} is not a non-negative whole "
+                f"number of frames - a stated trim is an exact count, "
+                f"and nothing here rounds one into shape"
+            )
+    for name, value in (("trim_head_seconds", head_s),
+                        ("trim_tail_seconds", tail_s)):
+        if value is None:
+            continue
+        if (isinstance(value, bool)
+                or not isinstance(value, (int, float)) or value < 0):
+            raise PassageAlignmentError(
+                f"{label}: {name} {value!r} is not a non-negative "
+                f"number of seconds"
+            )
+    if ((head_f is not None or tail_f is not None)
+            and not frame_rate):
+        raise PassageAlignmentError(
+            f"{label}: states a trim in frames but the run carried no "
+            f"project_fps - frames have no grid without the timebase. "
+            f"Re-run with the catalog's project_fps routed to "
+            f"speech_sequence, or state the trim in seconds."
+        )
+    fps = float(frame_rate) if frame_rate else 30.0
+    half = 0.5 / fps
+
+    def _edge(frames, seconds, f_name, s_name):
+        if frames is not None and seconds is not None:
+            from_frames = frames / fps
+            if abs(from_frames - float(seconds)) > half + 1e-9:
+                raise PassageAlignmentError(
+                    f"{label}: {f_name} {frames} ({from_frames:.3f}s) "
+                    f"disagrees with {s_name} {float(seconds):.3f}s by "
+                    f"more than half a frame - two numbers for one "
+                    f"trim is an ambiguous spec"
+                )
+            return from_frames, (
+                f"{frames} frames (agrees with stated {s_name} "
+                f"{float(seconds):.3f}s)")
+        if frames is not None:
+            return frames / fps, f"{frames} frames"
+        if seconds is not None:
+            return float(seconds), f"{float(seconds):.3f}s"
+        return 0.0, ""
+
+    head, head_note = _edge(head_f, head_s, "trim_head_frames",
+                            "trim_head_seconds")
+    tail, tail_note = _edge(tail_f, tail_s, "trim_tail_frames",
+                            "trim_tail_seconds")
+    note = "; ".join(n for n in
+                     (f"head {head_note}" if head_note else "",
+                      f"tail {tail_note}" if tail_note else "") if n)
+    return head, tail, note
+
+
 def normalize(text: str) -> str:
     """Normalize text for comparison: lowercase, strip punctuation."""
     text = text.lower().strip()
@@ -587,6 +664,10 @@ def _report_anchor(label: str, clip_id: str, enrichment: dict,
         "anchors_considered": alignment.get("anchors_considered"),
         "hint_nearest_start": alignment.get("hint_nearest_start"),
         "chosen_start": alignment.get("chosen_start"),
+        # Rung 7: the stated trim this passage carried, if any - the
+        # durable half of "honored to the frame", read by whoever was
+        # not watching the run.
+        "stated_trim": enrichment.get("stated_trim"),
     }
     report.append(entry)
 
@@ -625,6 +706,7 @@ def enrich_speech_sequence(
     speech_sequence: dict,
     temporal_index_dir: str,
     audio_index_errors: dict = None,
+    frame_rate: float = None,
 ) -> dict:
     """Enrich all passages with word timestamps from temporal index.
 
@@ -649,7 +731,13 @@ def enrich_speech_sequence(
     refuse_unknown_keys(
         speech_sequence.get("body_sequence", []),
         {"clip_id", "source_start", "source_end", "text", "position",
-         "engagement"},
+         "engagement",
+         # Rung 7 (finding 33): a trim the request states, honored to
+         # the frame after alignment instead of re-anchored to the
+         # word. Frames when the request states frames, seconds when
+         # it states seconds (E3).
+         "trim_head_frames", "trim_tail_frames",
+         "trim_head_seconds", "trim_tail_seconds"},
         step="speech_sequence", plan="body_sequence")
 
     # Cache loaded temporal indices
@@ -817,6 +905,43 @@ def enrich_speech_sequence(
                 f"{enrichment['end_time']:.2f}s"
             )
 
+        # A stated trim applies AFTER alignment, to the aligned span -
+        # never to the hint, which the aligner is free to leave. This
+        # is what stops finding 33: the trim survives to the frame
+        # instead of being re-anchored back to the word. The words
+        # stay as measured (a head trim can land mid-word, and the
+        # requester owns that cut); only the played bounds move. The
+        # overlap claim below therefore reads the TRIMMED span: audio
+        # the trim left unplayed is free for the next passage.
+        trim_head_s, trim_tail_s, trim_note = _resolve_stated_trim(
+            passage, label, frame_rate)
+        if trim_head_s or trim_tail_s:
+            trimmed_start = enrichment["start_time"] + trim_head_s
+            trimmed_end = enrichment["end_time"] - trim_tail_s
+            min_span = (1.0 / frame_rate) if frame_rate else 0.0
+            if trimmed_end - trimmed_start < min_span - 1e-9:
+                raise PassageAlignmentError(
+                    f"{label}: stated trim ({trim_note}) eats the whole "
+                    f"passage ({enrichment['start_time']:.3f}-"
+                    f"{enrichment['end_time']:.3f}s in {clip_id}) - a "
+                    f"trim that removes the passage is a deletion, not "
+                    f"a trim"
+                )
+            print(
+                f"  {label}: stated trim {trim_note} honored - "
+                f"{enrichment['start_time']:.3f}-"
+                f"{enrichment['end_time']:.3f}s in {clip_id} becomes "
+                f"{trimmed_start:.3f}-{trimmed_end:.3f}s",
+                file=sys.stderr,
+            )
+            enrichment["start_time"] = trimmed_start
+            enrichment["end_time"] = trimmed_end
+            enrichment["stated_trim"] = {
+                "trim_head_seconds": round(trim_head_s, 3),
+                "trim_tail_seconds": round(trim_tail_s, 3),
+                "note": trim_note,
+            }
+
         hint_drift = max(
             abs(enrichment["start_time"] - start),
             abs(enrichment["end_time"] - end),
@@ -939,7 +1064,8 @@ def main():
 
     enriched = enrich_speech_sequence(
         speech_sequence, ti_dir,
-        audio_index_errors=audio_index_errors)
+        audio_index_errors=audio_index_errors,
+        frame_rate=data.get("project_fps"))
 
     # No passage count check. How many passages the edit needs is a
     # creative decision driven by the duration target and the footage.

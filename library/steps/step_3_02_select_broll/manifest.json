@@ -107,7 +107,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "B-roll selections. Each: clip_id (from broll_candidates_toon), spine_block_position, preferred_moment, selection_rationale. NEVER select the clip the block's A-roll already shows. Empty is a legitimate answer when every block already plays its own picture and no interjection is earned (the handoff sets no required number, captain's ruling 2026-08-20); the post-bridge still refuses a block with no V1 picture left uncovered."
+        "description": "B-roll selections. Each: clip_id (from broll_candidates_toon), spine_block_position, preferred_moment, selection_rationale, plus OPTIONAL slip_seconds / slip_frames (rung 7, CT3.3: a stated source slip shifting the chosen window at the same timeline position and duration - seconds or frames as the request states them, both agreeing; a slip past the file's ends refuses). NEVER select the clip the block's A-roll already shows. Empty is a legitimate answer when every block already plays its own picture and no interjection is earned (the handoff sets no required number, captain's ruling 2026-08-20); the post-bridge still refuses a block with no V1 picture left uncovered."
       },
       {
         "name": "b_roll_interjections",

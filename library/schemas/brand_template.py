@@ -61,6 +61,11 @@ class EffectSlots:
     # "lowercase" | "as_written".  See DEFAULT_CAPTION_CASE above and
     # ABSENT_SLOT_READINGS in library/tools/brand_registry.py.
     caption_case: str = DEFAULT_CAPTION_CASE
+    # Rung 7 (finding 31): words per caption card. None is "declares
+    # nothing" and reads as the grouping default (6); a series that
+    # wants short cards ("2 words max") declares the number, and the
+    # per-request form will ride the same slot when rung 6 routes it.
+    caption_words_per_card: Optional[int] = None
     # Motion graphics (P3.1). Both default to today's behaviour: the
     # corner accents and the progress bar were drawn unconditionally, and
     # whether the house style should keep them is Q3, a captain's call.
@@ -202,7 +207,8 @@ class BrandTemplate:
                             }
                         },
                         "sfx_density": {"type": "string", "enum": ["", "sparse", "moderate", "dense"]},
-                        "caption_case": {"type": "string", "enum": ["lowercase", "as_written"], "default": "lowercase"}
+                        "caption_case": {"type": "string", "enum": ["lowercase", "as_written"], "default": "lowercase"},
+                        "caption_words_per_card": {"type": "integer", "minimum": 1, "description": "Words per caption card (rung 7, finding 31). Omit for the grouping default of 6. See library/steps/step_4_01_plan_subtitles/step.py."}
                     }
                 },
                 "content": {

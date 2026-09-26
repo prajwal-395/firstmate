@@ -723,7 +723,29 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
 
     start = float(block["timeline_start"])
     stop = float(block["timeline_end"])
-    if not (start - 1e-9 <= moment <= stop + 1e-9):
+    # Mesh-spine boundaries are authored once on the shared frame cursor.
+    # Their seconds fields are millisecond-rounded for older consumers, so
+    # checking an exact frame anchor against those display values can put a
+    # valid boundary a fraction of a frame outside its own block. Compare on
+    # the same frame grid the build and the spine share whenever those fields
+    # are present; only pre-frame spine state needs the seconds fallback.
+    if "timeline_start_frame" in block or "timeline_end_frame" in block:
+        start_frame = block.get("timeline_start_frame")
+        end_frame = block.get("timeline_end_frame")
+        if (isinstance(start_frame, bool)
+                or not isinstance(start_frame, int)
+                or isinstance(end_frame, bool)
+                or not isinstance(end_frame, int)):
+            raise _refuse(
+                step, plan, index, end,
+                f"block {block.get('position')!r} has an unreadable frame "
+                f"span ({start_frame!r}-{end_frame!r})",
+                "re-run step 2.05 (mesh_spine) so its shared frame "
+                "boundaries reach the anchor planner.")
+        inside = start_frame <= seconds_to_frame(moment, frame_rate) <= end_frame
+    else:
+        inside = start - 1e-9 <= moment <= stop + 1e-9
+    if not inside:
         raise _refuse(
             step, plan, index, end,
             f"{method} lands at {moment:.3f}s, outside block "

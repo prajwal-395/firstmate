@@ -194,6 +194,35 @@ def main():
             "incoming_footage": get_desc(curr_sem)
         })
 
+    # The end of the piece (rung 7, TR3.1): one row addressed "end",
+    # saying whether the last block puts a V1 clip on the timeline to
+    # fade or dissolve out of. The plan addresses it with
+    # `cut_point_position: "end"` and only a tail-only fade or an
+    # end-placed native dissolve may sit there - the row states the
+    # fact, exactly like every cut row above it, and chooses nothing.
+    if spine_blocks:
+        last_block = spine_blocks[-1]
+        end_carrier = carriers.get("end", {})
+        end_time = last_block.get("timeline_end",
+                                  last_block.get("timeline_start", 0.0))
+        cut_rows.append({
+            "cut_point_position": "end",
+            "cut_time": f"{end_time:.2f}",
+            "type": (f"{last_block.get('block_type', 'unknown')}"
+                     f"-to-end-of-piece"),
+            "can_carry_drawn_transition": end_carrier.get("verdict", ""),
+            "carry_basis": end_carrier.get("basis", ""),
+            "narrative_verdict": "unjudged",
+            "verdict_note": "",
+            "beat_near_cut": "No",
+            "outgoing_motion": block_motion(last_block),
+            "incoming_motion": "end of piece",
+            "outgoing_footage": get_desc(
+                semantic_lookup.get(block_clip_id(last_block), {})
+                if block_clip_id(last_block) else {}),
+            "incoming_footage": "nothing follows",
+        })
+
     cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage"], cut_rows)
 
     # The four derived columns are DEFINED in this step's handoff.md
@@ -207,9 +236,13 @@ def main():
 
     # How much of the review's judgement is missing, said rather than
     # left to be inferred from a column of `unjudged`. Empty when every
-    # cut was judged, and absent from the context in that case.
+    # cut was judged, and absent from the context in that case. The
+    # "end" row is not a cut and the review never judges it, so it
+    # stays out of the count - otherwise every fully-judged run would
+    # newly report one unjudged row.
     unjudged = cv.unjudged_summary(
-        verdicts, [row["cut_point_position"] for row in cut_rows])
+        verdicts, [row["cut_point_position"] for row in cut_rows
+                   if row["cut_point_position"] != "end"])
     if unjudged:
         compressed["cuts_unjudged"] = unjudged
     

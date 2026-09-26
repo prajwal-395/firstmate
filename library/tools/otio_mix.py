@@ -240,7 +240,8 @@ def _volume_parameter_of(clip: dict):
 def music_curve(automation: list, *, fps: float, clip_start_frame: int,
                 clip_frame_count: int, fade_seconds: float,
                 crossfade_in_seconds: float = 0.0,
-                crossfade_out_seconds: float = 0.0) -> dict:
+                crossfade_out_seconds: float = 0.0,
+                fade_out_seconds: float = 0.0) -> dict:
     """The bed's level over one music clip, as clip-relative keyframes.
 
     `automation` is `audio_mix.music_automation` verbatim - one entry per
@@ -293,6 +294,16 @@ def music_curve(automation: list, *, fps: float, clip_start_frame: int,
                 + [(f, v) for f, v in keys if f > ramp])
     if crossfade_out_seconds > 0:
         ramp = min(last_frame, max(1, int(round(crossfade_out_seconds * fps))))
+        hold = max(0, last_frame - ramp)
+        keys = ([(f, v) for f, v in keys if f < hold]
+                + [(hold, _level_at(keys, hold)), (last_frame, MIN_VOLUME_DB)])
+    # Rung 7: the plan's stated fade-out - the ramp down over the
+    # piece's last seconds where it ends into silence (SD3.2's "music
+    # out with a 2-second fade"). Same gesture as a crossfade-out, and
+    # refused beside one on the same segment (library/tools/music_bed),
+    # so the two never compose here.
+    if fade_out_seconds > 0:
+        ramp = min(last_frame, max(1, int(round(fade_out_seconds * fps))))
         hold = max(0, last_frame - ramp)
         keys = ([(f, v) for f, v in keys if f < hold]
                 + [(hold, _level_at(keys, hold)), (last_frame, MIN_VOLUME_DB)])
@@ -488,7 +499,9 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
                 crossfade_in_seconds=float(
                     clip.get("crossfade_in_seconds") or 0.0),
                 crossfade_out_seconds=float(
-                    clip.get("crossfade_out_seconds") or 0.0)),
+                    clip.get("crossfade_out_seconds") or 0.0),
+                fade_out_seconds=float(
+                    clip.get("fade_out_seconds") or 0.0)),
             "label": clip.get("label", os.path.basename(source)),
         })
 
@@ -509,14 +522,16 @@ def mix_targets(manifest: dict, *, fps: float) -> list:
                 "level_db": float(level),
                 "keyframes": declick_curve(
                     float(clip.get("fade_out_seconds") or 0.0),
-                    fps=fps, clip_frame_count=frames, level_db=float(level)),
+                    fps=fps, clip_frame_count=frames, level_db=float(level),
+                    fade_in_seconds=float(
+                        clip.get("fade_in_seconds") or 0.0)),
                 "label": clip.get("label", os.path.basename(source)),
             })
     return targets
 
 
 def declick_curve(fade_seconds: float, *, fps: float, clip_frame_count: int,
-                  level_db: float) -> dict:
+                  level_db: float, fade_in_seconds: float = 0.0) -> dict:
     """The ramp at the out point of a sound the plan CUT SHORT.
 
     A sound played to its own end has nothing to ramp and gets `{}` - a
@@ -531,18 +546,33 @@ def declick_curve(fade_seconds: float, *, fps: float, clip_frame_count: int,
     addressed by FRAME and one is the shortest this format can carry.
     Nothing is chosen here; this turns a measured number into the two
     keys that deliver it.
+
+    `fade_in_seconds` (rung 7) is the plan's stated head ramp - silence
+    to level over the first seconds. Absent it the curve starts at
+    level, exactly as before.
     """
-    if fade_seconds <= 0 or clip_frame_count <= 1:
+    if ((fade_seconds <= 0 and fade_in_seconds <= 0)
+            or clip_frame_count <= 1):
         return {}
     last_frame = clip_frame_count - 1
-    ramp = max(1, int(round(fade_seconds * fps)))
-    hold = last_frame - ramp
-    if hold < 0:
-        hold = 0
-    if hold >= last_frame:
-        hold = last_frame - 1
-    return _tidy([(0, level_db), (hold, level_db),
-                  (last_frame, MIN_VOLUME_DB)], last_frame)
+    keys = []
+    if fade_in_seconds > 0:
+        ramp_in = max(1, int(round(fade_in_seconds * fps)))
+        keys += [(0, MIN_VOLUME_DB),
+                 (min(ramp_in, last_frame), level_db)]
+    else:
+        keys += [(0, level_db)]
+    if fade_seconds > 0:
+        ramp = max(1, int(round(fade_seconds * fps)))
+        hold = last_frame - ramp
+        if hold < 0:
+            hold = 0
+        if hold >= last_frame:
+            hold = last_frame - 1
+        keys += [(hold, level_db), (last_frame, MIN_VOLUME_DB)]
+    else:
+        keys += [(last_frame, level_db)]
+    return _tidy(keys, last_frame)
 
 
 def _start_frame(clip: dict, fps: float) -> int:

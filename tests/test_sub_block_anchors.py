@@ -172,6 +172,23 @@ def test_frame_anchor_resolves_inside_the_block():
     assert abs(hit["timeline_seconds"] - QUIT_FRAME / FPS) < 1e-3
 
 
+def test_frame_anchor_uses_shared_frame_boundary_not_rounded_seconds():
+    """Finding 13: rounded edge seconds must not refuse their shared frame."""
+    block = dict(_spine()["structure"][0])
+    block.update({
+        # 767 / 30 is 25.5666..., whose millisecond display value rounds
+        # upward. The shared frame span still starts exactly at frame 767.
+        "timeline_start": 25.567,
+        "timeline_end": 30.0,
+        "timeline_start_frame": 767,
+        "timeline_end_frame": 900,
+    })
+    hit = resolve_anchor({"frame": 767}, block=block,
+                         frame_rate=FPS, step="plan_transitions",
+                         plan="transition_creative", index=0)
+    assert hit["frame"] == 767
+
+
 # ── Unresolvable anchors refuse, never fall back ──────────────────────
 #
 # One parametrized test, one case per refusal branch: a word the block

@@ -39,16 +39,26 @@ nothing is offered that the finished video cannot show.
 | `hard_cut` | None | Default — instant cut |
 | `jump_cut` | None | Same subject, different moment (implies time skip) |
 | `match_cut` | None | Shape/motion/composition matching across the cut |
-| `fade_to_black` | duration_feel | Dip to black. Chapter breaks, time passing |
-| `zoom_blur` | duration_feel | Crash zoom. Energy spikes, punches into a line |
-| `defocus` | duration_feel | Blur through the cut. Mood shifts, soft scene changes |
-| `flash` | duration_feel | Brightness flash. Beat hits, hard energy changes |
-| `cross_dissolve` | duration_feel | True dissolve, mixed by Resolve itself at the cut. Time passing, soft scene changes |
-| `slide` | duration_feel | Incoming clip slides in. Playful moves, lists, reveals |
-| `smooth_cut` | duration_feel | Morph across the cut. Invisible joins inside one take |
-| `spin` | duration_feel | Spin across the cut. High-energy turns, drops |
+| `fade_to_black` | duration_feel, duration_frames, or duration_seconds | Dip to black. Chapter breaks, time passing |
+| `zoom_blur` | duration_feel, duration_frames, or duration_seconds | Crash zoom. Energy spikes, punches into a line |
+| `defocus` | duration_feel, duration_frames, or duration_seconds | Blur through the cut. Mood shifts, soft scene changes |
+| `flash` | duration_feel, duration_frames, or duration_seconds | Brightness flash. Beat hits, hard energy changes |
+| `cross_dissolve` | duration_feel, duration_frames, or duration_seconds | True dissolve, mixed by Resolve itself at the cut. Time passing, soft scene changes |
+| `slide` | duration_feel, duration_frames, or duration_seconds | Incoming clip slides in. Playful moves, lists, reveals |
+| `smooth_cut` | duration_feel, duration_frames, or duration_seconds | Morph across the cut. Invisible joins inside one take |
+| `spin` | duration_feel, duration_frames, or duration_seconds | Spin across the cut. High-energy turns, drops |
 
 `duration_feel` is one of `instant`, `quick`, `medium`, `slow`.
+
+E3 - numbers when the request states them, feel words otherwise: when
+the request names a hold in frames ("a 12-frame dissolve"), state it
+with `duration_frames`; when it names seconds ("a 1-second dip"), state
+`duration_seconds`. Keep the requester's value in the resolved plan; the
+build also receives its nearest whole-frame representation. If frames
+and seconds are both stated, they must agree within half a frame. A
+stated number beside a disagreeing feel word refuses. A feel word alone
+renders to 0/6/10/15 frames; a request that names no hold gets the feel
+word, never a number you invent.
 
 The last four are NATIVE transitions: Resolve draws them itself at the
 V1 cut (they are the only transitions that mix two pictures, which no
@@ -56,6 +66,20 @@ per-clip effect can do), and each is judged by what Resolve hands back.
 The names are exactly what measured as granted on Resolve 21.1 - a
 dissolve by any other spelling is still this dissolve (`dissolve` means
 `cross_dissolve`).
+
+### The end of the piece:
+
+A transition OUT of the final shot - a dip to black under the last
+line, a dissolve trailing into nothing - is its own entry addressed
+with `cut_point_position: "end"` (the literal word, never a block
+position). Only two types can sit there: `fade_to_black` (drawn on
+the last clip alone) and `cross_dissolve` (placed by Resolve itself
+at the clip's end). Anything else at `"end"` drops with its reason.
+The `cuts_toon` table carries one row addressed `"end"` saying whether
+the last block puts a V1 clip on the timeline to fade out of - read it
+before planning the dip. No J/L audio offset at the end: a J/L cut
+trims the speech row between two blocks, and the end has no incoming
+side.
 
 ### Not available — do not use:
 
@@ -93,15 +117,18 @@ that quantizes onto the boundary is a straight cut and refuses.
 
 | Type | Parameters | When to use |
 |------|-----------|------------|
-| `j_cut` | `lead_seconds` and/or `anchor` | The next moment starts audible before it is visible. Doc dialogue, reactions |
-| `l_cut` | `lag_seconds` and/or `anchor` | The last moment rings on after the picture has moved on. Pauses that breathe |
+| `j_cut` | `lead_seconds` / `lead_frames` and/or `anchor` | The next moment starts audible before it is visible. Doc dialogue, reactions |
+| `l_cut` | `lag_seconds` / `lag_frames` and/or `anchor` | The last moment rings on after the picture has moved on. Pauses that breathe |
 
 State the offset with `lead_seconds` (`j_cut`) or `lag_seconds`
-(`l_cut`) - your own number in seconds - or with `anchor`, or both
-agreeing: a word in the block the audio leaves (`anchor: {word:
+(`l_cut`) - your own number in seconds - or, when the request states
+frames ("20 frames before the picture cut"), with `lead_frames` /
+`lag_frames` - your own whole number - or with `anchor`, or any of
+them agreeing: a word in the block the audio leaves (`anchor: {word:
 "yeah"}` - the outgoing block for a J-cut, the incoming block for an
 L-cut), a beat/downbeat/bar on the measured grid, or a frame, each
-with optional `offset_seconds` / `offset_frames`. The offset MUST sit
+with optional `offset_seconds` / `offset_frames`. Seconds and frames
+that disagree past half a frame refuse the step. The offset MUST sit
 inside the pause AT the boundary: the J lead has to fit between the
 outgoing block's last word and the boundary, the L lag between the
 boundary and the incoming block's first word - trimming speech refuses
@@ -111,6 +138,7 @@ an audio cut - all three refuse.
 
 ### Rules:
 - You MUST output a transition entry for EVERY single cut point in the shot list.
+- You MAY output at most one end-of-piece entry addressed `"end"` (see above).
 - A hard cut is the absence of decoration; a creative transition adds it.
   Let the creative direction, the footage and the music guide the mix.
 - Beat-align major transitions when BPM data is available

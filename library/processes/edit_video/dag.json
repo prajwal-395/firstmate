@@ -790,7 +790,8 @@
       "from": "catalog",
       "to": "speech_sequence",
       "data_mapping": {
-        "clip_catalog": "clip_catalog"
+        "clip_catalog": "clip_catalog",
+        "project_fps": "project_fps"
       }
     },
     {

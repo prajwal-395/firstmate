@@ -177,6 +177,11 @@ def _render_output_payload(result: dict, export: dict,
         # fatal. Without it that question can never be answered
         # from real runs. See docs/PIPELINE_PLAN.md.
         "qa_failures": result.get("qa_failures", []),
+        # One record per transition, including an exact requested frame
+        # and the reason a plan was compiled as a hard cut. The manifest
+        # alone is not the build report, and this payload hand-picks the
+        # fields that reach the run ledger.
+        "transition_items": result.get("transition_items", []),
         "output_path": export.get("output_path"),
         "output_size_bytes": export.get("size_bytes"),
         "render_job": {
@@ -190,6 +195,43 @@ def _render_output_payload(result: dict, export: dict,
     if track_plan is not None:
         payload["track_plan"] = track_plan
     return payload
+
+
+def _transition_items_for_report(manifest: dict) -> list[dict]:
+    """Summarise every compiled transition for the render/build report."""
+    items = []
+    for row in manifest.get("transitions", []) or []:
+        if not isinstance(row, dict):
+            continue
+        requested_type = row.get("requested_type") or row.get(
+            "transition_type", "")
+        compiled_type = row.get("transition_type", "")
+        reason = row.get("downgrade_reason") or ""
+        duration_source = row.get("duration_source")
+        requested_frames = row.get("requested_duration_frames")
+        if (requested_frames is None and duration_source in (
+                "frames", "stated_frames", "stated_frames_and_seconds")):
+            requested_frames = row.get("duration_frames")
+        requested_seconds = row.get("requested_duration_seconds")
+        if (requested_seconds is None and duration_source in (
+                "seconds", "stated_seconds", "stated_frames_and_seconds")):
+            requested_seconds = row.get("duration_seconds")
+        downgraded = bool(reason) or requested_type != compiled_type
+        items.append({
+            "transition_id": row.get("transition_id"),
+            "requested_type": requested_type,
+            "compiled_type": compiled_type,
+            "cut_point_frame": row.get("cut_point_frame"),
+            "cut_point_timeline": row.get("cut_point_timeline"),
+            "duration_source": duration_source,
+            "requested_duration_frames": requested_frames,
+            "requested_duration_seconds": requested_seconds,
+            "requested_duration_feel": row.get("duration_feel"),
+            "compiled_duration_frames": row.get("duration_frames"),
+            "status": "downgraded" if downgraded else "compiled",
+            "reason": reason,
+        })
+    return items
 
 
 def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
@@ -277,6 +319,7 @@ def run(inputs: dict) -> dict:
             project_name=_resolve_build_project_name(manifest),
             project_folder=inputs.get("project_folder", ""),
         )
+        result["transition_items"] = _transition_items_for_report(manifest)
         
         if not result.get("success") and result.get("errors"):
             if any("Cannot connect to DaVinci Resolve" in str(e) for e in result.get("errors", [])):

@@ -54,6 +54,45 @@ MIN_CAPTION_FLASH_SECONDS = 0.5
 # entries to its bounds can leave a sliver, and a sliver is worth dropping.
 MIN_VISIBLE_DURATION = 0.08
 
+#: Words per caption card when neither the request nor brand template
+#: declares a count (rung 7, finding 31).
+DEFAULT_MAX_WORDS_PER_CARD = 6
+
+
+def resolve_max_words_per_card(brand_effect: dict = None, *,
+                               audio_spine: dict = None) -> int:
+    """The grouping's word ceiling, and whose number it is.
+
+    An explicit request carried on the spine wins; otherwise a brand
+    declaration wins, followed by the grouping default. A stated value
+    must be a whole number >= 1; malformed counts refuse instead of
+    silently falling through to a different ceiling.
+    """
+    requested = (audio_spine or {}).get("max_words")
+    if requested is not None:
+        if (isinstance(requested, bool) or not isinstance(requested, int)):
+            raise ValueError(
+                f"audio_spine.max_words is {requested!r}: it must be a "
+                "whole number of words per card")
+        if requested < 1:
+            raise ValueError(
+                "audio_spine.max_words must be at least 1 word per card")
+        return requested
+    stated = (brand_effect or {}).get("caption_words_per_card", None)
+    if stated is None:
+        return DEFAULT_MAX_WORDS_PER_CARD
+    if isinstance(stated, bool) or not isinstance(stated, int):
+        raise ValueError(
+            f"Brand template effect.caption_words_per_card is "
+            f"{stated!r}: it must be a whole number of words per card "
+            f"(or omitted for the default "
+            f"{DEFAULT_MAX_WORDS_PER_CARD}).")
+    if stated < 1:
+        raise ValueError(
+            f"Brand template effect.caption_words_per_card is "
+            f"{stated}: a card must carry at least one word.")
+    return stated
+
 
 # ── Caption case transformation ──
 # Controlled by the brand template's effect.caption_case setting.
@@ -544,7 +583,7 @@ def _clamp_stretched_words(words: list, min_display: float) -> list:
 def split_into_groups(
     words_with_times: list,
     fits_fn=None,
-    max_words: int = 6,
+    max_words: int = DEFAULT_MAX_WORDS_PER_CARD,
     max_gap: float = 1.0,
     display_until: float = None,
     min_display: float = MIN_DISPLAY_DURATION,
@@ -1044,6 +1083,13 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     # The box, not one line: the overlay wraps (MAX_CAPTION_LINES).
     fits_fn = fitter.fits_in_box
 
+    # Rung 7 (finding 31): the grouping's word ceiling is a plan value
+    # now - the brand template's `effect.caption_words_per_card` when
+    # the series states one, else the default above. Resolved once for
+    # the whole plan, so every block groups at the same ceiling.
+    max_words_per_card = resolve_max_words_per_card(
+        brand_effect, audio_spine=audio_spine)
+
     for block in structure:
         block_type = block["block_type"]
         if block_type not in ("hook", "speech"):
@@ -1121,6 +1167,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 timeline_words, block_speaker, project_folder)
             groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
+                max_words=max_words_per_card,
                 display_until=block_end)
 
             for g in groups:
@@ -1226,6 +1273,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     timeline_words, block_speaker, project_folder)
                 groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
+                max_words=max_words_per_card,
                 display_until=block_end)
 
                 for g in groups:
@@ -1510,6 +1558,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             "subtitle_entries": subtitle_entries,
             "total_subtitles": len(subtitle_entries),
             "style": style,
+            # Rung 7: the word ceiling every card above was grouped
+            # at - the plan value, not the literal it replaced.
+            "max_words": max_words_per_card,
             # Only when the project declared any: an empty mapping in
             # every plan would read as a decision nobody made.
             **({"styles_by_speaker": styles_by_speaker}

@@ -430,6 +430,11 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
     `apply_native_speed_ops`'s. A transition whose span will not read,
     or an empty answer, is a failure naming the type and category
     tried - never a hard cut.
+
+    An op carrying `at_end: true` is the rung-7 end slot: it places on
+    the LAST item at its end (trailing onto nothing, which the hands
+    probe measured the raw API granting) instead of on an incoming
+    item's start.
     """
     report: dict = {"applied": [], "failed": []}
 
@@ -442,6 +447,7 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
         want_type = op.get("resolve_name", "")
         category = op.get("category", "simple")
         after_clip = op.get("after_clip")
+        at_end = bool(op.get("at_end"))
         duration = op.get("duration_frames")
         track = op.get("track", "v1")
         track_items = v2_items if track == "v2" else v1_items
@@ -455,7 +461,8 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
             continue
         if (not isinstance(after_clip, int) or isinstance(after_clip, bool)
                 or after_clip < 0
-                or after_clip + 1 >= len(track_items or [])):
+                or after_clip >= len(track_items or [])
+                or (not at_end and after_clip + 1 >= len(track_items or []))):
             _fail(trans_id,
                   f"after_clip {after_clip!r} is no {track_name} cut "
                   f"({len(track_items or [])} item(s)) - nothing was "
@@ -471,27 +478,32 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
                   "re-plan the transition with a duration_feel so the "
                   "build knows how long to hold it")
             continue
-        incoming = track_items[after_clip + 1]
+        if at_end:
+            target = track_items[after_clip]
+            position = "end"
+        else:
+            target = track_items[after_clip + 1]
+            position = "start"
         try:
-            incoming_name = incoming.GetName()
+            target_name = target.GetName()
         except Exception:
-            incoming_name = "?"
+            target_name = "?"
         payload = {"type": want_type, "category": category,
-                   "position": "start", "alignment": "center",
+                   "position": position, "alignment": "center",
                    "duration": int(duration)}
         try:
-            placed = incoming.AddTransition(dict(payload))
+            placed = target.AddTransition(dict(payload))
         except Exception as exc:
             _fail(trans_id,
                   f"AddTransition({want_type!r}, {category!r}) raised "
-                  f"({exc}) on {incoming_name!r} - verify by hand",
+                  f"({exc}) on {target_name!r} - verify by hand",
                   "verify the cut by hand")
             continue
         if placed is None or placed is False:
             _fail(
                 trans_id,
                 f"AddTransition({want_type!r}, {category!r}) answered "
-                f"empty on {incoming_name!r} - the type or category took "
+                f"empty on {target_name!r} - the type or category took "
                 f"nothing on this build (a clip starting at source 0 "
                 f"has no head handles for a centered transition)",
                 "re-plan with handles on both sides of the cut, or with "
@@ -513,9 +525,12 @@ def apply_native_transitions(timeline, v1_items: list, ops: list,
             "transition_id": trans_id,
             "type": want_type,
             "category": category,
+            "position": position,
             "track": track_name,
             "transition": tr_span["name"],
             "duration": tr_span["duration"],
+            "record_in": tr_span["record_in"],
+            "record_out": tr_span["record_out"],
             "verified": "returned a transition item whose span reads",
         })
     return report

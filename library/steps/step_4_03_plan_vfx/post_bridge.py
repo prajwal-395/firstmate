@@ -206,6 +206,47 @@ def _validate_native_speed(raw_type, effect_type, params, pos, _drop):
     return percents
 
 
+def _resolve_hold_seconds(hold_s, hold_f, frame_rate, raw_type, pos):
+    """The stated freeze hold in seconds (rung 7, RT3.3).
+
+    E3: seconds when the request states seconds ("for 1s"), frames
+    when it states frames ("for 12f" - RT3.3's "1s 12f" is 42 frames);
+    both stated must agree past half a frame. Raises
+    `NativeSpeedRefused` where the hold is not a positive length - a
+    freeze of no time is not a freeze.
+    """
+    from library.tools.native_ops import refuse_hold as _refuse_hold
+    for name, value in (("hold_seconds", hold_s),):
+        if value is None:
+            continue
+        if (isinstance(value, bool)
+                or not isinstance(value, (int, float)) or value <= 0):
+            raise _refuse_hold(
+                raw_type, pos,
+                f"`hold_seconds` {value!r}, which is not a positive "
+                f"number of seconds")
+    if hold_f is not None and (
+            isinstance(hold_f, bool) or not isinstance(hold_f, int)
+            or hold_f <= 0):
+        raise _refuse_hold(
+            raw_type, pos,
+            f"`hold_frames` {hold_f!r}, which is not a positive whole "
+            f"number of frames")
+    if hold_s is not None and hold_f is not None:
+        from_frames = hold_f / float(frame_rate)
+        if abs(from_frames - float(hold_s)) > (
+                0.5 / float(frame_rate) + 1e-9):
+            raise _refuse_hold(
+                raw_type, pos,
+                f"`hold_seconds` {float(hold_s):.3f}s beside "
+                f"`hold_frames` {hold_f} ({from_frames:.3f}s) - two "
+                f"numbers for one hold")
+        return from_frames
+    if hold_f is not None:
+        return hold_f / float(frame_rate)
+    return float(hold_s)
+
+
 # The entry keys this step reads. Anything else on an entry is
 # REFUSED by `refuse_unknown_keys` below, never dropped: an unread key
 # is how a probe's SFX `at_word` landed 3.06 s early on the block
@@ -218,7 +259,10 @@ def _validate_native_speed(raw_type, effect_type, params, pos, _drop):
 # (library/tools/sub_block_anchor.py): `anchor` moves the effect's
 # start onto a word, beat or frame inside the block, `anchor_end` its
 # end - a punch that spans one word carries both. Either alone leaves
-# the other end on the block boundary.
+# the other end on the block boundary. `hold_seconds` / `hold_frames`
+# run a freeze_frame's span from its anchor for exactly that long
+# (rung 7, RT3.3) - on any other effect they are read by nothing and
+# refuse below.
 VFX_ENTRY_KEYS = frozenset({
     "target_block_position",
     "segment_id",
@@ -226,6 +270,8 @@ VFX_ENTRY_KEYS = frozenset({
     "params",
     "rationale",
     "composite_mode",
+    "hold_seconds",
+    "hold_frames",
 } | ANCHOR_ENTRY_KEYS)
 
 
@@ -529,6 +575,45 @@ def resolve_vfx(
             anchor_method = (f"{anchor_method} to {hit['method']}"
                              if anchor_method is not None
                              else f"block start to {hit['method']}")
+        # A stated hold (rung 7, RT3.3): freeze_frame only. The span
+        # runs from the anchor for exactly the stated hold ("freeze on
+        # 'quit' for 1s 12f" - 42 frames). A hold with no anchor
+        # refuses (no start to hold from); beside `anchor_end` refuses
+        # (two ends for one span); past the block's end refuses (that
+        # is another moment's picture). On any other effect a hold is
+        # read by nothing and refuses here, rather than landing the
+        # span somewhere unasked.
+        hold_s = vfx.get("hold_seconds")
+        hold_f = vfx.get("hold_frames")
+        if hold_s is not None or hold_f is not None:
+            from library.tools.native_ops import refuse_hold as _refuse_hold
+            if effect_type != "freeze_frame":
+                raise _refuse_hold(
+                    raw_type, pos,
+                    f"`hold_seconds` / `hold_frames` on "
+                    f"{effect_type!r} - only `freeze_frame` holds a "
+                    f"span for a stated length")
+            if vfx.get("anchor") is None:
+                raise _refuse_hold(
+                    raw_type, pos,
+                    "a hold with no `anchor` - the hold has no start "
+                    "to run from")
+            if vfx.get("anchor_end") is not None:
+                raise _refuse_hold(
+                    raw_type, pos,
+                    "a hold beside `anchor_end` - two ends for one span")
+            hold = _resolve_hold_seconds(
+                hold_s, hold_f, frame_rate, raw_type, pos)
+            span_end = span_start + hold
+            anchor_method = (f"{anchor_method} holds {hold:.3f}s"
+                             if anchor_method is not None
+                             else f"holds {hold:.3f}s")
+            if span_end > tl_end + 1e-9:
+                raise _refuse_hold(
+                    raw_type, pos,
+                    f"a hold to {span_end:.3f}s past the block's end "
+                    f"({tl_end:.3f}s) - the freeze would hold another "
+                    f"moment's picture")
         if span_end <= span_start:
             raise AnchorRefused(
                 what=(f"step plan_vfx plan entry {len(resolved)} anchor "

@@ -65,6 +65,12 @@
         "type": "object",
         "required": false,
         "description": "Per-clip prosody data from step 1.05: pitch contour, speaking rate, voice quality, intensity. Deterministic signal-processing measurements via parselmouth. Projected through view:prosody which filters hollow profiles. Helps judge passage delivery quality - pace variation, vocal energy, and voice quality across candidate passages."
+      },
+      {
+        "name": "project_fps",
+        "type": "number",
+        "required": false,
+        "description": "Timebase from the catalog. A passage stating its trim in frames (trim_head_frames / trim_tail_frames, rung 7) is honored against this grid; frames stated with no timebase refuse the passage rather than rounding onto a guessed one. Seconds-stated trims and trim-less passages never read it. Same declaration, same reason, as step 4.02's project_fps."
       }
     ],
     "outputs": [

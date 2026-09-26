@@ -86,14 +86,146 @@ SPINE_BLOCK_KEYS = frozenset({
 # The conducted-bed entry keys `music_bed.resolve_bed` reads. Anything
 # else on an entry is refused alongside the blocks: the resolver
 # rebuilds each entry from these keys, so an extra one would vanish
-# silently into the bed.
+# silently into the bed. `ends_at_block` / `end_offset_*` end a piece
+# early (rung 7, SD3.2: "music out, then the last line dry");
+# `fade_out_*` ramps its last seconds (E3: seconds or frames, as the
+# request states them).
 BED_ENTRY_KEYS = frozenset({
     "track",
     "source_in",
     "starts_at_block",
     "crossfade_seconds",
+    "ends_at_block",
+    "end_offset_seconds",
+    "end_offset_frames",
+    "fade_out_seconds",
+    "fade_out_frames",
     "why",
 })
+
+# The pacing-window keys the post-bridge reads. Anything else on a
+# window is refused beside the blocks: an unread key is how a probe's
+# SFX `at_word` landed 3.06 s early on the block start.
+PACING_WINDOW_KEYS = frozenset({
+    "start_block",
+    "end_block",
+    "asl_seconds",
+    "feel",
+})
+
+
+def _resolve_pacing(pacing, enriched_blocks: list) -> list:
+    """The validated ASL windows the plan states, or [].
+
+    Rung 7 (PA3.2, PA2.2): "average shot length around 2.5s in the
+    opening 20s, then let it relax to ~5s" rides as windows over spine
+    block positions - `[{start_block, end_block, asl_seconds}]` - which
+    `compile_manifest` measures the built picture against into
+    `pacing_report` (report-only: a target is a target, and failing a
+    build on a missed one would be a gate failing correct output).
+    E3's other case is a `feel` word (for example "accelerating") on
+    the same addressed window. Keep it verbatim; do not turn a feel
+    request into a made-up ASL number. A window states exactly one of
+    `asl_seconds` and `feel`.
+
+    Refuses (ValueError, travelling the post-bridge retry path) where a
+    window names no block, runs backwards, states no positive ASL, or
+    overlaps another window - two targets for one stretch is an
+    ambiguous spec. Gaps between windows are unmeasured stretches,
+    never an error.
+    """
+    if pacing is None:
+        return []
+    if not isinstance(pacing, list):
+        raise ValueError(
+            "mesh_spine `pacing` must be a list of "
+            "{start_block, end_block, asl_seconds} windows; got "
+            f"{type(pacing).__name__}")
+    refuse_unknown_keys(pacing, PACING_WINDOW_KEYS,
+                         step="mesh_spine", plan="pacing")
+    positions = [str(b.get("position")) for b in enriched_blocks]
+    resolved = []
+    for index, window in enumerate(pacing):
+        start = window.get("start_block")
+        end = window.get("end_block")
+        asl = window.get("asl_seconds")
+        feel = window.get("feel")
+        if str(start) not in positions:
+            raise ValueError(
+                f"mesh_spine pacing window {index} starts at block "
+                f"{start!r}, which is not a position on the spine "
+                f"(blocks: {', '.join(positions)})")
+        if str(end) not in positions:
+            raise ValueError(
+                f"mesh_spine pacing window {index} ends at block "
+                f"{end!r}, which is not a position on the spine "
+                f"(blocks: {', '.join(positions)})")
+        if positions.index(str(end)) < positions.index(str(start)):
+            raise ValueError(
+                f"mesh_spine pacing window {index} runs backwards: "
+                f"{start!r} comes after {end!r} on the spine")
+        if (asl is None) == (feel is None):
+            raise ValueError(
+                f"mesh_spine pacing window {index} must state exactly "
+                "one of asl_seconds or feel")
+        row = {"start_block": start, "end_block": end}
+        if asl is not None:
+            if (isinstance(asl, bool)
+                    or not isinstance(asl, (int, float)) or asl <= 0):
+                raise ValueError(
+                    f"mesh_spine pacing window {index} states "
+                    f"asl_seconds {asl!r}, which is not a positive "
+                    "number of seconds")
+            row["asl_seconds"] = float(asl)
+        else:
+            if not isinstance(feel, str) or not feel.strip():
+                raise ValueError(
+                    f"mesh_spine pacing window {index} states feel "
+                    f"{feel!r}, which is not a non-empty feel word")
+            row["feel"] = feel.strip()
+        resolved.append(row)
+    for first, second in zip(resolved, resolved[1:]):
+        if (positions.index(str(second["start_block"]))
+                <= positions.index(str(first["end_block"]))):
+            raise ValueError(
+                f"mesh_spine pacing windows overlap: "
+                f"{first['start_block']!r}-{first['end_block']!r} and "
+                f"{second['start_block']!r}-{second['end_block']!r} "
+                f"cover the same stretch - one stretch, one target")
+    return resolved
+
+
+def _attach_handles(blocks: list, catalog, fps: float) -> None:
+    """Write `head_handle_frames` / `tail_handle_frames` onto each block
+    cut from source media, in place. See the call site for the rule."""
+    if not catalog:
+        return
+    entries = catalog.values() if isinstance(catalog, dict) else catalog
+    durations = {}
+    for entry in entries or []:
+        if not isinstance(entry, dict) or entry.get("clip_id") is None:
+            continue
+        try:
+            durations[str(entry["clip_id"])] = float(
+                entry.get("duration_seconds"))
+        except (TypeError, ValueError):
+            continue
+    for b in blocks:
+        clip_id = b.get("clip_id")
+        if clip_id is None:
+            continue
+        try:
+            src_start = float(b["source_start"])
+            src_end = float(b["source_end"])
+        except (TypeError, ValueError):
+            continue
+        total = durations.get(str(clip_id))
+        if total is None:
+            continue
+        b["head_handle_frames"] = seconds_to_frame(
+            max(0.0, src_start), fps)
+        b["tail_handle_frames"] = seconds_to_frame(
+            max(0.0, total - src_end), fps)
 
 
 def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = None) -> dict:
@@ -345,26 +477,47 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
 
     # Recalculate timeline positions from (potentially extended) durations.
     # Block extensions shift all subsequent blocks forward.
-    cursor = 0.0
-    for b in enriched_blocks:
-        b["timeline_start"] = round(cursor, 3)
-        dur = b.get("duration_seconds", 0)
-        b["timeline_end"] = round(cursor + dur, 3)
-        cursor += dur
-
-    # ── Frame conversion ──
-    # Add integer frame positions using global timeline seconds.
-    # This prevents frame rounding drift from accumulating over many blocks.
-    # All steps from Phase 3 onward should read the _frame fields.
+    #
+    # Rung 7 (finding 13): the cursor runs in FRAMES, and the seconds
+    # are derived from it - so every boundary sits exactly on a frame.
+    # The cursor used to accumulate rounded seconds while the frame
+    # fields rounded each edge independently, and the two roundings of
+    # one edge disagreed: a cut at frame 767 read as outside a block
+    # starting at 25.576s, and a frame-stated anchor was refused for
+    # landing between them. Downstream readers of the seconds now get
+    # frame-true values; readers of the frames are unchanged.
     fps = spine.get("frame_rate", 30.0)
+    cursor_f = 0
     for b in enriched_blocks:
-        start_f = seconds_to_frame(b["timeline_start"], fps)
-        end_f = seconds_to_frame(b["timeline_end"], fps)
-        b["timeline_start_frame"] = start_f
-        b["timeline_end_frame"] = end_f
-        b["duration_frames"] = end_f - start_f
+        dur_f = seconds_to_frame(b.get("duration_seconds", 0), fps)
+        b["timeline_start_frame"] = cursor_f
+        b["timeline_start"] = round(cursor_f / fps, 3)
+        cursor_f += dur_f
+        b["timeline_end_frame"] = cursor_f
+        b["timeline_end"] = round(cursor_f / fps, 3)
+        b["duration_frames"] = dur_f
 
-    frame_cursor = enriched_blocks[-1]["timeline_end_frame"] if enriched_blocks else 0
+    frame_cursor = cursor_f
+
+    # ── Head/tail handles (rung 7, finding 14) ──
+    # How much source media each played span leaves unplayed on either
+    # side, in frames: the headroom a trim can extend into without
+    # restating the spine (CT1.3's "hold the wide longer" is an
+    # extension into the tail handle, not a new picture block).
+    # Measured off the catalog's media durations, clamped at zero - a
+    # span past the file's end is a defect upstream, not negative
+    # headroom. Absent where the catalog is not routed: unknown
+    # headroom reads as absent, never as zero.
+    _attach_handles(enriched_blocks, (data or {}).get("clip_catalog"),
+                    fps)
+
+    # ── Pacing targets (rung 7, PA3.2/PA2.2) ──
+    # ASL windows over block positions, validated against the enriched
+    # structure (post-bookend, post-captain-edit: the positions the
+    # plan actually produced). `compile_manifest` measures the built
+    # picture against them into `pacing_report`, report-only.
+    pacing_windows = _resolve_pacing(spine.get("pacing"),
+                                     enriched_blocks)
 
     # Recalculate total duration from enriched blocks
     total_dur = sum(b.get("duration_seconds", 0) for b in enriched_blocks)
@@ -414,7 +567,18 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
         # that cannot say which edits are in force cannot be reviewed.
         "captain_edits_applied": captain_applied,
         "captain_edits_stale": captain_stale,
+        # Rung 7: the ASL windows the plan stated ([] for feel-word
+        # pacing), measured by `compile_manifest` into `pacing_report`.
+        "pacing": pacing_windows,
     }
+    if spine.get("max_words") is not None:
+        max_words = spine["max_words"]
+        if (isinstance(max_words, bool) or not isinstance(max_words, int)
+                or max_words < 1):
+            raise ValueError(
+                "mesh_spine max_words must be a whole number of words "
+                "per caption card, at least 1")
+        spine_out["max_words"] = max_words
     declared_bed = spine.get(BED_KEY) or (data or {}).get(BED_KEY)
     if declared_bed:
         spine_out[BED_KEY] = declared_bed

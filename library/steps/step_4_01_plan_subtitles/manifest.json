@@ -10,7 +10,7 @@
         "name": "audio_spine",
         "type": "object",
         "required": true,
-        "description": "State input: audio_spine"
+        "description": "State input: audio_spine. Reads structure and optional max_words, the request-stated caption word ceiling emitted by mesh_spine; the brand caption_words_per_card and declared default apply only when the request states no count."
       },
       {
         "name": "rough_cut_review",
@@ -28,7 +28,7 @@
         "name": "brand_effect",
         "type": "object",
         "required": false,
-        "description": "Brand template effect slots (injected by pipeline runner). Reads caption_case for subtitle casing and subtitle_style for the caption look."
+        "description": "Brand template effect slots (injected by pipeline runner). Reads caption_case for subtitle casing, caption_words_per_card for the grouping's word ceiling (rung 7, finding 31), and subtitle_style for the caption look."
       },
       {
         "name": "brand_style",
@@ -41,11 +41,12 @@
       {
         "name": "subtitle_plan",
         "type": "object",
-        "description": "State output: subtitle_plan",
+        "description": "State output: subtitle_plan. max_words is the word ceiling every card was grouped at (rung 7, finding 31): the request's explicit number when present, otherwise the brand template's effect.caption_words_per_card, otherwise the grouping default.",
         "expected_schema": {
           "subtitle_entries": "list",
           "total_subtitles": "int",
-          "style": "dict"
+          "style": "dict",
+          "max_words": "int"
         }
       }
     ],

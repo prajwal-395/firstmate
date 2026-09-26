@@ -152,3 +152,25 @@ def test_gap_detection_ignores_covered_gaps():
     # Gap check should not fail now
     assert report.passed, "Gap should be ignored if covered by V2"
     assert not any("gap_before" in c.name for c in report.checks)
+
+
+def test_verify_transitions_end_of_piece_fade_needs_no_head():
+    # TR3.1's 1 s dip to black out of the final shot: the build drew the
+    # tail on the last V1 clip, and the station failed the render looking
+    # for a head on a clip index past the end of the track.
+    last = MockTimelineItem(comps=["Fusion Composition 1"])
+    timeline = MockTimeline([], by_track={1: [MockTimelineItem(), last]})
+    end_fade = [{"after_clip": 1, "at_end": True, "type": "fade_to_black",
+                 "duration_frames": 30}]
+    report = verify_transitions(timeline, None, end_fade)
+    assert report.passed, [c.name for c in report.checks]
+
+
+def test_verify_transitions_mid_piece_still_requires_the_head():
+    first = MockTimelineItem(comps=["Fusion Composition 1"])
+    timeline = MockTimeline([], by_track={1: [first, MockTimelineItem()]})
+    report = verify_transitions(
+        timeline, None, [{"after_clip": 0, "type": "fade_to_black"}])
+    assert not report.passed
+    assert [c.name for c in report.checks] == [
+        "transition_fade_to_black_head_on_v1[1]"]

@@ -33,10 +33,12 @@ Addressing
 The join is the spine boundary the plan names (`cut_point_position`,
 the incoming block - same addressing as every 4.02 entry). The audio
 cut is EITHER `lead_seconds` / `lag_seconds` stated by the plan (the
-model's number, not a hand-typed variant spec) OR a sub-block `anchor`
+model's number, not a hand-typed variant spec) OR `lead_frames` /
+`lag_frames` (the requester's number, when the request states frames -
+rung 7, E3) OR a sub-block `anchor`
 (`library/tools/sub_block_anchor.py`) resolving inside the outgoing
 block (J) or the incoming block (L) - a word, a beat/downbeat/bar, or
-a frame. Both stated and disagreeing past half a frame refuses: two
+a frame. Any two stated and disagreeing past half a frame refuses: two
 numbers for one cut is an ambiguous spec, not a choice to make
 silently.
 
@@ -64,6 +66,13 @@ JL_KINDS = ("j_cut", "l_cut")
 #: is refused by the post-bridge's `refuse_unknown_keys` before this
 #: module ever sees it - an unread key is how P5's `at_word` landed
 #: 3.06 s early.
+#:
+#: E3 (rung 7): the offset rides in the requester's units. Seconds
+#: (`lead_seconds` / `lag_seconds`) are the model's own number; frames
+#: (`lead_frames` / `lag_frames`) are the requester's when the request
+#: states them ("20 frames before the picture cut"). Both stated and
+#: disagreeing past half a frame refuses, exactly like a stated offset
+#: disagreeing with an anchor.
 JL_ENTRY_KEYS = frozenset({
     "cut_point_position",
     "cut_point_original",
@@ -73,6 +82,8 @@ JL_ENTRY_KEYS = frozenset({
     "transition_type",
     "lead_seconds",
     "lag_seconds",
+    "lead_frames",
+    "lag_frames",
     "anchor",
     "rationale",
 })
@@ -100,6 +111,22 @@ def _number(value, name: str, join_label: str):
             f"number), an `anchor`, or drop the cut.",
         )
     return float(value)
+
+
+def _frames(value, name: str, join_label: str):
+    """A stated frame offset: whole frames, positive, never a bool."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _refuse(
+            f"the {join_label} J/L cut states {name} {value!r}, which "
+            f"is not a whole number of frames",
+            "frames place on the timeline's own grid - a fractional or "
+            "non-numeric frame count is not placeable, and placing it "
+            "at the picture cut instead would ship timing nobody "
+            "decided on.",
+            f"re-plan the cut with {name} as whole frames (a positive "
+            f"integer), in seconds, with an `anchor`, or drop the cut.",
+        )
+    return int(value)
 
 
 def words_in_span(block: dict, start_tl: float, end_tl: float) -> list:
@@ -148,7 +175,7 @@ def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
     nothing buildable.
     """
     join_label = (f"into block {incoming.get('position', '?')!r} "
-                  f"({kind})")
+                   f"({kind})")
     anchor = entry.get("anchor")
     lead = None
     lag = None
@@ -156,25 +183,46 @@ def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
         lead = _number(entry["lead_seconds"], "lead_seconds", join_label)
     if entry.get("lag_seconds") is not None:
         lag = _number(entry["lag_seconds"], "lag_seconds", join_label)
-    if kind == "j_cut" and lag is not None:
+    lead_f = None
+    lag_f = None
+    if entry.get("lead_frames") is not None:
+        lead_f = _frames(entry["lead_frames"], "lead_frames", join_label)
+    if entry.get("lag_frames") is not None:
+        lag_f = _frames(entry["lag_frames"], "lag_frames", join_label)
+    if kind == "j_cut" and (lag is not None or lag_f is not None):
         raise _refuse(
-            f"the {join_label} J-cut states `lag_seconds`",
+            f"the {join_label} J-cut states "
+            f"`{'lag_seconds' if lag is not None else 'lag_frames'}`",
             "a J-cut leads (audio early) - a lag is an L-cut's "
             "spelling, and reading it as a lead would ship the "
             "opposite offset.",
-            "re-plan the cut with `lead_seconds`, or as `l_cut` with "
-            "`lag_seconds`.",
+            "re-plan the cut with `lead_seconds` / `lead_frames`, or "
+            "as `l_cut` with `lag_seconds` / `lag_frames`.",
         )
-    if kind == "l_cut" and lead is not None:
+    if kind == "l_cut" and (lead is not None or lead_f is not None):
         raise _refuse(
-            f"the {join_label} L-cut states `lead_seconds`",
+            f"the {join_label} L-cut states "
+            f"`{'lead_seconds' if lead is not None else 'lead_frames'}`",
             "an L-cut lags (audio late) - a lead is a J-cut's "
             "spelling, and reading it as a lag would ship the "
             "opposite offset.",
-            "re-plan the cut with `lag_seconds`, or as `j_cut` with "
-            "`lead_seconds`.",
+            "re-plan the cut with `lag_seconds` / `lag_frames`, or as "
+            "`j_cut` with `lead_seconds` / `lead_frames`.",
         )
     stated = lead if kind == "j_cut" else lag
+    stated_f = lead_f if kind == "j_cut" else lag_f
+    stated_name = ("lead_seconds" if kind == "j_cut" else "lag_seconds")
+    half_frame = 0.5 / float(frame_rate)
+    if stated_f is not None and stated_f <= 0:
+        raise _refuse(
+            f"the {join_label} cut states a non-positive offset "
+            f"({stated_f} frames)",
+            "a J/L cut with no offset IS the straight cut it was asked "
+            "to improve - placing it anyway would claim an offset "
+            "nobody hears.",
+            "re-plan the cut with a positive offset, or drop it and "
+            "keep the straight cut.",
+        )
     if stated is not None and stated <= 0:
         raise _refuse(
             f"the {join_label} cut states a non-positive offset "
@@ -185,6 +233,31 @@ def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
             "re-plan the cut with a positive offset, or drop it and "
             "keep the straight cut.",
         )
+    # Two numbers for one cut: the frames and the seconds must agree
+    # past half a frame, exactly like a stated offset beside an anchor.
+    # The frames win the exact value - they already sit on the grid the
+    # timeline places on - and the method says both were stated.
+    stated_unit = None
+    if stated is not None and stated_f is not None:
+        from_frames = stated_f / float(frame_rate)
+        if abs(from_frames - stated) > half_frame + 1e-9:
+            raise _refuse(
+                f"the {join_label} cut states {stated:.3f}s and "
+                f"{stated_f} frames ({from_frames:.3f}s)",
+                "two numbers for one cut is an ambiguous spec - picking "
+                "one silently would ship timing the plan did not agree "
+                "on.",
+                "re-plan the cut with the seconds and the frames "
+                "agreeing, or state only one of them.",
+            )
+        stated = from_frames
+        stated_unit = (f"{stated_f} frames "
+                       f"(agrees with stated {stated_name} {stated:.3f}s)")
+    elif stated_f is not None:
+        stated = stated_f / float(frame_rate)
+        stated_unit = f"{stated_f} frames"
+    elif stated is not None:
+        stated_unit = f"{stated:.3f}s"
 
     anchored_cut = None
     anchored_method = ""
@@ -205,7 +278,6 @@ def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
 
     boundary_frame = int(boundary_frame)
     boundary_seconds = boundary_frame / float(frame_rate)
-    half_frame = 0.5 / float(frame_rate)
     if anchored_cut is not None and stated is not None:
         implied = (boundary_seconds - anchored_cut if kind == "j_cut"
                    else anchored_cut - boundary_seconds)
@@ -220,21 +292,23 @@ def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
                 "agreeing, or state only one of them.",
             )
         audio_exact = anchored_cut
-        method = f"{anchored_method} (agrees with stated {stated:.3f}s)"
+        method = (f"{anchored_method} (agrees with stated "
+                  f"{stated_unit})")
     elif anchored_cut is not None:
         audio_exact = anchored_cut
         method = anchored_method
     elif stated is not None:
         audio_exact = (boundary_seconds - stated if kind == "j_cut"
                        else boundary_seconds + stated)
-        method = f"plan states {stated:.3f}s"
+        method = f"plan states {stated_unit}"
     else:
         raise _refuse(
             f"the {join_label} cut states no offset",
             "a J/L cut without a lead, a lag or an anchor is a straight "
             "cut wearing another name.",
-            "re-plan the cut with `lead_seconds` (`j_cut`) or "
-            "`lag_seconds` (`l_cut`), or with an `anchor`, or drop it.",
+            "re-plan the cut with `lead_seconds` / `lead_frames` "
+            "(`j_cut`) or `lag_seconds` / `lag_frames` (`l_cut`), or "
+            "with an `anchor`, or drop it.",
         )
 
     host = outgoing if kind == "j_cut" else incoming

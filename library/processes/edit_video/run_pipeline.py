@@ -1801,6 +1801,32 @@ def normalize_full_auto(full_auto: str | None) -> str | None:
     return full_auto
 
 
+def _merge_deterministic_llm_outputs(deterministic: dict,
+                                     llm_output: dict) -> dict:
+    """Combine deterministic measurements and the LLM's fields.
+
+    `review_rough_cut` writes its mechanical verdict and narrative review
+    into the same declared `rough_cut_review` object. Replacing that
+    object with the LLM's partial contribution erased the measured
+    `passed` field, so every scoped planning rerun refused afterward.
+    `rough_cut_review` is the one shared object: its mechanical verdict
+    and narrative review are separate contributions. Other colliding
+    outputs keep the normal last-writer behavior.
+    """
+    combined = dict(deterministic)
+    for key, value in llm_output.items():
+        existing = combined.get(key)
+        if (key == "rough_cut_review"
+                and isinstance(existing, dict)
+                and isinstance(value, dict)):
+            merged = dict(existing)
+            merged.update(value)
+            combined[key] = merged
+        else:
+            combined[key] = value
+    return combined
+
+
 @step_timer(step_id_kwarg="node_id")
 def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None, retry_feedback: str = "") -> dict:
     """Present an LLM step and execute it using the agent backend.
@@ -3431,7 +3457,8 @@ def run_pipeline(
                     if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
                         return llm_output, True
                     if isinstance(llm_output, dict):
-                        step_output.update(llm_output)
+                        step_output = _merge_deterministic_llm_outputs(
+                            step_output, llm_output)
                     return step_output, False
                 elif impl["type"] == "hybrid":
                     if auto_mode:

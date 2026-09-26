@@ -160,6 +160,33 @@ def test_native_transition_with_no_pair_downgrades_surfaced(project):
     assert "V2" in row["downgrade_reason"]
 
 
+def test_native_transition_at_exact_unmatched_frame_keeps_duration_on_downgrade(
+        project):
+    """A hard-cut fallback used to erase the requested 12-frame hold."""
+    _dir, _layout, outputs, _sfx = project
+    b_roll = outputs["select_broll"]["b_roll_assignments"][0]["source_file"]
+    manifest = _compile_with(
+        project,
+        plan_transitions=[{
+            "transition_id": "trans_010",
+            "transition_type": "cross_dissolve",
+            "cut_point_timeline": 1.0,
+            "cut_point_frame": 30,
+            "duration_source": "frames",
+            "duration_frames": 12,
+        }],
+        broll=[{**_broll_pair(b_roll)[0],
+                "timeline_start": 0.0, "timeline_end": 2.0}][:1])
+
+    (row,) = [t for t in manifest["transitions"]
+              if t.get("transition_id") == "trans_010"]
+    assert row["cut_point_frame"] == 30
+    assert row["requested_duration_frames"] == 12
+    assert row["transition_type"] == "hard_cut"
+    assert row["duration_frames"] == 0
+    assert "frame 30" in row["downgrade_reason"]
+
+
 # ── applicator: the track is placed, not assumed ─────────────────
 
 class _FakeTransition:

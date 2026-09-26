@@ -40,6 +40,9 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from library.tools import requirements as R
+from library.processes.edit_video.run_pipeline import (
+    _merge_deterministic_llm_outputs,
+)
 
 CONSUMERS = ("plan_subtitles", "plan_transitions", "plan_vfx", "plan_sfx")
 
@@ -55,6 +58,37 @@ def _ctx(review, overrides=()):
         state={"step_outputs": {"review_rough_cut": {
             "rough_cut_review": review}}} if review is not None else {},
         overrides=frozenset(overrides))
+
+
+def test_narrative_review_does_not_erase_mechanical_pass():
+    """The LLM half used to overwrite `rough_cut_review.passed`."""
+    merged = _merge_deterministic_llm_outputs(
+        {"rough_cut_review": {
+            "passed": True,
+            "mechanical_checks": {
+                "timeline_continuity": {"passed": True},
+            },
+        }},
+        {"rough_cut_review": {
+            "narrative_flow": "The sections connect clearly.",
+            "emotional_arc": "Self-conscious to resolved.",
+        }},
+    )
+
+    review = merged["rough_cut_review"]
+    assert review["passed"] is True
+    assert review["mechanical_checks"]["timeline_continuity"]["passed"]
+    assert review["narrative_flow"] == "The sections connect clearly."
+
+
+def test_other_shared_dict_outputs_keep_last_writer_semantics():
+    """The rough-cut verdict merge must not change other output owners."""
+    merged = _merge_deterministic_llm_outputs(
+        {"other_output": {"mechanical": True}},
+        {"other_output": {"narrative": "new owner"}},
+    )
+
+    assert merged["other_output"] == {"narrative": "new owner"}
 
 
 # ── The requirement exists and binds where the prose claimed ─────────
@@ -159,7 +193,5 @@ def test_the_override_record_carries_the_verdict_it_overrode(gate):
     assert record["needed_by"]
     assert json.loads(json.dumps(record)) == record, (
         "the record must survive being written to pipeline_data.json")
-
-
 
 

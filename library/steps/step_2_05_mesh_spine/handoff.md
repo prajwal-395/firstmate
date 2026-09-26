@@ -289,6 +289,46 @@ bar start from the view, and name the bar in the block's `visual_note`
 so step 4.02 - which places the cut - can hold it. (Speech-block
 durations are the passages' real durations, not yours to size.)
 
+### Conducting the bed to an end (numbers when stated)
+
+A piece runs until the next piece comes in - unless you end it. A
+segment may declare `ends_at_block` (the spine block position it stops
+at; what follows is silence under the picture - "music out, then the
+last line dry"), with an optional `end_offset_seconds` /
+`end_offset_frames` off that block's start, and a `fade_out_seconds` /
+`fade_out_frames` ramp over its last seconds. E3: seconds when the
+request states seconds ("out at 0:48 with a 2-second fade"), frames
+when it states frames - both forms of one number must agree, and a
+fade beside a crossfade on one join refuses (two endings: hand off or
+fade out, never both). Where the request names no end and no fade,
+declare neither: a piece that runs on and stops hard is the absence
+of decoration, not a decision.
+
+### Pacing targets (numbers when stated, feel words otherwise)
+
+When the request names a cut rate - "average shot length around 2.5s
+in the opening 20s, then let it relax to ~5s" - state it as a top-level
+`pacing` list beside `structure`: one window per stretch,
+`{start_block, end_block, asl_seconds}` addressed by the block
+positions you just wrote. When it speaks in feel words - "faster cuts
+as it builds" - use the same addressed window with `feel` set to the
+requester's words. Do not invent an ASL number for a feel request.
+The build measures the placed picture against each window into
+`pacing_report`, report-only: a numerical target is compared with the
+delivered ASL; a feel target is carried beside the measured ASL without
+pretending the two are numerically comparable. Windows must not overlap,
+and every window must name blocks on your spine.
+
+### Caption words per card (numbers when stated)
+
+If the request states a caption word limit, return the whole-number
+`max_words` beside `structure` and `pacing`. Keep the count in words; do
+not convert it to a feel or infer one when the request gives none. The
+subtitle planner groups every card at this ceiling and records the same
+value in `subtitle_plan.max_words`. Omit `max_words` when the request
+does not state a count; the planner then uses the brand setting or its
+declared default.
+
 ---
 
 ## State Interaction

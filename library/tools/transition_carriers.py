@@ -110,6 +110,15 @@ BASIS_HEAD_AFTER_THE_CUTAWAY = (
     "here, the head on the next V1 clip after the cutaway")
 BASIS_OUTGOING_ON_V2 = "outgoing {outgoing} on V2: no V1 clip ends here"
 BASIS_NOTHING_FOLLOWS = "outgoing {outgoing} on V1 but it ends the V1 track"
+#: Rung 7 (TR3.1): the end of the piece. Nothing follows, so only a
+#: tail-only fade and an end-placed native dissolve can sit there -
+#: step 4.02 plans those with `cut_point_position: "end"`, and any
+#: other type at the end drops with its reason.
+BASIS_END_OF_PIECE = (
+    "outgoing {outgoing} on V1, nothing follows: the end of the piece - "
+    "a tail-only fade or an end-placed native dissolve only")
+BASIS_END_NOT_V1 = (
+    "outgoing {outgoing} ends the piece off V1: no V1 clip ends here")
 
 # The bound a cut must sit within to count as a track cut. The same
 # bound `compile_manifest._v1_index_ending_at` matches V1 clip tails
@@ -230,4 +239,30 @@ def cut_carriers(structure: list) -> list[dict]:
             "verdict": CARRIES if can_carry else NO_V1_CLIP_ENDS_HERE,
             "basis": basis,
         })
+    if blocks:
+        # The end of the piece, addressed as `cut_point_position:
+        # "end"`. It carries no drawn transition needing two pictures -
+        # only the tail-only / end-placed kinds step 4.02 allows there -
+        # so it reads `yes` exactly when the last block puts a V1 clip
+        # on the timeline to fade out of.
+        last, last_type = blocks[-1], blocks[-1].get("block_type",
+                                                     "unknown")
+        end_time = last.get("timeline_end",
+                            last.get("timeline_start", 0.0))
+        if reaches[-1]:
+            rows.append({
+                "position": "end",
+                "cut_time": end_time,
+                "can_carry": True,
+                "verdict": CARRIES,
+                "basis": BASIS_END_OF_PIECE.format(outgoing=last_type),
+            })
+        else:
+            rows.append({
+                "position": "end",
+                "cut_time": end_time,
+                "can_carry": False,
+                "verdict": NO_V1_CLIP_ENDS_HERE,
+                "basis": BASIS_END_NOT_V1.format(outgoing=last_type),
+            })
     return rows

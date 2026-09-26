@@ -437,6 +437,11 @@ def apply_fusion_comps(manifest, project_folder,
         transition_by_clip.setdefault(after_idx, {})
         transition_by_clip[after_idx]['tail_transition'] = ttype
         transition_by_clip[after_idx]['tail_transition_frames'] = dur_f
+        if tspec.get('at_end'):
+            # Rung 7 end slot: the tail draws on the last clip alone -
+            # there is no incoming clip for a head half, and indexing
+            # past the last clip would comp nothing onto nothing.
+            continue
         next_idx = after_idx + 1
         transition_by_clip.setdefault(next_idx, {})
         transition_by_clip[next_idx]['head_transition'] = ttype

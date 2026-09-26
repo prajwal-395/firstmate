@@ -46,6 +46,13 @@ BROLL_ENTRY_KEYS = frozenset({
     "spine_block_position",
     "preferred_moment",
     "selection_rationale",
+    # Rung 7 (CT3.3): a stated source slip - "slip the shot 1s later
+    # in its source" - shifting the chosen window at the same timeline
+    # position and duration. Seconds when the request states seconds,
+    # frames when it states frames (E3); both stated must agree. A slip
+    # past the file's ends refuses rather than clamping onto silence.
+    "slip_seconds",
+    "slip_frames",
 })
 INTERJECTION_ENTRY_KEYS = frozenset({
     "clip_id",
@@ -109,6 +116,52 @@ def find_best_segment(
 # that cannot be placed in a free window at least this long is dropped
 # rather than allowed to swallow a block's B-roll assignment.
 MIN_INTERJECTION_SECONDS = 0.5
+
+
+def _resolve_slip(broll: dict, spine_pos, clip_id: str,
+                  timed_spine: dict) -> float:
+    """The stated source slip in seconds, or 0.0.
+
+    E3: `slip_seconds` when the request states seconds, `slip_frames`
+    when it states frames; both stated must agree past half a frame.
+    Frames read the timed spine's own timebase - stated frames with no
+    timebase refuse, never guess one. Positive slips later into the
+    source ("1s later in its source"); negative runs earlier.
+    """
+    seconds = broll.get("slip_seconds")
+    frames = broll.get("slip_frames")
+    if seconds is not None and (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))):
+        raise ValueError(
+            f"B-roll for block {spine_pos} ({clip_id}) states "
+            f"slip_seconds {seconds!r}, which is not a number of "
+            f"seconds")
+    if frames is not None and (
+            isinstance(frames, bool) or not isinstance(frames, int)):
+        raise ValueError(
+            f"B-roll for block {spine_pos} ({clip_id}) states "
+            f"slip_frames {frames!r}, which is not a whole number of "
+            f"frames")
+    if frames is not None:
+        fps = (timed_spine or {}).get("frame_rate")
+        if not fps:
+            raise ValueError(
+                f"B-roll for block {spine_pos} ({clip_id}) states a "
+                f"slip in frames but the timed spine carries no "
+                f"frame_rate - frames have no grid without the timebase")
+        from_frames = frames / float(fps)
+        if seconds is not None and abs(from_frames - float(seconds)) > (
+                0.5 / float(fps) + 1e-9):
+            raise ValueError(
+                f"B-roll for block {spine_pos} ({clip_id}) states "
+                f"slip_seconds {float(seconds):.3f}s and slip_frames "
+                f"{frames} ({from_frames:.3f}s) - two numbers for one "
+                f"slip is an ambiguous spec")
+        return from_frames
+    if seconds is not None:
+        return float(seconds)
+    return 0.0
 
 
 def _free_windows(start: float, end: float, occupied: list) -> list:
@@ -251,6 +304,26 @@ def resolve_broll(
         )
         video_in, video_out = choice.as_tuple()
 
+        # A stated source slip shifts the chosen window at the same
+        # timeline position and duration (rung 7, CT3.3). The slip is
+        # the requester's number - seconds or frames, never invented -
+        # and a window it pushes past the file's ends refuses with the
+        # bounds, rather than clamping onto unplayed media.
+        slip = _resolve_slip(broll, spine_pos, clip_id, timed_spine)
+        if slip:
+            shifted_in = video_in + slip
+            shifted_out = video_out + slip
+            if shifted_in < -1e-9 or shifted_out > clip_duration + 1e-9:
+                raise ValueError(
+                    f"B-roll for block {spine_pos} ({clip_id}) states a "
+                    f"slip of {slip:.3f}s, moving the chosen window "
+                    f"({video_in:.3f}-{video_out:.3f}s) to "
+                    f"({shifted_in:.3f}-{shifted_out:.3f}s) - outside "
+                    f"the file's 0-{clip_duration:.3f}s. Slip inside "
+                    f"the media, or pick another moment."
+                )
+            video_in, video_out = shifted_in, shifted_out
+
         # A cutaway can be shorter than the block it covers - but only
         # where something plays underneath. A speech, hook or picture
         # block (or a bookend card) puts a clip on V1 - `block_reaches_v1`, the one
@@ -326,6 +399,9 @@ def resolve_broll(
             # not a decision, and a reviewer must be able to tell.
             "window_basis": choice.basis,
             "window_basis_detail": choice.basis_detail,
+            # The stated slip this window carries (0.0 unstated) - the
+            # E3 receipt beside the shifted seconds above.
+            "slip_seconds": round(slip, 3),
             "video_only": True,  # B-roll audio should NOT be linked
         })
         covered_positions.add(str(spine_pos))
