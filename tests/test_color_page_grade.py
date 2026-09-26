@@ -5,6 +5,7 @@ nothing, a malformed one raises before any Resolve call, and the apply
 record says what happened rather than asserting it.
 """
 import os
+import subprocess
 
 import pytest
 import yaml
@@ -151,12 +152,15 @@ def test_repo_wide_drx_files_need_recorded_provenance():
     route from outside the repo; nothing ships one without the recording
     the captain's ruling still requires."""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    found = []
-    for root, dirs, files in os.walk(repo_root):
-        dirs[:] = [d for d in dirs
-                   if d not in (".git", "__pycache__", ".venv")]
-        found.extend(os.path.join(root, f) for f in files
-                     if f.endswith(".drx"))
+    tracked = subprocess.run(
+        ["git", "ls-files", "--cached", "-z"],
+        cwd=repo_root,
+        check=True,
+        stdout=subprocess.PIPE,
+        encoding="utf-8",
+    ).stdout.split("\0")
+    found = [os.path.join(repo_root, path) for path in tracked
+             if path.endswith(".drx")]
     if not found:
         return
     with open(os.path.join(repo_root, "AGENTS.md"),
