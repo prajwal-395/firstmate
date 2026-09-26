@@ -105,7 +105,8 @@ def test_cleanup_context_records_a_floor_per_source(tmp_path):
     assert row["floor"]["level_dbfs"] < -30
     assert row["floor_unmeasured_reason"] == ""
     assert row["speech"]["measured"] is True
-    assert set(context["tools"]) == {"deepfilternet", "voice_isolation"}
+    assert set(context["tools"]) == {
+        "deepfilternet", "voice_isolation", "audio_ops"}
 
 
 def test_cleanup_context_states_an_unmeasurable_floor(tmp_path):

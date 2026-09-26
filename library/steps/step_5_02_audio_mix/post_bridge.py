@@ -24,6 +24,7 @@ decided records `fallback` or `undetermined` per window, and those are
 different facts from a decision that happened to land on the same number.
 """
 import json
+import math
 import os
 import sys
 
@@ -32,6 +33,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from library.steps.step_5_02_audio_mix.mix import (
     SLOT,
+    apply_word_gap_ducking,
     assemble,
     shortfall_lines,
     solve_automation,
@@ -42,6 +44,7 @@ from library.tools.dialogue_cleanup import (
     validate_cleanup_request,
 )
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.ren_refusal import RenRefusal
 
 
 # The decision-entry keys this step reads. Anything else is REFUSED,
@@ -56,6 +59,13 @@ DECISION_ENTRY_KEYS = frozenset({
     "scope",
     "value",
     "why",
+})
+
+DUCKING_PLAN_KEYS = frozenset({
+    "enabled", "duck_db", "release_ms", "why",
+})
+DELIVERY_PLAN_KEYS = frozenset({
+    "dialogue_target_lufs", "true_peak_ceiling_dbtp", "why",
 })
 
 
@@ -145,6 +155,19 @@ def resolve_audio_mix(data: dict) -> dict:
         by_scope[scope] = decision.as_record()
 
     automation, undetermined = solve_automation(pre_output, by_scope)
+    ducking = resolve_music_ducking_plan(data)
+    delivery = resolve_audio_delivery_plan(data)
+    try:
+        apply_word_gap_ducking(
+            automation,
+            data["audio_spine"] if ducking["enabled"] else {}, ducking)
+    except ValueError as exc:
+        raise RenRefusal(
+            what="the word-gap music plan cannot be delivered",
+            why=str(exc),
+            fix=("re-plan the word-gap level so it stays within Resolve's "
+                 "measurable clip-volume range"),
+        ) from exc
 
     for line in decided_value.summary_lines(decisions):
         print(f"  {line}", file=sys.stderr)
@@ -159,8 +182,147 @@ def resolve_audio_mix(data: dict) -> dict:
 
     cleanup = resolve_cleanup(data)
 
-    return assemble(pre_output, decisions, automation, undetermined,
-                    cleanup=cleanup)
+    result = assemble(pre_output, decisions, automation, undetermined,
+                      cleanup=cleanup)
+    result["audio_mix_spec"]["music_ducking_plan"] = {
+        **ducking,
+        "blocks_with_word_intervals": sum(
+            bool(row.get("word_intervals")) for row in automation),
+        "blocks_with_delivered_levels": sum(
+            bool(row.get("word_intervals") and
+                 row.get("word_gap_level_db") is not None)
+            for row in automation),
+    }
+    from library.tools.master_loudness import (
+        DELIVERY_LUFS_TARGET,
+        DEFAULT_TRUE_PEAK_CEILING_DBTP,
+    )
+    result["audio_mix_spec"]["audio_delivery_plan"] = delivery
+    result["audio_mix_spec"]["delivery_lufs_target"] = (
+        delivery["dialogue_target_lufs"]
+        if delivery["dialogue_target_lufs"] is not None
+        else DELIVERY_LUFS_TARGET)
+    result["audio_mix_spec"]["delivery_true_peak_ceiling_dbtp"] = (
+        delivery["true_peak_ceiling_dbtp"]
+        if delivery["true_peak_ceiling_dbtp"] is not None
+        else DEFAULT_TRUE_PEAK_CEILING_DBTP)
+    result["audio_mix_spec"]["master_limiter"]["threshold_db"] = (
+        result["audio_mix_spec"]["delivery_true_peak_ceiling_dbtp"])
+    return result
+
+
+def resolve_music_ducking_plan(data: dict) -> dict:
+    """Validate the prompt's per-word music duck and gap recovery values."""
+    plan = data.get("music_ducking_plan")
+    if plan is None:
+        return {"enabled": False, "duck_db": None, "release_ms": None,
+                "why": "No word-gap ducking plan was declared."}
+    if not isinstance(plan, dict):
+        raise RenRefusal(
+            what="the word-gap music plan is not an object",
+            why="the renderer cannot read ducking fields from this answer.",
+            fix=("return enabled, duck_db, release_ms, and why in one "
+                 "music_ducking_plan object"),
+        )
+    refuse_unknown_keys([plan], DUCKING_PLAN_KEYS, step="audio_mix",
+                        plan="music_ducking_plan")
+    if set(plan) != DUCKING_PLAN_KEYS:
+        missing = sorted(DUCKING_PLAN_KEYS - set(plan))
+        raise RenRefusal(
+            what="the word-gap music plan is incomplete",
+            why=f"the answer omitted {', '.join(missing)}.",
+            fix="return all four music_ducking_plan keys",
+        )
+    if not isinstance(plan["enabled"], bool):
+        raise RenRefusal(
+            what="the word-gap enabled value is not boolean",
+            why="a string or number does not declare whether ducking applies.",
+            fix="set enabled to true or false",
+        )
+    why = plan["why"]
+    if not isinstance(why, str) or not why.strip():
+        raise RenRefusal(
+            what="the word-gap plan has no reason",
+            why="the chosen depth and recovery timing have no stated basis.",
+            fix="state the request or creative reading behind the values",
+        )
+    if not plan["enabled"]:
+        if plan["duck_db"] is not None or plan["release_ms"] is not None:
+            raise RenRefusal(
+                what="the disabled word-gap plan carries active values",
+                why="duck_db and release_ms would be unread settings.",
+                fix="set both numeric keys to null when enabled is false",
+            )
+        return {**plan, "why": why.strip()}
+
+    duck_db = _finite_plan_number(plan["duck_db"], "duck_db")
+    release_ms = _finite_plan_number(plan["release_ms"], "release_ms")
+    if duck_db < 0 or release_ms <= 0:
+        raise RenRefusal(
+            what="the word-gap music values cannot be delivered",
+            why="duck_db must be non-negative and release_ms positive.",
+            fix="re-plan the duck depth and recovery duration with those units",
+        )
+    return {**plan, "duck_db": duck_db, "release_ms": release_ms,
+            "why": why.strip()}
+
+
+def resolve_audio_delivery_plan(data: dict) -> dict:
+    """Validate explicit dialogue loudness and true-peak export targets."""
+    plan = data.get("audio_delivery_plan")
+    if plan is None:
+        return {
+            "dialogue_target_lufs": None,
+            "true_peak_ceiling_dbtp": None,
+            "why": "No numeric delivery target was requested; keep the "
+                   "declared -14 LUFS and -1 dBTP delivery standard.",
+        }
+    if not isinstance(plan, dict):
+        raise RenRefusal(
+            what="the audio delivery plan is not an object",
+            why="the export step cannot read targets from this answer.",
+            fix=("return dialogue_target_lufs, "
+                 "true_peak_ceiling_dbtp, and why in one object"),
+        )
+    refuse_unknown_keys([plan], DELIVERY_PLAN_KEYS, step="audio_mix",
+                        plan="audio_delivery_plan")
+    if set(plan) != DELIVERY_PLAN_KEYS:
+        missing = sorted(DELIVERY_PLAN_KEYS - set(plan))
+        raise RenRefusal(
+            what="the audio delivery plan is incomplete",
+            why=f"the answer omitted {', '.join(missing)}.",
+            fix="return all three audio_delivery_plan keys",
+        )
+    why = plan["why"]
+    if not isinstance(why, str) or not why.strip():
+        raise RenRefusal(
+            what="the audio delivery plan has no reason",
+            why="the declared targets have no stated request or basis.",
+            fix="state why the exact numeric targets or delivery defaults apply",
+        )
+    resolved = {"why": why.strip()}
+    for key in ("dialogue_target_lufs", "true_peak_ceiling_dbtp"):
+        value = plan[key]
+        resolved[key] = (None if value is None else
+                         _finite_plan_number(value, key))
+    return resolved
+
+
+def _finite_plan_number(value, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RenRefusal(
+            what=f"{label} is not a number",
+            why="the plan must supply a JSON number, not text or a boolean.",
+            fix=f"re-plan {label} as a finite numeric value",
+        )
+    result = float(value)
+    if not math.isfinite(result):
+        raise RenRefusal(
+            what=f"{label} is not finite",
+            why=f"the answer supplied {value!r}.",
+            fix=f"re-plan {label} as a finite numeric value",
+        )
+    return result
 
 
 def resolve_cleanup(data: dict) -> dict:

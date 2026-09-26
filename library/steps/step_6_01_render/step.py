@@ -191,6 +191,13 @@ def _render_output_payload(result: dict, export: dict,
             "codec": export.get("codec"),
         },
     }
+    # `master_render_report` measures the encoded delivery file. Preserve
+    # that proof through the hand-picked render payload so the ledger and
+    # render review can distinguish its measured result from the Resolve
+    # request that produced it.
+    if "mastering" in export:
+        payload["mastering"] = export["mastering"]
+        payload["raw_output_path"] = export["raw_output_path"]
     track_plan = result.get("track_plan")
     if track_plan is not None:
         payload["track_plan"] = track_plan
@@ -246,6 +253,8 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
         raise ValueError("project_folder is required to place the export")
 
     output_dir = str(ProjectLayout(project_folder).write_dir(Area.EXPORTS, step="render"))
+    scratch_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.SCRATCH, step="render"))
     # The export is the deliverable OF this timeline, so it carries the
     # timeline's own name - including PR 460's timestamp/duration/draft
     # suffix. Recomputing it from the manifest's base project name is how
@@ -258,8 +267,8 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     cmd = [
         sys.executable, RENDER_SCRIPT,
         "--timeline", timeline_name or "",
-        "--output-dir", output_dir,
-        "--name", output_name,
+        "--output-dir", scratch_dir,
+        "--name", f"{output_name}_pre_master",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2400)
     if proc.stderr:
@@ -269,7 +278,27 @@ def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
             f"Export failed (exit {proc.returncode}): "
             f"{proc.stderr.strip()[-800:]}"
         )
-    return json.loads(proc.stdout)
+    rendered = json.loads(proc.stdout)
+    raw_path = rendered.get("output_path")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise RuntimeError("Resolve render returned no output_path")
+    extension = os.path.splitext(raw_path)[1] or ".mp4"
+    final_path = os.path.join(output_dir,
+                              os.path.basename(output_name) + extension)
+    from library.tools.master_loudness import (
+        DEFAULT_TRUE_PEAK_CEILING_DBTP,
+        DELIVERY_LUFS_TARGET,
+        master_render_report,
+    )
+    audio_mix = manifest.get("audio_mix", {}) or {}
+    return master_render_report(
+        rendered, final_path,
+        target_lufs=float(audio_mix.get(
+            "delivery_lufs_target", DELIVERY_LUFS_TARGET)),
+        true_peak_ceiling=float(audio_mix.get(
+            "delivery_true_peak_ceiling_dbtp",
+            DEFAULT_TRUE_PEAK_CEILING_DBTP)),
+    )
 
 
 def run(inputs: dict) -> dict:

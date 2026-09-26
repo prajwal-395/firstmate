@@ -651,14 +651,21 @@ def deliver_reel(project_folder: str, reel: Optional[int],
             "deliver again - a deliver that repaired this itself would "
             "rebind the captain's live timeline outside a build")
 
+    raw_dir = str(layout.write_dir(Area.SCRATCH, step="deliver-reel"))
     report = resolve_render.render_timeline(
         timeline_name=timeline.GetName(),
-        output_dir=dest_dir,
-        output_name=os.path.splitext(out_name)[0],
+        output_dir=raw_dir,
+        output_name=os.path.splitext(out_name)[0] + "_pre_master",
         fmt=settings["format"],
         codec=settings["codec"],
         timeout_seconds=timeout_seconds,
     )
+    extension = (os.path.splitext(report["output_path"])[1]
+                 or settings["extension"])
+    final_path = os.path.join(
+        dest_dir, os.path.splitext(os.path.basename(out_name))[0] + extension)
+    from library.tools.master_loudness import master_render_report
+    report = master_render_report(report, final_path)
     verdict = verify_deliverable(
         report["output_path"], expected_seconds,
         settings["width"], settings["height"])

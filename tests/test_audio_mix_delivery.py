@@ -307,6 +307,33 @@ def test_the_level_is_read_back_off_the_timeline():
                                       for f, v in targets[0]["keyframes"].items()}
 
 
+def test_resolve_float_rounding_does_not_false_alarm_keyframe_verification():
+    """Resolve can serialize the same dB keyframe as a nearby float.
+
+    Exact dictionary equality reported "86 keyframes on the timeline, 86
+    planned" for a curve whose frames matched and whose values differed only
+    below the mix's existing 0.05 dB readback tolerance.
+    """
+    actual = otio_mix.volume_parameter(
+        0.0, {10: -18.299999999999997, 20: -24.0})
+    otio = _otio([("Music", "Audio", [
+        _clip("/m.wav", 0, 900, volume=actual)])])
+    target = {
+        "source_file": "/m.wav",
+        "start_frame": 0,
+        "matched_start_frame": 0,
+        "level_db": 0.0,
+        "keyframes": {10: -18.3, 20: -24.0},
+        "label": "background_music",
+    }
+
+    assert otio_mix.verify(otio, [target]) == []
+
+    actual["Key Frames"]["10"]["Value"] = -18.36
+    assert "keyframes on the timeline differ" in otio_mix.verify(
+        otio, [target])[0]
+
+
 
 
 # ── The traps that answer None ──────────────────────────────────────

@@ -80,8 +80,9 @@ Two things that conditioning measured, and they constrain the product:
 
 What this module owns (one enumeration, like every vocabulary here):
 
-- `TOOLS`: the only two cleanup tools. Anything else is refused by
-  name in `validate_cleanup_request`, never dropped.
+- `TOOLS`: cleanup and effect tools the build can stage or apply.
+  Anything else is refused by name in `validate_cleanup_request`, never
+  dropped.
 - Availability probes with the reason attached, so the plan context
   states what the build can actually do.
 - `run_deepfilternet`: source range in, stem file out, with wall time
@@ -119,7 +120,9 @@ class DialogueCleanupRefused(RenRefusal):
 #: per-track Voice Isolation (`Timeline.SetVoiceIsolationState`,
 #: amount 0..100, Studio-only since 21.1). `deepfilternet` is a
 #: processed stem the build places natively through the OTIO route.
-TOOLS = ("voice_isolation", "deepfilternet")
+#: `audio_ops` is a plan-declared chain of EQ, de-ess and dereverb
+#: operations, delivered as the same kind of stem.
+TOOLS = ("voice_isolation", "deepfilternet", "audio_ops")
 
 #: Resolve's own Voice Isolation scale, read off the 21.1 stub and the
 #: rung-3a probe (`SetVoiceIsolationState(1, {isEnabled, amount: 60})`
@@ -137,6 +140,7 @@ CLEANUP_ENTRY_KEYS = frozenset({
     "amount",
     "span_start",
     "span_end",
+    "operations",
     "why",
 })
 
@@ -239,14 +243,29 @@ def voice_isolation_note() -> dict:
     }
 
 
+def audio_operations_note() -> dict:
+    """What the plan-declared EQ/de-ess/dereverb chain can deliver."""
+    from library.tools.audio_effects import OPERATION_KEYS
+
+    ffmpeg = shutil.which("ffmpeg")
+    return {
+        "available": bool(ffmpeg),
+        "method": "ffmpeg plus offline WPE",
+        "operations": sorted(OPERATION_KEYS),
+        "reason": (f"ffmpeg answers at {ffmpeg}; dereverb uses the local "
+                   "NumPy/SciPy WPE implementation"
+                   if ffmpeg else "ffmpeg is not available on PATH"),
+    }
+
+
 # ── Plan validation ──────────────────────────────────────────────────
 
 def validate_cleanup_request(entry: dict) -> dict:
     """A plan entry normalised, or refused by name.
 
     Returns `{"source", "tool", "amount", "span_start", "span_end",
-    "why"}` with `amount`/`span_*` None when not given. Refuses an
-    unknown tool, a Voice Isolation amount outside Resolve's own
+    "why"}` plus `operations` when declared. `amount`/`span_*` are None
+    when not given. Refuses an unknown tool, a Voice Isolation amount outside Resolve's own
     0..100, a span that is not a positive range, and an entry with no
     `why` or no `source` - a cleanup nobody justified is exactly what
     "never an engine default" exists to remove.
@@ -273,9 +292,10 @@ def validate_cleanup_request(entry: dict) -> dict:
         raise _refuse(
             f"dialogue cleanup cannot be planned: {tool!r} is not a "
             f"cleanup tool",
-            "the build applies voice_isolation through Resolve and "
-            "deepfilternet as a staged stem - a third name would reach "
-            "no code and ship as an uncleaned source reported clean.",
+            "the build applies voice_isolation through Resolve, "
+            "deepfilternet as a staged stem, and audio_ops as a declared "
+            "EQ/de-ess/dereverb stem - another name would reach no code "
+            "and ship as an uncleaned source reported clean.",
             f"re-plan with one of: {', '.join(TOOLS)}.",
         )
     amount = entry.get("amount")
@@ -310,12 +330,44 @@ def validate_cleanup_request(entry: dict) -> dict:
             )
     elif amount is not None:
         raise _refuse(
-            f"dialogue cleanup cannot be planned: deepfilternet on "
+            f"dialogue cleanup cannot be planned: {tool} on "
             f"{source!r} carries an amount",
-            "a DeepFilterNet stem has no strength dial - the model is "
-            "the strength choice the plan already made. An amount beside "
-            "it would reach no code.",
+            "this tool has no amount dial. An amount beside it would "
+            "reach no code.",
             "drop the amount key, or switch the tool to voice_isolation.",
+        )
+    operations = None
+    if "operations" in entry:
+        try:
+            from library.tools.audio_effects import (
+                AudioOperationError,
+                validate_operations,
+            )
+            operations = validate_operations(entry["operations"])
+        except AudioOperationError as exc:
+            raise _refuse(
+                f"dialogue cleanup cannot be planned: operations on "
+                f"{source!r} are invalid",
+                str(exc),
+                "re-plan with declared high_pass, equalizer, de_ess, or "
+                "dereverb operations and their required measurements.",
+            ) from exc
+        if not operations:
+            raise _refuse(
+                f"dialogue cleanup cannot be planned: operations on "
+                f"{source!r} are empty",
+                "an empty chain would be an unread plan field and could "
+                "claim treatment was delivered without changing the audio.",
+                "remove operations or name at least one real operation.",
+            )
+    if tool == "audio_ops" and not operations:
+        raise _refuse(
+            f"dialogue cleanup cannot be planned: audio_ops on "
+            f"{source!r} names no operations",
+            "an empty chain would place an unchanged stem and claim the "
+            "requested treatment was delivered.",
+            "name at least one plan-declared audio operation, or choose "
+            "a cleanup tool that carries out the requested treatment.",
         )
     span_start, span_end = entry.get("span_start"), entry.get("span_end")
     if (span_start is None) != (span_end is None):
@@ -357,7 +409,7 @@ def validate_cleanup_request(entry: dict) -> dict:
             "state what in the measured floor made this tool (and this "
             "amount) the answer, or drop the entry.",
         )
-    return {
+    normalized = {
         "source": source.strip(),
         "tool": tool,
         "amount": amount,
@@ -365,6 +417,9 @@ def validate_cleanup_request(entry: dict) -> dict:
         "span_end": span_end,
         "why": why.strip(),
     }
+    if operations is not None:
+        normalized["operations"] = operations
+    return normalized
 
 
 # ── Source measurement (the plan context) ────────────────────────────
@@ -629,7 +684,13 @@ def _speech_or_none(path: str):
 
 def stage_deepfilternet(request: dict, clips: list, spans: list,
                         out_dir: str) -> list:
-    """Stage one DeepFilterNet request's stems. Returns stem records.
+    """Compatibility name for staging the requested dialogue chain."""
+    return stage_audio_chain(request, clips, spans, out_dir)
+
+
+def stage_audio_chain(request: dict, clips: list, spans: list,
+                      out_dir: str) -> list:
+    """Stage plan-declared cleanup and audio-operation stems.
 
     `request` is a validated entry (`validate_cleanup_request` runs
     again here - the plan crossed a step boundary since 5.02, and a
@@ -705,8 +766,60 @@ def stage_deepfilternet(request: dict, clips: list, spans: list,
         _extract_range(source_file, start, end, range_wav)
         local_spans = [(s - start, e - start) for s, e in spans or []
                        if e > start and s < end]
-        staged = run_deepfilternet(range_wav, stem_wav,
-                                   speech_spans=local_spans)
+        started = time.time()
+        operations = row.get("operations", [])
+        if row["tool"] == "deepfilternet":
+            deepfilter_path = (
+                os.path.join(stem_dir, f"{label}_deepfilter.wav")
+                if operations else stem_wav)
+            staged = run_deepfilternet(
+                range_wav, deepfilter_path, speech_spans=local_spans)
+            if operations:
+                from library.tools.audio_effects import apply_operations
+                try:
+                    effect_result = apply_operations(
+                        deepfilter_path, stem_wav, operations)
+                except Exception as exc:
+                    raise _refuse(
+                        f"dialogue audio operations could not be staged "
+                        f"for {label}",
+                        str(exc)[:500],
+                        "correct the plan-declared operation parameters "
+                        "or restore the ffmpeg/WPE processing path.",
+                    ) from exc
+                staged.update({
+                    "stem_file": stem_wav,
+                    "output_path": stem_wav,
+                    "operations": effect_result["operations"],
+                    "floor_after_dbfs": _floor_or_none(
+                        stem_wav, local_spans),
+                    "speech_after_lufs": _speech_or_none(stem_wav),
+                    "wall_seconds": round(
+                        staged["wall_seconds"] + time.time() - started, 2),
+                })
+        else:
+            from library.tools import audio_effects
+            try:
+                effect_result = audio_effects.apply_operations(
+                    range_wav, stem_wav, operations)
+            except Exception as exc:
+                raise _refuse(
+                    f"dialogue audio operations could not be staged for "
+                    f"{label}",
+                    str(exc)[:500],
+                    "correct the plan-declared operation parameters or "
+                    "restore the ffmpeg/WPE processing path.",
+                ) from exc
+            staged = {
+                "stem_file": stem_wav,
+                "method": "plan_declared_audio_operations",
+                "wall_seconds": round(time.time() - started, 2),
+                "floor_before_dbfs": _floor_or_none(range_wav, local_spans),
+                "floor_after_dbfs": _floor_or_none(stem_wav, local_spans),
+                "speech_before_lufs": _speech_or_none(range_wav),
+                "speech_after_lufs": _speech_or_none(stem_wav),
+                "operations": effect_result["operations"],
+            }
         staged.update({
             "label": label,
             "source_file": clip.get("source_file") or row["source"],
@@ -716,9 +829,63 @@ def stage_deepfilternet(request: dict, clips: list, spans: list,
             "timeline_in_frame": clip.get("timeline_in_frame"),
             "timeline_out_frame": clip.get("timeline_out_frame"),
             "why": row["why"],
+            "tool": row["tool"],
         })
+        # Measured above as mono; delivered in the source's layout.
+        staged["channels"] = _match_source_channels(
+            staged["stem_file"], source_file)
         stems.append(staged)
     return stems
+
+
+def _source_channels(source_file: str) -> int:
+    """Channel count of the source's first audio stream."""
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=channels", "-of", "csv=p=0",
+         source_file],
+        capture_output=True, encoding="utf-8", timeout=60, check=False,
+    )
+    try:
+        return int(proc.stdout.strip().splitlines()[0])
+    except (IndexError, ValueError) as exc:
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: the channel layout of "
+            f"{os.path.basename(source_file)} does not read",
+            (proc.stderr or "")[-300:] or "ffprobe printed no channel count.",
+            "restore the source file, or drop the cleanup request.",
+        ) from exc
+
+
+def _match_source_channels(stem_wav: str, source_file: str) -> int:
+    """Rewrite a mono stem in the source's channel count, each at unity.
+
+    The stem replaces the source clip's media on a track laid out for the
+    source. A mono stem there plays in the FIRST channel only: every
+    cleaned segment of the K2 evals (and main's rung-5d DeepFilterNet
+    stems) delivered its dialogue about 15 dB down in the right ear.
+    """
+    channels = _source_channels(source_file)
+    if channels <= 1:
+        return 1
+    pan = "|".join(f"c{index}=c0" for index in range(channels))
+    widened = stem_wav + ".channels.wav"
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-nostdin", "-i", stem_wav,
+         "-af", f"pan={channels}c|{pan}", "-c:a", "pcm_s24le", "-y",
+         widened],
+        capture_output=True, encoding="utf-8", timeout=900, check=False,
+    )
+    if proc.returncode != 0 or not os.path.isfile(widened):
+        raise _refuse(
+            f"dialogue cleanup cannot be staged: the stem "
+            f"{os.path.basename(stem_wav)} could not be laid out as "
+            f"{channels} channels",
+            (proc.stderr or "")[-300:] or "no diagnostic on stderr.",
+            "restore ffmpeg, or drop the cleanup request.",
+        )
+    os.replace(widened, stem_wav)
+    return channels
 
 
 def _extract_range(source_file: str, start: float, end: float,

@@ -38,21 +38,34 @@ def _timestamped_timeline_name(base_name, duration_seconds):
 
 
 def _capture_export_name(monkeypatch, tmp_path):
-    """Run _export_timeline with a stubbed render subprocess; return argv."""
+    """Run _export_timeline with the render and mastering stubbed.
+
+    Resolve renders `<name>_pre_master` into scratch and mastering writes
+    the delivery file into exports; `captured["delivered"]` is the path
+    the mastered export is written to.
+    """
+    from library.tools import master_loudness
+
     captured = {}
 
     class FakeProc:
         returncode = 0
-        stdout = json.dumps({"output_path": "x", "size_bytes": 1,
-                             "job_id": "j", "job_status": "Complete",
-                             "format": "mp4", "codec": "H264"})
+        stdout = json.dumps({"output_path": str(tmp_path / "raw.mp4"),
+                             "size_bytes": 1, "job_id": "j",
+                             "job_status": "Complete", "format": "mp4",
+                             "codec": "H264"})
         stderr = ""
 
     def fake_run(cmd, **kwargs):
         captured["cmd"] = cmd
         return FakeProc()
 
+    def fake_master(report, output_path, **kwargs):
+        captured["delivered"] = output_path
+        return dict(report, output_path=output_path)
+
     monkeypatch.setattr(render_step.subprocess, "run", fake_run)
+    monkeypatch.setattr(master_loudness, "master_render_report", fake_master)
     return captured
 
 
@@ -71,7 +84,8 @@ def test_export_filename_matches_timestamped_timeline(monkeypatch, tmp_path):
     cmd = captured["cmd"]
     name_flag = cmd[cmd.index("--name") + 1]
     # Identity with the built timeline's name - not the manifest base name.
-    assert name_flag == timeline_name
+    assert name_flag == f"{timeline_name}_pre_master"
+    assert os.path.basename(captured["delivered"]) == f"{timeline_name}.mp4"
 
 
 def test_export_falls_back_to_manifest_when_no_timeline(monkeypatch, tmp_path):
@@ -86,9 +100,13 @@ def test_export_falls_back_to_manifest_when_no_timeline(monkeypatch, tmp_path):
 
     cmd = captured["cmd"]
     name_flag = cmd[cmd.index("--name") + 1]
-    assert name_flag == manifest["project"]["name"]
+    assert name_flag == f"{manifest['project']['name']}_pre_master"
+    assert os.path.basename(captured["delivered"]) == "Some_Base.mp4"
 
     captured2 = _capture_export_name(monkeypatch, tmp_path)
     render_step._export_timeline("", inputs, {})
     cmd2 = captured2["cmd"]
-    assert cmd2[cmd2.index("--name") + 1] == DEFAULT_TIMELINE_NAME
+    assert cmd2[cmd2.index("--name") + 1] == \
+        f"{DEFAULT_TIMELINE_NAME}_pre_master"
+    assert os.path.basename(captured2["delivered"]) == \
+        f"{DEFAULT_TIMELINE_NAME}.mp4"

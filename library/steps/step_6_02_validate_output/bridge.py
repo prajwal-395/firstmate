@@ -29,7 +29,12 @@ import traceback
 # Import new QA modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from library.tools.project_layout import Area, ProjectLayout
-from library.tools.render_qa import RenderQAResult, run_full_render_qa
+from library.tools.render_qa import (
+    DEFAULT_LUFS_TARGET,
+    DEFAULT_TRUE_PEAK_CEILING_DBTP,
+    RenderQAResult,
+    run_full_render_qa,
+)
 from library.tools import render_watch
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
@@ -553,9 +558,15 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     # ── Run QA Toolkit ──
     qa_results = []
     music_path, music_automation, music_offset = _music_bed(assembly_manifest)
+    audio_mix = assembly_manifest.get("audio_mix", {}) or {}
     try:
         qa_results = run_full_render_qa(
             video_path, expected_duration,
+            target_lufs=float(audio_mix.get(
+                "delivery_lufs_target", DEFAULT_LUFS_TARGET)),
+            true_peak_ceiling=float(audio_mix.get(
+                "delivery_true_peak_ceiling_dbtp",
+                DEFAULT_TRUE_PEAK_CEILING_DBTP)),
             declared_black_beats=_declared_black_beats(assembly_manifest),
             # The delivery format the manifest was compiled at. These two
             # were computed above and then never passed, so the gate

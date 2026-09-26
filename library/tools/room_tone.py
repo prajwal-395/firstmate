@@ -71,8 +71,8 @@ def _refuse(what: str, why: str, fix: str) -> RoomToneRefused:
 def decode_mono(path: str, sample_rate: int = MEASURE_SR) -> tuple:
     """Decode `path` to mono float samples in [-1, 1] plus the rate.
 
-    PCM WAV goes through stdlib `wave` (no subprocess, exact samples);
-    anything else through ffmpeg. Refuses when the file is missing, has
+    16- and 32-bit PCM WAV go through stdlib `wave` (no subprocess, exact
+    samples); anything else, 24-bit WAV included, through ffmpeg. Refuses when the file is missing, has
     no audio, or decodes to nothing.
     """
     if not os.path.isfile(path):
@@ -119,13 +119,9 @@ def _decode_wav(path: str, sample_rate: int) -> tuple:
         ints = struct.unpack(f"<{n_frames * n_channels}i", raw)
         peak = 2147483648.0
     else:
-        raise _refuse(
-            f"room tone cannot be measured: {path!r} is {width * 8}-bit "
-            f"PCM, which this reader does not decode",
-            "only 16-bit and 32-bit PCM WAV decode without ffmpeg.",
-            "re-export the source as 16-bit PCM WAV, or drop the J/L "
-            "cut that needs its room.",
-        )
+        # 24-bit is what the plan-declared audio chain writes; a refusal
+        # here was swallowed as "not measured" on every such stem.
+        return _decode_ffmpeg(path, sample_rate)
     mono = []
     for i in range(n_frames):
         frame = ints[i * n_channels:(i + 1) * n_channels]

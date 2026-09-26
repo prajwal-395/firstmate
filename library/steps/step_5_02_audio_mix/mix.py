@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from library.tools import decided_value
 from library.tools.dialogue_cleanup import (
+    audio_operations_note,
     deepfilternet_probe,
     measure_source,
     spans_by_source,
@@ -43,7 +44,7 @@ from library.tools.speech_loudness import (
     measure_speech_blocks,
     separation_delivered_db,
 )
-from library.tools.spine_contract import is_speech_block
+from library.tools.spine_contract import is_speech_block, source_to_timeline
 
 SLOT = "mix.speech_above_bed_db"
 
@@ -357,6 +358,52 @@ def _shortfall(target, delivered, speech_lufs, bed):
                   "window's separation is unreported")
 
 
+def apply_word_gap_ducking(automation: list, audio_spine: dict,
+                           plan: dict) -> list:
+    """Attach private spine-derived word intervals and recovery levels.
+
+    Word timings are added only to the downstream mix plan, never to
+    `mix_windows`, the table shown to the model. A speech word is mapped
+    from its source range using the spine's own source-to-timeline map.
+    """
+    if not plan.get("enabled"):
+        return automation
+    structure = audio_spine["structure"]
+    by_position = {str(block["position"]): block for block in structure}
+    for row in automation or []:
+        if row["music_behavior"] != "background":
+            continue
+        block = by_position.get(str(row["spine_block_position"]))
+        if block is None or not is_speech_block(block):
+            continue
+        start, end = float(block["timeline_start"]), float(block["timeline_end"])
+        intervals = []
+        for word in block["word_timestamps"]:
+            word_start = max(start, source_to_timeline(
+                float(word["source_start"]), block))
+            word_end = min(end, source_to_timeline(
+                float(word["source_end"]), block))
+            if word_end > word_start:
+                intervals.append([round(word_start, 6), round(word_end, 6)])
+        if not intervals:
+            continue
+        level = row["target_level_db"]
+        if not isinstance(level, (int, float)):
+            row["word_gap_unapplied_reason"] = (
+                "the block has words but no decided music level to duck")
+            continue
+        gap_level = float(level) + float(plan["duck_db"])
+        if not -100.0 <= gap_level <= 30.0:
+            raise ValueError(
+                f"word-gap recovery level {gap_level:g} dB for block "
+                f"{row['spine_block_position']} is outside Resolve's "
+                "-100..30 dB clip-volume range")
+        row["word_intervals"] = intervals
+        row["word_gap_level_db"] = gap_level
+        row["word_gap_release_ms"] = float(plan["release_ms"])
+    return automation
+
+
 def shortfall_lines(automation: list) -> list:
     """One human line per window that misses its decided separation.
 
@@ -415,6 +462,7 @@ def cleanup_context(audio_spine: dict, a_roll_assignments) -> dict:
         "tools": {
             "deepfilternet": deepfilternet_probe(),
             "voice_isolation": voice_isolation_note(),
+            "audio_ops": audio_operations_note(),
         },
         "legend": (
             "floor.level_dbfs is the measured quiet of this source - the "

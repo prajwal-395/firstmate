@@ -305,3 +305,21 @@ def test_render_payload_forwards_the_builds_track_plan():
     assert payload["track_plan"] == plan
 
 
+def test_render_payload_keeps_measured_master_delivery_values():
+    """The hand-picked 6.01 payload must not discard measured mastering."""
+    measured_master = {
+        "input": {"lufs": -21.02, "true_peak_dbtp": 0.24},
+        "output": {"lufs": -14.1, "true_peak_dbtp": -1.4},
+        "target": {"lufs": -14.0, "true_peak_ceiling": -1.0},
+    }
+    payload = render_step._render_output_payload(
+        {"timeline_name": "Base_20260101_000000_10s", "success": True},
+        {"output_path": "delivery.mp4", "size_bytes": 2,
+         "raw_output_path": "scratch/pre_master.mp4",
+         "mastering": measured_master},
+        resolve_project_name="Exact Project")
+
+    assert payload["output_path"] == "delivery.mp4"
+    assert payload["raw_output_path"] == "scratch/pre_master.mp4"
+    assert payload["mastering"] == measured_master
+

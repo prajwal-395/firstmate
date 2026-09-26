@@ -76,8 +76,10 @@ def _good(tool="deepfilternet", **over):
 
 # ── vocabulary ───────────────────────────────────────────────────────
 
-def test_tools_are_exactly_the_two_measured():
-    assert tuple(TOOLS) == ("voice_isolation", "deepfilternet")
+def test_tools_name_every_delivered_cleanup_path():
+    """The prompt and build expose all cleanup/effect tools they can apply."""
+    assert tuple(TOOLS) == (
+        "voice_isolation", "deepfilternet", "audio_ops")
 
 
 def test_probes_state_their_reason():
@@ -153,7 +155,8 @@ def test_no_why_or_no_source_refuses():
 
 def test_entry_keys_are_exactly_what_the_step_reads():
     assert set(CLEANUP_ENTRY_KEYS) == {
-        "source", "tool", "amount", "span_start", "span_end", "why"}
+        "source", "tool", "amount", "span_start", "span_end",
+        "operations", "why"}
 
 
 # ── source measurement ───────────────────────────────────────────────

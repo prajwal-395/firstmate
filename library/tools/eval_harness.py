@@ -1503,7 +1503,9 @@ def _measure_export_separation(video: str, project_dir: str) -> dict:
             "windows": [{key: window.get(key) for key in (
                 "timeline_start", "timeline_end", "music_behavior",
                 "margin_db", "required_margin_db", "required_margin_basis",
-                "correlation", "judged", "meets_plan")}
+                "correlation", "judged", "meets_plan",
+                "measurement_scope", "whole_block_margin_db",
+                "word_gap_recovery_db", "required_gap_recovery_db")}
                 for window in value["windows"]],
             "detail": result.detail}
 

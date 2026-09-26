@@ -18,6 +18,22 @@ def test_measure_lufs_fail(mock_run):
     assert not res.passed
     assert res.severity == "error"
 
+
+@patch('subprocess.run')
+def test_measure_lufs_uses_the_declared_delivery_targets(mock_run):
+    """An explicit -16 LUFS / -1 dBTP request is judged as declared."""
+    mock_run.return_value = MagicMock(
+        stderr='{\n"input_i": "-16.0",\n"input_tp": "-1.5"\n}',
+        returncode=0)
+
+    result = measure_lufs(
+        "dummy.mp4", target_lufs=-16.0, true_peak_ceiling=-1.0)
+
+    assert result.passed
+    assert result.threshold == {
+        "target_lufs": -16.0, "tolerance": 1.0,
+        "true_peak_ceiling": -1.0}
+
 @patch('subprocess.run')
 def test_detect_black_frames(mock_run):
     mock_run.return_value = MagicMock(stderr='[blackdetect @ 0x123] black_start:1.5 black_end:2.5 black_duration:1.0', returncode=0)
@@ -78,4 +94,3 @@ def test_bar_rows_fully_masked_run_letterbox():
     # Since previous is not None (it saw 0,1,2), the unreadable run is bounded by bar on outer side.
     # It should return i=6, treating the unreadable rows as bar.
     assert _bar_rows(row_mean, row_std, readable=readable) == 6
-

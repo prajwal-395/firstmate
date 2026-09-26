@@ -159,6 +159,7 @@ class RenderQAResult:
 # judged.  +/-1 is the tolerance the three destination platforms'
 # normalisation actually leaves.
 DEFAULT_LUFS_TOLERANCE = 1.0
+DEFAULT_LUFS_TARGET = -14.0
 
 # The ceiling is not a convention: it is the manifest's own
 # `audio_mix.master_limiter.threshold_db`, which every compiled manifest
@@ -168,7 +169,7 @@ DEFAULT_LUFS_TOLERANCE = 1.0
 DEFAULT_TRUE_PEAK_CEILING_DBTP = -1.0
 
 
-def measure_lufs(video_path: str, target_lufs: float = -14.0,
+def measure_lufs(video_path: str, target_lufs: float = DEFAULT_LUFS_TARGET,
                  tolerance: float = DEFAULT_LUFS_TOLERANCE,
                  true_peak_ceiling: float = DEFAULT_TRUE_PEAK_CEILING_DBTP) -> RenderQAResult:
     """Integrated loudness AND true peak, both as pass/fail (P4).
@@ -1921,11 +1922,11 @@ def measure_speech_above_bed(
     """P3: where someone speaks, the speech is above the bed.
 
     For each window in `audio_mix.music_automation`, least-squares fits the
-    music against the master (``g = <music, mix> / <music, music>``).  The
-    music's contribution to that window is ``g * rms(music)``; everything
-    else - speech, SFX, ambience - is ``rms(mix - g * music)``.  The
-    difference in dB is what the ear judges, and the correlation is
-    reported beside it as a confidence.
+    music against the master (``g = <music, mix> / <music, music>``). When
+    the plan carries word intervals, separation is measured only while
+    words are spoken; the music's planned recovery in the gaps is measured
+    separately. This keeps a bed doing what was requested in word gaps from
+    being counted as louder under speech.
 
     **The targets are the manifest's own numbers**, not a convention and
     not taste: `background` -> +18 dB, `prominent` -> +6 dB, from
@@ -1951,10 +1952,10 @@ def measure_speech_above_bed(
     offset is recorded on the result beside the windows.
 
     Only speech-bearing blocks are judged; the rest are measured and
-    reported.  `spine_blocks` supplies `block_type` by position - read
-    ONLY that from it.  The behaviour is read from `music_automation`,
-    which is the half carrying the dB this measurement is judged against;
-    `_spine_blocks` carries the same word in the same vocabulary
+    reported. `spine_blocks` supplies `block_type` by position - read ONLY
+    that from it. The behaviour, word intervals and levels are read from
+    `music_automation`, which carries the dB this measurement is judged
+    against; `_spine_blocks` carries the same behaviour vocabulary
     (`library/tools/music_behavior.py`) but no level.
 
     **This reports and does not fail** - see `SPEECH_ABOVE_BED_GATES`.
@@ -1990,6 +1991,54 @@ def measure_speech_above_bed(
                 f"The bed is placed at a negative offset ({offset} s) into "
                 f"its own file, which nothing can fit against")
 
+        def fit_window(window_mix, window_music):
+            count = min(window_mix.size, window_music.size)
+            if count < sample_rate // 10:  # under 100 ms: nothing to fit
+                return None
+            fitted_mix = window_mix[:count]
+            fitted_music = window_music[:count]
+            denominator = float(fitted_music @ fitted_music)
+            if denominator <= 0:
+                return None
+            gain = float(fitted_music @ fitted_mix) / denominator
+            residual = fitted_mix - gain * fitted_music
+            music_db = _db(
+                abs(gain) * float(np.sqrt(np.mean(fitted_music ** 2))))
+            other_db = _db(float(np.sqrt(np.mean(residual ** 2))))
+            corr_denom = float(np.sqrt(
+                (fitted_mix @ fitted_mix) * denominator))
+            return {
+                "gain": gain,
+                "music_db": music_db,
+                "other_db": other_db,
+                "margin_db": other_db - music_db,
+                "fitted_gain_db": _db(abs(gain)),
+                "correlation": (float(fitted_mix @ fitted_music)
+                                / corr_denom if corr_denom > 0 else 0.0),
+            }
+
+        def collect_intervals(raw, start, end, count):
+            intervals = []
+            for item in raw or []:
+                if not isinstance(item, (list, tuple)) or len(item) != 2:
+                    continue
+                try:
+                    left = max(start, float(item[0]))
+                    right = min(end, float(item[1]))
+                except (TypeError, ValueError):
+                    continue
+                if right <= left:
+                    continue
+                first = max(0, min(count,
+                                   int(round((left - start) * sample_rate))))
+                last = max(first, min(count,
+                                      int(round((right - start)
+                                                * sample_rate))))
+                if last > first:
+                    intervals.append((left, right, first, last))
+            intervals.sort(key=lambda row: (row[0], row[1]))
+            return intervals
+
         windows = []
         for w in music_automation:
             start = float(w.get("timeline_start", 0.0))
@@ -2003,33 +2052,99 @@ def measure_speech_above_bed(
             x = mix[a:min(b, mix.size)]
             y = music[ma:min(mb, music.size)]
             n = min(x.size, y.size)
-            if n < sample_rate // 10:  # under 100 ms: nothing to fit
-                continue
             x, y = x[:n], y[:n]
-            denom = float(y @ y)
-            if denom <= 0:
+            whole = fit_window(x, y)
+            if whole is None:
                 continue
-            g = float(y @ x) / denom
-            residual = x - g * y
-            music_db = _db(abs(g) * float(np.sqrt(np.mean(y ** 2))))
-            other_db = _db(float(np.sqrt(np.mean(residual ** 2))))
-            corr_denom = float(np.sqrt((x @ x) * denom))
+
+            intervals = collect_intervals(
+                w.get("word_intervals"), start, end, n)
+            word_fit = whole
+            measurement_scope = "whole_block"
+            gap_fit = None
+            required_gap_recovery = None
+            if intervals:
+                word_mix = np.concatenate(
+                    [x[first:last] for _, _, first, last in intervals])
+                word_music = np.concatenate(
+                    [y[first:last] for _, _, first, last in intervals])
+                measured_words = fit_window(word_mix, word_music)
+                if measured_words is not None:
+                    word_fit = measured_words
+                    measurement_scope = "spoken_words"
+
+                    merged = []
+                    for left, right, _, _ in intervals:
+                        if merged and left <= merged[-1][1]:
+                            merged[-1] = (merged[-1][0],
+                                          max(merged[-1][1], right))
+                        else:
+                            merged.append((left, right))
+                    gaps = []
+                    cursor = start
+                    for left, right in merged:
+                        if left > cursor:
+                            gaps.append((cursor, left))
+                        cursor = max(cursor, right)
+                    if cursor < end:
+                        gaps.append((cursor, end))
+
+                    release_seconds = max(
+                        0.0, float(w.get("word_gap_release_ms", 0.0))
+                        / 1000.0)
+                    settled_gaps = []
+                    for left, right in gaps:
+                        # The leading gap starts at its recovered level.
+                        # After a word, the recovery ramp must finish before
+                        # its samples count as delivered gap level.
+                        settled_start = (
+                            left if left <= start else
+                            min(right, left + release_seconds))
+                        first = max(0, min(
+                            n, int(round((settled_start - start)
+                                         * sample_rate))))
+                        last = max(first, min(
+                            n, int(round((right - start) * sample_rate))))
+                        if last > first:
+                            settled_gaps.append((first, last))
+                    if settled_gaps:
+                        gap_mix = np.concatenate(
+                            [x[first:last] for first, last in settled_gaps])
+                        gap_music = np.concatenate(
+                            [y[first:last] for first, last in settled_gaps])
+                        gap_fit = fit_window(gap_mix, gap_music)
+                    target_level = w.get("target_level_db")
+                    gap_level = w.get("word_gap_level_db")
+                    if (isinstance(target_level, (int, float))
+                            and isinstance(gap_level, (int, float))):
+                        required_gap_recovery = float(gap_level) - float(
+                            target_level)
+
             behaviour = w.get("music_behavior")
             position = w.get("spine_block_position")
-            windows.append({
+            row = {
                 "timeline_start": round(float(w.get("timeline_start", 0.0)), 3),
                 "timeline_end": round(float(w.get("timeline_end", 0.0)), 3),
                 "music_behavior": behaviour,
                 "target_level_db": w.get("target_level_db"),
                 "separation_target_db": w.get("separation_target_db"),
                 "block_type": block_type_by_position.get(str(position)),
-                "music_in_mix_db": round(music_db, 2),
-                "non_music_db": round(other_db, 2),
-                "margin_db": round(other_db - music_db, 2),
-                "fitted_gain_db": round(_db(abs(g)), 2),
-                "correlation": round(
-                    float(x @ y) / corr_denom if corr_denom > 0 else 0.0, 3),
-            })
+                "measurement_scope": measurement_scope,
+                "music_in_mix_db": round(word_fit["music_db"], 2),
+                "non_music_db": round(word_fit["other_db"], 2),
+                "margin_db": round(word_fit["margin_db"], 2),
+                "whole_block_margin_db": round(whole["margin_db"], 2),
+                "fitted_gain_db": round(word_fit["fitted_gain_db"], 2),
+                "correlation": round(word_fit["correlation"], 3),
+            }
+            if gap_fit is not None:
+                row["word_gap_recovery_db"] = round(
+                    _db(abs(gap_fit["gain"]))
+                    - _db(abs(word_fit["gain"])), 2)
+            if required_gap_recovery is not None:
+                row["required_gap_recovery_db"] = round(
+                    required_gap_recovery, 2)
+            windows.append(row)
 
         if not windows:
             return RenderQAResult("speech_above_bed", True, None, None,
@@ -2579,7 +2694,8 @@ def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] 
             
     return extracted
 
-def run_full_render_qa(video_path: str, expected_duration: float = None, target_lufs: float = -14.0,
+def run_full_render_qa(video_path: str, expected_duration: float = None,
+                       target_lufs: float = DEFAULT_LUFS_TARGET,
                        declared_black_beats: Optional[List] = None,
                        expected_resolution: Optional[List[int]] = None,
                        expected_fps: Optional[float] = None,
@@ -2590,7 +2706,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
                        music_offset_seconds: Optional[float] = None,
                        spine_blocks: Optional[Sequence[dict]] = None,
                        overlay_segments: Optional[Sequence["OverlaySegment"]] = None,
-                       grade_spans: Optional[Sequence["GradeSpan"]] = None
+                       grade_spans: Optional[Sequence["GradeSpan"]] = None,
+                       true_peak_ceiling: float =
+                       DEFAULT_TRUE_PEAK_CEILING_DBTP
                        ) -> List[RenderQAResult]:
     """Run every render QA check.
 
@@ -2644,7 +2762,9 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     """
     results = []
 
-    results.append(measure_lufs(video_path, target_lufs=target_lufs))
+    results.append(measure_lufs(
+        video_path, target_lufs=target_lufs,
+        true_peak_ceiling=true_peak_ceiling))
     results.append(detect_black_frames(video_path, declared_beats=declared_black_beats))
     results.append(detect_freeze_frames(video_path))
     results.append(analyze_color_histogram(video_path))

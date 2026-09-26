@@ -249,17 +249,16 @@ def test_deliver_refuses_on_stale_overlays_before_rendering(tmp_path):
 def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
     """The caller passes the reel's EXACT name to the existing renderer.
 
-    `resolve_render.render_timeline` assumes no master (it selects any
-    timeline by name and reads the resolution off it), so the honest
-    reel-shaped caller is one call with the reel's name - proven here
-    with the renderer and Resolve connection stubbed, and `render_qa`
-    answering pass on a real (tiny) file.
+    `resolve_render.render_timeline` produces the raw render; delivery
+    masters that file into exports and verifies the returned path. This
+    proves the reel-shaped caller with Resolve stubbed and QA answering
+    pass on a real (tiny) file.
     """
     from library.tools import reel_deliver
     from library.tools.render_qa import RenderQAResult
 
     folder = _project_with_proposal(tmp_path)
-    video = Path(folder) / "reel.mp4"
+    video = Path(folder) / "reel_pre_master.mp4"
     video.write_bytes(b"\x00" * 200_000)
 
     timeline = MagicMock()
@@ -285,10 +284,20 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
                     fmt="", codec="", timeout_seconds=0):
         calls.update(timeline_name=timeline_name, output_dir=output_dir,
                      output_name=output_name, fmt=fmt, codec=codec)
-        return {"output_path": str(video), "size_bytes": 200_000,
+        raw_path = Path(output_dir) / f"{output_name}.mp4"
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(video.read_bytes())
+        return {"output_path": str(raw_path), "size_bytes": 200_000,
                 "job_id": "j1", "job_status": "Complete",
                 "timeline_name": timeline_name, "format": fmt,
                 "codec": codec}
+
+    def fake_master(report, output_path):
+        Path(output_path).write_bytes(Path(report["output_path"]).read_bytes())
+        return {**report, "raw_output_path": report["output_path"],
+                "output_path": output_path,
+                "mastering": {"output": {"lufs": -14.0,
+                                           "true_peak_dbtp": -1.5}}}
 
     def fake_duration(path, expected_seconds, tolerance_pct=10.0):
         assert abs(expected_seconds - 10.0) < 0.01
@@ -313,6 +322,8 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
                 return_value=project),
           patch("library.tools.execution.resolve_render.render_timeline",
                 side_effect=fake_render),
+          patch("library.tools.master_loudness.master_render_report",
+                side_effect=fake_master),
           patch("library.tools.render_qa.verify_duration",
                 side_effect=fake_duration),
           patch("library.tools.render_qa.verify_resolution",
@@ -328,11 +339,15 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
         full = reel_deliver.deliver_reel(folder, 3)
 
     assert calls["timeline_name"] == "Reel 03 - hook"
-    assert calls["output_dir"].endswith("exports")
+    assert calls["output_dir"].endswith("pipeline_output/scratch")
     # The captain's cursor never moved: deliver names a handle and
     # `render_timeline` selects under its own lease.
     project.SetCurrentTimeline.assert_not_called()
     assert full["delivered"] is True
     assert full["verification"]["passed"] is True
     assert full["verification"]["content_present"] is True
+    assert full["render"]["output_path"].endswith(
+        "exports/Reel 03 - hook.mp4")
+    assert full["render"]["raw_output_path"].endswith(
+        "pipeline_output/scratch/Reel 03 - hook_pre_master.mp4")
     assert Path(full["report_path"]).is_file()

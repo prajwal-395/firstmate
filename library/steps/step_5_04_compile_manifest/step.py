@@ -2933,28 +2933,38 @@ def compile_manifest(out_dir: str) -> dict:
                 fix=("re-plan the source against "
                      "cleanup_context.sources, or drop the entry."),
             )
-        if _row["tool"] == "deepfilternet":
+        if (_row["tool"] == "deepfilternet"
+                or _row["tool"] == "audio_ops"
+                or _row.get("operations")):
             from library.tools.dialogue_cleanup import spans_by_source as _spans
             _played_map, _span_map = _spans(structure, aroll_data.get(
                 "a_roll_assignments", []) if isinstance(aroll_data, dict) else [])
             _key = next((s for s in _played_map
                          if os.path.basename(s)
                          == os.path.basename(_row["source"])), None)
-            _stems = _dc.stage_deepfilternet(
+            _stems = _dc.stage_audio_chain(
                 _row, _played, (_span_map.get(_key, []) if _key else []),
                 out_dir)
             cleanup_stems.extend(_stems)
             for _stem in _stems:
+                _operation_names = [
+                    operation["type"]
+                    for operation in _stem.get("operations", [])]
+                _detail = ", ".join(
+                    (["DeepFilterNet"] if _stem.get("method")
+                     in ("python", "binary") else [])
+                    + _operation_names)
                 print(
-                    f"  Cleanup {_stem['label']}: DeepFilterNet stem "
+                    f"  Cleanup {_stem['label']}: {_detail or _row['tool']} "
+                    f"stem "
                     f"floor {_stem['floor_before_dbfs']}->"
                     f"{_stem['floor_after_dbfs']} dBFS, speech "
                     f"{_stem['speech_before_lufs']}->"
                     f"{_stem['speech_after_lufs']} LUFS "
-                    f"({_stem['wall_seconds']}s, {_stem['method']})",
+                    f"({_stem['wall_seconds']}s)",
                     file=sys.stderr,
                 )
-        else:
+        if _row["tool"] == "voice_isolation":
             cleanup_voice.append({
                 "source": _row["source"],
                 "amount": _row["amount"],

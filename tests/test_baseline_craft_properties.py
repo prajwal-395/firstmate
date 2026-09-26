@@ -505,6 +505,39 @@ class TestP3SpeechAboveBed:
         assert window["meets_plan"] is True
         assert result.value["failing"] == 0
 
+    def test_word_gap_recovery_is_measured_outside_speech_separation(self):
+        """Music rising in word gaps must not lower the measured speech margin."""
+        speech = np.zeros(4 * SR, dtype=np.float32)
+        speech[:SR] = _tone(1.0, 220.0, 1.0)
+        speech[3 * SR:] = _tone(1.0, 220.0, 1.0)
+        music = _tone(4.0, 55.0, 1.0)
+        word_gain = 10 ** (-18.0 / 20.0)
+        gap_gain = 10 ** (-14.0 / 20.0)
+        music_gain = np.full(4 * SR, word_gain, dtype=np.float32)
+        music_gain[SR:3 * SR] = gap_gain
+        mix = speech + music * music_gain
+        automation = [{
+            "spine_block_position": 1,
+            "timeline_start": 0.0, "timeline_end": 4.0,
+            "music_behavior": "background",
+            "target_level_db": -18.0,
+            "separation_target_db": 18.0,
+            "word_intervals": [[0.0, 1.0], [3.0, 4.0]],
+            "word_gap_level_db": -14.0,
+            "word_gap_release_ms": 0.0,
+        }]
+
+        result = _speech_above_bed(
+            mix, music, automation, SPEECH_BLOCK)
+        window = result.value["windows"][0]
+
+        assert window["measurement_scope"] == "spoken_words"
+        assert window["margin_db"] == pytest.approx(18.0, abs=0.1)
+        assert window["whole_block_margin_db"] < 18.0
+        assert window["word_gap_recovery_db"] == pytest.approx(4.0, abs=0.1)
+        assert window["required_gap_recovery_db"] == 4.0
+        assert window["meets_plan"] is True
+
     def test_a_bed_over_the_voice_is_measured_but_does_not_fail_the_build(self):
         """001's shape. The mix has no delivery route, so this cannot pass
         whatever anyone configures - which is exactly why it reports."""
@@ -957,6 +990,5 @@ class TestP4DoesNotCollideWithTheBuildVerdict:
     master from a failed build to an advisory note. These pin the
     boundary.
     """
-
 
 

@@ -95,18 +95,31 @@ never read as agreement with what the engine used to do.
 build interpreter - the binary method needs the binary on the machine
 (`ren doctor` reports it), not the model in the interpreter -
 `voice_isolation` (Resolve's per-track Voice Isolation, Studio-only)
-applies at build with read-back.
+applies at build with read-back, and `audio_ops` is the local FFmpeg plus
+offline WPE chain for EQ, de-essing, and dereverberation.
 
 In `cleanup_plan`, one entry per source that earns it:
 
 - `source` - the source_file basename from the table. Nothing else
   names a file the build can stage.
-- `tool` - `voice_isolation` or `deepfilternet`. Nothing else reaches
-  any code, and an unknown name refuses the step rather than shipping
-  an uncleaned source reported clean.
+- `tool` - `voice_isolation`, `deepfilternet`, or `audio_ops`. An
+  unknown name refuses the step rather than shipping an uncleaned
+  source reported clean.
 - `amount` - REQUIRED for `voice_isolation`: Resolve's own 0..100. The
   rung-3a probe read back 60; how strong yours should be is what the
   floor is for. FORBIDDEN for `deepfilternet`.
+- `operations` - OPTIONAL chain of effects, also accepted with either
+  cleanup tool; REQUIRED and non-empty for `audio_ops`. Each object has
+  exactly these keys:
+  - `{"type":"high_pass","frequency_hz":80,"why":"..."}`
+  - `{"type":"equalizer","frequency_hz":300,"gain_db":-3,"q":1,"why":"..."}`
+  - `{"type":"de_ess","frequency_hz":6000,"reduction_db":3,"threshold_dbfs":-30,"q":2,"attack_ms":5,"release_ms":80,"why":"..."}`
+  - `{"type":"dereverb","strength":0.5,"why":"..."}`
+  Numeric controls must be explicit and in the supported range. The
+  example numbers show field shape only - use the request's numbers
+  exactly where present, and choose from its feel words where absent.
+  The effect chain is applied to the played source range and placed as an
+  OTIO stem; a plan value that cannot be read or applied refuses by name.
 - `span_start`/`span_end` - an optional pair in source seconds. Leave
   both out and the whole played range is cleaned.
 - `why` - REQUIRED: what in the measured floor made this tool (and this
@@ -126,3 +139,40 @@ The three other words are not levels and are not asked for.
 
 Which track plays, where it sits, and what the bed does under each block were
 all decided upstream. You are being asked how loud those decisions are.
+
+## Word-gap ducking
+
+Return one `music_ducking_plan` object with exactly these keys:
+
+- `enabled` - true when the request calls for the bed to sit lower while
+  words are spoken and recover between words.
+- `duck_db` - how far the bed rises in a gap relative to its per-block
+  speech level. The declared per-block level remains the ducked level.
+- `release_ms` - how long the bed takes to recover after a word. If a
+  gap is shorter than the release, the bed stays ducked through that gap.
+- `why` - name the request or creative reading behind both values.
+
+When enabled, the build derives word intervals privately from the timed
+spine after this prompt returns. Word timings do not belong in your
+answer. Keep stated numbers exactly; translate feel words to a numeric
+release and duck depth with the basis in `why`. When no speech/music pair
+can use this, set `enabled` false and both numeric keys to null.
+
+## Delivery loudness and peak
+
+Return one `audio_delivery_plan` object with exactly these keys:
+
+- `dialogue_target_lufs` - preserve an explicit dialogue integrated
+  loudness number from the request. The build applies this as the final
+  exported program loudness target and measures the export against it.
+  Use null when no numeric dialogue target was requested; the delivery
+  target remains -14 LUFS.
+- `true_peak_ceiling_dbtp` - preserve an explicit true-peak ceiling from
+  the request. Use null when none was requested; the export ceiling
+  remains -1 dBTP.
+- `why` - name the request that supplied the numbers, or why the
+  declared delivery targets apply.
+
+The final file is re-measured after mastering. A normalization write
+does not count as proof; the measured LUFS and dBTP are recorded on the
+render report and checked before delivery.

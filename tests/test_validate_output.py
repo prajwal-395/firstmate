@@ -102,6 +102,27 @@ def test_qa_toolkit_crash_fails_validation_loudly(tmp_path):
                for r in report)
 
 
+def test_declared_audio_delivery_targets_reach_export_measurement(tmp_path):
+    """The export gate measures against the plan's exact delivery targets."""
+    from library.steps.step_6_02_validate_output import bridge as validate
+
+    video = tmp_path / "master.mp4"
+    video.write_bytes(b"\x00" * 200_000)
+    manifest = {
+        "project": {"resolution": [1080, 1920], "frame_rate": 30.0,
+                    "duration_seconds": 10.0},
+        "tracks": {}, "subtitles": [],
+        "audio_mix": {"delivery_lufs_target": -16.0,
+                       "delivery_true_peak_ceiling_dbtp": -1.5},
+    }
+
+    with patch.object(validate, "run_full_render_qa", return_value=[]) as qa:
+        validate.validate_output({"output_path": str(video)}, manifest)
+
+    assert qa.call_args.kwargs["target_lufs"] == -16.0
+    assert qa.call_args.kwargs["true_peak_ceiling"] == -1.5
+
+
 def test_failing_subtitles_reach_the_verdict_without_gating_it(tmp_path):
     """Subtitle quality is measured AND read: the six subtitle metrics
     land in checks["subtitles"], all_issues and qa_report.

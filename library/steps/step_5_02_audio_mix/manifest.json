@@ -56,7 +56,7 @@
     {
       "name": "audio_mix_spec",
       "type": "object",
-      "description": "State output: audio_mix_spec - the track levels, the per-block music automation carrying the solved clip gain and the separation it delivers, what the bed measures, the dialogue cleanup the plan asked for (requests plus the per-source noise table it was decided over), and `value_decisions`: what decided each level, on what basis, over which measurements (library/tools/decided_value.py)."
+      "description": "State output: audio_mix_spec - per-block music automation, private word intervals and recovery levels derived from the timed spine, the measured bed and speech, cleanup and declared audio operations, the reportable word-gap ducking plan, and value_decisions with their measurement bases."
     },
     {
       "name": "cleanup_context",
@@ -70,7 +70,19 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "Dialogue cleanup - which played sources get noise treatment, with which tool. Each: source (a source_file basename from cleanup_context.sources - no other value names anything the build can stage), tool (voice_isolation - Resolve's per-track Voice Isolation applied at build with read-back - or deepfilternet - a processed stem the build places natively; no other value reaches any code), amount (REQUIRED for voice_isolation: Resolve's own 0..100 scale, the strength the measured floor made right; FORBIDDEN for deepfilternet, which has no strength dial), span_start/span_end (OPTIONAL pair in source seconds cleaning only that span; leave both out and the whole played range is cleaned), why (REQUIRED - what in the measured floor made this tool and this amount the answer). An entry that names no tool the vocabulary holds, no amount where one is required, or no why is refused and re-planned, never defaulted. Leave the list empty when no source earns it - silence here is a decision, and the build cleans nothing it was not asked for."
+        "description": "Dialogue cleanup and audio effects - which played sources get treatment, with which tool. Each: source (a source_file basename from cleanup_context.sources), tool (voice_isolation, deepfilternet, or audio_ops), amount (REQUIRED for voice_isolation; FORBIDDEN otherwise), operations (OPTIONAL non-empty list of plan-declared high_pass, equalizer, de_ess, and dereverb objects; REQUIRED for audio_ops; every operation must state its numeric controls and why), span_start/span_end (OPTIONAL pair in source seconds), why (REQUIRED). Unknown keys or controls refuse and re-plan. Leave the list empty when no source earns treatment."
+      },
+      {
+        "name": "music_ducking_plan",
+        "type": "object",
+        "required": true,
+        "description": "Music behavior between words. Return exactly enabled (boolean), duck_db (number or null), release_ms (number or null), why (string). When enabled, speech words use the decided per-block background level and word gaps recover by duck_db over release_ms. Preserve numbers stated by the requester exactly. Translate feel words to explicit numeric values and explain the reading in why. Disable only when no spoken words or no music bed can use this behavior."
+      },
+      {
+        "name": "audio_delivery_plan",
+        "type": "object",
+        "required": true,
+        "description": "Delivery targets. Return exactly dialogue_target_lufs (number or null), true_peak_ceiling_dbtp (number or null), why (string). Preserve numeric targets stated by the requester exactly. A declared dialogue_target_lufs is used as the final exported program loudness target; null keeps the delivery standard -14 LUFS. A declared true_peak_ceiling_dbtp sets the measured export ceiling; null keeps -1 dBTP. Explain the target or why the defaults apply."
       }
     ]
   },

@@ -112,6 +112,7 @@ AUDIO_TRACK_KIND = "Audio"
 # in every run measured; this exists so a one-frame rounding difference
 # between `round(seconds * fps)` in two places does not drop a level.
 MATCH_TOLERANCE_FRAMES = 2
+LEVEL_TOLERANCE_DB = 0.05
 
 
 class OtioMixError(RuntimeError):
@@ -256,7 +257,9 @@ def music_curve(automation: list, *, fps: float, clip_start_frame: int,
     than a quarter of either neighbouring block, so every block keeps a
     plateau in its middle at exactly the level it was planned at.  That
     is what makes the plan measurable in the render rather than merely
-    present on the timeline.
+    present on the timeline. When the plan carries word intervals, those
+    levels apply under words and the declared recovery curve raises the
+    bed through gaps.
     """
     if clip_frame_count <= 0:
         return {}
@@ -279,6 +282,75 @@ def music_curve(automation: list, *, fps: float, clip_start_frame: int,
         keys.append((end - half, level))
         keys.append((end + half, next_level))
     keys.append((last_frame, segments[-1][2]))
+
+    # Word-level ducking is derived from the timed spine after the model
+    # answer. The decided block level is what the bed plays under speech;
+    # each declared gap recovers to that level plus the plan's duck depth.
+    word_keys = {}
+    word_blocks = []
+    for entry in automation or []:
+        intervals = entry.get("word_intervals") or []
+        gap_level = entry.get("word_gap_level_db")
+        speech_level = entry.get("target_level_db")
+        if not intervals or gap_level is None or speech_level is None:
+            continue
+        block_start = max(0, min(
+            last_frame, int(round(float(entry["timeline_start"]) * fps))
+            - clip_start_frame))
+        block_end = max(0, min(
+            last_frame, int(round(float(entry["timeline_end"]) * fps))
+            - clip_start_frame))
+        release = max(1, int(round(
+            float(entry["word_gap_release_ms"]) * fps / 1000.0)))
+        frames = sorted((max(block_start, int(round(float(start) * fps))
+                             - clip_start_frame),
+                         min(block_end, int(round(float(end) * fps))
+                             - clip_start_frame))
+                        for start, end in intervals)
+        frames = [(start, end) for start, end in frames if end > start]
+        if not frames:
+            continue
+
+        word_blocks.append((block_start, block_end))
+        groups = []
+        for start, end in frames:
+            if groups and start - groups[-1][1] < release:
+                groups[-1] = (groups[-1][0], max(groups[-1][1], end))
+            else:
+                groups.append((start, end))
+        # Resolve interpolates linearly between keys, so a recovered level
+        # is HELD until one frame before the next word: without that key
+        # the gap is a triangle that peaks at the gap level for one frame
+        # and delivers about half the planned recovery (measured on the
+        # K2 exports: 2-5 dB of a planned 10).  One frame is the shortest
+        # duck a keyframe can express, not a chosen attack time.  A gap
+        # after the block's last word holds to the block's end, where the
+        # next block's own first key takes over.
+        if groups[0][0] > block_start:
+            word_keys[block_start] = float(gap_level)
+            if groups[0][0] - 1 > block_start:
+                word_keys[groups[0][0] - 1] = float(gap_level)
+        for index, (start, end) in enumerate(groups):
+            word_keys[start] = float(speech_level)
+            word_keys[end] = float(speech_level)
+            next_start = (groups[index + 1][0]
+                          if index + 1 < len(groups) else block_end)
+            if next_start - end >= release:
+                recovery_frame = min(end + release, block_end)
+                word_keys[recovery_frame] = float(gap_level)
+                if next_start - 1 > recovery_frame:
+                    word_keys[next_start - 1] = float(gap_level)
+
+    if word_keys:
+        # Inside a block whose words are keyed, the word keys ARE the
+        # curve: a block-boundary ramp key a quarter-block in dragged a
+        # recovered trailing gap back down to the ducked level (block 1
+        # of the K2 MX3.1 export: -7.2 dB at frame 129, -17.2 by 146).
+        merged_keys = {int(frame): float(level) for frame, level in keys
+                       if not any(start <= frame <= end
+                                  for start, end in word_blocks)}
+        merged_keys.update(word_keys)
+        keys = sorted(merged_keys.items())
 
     # THE SPLICE. A bed that is several pieces has a boundary between two
     # of them, and a boundary the plan declared a crossfade for is
@@ -670,14 +742,20 @@ def verify(otio: dict, applied: list) -> list:
                 f"{target['label']}: no level on the imported timeline")
             continue
         wanted = _clamp_db(target["level_db"])
-        if abs(landed["level_db"] - wanted) > 0.05:
+        if abs(landed["level_db"] - wanted) > LEVEL_TOLERANCE_DB:
             complaints.append(
                 f"{target['label']}: level {landed['level_db']}dB, "
                 f"planned {wanted}dB")
         planned_keys = {int(f): _clamp_db(v)
                         for f, v in (target.get("keyframes") or {}).items()}
-        if planned_keys and landed["keyframes"] != planned_keys:
+        actual_keys = landed["keyframes"]
+        keyframes_match = (
+            actual_keys.keys() == planned_keys.keys()
+            and all(abs(actual_keys[frame] - value) <= LEVEL_TOLERANCE_DB
+                    for frame, value in planned_keys.items())
+        )
+        if planned_keys and not keyframes_match:
             complaints.append(
-                f"{target['label']}: {len(landed['keyframes'])} keyframes on "
-                f"the timeline, {len(planned_keys)} planned")
+                f"{target['label']}: {len(actual_keys)} keyframes on the "
+                f"timeline differ from {len(planned_keys)} planned")
     return complaints
