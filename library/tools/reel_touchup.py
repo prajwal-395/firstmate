@@ -524,8 +524,7 @@ def _live_tracks_for_reel(project_folder: str, reel: int,
     """Tracks of the EXACT-named reel timeline, read live in Resolve."""
     from library.tools import reel_read as _read
     from library.tools.project_registry import get_project
-    from library.tools.reel_build import (
-        _connect_resolve_project as _connect)
+    from library.tools.reel_build import _connect_resolve_project as _connect
     from library.tools.reel_build import timelines_to_replace
 
     try:
@@ -1458,8 +1457,7 @@ def _manifest_source_sequence(manifest: Mapping) -> dict:
 
 def _live_source_sequence(tracks: Sequence[Mapping]) -> dict:
     """`{row: [source_file, ...]}` off the live read, same shape."""
-    from library.tools.execution.fusion_tracks import (
-        FUSION_COMP_TRACKS)
+    from library.tools.execution.fusion_tracks import FUSION_COMP_TRACKS
 
     rows = {f"V{i}" for i in FUSION_COMP_TRACKS}
     for track in tracks:
@@ -1578,6 +1576,41 @@ def _find_pool_item(pool: Any, wanted: str) -> Optional[Any]:
     return None
 
 
+def check_source_lengths(pool: Any,
+                         pending: Sequence[_PendingSwap]) -> None:
+    """Refuse a swap/add its file cannot fill, before anything is staged.
+
+    Run ahead of the journal and the staging copy, so a refusal leaves
+    nothing behind: raised from inside the staged edit it came after
+    the conform and the in-place writes, and left a half-edited
+    "(rebuild staging)" timeline that refused every re-run until it
+    was deleted by hand (26 of them on the geo-podcast finals,
+    2026-09-25).
+
+    The pool keeps the length it read at import. A file re-rendered
+    LONGER at the same path - a TV-frame overlay is one artefact per
+    still, re-rendered when a longer run needs it
+    (`reel_look.frame_overlay_segments`) - still reads short there, so
+    a short pool item is re-read from disk (`ReplaceClip` onto its own
+    path) before the span is judged against it.
+    """
+    for item in pending:
+        mpi = pool_item_for_path(pool, item.media)
+        needed = int(item.left_offset) + int(item.duration)
+        frames = _pool_source_frames(mpi)
+        if frames is not None and needed > frames and mpi.ReplaceClip(
+                os.path.abspath(os.path.expanduser(item.media))):
+            frames = _pool_source_frames(mpi)
+        if frames is not None and needed > frames:
+            raise TouchupRefused(
+                f"edit {item.position} wants "
+                f"{item.duration}f from offset {item.left_offset} of "
+                f"{item.media}, which holds {frames}f",
+                "placing it would put a hole where picture was asked for",
+                "shorten the span to fit the source file, then re-run "
+                "`ren touch`")
+
+
 def _pool_source_frames(pool_item: Any) -> Optional[int]:
     try:
         raw = pool_item.GetClipProperty("Frames")
@@ -1611,21 +1644,10 @@ def resolve_final_name(project_folder: str, reel: int) -> str:
 def _resolve_insertions(pool: Any, timeline: Any,
                         pending: Sequence[_PendingSwap]) -> list:
     """Pending swaps/adds to live `composed_edit.Insertion`s."""
-    from library.tools import reel_read as _read
 
     resolved = []
     for item in pending:
         mpi = pool_item_for_path(pool, item.media)
-        frames = _pool_source_frames(mpi)
-        if (frames is not None
-                and int(item.left_offset) + int(item.duration) > frames):
-            raise TouchupRefused(
-                f"edit {item.position} wants "
-                f"{item.duration}f from offset {item.left_offset} of "
-                f"{item.media}, which holds {frames}f",
-                "placing it would put a hole where picture was asked for",
-                "shorten the span to fit the source file, then re-run "
-                "`ren touch`")
         if item.carry_from is not None:
             row, index = item.carry_from
             live = _live_rows(timeline)
@@ -1916,8 +1938,7 @@ def apply_touchup(project_folder: str, spec: Mapping,
                                     os.path.basename(project_folder)))
 
     if connect is None:
-        from library.tools.reel_build import (
-            _connect_resolve_project as _connect)
+        from library.tools.reel_build import _connect_resolve_project as _connect
         connect = _connect
     return _apply_under_lease(
         project_folder, spec, final, resolve_name, declared_drops,
@@ -2024,6 +2045,8 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         receipt["rederiver"] = "reel_look.apply_comps over the " \
             "recorded fusion manifest"
 
+    check_source_lengths(pool, qualification.insertions)
+
     # THE UNDO JOURNAL, before anything changes (`undo_journal`): the
     # approved timeline read whole, with it CURRENT so no transform
     # reads cursor-scaled, and every item the plan deletes outright
@@ -2114,7 +2137,6 @@ def _apply_in_place(staged: Any, qualification: Qualification,
     does not read back raises `TouchupError` - the staging stands for
     diagnosis and the approved timeline was never touched.
     """
-    from library.tools import reel_read as _read
 
     applied: dict = {"properties": [], "entry_motion": []}
     if not qualification.in_place:
@@ -2560,7 +2582,8 @@ def close_signature(project_folder: str, project: Any, final: str):
     try:
         from library.tools import reel_rebuild_need as _need_record
         from library.tools.plan_provenance import (
-            record_carried_digests as _record_carried)
+            record_carried_digests as _record_carried,
+        )
         live = None
         for index in range(1, (project.GetTimelineCount() or 0) + 1):
             timeline = project.GetTimelineByIndex(index)

@@ -364,8 +364,7 @@ def test_swap_on_an_empty_auto_comp_still_qualifies(tmp_path):
     must not catch it - a gate that failed this correct output would
     be no better than one that cannot fail (AGENTS.md 10.4).
     """
-    from tests.composed_edit_harness import (
-        FakeComp, FakeTool, covering_window)
+    from tests.composed_edit_harness import FakeComp, FakeTool, covering_window
 
     timeline, _pool, _media = build_reel(tmp_path)
     timeline.rows["V4"][0].comps = [FakeComp({
@@ -418,6 +417,42 @@ def test_graded_swap_refuses_at_resolve(tmp_path):
         tu._resolve_insertions(stub, timeline,
                                qualification.insertions)
     assert "colour grade" in str(refusal.value)
+
+
+def _overlay_swap(tmp_path):
+    """A swap onto V4's first item, and the frames it needs."""
+    timeline, _pool, _media = build_reel(tmp_path)
+    overlay = tmp_path / "tv_frame_overlay.mov"
+    overlay.write_bytes(b"fake-rendered-overlay")
+    spec = {"reel": 1, "edits": [
+        {"op": "swap_pixels", "row": "V4", "item": 0,
+         "media": str(overlay)}]}
+    pending = tu.qualify(_tracks(timeline), spec).insertions
+    return overlay, pending, pending[0].left_offset + pending[0].duration
+
+
+def test_an_overlay_rendered_longer_at_its_path_is_reread_not_refused(
+        tmp_path):
+    """The geo-podcast fit-picture run, 2026-09-25: the TV overlay was
+    imported at 969 frames for a preview, then re-rendered at 2307 under
+    the same name - and 26 reels refused on the pool's stale 969."""
+    from tests.composed_edit_harness import FakeMediaPoolItem
+
+    overlay, pending, needed = _overlay_swap(tmp_path)
+    stale = FakeMediaPoolItem(str(overlay), frames=needed - 1,
+                              on_disk=needed + 100)
+    tu.check_source_lengths(_StubPool([stale]), pending)
+    assert stale.frames == needed + 100
+
+
+def test_a_file_too_short_for_its_span_still_refuses(tmp_path):
+    from tests.composed_edit_harness import FakeMediaPoolItem
+
+    overlay, pending, needed = _overlay_swap(tmp_path)
+    short = FakeMediaPoolItem(str(overlay), frames=needed - 1)
+    with pytest.raises(tu.TouchupRefused) as refusal:
+        tu.check_source_lengths(_StubPool([short]), pending)
+    assert f"which holds {needed - 1}f" in str(refusal.value)
 
 
 # ── Grades ride from the approved timeline ───────────────────────────

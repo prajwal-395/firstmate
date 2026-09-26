@@ -105,11 +105,21 @@ class FakeComp:
 
 
 class FakeMediaPoolItem:
-    def __init__(self, path, frames=10_000, fps="30.0", name=""):
+    def __init__(self, path, frames=10_000, fps="30.0", name="",
+                 on_disk=None):
         self.path = path
         self.frames = frames
+        # What the file holds NOW; the pool keeps `frames`, the length
+        # it read at import, until `ReplaceClip` re-reads it.
+        self.on_disk = frames if on_disk is None else on_disk
         self.fps = fps
         self.name = name or os.path.basename(path)
+
+    def ReplaceClip(self, path):
+        if os.path.abspath(path) != os.path.abspath(self.path):
+            return False
+        self.frames = self.on_disk
+        return True
 
     def GetClipProperty(self, key):
         return {"File Path": self.path, "Clip Path": self.path,
