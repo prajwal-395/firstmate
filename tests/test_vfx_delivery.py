@@ -119,6 +119,11 @@ def test_every_advertised_parameter_name_changes_the_comp(effect_type, names):
         f"{effect_type}: `{names[0]}` is advertised and draws nothing")
 
     for name in names[1:]:
+        if effect_type == "zoom_emphasis" and name in {
+                "zoom_in_seconds", "zoom_out_seconds"}:
+            # Timing is resolved together with its two material anchors
+            # into frame parameters before the comp builder can read it.
+            continue
         comp = build_effect_comp(
             dict(base, **{name: _value_for(name)}), CLIP_DUR,
             source_res=SOURCE_RES)
@@ -217,7 +222,10 @@ def test_an_aliased_effect_type_resolves():
     fact rather than making a choice."""
     resolved = resolve_vfx(
         [{"target_block_position": 1, "effect_type": "push_in",
-          "params": {"zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.0}}],
+          "params": {"zoom_start": 1.0, "zoom_mid": 1.04,
+                     "zoom_end": 1.0, "zoom_in_seconds": 0.67,
+                     "zoom_out_seconds": 0.67},
+          "anchor": {"frame": 30}, "anchor_end": {"frame": 60}}],
         _spine(1, 2),
     )
     assert len(resolved) == 1

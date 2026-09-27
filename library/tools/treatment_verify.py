@@ -59,11 +59,16 @@ TREATMENT_KEYS = ("tv_power_head", "tv_power_tail")
 #: so "changed" means the same thing in both modules.
 EPSILON = 1e-6
 
-#: The zoom/pan keys a Ken Burns drift travels as. One enumeration
-#: beside `TREATMENT_KEYS`: a key spelled twice is this repository's
-#: dominant bug class (AGENTS.md 10.1).
+#: The zoom/pan keys a camera move travels as. Timed zoom-emphasis frame
+#: decisions belong here too, so the verifier builds the curve Resolve will
+#: actually receive instead of dropping its independent ramps. One
+#: enumeration beside `TREATMENT_KEYS`: a key spelled twice is this
+#: repository's dominant bug class (AGENTS.md 10.1).
 DRIFT_KEYS = ("zoom_start", "zoom_mid", "zoom_end",
-              "pan_start", "pan_end", "zoom_windows")
+              "pan_start", "pan_end", "zoom_windows",
+              "zoom_in_duration_frames",
+              "zoom_release_offset_frames",
+              "zoom_out_duration_frames")
 
 #: Drift metadata that shapes the curve but arms nothing on its own:
 #: `zoom_easing` with no zoom values draws an empty block, so a still
@@ -218,8 +223,7 @@ def evaluate_comp(comp_text: str, played: int) -> Dict[str, List[float]]:
     Reuses `transition_frames` flat-extrapolation semantics: what Fusion
     holds outside the key range is the nearest key's value, not zero.
     """
-    from library.tools.fusion.transition_frames import (
-        parse_splines, value_at)
+    from library.tools.fusion.transition_frames import parse_splines, value_at
 
     return {name: [value_at(keys, f) for f in range(played)]
             for name, keys in parse_splines(comp_text).items()}

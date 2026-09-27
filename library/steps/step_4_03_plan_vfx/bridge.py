@@ -22,17 +22,22 @@ from: per-block duration and camera movement, computed from `timed_spine`
 and `semantic_analysis_documents`. `enhancement_spec` is not emitted -
 the post-bridge writes it after the model answers.
 """
+import json
 import os
 import sys
-import json
 
+from library.tools import still_vision as still_router
 from library.tools.broll_coverage import (
-    coverage_by_block, covering_assignment,
+    coverage_by_block,
+    covering_assignment,
+)
+from library.tools.project_layout import Area, ProjectLayout
+from library.tools.punch_timing import (
+    PUNCH_TIMING_MARKER,
+    timing_prompt_addition,
 )
 from library.tools.semantic_index import build_semantic_lookup
 from library.tools.shot_colour import STILL_WIDTH, extract_still
-from library.tools import still_vision as still_router
-from library.tools.project_layout import Area, ProjectLayout
 from library.tools.vfx_carriers import (
     picture_carriers,
 )
@@ -66,16 +71,15 @@ ZOOM_BOUND_MARKER = "<!-- MAX_ANIMATED_ZOOM -->"
 def zoom_bound_additions() -> dict:
     """The prompt addition rendering the enforced animated-zoom bound.
 
-    The handoff states the comp builder's MECHANICAL refusal on
-    animated Transform Size; the number it states is rendered here
-    from `library/tools/fusion/nodes.py: MAX_ANIMATED_ZOOM` - the
-    single source - so the prompt and the enforcement cannot disagree
-    again (finding 20, execution-frontier report 2026-09-24: the
-    prompt said 1.04 while the code enforced 1.15).
-    `present_llm_step` replaces the marker with this text.
+    The handoff's animated Transform Size ceiling and zoom timing band are
+    both rendered from their enforcement sources. `present_llm_step`
+    replaces the markers with these texts.
     """
     from library.tools.fusion.nodes import MAX_ANIMATED_ZOOM
-    return {ZOOM_BOUND_MARKER: f"{MAX_ANIMATED_ZOOM:g}"}
+    return {
+        ZOOM_BOUND_MARKER: f"{MAX_ANIMATED_ZOOM:g}",
+        PUNCH_TIMING_MARKER: timing_prompt_addition(),
+    }
 
 
 def format_toon(headers, rows):

@@ -42,7 +42,7 @@ reason, rather than passed on to draw nothing.
 | `slow_zoom_in` | Gradual drift inward - adds life to static holds | `zoom_start`, `zoom_end`, optional `pan_end` |
 | `slow_zoom_out` | Gradual drift outward - the reverse, alternate for variety | `zoom_start`, `zoom_end`, optional `pan_end` |
 | `ken_burns` | The drift move under its common name - the DIRECTION is read off your `zoom_start`/`zoom_end` (`zoom_end` above `zoom_start` pushes in, below pulls out), never defaulted | `zoom_start`, `zoom_end` (must differ), optional `pan_end` |
-| `zoom_emphasis` | Key words/moments — punches in and settles back | `zoom_start`, `zoom_mid`, `zoom_end` (the mid point is the punch) |
+| `zoom_emphasis` | Key words/moments - build to a punch, then release independently | `zoom_start`, `zoom_mid`, `zoom_end`, `zoom_in_seconds`, `zoom_out_seconds` |
 | `screen_shake` | Emphasis moments - an impact that settles | `shake_x`, `shake_y` (a FRACTION of frame width), `shake_decay_frames` (modifies the shake; draws nothing alone) |
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam | `zoom_start`, `zoom_mid`, `zoom_end` (all three equal holds the reframe) |
 | `speed_ramp` | A stepped speed change across the block — a montage ramp, a slow push into a moment | `segments`: a non-empty list of `percent` steps, each above 0 (e.g. `[{percent: 50}, {percent: 150}]`) |
@@ -51,6 +51,21 @@ reason, rather than passed on to draw nothing.
 
 A zoom value of `1.0` is the untouched frame; above it is tighter, below
 it is wider.
+
+For `zoom_emphasis`, choose two separate material anchors and two separate
+durations. `anchor` is the point where the zoom-in should ARRIVE at its
+peak; `zoom_in_seconds` says how long it gathers into that point. The move
+starts that many seconds before the anchor. `anchor_end` is when release
+begins; `zoom_out_seconds` says how long the move takes to come off the
+peak. The hold is the interval from `anchor` to `anchor_end`, derived from
+those choices - never emit a hold duration. The in and out durations are
+independent. A quick in and out can build tension quickly for emphasis on a
+point, word or phrase; gradual ramps can accumulate and release tension
+progressively. Fast-then-slow and slow-then-fast are both valid when the
+material calls for them. Choose from emotional intent, not a timing table or
+a fixed gesture.
+
+<!-- PUNCH_TIMING_BOUNDS -->
 
 `speed_ramp` and `freeze_frame` are TIMELINE operations, not Fusion
 comps: they reach the picture through Resolve's own

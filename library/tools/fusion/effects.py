@@ -262,7 +262,11 @@ def _tv_power(clip_dur: int, *, direction: str,
     a transition half gets.  All-zero phases return an empty block.
     """
     from library.tools.tv_power import (
-        BLACK_GAIN, COLLAPSE_CROP, DOT_GAIN, DOT_SIZE, LINE_GAIN,
+        BLACK_GAIN,
+        COLLAPSE_CROP,
+        DOT_GAIN,
+        DOT_SIZE,
+        LINE_GAIN,
         PICTURE_GAIN,
     )
 
@@ -397,19 +401,24 @@ class fx:
         source_out: Optional[int] = None,
         window: Optional[tuple] = None,
         windows: Optional[Sequence[dict]] = None,
+        zoom_in_duration_frames: Optional[int] = None,
+        zoom_release_offset_frames: Optional[int] = None,
+        zoom_out_duration_frames: Optional[int] = None,
     ) -> EffectBlock:
         """Animated Ken Burns zoom with optional pan offset.
 
-        Two shapes, chosen by what `mid` says. When `mid` is the
+        Two drift/punch shapes, chosen by what `mid` says. When `mid` is the
         midpoint of `start`/`end` the move is a DRIFT: one eased ramp
         from `start` to `end`, baked per frame with
         `BezierSpline.sampled(easing=...)` and linearized, so what
         Resolve holds IS the curve - Resolve ignores the Linear flags,
         and without explicit handles it would re-smooth the ramp into
         something else (the flags lesson in `nodes.linearize`). When
-        `mid` sits off the midpoint the move is a PUNCH
-        (`zoom_emphasis`): start -> peak -> end on a three-point
-        spline, unchanged.
+        `mid` sits off the midpoint and no independent timing is supplied
+        the move is a legacy PUNCH: start -> peak -> end on a three-point
+        spline. `zoom_emphasis` supplies separate in-ramp and out-ramp
+        frame counts plus the release offset; its hold is derived between
+        the peak and release anchors.
 
         Creates a Transform node with BezierSpline-animated Size
         and optional static Center offset.
@@ -427,8 +436,8 @@ class fx:
 
         ``easing`` is one of `nodes.EASING_FUNCTIONS`' names; an
         unknown name raises rather than falling back, because a
-        fallback curve would substitute taste. It is read only on the
-        drift path - a punch keeps its three points whatever it says.
+        fallback curve would substitute taste. The timed punch samples
+        the same easing independently on each ramp.
 
         NOTE: pan_start is accepted for forward-compatibility but animated
         Center drift is not currently implemented. Fusion's animated Point
@@ -439,7 +448,12 @@ class fx:
         indistinguishable for the ranges we use.
         """
         windows = list(windows or ())
-        has_anim = not (start == mid == end) or bool(windows)
+        timing = (zoom_in_duration_frames,
+                  zoom_release_offset_frames,
+                  zoom_out_duration_frames)
+        has_timing = any(value is not None for value in timing)
+        has_anim = (not (start == mid == end) or bool(windows)
+                    or has_timing)
 
         if not has_anim and start == 1.0 and pan_end is None:
             # Identity: no zoom, no pan - skip entirely
@@ -454,6 +468,101 @@ class fx:
         # Keyframes in the comp's own frames, which are the
         # PLAYED frames numbered from zero.
         first, last = played_range(clip_dur, source_in, source_out)
+        if has_timing:
+            if any(value is None for value in timing):
+                raise ValueError(
+                    "zoom emphasis timing needs independent in duration, "
+                    "release offset and out duration")
+            if windows:
+                raise ValueError(
+                    "zoom emphasis timing cannot be combined with "
+                    "zoom_windows")
+            if any(isinstance(value, bool) or not isinstance(value, int)
+                   or value < 1 for value in (
+                       zoom_in_duration_frames,
+                       zoom_out_duration_frames)):
+                raise ValueError(
+                    "zoom emphasis in/out durations must be positive "
+                    "whole frame counts")
+            if (isinstance(zoom_release_offset_frames, bool)
+                    or not isinstance(zoom_release_offset_frames, int)
+                    or zoom_release_offset_frames < 0):
+                raise ValueError(
+                    "zoom emphasis release offset must be a non-negative "
+                    "whole frame count")
+
+            if window is None:
+                w0, w1 = first, last
+            else:
+                try:
+                    if (len(window) != 2
+                            or any(isinstance(value, bool)
+                                   or not isinstance(value, int)
+                                   for value in window)):
+                        raise ValueError
+                    w0, w1 = window
+                except (TypeError, ValueError):
+                    raise ValueError(
+                        "zoom emphasis needs an integer frame window")
+            if w0 < first or w1 > last or w1 <= w0:
+                raise ValueError(
+                    f"zoom emphasis window [{w0}, {w1}] does not fit "
+                    f"played frames [{first}, {last}]")
+
+            peak_frame = w0 + zoom_in_duration_frames
+            release_frame = w0 + zoom_release_offset_frames
+            out_frame = release_frame + zoom_out_duration_frames
+            if release_frame < peak_frame:
+                raise ValueError(
+                    "zoom emphasis ramps overlap: the release starts "
+                    "before the in ramp reaches its peak")
+            if peak_frame > w1 or out_frame > w1:
+                raise ValueError(
+                    f"zoom emphasis peak/release [{peak_frame}, {out_frame}] "
+                    f"falls outside its frame window [{w0}, {w1}]")
+
+            spline_name = f"{tf_name}Size"
+            held: dict[int, float] = {}
+            if w0 > first:
+                held[first] = 1.0
+                if w0 - 1 > first:
+                    held[w0 - 1] = 1.0
+            if out_frame < last:
+                if out_frame + 1 < last:
+                    held[out_frame + 1] = 1.0
+                held[last] = 1.0
+
+            held[w0] = start
+            zoom_in = BezierSpline.sampled(
+                spline_name, start_frame=w0, end_frame=peak_frame,
+                easing=easing, scale=mid - start, offset=start,
+                color=(233, 217, 11))
+            for keyframe in zoom_in.keyframes:
+                held[keyframe.frame] = keyframe.value
+            held[peak_frame] = mid
+            held[release_frame] = mid
+            zoom_out = BezierSpline.sampled(
+                spline_name, start_frame=release_frame,
+                end_frame=out_frame, easing=easing,
+                scale=end - mid, offset=mid, color=(233, 217, 11))
+            for keyframe in zoom_out.keyframes:
+                held[keyframe.frame] = keyframe.value
+            held[out_frame] = end
+
+            spline = BezierSpline(spline_name)
+            for frame in sorted(held):
+                spline.add_key(frame, round(held[frame], 6))
+            spline.linearize()
+            tf.set_input("Size", spline)
+            nodes.append(spline)
+            if pan_end is not None:
+                tf.set_input("Center", pan_end)
+            tf.pos = (110, 0)
+            nodes.insert(0, tf)
+            return EffectBlock(
+                nodes=nodes, input_name=tf_name, input_key="Input",
+                output_name=tf_name)
+
         if windows:
             if window is not None:
                 raise ValueError(

@@ -74,9 +74,10 @@ from library.tools.ren_refusal import RenRefusal
 
 # The top-level plan-entry keys carrying anchors. Each placement-bearing
 # post-bridge unions these into its own ENTRY_KEYS so `refuse_unknown_keys`
-# lets them through, then resolves them below. `anchor` is the moment (a
-# cut, a hit, an effect's start); `anchor_end` is an effect's end, which
-# is what makes a punch span one word instead of the block.
+# lets them through, then resolves them below. `anchor` is the first
+# material moment and `anchor_end` the second. Most effects use those as
+# their start/end; `zoom_emphasis` uses them as the peak/release-start pair,
+# then expands the rendered window around its two independent ramps.
 ANCHOR_ENTRY_KEYS = frozenset({"anchor", "anchor_end"})
 
 # What an addressed beat is measured against when the plan says nothing.

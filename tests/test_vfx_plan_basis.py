@@ -157,7 +157,11 @@ def test_a_fully_resolved_plan_drops_nothing():
         {"target_block_position": 14, "effect_type": "slow_zoom_in",
          "params": {"zoom_start": 1.0, "zoom_end": 1.03}, "rationale": "a"},
         {"target_block_position": 7, "effect_type": "zoom_emphasis",
-         "params": {"zoom_start": 1.0, "zoom_end": 1.03}, "rationale": "b"},
+         "params": {"zoom_start": 1.0, "zoom_mid": 1.03,
+                    "zoom_end": 1.0, "zoom_in_seconds": 0.67,
+                    "zoom_out_seconds": 0.67},
+         "anchor": {"frame": 120}, "anchor_end": {"frame": 150},
+         "rationale": "b"},
     ])
     basis = spec["planning_basis"]
     assert basis == {"basis": "planned", "proposed": 2, "resolved": 2,
@@ -189,5 +193,4 @@ def test_the_record_carries_no_creative_value():
     drop = spec["planning_basis"]["dropped"][0]
     assert drop["effect_type"] == "glitch"
     assert drop["target_block_position"] == 7
-
 

@@ -16,8 +16,8 @@ nothing adds motion the plan did not ask for
 (tests/test_no_creative_floors.py).
 
 Scope is deliberate: the ruling is about motion on static shots, not
-about emphasis effects. A `zoom_emphasis` on a key word is a different
-decision with its own grounds, and its path is unchanged.
+about emphasis effects. A `zoom_emphasis` on material anchors is a
+different decision, with independent ramp timing and no drift rationale.
 """
 import sys
 from pathlib import Path
@@ -70,13 +70,16 @@ def test_drift_with_a_stated_reason_resolves():
 
 def test_emphasis_without_rationale_is_outside_this_refusal():
     """The ruling governs motion on static shots, not emphasis. A
-    `zoom_emphasis` naming readable params resolves as before - this
-    pins the boundary so the refusal cannot creep."""
+    `zoom_emphasis` with its own anchors and ramp decisions resolves
+    without a drift rationale - this pins the boundary so that refusal
+    cannot creep."""
     dropped = []
     resolved = resolve_vfx(
         [{"target_block_position": 1, "effect_type": "zoom_emphasis",
           "params": {"zoom_start": 1.0, "zoom_mid": 1.04,
-                     "zoom_end": 1.0}}],
+                     "zoom_end": 1.0, "zoom_in_seconds": 0.67,
+                     "zoom_out_seconds": 0.67},
+          "anchor": {"frame": 60}, "anchor_end": {"frame": 90}}],
         _spine(1, 2), dropped=dropped)
     assert len(resolved) == 1
     assert dropped == []

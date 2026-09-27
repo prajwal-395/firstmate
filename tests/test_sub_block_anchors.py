@@ -86,24 +86,34 @@ def _grid(source="detected"):
 
 # ── P5 end to end on fixtures ─────────────────────────────────────────
 
-def test_p5_punch_spans_the_word_not_the_block():
-    """The punch covers 11.44-11.84 s, not the whole 8.0-18.0 s block."""
+def test_p5_punch_builds_to_a_peak_then_releases_at_a_second_anchor():
+    """Its ramps expand around independently anchored peak/release moments."""
     plan = [{
         "target_block_position": 1,
         "effect_type": "zoom_emphasis",
         "params": {"zoom_start": 1.0, "zoom_mid": 1.15,
-                   "zoom_end": 1.0},
+                   "zoom_end": 1.0, "zoom_in_seconds": 0.67,
+                   "zoom_out_seconds": 0.67},
         "rationale": "punch 15% on 'quit'",
         "anchor": {"word": "quit"},
-        "anchor_end": {"word": "quit", "edge": "end"},
+        "anchor_end": {"word": "now"},
     }]
     resolved = resolve_vfx(plan, _spine(), FPS)
     assert len(resolved) == 1
     vfx = resolved[0]
-    assert vfx["timeline_start"] == pytest.approx(QUIT_START, abs=1e-9)
-    assert vfx["timeline_end"] == pytest.approx(QUIT_END, abs=1e-9)
+    in_frames = seconds_to_frame(0.67, FPS)
+    peak_frame = seconds_to_frame(QUIT_START, FPS)
+    release_frame = seconds_to_frame(12.0, FPS)
+    start_frame = peak_frame - in_frames
+    end_boundary_frame = release_frame + in_frames + 1
+    assert seconds_to_frame(vfx["timeline_start"], FPS) == start_frame
+    assert seconds_to_frame(vfx["timeline_end"], FPS) == end_boundary_frame
+    assert vfx["params"]["zoom_in_duration_frames"] == in_frames
+    assert vfx["params"]["zoom_release_offset_frames"] == (
+        release_frame - start_frame)
+    assert vfx["params"]["zoom_out_duration_frames"] == in_frames
     frame_error = abs(seconds_to_frame(vfx["timeline_start"], FPS)
-                      - QUIT_FRAME)
+                      - start_frame)
     assert frame_error <= 1, f"P5 punch frame error: {frame_error} frames"
     assert "anchor_method" in vfx
 
@@ -275,12 +285,14 @@ def test_misplaced_extent_anchors_refuse():
         "target_block_position": 1,
         "effect_type": "zoom_emphasis",
         "params": {"zoom_start": 1.0, "zoom_mid": 1.15,
-                   "zoom_end": 1.0},
+                   "zoom_end": 1.0, "zoom_in_seconds": 0.67,
+                   "zoom_out_seconds": 0.67},
         "rationale": "backwards span",
         "anchor": {"word": "now"},
         "anchor_end": {"word": "quit"},
     }]
-    with pytest.raises(AnchorRefused):
+    from library.tools.punch_timing import PunchTimingRefused
+    with pytest.raises(PunchTimingRefused):
         resolve_vfx(vfx_plan, _spine(), FPS)
 
 

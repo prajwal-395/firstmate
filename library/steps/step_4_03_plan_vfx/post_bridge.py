@@ -13,9 +13,22 @@ Idempotent: Yes
 """
 import json
 import sys
+
+from library.tools.frame_utils import frame_to_seconds, seconds_to_frame
+from library.tools.native_ops import (
+    NATIVE_SPEED_EFFECTS,
+    SPEED_RAMP_PARAM_KEYS,
+    refuse_speed_curve,
+)
 from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.post_bridge_retry import ATTEMPT_KEY, MAX_ATTEMPTS
+from library.tools.punch_timing import (
+    MAX_PUNCH_RAMP_SECONDS,
+    MIN_PUNCH_RAMP_SECONDS,
+    PunchTimingRefused,
+    ramp_duration_frames,
+)
 from library.tools.sub_block_anchor import (
     ANCHOR_ENTRY_KEYS,
     AnchorRefused,
@@ -26,12 +39,6 @@ from library.tools.vfx_plan_basis import (
     PlanBasis,
     basis_summary,
 )
-from library.tools.native_ops import (
-    NATIVE_SPEED_EFFECTS,
-    SPEED_RAMP_PARAM_KEYS,
-    refuse_speed_curve,
-)
-
 
 # The step's own effect toolkit, and the parameter NAMES each one is
 # drawn from. This is a CAPABILITY statement, not a creative one: it
@@ -55,12 +62,11 @@ from library.tools.native_ops import (
 # draw nothing - `no_readable_parameters`, which is the drop reason
 # `vfx_plan_basis` records.
 #
-# And the VALUES in a readable name are never checked, clamped or
-# substituted. That is the other half of the captain's ruling and it is
-# stated here because this is the only place that could do any of the
-# three: how far a zoom travels is a magnitude, a magnitude is taste,
-# and an engine that bounded one would be offering the scale the ruling
-# removed (AGENTS.md 10.5).
+# Magnitudes in a readable name are never checked, clamped or
+# substituted: how far a zoom travels is taste (AGENTS.md 10.5). The two
+# `zoom_emphasis` ramp durations are the exception because the captain
+# measured an operating band for motion speed; that separate contract is
+# enforced and rendered into the prompt by `library/tools/punch_timing.py`.
 TOOLKIT_PARAMETERS = {
     # Ken Burns drift across the clip: fx.zoom's start and end, plus an
     # optional static re-centre. `pan_start` is deliberately ABSENT:
@@ -73,7 +79,10 @@ TOOLKIT_PARAMETERS = {
     "slow_zoom_out": ("zoom_start", "zoom_end", "pan_end"),
     # Punch in and settle back - fx.zoom's three-point spline, so the
     # emphasis reads as a push rather than a permanent reframe.
-    "zoom_emphasis": ("zoom_start", "zoom_mid", "zoom_end"),
+    "zoom_emphasis": (
+        "zoom_start", "zoom_mid", "zoom_end",
+        "zoom_in_seconds", "zoom_out_seconds",
+    ),
     # fx.shake offsets the frame centre as a FRACTION of frame width.
     # `shake_x`/`shake_y` are what reach the dispatch; `shake_decay_frames`
     # MODIFIES the shake they start and draws nothing on its own, which is
@@ -247,6 +256,109 @@ def _resolve_hold_seconds(hold_s, hold_f, frame_rate, raw_type, pos):
     return float(hold_s)
 
 
+def _zoom_emphasis_span(vfx, params, block, peak_hit, release_hit,
+                        frame_rate, position):
+    """Resolve a punch from its peak and release anchors, with no hold input.
+
+    The zoom-in ramp ends on the peak anchor. The zoom-out ramp starts on
+    the release anchor. Their intervening frame count is the hold, derived
+    from the anchor distance. The effect's full window expands around those
+    two decisions to carry both ramps.
+    """
+    missing = []
+    if vfx.get("anchor") is None:
+        missing.append("anchor (the desired peak)")
+    if vfx.get("anchor_end") is None:
+        missing.append("anchor_end (the start of release)")
+    if missing:
+        raise PunchTimingRefused(
+            what=(f"zoom_emphasis on block {position!r} lacks "
+                  + " and ".join(missing)),
+            why=("the build and release points are independent creative "
+                 "decisions, and the hold is only the space between them"),
+            fix=("re-plan with `anchor` at the desired zoom peak and "
+                 "`anchor_end` at the point where release begins"),
+        )
+    if peak_hit is None or release_hit is None:
+        raise AssertionError("zoom_emphasis anchors must resolve before use")
+
+    for key in ("zoom_in_seconds", "zoom_out_seconds"):
+        if key not in params:
+            raise PunchTimingRefused(
+                what=(f"zoom_emphasis on block {position!r} has no "
+                      f"`params.{key}`"),
+                why=("the in and out ramps are independent creative "
+                     "timing decisions; neither has a default"),
+                fix=(f"re-plan with `params.{key}` as a number from "
+                     "0.67 to 1.8 seconds"),
+            )
+
+    in_frames = ramp_duration_frames(
+        params["zoom_in_seconds"], movement="zoom-in",
+        frame_rate=frame_rate, position=position)
+    out_frames = ramp_duration_frames(
+        params["zoom_out_seconds"], movement="zoom-out",
+        frame_rate=frame_rate, position=position)
+    peak_frame = peak_hit["frame"]
+    release_frame = release_hit["frame"]
+    if release_frame < peak_frame:
+        raise PunchTimingRefused(
+            what=(f"zoom_emphasis release anchor on block {position!r} "
+                  f"(frame {release_frame}) precedes its peak anchor "
+                  f"(frame {peak_frame})"),
+            why=("the build must reach its peak before the separately "
+                 "anchored release begins; the hold is derived from "
+                 "that interval"),
+            fix=("move `anchor_end` to the peak or a later moment, or "
+                 "remove the zoom_emphasis"),
+        )
+
+    start_frame = peak_frame - in_frames
+    # The effect window is half-open. Include the final ramp sample by
+    # ending one frame after it.
+    end_boundary_frame = release_frame + out_frames + 1
+    block_start_frame = block.get("timeline_start_frame")
+    if isinstance(block_start_frame, bool) or not isinstance(
+            block_start_frame, int):
+        block_start_frame = seconds_to_frame(
+            float(block["timeline_start"]), frame_rate)
+    block_end_frame = block.get("timeline_end_frame")
+    if isinstance(block_end_frame, bool) or not isinstance(
+            block_end_frame, int):
+        block_end_frame = seconds_to_frame(
+            float(block["timeline_end"]), frame_rate)
+    if start_frame < block_start_frame:
+        raise PunchTimingRefused(
+            what=(f"zoom_emphasis zoom-in ramp on block {position!r} "
+                  f"would start at frame {start_frame}, before the "
+                  f"block starts at {block_start_frame}"),
+            why=("the complete ramp must fit inside the picture span "
+                 "named by its anchors"),
+            fix=("move the peak anchor later by enough frames for the "
+                 "declared zoom-in, or choose a different block"),
+        )
+    if end_boundary_frame > block_end_frame:
+        raise PunchTimingRefused(
+            what=(f"zoom_emphasis zoom-out ramp on block {position!r} "
+                  f"would end at frame {end_boundary_frame}, past the "
+                  f"block boundary at {block_end_frame}"),
+            why=("the release must finish while this picture is still "
+                 "on screen"),
+            fix=("move the release anchor earlier by enough frames for "
+                 "the declared zoom-out, or choose a different block"),
+        )
+
+    params["zoom_in_duration_frames"] = in_frames
+    params["zoom_release_offset_frames"] = release_frame - start_frame
+    params["zoom_out_duration_frames"] = out_frames
+    return (
+        frame_to_seconds(start_frame, frame_rate),
+        frame_to_seconds(end_boundary_frame, frame_rate),
+        (f"zoom reaches peak at {peak_hit['method']}; release starts at "
+         f"{release_hit['method']}"),
+    )
+
+
 # The entry keys this step reads. Anything else on an entry is
 # REFUSED by `refuse_unknown_keys` below, never dropped: an unread key
 # is how a probe's SFX `at_word` landed 3.06 s early on the block
@@ -256,10 +368,10 @@ def _resolve_hold_seconds(hold_s, hold_f, frame_rate, raw_type, pos):
 # key nothing reads. `segment_id` is the legacy spelling of
 # `target_block_position`; `composite_mode` is read on the generator
 # overlay path only. `anchor` / `anchor_end` are the sub-block address
-# (library/tools/sub_block_anchor.py): `anchor` moves the effect's
-# start onto a word, beat or frame inside the block, `anchor_end` its
-# end - a punch that spans one word carries both. Either alone leaves
-# the other end on the block boundary. `hold_seconds` / `hold_frames`
+# (library/tools/sub_block_anchor.py): for most effects they move the
+# effect's start/end; for `zoom_emphasis`, they name the peak and release
+# start. Either alone leaves the other end on the block boundary for other
+# effects. `hold_seconds` / `hold_frames`
 # run a freeze_frame's span from its anchor for exactly that long
 # (rung 7, RT3.3) - on any other effect they are read by nothing and
 # refuse below.
@@ -509,6 +621,36 @@ def resolve_vfx(
                 )
                 covered_positions.discard(str(pos))
                 continue
+            if effect_type == "zoom_emphasis":
+                missing_timing = [
+                    key for key in ("zoom_in_seconds", "zoom_out_seconds")
+                    if key not in params
+                ]
+                if missing_timing:
+                    raise PunchTimingRefused(
+                        what=(f"zoom_emphasis on block {pos!r} has no "
+                              + " or ".join(
+                                  f"`params.{key}`"
+                                  for key in missing_timing)),
+                        why=("the in and out ramps are independent creative "
+                             "timing decisions; neither has a default"),
+                        fix=("re-plan with both `params.zoom_in_seconds` "
+                             "and `params.zoom_out_seconds` as numbers "
+                             f"from {MIN_PUNCH_RAMP_SECONDS:.2f} to "
+                             f"{MAX_PUNCH_RAMP_SECONDS:.1f} seconds"),
+                    )
+                if not any(key in params for key in (
+                        "zoom_start", "zoom_mid", "zoom_end")):
+                    raise PunchTimingRefused(
+                        what=(f"zoom_emphasis on block {pos!r} has ramp "
+                              "timings but no declared zoom scale"),
+                        why=("timing alone does not move the picture; the "
+                             "planner must choose the zoom's resting and "
+                             "peak scales too"),
+                        fix=("re-plan with at least one of `zoom_start`, "
+                             "`zoom_mid` or `zoom_end` in `params`, or "
+                             "remove the effect"),
+                    )
             # The plan supplies the values; this checks only that the
             # NAMES reach a reader. A name the renderer does not dispatch
             # on draws nothing and says nothing (AGENTS.md §10.2), so an
@@ -544,26 +686,26 @@ def resolve_vfx(
             covered_positions.discard(str(pos))
             continue
 
-        # Sub-block span: the anchor moves the effect's start onto a
-        # word, beat or frame inside the block, the end anchor its end.
-        # Either alone leaves the other end on the block boundary - so a
-        # punch that spans one word carries both, and an effect with
-        # neither spans the block exactly as before. An end at or before
-        # the start refuses: a span is not a point.
+        # Sub-block span: for most effects, anchors move the effect's
+        # start and end. `zoom_emphasis` reinterprets those same material
+        # addresses as peak and release start, then expands its ramp window
+        # around them in `_zoom_emphasis_span`.
         span_start, span_end = tl_start, tl_end
         anchor_method = None
+        anchor_hit = None
+        anchor_end_hit = None
         if vfx.get("anchor") is not None:
-            hit = resolve_anchor(
+            anchor_hit = resolve_anchor(
                 vfx["anchor"], block=block,
                 music_analysis=music_analysis,
                 music_selection=music_selection,
                 temporal_indices=temporal_indices,
                 frame_rate=frame_rate, step="plan_vfx",
                 plan="vfx_creative", index=len(resolved))
-            span_start = hit["timeline_seconds"]
-            anchor_method = hit["method"]
+            span_start = anchor_hit["timeline_seconds"]
+            anchor_method = anchor_hit["method"]
         if vfx.get("anchor_end") is not None:
-            hit = resolve_anchor(
+            anchor_end_hit = resolve_anchor(
                 vfx["anchor_end"], block=block,
                 music_analysis=music_analysis,
                 music_selection=music_selection,
@@ -571,10 +713,16 @@ def resolve_vfx(
                 frame_rate=frame_rate, step="plan_vfx",
                 plan="vfx_creative", index=len(resolved),
                 end="anchor_end")
-            span_end = hit["timeline_seconds"]
-            anchor_method = (f"{anchor_method} to {hit['method']}"
+            span_end = anchor_end_hit["timeline_seconds"]
+            anchor_method = (f"{anchor_method} to "
+                             f"{anchor_end_hit['method']}"
                              if anchor_method is not None
-                             else f"block start to {hit['method']}")
+                             else f"block start to "
+                             f"{anchor_end_hit['method']}")
+        if effect_type == "zoom_emphasis":
+            span_start, span_end, anchor_method = _zoom_emphasis_span(
+                vfx, params, block, anchor_hit, anchor_end_hit,
+                frame_rate, pos)
         # A stated hold (rung 7, RT3.3): freeze_frame only. The span
         # runs from the anchor for exactly the stated hold ("freeze on
         # 'quit' for 1s 12f" - 42 frames). A hold with no anchor
