@@ -56,8 +56,9 @@ re-derive it.
 
 **Five readings, spelled differently on purpose.**
 
-    STATED        the project said so, in its own project.yaml or in a
-                  brand-template slot.  The record names the exact path.
+    STATED        the project said so in project.yaml or a brand slot, or
+                  the user said so in the per-user taste profile. The
+                  project wins; the record names the source and speaker.
     DIRECTED      a value the creative direction really DECLARED.  A rule
                   acting on a declared value is not a fallback (AGENTS.md
                   10.5), which is what makes this rung legal at all.
@@ -93,13 +94,13 @@ that answer and two measurements.  This is the captain's "formula or some
 kind of audio analysis that allows that judgement to be made", and the
 solver is REGISTERED on the slot so a second formula cannot exist.
 
-**A stated preference is the captain's number, never the engine's.**  The
-preference block exists because the captain's precedence starts there.
-It is not required to be filled in, and an absent preference falls to the
-model reasoning over measurement - never to a value sitting in a shipped
-configuration file.  A default config file carrying the engine's numbers
-would be this defect wearing configuration's clothes, and this module
-ships none.
+**A stated preference is the person's number, never the engine's.**  A
+project preference or a per-user profile value exists because a person
+stated it. Neither is required to be filled in, and an absent preference
+falls to the model reasoning over measurement - never to a value sitting
+in a shipped configuration file. A default config file carrying the
+engine's numbers would be this defect wearing configuration's clothes,
+and neither source ships with the engine.
 
 **Nothing reads a decision to decide something else about taste.**
 `decide` returns a value and a record.  Whatever ranked, filtered or
@@ -133,8 +134,9 @@ registry and `decide` is the only ladder.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 # The key the model writes, and the key the record lands under.  One
 # spelling each, here, because a key name spelled twice is this
@@ -225,22 +227,22 @@ class Slot:
     answer_units: str
     value_units: str
     deciding_step: str
-    readers: Tuple[str, ...]
-    measurements: Tuple[Measurement, ...] = ()
-    scopes: Tuple[str, ...] = ()
-    preference_paths: Tuple[str, ...] = ()
-    direction_key: Optional[str] = None
+    readers: tuple[str, ...]
+    measurements: tuple[Measurement, ...] = ()
+    scopes: tuple[str, ...] = ()
+    preference_paths: tuple[str, ...] = ()
+    direction_key: str | None = None
     # Why the DIRECTED rung is unavailable, when it is.  Stated rather
     # than left implicit: a rung silently missing reads as a rung that
     # was tried.
     no_direction_reason: str = ""
-    solver: Optional[str] = None
-    fallback: Optional[Fallback] = None
+    solver: str | None = None
+    fallback: Fallback | None = None
     # What a consumer must do when the answer is UNDETERMINED.  Prose,
     # read by a human; nothing branches on it.
     undetermined_means: str = ""
 
-    def scope_names(self) -> Tuple[str, ...]:
+    def scope_names(self) -> tuple[str, ...]:
         """The scopes to decide, or a single unscoped `("",)`."""
         return self.scopes or ("",)
 
@@ -284,7 +286,7 @@ def _solve_bed_gain(answer, measurements):
 # and - if the value survives absence at all - a fallback with a named
 # owner.
 
-SLOTS: Dict[str, Slot] = {
+SLOTS: dict[str, Slot] = {
     "mix.speech_above_bed_db": Slot(
         key="mix.speech_above_bed_db",
         question=(
@@ -356,7 +358,8 @@ SLOTS: Dict[str, Slot] = {
             superseded_by=(
                 "a measured bed and measured speech, which every run that "
                 "reaches step 2.04 and step 3.01 has - or a separation the "
-                "project states under pipeline.creative_preferences")),
+                "project states under pipeline.creative_preferences or the "
+                "user records in their taste profile")),
         undetermined_means=(
             "the window carries no gain and the mix spec says why; nothing "
             "downstream may substitute one"),
@@ -442,7 +445,7 @@ def slot(key: str) -> Slot:
             f"no value slot {key!r}; the registry is {sorted(SLOTS)}") from exc
 
 
-def slots_for(node_id: str) -> Tuple[Slot, ...]:
+def slots_for(node_id: str) -> tuple[Slot, ...]:
     """Every slot the step `node_id` decides, in registry order."""
     return tuple(s for s in SLOTS.values() if s.deciding_step == node_id)
 
@@ -519,7 +522,7 @@ def prompt_block(node_id: str) -> str:
     return "".join(lines)
 
 
-def take(node_id: str, answer: Any) -> Tuple[Any, Dict[Tuple[str, str], dict]]:
+def take(node_id: str, answer: Any) -> tuple[Any, dict[tuple[str, str], dict]]:
     """Split `value_decisions` out of the answer and index it by slot.
 
     Returns `(answer without the field, {(slot, scope): entry})`.  The
@@ -536,7 +539,7 @@ def take(node_id: str, answer: Any) -> Tuple[Any, Dict[Tuple[str, str], dict]]:
     remaining = {k: v for k, v in answer.items() if k != FIELD}
     entries = answer.get(FIELD)
     mine = {s.key for s in slots_for(node_id)}
-    taken: Dict[Tuple[str, str], dict] = {}
+    taken: dict[tuple[str, str], dict] = {}
     for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict):
             continue
@@ -551,7 +554,7 @@ def take(node_id: str, answer: Any) -> Tuple[Any, Dict[Tuple[str, str], dict]]:
     return remaining, taken
 
 
-def answers_from(data: dict, key: str, scope: str = "") -> Optional[dict]:
+def answers_from(data: dict, key: str, scope: str = "") -> dict | None:
     """The model's answer for one slot, out of a post-bridge's merge data.
 
     The runner puts what `take` split out under :data:`MERGE_KEY`, as a
@@ -566,7 +569,7 @@ def answers_from(data: dict, key: str, scope: str = "") -> Optional[dict]:
     return None
 
 
-def as_merge_payload(taken: Dict[Tuple[str, str], dict]) -> List[dict]:
+def as_merge_payload(taken: dict[tuple[str, str], dict]) -> list[dict]:
     """What `take` produced, in the shape a post-bridge reads."""
     return [{"slot": key, "scope": scope, **entry}
             for (key, scope), entry in sorted(taken.items())]
@@ -590,8 +593,8 @@ class Decision:
     answer: Any = None
     why: str = ""
     source: str = ""
-    measurements: Dict[str, Any] = field(default_factory=dict)
-    rungs_skipped: List[dict] = field(default_factory=list)
+    measurements: dict[str, Any] = field(default_factory=dict)
+    rungs_skipped: list[dict] = field(default_factory=list)
     step: str = ""
     attempt: int = 1
 
@@ -617,51 +620,51 @@ class Decision:
 
 
 def stated_preference(key: str, project_folder: str, scope: str = ""):
-    """What the project STATES for this slot, or `(None, "")`.
+    """What the project or user's taste profile STATES, or `(None, "")`.
 
-    Read from `pipeline.creative_preferences` in the project's own
-    project.yaml, keyed by the SLOT KEY, through the one parse
-    `brand_registry` owns.  An undeclared preference is ABSENT, never
-    filled in - the rule that block already lives by.
+    The project has the more specific declaration. If it has none, read
+    this user's explicit profile value, which is shared across projects.
+    Both sources are declarations: an absent value is ABSENT, never filled
+    in with a default.
 
     Returns `(value, path)` so the record can name where it came from.
     """
     row = slot(key)
-    if not row.preference_paths or not project_folder:
+    if not row.preference_paths:
         return None, ""
-    from library.tools.brand_registry import project_pipeline_block
+    if project_folder:
+        from library.tools.brand_registry import project_pipeline_block
 
-    block = project_pipeline_block(project_folder).get(
-        "creative_preferences") or {}
-    if not isinstance(block, dict):
-        return None, ""
-    # `mix.speech_above_bed_db` may be written nested or flat; both are
-    # the same declaration and neither is a second address space.
-    declared = block.get(key)
-    if declared is None:
-        cursor: Any = block
-        for part in key.split("."):
-            if not isinstance(cursor, dict):
-                cursor = None
-                break
-            cursor = cursor.get(part)
-        declared = cursor
-    if declared is None:
-        return None, ""
-    path = row.preference_paths[0]
-    if scope and isinstance(declared, dict):
-        if scope not in declared:
-            return None, ""
-        return declared[scope], f"{path}.{scope}"
-    if isinstance(declared, dict) and not scope:
-        return None, ""
-    return declared, path
+        block = project_pipeline_block(project_folder).get(
+            "creative_preferences") or {}
+        if isinstance(block, dict):
+            # `mix.speech_above_bed_db` may be written nested or flat; both
+            # are the same declaration and neither is a second address space.
+            declared = block.get(key)
+            if declared is None:
+                cursor: Any = block
+                for part in key.split("."):
+                    if not isinstance(cursor, dict):
+                        cursor = None
+                        break
+                    cursor = cursor.get(part)
+                declared = cursor
+            if declared is not None:
+                path = row.preference_paths[0]
+                if scope and isinstance(declared, dict):
+                    if scope in declared:
+                        return declared[scope], f"{path}.{scope}"
+                elif not isinstance(declared, dict):
+                    return declared, path
+
+    from library.tools import taste_profile
+    return taste_profile.stated_preference(key, scope)
 
 
 def decide(key: str, *, scope: str = "", project_folder: str = "",
-           creative_direction: Optional[dict] = None,
-           model_answer: Optional[dict] = None,
-           measurements: Optional[Dict[str, Any]] = None,
+           creative_direction: dict | None = None,
+           model_answer: dict | None = None,
+           measurements: dict[str, Any] | None = None,
            step: str = "", attempt: int = 1) -> Decision:
     """The captain's precedence, in the only place it exists.
 
@@ -671,12 +674,12 @@ def decide(key: str, *, scope: str = "", project_folder: str = "",
     """
     row = slot(key)
     measurements = dict(measurements or {})
-    skipped: List[dict] = []
+    skipped: list[dict] = []
     common = {"key": key, "scope": scope, "measurements": measurements,
               "rungs_skipped": skipped, "step": step or row.deciding_step,
               "attempt": attempt}
 
-    # 1. STATED - the project said so.
+    # 1. STATED - the project or this user said so.
     value, path = stated_preference(key, project_folder, scope)
     if value is not None:
         solved, note = _deliver(row, value, measurements)
@@ -688,7 +691,8 @@ def decide(key: str, *, scope: str = "", project_folder: str = "",
         skipped.append({
             "basis": STATED,
             "why": (f"the project states no preference at "
-                    f"{row.preference_paths[0]}"
+                    f"{row.preference_paths[0]}, and the user's profile "
+                    f"states no preference for {key}"
                     if row.preference_paths else
                     "this value has no place a project may state it")})
 
@@ -753,7 +757,7 @@ def decide(key: str, *, scope: str = "", project_folder: str = "",
     return Decision(basis=UNDETERMINED, why=row.undetermined_means, **common)
 
 
-def _deliver(row: Slot, answer: Any, measurements: Dict[str, Any]):
+def _deliver(row: Slot, answer: Any, measurements: dict[str, Any]):
     """The value the renderer reads, from what was answered.
 
     Identity when the slot is answered in the units it delivers; the
@@ -788,7 +792,7 @@ def assert_decided(key: str, value: Any, records: Sequence[dict],
 
 # ── The trace ────────────────────────────────────────────────────────
 
-def records_from(step_output: Any) -> List[dict]:
+def records_from(step_output: Any) -> list[dict]:
     """The decision records a step wrote, out of its own output."""
     if not isinstance(step_output, dict):
         return []
@@ -797,7 +801,7 @@ def records_from(step_output: Any) -> List[dict]:
         else []
 
 
-def merge_records(existing: Any, fresh: Sequence[dict]) -> List[dict]:
+def merge_records(existing: Any, fresh: Sequence[dict]) -> list[dict]:
     """Fresh rows replace their own STEP's rows; the rest are kept.
 
     MERGED, never replaced - the sibling keys' reasoning exactly.  A
@@ -818,7 +822,7 @@ def merge_records(existing: Any, fresh: Sequence[dict]) -> List[dict]:
     return kept + fresh_rows
 
 
-def summary_lines(records: Sequence[dict]) -> List[str]:
+def summary_lines(records: Sequence[dict]) -> list[str]:
     """One line per decision, saying which rung answered it."""
     lines = []
     for row in records or []:
@@ -853,15 +857,15 @@ assert_registry_is_well_formed()
 # failure answers again, and the answer the post-bridge runs on must be
 # the one the model just gave.
 
-_STASH: Dict[str, List[dict]] = {}
+_STASH: dict[str, list[dict]] = {}
 
 
-def stash(node_id: str, taken: Dict[Tuple[str, str], dict]) -> None:
+def stash(node_id: str, taken: dict[tuple[str, str], dict]) -> None:
     """Hold this step's split-out answer for its post-bridge."""
     _STASH[node_id] = as_merge_payload(taken)
 
 
-def stashed(node_id: str) -> List[dict]:
+def stashed(node_id: str) -> list[dict]:
     """What the model answered for this step's slots, in merge shape."""
     return list(_STASH.get(node_id) or [])
 

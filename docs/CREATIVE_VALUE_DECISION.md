@@ -94,7 +94,7 @@ A slot row declares, and a row missing any of these raises at import:
 | `measurements` | the named measurements that make the judgement possible, each naming the module and function that PRODUCES it. A slot with no measurement source cannot be REASONED, and says so rather than pretending |
 | `deciding_step` | the DAG node id that decides it. MUST be in `undetermined.DECLARING_STEPS` - a deterministic step cannot decide a creative value, and a slot naming one raises |
 | `readers` | who consumes the decided value. A slot nothing reads is refused (`output_contract`'s rule: a declared output has a READER) |
-| `preference_paths` | where a project may STATE it, in order. Derived from this row, never looked up by a step |
+| `preference_paths` | where a project may STATE it. A per-user taste profile is the shared fallback within this same stated tier |
 | `fallback` | optional `Fallback(value, whose, why, superseded_by)`. See rung 4 |
 
 `SLOTS` is the registry. It is the thing the guard reads, the thing the run summary
@@ -108,9 +108,13 @@ differently on purpose, which is the line this repository already draws between 
 admitted absence and a measured emptiness (`usable_ranges` `[]`/`unmeasured`,
 `primary_subject_visible` None, `undetermined`'s three states):
 
-1. **`STATED`** - the project said so. Read from `pipeline.creative_preferences` in
-   `project.yaml`, keyed by the SLOT KEY, or from a brand template slot where the row
-   names one. The record carries the exact path it was read from.
+1. **`STATED`** - the project said so, or the user's taste profile did. A project
+   declaration in `pipeline.creative_preferences` or a brand template slot wins; when
+   neither states this scoped value, the pipeline reads the user's explicit profile
+   from `$XDG_CONFIG_HOME/ren/taste_profile.json` (normally
+   `~/.config/ren/taste_profile.json`, or beside `$REN_CONFIG`). The record names
+   the source, who stated the profile value and their reason. `ren taste set` records it;
+   reading never creates or fills the profile.
 2. **`DIRECTED`** - a value the creative direction really declared, read through
    `creative_direction.py`'s key enumeration (which raises on a key that cannot exist). A
    rule acting on a value the direction really declared is not a fallback - AGENTS.md
@@ -132,11 +136,11 @@ Three properties of the ladder that are the whole point:
   prosody profile, an unmeasured range - the model is not asked to reason about a number
   nobody measured, and the run says so. This is the `profile_defect` / `usable_ranges`
   line applied to a decision instead of to a file.
-- **`STATED` is the captain's number, not the engine's.** The preference block exists
-  because the captain's own precedence starts there. It is NOT required to be filled in,
+- **`STATED` is the person's number, not the engine's.** A project preference or user
+  profile value exists only after someone states it. Neither is required to be filled in,
   and an absent preference falls to rung 3, never to a value sitting in a default config
-  file. A shipped `creative_preferences` file with the engine's numbers in it would be
-  this defect wearing configuration's clothes, and `decided_value` ships no such file.
+  file. `ren taste set` requires the person, the value and why they stated it; no profile
+  ships with the engine.
 - **Nothing reads the ladder's OUTPUT to decide something else about taste.** `decide()`
   returns a value and a record. Whatever ranked, filtered or second-guessed the model's
   answer would become the chooser (AGENTS.md 10.5).

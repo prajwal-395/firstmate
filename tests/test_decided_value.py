@@ -38,6 +38,13 @@ SLOT = "mix.speech_above_bed_db"
 MEASURED = {"bed_integrated_lufs": -13.9, "speech_lufs": -22.4}
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_taste_profile(tmp_path, monkeypatch):
+    """A local user's profile must not change the ladder's unit tests."""
+    config = tmp_path / "user-config" / "ren" / "config.env"
+    monkeypatch.setenv("REN_CONFIG", str(config))
+
+
 def _decide(**kwargs):
     kwargs.setdefault("scope", "background")
     kwargs.setdefault("measurements", MEASURED)
@@ -140,8 +147,8 @@ class TestTheSolver:
         assert decision.basis == dv.FALLBACK, (
             "reasoning over a measurement nobody took is the defect this "
             "module exists to remove, one level up")
-        reasoned = [r for r in decision.rungs_skipped
-                    if r["basis"] == dv.REASONED][0]
+        reasoned = next(r for r in decision.rungs_skipped
+                        if r["basis"] == dv.REASONED)
         assert "not measured" in reasoned["why"]
 
     def test_nothing_is_clamped_in_either_direction(self):
@@ -219,8 +226,8 @@ class TestTheTrace:
                   "basis": dv.REASONED, "value": -19.5}]
         merged = dv.merge_records(existing, fresh)
         assert len(merged) == 2
-        carried = [r for r in merged if r["step"] == "color_grade"][0]
+        carried = next(r for r in merged if r["step"] == "color_grade")
         assert carried["from_a_previous_run"] is True
-        answered = [r for r in merged if r["step"] == "audio_mix"][0]
+        answered = next(r for r in merged if r["step"] == "audio_mix")
         assert answered["value"] == -19.5
         assert "from_a_previous_run" not in answered

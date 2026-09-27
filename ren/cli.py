@@ -54,6 +54,8 @@ VERBS = (
          builtin="doctor"),
     Verb("config", "Setup", "Show where each setting comes from; --init writes a starter file",
          builtin="config"),
+    Verb("taste", "Setup", "Record an explicit creative preference shared across projects",
+         module_argv=("library.tools.taste_profile",)),
     Verb("init", "Setup", "Create the projects root folder", subcommand="init-root"),
     Verb("setup-hooks", "Setup", "Install the marker-feedback hook for a host (plan by default)",
          subcommand="setup-hooks"),
