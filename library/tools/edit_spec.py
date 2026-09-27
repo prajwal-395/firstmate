@@ -141,6 +141,7 @@ def _row_for_clause(clause: dict, index: int,
         if not values:
             raise EditSpecError(
                 f"{op} needs one or more typed operation values")
+        _validate_plan_operation_values(op, values, anchor, index)
         params = {"operation_type": op, "owner": owner_for_op(op),
                   "values": copy.deepcopy(values)}
         sources = {"operation_type": op_source,
@@ -171,6 +172,41 @@ def _row_for_clause(clause: dict, index: int,
         row["source_note_id"] = source_note_id
     edit_ledger.validate_rows([row])
     return row
+
+
+def _validate_plan_operation_values(op: str, values: dict, anchor: dict,
+                                    index: int) -> None:
+    """Enforce declared typed fields for plan operations that have them."""
+    contract = edit_operations.PLAN_OPERATION_VALUE_CONTRACTS.get(op)
+    if contract is None:
+        return
+    expected_fields = set(contract["values"])
+    if set(values) != expected_fields:
+        expected = ", ".join(sorted(expected_fields))
+        raise EditSpecError(
+            f"clauses[{index}].values for {op} must contain exactly: "
+            f"{expected}")
+    if anchor.get("kind") != contract["required_anchor"]:
+        raise EditSpecError(
+            f"clauses[{index}].anchor for {op} must identify a spoken "
+            f"{contract['required_anchor']} passage")
+    phrase = anchor.get("phrase")
+    if not isinstance(phrase, str) or not phrase.strip():
+        raise EditSpecError(
+            f"clauses[{index}].anchor.phrase for {op} must be a "
+            "non-empty transcript phrase")
+    for field, field_contract in contract["values"].items():
+        typed = values[field]
+        if typed["unit"] != field_contract["unit"]:
+            raise EditSpecError(
+                f"clauses[{index}].values[{field!r}].unit for {op} must be "
+                f"{field_contract['unit']!r}")
+        if (not isinstance(typed["value"], str)
+                or typed["value"] not in field_contract["allowed"]):
+            allowed = ", ".join(field_contract["allowed"])
+            raise EditSpecError(
+                f"clauses[{index}].values[{field!r}].value for {op} must be "
+                f"one of: {allowed}")
 
 
 def validate_spec(value: dict) -> dict:
@@ -662,6 +698,42 @@ def _expected_schema() -> str:
                     "missing_referent", "question"]}}],
         "additionalProperties": True,
     }
+    for op, contract in edit_operations.PLAN_OPERATION_VALUE_CONTRACTS.items():
+        value_properties = {}
+        for field, field_contract in contract["values"].items():
+            value_properties[field] = {
+                "type": "object",
+                "required": ["value", "unit", "stated_by"],
+                "properties": {
+                    "value": {"type": "string",
+                              "enum": list(field_contract["allowed"])},
+                    "unit": {"const": field_contract["unit"]},
+                    "stated_by": {"enum": list(SOURCES)},
+                },
+                "additionalProperties": False,
+            }
+        clause["allOf"].append({
+            "if": {"properties": {
+                "op": {"const": op},
+                "status": {"const": "resolved"},
+            }},
+            "then": {"properties": {
+                "anchor": {
+                    "type": "object",
+                    "required": ["kind", "phrase"],
+                    "properties": {
+                        "kind": {"const": contract["required_anchor"]},
+                        "phrase": {"type": "string", "minLength": 1},
+                    },
+                },
+                "values": {
+                    "type": "object",
+                    "required": list(contract["values"]),
+                    "properties": value_properties,
+                    "additionalProperties": False,
+                },
+            }},
+        })
     return json.dumps({
         "type": "object",
         "required": ["format", "request", "clauses"],
@@ -691,6 +763,8 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
              "available_reels": [],
              "operation_types": list(OP_OWNERS),
              "operation_owners": OP_OWNERS,
+             "plan_operation_value_contracts":
+                 edit_operations.PLAN_OPERATION_VALUE_CONTRACTS,
              "stated_number_fields": edit_operations.STATED_NUMBER_FIELDS,
              "proxy_preview": PROXY_PREVIEW}
     if not Path(path).is_file():
@@ -907,6 +981,16 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "listed under `stated_number_fields`. An `angle_plan` must name the "
         "exact `reel` and its camera, `min_shot_seconds` and `lead_frames`; "
         "ask which reel if the request and `available_reels` do not say. "
+        "Use `plan_operation_value_contracts` for typed planning values. "
+        "For a story_pacing request to open on a spoken line and return to "
+        "the normal intro, emit `opening_structure` with value "
+        "`cold_open_then_intro`, unit `spine structure`, and "
+        "`stated_by: requester`. Put the transcript-grounded line in a "
+        "`words` anchor; do not encode a line or passage position in the "
+        "structure value. The mesh_spine step resolves that anchor against "
+        "the speech sequence and chooses its passage position. A resolved "
+        "plan operation with no typed values is refused; ask if its spoken "
+        "anchor cannot be identified. "
         "Return JSON "
         "only, with the exact request in `request`. "
         "The code derives the owner from the op type; do not invent a route.\n\n"

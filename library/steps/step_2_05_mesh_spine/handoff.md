@@ -212,6 +212,19 @@ brief is provided, follow the creative direction's energy arc.
 ### Timeline Notes
 If the input includes `timeline_notes`, you MUST read and weigh them. Your output MUST include a `note_acknowledgements` array saying what was done about each note and why - including 'I did not act on this and here is why', since a note you cannot act on should be left alone rather than guessed at.
 
+#### Typed `story_pacing` opening structure
+
+A `timeline_notes` entry may carry a resolved `story_pacing` operation.
+When its `params.opening_structure.value` is
+`cold_open_then_intro`, use the operation's `anchor.phrase` to locate the
+requested spoken passage in `speech_sequence.body_sequence`. Put that
+passage in the opening `hook` block, add an `intro` after it, then continue
+with the planned story opening in its existing order. The anchor carries
+words, not a passage number: resolve `content.passage_ref` from the actual
+body sequence, guided by the creative direction. Never invent a substitute
+line or encode a fixed position in the structure value. Acknowledge the
+operation, including when the anchor cannot be matched to a passage.
+
 <!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->
 
 ### passage_ref (CRITICAL)

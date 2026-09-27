@@ -989,3 +989,147 @@ def test_audio_mix_plan_change_reaches_the_mix_prompt(tmp_path):
         "library/steps/step_5_02_audio_mix/manifest.json"
     ).read_text(encoding="utf-8"))
     marker_routing.assert_deliverable("audio_mix", manifest, [routed])
+
+
+def test_story_pacing_cold_open_translates_and_reaches_mesh_spine(tmp_path):
+    """ST2.1's structure is a typed value delivered to its owning step.
+
+    The line stays in a transcript-grounded words anchor; the value names
+    only the requested hook/intro structure, leaving the passage position
+    to mesh_spine's current speech sequence.
+    """
+    from library.tools import llm_handshake, marker_routing
+
+    request = (
+        "open on the line about quitting every single day, then go back to "
+        "the intro")
+    phrase = "i've quit every single day"
+    project = _project(tmp_path)
+    state = {
+        "step_outputs": {
+            "speech_sequence": {
+                "transcripts_toon": (
+                    "[1]{clip_id,start,end,text}\n"
+                    "clip_017,30,40,"
+                    "i almost didn't do this again i've been literally this "
+                    "week i've quit every single day and the only reason "
+                    "i'm recording today is because i told myself this is "
+                    "the last shot i got"),
+                "topics_toon": "",
+            },
+        },
+    }
+    Path(ProjectLayout(str(project)).pipeline_data_path).write_text(
+        json.dumps(state), encoding="utf-8")
+
+    request_id, request_path, note_id = edit_spec.prepare_request(
+        str(project), request)
+    translator_request = json.loads(
+        Path(request_path).read_text(encoding="utf-8"))
+    translator_context = json.loads(translator_request["context"])
+    assert translator_context["operation_owners"]["story_pacing"] == \
+        "mesh_spine"
+    assert translator_context["transcript_context"]["transcripts_toon"]
+    contract = translator_context["plan_operation_value_contracts"][
+        "story_pacing"]["values"]["opening_structure"]
+    assert "cold_open_then_intro" in contract["allowed"]
+    assert "cold_open_then_intro" in translator_request["prompt"]
+    assert "do not encode a line or passage position" in \
+        translator_request["prompt"]
+
+    response = {
+        "format": edit_spec.FORMAT,
+        "request": request,
+        "source_note_id": note_id,
+        "clauses": [{
+            "id": "c1",
+            "text": request,
+            "op": "story_pacing",
+            "op_source": "requester",
+            "status": "resolved",
+            "anchor": {
+                "kind": "words",
+                "phrase": phrase,
+                "stated": "the line about quitting every single day",
+            },
+            "anchor_source": "requester",
+            "values": {
+                "opening_structure": {
+                    "value": "cold_open_then_intro",
+                    "unit": "spine structure",
+                    "stated_by": "requester",
+                },
+            },
+        }],
+    }
+    Path(llm_handshake.response_path(str(project), request_id)).write_text(
+        json.dumps(response), encoding="utf-8")
+    translated = edit_spec.load_response_spec(str(project), request_id)
+    edit_spec.record_spec(str(project), translated)
+
+    row = edit_ledger.load_rows(str(project))[0]
+    assert row["op"] == "plan_change"
+    assert row["params"]["operation_type"] == "story_pacing"
+    assert row["params"]["owner"] == "mesh_spine"
+    assert row["anchor"]["phrase"] == phrase
+    assert row["params"]["values"]["opening_structure"]["value"] == \
+        "cold_open_then_intro"
+
+    routed = marker_routing.route_project(str(project))
+    assert len(routed) == 1
+    assert routed[0].steps == ["mesh_spine"]
+    assert routed[0].basis == marker_routing.BASIS_EDIT_SPEC
+    operation = marker_routing.prompt_block(
+        routed, node_id="mesh_spine")["notes"][0]["typed_operations"][0]
+    assert operation["op"] == "story_pacing"
+    assert operation["owner"] == "mesh_spine"
+    assert operation["anchor"]["phrase"] == phrase
+    assert operation["params"]["opening_structure"]["value"] == \
+        "cold_open_then_intro"
+    assert "passage_ref" not in operation["params"]
+
+    manifest = json.loads(Path(
+        "library/steps/step_2_05_mesh_spine/manifest.json"
+    ).read_text(encoding="utf-8"))
+    marker_routing.assert_deliverable("mesh_spine", manifest, routed)
+    handoff = Path(
+        "library/steps/step_2_05_mesh_spine/handoff.md"
+    ).read_text(encoding="utf-8")
+    assert "cold_open_then_intro" in handoff
+    assert "anchor.phrase" in handoff
+    assert "actual body sequence" in " ".join(handoff.split())
+
+
+def test_empty_story_pacing_values_are_still_refused(tmp_path):
+    """A resolved structural note cannot pass translation without values."""
+    from library.tools import llm_handshake
+
+    request = (
+        "open on the line about quitting every single day, then go back to "
+        "the intro")
+    project = _project(tmp_path)
+    request_id, _request_path, note_id = edit_spec.prepare_request(
+        str(project), request)
+    response = {
+        "format": edit_spec.FORMAT,
+        "request": request,
+        "source_note_id": note_id,
+        "clauses": [{
+            "id": "c1",
+            "text": request,
+            "op": "story_pacing",
+            "op_source": "requester",
+            "status": "resolved",
+            "anchor": {"kind": "words", "phrase": "the requested line"},
+            "anchor_source": "requester",
+            "values": {},
+        }],
+    }
+    Path(llm_handshake.response_path(str(project), request_id)).write_text(
+        json.dumps(response), encoding="utf-8")
+
+    with pytest.raises(
+            edit_spec.EditSpecError,
+            match="story_pacing needs one or more typed operation values"):
+        edit_spec.load_response_spec(str(project), request_id)
+    assert edit_ledger.load_rows(str(project)) == []

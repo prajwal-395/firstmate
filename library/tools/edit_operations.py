@@ -40,6 +40,26 @@ PLAN_OPERATION_OWNERS = {
     "end_card": "render_motion_graphics",
 }
 
+# Typed values that a planning operation can carry beyond its free-form
+# note. `story_pacing` owns the order of the speech spine, so the words
+# anchor names the requested passage while this value names the structure.
+PLAN_OPERATION_VALUE_CONTRACTS = {
+    "story_pacing": {
+        "required_anchor": "words",
+        "values": {
+            "opening_structure": {
+                "unit": "spine structure",
+                "allowed": {
+                    "cold_open_then_intro": (
+                        "Open on the anchored spoken passage, return to an "
+                        "intro, then continue with the planned story opening."
+                    ),
+                },
+            },
+        },
+    },
+}
+
 OP_OWNERS = {**DIRECT_OP_OWNERS, **PLAN_OPERATION_OWNERS}
 
 # Rung 7 (E3) gave each planner fields that carry a number the requester
