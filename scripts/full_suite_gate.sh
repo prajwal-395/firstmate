@@ -134,6 +134,21 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# A fresh worktree does not carry the ignored `node_modules` bind from the
+# checkout that populated the machine-wide cache. Rebind it before pytest so
+# capability-gated Remotion tests run in worker copies too. The installer is
+# lockfile-keyed and idempotent: a warm machine only links the existing tree;
+# the first run for a new lockfile fills the shared store once. A bootstrap
+# failure does not change gate semantics - pytest and the capability audit
+# below still decide whether this run is narrowed.
+if command -v node >/dev/null 2>&1; then
+  echo "=== full-suite gate: bind Remotion dependencies ==="
+  if ! INSTALL_NODE_DEPS_PYTHON="${HELPER_PYTHON}" \
+      "${REPO_ROOT}/scripts/install_node_deps.sh"; then
+    echo "Remotion dependency bootstrap failed; the capability audit will report any affected skips." >&2
+  fi
+fi
+
 REPORT_DIR="$(mktemp -d)"
 # KEPT on a non-zero exit, and only then.  The trap used to be an
 # unconditional `rm -rf`, so the JUnit reports this gate computes were
