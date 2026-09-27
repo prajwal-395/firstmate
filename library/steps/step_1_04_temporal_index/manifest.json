@@ -1,8 +1,8 @@
 {
   "id": "step_1_04_temporal_index",
   "name": "Temporal Index",
-  "version": "1.0.0",
-  "description": "Creates a temporal index of footage through the reel path's transcription seam (Voz plus MFA, WhisperX fallback) and Librosa.",
+  "version": "1.1.0",
+  "description": "Creates temporal signals and transcripts, plus regional motion tracks scoped to time-bounded Gemma movement labels.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -11,6 +11,18 @@
         "type": "array",
         "required": true,
         "description": "State input: raw_footage_files"
+      },
+      {
+        "name": "semantic_analysis_documents",
+        "type": "array",
+        "required": true,
+        "description": "Step 1.03's time-bounded Gemma action labels. These alone select the spans for regional motion; no labels means no regional pass."
+      },
+      {
+        "name": "clip_catalog",
+        "type": "array",
+        "required": true,
+        "description": "Catalog rows used by semantic_index to join action labels to temporal clip ids by path or source stem."
       },
       {
         "name": "audio_catalog",
@@ -33,7 +45,7 @@
       {
         "name": "temporal_event_indices",
         "type": "array",
-        "description": "State output: temporal_event_indices"
+        "description": "Per-clip temporal summaries, including compact regional motion, fused crop, and keep-clear evidence for selected action spans."
       },
       {
         "name": "total_failed",
@@ -71,7 +83,9 @@
     ]
   },
   "dependencies": [
-    "step_1_01_scan_project"
+    "step_1_01_scan_project",
+    "step_1_02_catalog_footage",
+    "step_1_03_semantic_analysis"
   ],
   "tags": [
     "data_transformation",

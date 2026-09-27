@@ -101,3 +101,58 @@ def test_the_view_reads_either_routed_name():
 def test_no_summaries_is_no_view():
     assert build_view("motion", {"timed_spine": SPINE}) == {}
     assert build_view("motion", {}) == {}
+
+
+def test_regional_framing_is_exposed_only_on_overlapping_source_ranges():
+    selected = {
+        "selected_by": "gemma_action",
+        "action_labels": ["gestures with a hand"],
+        "source_range": [101.0, 103.0],
+        "motion_sample_rate_hz": 10,
+        "resolution": [640, 360],
+        "face": {"box_envelope": [0.48, 0.2, 0.54, 0.4],
+                 "observed_samples": 20, "mean_flow_px": 0.54},
+        "motion_regions": [{
+            "track_id": "motion_region_01",
+            "kind": "hand_body_motion_candidate",
+            "classification": "motion_only_unclassified",
+            "source_range": [101.2, 102.8],
+            "envelope": [0.7, 0.6, 0.9, 0.9],
+            "peak_p90_motion_px": 9.4,
+            "observed_samples": 12,
+        }],
+        "crop_suggestion": {
+            "recommendation": "consider_dynamic_crop",
+            "dynamic_crop_needed": True,
+            "preserve_region_ids": ["largest_face", "motion_region_01"],
+        },
+        "keep_clear_suggestions": [{
+            "region_id": "motion_region_01",
+            "box": [0.7, 0.6, 0.9, 0.9],
+        }],
+    }
+    summary = {
+        **SUMMARIES[0],
+        "regional_motion_status": "measured",
+        "regional_motion_reason": None,
+        "regional_motion_spans": [selected],
+    }
+    no_candidates = {
+        **SUMMARIES[1],
+        "regional_motion_status": "no_candidates",
+        "regional_motion_reason": "No action label selected this clip.",
+        "regional_motion_spans": [],
+    }
+    view = _view(summaries=[summary, no_candidates])
+    outgoing = next(row for row in view["motion"]["blocks"]
+                    if row["block_position"] == 1)
+    regional = outgoing["regional_framing"]
+    assert regional["status"] == "measured"
+    assert regional["candidate_spans"][0]["block_overlap"] == [101.0, 103.0]
+    assert regional["candidate_spans"][0]["crop_suggestion"][
+        "preserve_region_ids"] == ["largest_face", "motion_region_01"]
+
+    incoming = next(row for row in view["motion"]["blocks"]
+                    if row["block_position"] == 2)
+    assert incoming["regional_framing"]["status"] == "no_candidates"
+    assert incoming["regional_framing"]["candidate_spans"] == []

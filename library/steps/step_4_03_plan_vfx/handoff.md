@@ -203,6 +203,15 @@ the still router saw in those stills - one motion line per file - as
 a second reading beside your own; where nothing answered, the absence
 is stated and the still paths above remain for you to open.
 
+The motion view may also carry `regional_framing.candidate_spans`: 10 Hz
+local-motion tracks fused with the existing largest-face boxes for
+time-bounded Gemma labels with a movement, gesture, or facial-change cue
+overlapping this block. Use the measured
+`keep_clear_suggestions` when deciding where an effect or graphic should
+sit, and keep the face plus motion regions inside any crop you propose.
+These are advisory measurements; motion regions are not classified as
+hands or bodies, and no suggestion changes the rendered picture by itself.
+
 Sound events: the `soundevents` view in your context names, per
 block, the non-speech sounds the block's own clip measured -
 laughter, impacts, music entrances - with their timeline spans and

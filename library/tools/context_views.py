@@ -1015,6 +1015,17 @@ MOTION_LEGEND = {
         "so a duration can be sanity-checked, not so an entry can "
         "name one."
     ),
+    "regional_framing": (
+        "When a time-bounded Gemma label with a movement, gesture, or "
+        "facial-change cue overlaps the block, regional_framing carries "
+        "compact 10 Hz, 640x360 face and local-motion evidence, "
+        "plus advisory crop and keep-clear suggestions. Motion regions "
+        "are found from background-compensated Farneback flow and are "
+        "not semantically classified as hands or bodies. No overlapping "
+        "action span means no regional pass was run. These suggestions "
+        "are evidence for the edit decision and never change what the "
+        "renderer places on screen."
+    ),
     "withheld": (
         "The per-sample direction/magnitude series stays out of the "
         "prompt deliberately (AGENTS.md 10.1): peaks per block is what "
@@ -1114,6 +1125,8 @@ def _motion(data: dict) -> dict:
             "clip_motion": summary.get("dominant_motion", "unknown"),
             "motion_method": summary.get("motion_method", "unmeasured"),
             "peaks": peaks,
+            "regional_framing": _regional_framing(
+                summary, float(src_start), float(src_end)),
         })
 
     view: dict = {"legend": MOTION_LEGEND}
@@ -1130,6 +1143,44 @@ def _motion(data: dict) -> dict:
     if not rows and not unmeasured:
         return {}
     return {"motion": view}
+
+
+def _regional_framing(summary: dict, source_start: float,
+                      source_end: float) -> dict:
+    """Project selected-span suggestions that overlap one timed block."""
+    spans = summary.get("regional_motion_spans")
+    status = summary.get("regional_motion_status", "unmeasured")
+    reason = summary.get("regional_motion_reason")
+    if not isinstance(spans, list):
+        spans = []
+    matched = []
+    for span in spans:
+        if not isinstance(span, dict):
+            continue
+        bounds = span.get("source_range")
+        if (not isinstance(bounds, list) or len(bounds) != 2
+                or not all(isinstance(value, (int, float))
+                           for value in bounds)):
+            continue
+        left = max(source_start, float(bounds[0]))
+        right = min(source_end, float(bounds[1]))
+        if right <= left:
+            continue
+        matched.append({
+            **span,
+            "block_overlap": [round(left, 3), round(right, 3)],
+        })
+    if matched:
+        status = "measured"
+        reason = None
+    elif spans:
+        status = "no_candidate_overlap"
+        reason = "No selected regional-motion span overlaps this source range."
+    return {
+        "status": status,
+        "reason": reason,
+        "candidate_spans": matched,
+    }
 
 
 SOUNDEVENTS_LEGEND = {

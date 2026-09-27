@@ -194,6 +194,16 @@ you still decide. A motion anchor on a block whose motion is
 unmeasured refuses with the fix, and you re-plan; it never falls
 back to the block boundary.
 
+When present, `motion.blocks[].regional_framing.candidate_spans` adds
+10 Hz local-motion tracks fused with the existing largest-face boxes for
+time-bounded Gemma labels with a movement, gesture, or facial-change cue
+overlapping that source block. Use those
+tracks as candidate action evidence when choosing a cut moment. Read
+`crop_suggestion` and `keep_clear_suggestions` as advisory framing
+evidence. Motion regions are not identified as hands or bodies by this
+measurement. A missing candidate span means regional motion was not
+measured for that source range; do not infer stillness from its absence.
+
 Cut on the sound: the `soundevents` view in your context names, per
 block, the non-speech sounds the block's own clip measured -
 laughter, impacts, music entrances - with their timeline spans and

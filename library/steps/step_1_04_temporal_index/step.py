@@ -3,9 +3,9 @@
 Step 1.04: Temporal Event Index
 
 Deterministic pre-processing step that extracts timestamped events from
-each video clip using signal-processing tools. Runs in parallel with
-steps 1.02 (catalog) and 1.03 (semantic analysis) — only needs file
-paths from step 1.01.
+each video clip using signal-processing tools. It runs after step 1.03
+because regional motion is restricted to Gemma's time-bounded action
+labels; the other temporal measurements retain their existing methods.
 
 Produces a per-clip JSON index containing:
   - scene_boundaries: visual cut/change points (ffmpeg scene detection)
@@ -24,6 +24,8 @@ Produces a per-clip JSON index containing:
     against (`library/tools/sound_events.py`)
   - motion_energy: per-second visual motion magnitude (frame differencing,
     30Hz frame-aligned)
+  - regional_motion: 10Hz, 640x360 Farneback tracks and advisory crop /
+    keep-clear evidence, measured only over time-bounded Gemma action spans
 
 The index bridges the gap between semantic analysis (knows WHAT happens)
 and timeline assembly (needs WHEN things happen).
@@ -3049,6 +3051,8 @@ def build_temporal_index(
     whisper_model_size: str = "large-v3",
     language: str = "en",
     audio_catalog: list = None,
+    semantic_analysis_documents: list = None,
+    clip_catalog: list = None,
 ) -> dict:
     """
     Build temporal event index for all clips.
@@ -3071,6 +3075,18 @@ def build_temporal_index(
     # CWD, so downstream steps find the per-clip JSON files whatever
     # directory they run from.  The layout owner guarantees both.
     index_dir = str(layout.write_dir(Area.TEMPORAL_INDEX, step="temporal_index"))
+
+    # The semantic step names files by source stem while the catalog owns
+    # stable clip ids. Join them through the same path/stem adapter used by
+    # other consumers, so a visual document can never attach to the wrong
+    # temporal index by list position.
+    from library.tools.semantic_index import build_semantic_lookup
+    from library.tools.regional_motion import (
+        build_analysis as build_regional_motion_analysis,
+        compact_analysis as compact_regional_motion_analysis,
+    )
+    semantic_by_clip = build_semantic_lookup(
+        semantic_analysis_documents or [], clip_catalog or [])
 
     results = []
     reused = 0
@@ -3160,6 +3176,35 @@ def build_temporal_index(
                 with open(index_path, "w", encoding="utf-8") as f:
                     json.dump(index, f, indent=2)
 
+            # Regional flow is deliberately different from the clip-wide
+            # curves above: only time-bounded Gemma actions select a span.
+            # Existing face boxes and this step's existing scene boundaries
+            # provide the fusion inputs; the cut detector itself is untouched.
+            previous_regional = index.get("regional_motion")
+            semantic_document = semantic_by_clip.get(clip_id)
+            # A direct caller without semantic inputs cannot select a span,
+            # so duration is immaterial in that case. Keep the promised
+            # duration key strict whenever a document could select motion.
+            regional_duration = (
+                index["duration"] if semantic_document is not None else 0.0)
+            regional = build_regional_motion_analysis(
+                filepath,
+                regional_duration,
+                semantic_document,
+                index.get("face_presence"),
+                scene_boundaries=index["scene_boundaries"],
+                cached=previous_regional,
+            )
+            if regional != previous_regional:
+                index["regional_motion"] = regional
+                with open(index_path, "w", encoding="utf-8") as f:
+                    json.dump(index, f, indent=2)
+            print(
+                f"  regional motion: {len(regional['spans'])} selected span(s), "
+                f"{regional['measurement_status']}",
+                file=sys.stderr,
+            )
+
 
             # The motion half of the summary: what the cut and effect
             # planners address. Peaks ride here (times, kinds,
@@ -3213,6 +3258,10 @@ def build_temporal_index(
                     e for e in sound_events
                     if isinstance(e, dict)
                 ],
+                "regional_motion_status": regional["measurement_status"],
+                "regional_motion_reason": regional.get("reason"),
+                "regional_motion_spans": compact_regional_motion_analysis(
+                    regional),
             })
 
         except Exception as e:
@@ -3363,6 +3412,17 @@ def main():
         })
         sys.exit(1)
 
+    semantic_documents = input_data.get("semantic_analysis_documents")
+    clip_catalog = input_data.get("clip_catalog")
+    if not isinstance(semantic_documents, list):
+        _emit({"error": "Missing required input: semantic_analysis_documents",
+               "step": "1.04_temporal_index"})
+        sys.exit(1)
+    if not isinstance(clip_catalog, list):
+        _emit({"error": "Missing required input: clip_catalog",
+               "step": "1.04_temporal_index"})
+        sys.exit(1)
+
     # Optional: filter to single clip
     if args.clip_id:
         idx = int(args.clip_id.replace("clip_", "")) - 1
@@ -3409,6 +3469,8 @@ def main():
         raw_files, layout, args.whisper_model,
         language=language,
         audio_catalog=input_data.get("audio_catalog"),
+        semantic_analysis_documents=semantic_documents,
+        clip_catalog=clip_catalog,
     )
     result["source"] = "cache" if result["total_reused"] == len(raw_files) else "fresh"
 

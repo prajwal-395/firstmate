@@ -37,7 +37,7 @@
     },
     {
       "id": "temporal_index",
-      "name": "Temporal Index (WhisperX + Energy)",
+      "name": "Temporal Index (Speech, Signals, and Scoped Regional Motion)",
       "step_ref": "steps/step_1_04_temporal_index",
       "type": "step",
       "estimated_duration_seconds": 120
@@ -239,6 +239,13 @@
       "to": "temporal_index",
       "data_mapping": {
         "raw_footage_files": "raw_footage_files"
+      }
+    },
+    {
+      "from": "semantic_analysis",
+      "to": "temporal_index",
+      "data_mapping": {
+        "semantic_analysis_documents": "semantic_analysis_documents"
       }
     },
     {
@@ -1108,7 +1115,8 @@
       "from": "catalog",
       "to": "temporal_index",
       "data_mapping": {
-        "audio_catalog": "audio_catalog"
+        "audio_catalog": "audio_catalog",
+        "clip_catalog": "clip_catalog"
       }
     },
     {

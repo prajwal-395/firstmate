@@ -246,6 +246,15 @@ STEP_IMPLEMENTATION_DEPS = {
         # no hearing machinery - pinned by
         # test_the_document_half_reaches_no_hearing_machinery.)
         "library/tools/transcript_fit.py",
+        # Selected-span Farneback regions and their fused framing evidence.
+        "library/tools/regional_motion.py",
+        # Gemma action documents are joined to catalog clip ids before the
+        # selected spans are measured. This import is new to temporal_index.
+        "library/tools/semantic_index.py",
+        # semantic_index imports the vision adapter, whose segment coverage
+        # summary is part of the same semantic-document read path.
+        "library/tools/vision_schema_adapter.py",
+        "library/tools/segment_coverage.py",
     ),
     "step_1_05_prosody_analysis": (
         # The executed measurement.
