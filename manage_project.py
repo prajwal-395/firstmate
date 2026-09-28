@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+from library.tools.resolve_lock import under_lease
 
 # Add repo root to path
 REPO_ROOT = Path(__file__).resolve().parent
@@ -1083,6 +1084,7 @@ def cmd_organize(args):
         print("\nNothing was changed. Pass --apply to perform this.")
 
 
+@under_lease("organize Resolve media pool")
 def cmd_resolve_organize(args):
     """File a Resolve project's media pool the way its evidence says.
 
@@ -1261,6 +1263,7 @@ def cmd_resolve_organize(args):
     print(render_unplaced(result["unplaced"]))
 
 
+@under_lease("prune Resolve media pool")
 def cmd_resolve_prune(args):
     """Remove the pool items no timeline plays, and delete their files.
 
@@ -1361,6 +1364,7 @@ def _delete_from_journal(project, project_folder: str, journal_path: str):
               f"already gone between the plan and the deletion.")
 
 
+@under_lease("mark Resolve master timeline")
 def cmd_resolve_mark_master(args):
     """Mark the master with where each reel was taken from.
 
@@ -3520,4 +3524,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

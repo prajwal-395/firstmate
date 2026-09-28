@@ -48,7 +48,8 @@ def _connect():
     os.environ["RESOLVE_SCRIPT_LIB"] = RESOLVE_LIB
     import DaVinciResolveScript as dvr
 
-    resolve = dvr.scriptapp("Resolve")
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    resolve = scriptapp_preserving_locale(dvr, "Resolve")
     if not resolve:
         raise ConnectionError(
             "Cannot connect to DaVinci Resolve. Is it running with a "

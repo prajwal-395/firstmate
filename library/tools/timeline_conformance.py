@@ -379,6 +379,7 @@ def verify_timeline(timeline, plan=None) -> dict:
     }
 
 
+@under_lease("verify timeline conformance CLI", exclusive=False)
 def main(argv=None) -> int:
     """CLI: point the verifier at a timeline by name. Prints the
     structured report as JSON on stdout; logs on stderr."""

@@ -1108,6 +1108,44 @@ def test_run_unsafe_writes_under_exclusive_lease(patched, capsys):
         (20, "Blue", "note", "new words", 1, "")]
 
 
+def test_cli_dispatch_connects_only_after_taking_exclusive_lease(monkeypatch):
+    """The first scriptapp handshake is inside the write lease.
+
+    A command-level lease taken after `_connect()` leaves the Connect
+    handshake exposed to a concurrent Resolve operation. The CLI dispatch
+    must hold the exclusive lease before its handler can connect.
+    """
+    events = []
+    active = []
+
+    @contextlib.contextmanager
+    def tracked_lease(*, exclusive):
+        events.append(("lease_enter", exclusive))
+        active.append(exclusive)
+        try:
+            yield None
+        finally:
+            active.pop()
+            events.append(("lease_exit", exclusive))
+
+    def connect():
+        assert active and active[-1] is True
+        events.append(("connect", None))
+
+    monkeypatch.setattr(resolve_axi, "_lease", tracked_lease)
+    monkeypatch.setattr(resolve_axi, "_connect", connect)
+
+    def handler(_args):
+        resolve_axi._connect()
+        return 0
+
+    assert resolve_axi._dispatch(
+        handler, _ns(unsafe=True, apply=False)) == 0
+    assert events[0] == ("lease_enter", True)
+    assert events[1] == ("connect", None)
+    assert events[-1] == ("lease_exit", True)
+
+
 def test_run_after_report_survives_a_mid_run_project_switch(
         patched, monkeypatch, capsys):
     """A script that switches projects (setup/teardown scripts

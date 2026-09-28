@@ -5073,6 +5073,7 @@ def read_visual_answers(project_folder: str, reel_number: int) -> dict:
     return found
 
 
+@under_lease("read master timeline for reel asks", exclusive=False)
 def write_reel_asks_for_project(project_folder: str, transcript: dict,
                                 only=None, name_suffix: str = "") -> dict:
     """Write every approved reel's three visual asks, without building.
@@ -9885,6 +9886,7 @@ def discard_staged_reels(project, project_folder: str,
     _organise_after_refusal(project, project_folder, master_timeline_name)
 
 
+@under_lease("discard refused staging")
 def discard_staged_record(project_folder: str, resolve_project_name: str,
                           staging_names,
                           master_timeline_name: str | None = None) -> None:
@@ -9907,9 +9909,8 @@ def discard_staged_record(project_folder: str, resolve_project_name: str,
     covers this call.
     """
     project = _connect_resolve_project(resolve_project_name)
-    with resolve_lease("discard refused staging", exclusive=True):
-        discard_staged_reels(project, project_folder, staging_names,
-                             master_timeline_name)
+    discard_staged_reels(project, project_folder, staging_names,
+                         master_timeline_name)
 
 
 def _verify_payload(row: dict | None, *, passed: bool,

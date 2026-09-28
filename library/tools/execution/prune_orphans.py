@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools.resolve_lock import under_lease
 
 from library.tools.orphan_removal import (
     DELETE,
@@ -200,6 +201,8 @@ def timeline_digests(db_path: str) -> dict[str, str]:
     return digests
 
 
+@under_lease("read Resolve database path for orphan pruning",
+             exclusive=False)
 def project_database_path(project, project_folder: str) -> str:
     """Where the open project's `Project.db` is.
 
@@ -273,6 +276,7 @@ def _disk_database_root(db_name: str) -> str:
         f"lists {listed!r}. Nothing was removed.")
 
 
+@under_lease("save Resolve project before orphan pruning")
 def save_project() -> bool:
     """Flush the open project to its `Project.db`.
 
@@ -517,4 +521,3 @@ def manifest_path_for(project_folder: str, when: str | None = None) -> str:
     return journal_naming.unique_path(
         os.path.join(project_folder, "pipeline_output", "review"),
         JOURNAL_PREFIX, when, suffix="_manifest.md")
-

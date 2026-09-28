@@ -77,6 +77,8 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from library.tools.resolve_lock import under_lease
+
 # The caption readability floor, shared with the manifest's own P6 check
 # so a reel and a master are never held to different floors.  F7 applies
 # it with NO exemption - see `check_short_captions` for why the
@@ -6428,6 +6430,7 @@ def declared_variants(project_folder) -> set:
     return declared_variant_timelines(str(project_folder))
 
 
+@under_lease("verify reel conformance", exclusive=False)
 def run_verification(
     project_name: str,
     master_name: str,
@@ -7413,4 +7416,3 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

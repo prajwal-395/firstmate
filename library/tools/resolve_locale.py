@@ -29,19 +29,12 @@ category nothing touched could hand fusionscript a decimal comma on a
 machine whose locale uses one, which would corrupt every number crossing
 the boundary.  Restore what was broken and nothing else.
 
-WHO GOES THROUGH THE WRAPPER, AND WHO STILL DOES NOT.  This ledger is
-here rather than in AGENTS.md 9, which keeps the rule and points at it.
-Two call sites use the wrapper: `marker_feedback` and step 6.01. Seven
-still call `scriptapp` directly and are UNMIGRATED:
-
-    resolve_relinker                 execution/resolve_render
-    timeline_serializer              execution/apply_fusion_comps
-    probe_resolve_capabilities       resolve_project_sync
-    qa/timeline_sync_qa
-
-Each is a place the encoding can still be reset underneath the process.
-Delete a name from this list only when that module actually moves onto
-the wrapper - a name no longer here is a claim that it did.
+WHO GOES THROUGH THE WRAPPER. This ledger is here rather than in
+AGENTS.md 9, which keeps the rule and points at it. Every in-repository
+Resolve scripting handshake goes through this wrapper. It also refuses
+to connect unless the caller already holds `resolve_lease`, so the
+bounded wait happens before Resolve sees a second client. The AST gate
+in `tests/test_resolve_guard_wiring.py` pins the single raw call site.
 """
 
 from __future__ import annotations
@@ -52,10 +45,16 @@ import locale
 def scriptapp_preserving_locale(dvr, name: str = "Resolve"):
     """`dvr.scriptapp(name)`, with `LC_CTYPE` put back afterwards.
 
-    Every route into Resolve should come through here.  The return value
-    is `scriptapp`'s own - None when Resolve is not running - and is not
-    interpreted.
+    Every route into Resolve should come through here with the instance
+    lease already held. The return value is `scriptapp`'s own - None
+    when Resolve is not running - and is not interpreted.
     """
+    from library.tools.resolve_lock import held
+
+    if not held():
+        raise RuntimeError(
+            "refusing Resolve scriptapp handshake outside the instance "
+            "lease; take resolve_lease before connecting")
     try:
         before = locale.setlocale(locale.LC_CTYPE)
     except locale.Error:  # pragma: no cover - a locale we cannot read back

@@ -159,6 +159,8 @@ import re
 import sys
 from pathlib import Path
 
+from library.tools.resolve_lock import under_lease
+
 CAPTAIN_EDITS_KEY = "captain_edits"
 """The state key, and the file name: `<project>/external/captain_edits.json`."""
 
@@ -1896,6 +1898,7 @@ def main(argv=None) -> int:
     return 0
 
 
+@under_lease("capture a Resolve transform", exclusive=False)
 def _capture_transform(args) -> tuple:
     """Read the captain's hand move out of live Resolve and record it.
 

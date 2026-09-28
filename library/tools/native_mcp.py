@@ -27,6 +27,8 @@ import subprocess
 import threading
 import zipfile
 
+from library.tools.resolve_lock import under_lease
+
 #: The native server, as shipped inside the Resolve app.
 BUNDLE_PATH = ("/Applications/DaVinci Resolve/DaVinci Resolve.app/"
                "Contents/Resources/DaVinciResolve.mcpb")
@@ -79,6 +81,7 @@ def wrapper_path() -> str:
     return entry
 
 
+@under_lease("call the native Resolve MCP server")
 def call(tool: str, args: dict | None = None, timeout: int = 90) -> str:
     """Call one native MCP tool, return its first text block.
 

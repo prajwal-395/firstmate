@@ -11,12 +11,19 @@ Usage:
 import os
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+
+from library.tools.resolve_lock import under_lease
 
 # Add parent for connect_resolve
 sys.path.insert(0, os.path.dirname(__file__))
 
 
-def render_frame_to_png(resolve, project, frame_num, output_dir="/tmp/resolve_screenshots",
+@under_lease("render a frame from the Resolve timeline")
+def render_frame_to_png(resolve, project, frame_num,
+                        output_dir="/tmp/resolve_screenshots",
                         width=1080, height=1920, name_prefix="frame"):
     """Render a single frame from the current timeline to a PNG.
 
@@ -89,9 +96,9 @@ if __name__ == "__main__":
     frame = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     out_dir = sys.argv[2] if len(sys.argv) > 2 else "/tmp/resolve_screenshots"
 
-    resolve, project, timeline = connect()
-    path = render_frame_to_png(resolve, project, frame, out_dir)
-    if path:
-        print(f"Saved: {path}")
-    else:
-        print("Render failed")
+    with connect() as (resolve, project, timeline):
+        path = render_frame_to_png(resolve, project, frame, out_dir)
+        if path:
+            print(f"Saved: {path}")
+        else:
+            print("Render failed")

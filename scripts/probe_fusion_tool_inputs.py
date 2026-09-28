@@ -25,6 +25,10 @@ import json
 import os
 import sys
 
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 TOOLS = [
     "Background", "Blur", "BrightnessContrast", "Crop", "Defocus",
     "DirectionalBlur", "EllipseMask", "FilmGrain", "LensDistort",
@@ -36,10 +40,15 @@ TABLE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "..", "library", "tools", "fusion", "tool_inputs.json")
 
 
+from library.tools.resolve_lock import under_lease
+
+
+@under_lease("probe Fusion tool inputs")
 def main() -> int:
+    import DaVinciResolveScript as dvr
     from library.tools.resolve_locale import scriptapp_preserving_locale
 
-    resolve = scriptapp_preserving_locale("Resolve")
+    resolve = scriptapp_preserving_locale(dvr, "Resolve")
     if resolve is None:
         print("Resolve is not running, or scripting is not enabled.")
         return 1
@@ -77,5 +86,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     raise SystemExit(main())

@@ -772,6 +772,36 @@ def _describe(ledger: dict) -> str:
     return "\n".join(lines)
 
 
+@under_lease("stamp timeline decisions")
+def _stamp_live(args, ledger: dict) -> int:
+    from library.tools.marker_feedback import ResolveUnavailable, connect_resolve
+
+    try:
+        resolve = connect_resolve()
+    except ResolveUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    project = resolve.GetProjectManager().GetCurrentProject()
+    timeline = None
+    if args.timeline:
+        for i in range(project.GetTimelineCount(), 0, -1):
+            candidate = project.GetTimelineByIndex(i)
+            if candidate and candidate.GetName() == args.timeline:
+                timeline = candidate
+                break
+        if timeline is None:
+            print(f"No timeline named {args.timeline!r} in this project.",
+                  file=sys.stderr)
+            return 2
+    else:
+        timeline = project.GetCurrentTimeline()
+    if timeline is None:
+        print("No timeline is open.", file=sys.stderr)
+        return 2
+    print(stamp_timeline(timeline, ledger).summary())
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 -m library.tools.timeline_decisions",
@@ -800,37 +830,13 @@ def main(argv=None) -> int:
         print(f"\nwritten to {path}")
         return 0
 
-    from library.tools.marker_feedback import ResolveUnavailable, connect_resolve
     ledger = read_ledger(args.project)
     if not ledger:
         print("This project has no decision ledger. Build one first:\n"
               "  python3 -m library.tools.timeline_decisions ledger "
               f"--project {args.project}", file=sys.stderr)
         return 2
-    try:
-        resolve = connect_resolve()
-    except ResolveUnavailable as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    project = resolve.GetProjectManager().GetCurrentProject()
-    timeline = None
-    if args.timeline:
-        for i in range(project.GetTimelineCount(), 0, -1):
-            candidate = project.GetTimelineByIndex(i)
-            if candidate and candidate.GetName() == args.timeline:
-                timeline = candidate
-                break
-        if timeline is None:
-            print(f"No timeline named {args.timeline!r} in this project.",
-                  file=sys.stderr)
-            return 2
-    else:
-        timeline = project.GetCurrentTimeline()
-    if timeline is None:
-        print("No timeline is open.", file=sys.stderr)
-        return 2
-    print(stamp_timeline(timeline, ledger).summary())
-    return 0
+    return _stamp_live(args, ledger)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI

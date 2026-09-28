@@ -22,6 +22,7 @@ if str(_PILOT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PILOT_ROOT))
 
 from library.tools.overlay_carriage import apply_clip_attributes  # noqa: E402
+from library.tools.resolve_lock import under_lease  # noqa: E402
 
 
 class DestinationMismatchError(RuntimeError):
@@ -44,11 +45,13 @@ def _get_resolve():
         os.environ.setdefault("RESOLVE_SCRIPT_API", "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting")
         os.environ.setdefault("RESOLVE_SCRIPT_LIB", "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so")
         import DaVinciResolveScript as dvr
-        return dvr.scriptapp("Resolve")
+        from library.tools.resolve_locale import scriptapp_preserving_locale
+        return scriptapp_preserving_locale(dvr, "Resolve")
     except Exception:
         return None
 
 
+@under_lease("scan offline Resolve clips", exclusive=False)
 def scan_offline_clips(resolve=None):
     """Scan the media pool for offline clips.
 
@@ -127,6 +130,7 @@ def build_path_mappings(project_slug: str = "") -> list[tuple[str, str]]:
     return mappings
 
 
+@under_lease("relink Resolve media pool")
 def relink_project(project_slug: str = "", dry_run: bool = False,
                    expected_project: str = "") -> dict:
     """Relink offline clips in the current Resolve project.

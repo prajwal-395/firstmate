@@ -77,6 +77,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from library.tools import build_sweep, journal_naming
+from library.tools.resolve_lock import under_lease
 from library.tools import caption_asset_gc as gc
 from library.tools.ren_refusal import RenRefusal
 from library.tools.project_layout import (
@@ -621,6 +622,7 @@ def _drop_empty_dirs(project_folder: str) -> None:
 # ── Inside Ren: after a sign-off ──────────────────────────────────────
 
 
+@under_lease("read Resolve database path for retention", exclusive=False)
 def database_paths(project_folder: str) -> list:
     """This project's `Project.db`, off the running Resolve. READ-ONLY.
 

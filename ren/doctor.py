@@ -85,12 +85,14 @@ out = {"module": False, "connected": False, "product": "", "version": ""}
 try:
     import DaVinciResolveScript as dvr
     out["module"] = True
+    from library.tools.resolve_lock import resolve_lease
     from library.tools.resolve_locale import scriptapp_preserving_locale
-    resolve = scriptapp_preserving_locale(dvr)
-    if resolve is not None:
-        out["connected"] = True
-        out["product"] = resolve.GetProductName() or ""
-        out["version"] = resolve.GetVersionString() or ""
+    with resolve_lease("ren doctor Resolve probe", exclusive=False):
+        resolve = scriptapp_preserving_locale(dvr)
+        if resolve is not None:
+            out["connected"] = True
+            out["product"] = resolve.GetProductName() or ""
+            out["version"] = resolve.GetVersionString() or ""
 except Exception as exc:
     out["error"] = f"{type(exc).__name__}: {exc}"
 print(json.dumps(out))

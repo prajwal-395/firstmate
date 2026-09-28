@@ -78,6 +78,7 @@ def plan_from_dict(raw: Any):
             f"verify_timeline REFUSED the track plan: {exc}.") from exc
 
 
+@under_lease("open named timeline handle for verification", exclusive=False)
 def open_timeline(project_name: str, timeline_name: str):
     """The live timeline handle, addressed by exact names.
 

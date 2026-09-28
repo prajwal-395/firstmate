@@ -864,8 +864,13 @@ def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
         def GetProjectManager(self):
             return manager
 
+    def connect_under_lease():
+        assert lease_active
+        events.append("connect")
+        return Resolve()
+
     monkeypatch.setattr(marker_feedback, "connect_resolve",
-                        lambda: Resolve())
+                        connect_under_lease)
     scratch = f"{eval_harness.SCRATCH_PREFIX}T1"
 
     saved = eval_harness.resolve_bracket_start(scratch)
@@ -873,6 +878,8 @@ def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
                      "timeline": "captain timeline", "saved": True}
     assert events.index("save:captain project") < events.index(
         f"create:{scratch}")
+    assert events.index(f"lease:open eval scratch {scratch}") < events.index(
+        "connect")
 
     restored = eval_harness.resolve_bracket_end(scratch, saved)
     assert restored == {"project_restored": True,
@@ -882,6 +889,8 @@ def test_eval_bracket_switch_and_timeline_restore_use_resolve_guards(
     assert captain.current_timeline is timeline
     assert "fence:restore eval timeline captain timeline" in events
     assert f"delete:{scratch}" in events
+    assert events.index(f"lease:restore after eval scratch {scratch}") < \
+        max(i for i, event in enumerate(events) if event == "connect")
 
 
 def test_eval_bracket_start_failure_restores_captain_and_removes_scratch(

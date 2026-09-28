@@ -103,7 +103,10 @@ Render after each step to find the failing node.
 ## Key Scripts
 
 ### Connect to Resolve
-See `scripts/connect_resolve.py` for the reusable connection boilerplate.
+See `scripts/connect_resolve.py` for the reusable connection context. Keep
+all Resolve API calls inside `with connect(...)` so the instance lease stays
+held for the whole operation; use `exclusive=False` only for reads that do
+not move the current project or timeline.
 
 ### Render Frame to PNG
 See `scripts/render_frame.py` for the visual verification workflow.
@@ -149,4 +152,3 @@ call_mcp_tool(
 - `references/api_patterns.md` — Resolve API patterns with MCP equivalents
 - `references/visual_verify.md` — Render frame to PNG pipeline
 - `references/step_data_flow.md` — What each pipeline step reads/writes/feeds
-

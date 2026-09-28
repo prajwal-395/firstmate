@@ -63,6 +63,8 @@ from pathlib import Path
 from generate_remotion_props import generate_subtitle_props_per_block
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from library.tools.resolve_lock import under_lease
+
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.remotion_batch import (
     PersistentRenderer,
@@ -2050,6 +2052,7 @@ def _script_modules_dir() -> str:
     return os.path.join(api, "Modules")
 
 
+@under_lease("check project for caption swap", exclusive=False)
 def _resolve_live_project(project_folder: str):
     """The open Resolve project, refused unless it is this project's own.
 

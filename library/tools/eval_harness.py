@@ -670,10 +670,13 @@ def resolve_bracket_start(scratch: str) -> dict:
     from library.tools.marker_feedback import connect_resolve
     from library.tools.resolve_lock import resolve_lease
 
-    resolve = connect_resolve()
     start_error = None
     state = None
     with resolve_lease(f"open eval scratch {scratch}"):
+        # The scripting handshake can block in Resolve itself.  Establish
+        # the lease first so that contention waits here with a holder and a
+        # finite timeout instead of opening another scripting client mid-job.
+        resolve = connect_resolve()
         manager = resolve.GetProjectManager()
         current = manager.GetCurrentProject()
         if not current:
@@ -740,8 +743,8 @@ def resolve_bracket_end(scratch: str, state: dict) -> dict:
     from library.tools.marker_feedback import connect_resolve
     from library.tools.resolve_lock import cursor_fence, resolve_lease
 
-    resolve = connect_resolve()
     with resolve_lease(f"restore after eval scratch {scratch}"):
+        resolve = connect_resolve()
         manager = resolve.GetProjectManager()
         current = manager.GetCurrentProject()
         if current and current.GetName() == scratch:

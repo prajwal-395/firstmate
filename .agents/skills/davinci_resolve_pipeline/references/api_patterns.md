@@ -6,7 +6,9 @@
 # Use the skill's connect script:
 import sys; sys.path.insert(0, ".agents/skills/davinci_resolve_pipeline/scripts")
 from connect_resolve import connect
-resolve, project, timeline = connect()
+with connect(exclusive=False) as (resolve, project, timeline):
+    # Keep all Resolve API calls inside this block.
+    ...
 ```
 
 Or use the MCP server tool: `resolve_control(action="get_status")`

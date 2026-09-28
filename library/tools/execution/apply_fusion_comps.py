@@ -366,7 +366,8 @@ def legacy_vfx_effects(vfx_entries, v1_clips, v1_items, orig_to_item,
 def apply_fusion_comps(manifest, project_folder,
                        expected_project=None, expected_timeline=None,
                        step_id="render"):
-    resolve = dvr.scriptapp("Resolve")
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    resolve = scriptapp_preserving_locale(dvr, "Resolve")
     if not resolve:
         print("ERROR: Could not connect to Resolve.", file=sys.stderr)
         return False

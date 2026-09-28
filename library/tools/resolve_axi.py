@@ -288,6 +288,15 @@ class Parser(argparse.ArgumentParser):
 
 
 def _connect():
+    # The scripting handshake itself can block behind an in-flight Resolve
+    # operation.  Callers must acquire the bounded instance lease before
+    # opening a client connection, not after it.
+    from library.tools.resolve_lock import held
+    if not held():
+        raise AxiError(
+            "Resolve connection attempted before taking the instance "
+            "lease - route this command through resolve-axi main()",
+            f"{TOOL} --help")
     from library.tools.marker_feedback import connect_resolve
     try:
         return connect_resolve()
@@ -300,6 +309,33 @@ def _connect():
 def _lease(exclusive: bool):
     from library.tools.resolve_lock import resolve_lease
     return resolve_lease(f"resolve-axi ({TOOL})", exclusive=exclusive)
+
+
+# These verbs use the native MCP or local files only. Every other CLI
+# command reaches the Resolve scripting API and must hold the instance
+# before the command body can call `_connect()`.
+_LOCAL_COMMANDS = frozenset({
+    "cmd_api_search", "cmd_api_stubs", "cmd_api_docs",
+    "cmd_api_whats_new", "cmd_luts_list", "cmd_luts_update",
+    "cmd_luts_delete", "cmd_luts_generate", "cmd_setup_hooks",
+    "cmd_update",
+})
+
+
+def _dispatch(func, args) -> int:
+    """Run one CLI command inside its Resolve lease, before connection.
+
+    Command bodies keep their narrower leases around operations. The outer
+    hold closes the earlier connection-handshake gap; `resolve_lease` is
+    reentrant for same-mode nesting, and write flags select the same mode
+    as the operation's existing inner hold.
+    """
+    if getattr(func, "__name__", "") in _LOCAL_COMMANDS:
+        return func(args)
+    exclusive = bool(getattr(args, "unsafe", False)
+                     or getattr(args, "apply", False))
+    with _lease(exclusive=exclusive):
+        return func(args)
 
 
 def _project(resolve, project_name: str):
@@ -6457,16 +6493,23 @@ def main(argv=None) -> int:
         return 0
     parser = build_parser()
     if not argv:
-        return cmd_home(argparse.Namespace())
-    args = parser.parse_args(_normalize(argv))
-    func = getattr(args, "func", None)
+        args = argparse.Namespace()
+        func = cmd_home
+    else:
+        args = parser.parse_args(_normalize(argv))
+        func = getattr(args, "func", None)
     if func is None:
         parser.print_help(sys.stdout)
         return 2
+    from library.tools.resolve_lock import ResolveBusy
     try:
-        return func(args)
+        return _dispatch(func, args)
     except AxiError as exc:
         return fail(str(exc), exc.fix)
+    except ResolveBusy as exc:
+        return fail(str(exc),
+                    "wait for the named Resolve holder to finish, "
+                    "then re-run this command")
 
 
 if __name__ == "__main__":

@@ -764,6 +764,7 @@ def snapshot_to_dict(snapshot: TimelineSnapshot) -> dict:
 
 # ── CLI ──────────────────────────────────────────────────────────────
 
+@under_lease("read a named live Resolve timeline", exclusive=False)
 def connect(project_name: str = "", timeline_name: str = ""):
     """`(snapshot, project, timeline)` for the live Resolve session.
 
@@ -773,9 +774,8 @@ def connect(project_name: str = "", timeline_name: str = ""):
     write to the captain's session.
     """
     # Through `marker_feedback.connect_resolve`, which owns the module
-    # path and already goes through `resolve_locale` (AGENTS.md 9 lists
-    # it as one of the two migrated call sites). Duplicating the setup
-    # here would add a ninth unmigrated one.
+    # path and goes through the guarded `resolve_locale` boundary.
+    # Duplicating the setup here would create another scriptapp route.
     from library.tools.marker_feedback import ResolveUnavailable, connect_resolve
 
     try:

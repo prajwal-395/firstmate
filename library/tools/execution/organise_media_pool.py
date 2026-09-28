@@ -98,6 +98,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools.resolve_lock import under_lease
 
 from library.tools.resolve_organization import (
     Artefact,
@@ -749,6 +750,8 @@ def check_project(project, project_folder: str,
                           master_timeline_name)["findings"]
 
 
+@under_lease("read Resolve project for media pool organization",
+             exclusive=False)
 def open_project(project_folder: str):
     """The Resolve project this project directory DECLARES, and its master.
 

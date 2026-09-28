@@ -13,6 +13,13 @@ Two defects named here:
 from ren import doctor
 
 
+def test_resolve_probe_takes_lease_before_connecting():
+    lease = doctor._RESOLVE_PROBE.index("with resolve_lease(")
+    connect = doctor._RESOLVE_PROBE.index(
+        "scriptapp_preserving_locale(dvr)")
+    assert lease < connect
+
+
 def _all_else_passes(monkeypatch):
     passing = doctor.Check("stub", True, "stubbed")
     for name in ("macos_check", "python_checks", "ffmpeg_check", "node_checks",

@@ -237,6 +237,7 @@ def connect_resolve():
     return resolve
 
 
+@under_lease("read current Resolve timeline", exclusive=False)
 def current_timeline(resolve=None):
     """The timeline Resolve has open, plus its project.  Raises if none."""
     resolve = resolve or connect_resolve()
@@ -521,6 +522,7 @@ def _timeline_label(timeline) -> str:
     return repr(name) if name else "(unnamed timeline)"
 
 
+@under_lease("read timeline marker notes", exclusive=False)
 def read_notes(timeline, project_folder=None) -> list:
     """Every typed note on `timeline`, in timeline order.
 
@@ -1258,6 +1260,7 @@ def _pull_all(project_folder, project) -> int:
     return 0
 
 
+@under_lease("marker feedback CLI", exclusive=False)
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 -m library.tools.marker_feedback",

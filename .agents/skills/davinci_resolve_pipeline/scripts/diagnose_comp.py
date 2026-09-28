@@ -10,13 +10,18 @@ Usage:
     from diagnose_comp import diagnose_clip_comp
     info = diagnose_clip_comp(timeline, clip_index=0)
 """
-import sys
 import os
-import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+
+from library.tools.resolve_lock import under_lease
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 
+@under_lease("inspect Fusion comp on Resolve timeline", exclusive=False)
 def diagnose_clip_comp(timeline, clip_index=0, track_index=1):
     """Dump Fusion composition info for a clip.
 
@@ -66,8 +71,10 @@ def diagnose_clip_comp(timeline, clip_index=0, track_index=1):
                     val = inp[0] if isinstance(inp, (list, tuple)) else inp.GetValue()
                     if val is not None:
                         tool_info["inputs"][inp_name] = str(val)
-                except Exception:
-                    pass
+                except (AttributeError, IndexError, KeyError, RuntimeError,
+                        TypeError, ValueError) as exc:
+                    tool_info["inputs"][inp_name] = (
+                        f"<unreadable: {type(exc).__name__}: {exc}>")
 
             info["nodes"][tool_name] = tool_info
 
@@ -89,8 +96,8 @@ if __name__ == "__main__":
     clip_idx = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     track_idx = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 
-    resolve, project, timeline = connect()
-    if timeline:
-        diagnose_clip_comp(timeline, clip_idx, track_idx)
-    else:
-        print("No timeline open")
+    with connect(exclusive=False) as (resolve, project, timeline):
+        if timeline:
+            diagnose_clip_comp(timeline, clip_idx, track_idx)
+        else:
+            print("No timeline open")

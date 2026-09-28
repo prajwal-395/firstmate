@@ -73,6 +73,8 @@ stays an explicit act.
 
 from __future__ import annotations
 
+from library.tools.resolve_lock import under_lease
+
 import datetime
 import hashlib
 import json
@@ -646,6 +648,7 @@ def write_build_record(project_folder: str, timeline_name: str,
     return written
 
 
+@under_lease("record promoted reel versions", exclusive=False)
 def record_reel_promotion(project_folder: str, resolve_project_name: str,
                           final_names, message: str | None = None) -> dict:
     """Snapshot each promoted reel timeline and commit the per-build record.

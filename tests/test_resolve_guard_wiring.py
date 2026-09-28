@@ -183,6 +183,129 @@ def test_every_module_that_connects_to_resolve_is_accounted_for():
         + ", ".join(sorted(unaccounted)))
 
 
+def test_every_scriptapp_call_uses_the_guarded_connection_boundary():
+    direct = []
+    python_files = [
+        path
+        for root in (REPO_ROOT, LIBRARY, REPO_ROOT / "ren",
+                     REPO_ROOT / "scripts", REPO_ROOT / ".agents")
+        for path in root.rglob("*.py")
+        if "__pycache__" not in str(path)
+        and "tests" not in path.relative_to(REPO_ROOT).parts
+        and (root != REPO_ROOT or path.parent == REPO_ROOT)
+    ]
+    for path in python_files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - invalid owned source
+            continue
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "scriptapp"
+                    and path.name != "resolve_locale.py"):
+                direct.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+    assert not direct, (
+        "all Resolve scriptapp handshakes must pass through the leased, "
+        "locale-preserving boundary: " + ", ".join(direct))
+
+
+def test_resolve_axi_connecting_commands_enter_the_cli_lease_first():
+    path = LIBRARY / "tools" / "resolve_axi.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    command_handlers = {
+        node.name for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name.startswith("cmd_")
+        and any(isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Name)
+                and call.func.id == "_connect"
+                for call in ast.walk(node))
+    }
+    local = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name)
+                        and target.id == "_LOCAL_COMMANDS"
+                        for target in node.targets)):
+            local_expr = (node.value.args[0]
+                          if isinstance(node.value, ast.Call)
+                          else node.value)
+            local = ast.literal_eval(local_expr)
+            break
+    assert command_handlers
+    assert not command_handlers & local, (
+        f"Resolve-connecting handlers were marked local: "
+        f"{sorted(command_handlers & local)}")
+    main = next(node for node in tree.body
+                if isinstance(node, ast.FunctionDef) and node.name == "main")
+    assert any(isinstance(call, ast.Call)
+               and isinstance(call.func, ast.Name)
+               and call.func.id == "_dispatch"
+               for call in ast.walk(main)), (
+        "resolve-axi main must dispatch Resolve commands inside their "
+        "lease before calling a handler")
+
+
+def test_non_routed_live_resolve_entry_points_take_the_lease():
+    from library.tools import reel_build, timeline_ingest
+    from library.tools import native_mcp
+    from library.tools.execution import resolve_render
+    import manage_project
+
+    leased = {
+        "timeline_ingest.connect": timeline_ingest.connect,
+        "reel_build.write_reel_asks_for_project":
+            reel_build.write_reel_asks_for_project,
+        "reel_build.discard_staged_record": reel_build.discard_staged_record,
+        "resolve_render.render_timeline": resolve_render.render_timeline,
+        "manage_project.cmd_resolve_organize":
+            manage_project.cmd_resolve_organize,
+        "manage_project.cmd_resolve_prune": manage_project.cmd_resolve_prune,
+        "manage_project.cmd_resolve_mark_master":
+            manage_project.cmd_resolve_mark_master,
+        "native_mcp.call": native_mcp.call,
+    }
+    missing = [name for name, function in leased.items()
+               if getattr(function, "__resolve_lease__", None) is None]
+    assert not missing, (
+        "these Resolve entry points reach scriptapp or project proxies "
+        "before taking the instance lease: " + ", ".join(missing))
+
+
+def test_pipeline_skill_resolve_helpers_keep_the_lease_for_the_operation():
+    skill_scripts = (REPO_ROOT / ".agents" / "skills"
+                     / "davinci_resolve_pipeline" / "scripts")
+    connection = ast.parse(
+        (skill_scripts / "connect_resolve.py").read_text(encoding="utf-8"))
+    connect = next(node for node in connection.body
+                   if isinstance(node, ast.FunctionDef)
+                   and node.name == "connect")
+    lease_lines = [node.lineno for node in ast.walk(connect)
+                   if isinstance(node, ast.With)
+                   and "resolve_lease" in ast.unparse(node.items[0].context_expr)]
+    handshake_lines = [node.lineno for node in ast.walk(connect)
+                       if isinstance(node, ast.Call)
+                       and isinstance(node.func, ast.Name)
+                       and node.func.id == "scriptapp_preserving_locale"]
+    yield_lines = [node.lineno for node in ast.walk(connect)
+                   if isinstance(node, ast.Yield)]
+    assert lease_lines and handshake_lines and yield_lines
+    assert lease_lines[0] < handshake_lines[0] < yield_lines[0]
+
+    for filename, function_name in (
+            ("render_frame.py", "render_frame_to_png"),
+            ("diagnose_comp.py", "diagnose_clip_comp")):
+        tree = ast.parse((skill_scripts / filename).read_text(encoding="utf-8"))
+        function = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef)
+                        and node.name == function_name)
+        assert any(isinstance(decorator, ast.Call)
+                   and isinstance(decorator.func, ast.Name)
+                   and decorator.func.id == "under_lease"
+                   for decorator in function.decorator_list), function_name
+
+
 def test_the_undispatched_list_names_only_real_connectors():
     """A stale exemption is a lie about what is still owed."""
     stale = [name for name in CONNECTS_BUT_IS_NOT_DISPATCHED

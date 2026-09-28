@@ -44,6 +44,8 @@ import json
 import traceback
 from datetime import datetime
 
+from library.tools.resolve_lock import under_lease
+
 # ─── Resolve API Setup ────────────────────────────────────────
 RESOLVE_SCRIPT_API = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
 sys.path.append(os.path.join(RESOLVE_SCRIPT_API, "Modules"))
@@ -98,6 +100,7 @@ class TestResults:
         
         return len(self.failed) == 0
 
+@under_lease("probe Resolve render capabilities")
 def main():
     results = TestResults()
 
@@ -110,7 +113,8 @@ def main():
 
     try:
         import DaVinciResolveScript as dvr
-        resolve = dvr.scriptapp("Resolve")
+        from library.tools.resolve_locale import scriptapp_preserving_locale
+        resolve = scriptapp_preserving_locale(dvr, "Resolve")
         assert resolve is not None, "resolve is None"
         results.ok("Import DaVinciResolveScript")
     except Exception as e:

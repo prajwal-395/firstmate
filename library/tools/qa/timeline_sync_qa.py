@@ -1,6 +1,8 @@
 import os
 import sys
 
+from library.tools.resolve_lock import under_lease
+
 def _connect_resolve():
     """Connect to running DaVinci Resolve instance."""
     api_path = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
@@ -13,7 +15,8 @@ def _connect_resolve():
 
     try:
         import DaVinciResolveScript as dvr
-        resolve = dvr.scriptapp("Resolve")
+        from library.tools.resolve_locale import scriptapp_preserving_locale
+        resolve = scriptapp_preserving_locale(dvr, "Resolve")
         if not resolve:
             return None
         return resolve
@@ -80,6 +83,7 @@ def _caption_track_index(track_plan) -> int:
     return 3
 
 
+@under_lease("run timeline sync QA")
 def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str, track_plan: dict = None) -> dict:
     if os.environ.get("SKIP_QA_CHECKS") == "1":
         print("Skipping timeline sync QA check (SKIP_QA_CHECKS=1)", file=sys.stderr)

@@ -1,6 +1,9 @@
 import os
 import sys
 
+from library.tools.resolve_lock import under_lease
+
+@under_lease("check Resolve connection", exclusive=False)
 def check_resolve_connection():
     """Check DaVinci Resolve connection health and API initialization.
     

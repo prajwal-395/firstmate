@@ -12,6 +12,8 @@ import sys
 import datetime
 from typing import Optional, Dict, Any, List
 
+from library.tools.resolve_lock import under_lease
+
 # ─── Resolve Connection ──────────────────────────────────────
 
 def _connect_resolve():
@@ -26,7 +28,8 @@ def _connect_resolve():
 
     try:
         import DaVinciResolveScript as dvr
-        resolve = dvr.scriptapp("Resolve")
+        from library.tools.resolve_locale import scriptapp_preserving_locale
+        resolve = scriptapp_preserving_locale(dvr, "Resolve")
         if not resolve:
             raise ConnectionError("Cannot connect to DaVinci Resolve. Is it running?")
         return resolve
@@ -62,6 +65,7 @@ def _clean_dict(d: dict) -> dict:
 
 # ─── Serializer ──────────────────────────────────────────────
 
+@under_lease("serialize timeline state", exclusive=False)
 def serialize_timeline_state(
     manifest_path: Optional[str] = None,
     pipeline_data_path: Optional[str] = None,

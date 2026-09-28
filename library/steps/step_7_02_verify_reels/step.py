@@ -23,6 +23,13 @@ refuses what it cannot do, and calls that.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from library.tools.resolve_lock import under_lease
+
 
 class ReelVerifyRefused(RuntimeError):
     """Verification cannot start, and this says which input is missing."""
@@ -420,6 +427,7 @@ class GateStillsRefused(RuntimeError):
     """The still run cannot start, and this says which input is missing."""
 
 
+@under_lease("check project for gate stills", exclusive=False)
 def _resolve_live_project(project_folder: str):
     """The open Resolve project, refused unless it is this project's own.
 

@@ -33,6 +33,7 @@ import os
 import sys
 from collections.abc import Sequence
 
+from library.tools.resolve_lock import under_lease
 from library.tools.safe_zone_policy import PROJECT_OVERLAY
 
 
@@ -164,6 +165,7 @@ def place_on_timeline(project, timeline, project_folder: str, overlay: str,
             "row_disabled": row_disabled}
 
 
+@under_lease("place safe-zone guides")
 def place_guides(project_folder: str, reel_numbers: Sequence[int] | None,
                  overlay: str | None) -> list[dict]:
     """Place ``overlay`` (or remove, with None) on the named reels' timelines.
