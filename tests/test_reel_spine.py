@@ -172,6 +172,46 @@ def test_the_reel_spine_does_not_interpolate_a_missing_word(monkeypatch):
     assert spine["undetermined_words"][0]["word"] == "unavailable"
 
 
+def test_the_reel_spine_rejoins_measured_subtokens_into_sentence_words():
+    row = segment(
+        "host", "CRM and ChatGPT and CRMs,", 10.0, 12.4,
+        "cam_a.mov", 100.0,
+        [word("C", 10.0, 10.1), word("Rm", 10.1, 10.4),
+         word("and", 10.4, 10.7), word("Chat", 10.7, 11.0),
+         word("GPT", 11.0, 12.0), word("and", 12.0, 12.1),
+         word("C", 12.1, 12.2), word("RMs,", 12.2, 12.4)],
+    )
+    spine = spine_for_reel(Moment(10.0, 12.4), {"segments": [row]},
+                           ranges=[(10.0, 12.4)])
+
+    block = spine["structure"][0]
+    assert block["content"]["text"] == "CRM and ChatGPT and CRMs,"
+    assert [entry["word"] for entry in block["word_timestamps"]] == [
+        "CRM", "and", "ChatGPT", "and", "CRMs,"]
+    assert block["word_timestamps"][0]["source_start"] == pytest.approx(100.0)
+    assert block["word_timestamps"][0]["source_end"] == pytest.approx(100.4)
+    assert block["word_timestamps"][2]["source_start"] == pytest.approx(100.7)
+    assert block["word_timestamps"][2]["source_end"] == pytest.approx(102.0)
+    assert block["word_timestamps"][4]["source_start"] == pytest.approx(102.1)
+    assert block["word_timestamps"][4]["source_end"] == pytest.approx(102.4)
+    assert spine["undetermined_words"] == []
+
+
+def test_a_word_at_the_half_open_range_end_is_not_captioned_from_float_noise():
+    row = segment(
+        "host", "alpha best", 10.0, 12.3,
+        "cam_a.mov", 100.0,
+        [word("alpha", 10.0, 11.0),
+         word("best", 12.0 - 1e-10, 12.3)],
+    )
+    spine = spine_for_reel(Moment(10.0, 12.3), {"segments": [row]},
+                           ranges=[(10.0, 12.0)])
+
+    assert spine["structure"][0]["content"]["text"] == "alpha"
+    assert [entry["word"] for entry in
+            spine["structure"][0]["word_timestamps"]] == ["alpha"]
+
+
 def test_segment_text_words_missing_from_the_alignment_are_named():
     row = segment(
         "host", "alpha missing omega", 10.0, 12.0,

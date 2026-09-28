@@ -62,6 +62,23 @@ def test_unreadable_block_tail_is_reported_by_card_id_without_losing_word():
     }]
 
 
+def test_a_word_starting_at_the_exclusive_source_end_is_not_drawn():
+    # Reel 03's excluded word begins 8 microseconds after its staged source
+    # end. Rounding its reel time to milliseconds still lands at the edge.
+    spine = _speech_spine([
+        {"word": "typing", "source_start": 0.7, "source_end": 0.9},
+        {"word": "best", "source_start": 1.0000083, "source_end": 1.2},
+    ], source_end=1.0, timeline_end=1.0)
+
+    entries = generate_subtitles(
+        spine, caption_case="as_written", brand_effect={}, brand_style={}
+    )["subtitle_plan"]["subtitle_entries"]
+
+    assert [word["word"] for entry in entries for word in entry["words"]] == [
+        "typing"]
+    assert all(entry["text"] == "typing" for entry in entries)
+
+
 def test_short_tail_can_merge_across_long_pause_to_keep_date_readable():
     spine = _speech_spine([
         {"word": "today", "source_start": 0.0, "source_end": 0.28},

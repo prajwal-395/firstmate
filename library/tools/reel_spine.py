@@ -108,9 +108,9 @@ fabricated block (AGENTS.md 10.5).
 from __future__ import annotations
 
 import re
-from difflib import SequenceMatcher
-from math import isfinite
 from collections.abc import Sequence
+from difflib import SequenceMatcher
+from math import isclose, isfinite
 
 from library.tools import region as region_mod
 from library.tools.spine_contract import validate_spine_blocks
@@ -225,13 +225,15 @@ def _token_key(value: str) -> str:
 
 
 def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
-    """Return one-to-one measured words and per-token timing failures.
+    """Return measured sentence words and per-token timing failures.
 
     The transcript's sentence text is the expected sequence. Its word
-    array is evidence only where a token maps one-to-one onto a measured
-    interval. Phrase entries like ``"AI sees"`` cannot time either word
-    individually, and a text token with no array entry remains visible in
-    the undetermined list instead of disappearing from a caption silently.
+    array is evidence where a token maps to a measured interval. A token
+    may span adjacent measured array words when their normalized text
+    concatenates exactly to the sentence token (``Chat`` + ``GPT`` ->
+    ``ChatGPT``). Phrase entries like ``"AI sees"`` still cannot time
+    either word individually, and a text token with no array entry remains
+    visible in the undetermined list instead of disappearing silently.
     Transcript-only array extras are ignored; they are not words in the
     segment text (for example a duplicated ``it`` or leading ``Um``).
     """
@@ -247,48 +249,135 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
     if not text_tokens:
         text_tokens = list(array_tokens)
 
-    matcher = SequenceMatcher(
-        a=[_token_key(token) for token in text_tokens],
-        b=[_token_key(token) for token in array_tokens],
-        autojunk=False,
-    )
-    matched: dict[int, int] = {}
+    text_keys = [_token_key(token) for token in text_tokens]
+
+    def measured_match(array_start: int, array_end: int) -> bool:
+        """Whether this alignment edge carries individual measured words."""
+        word_indexes = [owners[index][0]
+                        for index in range(array_start, array_end)]
+        if any(owners[index][1] != 1
+               for index in range(array_start, array_end)):
+            return False
+        if len(set(word_indexes)) != len(word_indexes):
+            return False
+        return all(_measured_word_span(raw_words[index])
+                   for index in word_indexes)
+
+    matcher = SequenceMatcher(a=text_keys,
+                              b=[_token_key(token) for token in array_tokens],
+                              autojunk=False)
+    matched: dict[int, tuple[int, int]] = {}
     for tag, text_start, text_end, array_start, array_end in matcher.get_opcodes():
         if tag == "equal":
-            matched.update((text_index, array_index)
+            matched.update((text_index, (array_index, array_index + 1))
                            for text_index, array_index in
                            zip(range(text_start, text_end),
                                range(array_start, array_end)))
+            continue
+        if tag != "replace":
+            continue
+
+        # Preserve every ordinary match SequenceMatcher already made. The
+        # only extension is an exact join inside its unmatched replacement
+        # spans, where transcript sentence text says one word but the timing
+        # array split it (``Chat`` + ``GPT`` -> ``ChatGPT``). This keeps
+        # unrelated repeated-word alignments byte-for-byte on the old path.
+        next_array = array_start
+        for text_index in range(text_start, text_end):
+            target = text_keys[text_index]
+            if not target:
+                continue
+            for start in range(next_array, array_end):
+                joined = ""
+                for end in range(start + 1,
+                                 min(array_end, start + len(target)) + 1):
+                    piece = _token_key(array_tokens[end - 1])
+                    if not piece:
+                        break
+                    joined += piece
+                    if not target.startswith(joined):
+                        break
+                    if joined != target or end - start < 2:
+                        continue
+                    if not measured_match(start, end):
+                        continue
+                    matched[text_index] = (start, end)
+                    next_array = end
+                    break
+                if text_index in matched:
+                    break
 
     undetermined: list[dict] = []
-    selected_word_indexes: set[int] = set()
+    aligned: list[tuple[int, dict]] = []
     for text_index, token in enumerate(text_tokens):
-        array_index = matched.get(text_index)
-        if array_index is None:
+        span = matched.get(text_index)
+        if span is None:
             undetermined.append({
                 "word": token,
                 "reason": "word_not_present_in_transcript_alignment",
             })
             continue
-        word_index, phrase_size = owners[array_index]
-        if phrase_size != 1:
+        array_start, array_end = span
+        word_indexes = [owners[index][0]
+                        for index in range(array_start, array_end)]
+        phrase_sizes = [owners[index][1]
+                        for index in range(array_start, array_end)]
+        if array_end - array_start == 1 and phrase_sizes[0] != 1:
             undetermined.append({
                 "word": token,
                 "reason": "phrase_token_has_no_individual_word_timing",
             })
             continue
-        raw_word = raw_words[word_index]
-        if not _measured_word_span(raw_word):
+
+        token_words = [raw_words[index] for index in word_indexes]
+        unusable = next((word for word in token_words
+                         if not _measured_word_span(word)), None)
+        if unusable is not None:
             undetermined.append({
                 "word": token,
-                "reason": raw_word.get("timing_reason")
+                "reason": unusable.get("timing_reason")
                 or "no_measured_word_interval",
             })
             continue
-        selected_word_indexes.add(word_index)
+        if len(token_words) == 1:
+            aligned.append((array_start, token_words[0]))
+            continue
 
-    return ([word for index, word in enumerate(raw_words)
-             if index in selected_word_indexes], undetermined)
+        # The transcript sentence supplies the canonical spelling while
+        # the measured pieces supply the interval. Keeping this as one word
+        # is what lets the caption grouper and the played-word verifier
+        # compare the same token.
+        combined = dict(token_words[0])
+        combined.update({
+            "word": token,
+            "start": min(float(word["start"]) for word in token_words),
+            "end": max(float(word["end"]) for word in token_words),
+        })
+        aligned.append((array_start, combined))
+
+    return [word for _, word in sorted(aligned, key=lambda item: item[0])], undetermined
+
+
+_WORD_EDGE_EPSILON_SECONDS = 1e-6
+"""Float-noise tolerance at transcript/range boundaries, well below a frame."""
+
+
+def _word_start_in_ranges(word_start: float,
+                          ranges: Sequence[tuple[float, float]]) -> bool:
+    """Whether a word starts in a played half-open range.
+
+    Transcript times and snapped reel edges are independently computed
+    floats. Treat a start within one microsecond of a range end as its
+    excluded edge; otherwise `238.70999999999998` can leak across an
+    intended `238.71` cut and become a caption word with no played audio
+    or highlight.
+    """
+    for range_start, range_end in ranges:
+        at_end = isclose(word_start, range_end, rel_tol=0.0,
+                         abs_tol=_WORD_EDGE_EPSILON_SECONDS)
+        if range_start <= word_start < range_end and not at_end:
+            return True
+    return False
 
 
 def _touches(segment_start: float, segment_end: float,
@@ -670,8 +759,8 @@ def spine_for_reel(moment, transcript: dict,
             # because a dropped row's own span is what the reel is
             # missing and a count cannot say where it is.
             inside = [w for w in (segment.get("words") or [])
-                      if _measured_word_span(w)
-                      and reel_time(float(w["start"]), ranges) is not None]
+                if _measured_word_span(w)
+                and _word_start_in_ranges(float(w["start"]), ranges)]
             if CAPTION_UNANCHORED_ROWS:
                 # The ROW straddles a cut; the part this reel plays may
                 # not. Ask the narrower question before dropping it.
@@ -709,7 +798,7 @@ def spine_for_reel(moment, transcript: dict,
         # which is the worst way to lose it.
         kept = [w for w in (segment.get("words") or [])
                 if _measured_word_span(w)
-                and reel_time(float(w["start"]), ranges) is not None]
+                and _word_start_in_ranges(float(w["start"]), ranges)]
         if not kept:
             # Its speech was CUT entirely - a dropped bad take takes its
             # words with it, which is correct and not a defect to report.

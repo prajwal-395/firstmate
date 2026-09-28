@@ -851,11 +851,14 @@ def _require_word_timestamps(block: dict) -> list:
 def _words_in_source_window(
     block: dict, words: list, src_in: float, src_out: float,
 ) -> list:
-    """Words falling inside a block's source window, or a loud failure."""
+    """Measured words overlapping the block's half-open source window."""
     in_range = [
         w for w in words
+        # Preserve the existing head tolerance: transcript and clip in
+        # points can differ by a few frames, and a word just before the
+        # declared source start may still be part of the spoken lead-in.
         if w["source_end"] > src_in - 0.05
-        and w["source_start"] < src_out + 0.05
+        and w["source_start"] < src_out
     ]
     if not in_range:
         raise ValueError(
@@ -1172,7 +1175,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             timeline_words = [
                 w for w in timeline_words
                 if w["end"] > block_start - 0.05
-                and w["start"] < block_end + 0.05
+                and w["start"] < block_end
             ]
             # Case, then reading, BEFORE grouping: the fit is measured
             # on what is drawn, so "SEO 2.0" groups at its own width
@@ -1294,7 +1297,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 timeline_words = [
                     w for w in timeline_words
                     if w["end"] > seg_tl_start - 0.05
-                    and w["start"] < seg_tl_end + 0.05
+                    and w["start"] < seg_tl_end
                 ]
                 # Case, then reading, BEFORE grouping - the same reason
                 # as the hook branch above: the fit is measured on what
