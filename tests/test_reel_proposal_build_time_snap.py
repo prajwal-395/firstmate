@@ -122,3 +122,49 @@ def test_repair_snaps_a_stored_cta_without_reselecting():
     assert repaired.approval is Approval.APPROVED
 
 
+def test_large_cta_end_cascade_is_reported_but_held():
+    """A 50ms overlap with the next speaker cannot add their whole
+    sentence to an approved CTA when the cascade exceeds the decision
+    threshold."""
+    from library.tools.reel_proposal import (
+        decision_lines, preview_snap, render_snap_preview,
+    )
+
+    tx = _tx(
+        _bound(speaker="Akshita", text="The link's bio.",
+               timeline_start=340.54, timeline_end=341.38,
+               resolve_item_id="uid-cta",
+               words=[{"word": "The", "start": 340.54, "end": 340.66},
+                      {"word": "link's", "start": 340.68, "end": 341.02},
+                      {"word": "bio.", "start": 341.05, "end": 341.38}]),
+        _bound(speaker="Craig", text="So what we're hearing",
+               timeline_start=341.98, timeline_end=349.54,
+               resolve_item_id="uid-next",
+               words=[{"word": "So", "start": 341.98, "end": 342.18},
+                      {"word": "what", "start": 342.20, "end": 342.48},
+                      {"word": "we're", "start": 342.50, "end": 342.78},
+                      {"word": "hearing", "start": 342.80, "end": 343.24}]),
+    )
+    moment = _moment(10.0, 18.0, cta=(328.608, 342.03))
+
+    repaired, moves = snap_moment_to_speech(moment, tx)
+
+    assert repaired.call_to_action.timeline_end == 342.03
+    assert len(moves) == 1
+    candidate = moves[0]
+    assert candidate["boundary"] == "cta_end"
+    assert (candidate["was"], candidate["now"]) == (342.03, 349.54)
+    assert candidate["held_for_decision"] is True
+    assert "approved edge stays in force" in candidate["why"]
+
+    report = preview_snap([moment], tx)
+    assert report["moved"] == 0
+    assert report["flagged"] == 1
+    reported = report["moments"][0]["moves"][0]
+    assert reported["held_for_decision"] is True
+    assert reported["needs_decision"] is True
+    assert "HELD FOR DECISION" in render_snap_preview(report)
+    lines = decision_lines(5, candidate, tx)
+    assert "candidate 342.030s -> 349.540s (+7.510s)" in lines[0]
+    assert "approved CTA end remains at 342.030s" in lines[1]
+

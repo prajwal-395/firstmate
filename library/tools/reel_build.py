@@ -5231,6 +5231,7 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
     """
     from library.tools import transcript_corrections as _tc
     from library.tools.reel_proposal import (
+        decision_lines,
         proposal_path as _proposal_path,
         read_proposal,
         snap_moment_to_speech,
@@ -5292,6 +5293,15 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
             tail_extend_authorizations=_tail_auths)
         repair_moves_by_number[int(moment.number)] = list(moves)
         for move in moves:
+            if move.get("held_for_decision"):
+                print(f"  Reel {moment.number:02d}: cta_end HELD FOR "
+                      f"DECISION at {move['was']:.3f}s; candidate "
+                      f"{move['now']:.3f}s ({move['now'] - move['was']:+.3f}s)",
+                      file=_sys.stderr)
+                for line in decision_lines(moment.number, move, transcript,
+                                           project_folder):
+                    print(line, file=_sys.stderr)
+                continue
             word = (f" through '{move['through']}'"
                     if move.get("through") else "")
             print(f"  Reel {moment.number:02d}: {move['boundary']} "
@@ -10572,6 +10582,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         repair_moves_by_number[int(moment.number)] = list(moves)
         for move in moves:
             attribution = move.get("attribution", "")
+            if move.get("held_for_decision"):
+                print(f"  Reel {moment.number:02d}: cta_end HELD FOR "
+                      f"DECISION at {move['was']:.3f}s; candidate "
+                      f"{move['now']:.3f}s ({move['now'] - move['was']:+.3f}s)",
+                      file=sys.stderr)
+                for line in decision_lines(moment.number, move, transcript,
+                                           project_folder):
+                    print(line, file=sys.stderr)
+                continue
             if attribution.startswith("tail-"):
                 tail_repairs.append((int(moment.number), move))
                 if move.get("reported"):

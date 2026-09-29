@@ -675,10 +675,11 @@ def _word_through(transcript: dict, when: float) -> Optional[str]:
 
 def _is_held_move(move: dict) -> bool:
     """A move that changes nothing and asks a human: a tail the pass
-    abstained on, or a fully judged tail reported rather than
-    applied. Both move nothing; both need a decision as loudly as a
-    cascade does."""
-    return bool(move.get("abstained", False) or move.get("reported", False))
+    abstained on, a fully judged tail reported rather than applied, or
+    a CTA-end snap held because it exceeds the decision threshold. Each
+    needs a decision as loudly as a cascade does."""
+    return bool(move.get("abstained", False) or move.get("reported", False)
+                or move.get("held_for_decision", False))
 
 
 def _tail_why(tail: dict) -> str:
@@ -747,6 +748,9 @@ def snap_moment_to_speech(moment: ReelMoment,
     a word and stall the rebuild at the F8 gate.  This applies the SAME
     `snap_to_speech` to whatever proposal is read, on the way through:
     the body window and, where one is declared, the closing CTA range.
+    A CTA-end cascade larger than `SNAP_DECISION_SECONDS` is reported
+    as a candidate and held at its approved edge. A large move needs a
+    decision before it can add a new sentence to the closer.
 
     Option (b) and deliberately not (a): it moves boundaries off word
     edges WITHOUT re-running selection, so WHICH moments the captain
@@ -868,18 +872,33 @@ def snap_moment_to_speech(moment: ReelMoment,
         cta_start, cta_end = snap_to_speech(float(cta.timeline_start),
                                             float(cta.timeline_end),
                                             transcript)
+        stored_cta_end = float(cta.timeline_end)
+        held_cta_end = abs(cta_end - stored_cta_end) > SNAP_DECISION_SECONDS
         if cta_start != float(cta.timeline_start):
             moves.append({"boundary": "cta_start",
                           "was": float(cta.timeline_start), "now": cta_start,
                           "through": _word_through(
                               transcript, float(cta.timeline_start))})
-        if cta_end != float(cta.timeline_end):
+        if held_cta_end:
+            moves.append({
+                "boundary": "cta_end",
+                "was": stored_cta_end,
+                "now": cta_end,
+                "through": _word_through(transcript, stored_cta_end),
+                "held_for_decision": True,
+                "why": (f"the CTA-end snap would extend by "
+                        f"{cta_end - stored_cta_end:.3f}s, over the "
+                        f"{SNAP_DECISION_SECONDS:.1f}s decision threshold; "
+                        "the approved edge stays in force"),
+            })
+            cta_end = stored_cta_end
+        elif cta_end != stored_cta_end:
             moves.append({"boundary": "cta_end",
-                          "was": float(cta.timeline_end), "now": cta_end,
+                          "was": stored_cta_end, "now": cta_end,
                           "through": _word_through(
-                              transcript, float(cta.timeline_end))})
+                              transcript, stored_cta_end)})
         if (cta_start, cta_end) != (float(cta.timeline_start),
-                                    float(cta.timeline_end)):
+                                    stored_cta_end):
             new_cta = replace(cta, timeline_start=cta_start,
                               timeline_end=cta_end)
     if not moves:
@@ -890,6 +909,9 @@ def snap_moment_to_speech(moment: ReelMoment,
 
 SNAP_DECISION_SECONDS = 2.0
 """A snap move bigger than this needs a decision before the build.
+
+For CTA ends, the candidate is reported and held at the approved edge;
+silently applying a cascade would add unapproved speech to a closer.
 
 `snap_to_speech` widens outward to whole segments in a fixed-point
 loop, and transcript segments overlap by ASR jitter - so a snap can
@@ -970,15 +992,18 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
                  tail_extend_authorizations=None) -> dict:
     """Run `snap_moment_to_speech` over moments and report the moves.
 
-    Read-only: nothing is repaired, rewritten or re-decided - the
-    build keeps doing exactly what it does today.  Returns
+    Read-only: nothing is written or re-decided. Small snaps are
+    reported as applied; a CTA-end cascade over the decision threshold
+    is reported as a held candidate and the build keeps the approved
+    edge.  Returns
     `{"threshold", "moments": [{"reel", "slug", "moves"}], "moved",
     "flagged"}` where each move carries `boundary`, `was`, `now`,
     `delta`, `through` (the word a stored boundary sat inside, as the
     build already reports), `pulled_in`/`dropped` word lists, and
     `needs_decision` - true when the boundary moves over `threshold`,
-    or when the stranded-tail pass abstains and holds the span for a
-    human. Tail moves also carry their `attribution` and WHY, so the
+    or when the stranded-tail pass abstains, the CTA-end snap is held,
+    or a tail is reported for a human. Tail moves also carry their
+    `attribution` and WHY, so the
     preview agrees with the build on what was decided, not just how
     far a boundary moves. `tail_extend_authorizations` is the same
     map the build hands the snap
@@ -1036,6 +1061,9 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
                 "pace_from": move.get("pace_from", ""),
                 "abstained": bool(move.get("abstained", False)),
                 "reported": bool(move.get("reported", False)),
+                "held_for_decision": bool(
+                    move.get("held_for_decision", False)),
+                "why": move.get("why", ""),
             })
         entries.append({"reel": int(moment.number),
                         "slug": moment.slug,
@@ -1074,6 +1102,17 @@ def decision_lines(number: int, move: dict, transcript: dict,
     so both callers read one spelling.
     """
     was, now = float(move["was"]), float(move["now"])
+    if move.get("held_for_decision"):
+        pulled = move.get("pulled_in") or _delta_words(
+            transcript or {}, move["boundary"], was, now)[0]
+        quote = (f"; pulls in {len(pulled)} word(s): "
+                 f"\"{_quote_words(pulled)}\"" if pulled else "")
+        return [
+            f"  Reel {number:02d}: cta_end NEEDS DECISION: candidate "
+            f"{was:.3f}s -> {now:.3f}s ({now - was:+.3f}s){quote}",
+            f"    held: the approved CTA end remains at {was:.3f}s until "
+            "the extension is explicitly approved",
+        ]
     if move.get("reported"):
         return [
             f"  Reel {number:02d}: {move['boundary']} NEEDS DECISION: "
@@ -1162,6 +1201,12 @@ def render_snap_preview(report: dict) -> str:
                 lines.append(
                     f"  Reel {entry['reel']:02d}: {move['boundary']} "
                     f"REPORTED at {was:.3f}s - "
+                    f"{move.get('why', '')}")
+            elif move.get("held_for_decision"):
+                lines.append(
+                    f"  Reel {entry['reel']:02d}: cta_end HELD FOR "
+                    f"DECISION: {was:.3f}s remains; candidate "
+                    f"{now:.3f}s ({now - was:+.3f}s) - "
                     f"{move.get('why', '')}")
             elif move.get("abstained"):
                 lines.append(

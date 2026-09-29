@@ -168,13 +168,14 @@ def _reel_13_pieces():
     return body, cta, tail, transcript
 
 
-def test_reel_13_failing_reads_incoherent_with_a_verified_home():
+def test_reel_13_explicitly_approved_tail_reads_incoherent():
     body, cta, tail, transcript = _reel_13_pieces()
-    # The stored closer end cuts the tail segment: the snap widens it
-    # outward (the measured mechanism), so the kept sequence carries
-    # the tail like the built reel did.
+    # This fixture explicitly approves a closer through Craig's whole
+    # sentence. The build's large-snap guard prevents that cascade from
+    # an edge before the sentence, but a thesis check still judges a
+    # plan that already includes the sentence.
     moment = _moment(13, (889.0, body["timeline_end"]),
-                     (320.0, cta["timeline_end"] + 0.9))
+                     (320.0, tail["timeline_end"]))
     sibling = _moment(5, (320.0, 340.0), slug="opener")
     siblings = [moment, sibling]
     context = _ctx(moment, transcript, siblings)
@@ -184,18 +185,15 @@ def test_reel_13_failing_reads_incoherent_with_a_verified_home():
         "point_quote": "it was an information problem",
         "last_follows": "does_not_follow",
         "closing_quote": "they search their business",
-        "closing_reason": "the last words open a different conversation "
-                          "about businesses not showing up",
-        "foreign_spans": [{"quote": R13_TAIL,
-                           "why": "this is another moment's opener playing "
-                                  "after this reel's closer"}],
-        "reason": "the reel makes its point and closes it, then plays "
-                  "another conversation's opening after the close",
+        "closing_reason": "the closer lands, but this extra sentence "
+                          "changes its ending to a different conversation",
+        "foreign_spans": [],
+        "reason": "the approved closer continues into a sentence that "
+                  "does not follow the information story",
     }
     read = _check(moment, transcript, siblings, answer)
     assert read["verdict"] == "incoherent"
-    assert read["decided_by"] == ["ending", "foreign"]
-    assert read["verified_foreign"][0]["reel"] == 5
+    assert read["decided_by"] == ["ending"]
 
 
 def test_reel_13_fixed_reads_coherent():
@@ -443,5 +441,3 @@ def test_gate_promotes_on_stale_missing_and_unjudged():
             ["Reel 04 - topic", "Reel 05 - elsewhere"]
         assert decision["refused"] == {}
         assert any("STALE" in line for line in decision["lines"])
-
-
