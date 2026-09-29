@@ -232,7 +232,7 @@ def test_segment_text_words_missing_from_the_alignment_are_named():
     }]
 
 
-def test_a_phrase_token_does_not_give_each_word_the_same_timing():
+def test_a_phrase_token_is_captioned_as_one_timed_phrase():
     row = segment(
         "host", "AI sees it", 10.0, 11.0,
         "cam_a.mov", 100.0,
@@ -241,11 +241,29 @@ def test_a_phrase_token_does_not_give_each_word_the_same_timing():
     spine = spine_for_reel(Moment(10.0, 11.0), {"segments": [row]},
                            ranges=[(10.0, 11.0)])
 
+    block = spine["structure"][0]
+    assert block["content"]["text"] == "AI sees it"
+    assert [entry["word"] for entry in block["word_timestamps"]] == [
+        "AI sees", "it"]
+    assert block["word_timestamps"][0]["source_start"] == pytest.approx(100.0)
+    assert block["word_timestamps"][0]["source_end"] == pytest.approx(100.6)
+    assert spine["undetermined_words"] == []
+
+
+def test_a_phrase_token_does_not_caption_a_nonmatching_sentence_phrase():
+    row = segment(
+        "host", "AI saw it", 10.0, 11.0,
+        "cam_a.mov", 100.0,
+        [word("AI sees", 10.0, 10.6), word("it", 10.6, 11.0)],
+    )
+    spine = spine_for_reel(Moment(10.0, 11.0), {"segments": [row]},
+                           ranges=[(10.0, 11.0)])
+
     assert spine["structure"][0]["content"]["text"] == "it"
     assert [entry["word"] for entry in spine["undetermined_words"]] == [
-        "AI", "sees"]
-    assert {entry["reason"] for entry in spine["undetermined_words"]} == {
-        "phrase_token_has_no_individual_word_timing"}
+        "AI", "saw"]
+    assert spine["undetermined_words"][0]["reason"] == (
+        "phrase_token_has_no_individual_word_timing")
 
 
 # ── What a reel cannot supply is SAID, not invented ─────────────────

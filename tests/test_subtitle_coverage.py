@@ -18,6 +18,7 @@ watching a highlight that can never sweep), not just the shape.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,6 +43,104 @@ def _w(word, start, end, card="card.mov", degenerate=False):
 
 def _card(name, start, end):
     return {"card": name, "reel_start": start, "reel_end": end}
+
+
+def test_reel05_phrase_timed_as_one_master_token_reaches_its_caption_and_f25():
+    """The rebuild's 54.93s card must retain the MFA phrase token.
+
+    Frozen from the master transcript row on LCATL0012: its sentence says
+    "AI sees" as two words, while MFA gives that phrase one measured
+    interval. The exact-match caption card starts at 54.4s and the phrase
+    plays at 54.928s on the failed Reel 05 staging timeline.
+    """
+    from library.steps.step_4_01_plan_subtitles.step import generate_subtitles
+    from library.tools.reel_spine import spine_for_reel
+
+    source_file = "/field-test/LCATL0012.MXF"
+    segment = {
+        "speaker": "Craig",
+        "text": ("So if you want to see how you're ranking, how AI sees "
+                 "you, go to our website, the link's in the bio."),
+        "timeline_start": 186.41,
+        "timeline_end": 192.33,
+        "source_start": 248.472,
+        "source_end": 254.392,
+        "source_file": source_file,
+        "resolve_item_id": "93f6b72c-d223-41f0-89ee-20703ff3d56e",
+        "words": [
+            {"word": "So", "start": 186.41, "end": 186.69},
+            {"word": "if", "start": 187.13, "end": 187.31},
+            {"word": "you", "start": 187.31, "end": 187.38},
+            {"word": "want", "start": 187.38, "end": 187.55},
+            {"word": "to", "start": 187.55, "end": 187.59},
+            {"word": "see", "start": 187.59, "end": 187.81},
+            {"word": "how", "start": 187.81, "end": 187.97},
+            {"word": "you're", "start": 187.97, "end": 188.18},
+            {"word": "ranking,", "start": 188.18, "end": 188.56},
+            {"word": "how", "start": 188.56, "end": 188.94},
+            {"word": "AI sees", "start": 189.02, "end": 189.94},
+            {"word": "you,", "start": 189.94, "end": 190.34},
+            {"word": "go", "start": 190.67, "end": 190.79},
+            {"word": "to", "start": 190.79, "end": 190.85},
+            {"word": "our", "start": 190.85, "end": 190.95},
+            {"word": "website,", "start": 190.95, "end": 191.47},
+            {"word": "the", "start": 191.6, "end": 191.71},
+            {"word": "link's", "start": 191.71, "end": 191.96},
+            {"word": "in", "start": 191.96, "end": 192.02},
+            {"word": "the", "start": 192.02, "end": 192.08},
+            {"word": "bio.", "start": 192.08, "end": 192.33},
+        ],
+    }
+    transcript = {"segments": [segment]}
+
+    # The body occupies 45.738s before the approved 179.83-192.391 CTA.
+    # This is the placement arithmetic from the failed staging card: the
+    # master row starts at reel 52.318s, putting "AI sees" at 54.928s.
+    body_end = 179.83
+    body_start = body_end - 45.738
+    cta = SimpleNamespace(timeline_start=179.83, timeline_end=192.391)
+    moment = SimpleNamespace(
+        timeline_start=body_start, timeline_end=body_end,
+        call_to_action=cta, number=5,
+    )
+    ranges = [(body_start, body_end), (179.83, 192.391)]
+    spine = spine_for_reel(moment, transcript, ranges=ranges)
+    plan = generate_subtitles(spine)
+    entries = plan["subtitle_plan"]["subtitle_entries"]
+    phrase_card = next(
+        entry for entry in entries
+        if any(word["word"].casefold() == "ai sees"
+               for word in entry["words"])
+    )
+
+    assert phrase_card["timeline_start"] <= 54.928
+    assert phrase_card["timeline_end"] >= 55.848
+    assert "ai sees" in phrase_card["text"].casefold()
+
+    played = sc.played_words_from_transcript(
+        transcript["segments"],
+        [{"source_file": source_file,
+          "source_start": 248.472,
+          "source_end": 254.392,
+          "reel_start": 52.318}],
+    )
+    assert next(word for word in played["words"]
+                if word["word"] == "AI sees")["reel_start"] == pytest.approx(
+                    54.928)
+    captioned = [
+        _w(word["word"], word["start"], word["end"], card=entry["id"])
+        for entry in entries for word in entry["words"]
+    ]
+    cards = [
+        _card(entry["id"], entry["timeline_start"], entry["timeline_end"])
+        for entry in entries
+    ]
+    findings = check_subtitle_word_coverage(
+        "Reel 05 - ai-cant-form-a-clear-picture-of-you (rebuild staging)",
+        {"played": played["words"], "captioned": captioned,
+         "cards": cards},
+    )
+    assert [finding for finding in findings if finding.severity == "error"] == []
 
 
 # ── normalisation ────────────────────────────────────────────────

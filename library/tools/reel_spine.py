@@ -231,9 +231,11 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
     array is evidence where a token maps to a measured interval. A token
     may span adjacent measured array words when their normalized text
     concatenates exactly to the sentence token (``Chat`` + ``GPT`` ->
-    ``ChatGPT``). Phrase entries like ``"AI sees"`` still cannot time
-    either word individually, and a text token with no array entry remains
-    visible in the undetermined list instead of disappearing silently.
+    ``ChatGPT``). Conversely, an array phrase like ``"AI sees"`` may align
+    to the exact adjacent sentence words, but stays one timed phrase token:
+    its interval never gets copied onto separate words. A text token with
+    no array entry remains visible in the undetermined list instead of
+    disappearing silently.
     Transcript-only array extras are ignored; they are not words in the
     segment text (for example a duplicated ``it`` or leading ``Um``).
     """
@@ -309,13 +311,54 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
 
     undetermined: list[dict] = []
     aligned: list[tuple[int, dict]] = []
-    for text_index, token in enumerate(text_tokens):
+    text_index = 0
+    while text_index < len(text_tokens):
+        token = text_tokens[text_index]
         span = matched.get(text_index)
+
+        # MFA can time multiple sentence words as one phrase token. Keep
+        # that measured interval as one caption token only when the entire
+        # phrase maps, in order, to all pieces owned by that one array word
+        # and the normalized text matches exactly. This is the inverse of
+        # the split-token join above; assigning the phrase interval to each
+        # sentence word individually would fabricate timings, while
+        # dropping it makes the played caption invisible to F25.
+        if span is not None and span[1] - span[0] == 1:
+            array_start = span[0]
+            word_index, phrase_size = owners[array_start]
+            text_end = text_index + phrase_size
+            array_phrase_end = array_start + phrase_size
+            phrase_aligns = (
+                phrase_size > 1
+                and text_end <= len(text_tokens)
+                and array_phrase_end <= len(array_tokens)
+                and all(
+                    matched.get(index) == (
+                        array_start + index - text_index,
+                        array_start + index - text_index + 1,
+                    )
+                    and owners[array_start + index - text_index]
+                    == (word_index, phrase_size)
+                    for index in range(text_index, text_end)
+                )
+                and _token_key(" ".join(text_tokens[text_index:text_end]))
+                == _token_key(raw_words[word_index]["word"])
+                and _measured_word_span(raw_words[word_index])
+            )
+            if phrase_aligns:
+                phrase = dict(raw_words[word_index])
+                phrase["word"] = " ".join(
+                    text_tokens[text_index:text_end])
+                aligned.append((array_start, phrase))
+                text_index = text_end
+                continue
+
         if span is None:
             undetermined.append({
                 "word": token,
                 "reason": "word_not_present_in_transcript_alignment",
             })
+            text_index += 1
             continue
         array_start, array_end = span
         word_indexes = [owners[index][0]
@@ -327,6 +370,7 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
                 "word": token,
                 "reason": "phrase_token_has_no_individual_word_timing",
             })
+            text_index += 1
             continue
 
         token_words = [raw_words[index] for index in word_indexes]
@@ -338,9 +382,11 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
                 "reason": unusable.get("timing_reason")
                 or "no_measured_word_interval",
             })
+            text_index += 1
             continue
         if len(token_words) == 1:
             aligned.append((array_start, token_words[0]))
+            text_index += 1
             continue
 
         # The transcript sentence supplies the canonical spelling while
@@ -354,6 +400,7 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
             "end": max(float(word["end"]) for word in token_words),
         })
         aligned.append((array_start, combined))
+        text_index += 1
 
     return [word for _, word in sorted(aligned, key=lambda item: item[0])], undetermined
 
