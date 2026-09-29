@@ -64,7 +64,8 @@ def _captured_props(monkeypatch, tmp_path):
     """
     captured = []
 
-    def fake_spine(moment, transcript, keep_ranges, lead_seconds=0.0):
+    def fake_spine(moment, transcript, keep_ranges, lead_seconds=0.0,
+                   project_folder=""):
         return {}
 
     class FakePlan:

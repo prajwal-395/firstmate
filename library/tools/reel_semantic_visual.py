@@ -261,7 +261,8 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
 
     reel_number = int(moment.number)
     try:
-        spine = spine_for_reel(moment, transcript, list(ranges))
+        spine = spine_for_reel(moment, transcript, list(ranges),
+                               project_folder=project_folder)
     except ReelSpineError as why:
         name = getattr(moment, "timeline_name", f"reel {reel_number}")
         print(f"  {name}: NO SEMANTIC REQUEST - {why}", file=sys.stderr)
@@ -403,7 +404,8 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
 
     spine = None
     try:
-        spine = spine_for_reel(moment, transcript, list(ranges))
+        spine = spine_for_reel(moment, transcript, list(ranges),
+                               project_folder=project_folder)
     except ReelSpineError as why:
         print(f"  {name}: NO SEMANTIC VISUALS - {why}", file=sys.stderr)
         return [], {"reel": name, "basis": EVERY_ENTRY_DROPPED,

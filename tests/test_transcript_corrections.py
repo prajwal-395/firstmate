@@ -125,6 +125,33 @@ def test_apply_preserves_possessives_and_punctuation():
     assert out == "do not hallucinate"
 
 
+def test_suppression_boundary_does_not_split_an_apostrophe_contraction():
+    from library.tools import transcript_corrections as tc
+
+    document = {"segments": [{
+        "speaker": "Craig",
+        "text": "I've I thought",
+        "words": [
+            {"word": "I've", "start": 1.0, "end": 1.4},
+            {"word": "I", "start": 1.5, "end": 1.6},
+            {"word": "thought", "start": 1.7, "end": 2.0},
+        ],
+    }]}
+    suppression = [{
+        "heard": "I",
+        "scope": {"speaker": "Craig", "surface": "I",
+                  "prev": "I've", "next": "thought"},
+    }]
+
+    report = tc.apply_suppressions(document, suppression)
+
+    segment = document["segments"][0]
+    assert segment["text"] == "I've thought"
+    assert segment["words"][0].get("display") is not False
+    assert segment["words"][1]["display"] is False
+    assert report["suppressed"] == 1
+
+
 def test_transcribe_carries_bias_arguments_unread(monkeypatch):
     """Decoder biasing left with the fallback's decoder on 2026-09-24,
     so `initial_prompt`/`hotwords` are carried but read by nothing -

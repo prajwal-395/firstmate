@@ -6071,7 +6071,8 @@ def _derive_planned_captions(
 
     try:
         spine = spine_for_reel(moment, transcript, list(keep_ranges),
-                               lead_seconds=lead_seconds)
+                               lead_seconds=lead_seconds,
+                               project_folder=project_folder)
     except Exception as no_spine:  # noqa: BLE001 - `ReelSpineError` names
         # the counts and is a VERIFICATION FINDING, not a crash: a reel
         # with no speech left on it is something the report must say.

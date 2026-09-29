@@ -424,6 +424,15 @@ def resolve_caption_overlaps(entries: list) -> dict:
     trimmed to the next card's start, removing exactly the overlap, so
     the walk never revisits a pair.
 
+    If an earlier card's measured word now falls inside the later card,
+    that word moves with its timing and text to the later card. A trim
+    must not leave a word whose highlight runs after its card ends. A
+    word sharing the same measured start as one already in the later
+    card stays with its original sentence: adjacent transcript rows can
+    stamp their boundary words onto the same onset with slightly
+    different end times, and moving one would reverse their measured
+    order.
+
     Returns what it did, so a run says so rather than doing it
     invisibly - `merged_backward` counts the sentence-final runts that
     joined the card before them.  A no-op on any plan whose cards
@@ -435,6 +444,7 @@ def resolve_caption_overlaps(entries: list) -> dict:
     trimmed = 0
     merged = 0
     merged_backward = 0
+    reassigned = 0
     doomed: set = set()
     index = 0
     while index < len(ordered) - 1:
@@ -446,6 +456,63 @@ def resolve_caption_overlaps(entries: list) -> dict:
         if overlap <= OVERLAP_EPSILON_SECONDS + 1e-9:
             continue
         earlier["timeline_end"] = round(later["timeline_start"], 3)
+        trimmed_duration = (earlier["timeline_end"]
+                            - earlier["timeline_start"])
+        will_merge = trimmed_duration < MIN_CAPTION_FLASH_SECONDS
+        previous = ordered[index - 2] if index >= 2 else None
+        merge_backward = (
+            will_merge
+            and previous is not None
+            and id(previous) not in doomed
+            and _ends_sentence_text(earlier.get("text", ""))
+            and previous.get("speaker") == earlier.get("speaker")
+            and (later["timeline_start"] - previous["timeline_start"]
+                 >= MIN_CAPTION_FLASH_SECONDS)
+        )
+        # A sentence-final runt may merge back into the preceding card.
+        # Move any word already fully inside the next card first, or the
+        # merged card would keep a highlight beyond its new end.
+        if ((not will_merge or merge_backward) and earlier.get("speaker")
+                and earlier.get("speaker") == later.get("speaker")):
+            earlier_words = list(earlier.get("words") or [])
+            moved = []
+            kept_words = []
+            later_words = list(later.get("words") or [])
+            for word in earlier_words:
+                start = float(word["start"])
+                end = float(word["end"])
+                shares_measured_start = any(
+                    abs(start - float(candidate["start"])) <= 1e-6
+                    for candidate in later_words
+                )
+                if (start >= later["timeline_start"]
+                        and end <= later["timeline_end"]
+                        and not shares_measured_start):
+                    moved.append(word)
+                else:
+                    kept_words.append(word)
+            if moved:
+                earlier["words"] = kept_words
+                later["words"] = sorted(
+                    list(later.get("words") or []) + moved,
+                    key=lambda word: (word["start"], word["end"]))
+
+                def refresh_entry(entry):
+                    words = sorted(entry.get("words") or [],
+                                   key=lambda word: (word["start"],
+                                                     word["end"]))
+                    entry["words"] = words
+                    entry["text"] = " ".join(
+                        str(word["word"]) for word in words).strip()
+                    entry["word_count"] = len(words)
+                    entry["emphasis_words"] = identify_emphasis_words(
+                        entry["text"])
+
+                refresh_entry(earlier)
+                refresh_entry(later)
+                reassigned += len(moved)
+                if not kept_words:
+                    doomed.add(id(earlier))
         if (earlier["timeline_end"] - earlier["timeline_start"]
                 >= MIN_CAPTION_FLASH_SECONDS):
             trimmed += 1
@@ -458,19 +525,13 @@ def resolve_caption_overlaps(entries: list) -> dict:
         # card's start removes exactly the overlap and opens no new
         # one behind it. Only where that trim leaves a readable card
         # and the voices match; otherwise the forward merge below.
-        previous = ordered[index - 2] if index >= 2 else None
-        if (
-            previous is not None
-            and id(previous) not in doomed
-            and _ends_sentence_text(earlier.get("text", ""))
-            and previous.get("speaker") == earlier.get("speaker")
-            and (later["timeline_start"] - previous["timeline_start"]
-                 >= MIN_CAPTION_FLASH_SECONDS)
-        ):
+        if merge_backward:
+            previous["words"] = sorted(
+                list(previous.get("words", []))
+                + list(earlier.get("words", [])),
+                key=lambda word: (word["start"], word["end"]))
             previous["text"] = (
                 f"{previous['text']} {earlier['text']}".strip())
-            previous["words"] = (list(previous.get("words", []))
-                                 + list(earlier.get("words", [])))
             previous["timeline_end"] = round(later["timeline_start"], 3)
             previous["word_count"] = len(previous["text"].split())
             previous["emphasis_words"] = identify_emphasis_words(
@@ -479,9 +540,11 @@ def resolve_caption_overlaps(entries: list) -> dict:
             merged += 1
             merged_backward += 1
             continue
+        later["words"] = sorted(
+            list(earlier.get("words", []))
+            + list(later.get("words", [])),
+            key=lambda word: (word["start"], word["end"]))
         later["text"] = f"{earlier['text']} {later['text']}".strip()
-        later["words"] = (list(earlier.get("words", []))
-                          + list(later.get("words", [])))
         later["word_count"] = len(later["text"].split())
         later["emphasis_words"] = identify_emphasis_words(later["text"])
         # A card covers the words it carries: the merged card opens
@@ -501,7 +564,8 @@ def resolve_caption_overlaps(entries: list) -> dict:
     if doomed:
         entries[:] = [entry for entry in entries if id(entry) not in doomed]
     return {"trimmed": trimmed, "merged": merged,
-            "merged_backward": merged_backward}
+            "merged_backward": merged_backward,
+            "reassigned": reassigned}
 
 
 def _clamp_stretched_words(words: list, min_display: float) -> list:
@@ -992,6 +1056,22 @@ def _words_in_source_window(
     return in_range
 
 
+def _remove_placement_dust(words: list[dict]) -> list[dict]:
+    """Do not draw a word span F25 cannot count as played speech.
+
+    F25 uses `MIN_SPAN_OVERLAP_SECONDS` when it intersects measured words
+    with placed audio. A word no wider than that floor is placement dust,
+    even when its entire transcript interval sits inside the placed span.
+    Apply the same floor after phrase corrections, which may combine
+    measured subtokens into one readable word.
+    """
+    from library.tools.subtitle_coverage import MIN_SPAN_OVERLAP_SECONDS
+
+    return [word for word in words
+            if float(word["end"]) - float(word["start"])
+            > MIN_SPAN_OVERLAP_SECONDS]
+
+
 def _reading_corrections(project_folder: str):
     """Recorded spellings the caption reading restores, or None.
 
@@ -1329,6 +1409,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             # drawn, for the same reason case and reading run first.
             timeline_words = _apply_transcript_corrections(
                 timeline_words, block_speaker, project_folder)
+            timeline_words = _remove_placement_dust(timeline_words)
             groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 max_words=max_words_per_card,
@@ -1435,6 +1516,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     timeline_words, corrections=reading_corrections)
                 timeline_words = _apply_transcript_corrections(
                     timeline_words, block_speaker, project_folder)
+                timeline_words = _remove_placement_dust(timeline_words)
                 groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 max_words=max_words_per_card,
@@ -1556,14 +1638,17 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     # `resolve_caption_overlaps` is that rule.  Said on the run, like
     # every other repair in this step.
     overlap_fix = resolve_caption_overlaps(subtitle_entries)
-    if overlap_fix["trimmed"] or overlap_fix["merged"]:
+    if (overlap_fix["trimmed"] or overlap_fix["merged"]
+            or overlap_fix.get("reassigned")):
         print(
             f"NOTE: resolved {overlap_fix['trimmed']} overlapping caption "
             f"card(s) by ending them at the next card's first word and "
             f"merged {overlap_fix['merged']} - "
             f"{overlap_fix.get('merged_backward', 0)} of them backward "
             f"into the sentence they close - two cards cannot cover "
-            f"the same seconds on one track",
+            f"the same seconds on one track; moved "
+            f"{overlap_fix.get('reassigned', 0)} timed word(s) onto "
+            f"the card that covers them",
             file=sys.stderr,
         )
 

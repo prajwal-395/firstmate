@@ -17,8 +17,9 @@ pairing tolerance, which is why the segment reads as "never placed".
 Verdict: the PLANNER was wrong, the placer faithful, the gate correct.
 `generate_subtitles` now resolves cross-card overlaps (the earlier card
 yields to the next card's first word, or joins it where the trim would
-flash), and F6/F14 are unchanged - they must keep refusing a plan that
-still carries this shape.
+flash). A measured word fully inside the later card moves with its timing
+and text, including before a sentence-final backward merge. F6/F14 are
+unchanged - they must keep refusing a plan that still carries this shape.
 """
 
 import sys
@@ -136,7 +137,8 @@ def test_a_trim_that_would_flash_merges_into_the_next_card():
          "word_count": 2, "spine_block_position": 4},
     ]
     fix = resolve_caption_overlaps(entries)
-    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0}, fix
+    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0,
+                   "reassigned": 0}, fix
     assert len(entries) == 1
     survivor = entries[0]
     assert survivor["id"] == "sub_4_001"
@@ -175,7 +177,8 @@ def test_same_speaker_merge_covers_its_first_word():
         "not at all.", [2.82, 2.97, 3.04], "i have seen", [2.98, 3.28, 3.42],
         2.82, 3.24, 2.98, 4.41, ("akshita", "akshita"))
     fix = resolve_caption_overlaps(entries)
-    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0}, fix
+    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0,
+                   "reassigned": 0}, fix
     assert len(entries) == 1
     survivor = entries[0]
     assert survivor["timeline_start"] == 2.82
@@ -192,7 +195,8 @@ def test_mixed_speaker_merge_keeps_the_later_start():
         "short tail", [14.0, 14.2], "google rewards", [14.2, 14.6],
         14.0, 14.4, 14.2, 16.0, ("akshita", "craig"))
     fix = resolve_caption_overlaps(entries)
-    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0}, fix
+    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0,
+                   "reassigned": 0}, fix
     assert entries[0]["timeline_start"] == 14.2
 
 
@@ -227,5 +231,3 @@ def test_gate_still_refuses_overlapping_plan_cards():
     findings = check_caption_overlaps("reel 15", cards, FPS)
     assert [f.finding_class for f in findings] == [FindingClass.F6]
     assert findings[0].detail["overlap_frames"] == 43, findings[0].detail
-
-

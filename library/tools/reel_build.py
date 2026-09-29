@@ -3605,6 +3605,10 @@ def _closer_seam_frame(moment, ranges: Sequence[Tuple[float, float]],
     return total
 
 
+REEL_EDGE_EPSILON_SECONDS = 1e-6
+"""Float-noise tolerance when a word starts at a keep-range head."""
+
+
 def reel_time(master_time: float,
               ranges: Sequence[Tuple[float, float]],
               at_end: bool = False,
@@ -3632,6 +3636,12 @@ def reel_time(master_time: float,
     that closes on a CTA those are the words the whole feature exists to
     deliver. Pass `at_end=True` to read `(start, end]` instead.
 
+    Transcript and range heads are computed through different float
+    paths. A word start within `REEL_EDGE_EPSILON_SECONDS` of a range
+    head maps to that head, while the same noise at a range end remains
+    excluded. The tolerance is below one frame and only resolves the
+    representation boundary.
+
     `lead_seconds` is what a HEAD full-frame card pushes the whole reel
     down by (`library/tools/full_frame_element.py`). It is added to the
     ANSWER and never to the membership test, because "is this master
@@ -3643,10 +3653,24 @@ def reel_time(master_time: float,
     """
     cursor = 0.0
     for range_start, range_end in ranges:
-        inside = (range_start < master_time <= range_end if at_end
-                  else range_start <= master_time < range_end)
+        at_range_start = (
+            not at_end
+            and math.isclose(float(master_time), float(range_start),
+                             rel_tol=0.0, abs_tol=REEL_EDGE_EPSILON_SECONDS)
+        )
+        at_range_end = (
+            not at_end
+            and math.isclose(float(master_time), float(range_end),
+                             rel_tol=0.0, abs_tol=REEL_EDGE_EPSILON_SECONDS)
+        )
+        inside = (
+            range_start < master_time <= range_end if at_end else
+            (range_start <= master_time < range_end and not at_range_end)
+            or (at_range_start and master_time < range_end)
+        )
         if inside:
-            return lead_seconds + cursor + (master_time - range_start)
+            mapped_time = (range_start if at_range_start else master_time)
+            return lead_seconds + cursor + (mapped_time - range_start)
         cursor += range_end - range_start
     return None
 
@@ -4486,7 +4510,8 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     from library.tools.reel_spine import ReelSpineError
     try:
         spine = spine_for_reel(moment, transcript, ranges,
-                               lead_seconds=lead_seconds)
+                               lead_seconds=lead_seconds,
+                               project_folder=project_folder)
     except ReelSpineError as why:
         print(f"  {name}: NO CAPTIONS - {why}",
               file=sys.stderr)

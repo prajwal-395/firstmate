@@ -632,7 +632,7 @@ def _drop_token_occurrences(text: str, heard: str,
     pattern = re.compile(
         rf"(?P<lead>(?:^|[^\w\u00c0-\u024f\u1e00-\u1eff'\u2019]))"
         rf"(?P<word>{re.escape(heard)})"
-        rf"(?![\w\u00c0-\u024f\u1e00-\u1eff])",
+        rf"(?![\w\u00c0-\u024f\u1e00-\u1eff'\u2019])",
         re.IGNORECASE)
     hits = list(pattern.finditer(text or ""))
     drop = {hits[o].span() for o in ordinals

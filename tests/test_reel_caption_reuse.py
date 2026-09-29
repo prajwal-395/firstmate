@@ -79,7 +79,8 @@ def reel_run(monkeypatch, tmp_path):
     seen = []
     entries_holder = {"entries": _entries()}
 
-    def fake_spine(moment, transcript, keep_ranges, lead_seconds=0.0):
+    def fake_spine(moment, transcript, keep_ranges, lead_seconds=0.0,
+                   project_folder=""):
         return {}
 
     class FakePlan:

@@ -110,7 +110,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from difflib import SequenceMatcher
-from math import isclose, isfinite
+from math import isfinite
 
 from library.tools import region as region_mod
 from library.tools.spine_contract import validate_spine_blocks
@@ -224,10 +224,13 @@ def _token_key(value: str) -> str:
                    if character.isalnum())
 
 
-def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
+def _segment_word_alignment(
+    segment: dict, spelling_corrections=None, display_suppressions=None,
+) -> tuple[list[dict], list[dict]]:
     """Return measured sentence words and per-token timing failures.
 
-    The transcript's sentence text is the expected sequence. Its word
+    The transcript's sentence text is the expected sequence, after the
+    project's recorded spelling corrections when one is available. Its word
     array is evidence where a token maps to a measured interval. A token
     may span adjacent measured array words when their normalized text
     concatenates exactly to the sentence token (``Chat`` + ``GPT`` ->
@@ -238,16 +241,33 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
     disappearing silently.
     Transcript-only array extras are ignored; they are not words in the
     segment text (for example a duplicated ``it`` or leading ``Um``).
-    A word marked ``display: False`` is also excluded from alignment:
-    transcript correction has already removed it from the sentence text,
-    so a repeated hidden token must not win the match and move the visible
-    token's timing later.
+    A word matched by an active display suppression is also excluded from
+    alignment: transcript correction has already removed it from the
+    sentence text, so a repeated hidden token must not win the match and
+    move the visible token's timing later. The exact legacy contraction
+    damage caused by the old apostrophe boundary is recovered below.
     """
-    text_tokens = str(segment.get("text") or "").split()
+    text = str(segment.get("text") or "")
     raw_words = list(segment.get("words") or [])
+    words = raw_words
+    correction_report = {"replacements": 0, "suppressed": 0}
+    if spelling_corrections or display_suppressions:
+        from library.tools import transcript_corrections
+        if spelling_corrections:
+            words, replaced = transcript_corrections.apply_spelling_to_words(
+                raw_words, spelling_corrections)
+            correction_report["replacements"] = sum(replaced.values())
+        if display_suppressions:
+            words, dropped = transcript_corrections.filter_words(
+                words, segment.get("speaker"), display_suppressions)
+            correction_report["suppressed"] = len(dropped)
+    if spelling_corrections:
+        from library.tools.transcript_corrections import apply_spelling
+        text, _replaced = apply_spelling(text, spelling_corrections)
+    text_tokens = text.split()
     array_tokens: list[str] = []
     owners: list[tuple[int, int]] = []
-    for word_index, word in enumerate(raw_words):
+    for word_index, word in enumerate(words):
         # Transcript correction removes suppressed words from `text` while
         # preserving their measured array entries for the audio and F25.
         # Matching against those hidden entries can make SequenceMatcher
@@ -273,7 +293,7 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
             return False
         if len(set(word_indexes)) != len(word_indexes):
             return False
-        return all(_measured_word_span(raw_words[index])
+        return all(_measured_word_span(words[index])
                    for index in word_indexes)
 
     matcher = SequenceMatcher(a=text_keys,
@@ -353,11 +373,11 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
                     for index in range(text_index, text_end)
                 )
                 and _token_key(" ".join(text_tokens[text_index:text_end]))
-                == _token_key(raw_words[word_index]["word"])
-                and _measured_word_span(raw_words[word_index])
+                == _token_key(words[word_index]["word"])
+                and _measured_word_span(words[word_index])
             )
             if phrase_aligns:
-                phrase = dict(raw_words[word_index])
+                phrase = dict(words[word_index])
                 phrase["word"] = " ".join(
                     text_tokens[text_index:text_end])
                 aligned.append((array_start, phrase))
@@ -384,7 +404,7 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
             text_index += 1
             continue
 
-        token_words = [raw_words[index] for index in word_indexes]
+        token_words = [words[index] for index in word_indexes]
         unusable = next((word for word in token_words
                          if not _measured_word_span(word)), None)
         if unusable is not None:
@@ -413,29 +433,46 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
         aligned.append((array_start, combined))
         text_index += 1
 
-    return [word for _, word in sorted(aligned, key=lambda item: item[0])], undetermined
+    aligned_words = [word for _, word in sorted(aligned,
+                                                key=lambda item: item[0])]
 
-
-_WORD_EDGE_EPSILON_SECONDS = 1e-6
-"""Float-noise tolerance at transcript/range boundaries, well below a frame."""
+    # A legacy suppression could remove the leading "I" from "I've" while
+    # hiding the following false-start "I", leaving cached text as
+    # "'ve I thought". The corrected timed array records "I've", the
+    # hidden duplicate, then "thought". Recover only that exact explained
+    # shape; other unmatched text remains undetermined.
+    text_keys = [_token_key(token) for token in text_tokens]
+    timed_keys = [_token_key(str(word.get("word") or "")) for word in words]
+    hidden_keys = {
+        _token_key(str(word.get("word") or ""))
+        for word in raw_words if word.get("display") is False
+    }
+    legacy_suppressed_contraction = (
+        bool(correction_report.get("suppressed"))
+        and len(text_keys) >= 3
+        and len(timed_keys) >= 2
+        and len(timed_keys[0]) - len(text_keys[0]) == 1
+        and timed_keys[0].endswith(text_keys[0])
+        and text_keys[1] in hidden_keys
+        and text_keys[2:] == timed_keys[1:]
+    )
+    if legacy_suppressed_contraction:
+        return ([dict(word) for word in words
+                 if _measured_word_span(word)], [])
+    return aligned_words, undetermined
 
 
 def _word_start_in_ranges(word_start: float,
                           ranges: Sequence[tuple[float, float]]) -> bool:
     """Whether a word starts in a played half-open range.
 
-    Transcript times and snapped reel edges are independently computed
-    floats. Treat a start within one microsecond of a range end as its
-    excluded edge; otherwise `238.70999999999998` can leak across an
-    intended `238.71` cut and become a caption word with no played audio
-    or highlight.
+    Use the same float-edge rule as `reel_time`: a word whose timestamp
+    differs from a keep-range head only by representation noise belongs
+    at that head, while a range end remains excluded.
     """
-    for range_start, range_end in ranges:
-        at_end = isclose(word_start, range_end, rel_tol=0.0,
-                         abs_tol=_WORD_EDGE_EPSILON_SECONDS)
-        if range_start <= word_start < range_end and not at_end:
-            return True
-    return False
+    from library.tools.reel_build import reel_time
+
+    return reel_time(word_start, ranges) is not None
 
 
 def _touches(segment_start: float, segment_end: float,
@@ -722,6 +759,7 @@ def _split_segments_at_removed_spans(segments: list,
 def spine_for_reel(moment, transcript: dict,
                    ranges: Sequence[tuple[float, float]] | None = None,
                    lead_seconds: float = 0.0,
+                   project_folder: str = "",
                    ) -> dict:
     """The spine for one reel, in the reel's own time.
 
@@ -762,12 +800,27 @@ def spine_for_reel(moment, transcript: dict,
             "the transcript carries no segments; a reel's spine is its "
             "own timeline audio, and there is none to read")
 
+    spelling_corrections = None
+    display_suppressions = None
+    if project_folder:
+        try:
+            from library.tools import transcript_corrections
+            spelling_corrections = (
+                transcript_corrections.spelling_corrections(project_folder)
+                or None)
+            display_suppressions = (
+                transcript_corrections.suppressions(project_folder) or None)
+        except Exception:  # noqa: BLE001 - a missing store reads as absent
+            spelling_corrections = None
+            display_suppressions = None
+
     undetermined_words = []
     for segment in segments:
         start, end = segment.get("timeline_start"), segment.get("timeline_end")
         if start is None or end is None or not _touches(start, end, ranges):
             continue
-        _, failures = _segment_word_alignment(segment)
+        _, failures = _segment_word_alignment(
+            segment, spelling_corrections, display_suppressions)
         for failure in failures:
             undetermined_words.append({
                 "word": failure["word"],
@@ -793,7 +846,8 @@ def spine_for_reel(moment, transcript: dict,
         sorted(segments, key=lambda s: s.get("timeline_start", 0.0)),
         ranges)
     for segment in segments:
-        aligned_words, _ = _segment_word_alignment(segment)
+        aligned_words, _ = _segment_word_alignment(
+            segment, spelling_corrections, display_suppressions)
         segment = dict(segment, words=aligned_words)
         master_start = segment.get("timeline_start")
         master_end = segment.get("timeline_end")
