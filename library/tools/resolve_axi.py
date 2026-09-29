@@ -112,6 +112,7 @@ import io
 import json
 import os
 import sys
+import time as _time
 from datetime import datetime, timezone
 
 VERSION = "0.7.0"
@@ -119,6 +120,12 @@ VERSION = "0.7.0"
 DESCRIPTION = "Read the live DaVinci Resolve session in token-cheap TOON rows"
 
 TOOL = "resolve-axi"
+
+# Resolve's render API returns from StartRendering while the job is still
+# running. `render start --apply` therefore keeps its exclusive instance
+# lease and polls until the completion read-back says rendering stopped.
+RENDER_POLL_SECONDS = 3.0
+RENDER_READ_ERROR_NOTICE_SECONDS = 30.0
 
 #: Marker-note text shown inline before the truncation hint fires.
 NOTE_PREVIEW_CHARS = 500
@@ -3894,6 +3901,37 @@ def _render_job_rows(project, ids=None) -> list:
     return rows
 
 
+def _wait_for_render_completion(project) -> bool:
+    """Keep the caller's exclusive lease until Resolve reads back idle.
+
+    A failed read is not evidence of completion. Retry it while retaining
+    the lease so another client cannot enter during an uncertain render.
+    Returns whether this command observed rendering in progress.
+    """
+    saw_rendering = False
+    last_notice = 0.0
+    while True:
+        try:
+            rendering = bool(project.IsRenderingInProgress())
+        # An unreadable state cannot be treated as completion.
+        except Exception as exc:  # noqa: BLE001
+            now = _time.monotonic()
+            if now - last_notice >= RENDER_READ_ERROR_NOTICE_SECONDS:
+                print("waiting: Resolve would not report render state "
+                      f"({exc}); keeping the instance lease",
+                      file=sys.stderr)
+                last_notice = now
+        else:
+            if not rendering:
+                return saw_rendering
+            if not saw_rendering:
+                print("waiting: render is in progress; keeping the "
+                      "instance lease until completion is read back",
+                      file=sys.stderr)
+            saw_rendering = True
+        _time.sleep(RENDER_POLL_SECONDS)
+
+
 def cmd_render_queue(args) -> int:
     """Queue the reel for render under a preset, verified by JobId.
 
@@ -3993,8 +4031,11 @@ def cmd_render_queue(args) -> int:
 
 
 def cmd_render_start(args) -> int:
-    """Start render jobs. Names them or passes `--all`; reports
-    whether pixels actually started moving."""
+    """Start render jobs and wait under the exclusive lease to completion.
+
+    Resolve starts rendering asynchronously, so returning after the first
+    progress read would let another leased client enter during the render.
+    """
     try:
         resolve = _connect()
     except AxiError as exc:
@@ -4032,26 +4073,28 @@ def cmd_render_start(args) -> int:
                   f"spends real machine time)",
                   help_block([f"{TOOL} renders"])])
             return 0
+        start_error = None
         try:
             started = bool(project.StartRendering(ids, False))
         except Exception as exc:
-            return fail(f"starting raised ({exc}) - verify by hand.",
-                        f"{TOOL} renders")
-        try:
-            rendering = bool(project.IsRenderingInProgress())
-        except Exception:
-            rendering = False
+            # Start may have taken effect before its call raised. Keep the
+            # lease until Resolve can establish that no render remains.
+            start_error = exc
+            started = False
+        saw_rendering = _wait_for_render_completion(project)
         after = _cursor_name(resolve)
-        if started and rendering:
-            verified = "yes (in progress on re-read)"
-        elif rendering:
-            verified = ("partially (already rendering - the call "
-                        "answered False)")
-        else:
+        if start_error is not None:
+            return fail(f"starting raised ({start_error}); Resolve now "
+                        "reports no render in progress.",
+                        f"{TOOL} renders")
+        if not started and not saw_rendering:
             return fail("start reported "
                         f"{started} and nothing is rendering.",
                         f"{TOOL} renders")
-        emit([kv_block("started", {
+        verified = ("yes (already rendering, then idle on completion "
+                    "read-back)" if not started else
+                    "yes (idle on completion read-back)")
+        emit([kv_block("completed", {
                   "jobs": len(wanted),
                   "cursor_before": before,
                   "cursor_after": after,
@@ -5928,8 +5971,8 @@ def build_parser() -> Parser:
                    help="queue under the Resolve lease with the cursor "
                         "asserted (default is a dry-run plan)")
     q.set_defaults(func=cmd_render_queue)
-    q = rsubs.add_parser("start", help="start queued jobs; --apply "
-                                        "spends machine time")
+    q = rsubs.add_parser("start", help="start queued jobs and wait for "
+                                        "completion; --apply spends machine time")
     q.add_argument("--project", default="",
                    help="expect this Resolve project open")
     q.add_argument("--job", default=[], action="append",
@@ -5937,8 +5980,8 @@ def build_parser() -> Parser:
     q.add_argument("--all", action="store_true",
                    help="start every queued job")
     q.add_argument("--apply", action="store_true",
-                   help="start under the Resolve lease (default is a "
-                        "dry-run plan)")
+                   help="start and wait under the exclusive Resolve lease "
+                        "(default is a dry-run plan)")
     q.set_defaults(func=cmd_render_start)
     q = rsubs.add_parser("stop", help="stop rendering; --apply stops")
     q.add_argument("--project", default="",

@@ -2065,14 +2065,26 @@ def test_render_start_refuses_an_empty_queue(edit_patched, capsys):
     assert "empty" in capsys.readouterr().out
 
 
-def test_render_start_apply_reports_progress(edit_patched, capsys):
+def test_render_start_apply_waits_for_completion(edit_patched, monkeypatch,
+                                               capsys):
     assert cmd_render_queue(_ns(
         project="", timeline="Reel 29 - salvage", preset="",
         apply=True)) == 0
     capsys.readouterr()
+    project = edit_patched["project"]
+    reads = iter([True, False])
+
+    def render_state():
+        project._rendering = next(reads)
+        return project._rendering
+
+    monkeypatch.setattr(project, "IsRenderingInProgress", render_state)
+    monkeypatch.setattr(resolve_axi, "RENDER_POLL_SECONDS", 0)
     assert cmd_render_start(_ns(project="", job=[], all=True,
                                  apply=True)) == 0
-    assert "in progress" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "completed:" in output
+    assert "idle on completion read-back" in output
 
 
 def test_render_stop_apply_verifies_stopped(edit_patched, capsys):
