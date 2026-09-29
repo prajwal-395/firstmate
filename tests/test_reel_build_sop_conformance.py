@@ -316,6 +316,65 @@ def test_an_unresolvable_program_stream_refuses_before_creating():
         "the refusal must fire before a timeline exists"
 
 
+def test_caption_import_failure_refuses_instead_of_dropping_the_card(
+        monkeypatch):
+    """A rendered caption with no pool item must stop the reel build.
+
+    Reel 17's staging build rendered the cards, but Resolve returned no
+    media-pool item for most of them. The caption loop logged the failed
+    import and continued, leaving those planned cards absent until F14
+    found them on the timeline. This drives the actual timeline builder
+    against the stub Resolve objects above and pins the refusal at the
+    import that failed.
+    """
+    import library.tools.reel_placed_assets as placed_assets
+
+    caption_path = "/m/new-caption.mov"
+    timeline, pool, project = _world(fail_paths=(caption_path,))
+    monkeypatch.setattr(placed_assets, "assert_placeable", lambda *_: None)
+
+    with pytest.raises(ReelBuildError, match="would not import.*new-caption"):
+        _build(
+            timeline, pool, project, _master_clips(),
+            captions=[{
+                "overlay_path": caption_path,
+                "timeline_start": 0.0,
+                "timeline_end": 1.0,
+                "source_in_frame": 0,
+                "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
+            }],
+            program_channels={"1": 1, "2": 1})
+
+
+def test_caption_placement_failure_refuses_instead_of_dropping_the_card(
+        monkeypatch):
+    import library.tools.overlay_placement as overlay_placement
+    import library.tools.reel_build as reel_build
+    import library.tools.reel_placed_assets as placed_assets
+
+    caption_path = "/m/caption.mov"
+    timeline, pool, project = _world()
+    monkeypatch.setattr(placed_assets, "assert_placeable", lambda *_: None)
+    monkeypatch.setattr(
+        reel_build, "import_pool_item",
+        lambda _pool, path, *_args, **_kwargs: FakePoolItem(path))
+    monkeypatch.setattr(
+        overlay_placement, "place_overlay_segment",
+        lambda *_args, **_kwargs: (False, "stub placement refusal"))
+
+    with pytest.raises(ReelBuildError, match="stub placement refusal"):
+        _build(
+            timeline, pool, project, _master_clips(),
+            captions=[{
+                "overlay_path": caption_path,
+                "timeline_start": 0.0,
+                "timeline_end": 1.0,
+                "source_in_frame": 0,
+                "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
+            }],
+            program_channels={"1": 1, "2": 1})
+
+
 # ── The three defects ──
 
 def test_two_angles_get_two_picture_rows_and_two_named_speech_rows():
@@ -530,25 +589,20 @@ def test_sparse_overlay_rows_pack_with_no_empty_row_left():
         "packing means no empty row is ever created, so none is deleted"
 
 
-def test_a_row_whose_placements_all_fail_is_deleted_not_kept():
-    """Defect 4 as the SOP writes it: when every caption fails to
-    import, the caption row leaves the timeline - deleted and on the
-    record, never kept blank."""
+def test_a_caption_row_with_a_failed_import_refuses_the_build():
+    """A planned caption is not converted into an empty row when its
+    media fails to import; the build refuses at the missing segment."""
     timeline, pool, project = _world(fail_paths=("/m/cap.mov",))
     # The caption file is not already pooled, so the failed import is
     # really exercised rather than short-circuited by the lookup.
     pool.root.clips = [c for c in pool.root.clips
                        if c.GetClipProperty("File Path") != "/m/cap.mov"]
     pool._items.pop("/m/cap.mov", None)
-    record = _build(timeline, pool, project, _master_clips(),
-                    captions=[_caption(2.0, 4.0)],
-                    semantic=[_semantic(0.0, 48)],
-                    program_channels={"1": 1, "2": 1})
-    assert timeline.GetTrackCount("video") == 3
-    assert timeline.GetTrackName("video", 3) == "Semantic", \
-        "deleting the empty middle row shifts the survivor down"
-    assert [t["name"] for t in record["deleted_empty_tracks"]] == [
-        "Subtitles"]
+    with pytest.raises(ReelBuildError, match="would not import rendered caption"):
+        _build(timeline, pool, project, _master_clips(),
+               captions=[_caption(2.0, 4.0)],
+               semantic=[_semantic(0.0, 48)],
+               program_channels={"1": 1, "2": 1})
 
 
 # ── The look keeps one picture row per speaker ──

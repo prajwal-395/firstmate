@@ -36,6 +36,7 @@ from library.tools.subtitle_segment_id import (
     segment_binding,
     segment_identifier,
     slug,
+    speaker_slug_from_segment_id,
     stable_prefix,
     timeline_scope,
 )
@@ -130,6 +131,19 @@ def test_the_name_carries_speaker_and_source_span_readably():
     assert "akshita" in name
     assert "clip-003" in name
     assert "131423-151693" in name
+
+
+def test_speaker_reader_handles_current_and_legacy_names():
+    current = segment_identifier(
+        _binding(source_clip_id="b191411a-d2bf-4549-a09b"), DIGEST_A)
+    legacy = ("sub_reel-17_akshita_body0_3135634-3141184_"
+              "f32a24c3.mov")
+
+    assert speaker_slug_from_segment_id(f"/rendered/{current}.mov") == \
+        "akshita"
+    assert speaker_slug_from_segment_id(legacy) == "akshita"
+    assert speaker_slug_from_segment_id("sub_nospeaker_clip_0-1000_abc") \
+        is None
 
 
 def test_a_digest_is_required_never_defaulted():

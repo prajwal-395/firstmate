@@ -3410,32 +3410,23 @@ def check_delivered_framing(reel_name: str,
 
 # ── F11: Subtitle styling ────────────────────────────────────────────
 
-# The segment naming convention puts the speaker in the filename:
-#   sub_<timeline>_<speaker>_<block>_<span>_<digest>.mov
-# This regex extracts the speaker slug from either the source_file
-# path or the clip name.
-_SPEAKER_FROM_SEGMENT = re.compile(
-    r"sub_[^_]+_([^_]+)_",
-)
-
-
 def _caption_speaker(item: TimelineItem) -> Optional[str]:
     """Extract the speaker slug from a caption card's source_file or name.
 
-    Returns the slug (lowercase), or None if it cannot be determined.
-    The segment naming convention is documented in
-    library/tools/subtitle_segment_id.py.
+    Returns the slug, or None if it cannot be determined. Current renders
+    put the speaker first in their provenance name; the shared naming
+    module also handles older timeline-first names.
     """
+    from library.tools.subtitle_segment_id import (
+        speaker_slug_from_segment_id,
+    )
+
     for field in (item.source_file, item.name):
         if not field:
             continue
-        # Try the filename component
-        basename = field.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        m = _SPEAKER_FROM_SEGMENT.match(basename)
-        if m:
-            slug = m.group(1)
-            if slug != "nospeaker":
-                return slug
+        speaker = speaker_slug_from_segment_id(field)
+        if speaker:
+            return speaker
     return None
 
 

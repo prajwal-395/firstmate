@@ -959,6 +959,24 @@ class TestF11SubtitleStyling:
         assert len(shared_findings) >= 1
         assert shared_findings[0].severity == "error"
 
+    def test_current_provenance_name_attributes_the_speaker_not_clip_id(self):
+        """Current caption names put speaker before the source clip id.
+
+        The old verifier skipped a timeline token and read the following
+        UUID as the speaker, so Reel 17's three placed Akshita cards were
+        attributed to source clip ``b191411a-...``.
+        """
+        from library.tools.reel_conformance_verifier import _caption_speaker
+
+        item = _item(
+            "video", 3, 0, int(FPS),
+            name=("sub_akshita_b191411a-d2bf-4549-a09b_"
+                  "3135634-3141184_f32a24c3.mov"),
+            source_file=("/overlays/sub_akshita_b191411a-d2bf-4549-a09b_"
+                         "3135634-3141184_f32a24c3.mov"),
+        )
+        assert _caption_speaker(item) == "akshita"
+
 
 # ── Plan quality: Length ─────────────────────────────────────────────
 
@@ -2140,5 +2158,3 @@ class TestRecordedPinsAreReadBeforeThePlanIsGraded:
         assert derive < body.index(reader), (
             f"run_verification derives project_folder AFTER it reads "
             f"{what}, so every CLI run grades without it")
-
-

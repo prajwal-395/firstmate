@@ -295,6 +295,39 @@ def is_segment_id(segment_id: Optional[object]) -> bool:
     return bool(_SUBTITLE_ID_RE.match(str(segment_id or "")))
 
 
+def speaker_slug_from_segment_id(segment_id: Optional[object]) -> Optional[str]:
+    """Read the speaker slug from a current or legacy rendered filename.
+
+    Current renders are ``sub_<speaker>_<clip>_<span>_<digest>``. Older
+    timeline-bound renders were ``sub_<timeline>_<speaker>_<block>_<span>_
+    <digest>``. The verifier must read the current provenance contract
+    first: skipping the first field now mistakes the source clip id for
+    the speaker, while treating every name as current breaks timelines
+    that still carry legacy renders.
+    """
+    text = str(segment_id or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if text.lower().endswith(".mov"):
+        text = text[:-4]
+
+    if is_segment_id(text):
+        speaker = text.split("_", 2)[1]
+        return None if speaker == "nospeaker" else speaker
+
+    # The timeline-first name has one extra component: timeline, speaker,
+    # block, source span and digest. Its speaker lives in component 2.
+    parts = text.split("_")
+    legacy = (
+        len(parts) == 6
+        and parts[0] == "sub"
+        and re.fullmatch(r"\d+-\d+|nospan", parts[4]) is not None
+        and re.fullmatch(r"[0-9a-f]+", parts[5]) is not None
+    )
+    if not legacy:
+        return None
+    speaker = parts[2]
+    return None if speaker == "nospeaker" else speaker
+
+
 def stable_prefix(segment_id: Optional[object]) -> str:
     """The part of a rendered subtitle id that survives a re-render.
 

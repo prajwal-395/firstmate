@@ -8218,9 +8218,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                                    segment["overlay_path"]))
             items = [found] if found is not None else []
         if not items:
-            print(f"Failed to import {segment.get('overlay_path') or frame_dir}",
-                  file=sys.stderr)
-            continue
+            failed_path = segment.get("overlay_path") or frame_dir
+            raise ReelBuildError(
+                f"{name}: Resolve would not import rendered caption "
+                f"{failed_path!r}; refusing to omit a planned caption "
+                f"segment")
 
         assert_current_timeline(project, timeline)
         # The record span is rounded PER EDGE - [round(start), round(end))
@@ -8272,8 +8274,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 project_folder=project_folder, reel_name=name,
                 draw_gain=draw_gain))
         if not placed:
-            print(f"Failed to place {segment.get('segment_id')}: {note}",
-                  file=sys.stderr)
+            raise ReelBuildError(
+                f"{name}: Resolve would not place caption segment "
+                f"{segment.get('segment_id')!r} at frame {record_start}: "
+                f"{note or 'placement returned no item'}")
         elif note:
             print(f"  caption {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
