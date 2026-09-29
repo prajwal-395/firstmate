@@ -442,7 +442,7 @@ def pending_promotions(project_folder: str, *, timeline_names=None,
 
 
 def report_pending(project_folder: str, *, timeline_names=None,
-                   project=None) -> str:
+                   project=None, owned_staging_names=None) -> str:
     """Pending promotions as a run-end warning, or "" when none.
 
     Loud about WHAT is pending and HOW LONG, because a staging that
@@ -460,6 +460,8 @@ def report_pending(project_folder: str, *, timeline_names=None,
                               project=project)
     if not rows:
         return ""
+    owned = (None if owned_staging_names is None else
+             {str(name) for name in owned_staging_names})
     pending = [row for row in rows if row["status"] == "pending"]
     stale = [row for row in rows if row["status"] != "pending"]
     lines = []
@@ -470,11 +472,15 @@ def report_pending(project_folder: str, *, timeline_names=None,
             f"carries yet:")
         for row in pending:
             awaiting = row["awaiting"]
+            ownership = (
+                " (another reel's staging; this build does not own it)"
+                if owned is not None and row["staging"] not in owned else "")
             waits = (f"-> {awaiting!r}" if awaiting
                      else "(no automatic promotion will take it - a human "
                           "promotes it explicitly or releases the hold)")
             lines.append(f"  {row['staging']!r} {waits} "
-                         f"(held {row['age']}, by {row['taken_by'] or '?'})")
+                         f"(held {row['age']}, by {row['taken_by'] or '?'})"
+                         f"{ownership}")
         lines.append("  Promote it, discard it, or release the hold "
                      "explicitly - a staging that sits is a fix the "
                      "captain cannot watch.")
@@ -484,10 +490,14 @@ def report_pending(project_folder: str, *, timeline_names=None,
             f"longer on the project - nothing to promote, nothing "
             f"awaiting a decision:")
         for row in stale:
+            ownership = (
+                " (another reel's staging; this build does not own it)"
+                if owned is not None and row["staging"] not in owned else "")
             lines.append(
                 f"  {row['staging']!r} names no live timeline (held "
                 f"{row['age']}, by {row['taken_by'] or '?'}) - release "
-                f"the hold explicitly once the listing is trusted:")
+                f"the hold explicitly once the listing is trusted:"
+                f"{ownership}")
             lines.append(
                 f"    python3 -c \"from library.tools.staging_holds "
                 f"import release_hold; "

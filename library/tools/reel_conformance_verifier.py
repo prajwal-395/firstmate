@@ -73,6 +73,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -4458,6 +4459,185 @@ def _findings_by_class(findings: Sequence[Finding]) -> dict:
     return by_class
 
 
+def _merge_scoped_report(existing: dict, incoming: dict,
+                         only_reels: Sequence[str]) -> dict:
+    """Replace only the named reel rows in a shared conformance report."""
+    wanted = {str(name) for name in only_reels}
+    wanted_numbers = _reel_numbers_for_names(wanted)
+
+    def belongs_to_wanted(name) -> bool:
+        name = str(name or "")
+        numbers = _reel_numbers_for_names([name])
+        return name in wanted or bool(numbers & wanted_numbers)
+
+    merged = dict(existing or {})
+    merged.update(incoming or {})
+    if "motion_graphics_tightness" in (existing or {}):
+        merged["motion_graphics_tightness"] = existing[
+            "motion_graphics_tightness"]
+    else:
+        # This is a project-wide measurement, not a selected reel row.
+        merged.pop("motion_graphics_tightness", None)
+
+    rows = {str(row.get("reel_name")): row
+            for row in ((existing or {}).get("reels") or ())
+            if isinstance(row, dict) and row.get("reel_name")
+            and not belongs_to_wanted(row.get("reel_name"))}
+    rows.update({str(row.get("reel_name")): row
+                 for row in ((incoming or {}).get("reels") or ())
+                 if isinstance(row, dict) and row.get("reel_name")
+                 and belongs_to_wanted(row.get("reel_name"))})
+    merged["reels"] = [rows[name] for name in sorted(rows)]
+
+    old_provenance = (existing or {}).get("provenance_findings") or []
+    new_provenance = (incoming or {}).get("provenance_findings") or []
+    provenance = [
+        finding for finding in old_provenance
+        if (isinstance(finding, dict)
+            and not belongs_to_wanted(finding.get("reel")))]
+    provenance.extend(
+        finding for finding in new_provenance
+        if (not isinstance(finding, dict)
+            or belongs_to_wanted(finding.get("reel"))))
+    if not new_provenance:
+        provenance.extend(
+            finding for finding in old_provenance
+            if not isinstance(finding, dict))
+    all_findings = list(provenance)
+    for row in merged["reels"]:
+        all_findings.extend(row.get("findings") or ())
+    merged["provenance_findings"] = provenance
+    merged["by_class"] = _report_findings_by_class(all_findings)
+    merged["summary"] = {
+        "reels_checked": len(merged["reels"]),
+        "total_errors": sum(
+            int(row.get("errors") or 0) for row in merged["reels"])
+            + sum(1 for finding in provenance
+                  if finding.get("severity") == "error"),
+        "total_warnings": sum(
+            int(row.get("warnings") or 0) for row in merged["reels"])
+            + sum(1 for finding in provenance
+                  if finding.get("severity") == "warning"),
+        "passed": not any(finding.get("severity") == "error"
+                          for finding in all_findings),
+    }
+
+    old_bar = (existing or {}).get("quality_bar") or {}
+    new_bar = (incoming or {}).get("quality_bar") or {}
+    if old_bar or new_bar:
+        bar = dict(old_bar)
+        bar.update({key: value for key, value in new_bar.items()
+                    if key != "verdicts"})
+        target_numbers = wanted_numbers
+        target_keys = {str(number) for number in target_numbers}
+        verdicts = {
+            str(row.get("reel")): row
+            for row in old_bar.get("verdicts") or ()
+            if str(row.get("reel")) not in target_keys
+        }
+        for row in new_bar.get("verdicts") or ():
+            if str(row.get("reel")) in target_keys:
+                verdicts[str(row.get("reel"))] = row
+        bar["verdicts"] = [
+            verdicts[key] for key in sorted(verdicts, key=int)]
+        bar["reels"] = len(bar["verdicts"])
+        bar["passing"] = sum(row.get("verdict") == "pass"
+                             for row in bar["verdicts"])
+        bar["failing"] = sum(row.get("verdict") == "fail"
+                             for row in bar["verdicts"])
+        if "not_read" in old_bar or "not_read" in new_bar:
+            not_read = {int(number) for number in old_bar.get("not_read") or ()
+                        if int(number) not in target_numbers}
+            not_read.update(
+                int(number) for number in new_bar.get("not_read") or ()
+                if int(number) in target_numbers)
+            bar["not_read"] = sorted(not_read)
+        merged["quality_bar"] = bar
+
+    old_proof = (existing or {}).get("read_only_proof") or {}
+    new_proof = (incoming or {}).get("read_only_proof") or {}
+    if old_proof or new_proof:
+        timelines = {
+            str(name): row
+            for name, row in (old_proof.get("timelines") or {}).items()
+            if not belongs_to_wanted(name)
+        }
+        timelines.update({
+            str(name): row
+            for name, row in (new_proof.get("timelines") or {}).items()
+            if (belongs_to_wanted(name)
+                or not str(name).startswith("Reel ")
+                or name not in timelines)
+        })
+        merged["read_only_proof"] = {
+            "all_identical": all(row.get("identical") is True
+                                  for row in timelines.values()),
+            "timelines_checked": len(timelines),
+            "timelines": timelines,
+        }
+    return merged
+
+
+def _reel_numbers_for_names(names) -> set[int]:
+    import re as _re
+
+    numbers = set()
+    for name in names:
+        match = _re.match(r"^Reel\s+(\d+)(?:\s|$)", str(name))
+        if match:
+            numbers.add(int(match.group(1)))
+    return numbers
+
+
+def _report_findings_by_class(findings) -> dict:
+    """Build the serialized finding-class tally for a merged report."""
+    table = {}
+    for finding in findings or ():
+        if not isinstance(finding, dict):
+            continue
+        name = finding.get("class")
+        if not name:
+            continue
+        entry = table.setdefault(name, {
+            "count": 0, "errors": 0, "warnings": 0, "reels": set()})
+        entry["count"] += 1
+        if finding.get("severity") == "error":
+            entry["errors"] += 1
+        elif finding.get("severity") == "warning":
+            entry["warnings"] += 1
+        if finding.get("reel"):
+            entry["reels"].add(str(finding["reel"]))
+    return {name: {**row, "reels": sorted(row["reels"])}
+            for name, row in sorted(table.items())}
+
+
+def _write_scoped_report(path: str, incoming: dict,
+                         only_reels: Sequence[str]) -> None:
+    from library.tools.project_file_lock import lock_project_file
+
+    with lock_project_file(path):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                existing = json.load(handle)
+        except (OSError, ValueError):
+            existing = {}
+        merged = _merge_scoped_report(existing, incoming, only_reels)
+        parent = os.path.dirname(path)
+        os.makedirs(parent, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(
+            dir=parent, prefix=".conformance-report-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(merged, handle, indent=2, default=str)
+            os.replace(temporary, path)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
+
+
 # ── The per-reel table (human-readable output) ──────────────────────
 
 def format_table(report: VerificationReport) -> str:
@@ -6325,7 +6505,8 @@ def _repair_moments(moments, transcript, err, authorizations=None):
     return repaired
 
 
-def _apply_recorded_pins(moments, transcript, project_folder, err):
+def _apply_recorded_pins(moments, transcript, project_folder, err,
+                         only_reels=None):
     """The captain's recorded closer pins, as the build applies them.
 
     One spelling for the gate and the build: the build redraws
@@ -6346,6 +6527,10 @@ def _apply_recorded_pins(moments, transcript, project_folder, err):
             f"captain_edits cannot be read: {exc}. A recorded pin the "
             f"gate cannot read must refuse, never grade silently past "
             f"it.") from exc
+    if only_reels is not None:
+        from library.tools.reel_build import _redraw_edits_for_moments
+        pin_edits = _redraw_edits_for_moments(
+            moments, transcript, pin_edits)
     if not any(e.get("kind") == "redraw_closer" for e in pin_edits):
         return list(moments)
     redrawn, applied, held, stale = _edits.apply_closer_redraws(
@@ -6708,7 +6893,8 @@ def run_verification(
               file=err)
 
     # ── Snapshot everything BEFORE (for read-only proof) ─────────────
-    print("Reading all timelines (before hash)...", file=err)
+    print("Reading master and selected reel timelines (before hash)...",
+          file=err)
     before_hashes = {}
     snapshots = {}
 
@@ -6732,6 +6918,12 @@ def run_verification(
         if os.path.isfile(plan_path):
             from library.tools.reel_proposal import read_proposal
             moments = read_proposal(plan_path)
+            if only_reels is not None:
+                target_numbers = _reel_numbers_for_names(only_reels)
+                target_names = {str(name) for name in only_reels}
+                moments = [moment for moment in moments
+                           if (int(moment.number) in target_numbers
+                               or str(moment.timeline_name) in target_names)]
             if transcript:
                 # The build repairs stored boundaries on the way through;
                 # the gate grades what the build placed, so it reads the
@@ -6768,9 +6960,10 @@ def run_verification(
                 # growth read as 54 dropped frames. A recorded pin the
                 # gate cannot read refuses rather than grading past it.
                 moments = _apply_recorded_pins(
-                    moments, transcript, project_folder, err)
+                    moments, transcript, project_folder, err,
+                    only_reels=only_reels)
             plan_source = f"proposal file: {plan_path}"
-            print(f"Plan:    {plan_source} ({len(moments)} moments)",
+            print(f"Plan:    {plan_source} ({len(moments)} selected moment(s))",
                   file=err)
         else:
             plan_source = (f"DERIVED from master (--plan {plan_path!r} "
@@ -6883,7 +7076,7 @@ def run_verification(
                          if project_folder else {})
     from library.tools.explainer_plan import plan_for_reel, read_plans
     explainer_plans = read_plans(project_folder) if project_folder else {}
-    if (explainer_plans.get("plans") or []):
+    if (explainer_plans.get("plans") or []) and only_reels is None:
         drawn = sum(1 for e in explainer_plans["plans"] if e.get("segments"))
         print(f"Explainer plans recorded: {len(explainer_plans['plans'])} "
               f"({drawn} with something drawn)", file=err)
@@ -7207,7 +7400,8 @@ def run_verification(
                   f"{judgement_source}", file=err)
 
     # ── Snapshot everything AFTER (for read-only proof) ───────────────
-    print("Re-reading all timelines (after hash)...", file=err)
+    print("Re-reading master and selected reel timelines (after hash)...",
+          file=err)
     after_hashes = {}
 
     master_after = snapshot_timeline(master_tl, project_name)
@@ -7302,8 +7496,11 @@ def run_verification(
         from library.tools.display_respell import apply_post_pass
         apply_post_pass(json_data, project_folder or "",
                         "conformance verifier (conformance_report)")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(json_data, f, indent=2, default=str)
+        if only_reels is None:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(json_data, f, indent=2, default=str)
+        else:
+            _write_scoped_report(json_path, json_data, only_reels)
         print(f"JSON written to {json_path}", file=err)
 
     return 1 if report.has_errors else 0

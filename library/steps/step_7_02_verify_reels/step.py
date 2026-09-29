@@ -138,6 +138,42 @@ def verify_reels(data: dict) -> dict:
     # the promise; the code is now kept to it.
     timelines_built = list(build.get("timelines_built") or ())
     left_alone = list(build.get("reels_left_alone") or ())
+    staged = dict(build.get("staged_timelines") or {})
+    requested = (data or {}).get("only_reels")
+    if requested is not None:
+        import re
+
+        if isinstance(requested, (str, int)):
+            requested = [requested]
+        try:
+            wanted_numbers = {int(number) for number in requested}
+        except (TypeError, ValueError) as exc:
+            raise ReelVerifyRefused(
+                f"only_reels must contain reel numbers, got "
+                f"{requested!r}: {exc}") from exc
+
+        def belongs_to_requested(name):
+            match = re.match(r"^Reel\s+(\d+)(?:\s|$)", str(name))
+            return bool(match and int(match.group(1)) in wanted_numbers)
+
+        timelines_built = [name for name in timelines_built
+                           if belongs_to_requested(name)]
+        left_alone = [name for name in left_alone
+                      if belongs_to_requested(name)]
+        staged = {
+            final: name for final, name in staged.items()
+            if belongs_to_requested(final)}
+        for field in ("allow_drops", "track_plans", "caption_hashes"):
+            value = build.get(field)
+            if isinstance(value, dict):
+                build[field] = {
+                    name: record for name, record in value.items()
+                    if belongs_to_requested(name)}
+        for field in ("supersede", "retain"):
+            value = build.get(field)
+            if isinstance(value, list):
+                build[field] = [
+                    name for name in value if belongs_to_requested(name)]
     if not timelines_built and left_alone:
         # The build placed nothing because nothing needed placing
         # (`library/tools/reel_rebuild_need.py`). That is not a build
@@ -189,7 +225,6 @@ def verify_reels(data: dict) -> dict:
     # gate above already ran over `timelines_built` and
     # `verify_built_reels` refuses a pass whose report did not land,
     # so reaching here means the verdict is both run and recorded.
-    staged = dict(build.get("staged_timelines") or {})
     for _final, _staging in staged.items():
         if _final in _final_numbers:
             _staging_numbers[_staging] = _final_numbers[_final]
@@ -395,7 +430,8 @@ def verify_reels(data: dict) -> dict:
             resolve_project_name=resolve_project_name,
             master_timeline_name=master_timeline_name,
             plan_path=plan_path,
-            transcript_path=str(transcript_path(project_folder)))
+            transcript_path=str(transcript_path(project_folder)),
+            only_reels=timelines_verified)
         # A promotion that leaves other stagings pending says so: the
         # holds file is the pending-promotion record, and a build that
         # stages but never promotes otherwise sits protected and
@@ -403,7 +439,9 @@ def verify_reels(data: dict) -> dict:
         # a gate - the reels above already landed.
         try:
             from library.tools import staging_holds as _holds
-            _pending_report = _holds.report_pending(project_folder)
+            _pending_report = _holds.report_pending(
+                project_folder,
+                owned_staging_names=list(staged.values()))
         except Exception:
             _pending_report = ""
         if _pending_report:

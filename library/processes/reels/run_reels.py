@@ -103,6 +103,7 @@ def run(project_folder: str, args) -> int:
     4 is the refusal code (`library/tools/ren_refusal.py`).
     """
     from library.tools import operations, processes
+    from library.tools.project_file_lock import lock_project_file
     from library.tools.project_layout import ProjectLayout
 
     for node_id in processes.execution_order(processes.REELS):
@@ -142,12 +143,13 @@ def run(project_folder: str, args) -> int:
             # readable afterwards by everything that reads
             # `step_outputs` - the traceback, the dashboard, `status`.
             path = ProjectLayout(project_folder).pipeline_data_path
-            state = (json.loads(Path(path).read_text(encoding="utf-8"))
-                     if Path(path).is_file() else {})
-            state["project_folder"] = project_folder
-            slot = state.setdefault("step_outputs", {})
-            record_node_output(slot, node_id, result.payload)
-            _edit_video_runner().save_pipeline_state(project_folder, state)
+            with lock_project_file(path):
+                state = (json.loads(Path(path).read_text(encoding="utf-8"))
+                         if Path(path).is_file() else {})
+                _merge_project_output(
+                    state, project_folder, node_id, result.payload,
+                    only_reels=args.only_reel or None)
+                _edit_video_runner().save_pipeline_state(project_folder, state)
             print(f"{op.name}: {result.status}", file=sys.stderr)
             report_rebuild_need(result.payload)
             report_reel_verification(result.payload)
@@ -173,7 +175,30 @@ def run(project_folder: str, args) -> int:
     return 0
 
 
-def record_node_output(slot: dict, node_id: str, payload) -> None:
+def record_project_output(project_folder: str, node_id: str, payload,
+                          only_reels=None) -> None:
+    """Record one operation while preserving concurrent reel-lane writes."""
+    from library.tools.project_file_lock import lock_project_file
+    from library.tools.project_layout import ProjectLayout
+
+    path = ProjectLayout(project_folder).pipeline_data_path
+    with lock_project_file(path):
+        state = (json.loads(Path(path).read_text(encoding="utf-8"))
+                 if Path(path).is_file() else {})
+        _merge_project_output(
+            state, project_folder, node_id, payload, only_reels=only_reels)
+        _edit_video_runner().save_pipeline_state(project_folder, state)
+
+
+def _merge_project_output(state: dict, project_folder: str, node_id: str,
+                          payload, only_reels=None) -> None:
+    state["project_folder"] = project_folder
+    slot = state.setdefault("step_outputs", {})
+    record_node_output(slot, node_id, payload, only_reels=only_reels)
+
+
+def record_node_output(slot: dict, node_id: str, payload,
+                       only_reels=None) -> None:
     """Merge one op's payload into its node's recorded output.
 
     One node may own several ops (`build_reels` owns both `reel.build`
@@ -187,10 +212,152 @@ def record_node_output(slot: dict, node_id: str, payload) -> None:
     """
     prior = slot.get(node_id)
     if isinstance(prior, dict) and isinstance(payload, dict):
-        prior.update(payload)
-        slot[node_id] = prior
+        wanted = _requested_reel_numbers(only_reels)
+        if wanted is None:
+            # Keep whole-project operation recording's established merge
+            # semantics; only single-reel builds need the deeper merge.
+            prior.update(payload)
+            slot[node_id] = prior
+        else:
+            slot[node_id] = _merge_node_payload(prior, payload, wanted)
     else:
         slot[node_id] = payload
+
+
+_PER_REEL_LIST_KEYS = {
+    "reel_asks", "skipped_by_exclusion", "skipped_out_of_window",
+    "picture_motion", "rebuild_need", "reels_left_alone",
+    "timelines_built", "timelines_verified", "supersede", "retain",
+    "reels", "stills",
+}
+_SCOPED_PROJECT_LIST_KEYS = {"pending_promotions", "reels_requested"}
+_PER_REEL_MAP_KEYS = {
+    "caption_hashes", "closer_fit", "track_plans",
+    "transition_overlays", "staged_timelines", "allow_drops",
+    "reels", "notes",
+}
+
+
+def _requested_reel_numbers(only_reels) -> set[int] | None:
+    if only_reels is None:
+        return None
+    if isinstance(only_reels, (str, int)):
+        only_reels = [only_reels]
+    try:
+        return {int(reel) for reel in only_reels}
+    except (TypeError, ValueError):
+        return None
+
+
+def _record_reel_number(value):
+    import re
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        match = re.match(r"^Reel\s+(\d+)(?:\s|$)", str(value))
+        return int(match.group(1)) if match else None
+
+
+def _row_reel_number(row):
+    if isinstance(row, int):
+        return row
+    if isinstance(row, dict):
+        for key in ("number", "reel", "reel_name", "staging", "awaiting"):
+            if row.get(key) is not None:
+                number = _record_reel_number(row[key])
+                if number is not None:
+                    return number
+    if isinstance(row, str):
+        return _record_reel_number(row)
+    return None
+
+
+def _merge_scoped_list(prior: list, incoming: list,
+                       wanted: set[int], *, incoming_scope_only=False) -> list:
+    retained = [row for row in prior
+                if _row_reel_number(row) not in wanted]
+    # The operation was scoped before it produced this payload. Preserve
+    # unknown rows in the old record, while replacing all rows for the
+    # requested reel with the current operation's entries.
+    additions = (list(incoming) if not incoming_scope_only else
+                 [row for row in incoming
+                  if _row_reel_number(row) in wanted])
+    return retained + additions
+
+
+def _merge_scoped_map(prior: dict, incoming: dict,
+                      wanted: set[int]) -> dict:
+    merged = {
+        key: value for key, value in prior.items()
+        if _record_reel_number(key) not in wanted
+    }
+    merged.update({key: value for key, value in incoming.items()
+                   if _record_reel_number(key) in wanted})
+    return merged
+
+
+def _merge_node_payload(prior: dict, incoming: dict,
+                        wanted: set[int] | None) -> dict:
+    """Merge operation records, replacing only selected reel entries."""
+    merged = dict(prior)
+    for key, value in incoming.items():
+        old = prior.get(key)
+        if wanted is not None and key == "coherence_summary":
+            # A single-reel run skips this project-wide witness. Preserve
+            # the last whole-project reading, or leave the field absent,
+            # instead of filing a project-wide "skipped" marker.
+            continue
+        if (wanted is not None and key == "divergence"
+                and isinstance(old, dict) and isinstance(value, dict)):
+            merged[key] = _merge_scoped_divergence(old, value, wanted)
+        elif (wanted is not None and key in _PER_REEL_MAP_KEYS
+              and isinstance(old, dict) and isinstance(value, dict)):
+            merged[key] = _merge_scoped_map(old, value, wanted)
+        elif isinstance(old, dict) and isinstance(value, dict):
+            merged[key] = _merge_node_payload(old, value, wanted)
+        elif (wanted is not None and key in _PER_REEL_LIST_KEYS
+              and isinstance(old, list) and isinstance(value, list)):
+            merged[key] = _merge_scoped_list(
+                old, value, wanted, incoming_scope_only=True)
+        elif (wanted is not None and key in _SCOPED_PROJECT_LIST_KEYS
+              and isinstance(value, list)):
+            scoped = _merge_scoped_list(
+                old if isinstance(old, list) else [], value, wanted,
+                incoming_scope_only=True)
+            merged[key] = (sorted(set(scoped))
+                           if key == "reels_requested" else scoped)
+        else:
+            merged[key] = value
+    if (wanted is not None
+            and isinstance(merged.get("reels"), list)
+            and "outstanding_answers" in merged):
+        merged["outstanding_answers"] = sum(
+            len(row["layers"]) for row in merged["reels"])
+    return merged
+
+
+def _merge_scoped_divergence(prior: dict, incoming: dict,
+                             wanted: set[int]) -> dict:
+    """Keep each lane's reel rows in the shared divergence record."""
+    merged = dict(prior)
+    for key, value in incoming.items():
+        old = prior.get(key)
+        if key in {"reels", "notes"} and isinstance(value, dict):
+            merged[key] = _merge_scoped_map(
+                old if isinstance(old, dict) else {}, value, wanted)
+        elif key in {"divergent", "undetermined"} and isinstance(value, dict):
+            categories = dict(old) if isinstance(old, dict) else {}
+            for category, reel_names in value.items():
+                categories[category] = _merge_scoped_list(
+                    categories.get(category, []), reel_names, wanted,
+                    incoming_scope_only=True)
+            merged[key] = categories
+        elif key == "unavailable" and key in prior:
+            continue
+        else:
+            merged[key] = value
+    return merged
 
 
 def commit_run_tail(project_folder: str) -> None:

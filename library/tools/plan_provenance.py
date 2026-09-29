@@ -119,8 +119,9 @@ def reel_code_hash(repo_root=None) -> Optional[str]:
     return digest.hexdigest() if found else None
 
 
-def archive_plan(plan_path: str, archive_dir: Optional[str] = None) -> str:
-    """Copy the plan to a timestamped archive file.
+def archive_plan(plan_path: str, archive_dir: Optional[str] = None,
+                 only_reel_numbers=None) -> str:
+    """Copy the plan, or the selected reel entries, to an archive file.
 
     Returns the path to the archived copy.  The archive sits alongside
     the live file (or in ``archive_dir`` if given), named with an ISO
@@ -133,16 +134,34 @@ def archive_plan(plan_path: str, archive_dir: Optional[str] = None) -> str:
     if not plan.is_file():
         raise FileNotFoundError(f"Plan file does not exist: {plan_path}")
 
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    numbers = (None if only_reel_numbers is None else
+               {int(number) for number in only_reel_numbers})
+    ts_format = "%Y%m%dT%H%M%S%fZ" if numbers is not None else \
+        "%Y%m%dT%H%M%SZ"
+    ts = datetime.now(timezone.utc).strftime(ts_format)
     stem = plan.stem           # e.g. "reel_proposals_v2"
     suffix = plan.suffix       # e.g. ".json"
-    archive_name = f"{stem}_{ts}{suffix}"
+    scope = ("_reel_" + "_".join(map(str, sorted(numbers)))
+             if numbers is not None else "")
+    archive_name = f"{stem}{scope}_{ts}{suffix}"
 
     dest_dir = Path(archive_dir) if archive_dir else plan.parent
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / archive_name
 
-    shutil.copy2(str(plan), str(dest))
+    if numbers is None:
+        shutil.copy2(str(plan), str(dest))
+    else:
+        document = json.loads(plan.read_text(encoding="utf-8"))
+        if isinstance(document, list):
+            document = [moment for moment in document
+                        if int(moment["number"]) in numbers]
+        else:
+            document["moments"] = [
+                moment for moment in (document.get("moments") or ())
+                if int(moment["number"]) in numbers]
+        dest.write_text(json.dumps(document, indent=2) + "\n",
+                        encoding="utf-8")
     return str(dest)
 
 
@@ -307,6 +326,25 @@ def _is_v1_hash(h: str) -> bool:
 
 
 def write_provenance(
+    review_dir: str,
+    plan_path: str,
+    reel_names: list[str],
+    caption_hashes: Optional[dict] = None,
+    footage_binding_hashes: Optional[dict] = None,
+    asset_hashes: Optional[dict] = None,
+    build_signatures: Optional[dict] = None,
+) -> str:
+    """Serialize concurrent per-reel provenance merges for this project."""
+    from library.tools.project_file_lock import lock_project_file
+
+    path = Path(review_dir) / PROVENANCE_FILENAME
+    with lock_project_file(path):
+        return _write_provenance_unlocked(
+            review_dir, plan_path, reel_names, caption_hashes,
+            footage_binding_hashes, asset_hashes, build_signatures)
+
+
+def _write_provenance_unlocked(
     review_dir: str,
     plan_path: str,
     reel_names: list[str],

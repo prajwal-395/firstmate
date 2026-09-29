@@ -81,8 +81,8 @@ FACTOR_TOLERANCE = 5e-4
 REVIEW_DIRNAME = Path("pipeline_output") / "review"
 
 
-def newest_snapshots(review_dir) -> dict:
-    """`{timeline name: path}` - the newest snapshot per reel.
+def newest_snapshots(review_dir, only_reels=None) -> dict:
+    """`{timeline name: path}` - newest snapshots for selected reels.
 
     Names come from the snapshot's own `metadata.name` (what the
     timeline was called when the build wrote it), never from the
@@ -95,8 +95,19 @@ def newest_snapshots(review_dir) -> dict:
     newest: dict = {}
     skipped: list = []
     try:
-        candidates = sorted(Path(review_dir).glob("*.timeline.json"),
-                            key=lambda p: p.stat().st_mtime)
+        if only_reels is None:
+            candidates = sorted(Path(review_dir).glob("*.timeline.json"),
+                                key=lambda p: p.stat().st_mtime)
+        else:
+            candidates = []
+            for name in only_reels:
+                safe = "".join(
+                    char if char.isalnum() or char in "-_." else "_"
+                    for char in str(name)) or "timeline"
+                path = Path(review_dir) / f"{safe}.timeline.json"
+                if path.is_file():
+                    candidates.append(path)
+            candidates.sort(key=lambda p: p.stat().st_mtime)
     except OSError:
         return {"snapshots": {}, "skipped": []}
     for path in candidates:
@@ -250,8 +261,8 @@ def compare_documents(name: str, snapshot_doc, live_doc) -> dict:
 
 
 def check_project(project_folder: str, *, when: str = "",
-                  resolve=None, project=None) -> dict:
-    """Compare every snapshotted reel against its live self-read.
+                  resolve=None, project=None, only_reels=None) -> dict:
+    """Compare selected snapshotted reels against their live self-read.
 
     Prints the per-reel factor and returns the report. REPORTS, never
     repairs: nothing in this file writes a transform, a setting or a
@@ -324,12 +335,17 @@ def check_project(project_folder: str, *, when: str = "",
 
     entry_cursor = _cursor_name(project)
     try:
-        found = newest_snapshots(Path(project_folder) / REVIEW_DIRNAME)
+        wanted = (None if only_reels is None else
+                  {str(name) for name in only_reels})
+        found = newest_snapshots(
+            Path(project_folder) / REVIEW_DIRNAME, only_reels=wanted)
     except Exception as exc:                            # noqa: BLE001
         report["error"] = f"cannot list the build snapshots: {exc!r}"
         return report
     report["skipped_snapshots"] = found["skipped"]
-    for name in sorted(found["snapshots"]):
+    names = (set(found["snapshots"]) if wanted is None else
+             set(found["snapshots"]) & wanted)
+    for name in sorted(names):
         try:
             snapshot_doc = json.loads(
                 found["snapshots"][name].read_text(encoding="utf-8"))
@@ -368,6 +384,13 @@ def check_project(project_folder: str, *, when: str = "",
         report["reels"][name] = compared
         if compared["moved"] or compared["missing"]:
             report["drifted"] = True
+
+    if wanted is not None:
+        for name in sorted(wanted - names):
+            report["reels"][name] = {
+                "name": name, "compared": False,
+                "line": (f"{name}: no build snapshot of that exact name - "
+                         f"not comparable")}
 
     # The proof the cursor went back: read it and compare with the
     # entry reading. A mismatch is an error, never silence - the next

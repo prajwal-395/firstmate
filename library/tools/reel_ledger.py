@@ -303,23 +303,25 @@ def file_reel_ledger(project_folder, final_name: str,
     """
     try:
         path = ledger_path(project_folder)
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            existing = {}
-        if not isinstance(existing, dict):
-            existing = {}
-        reels = existing.get("reels")
-        if not isinstance(reels, dict):
-            reels = {}
-            existing["reels"] = reels
-        if _ledger_same(reels.get(str(final_name)), ledger):
+        from library.tools.project_file_lock import lock_project_file
+        with lock_project_file(path):
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                existing = {}
+            if not isinstance(existing, dict):
+                existing = {}
+            reels = existing.get("reels")
+            if not isinstance(reels, dict):
+                reels = {}
+                existing["reels"] = reels
+            if _ledger_same(reels.get(str(final_name)), ledger):
+                return path
+            existing["format"] = FORMAT
+            reels[str(final_name)] = ledger
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
             return path
-        existing["format"] = FORMAT
-        reels[str(final_name)] = ledger
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
-        return path
     except Exception as exc:  # noqa: BLE001 - the contract is never-fail
         print(f"  reel ledger unfiled for {final_name}: {exc!r} - "
               f"the build continues without it", file=sys.stderr)

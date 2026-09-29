@@ -192,12 +192,13 @@ def test_a_partial_build_grades_only_the_timeline_it_placed(project):
 
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert record["staged_timelines"] == {}
-    # Two verifications: the refusing gate scoped to what was placed,
-    # then the informational whole-project sweep beside it.
+    # Two verifications: the refusing gate and the informational sweep,
+    # both scoped to this single-reel lane.
     assert gate.call_count == 2
     assert gate.call_args_list[0][1]["only_reels"] == [
         _staging("Reel 03 - moment-3")]
-    assert gate.call_args_list[1][1]["only_reels"] is None
+    assert gate.call_args_list[1][1]["only_reels"] == [
+        "Reel 03 - moment-3"]
     # Promoted: the final name is back and no staging is left
     # behind - and the timeline it replaced is DELETED by default, so
     # no archived generation stands beside it (`reel_retirement`).
@@ -236,7 +237,8 @@ def test_a_suffixed_rebuild_grades_the_new_container_not_the_old(project):
     assert gate.call_count == 2
     assert gate.call_args_list[0][1]["only_reels"] == [
         _staging("Reel 03 - moment-3 (whole-take rebuild)")]
-    assert gate.call_args_list[1][1]["only_reels"] is None
+    assert gate.call_args_list[1][1]["only_reels"] == [
+        "Reel 03 - moment-3 (whole-take rebuild)"]
 
 
 # ── The verifier honours the scope ───────────────────────────────────
@@ -464,6 +466,4 @@ def test_the_step_promotes_staged_timelines_only_after_the_gate_passes():
     assert sweep.call_count == 1
     assert sweep.call_args[1]["project_folder"] == "/tmp/project"
     assert sweep.call_args[1]["plan_path"] == "/tmp/project/plan.json"
-
-
 

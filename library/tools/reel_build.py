@@ -3188,11 +3188,18 @@ def record_tail_repairs(project_folder: str,
     """
     if not project_folder:
         return None
-    import datetime as _datetime
-    import json as _json
-
     path = os.path.join(project_folder, "pipeline_output", "review",
                         "moment_boundary_repairs.json")
+    from library.tools.project_file_lock import lock_project_file
+    with lock_project_file(path):
+        return _record_tail_repairs_locked(path, repairs)
+
+
+def _record_tail_repairs_locked(path: str,
+                                repairs: Sequence[tuple]) -> Optional[str]:
+    """Merge boundary repair rows while holding the file's writer lock."""
+    import datetime as _datetime
+    import json as _json
     try:
         with open(path, encoding="utf-8") as handle:
             ledger = _json.load(handle)
@@ -5299,15 +5306,18 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
 
     proposal_path = str(_proposal_path(project_folder))
     moments = read_proposal(proposal_path)
+    building, wanted = _requested_approved_moments(
+        moments, only, proposal_path, "ask")
     from library.tools.reel_ledger import stored_windows as _ask_stored
     stored_siblings: dict = {}
     repair_moves_by_number: dict = {}
     for moment in moments:
+        body, closer = _ask_stored(moment)
         stored_siblings[int(moment.number)] = {
-            "body": _ask_stored(moment)[0],
-            "closer": _ask_stored(moment)[1],
+            "body": body,
+            "closer": closer,
         }
-    repaired = []
+    repaired_by_number = {}
     from library.tools.tail_extend_authorization import (
         AuthorizationError as _TailAuthError,
         load_authorizations as _load_tail_auths,
@@ -5319,7 +5329,7 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
             f"tail_extend_authorizations cannot be read: {exc}. A "
             f"recorded yes the ask cannot read must refuse, never ask "
             f"silently past it.") from exc
-    for moment in moments:
+    for moment in building:
         fixed, moves = snap_moment_to_speech(
             moment, transcript,
             tail_extend_authorizations=_tail_auths)
@@ -5340,8 +5350,9 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
                   f"{move['was']:.3f}s -> {move['now']:.3f}s{word} "
                   f"(stored proposal predates the boundary snap)",
                   file=_sys.stderr)
-        repaired.append(fixed)
-    moments = repaired
+        repaired_by_number[int(moment.number)] = fixed
+    moments = [repaired_by_number.get(int(moment.number), moment)
+               for moment in moments]
 
     from library.tools import captain_edits as _edits
     try:
@@ -5352,32 +5363,33 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
             f"ask cannot read must refuse, never ask silently past "
             f"it.") from exc
     _pin_applied: list = []
-    if any(e.get("kind") == "redraw_closer" for e in _pin_edits):
-        moments, _pin_applied, _pin_held, _pin_stale = \
-            _edits.apply_closer_redraws(moments, transcript, _pin_edits)
-        for record in _pin_applied:
-            print(f"  Reel {record['reel']:02d}: closer "
-                  f"{record['was'][0]:.3f}s -> {record['now'][0]:.3f}s "
-                  f"(now opens on {record['anchor_phrase']!r} - "
-                  f"{record['reason']})", file=_sys.stderr)
+    if wanted is None:
+        if any(edit.get("kind") == "redraw_closer" for edit in _pin_edits):
+            moments, _pin_applied, _pin_held, _pin_stale = \
+                _edits.apply_closer_redraws(moments, transcript, _pin_edits)
+    else:
+        _ask_edits = _redraw_edits_for_moments(
+            building, transcript, _pin_edits)
+        if _ask_edits:
+            redrawn, _pin_applied, _pin_held, _pin_stale = \
+                _edits.apply_closer_redraws(
+                    building, transcript, _ask_edits)
+            redrawn_by_number = {
+                int(moment.number): moment for moment in redrawn}
+            moments = [redrawn_by_number.get(int(moment.number), moment)
+                       for moment in moments]
+    for record in _pin_applied:
+        print(f"  Reel {record['reel']:02d}: closer "
+              f"{record['was'][0]:.3f}s -> {record['now'][0]:.3f}s "
+              f"(now opens on {record['anchor_phrase']!r} - "
+              f"{record['reason']})", file=_sys.stderr)
 
+    building = [moment for moment in moments
+                if str(getattr(moment.approval, "value", moment.approval))
+                == "approved"
+                and (wanted is None or int(moment.number) in wanted)]
     keep_exclusions = _tc.keep_exclusions(project_folder)
     keep_insistences = _tc.keep_insistences(project_folder)
-
-    wanted = reel_numbers(only)
-    building = [m for m in moments
-                if str(getattr(m.approval, "value", m.approval)) == "approved"
-                and (wanted is None or int(m.number) in wanted)]
-    if wanted is not None:
-        missing = wanted - {int(m.number) for m in building}
-        if missing:
-            raise ReelBuildError(
-                f"asked for reel(s) {sorted(missing)}, and the plan "
-                f"{proposal_path} has no APPROVED moment with those "
-                f"numbers. Approved: "
-                f"{sorted(int(m.number) for m in building)}. An ask that "
-                f"quietly skipped them would report success having asked "
-                f"nothing.")
 
     from library.tools import reel_look as _reel_look
     reel_width, reel_height = reel_resolution(project_folder)
@@ -6438,7 +6450,8 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                               placements_list: list, timeline, transcript: dict,
                               project_folder: str, width: int, height: int,
                               look=None, screen_window=None,
-                              draw_gain: float = FALLBACK_DRAW_GAIN) -> int:
+                              draw_gain: float = FALLBACK_DRAW_GAIN,
+                              report_sibling_stale: bool = True) -> int:
     """Hold the captain's recorded transform overrides on the picture.
 
     The punch-in aims every shot at its measured subject; a hand move
@@ -6456,8 +6469,10 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
     edit - and one whose words are spoken NOWHERE in the transcript
     reports again, on its own, because that one is the captain's value
     being overwritten for good rather than an override belonging to
-    another reel (`captain_edits.lost_overrides`). Returns how many
-    property holds were applied.
+    another reel (`captain_edits.lost_overrides`). A single-reel build
+    suppresses routine per-reel staleness for siblings; globally lost
+    decisions remain reportable. Returns how many property holds were
+    applied.
     """
     import sys
 
@@ -6469,6 +6484,13 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
             f"captain_edits cannot be read: {exc}. A recorded override "
             f"the build cannot read must refuse, never build silently "
             f"past it.") from exc
+    if not report_sibling_stale:
+        edits = [
+            edit for edit in edits
+            if (edit.get("kind") != "transform_override"
+                or edit.get("reel") is None
+                or _edits._reel_in_scope(edit["reel"], name))
+        ]
     if not any(e.get("kind") == "transform_override" for e in edits):
         return 0
     video_places = [
@@ -6476,16 +6498,16 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
         if getattr(p["clip"], "track_type", "video") == "video"]
     matched, stale = _edits.match_transform_overrides(
         video_places, transcript, edits, reel_name=name)
+    if not report_sibling_stale:
+        stale = [record for record in stale
+                 if record.get("scope") != "reel"]
     _edits.report_stale(stale)
-    # A stale override that belongs to ANOTHER reel is routine - every
-    # recorded override is matched against every reel, so a build of
-    # one reel prints every other reel's. A stale override whose words
-    # are spoken NOWHERE is the opposite: the captain's value is gone
-    # for every future build of every reel, and until now it printed
-    # the same sentence as the eight routine ones. It is said again,
-    # separately, so a rebuild overwriting a hand-set value cannot read
-    # as housekeeping. Evidence: `docs/RULE_EVIDENCE.md`, section
-    # `one-word-for-two-kinds-of-stale`.
+    # A stale override that belongs to another reel is routine. Whole-project
+    # builds report it for each reel; a single-reel build suppresses that
+    # sibling-only notice. An override whose words are spoken NOWHERE is
+    # different: the captain's value is gone for every future build of every
+    # reel, so it remains reported in either scope. Evidence:
+    # `docs/RULE_EVIDENCE.md`, section `one-word-for-two-kinds-of-stale`.
     lost = _edits.lost_overrides(stale)
     for record in lost:
         print(f"  ! {name}: THE CAPTAIN'S "
@@ -7362,7 +7384,8 @@ def _place_transition_element(pool, project, timeline, name: str,
 
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
                       draw_gain: float = FALLBACK_DRAW_GAIN,
-                      edit_ledger_rows=None):
+                      edit_ledger_rows=None,
+                      single_reel_scope: bool = False):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -8107,7 +8130,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     held = apply_transform_overrides(
         name, track_plan, video_row_by_angle, placements_list,
         timeline, transcript, project_folder, width, height,
-        look=look, screen_window=screen_window, draw_gain=draw_gain)
+        look=look, screen_window=screen_window, draw_gain=draw_gain,
+        report_sibling_stale=not single_reel_scope)
     if held:
         print(f"  {name}: {held} captain's transform hold(s) in force",
               file=sys.stderr)
@@ -8589,6 +8613,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
 
 
+def _write_reel_record(project_folder: str, writer, *args, **kwargs):
+    """Hold the short shared reel-record lock around a sidecar merge."""
+    from library.tools.project_file_lock import lock_project_file
+
+    lock_path = os.path.join(project_folder, "pipeline_output", "review",
+                             "reel_build_record_writes")
+    with lock_project_file(lock_path):
+        return writer(*args, **kwargs)
+
+
 def _write_overlay_records(review_dir: str, built_reel_names,
                            overlay_records: dict) -> str:
     """Merge this build's transition-element records into the stored file.
@@ -8771,6 +8805,51 @@ def reel_numbers(only) -> Optional[set]:
             f"only must be reel NUMBERS, got {only!r} ({bad}). A build "
             f"cannot guess which moment a name refers to, and guessing "
             f"wrong places the wrong reel onto a timeline.") from bad
+
+
+def _requested_approved_moments(moments, only, proposal_path: str,
+                                action: str):
+    """Select the requested approved moments before any per-reel pass."""
+    wanted = reel_numbers(only)
+    approved = [moment for moment in moments
+                if str(getattr(moment.approval, "value", moment.approval))
+                == "approved"]
+    selected = [moment for moment in approved
+                if wanted is None or int(moment.number) in wanted]
+    if wanted is not None:
+        missing = wanted - {int(moment.number) for moment in selected}
+        if missing:
+            request = "asked for" if action == "ask" else "asked to build"
+            raise ReelBuildError(
+                f"{request} reel(s) {sorted(missing)}, and the plan "
+                f"{proposal_path} has no APPROVED moment with those "
+                f"numbers. Approved: "
+                f"{sorted(int(moment.number) for moment in approved)}. "
+                f"A build that quietly skipped them would report success "
+                f"having completed nothing for this request.")
+    return selected, wanted
+
+
+def _redraw_edits_for_moments(moments, transcript: dict, edits: list) -> list:
+    """Return closer pins whose current opening belongs to these reels."""
+    from library.tools.captain_edits import (
+        _closer_opening_tokens, _tokens)
+
+    relevant = []
+    for edit in edits or ():
+        if edit.get("kind") != "redraw_closer":
+            continue
+        opening = _tokens(edit["from_phrase"])
+        for moment in moments or ():
+            cta = getattr(moment, "call_to_action", None)
+            if cta is None:
+                continue
+            if (_closer_opening_tokens(
+                    transcript, float(cta.timeline_start),
+                    float(cta.timeline_end), len(opening)) == opening):
+                relevant.append(edit)
+                break
+    return relevant
 
 
 def built_name(moment, name_suffix: str = "") -> str:
@@ -10531,35 +10610,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     if unit_refusal:
         raise ReelBuildError(unit_refusal)
 
-    # ── TRANSFORM DRIFT BASELINE (start of build) ──
-    # Every reel's own build snapshot compared against a self-read of
-    # its live timeline, printing the per-reel factor
-    # (`library/tools/drift_check.py`). The same check runs again at
-    # the end of this call, so whatever halves Pan and Tilt the way
-    # 2026-09-16 did is bracketed to this build instead of to 21
-    # hours. Reports, never refuses: a detector that fails the build
-    # is a gate, and this one is an instrument. Its cursor excursions
-    # run under an EXCLUSIVE hold because they move the instance cursor;
-    # handle-only shared reads wait until the self-reads restore it.
-    try:
-        from library.tools import drift_check as _drift_start
-        with resolve_lease("build reels drift baseline",
-                           exclusive=True):
-            _drift_start.check_project(project_folder, when="build start",
-                                       resolve=resolve, project=project)
-    except Exception as exc:  # noqa: BLE001
-        print(f"  drift baseline unavailable ({exc!r}) - the build "
-              f"continues without a start bracket", flush=True)
-
     from library.tools.reel_proposal import proposal_path as _proposal_path
     proposal_path = str(_proposal_path(project_folder))
     moments = read_proposal(proposal_path)
+    building, wanted = _requested_approved_moments(
+        moments, only, proposal_path, "build")
 
     # Archive the plan so it survives being overwritten by the next
-    # selector run.  The archive sits alongside the live file, named
-    # with a timestamp so it sorts chronologically and never collides.
+    # selector run. A single-reel build archives just that reel's plan
+    # entry, so its history write does not copy or claim sibling entries.
     from library.tools.plan_provenance import archive_plan
-    archive_plan(proposal_path)
+    archive_plan(
+        proposal_path,
+        only_reel_numbers=(sorted(wanted) if wanted is not None else None))
     
     # Read as BYTES, once: the same read supplies the transcript every
     # decision below is made from AND the digest the rebuild-need
@@ -10584,7 +10647,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         snap_moment_to_speech,
     )
     from library.tools.reel_ledger import stored_windows as _stored_windows
-    repaired = []
+    repaired_by_number = {}
     # The DECLARED windows, captured BEFORE the repair below moves
     # anything: the snap widens boundaries outward, so after it the
     # moment no longer says what was declared - and the window audit
@@ -10594,9 +10657,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     stored_siblings: dict = {}
     repair_moves_by_number: dict = {}
     for moment in moments:
+        body, closer = _stored_windows(moment)
         stored_siblings[int(moment.number)] = {
-            "body": _stored_windows(moment)[0],
-            "closer": _stored_windows(moment)[1],
+            "body": body,
+            "closer": closer,
         }
     tail_repairs: list = []
     from library.tools.tail_extend_authorization import (
@@ -10610,7 +10674,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"tail_extend_authorizations cannot be read: {exc}. A "
             f"recorded yes the build cannot read must refuse, never "
             f"build silently past it.") from exc
-    for moment in moments:
+    for moment in building:
         fixed, moves = snap_moment_to_speech(
             moment, transcript, tail_extend_authorizations=_tail_auths)
         repair_moves_by_number[int(moment.number)] = list(moves)
@@ -10658,8 +10722,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             for line in decision_lines(moment.number, move, transcript,
                                        project_folder):
                 print(line, file=sys.stderr)
-        repaired.append(fixed)
-    moments = repaired
+        repaired_by_number[int(moment.number)] = fixed
+    moments = [repaired_by_number.get(int(moment.number), moment)
+               for moment in moments]
     if tail_repairs:
         # Every tail repair lands on the human-readable ledger beside
         # the pin-vs-snap provenance that let a human check the 09-18
@@ -10688,9 +10753,28 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"build cannot read must refuse, never build silently past "
             f"it.") from exc
     _pin_applied: list = []
-    if any(e.get("kind") == "redraw_closer" for e in _pin_edits):
-        moments, _pin_applied, _pin_held, _pin_stale = \
-            _edits.apply_closer_redraws(moments, transcript, _pin_edits)
+    _pin_held: list = []
+    _pin_stale: list = []
+    pins_processed = False
+    if wanted is None:
+        if any(edit.get("kind") == "redraw_closer" for edit in _pin_edits):
+            redrawn, _pin_applied, _pin_held, _pin_stale = \
+                _edits.apply_closer_redraws(moments, transcript, _pin_edits)
+            moments = redrawn
+            pins_processed = True
+    else:
+        _build_edits = _redraw_edits_for_moments(
+            building, transcript, _pin_edits)
+        if _build_edits:
+            redrawn, _pin_applied, _pin_held, _pin_stale = \
+                _edits.apply_closer_redraws(
+                    building, transcript, _build_edits)
+            redrawn_by_number = {
+                int(moment.number): moment for moment in redrawn}
+            moments = [redrawn_by_number.get(int(moment.number), moment)
+                       for moment in moments]
+            pins_processed = True
+    if pins_processed:
         for record in _pin_applied:
             print(f"  Reel {record['reel']:02d}: closer "
                   f"{record['was'][0]:.3f}s -> {record['now'][0]:.3f}s "
@@ -10702,6 +10786,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                   file=sys.stderr)
         _edits.report_stale(_pin_stale)
 
+    building = [moment for moment in moments
+                if str(getattr(moment.approval, "value", moment.approval))
+                == "approved"
+                and (wanted is None or int(moment.number) in wanted)]
     # The captain's recorded strikes, read ONCE for the batch: the same
     # store `select_reels` enforces on new proposals, applied here to
     # APPROVED moments as cuts inside their own ranges. Selection never
@@ -10736,41 +10824,28 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         snapshot = snapshot_timeline(timeline, project.GetName())
     master_clips = snapshot.clips
 
-    # WHICH moments this call builds, decided before anything is touched.
-    # `only` is reel numbers; an approved moment not named by it is left
-    # exactly as it is, timeline and all.
-    wanted = reel_numbers(only)
-    building = [m for m in moments
-                if str(getattr(m.approval, "value", m.approval)) == "approved"
-                and (wanted is None or int(m.number) in wanted)]
-    if wanted is not None:
-        missing = wanted - {int(m.number) for m in building}
-        if missing:
-            raise ReelBuildError(
-                f"asked to build reel(s) {sorted(missing)}, and the plan "
-                f"{proposal_path} has no APPROVED moment with those "
-                f"numbers. Approved: "
-                f"{sorted(int(m.number) for m in building)}. A build that "
-                f"quietly skipped them would report success having placed "
-                f"nothing.")
+    # `building` was selected before the repair passes, so only the
+    # requested reel has been snapped, pinned or reported above.
 
     # ── CLOSER-FIT BASELINE (start of build) ──
     # How many reels share each ending clip, and the recorded fit
     # verdict per reel (`library/tools/closer_fit.py`, the 2026-09-19
-    # ruling: reuse is not a defect, topical misfit is). Grouped over
-    # every APPROVED moment, not just the ones this call builds, so an
-    # `--only` build reports the true share count rather than the
-    # count within its own subset. Verdicts come from the survey
-    # sidecar, never from a fresh judgement: a build places, it does
-    # not ask. Reports, never refuses - like every instrument here, a
-    # failure to read is said on stderr and the build continues.
+    # ruling: reuse is not a defect, topical misfit is). This is a
+    # project-wide report, so a single-reel build leaves it alone rather
+    # than surveying and reporting sibling reels.
     try:
         from library.tools import closer_fit as _closer_fit
-        _fit_approved = [
-            m for m in moments
-            if str(getattr(m.approval, "value", m.approval)) == "approved"]
-        _fit_groups = _closer_fit.reuse_groups(_fit_approved)
-        _fit_verdicts = _closer_fit.read_fit_verdicts(project_folder)
+        if wanted is None:
+            _fit_approved = [
+                m for m in moments
+                if str(getattr(m.approval, "value", m.approval))
+                == "approved"]
+            _fit_groups = _closer_fit.reuse_groups(_fit_approved)
+            _fit_verdicts = _closer_fit.read_fit_verdicts(project_folder)
+        else:
+            _fit_groups, _fit_verdicts = [], {}
+            print("  closer-fit baseline skipped for single-reel scope",
+                  flush=True)
     except Exception as exc:  # noqa: BLE001 - instrument, not gate.
         print(f"  closer-fit baseline unavailable ({exc!r}) - reels "
               f"build without the share/fit report", flush=True)
@@ -10817,6 +10892,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # passing gate. See `timelines_to_replace` and
     # `assert_deletion_scope`.
     target_names = {built_name(m, name_suffix) for m in building}
+    # The transform baseline is a per-reel read. Keep it on the names
+    # this call owns so an `--only-reel` lane does not survey unrelated
+    # timelines or serialize another lane's placement.
+    try:
+        from library.tools import drift_check as _drift_start
+        with resolve_lease("build reels drift baseline",
+                           exclusive=True):
+            _drift_start.check_project(
+                project_folder, when="build start", resolve=resolve,
+                project=project, only_reels=sorted(target_names))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  drift baseline unavailable ({exc!r}) - the build "
+              f"continues without a start bracket", flush=True)
     # In BUILD order, not set order: everything downstream - the gate
     # scope, the promotion order, the record - reads this mapping's
     # order, and a run must report reels in the order it built them.
@@ -10868,25 +10956,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
               f"building without it", file=_sys.stderr)
         prebuild_census = {"unavailable": str(census_failed)}
 
-    # DECLARED, and CARRIED: which reels have what the project declares.
-    # Over EVERY approved reel, not the ones this call places - the
-    # reels a build leaves behind are exactly the ones that go stale,
-    # and 2026-09-11 shipped a logo card that reached one reel of eight
-    # while the engine's claim was "every reel inherits it". Read-only,
-    # printed, never a refusal: whether to rebuild a diverged reel is
-    # the captain's decision (`library/tools/reel_divergence.py`).
-    # EVERY APPROVED REEL, read back once. Two readers want exactly
-    # these reads - the divergence survey below and the rebuild-need
-    # decision in the loop (`reel_rebuild_need`) - so the reads happen
-    # HERE, once, and both are handed the result. Measured on the
-    # captain's eight reels: 0.043-0.153 s each, 0.445 s for all
-    # eight, which is what makes a read-back affordable per build at
-    # all. Taken outside the survey's try so a survey that fails does
-    # not silently cost every reel a placement.
+    # The divergence survey is a per-reel read. The `--only` build
+    # measures only the timelines it owns; project-wide asset
+    # declarations remain inputs to the target reel's result.
     from library.tools import reel_divergence as _divergence
-    _approved = [built_name(m, name_suffix) for m in moments
-                 if str(getattr(m.approval, "value",
-                                m.approval)) == "approved"]
+    _approved = [built_name(m, name_suffix) for m in building]
     try:
         live_snapshots, live_unread = _divergence.snapshots_for(
             project, _approved, snapshot_fn=snapshot_timeline)
@@ -10926,21 +11000,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
               f"building without it", file=_sys.stderr)
         divergence_report = {"unavailable": str(divergence_failed)}
 
-    # The forced consultation (`library/tools/edit_depth.py`): each
-    # layer against the one it derives from, every build, read-only.
-    # One import, one call - the module runs only on `edit_video`
-    # otherwise, while the reels it never consults are the ones the
-    # captain reviews. Printed, never a refusal: frozen step-output
-    # history fails a wording scan no rebuild can fix, and a witness
-    # that refused on history would hold every build hostage to it.
-    try:
-        coherence_report = report_layer_coherence(project_folder)
-    except Exception as coherence_failed:  # noqa: BLE001
-        import sys as _sys
-        print(f"  layer-coherence witness unavailable "
-              f"({coherence_failed}) - building without it",
-              file=_sys.stderr)
-        coherence_report = {"unavailable": str(coherence_failed)}
+    # Layer coherence is a project-wide witness with a shared output.
+    # A single-reel lane does not run or overwrite that project report.
+    if wanted is None:
+        try:
+            coherence_report = report_layer_coherence(project_folder)
+        except Exception as coherence_failed:  # noqa: BLE001
+            import sys as _sys
+            print(f"  layer-coherence witness unavailable "
+                  f"({coherence_failed}) - building without it",
+                  file=_sys.stderr)
+            coherence_report = {"unavailable": str(coherence_failed)}
+    else:
+        coherence_report = {"skipped": "single-reel build scope"}
 
     # Proof in proportion to the edit: what verification THIS build
     # owes, computed from real state and SAID before anything is
@@ -11373,31 +11445,37 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # recorded by the survey before anything was re-cut. Said
             # here, beside the echo report, and carried on the record
             # below - and the reel is placed whole whatever it says.
-            try:
-                _fit_group = _closer_fit.group_for(moment, _fit_groups)
-                _fit_context = _closer_fit.fit_context(
-                    moment, transcript, _fit_group,
-                    extra_cuts=moment_cuts,
-                    insisted_spans=moment_insisted)
-                _fit_verdict = (_fit_verdicts.get(str(int(moment.number)))
-                                or None)
-                for _fit_line in _closer_fit.verdict_lines(
-                        int(moment.number), _fit_context, _fit_verdict):
-                    print(_fit_line, flush=True)
+            if wanted is not None:
                 closer_fit_report[str(int(moment.number))] = {
-                    "reuse_count": _fit_context.get("reuse_count"),
-                    "shared_with": _fit_context.get("shared_with"),
-                    "closer_range": _fit_context.get("closer_range"),
-                    "content_hash": _fit_context.get("content_hash"),
-                    "verdict": (_fit_verdict or {}).get("verdict",
-                                                        "unjudged"),
-                    "reason": (_fit_verdict or {}).get("reason", ""),
+                    "status": "skipped",
+                    "reason": "single-reel build scope",
                 }
-            except Exception as exc:  # noqa: BLE001 - instrument,
-                # not gate: a fit report that cannot be rendered must
-                # not fail the placement it reports on.
-                print(f"  closer-fit report unavailable for "
-                      f"{name} ({exc!r})", flush=True)
+            else:
+                try:
+                    _fit_group = _closer_fit.group_for(moment, _fit_groups)
+                    _fit_context = _closer_fit.fit_context(
+                        moment, transcript, _fit_group,
+                        extra_cuts=moment_cuts,
+                        insisted_spans=moment_insisted)
+                    _fit_verdict = (
+                        _fit_verdicts.get(str(int(moment.number))) or None)
+                    for _fit_line in _closer_fit.verdict_lines(
+                            int(moment.number), _fit_context, _fit_verdict):
+                        print(_fit_line, flush=True)
+                    closer_fit_report[str(int(moment.number))] = {
+                        "reuse_count": _fit_context.get("reuse_count"),
+                        "shared_with": _fit_context.get("shared_with"),
+                        "closer_range": _fit_context.get("closer_range"),
+                        "content_hash": _fit_context.get("content_hash"),
+                        "verdict": (_fit_verdict or {}).get(
+                            "verdict", "unjudged"),
+                        "reason": (_fit_verdict or {}).get("reason", ""),
+                    }
+                except Exception as exc:  # noqa: BLE001 - instrument,
+                    # not gate: a fit report that cannot be rendered must
+                    # not fail the placement it reports on.
+                    print(f"  closer-fit report unavailable for "
+                          f"{name} ({exc!r})", flush=True)
             # The keep ranges and the planned cards, by the ONE spelling
             # (`derive_reel_ranges_and_cards`) the ask path shares: a
             # strike covering the whole body raises `ExclusionWipesBody`
@@ -12020,6 +12098,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # being told again.
                     do_not_draw=suppression_rules,
                     edit_ledger_rows=_ledger_mine,
+                    single_reel_scope=(wanted is not None),
                 )
                 _header_record = build_result.get("post_header")
                 if isinstance(_header_record, dict):
@@ -12204,17 +12283,20 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # assumption already produced 42 confident meaningless errors on this
     # path.
     from library.tools.explainer_plan import write_plans as _write_explainers
-    _write_explainers(project_folder, explainer_plans)
+    _write_reel_record(project_folder, _write_explainers,
+                       project_folder, explainer_plans)
 
     # What each reel's speaker lower thirds really were, INCLUDING the
     # reels with none, and merged per reel for the reason above.
     from library.tools.speaker_identity import write_plans as _write_lower
-    _write_lower(project_folder, lower_third_plans)
+    _write_reel_record(project_folder, _write_lower,
+                       project_folder, lower_third_plans)
 
     # What each reel's post header really was, for F25, merged per reel.
     from library.tools.reel_post_header import (
         write_plans as _write_post_headers)
-    _write_post_headers(project_folder, post_header_records)
+    _write_reel_record(project_folder, _write_post_headers,
+                       project_folder, post_header_records)
 
     # What each reel's semantic visuals really were, INCLUDING the reels
     # with none. MERGED per reel, for the same reason `write_provenance`
@@ -12223,7 +12305,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # an absence. See `library/tools/reel_semantic_visual.py`.
     from library.tools.reel_semantic_visual import (
         write_records as _write_semantic_records)
-    _write_semantic_records(project_folder, semantic_records)
+    _write_reel_record(project_folder, _write_semantic_records,
+                       project_folder, semantic_records)
 
     # What each reel's span picture plan resolved to, INCLUDING the
     # reels with none. MERGED per reel, for the same reason as the V6
@@ -12232,7 +12315,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # timelines against an absence.
     from library.tools.reel_semantic_visual import (
         write_span_records as _write_span_records)
-    _write_span_records(project_folder, span_records)
+    _write_reel_record(project_folder, _write_span_records,
+                       project_folder, span_records)
 
     # The model answers this build still owes, counted across reels.
     # The per-reel stderr lines above are SAID, not REPORTED - nothing
@@ -12246,7 +12330,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # wants to look at is still worth building.
     from library.tools import awaiting_model_answers as _awaiting
     awaiting_report = _awaiting.collect(
-        project_folder, motion_records=motion_records)
+        project_folder, motion_records=motion_records,
+        only_reels=(None if wanted is None else
+                    sorted(target_names | staged_names)))
     for _line in _awaiting.summary_lines(awaiting_report):
         print(f"  {_line}", file=sys.stderr)
 
@@ -12289,7 +12375,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # defect #568 fixed for `write_provenance` and the same one seen from
     # here; leaving a stale entry would make F18 report an element as
     # missing from a reel that was correctly rebuilt without one.
-    _write_overlay_records(review_dir, built_reel_names, overlay_records)
+    _write_reel_record(project_folder, _write_overlay_records, review_dir,
+                       built_reel_names, overlay_records)
 
     # A reel the decision LEFT ALONE was never staged, so it is not in
     # the mapping the gate grades or the promotion moves. Dropped here
@@ -12557,15 +12644,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         except Exception as exc:  # noqa: BLE001
             print(f"  version-control record failed: {exc!r} - "
                   f"the reels are promoted and unaffected", flush=True)
-        # The detection half of the conformance sweep, over the
-        # PROMOTED project - every reel timeline, not just the ones
-        # this call placed. The refusing gate above stays scoped (see
-        # its comment); this reports whether the round disturbed a
-        # reel it did not touch, and never refuses - a PLAN-MISMATCH
-        # on an untouched reel means an older plan, not a defective
-        # build (`sweep_all_reels_informational`).
-        # The sweep reads every reel timeline, so like the gate it
-        # reads under a SHARED hold rather than between placements.
+        # A single-reel lane cannot inspect sibling timelines while they
+        # may be changing. Full builds keep their established
+        # whole-project sweep. The sweep is informational and never
+        # refuses; scoped report writes merge under a file lock.
         with resolve_lease("sweep all reels", exclusive=False):
             sweep_all_reels_informational(
                 project_folder=project_folder,
@@ -12575,7 +12657,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 transcript_path=os.path.join(
                     project_folder,
                     "pipeline_output/scratch/timeline_transcript/"
-                    "transcript.json"))
+                    "transcript.json"),
+                only_reels=(sorted(target_names) if only is not None
+                            else None))
 
     # File the layer-vs-source findings OUTSIDE the scan, and keep
     # only counts in the record below. The full rows quote the heard
@@ -12587,26 +12671,29 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # no quoted text and cannot self-match. Filing never fails the
     # build - the witness is advisory, and a missing sidecar just
     # means the counts below are all there is.
-    try:
-        from library.tools import layer_coherence as _coherence
-        _coherence_path = _coherence.write_coherence_report(
-            project_folder, coherence_report)
-        coherence_summary = _coherence.summarize_coherence(
-            coherence_report)
-        # The filename only, never the absolute path: the summary
-        # lives in `pipeline_data.json` (which the scan reads), and a
-        # project folder named for the heard form must not become a
-        # match. The file sits beside the state file that names it.
-        coherence_summary["report_path"] = _coherence.\
-            COHERENCE_REPORT_FILENAME
-    except Exception as coherence_file_failed:  # noqa: BLE001
-        import sys as _sys
-        print(f"  layer-coherence filing unavailable "
-              f"({coherence_file_failed}) - counts only",
-              file=_sys.stderr)
-        coherence_summary = {"status": "unfiled", "owned_total": 0,
-                             "wording": 0, "pins": 0, "assets": 0,
-                             "informational": 0}
+    if wanted is None:
+        try:
+            from library.tools import layer_coherence as _coherence
+            _coherence.write_coherence_report(
+                project_folder, coherence_report)
+            coherence_summary = _coherence.summarize_coherence(
+                coherence_report)
+            # Keep only the filename in pipeline_data.json.
+            coherence_summary["report_path"] = _coherence.\
+                COHERENCE_REPORT_FILENAME
+        except Exception as coherence_file_failed:  # noqa: BLE001
+            import sys as _sys
+            print(f"  layer-coherence filing unavailable "
+                  f"({coherence_file_failed}) - counts only",
+                  file=_sys.stderr)
+            coherence_summary = {"status": "unfiled", "owned_total": 0,
+                                 "wording": 0, "pins": 0, "assets": 0,
+                                 "informational": 0}
+    else:
+        coherence_summary = {
+            "status": "skipped", "reason": "single-reel build scope",
+            "owned_total": 0, "wording": 0, "pins": 0, "assets": 0,
+            "informational": 0}
 
     # ── TRANSFORM DRIFT CHECK (end of build) ──
     # The closing half of the baseline above: start and end together
@@ -12620,7 +12707,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         with resolve_lease("build reels drift end", exclusive=True):
             _drift_end_report = _drift_end.check_project(
                 project_folder, when="build end",
-                resolve=resolve, project=project)
+                resolve=resolve, project=project,
+                only_reels=sorted(target_names))
     except Exception as exc:  # noqa: BLE001
         print(f"  drift end-check unavailable ({exc!r}) - the build "
               f"record stands without an end bracket", flush=True)
@@ -12771,7 +12859,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         pending_promotions = _holds.pending_promotions(
             project_folder, timeline_names=_live_hold_names)
         pending_report = _holds.report_pending(
-            project_folder, timeline_names=_live_hold_names)
+            project_folder, timeline_names=_live_hold_names,
+            owned_staging_names=staged_names)
     except Exception as pending_unreadable:  # noqa: BLE001
         pending_promotions = []
         pending_report = ""
@@ -13965,8 +14054,9 @@ def sweep_all_reels_informational(project_folder: str,
                                   resolve_project_name: str,
                                   master_timeline_name: str,
                                   plan_path: str,
-                                  transcript_path: str) -> dict:
-    """Grade EVERY reel timeline and PRINT the findings. Never raises.
+                                  transcript_path: str,
+                                  only_reels=None) -> dict:
+    """Grade selected reel timelines and PRINT the findings. Never raises.
 
     The detection half of the conformance sweep, restored beside the
     scoped refusing gate rather than in place of it. The gate
@@ -14015,7 +14105,7 @@ def sweep_all_reels_informational(project_folder: str,
             json_path=sweep_path,
             review_dir=review_dir,
             project_folder=str(project_folder),
-            only_reels=None,
+            only_reels=(None if only_reels is None else list(only_reels)),
         )
     except Exception as exc:  # noqa: BLE001
         print(f"  whole-project conformance sweep unavailable "

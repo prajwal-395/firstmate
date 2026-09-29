@@ -26,7 +26,8 @@ MOTION_LAYER = "picture_motion"
 
 def collect(project_folder: str,
             motion_records: Optional[Sequence[dict]] = None,
-            state: Optional[dict] = None) -> dict:
+            state: Optional[dict] = None,
+            only_reels=None) -> dict:
     """The outstanding model answers, per reel, from what the build wrote.
 
     The semantic half is read off the stored record file
@@ -39,6 +40,8 @@ def collect(project_folder: str,
     `state["step_outputs"]["build_reels"]["reel_build"]["picture_motion"]`.
     """
     owing: Dict[str, List[str]] = {}
+    wanted = (None if only_reels is None else
+              {str(reel) for reel in only_reels})
 
     def _owe(reel: str, layer: str) -> None:
         name = str(reel or "")
@@ -52,6 +55,8 @@ def collect(project_folder: str,
         stored = sem_vis.read_records(project_folder)
         for record in (stored.get("plans") or []):
             if not isinstance(record, dict):
+                continue
+            if wanted is not None and str(record.get("reel")) not in wanted:
                 continue
             if (record.get("basis") == sem_vis.AWAITING_MODEL_ANSWER
                     and not (record.get("segments") or [])):
@@ -74,6 +79,8 @@ def collect(project_folder: str,
         awaiting = "awaiting_model_answer"
     for record in (motion or []):
         if not isinstance(record, dict):
+            continue
+        if wanted is not None and str(record.get("reel")) not in wanted:
             continue
         if record.get("basis") == awaiting:
             _owe(record.get("reel"), MOTION_LAYER)
