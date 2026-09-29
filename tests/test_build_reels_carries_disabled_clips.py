@@ -44,11 +44,12 @@ class _Media:
 
 
 class _Clip:
-    def __init__(self, name, path, start, enabled):
+    def __init__(self, name, path, start, enabled, duration=48):
         self.name = name
         self.path = path
         self.start = start
         self.enabled = enabled
+        self.duration = duration
 
     def GetName(self):
         return self.name
@@ -57,10 +58,10 @@ class _Clip:
         return self.start
 
     def GetEnd(self):
-        return self.start + 48
+        return self.start + self.duration
 
     def GetDuration(self):
-        return 48
+        return self.duration
 
     def GetMediaPoolItem(self):
         return _Media(self.path)
@@ -80,9 +81,13 @@ class _Clip:
 
 
 class _Timeline:
-    def __init__(self, name, clip):
+    def __init__(self, name, clip, semantic_index=1):
         self.name = name
-        self.rows = {"video": [("Semantic", [clip])], "audio": []}
+        clips = clip if isinstance(clip, list) else [clip]
+        video = [(f"Video {index}", [])
+                 for index in range(1, semantic_index)]
+        video.append(("Semantic", clips))
+        self.rows = {"video": video, "audio": []}
 
     def GetName(self):
         return self.name
@@ -202,6 +207,87 @@ def _semantic_record(reel, segment_id, display="Launch plan"):
     }
 
 
+def _rerendered_title(copy, index, *, rebuilt):
+    """A saved Semantic props row before or after a rerender.
+
+    These are synthetic values with the same props differences observed
+    between Reel 15's retired and staging renders: theme provenance and a
+    default layer/run flag appeared, and the third card's color and anchor
+    changed. Type, copy and semantic slot remain the same.
+    """
+    text = list(copy) if isinstance(copy, (list, tuple)) else [copy]
+    element = {
+        "element": "title_lockup",
+        "runs": [{"text": line, "type_role": "display" if not index
+                  else "supporting"} for line in text],
+        "subject": f"subject {index}",
+        "why": f"reason {index}",
+        "anchor": "centre" if rebuilt and index == 2 else "top_centre",
+        "color": "#FBF0B8" if rebuilt and index == 2 else "#aabbcc",
+        "colorBasis": ("brand palette role 'text' of 'fixture'"
+                       if rebuilt else "brand palette role 'text'"),
+        "data": {},
+        "asset": "",
+        "entrance": "fade",
+        "exit": "fade",
+    }
+    if rebuilt:
+        element["layer"] = "above"
+        for run in element["runs"]:
+            run["uppercase"] = False
+    return element
+
+
+def _write_reel15_semantic_case(folder, final, staging, *, changed=None):
+    from library.tools.reel_disabled_clip_carry import semantic_graphic_identity
+
+    graphics = [
+        ("mg_live_a", "mg_stage_a", ["Graphic A"], 0, 96),
+        ("mg_live_b", "mg_stage_b",
+         ["Graphic B top", "Graphic B bottom"], 389, 144),
+        ("mg_live_c", "mg_stage_c", ["Graphic C"], 882, 96),
+    ]
+    props_dir = (Path(folder) / "pipeline_output" / "steps" /
+                 "4_06_render_motion_graphics" / "motion_graphics")
+    props_dir.mkdir(parents=True, exist_ok=True)
+    old_segments, new_segments = [], []
+    for index, (old_id, new_id, copy, start, duration) in enumerate(graphics):
+        old_element = _rerendered_title(copy, index, rebuilt=False)
+        new_copy = (["Changed copy", *copy[1:]]
+                    if changed == "copy" and index == 0 else copy)
+        new_element = _rerendered_title(new_copy, index, rebuilt=True)
+        if changed == "element_type" and index == 0:
+            new_element["element"] = "different_title"
+        for segment_id, element in ((old_id, old_element),
+                                    (new_id, new_element)):
+            (props_dir / f"{segment_id}_props.json").write_text(
+                json.dumps({"elements": [element]}), encoding="utf-8")
+        old_segments.append({
+            "segment_id": old_id,
+            "overlay_path": str(props_dir / f"{old_id}.mov"),
+            "timeline_start": start / 24,
+            "timeline_end": (start + duration) / 24,
+        })
+        new_start = start + (1 if index == 1 else 0)
+        new_segments.append({
+            "segment_id": new_id,
+            "overlay_path": str(props_dir / f"{new_id}.mov"),
+            "timeline_start": new_start / 24,
+            "timeline_end": (new_start + duration) / 24,
+            "carry_identity": semantic_graphic_identity([new_element]),
+        })
+    review = Path(folder) / "pipeline_output" / "review"
+    review.mkdir(parents=True, exist_ok=True)
+    (review / "semantic_visual_plans.json").write_text(json.dumps({
+        "format": "semantic_visual_plans/1",
+        "plans": [
+            {"reel": final, "basis": "planned", "segments": old_segments},
+            {"reel": staging, "basis": "planned", "segments": new_segments},
+        ],
+    }), encoding="utf-8")
+    return graphics
+
+
 @pytest.mark.parametrize("new_display,should_promote", [
     ("Launch plan", True),
     ("A different message", False),
@@ -275,7 +361,7 @@ def test_build_reels_carries_or_refuses_disabled_semantic_graphic(
             "retired_enabled": False, "incoming_enabled": True,
             "staged_item": "new-render-name", "staged_start": 624,
             "staged_enabled_after": False,
-            "match_basis": "semantic graphic content and intent",
+            "match_basis": "semantic graphic type and copy",
         }]
         promoted = next(t for t in project.timelines
                         if t.GetName() == FINAL)
@@ -304,7 +390,105 @@ def test_semantic_identity_ignores_timing_but_keeps_content():
     changed = [{"element": "title", "runs": [{"text": "New message"}],
                 "anchor": "top_centre", "startFrame": 156,
                 "durationFrames": 48}]
+    changed_type = [{"element": "caption",
+                     "runs": [{"text": "Launch plan"}],
+                     "anchor": "top_centre", "startFrame": 156,
+                     "durationFrames": 48}]
+    restyled = [{"element": "title", "runs": [{"text": "Launch plan"}],
+                 "anchor": "centre", "color": "#fff", "layer": "above",
+                 "startFrame": 156, "durationFrames": 48}]
+    changed_asset = [{"element": "title",
+                      "runs": [{"text": "Launch plan"}],
+                      "asset": "different-logo.svg",
+                      "anchor": "top_centre", "startFrame": 156,
+                      "durationFrames": 48}]
 
     assert (semantic_graphic_identity(first)
             == semantic_graphic_identity(shifted))
     assert semantic_graphic_identity(first) != semantic_graphic_identity(changed)
+    assert (semantic_graphic_identity(first)
+            != semantic_graphic_identity(changed_type))
+    assert semantic_graphic_identity(first) == semantic_graphic_identity(restyled)
+    assert (semantic_graphic_identity(first)
+            != semantic_graphic_identity(changed_asset))
+
+
+@pytest.mark.parametrize("changed,should_promote", [
+    (None, True), ("copy", False), ("element_type", False),
+])
+def test_build_reels_carries_reel15_rerenders_and_refuses_changes(
+        tmp_path, monkeypatch, stub_resolve_script, changed, should_promote):
+    """Same-copy rerenders carry; changed copy or type blocks promotion."""
+    case_final = "Reel 15 - the-3d-nail-art-salon-beats-the-chains"
+    case_staging = case_final + " (rebuild staging)"
+    folder = _ready_project(tmp_path)
+    graphics = _write_reel15_semantic_case(
+        folder, case_final, case_staging, changed=changed)
+    old_clips, new_clips = [], []
+    for index, (old_id, new_id, _copy, start, duration) in enumerate(graphics):
+        old_clips.append(_Clip(
+            f"{old_id}.mov", f"/fixture/{old_id}.mov", start, False,
+            duration))
+        stage_start = start + (1 if index == 1 else 0)
+        new_clips.append(_Clip(
+            f"{new_id}.mov", f"/fixture/{new_id}.mov", stage_start, True,
+            duration))
+    original = _Timeline(case_final, old_clips, semantic_index=5)
+    staged = _Timeline(case_staging, new_clips, semantic_index=5)
+    project = _Project([
+        _Timeline("Fixture Timeline", _Clip("master", "/fixture/master.mov",
+                                             0, True)),
+        original, staged,
+    ])
+    review = Path(folder) / "pipeline_output" / "review"
+    (review / "plan_provenance.json").write_text(json.dumps({
+        "built_reels": [case_final, case_staging]}), encoding="utf-8")
+
+    promotion_results = []
+
+    def offline_rebuild(project_folder, **_kwargs):
+        result = reel_build.promote_staged_reels(
+            project_folder, "Fixture Project", "Fixture Timeline",
+            {case_final: case_staging}, organise=False,
+            track_plans=no_a_roll_track_plans({case_final: case_staging}))
+        promotion_results.append(result)
+        return result
+
+    monkeypatch.setattr(
+        reel_build, "resolve_project_exactly", lambda *_args: project)
+    execute = operations.Operation.execute
+
+    def skip_model_followups(self, project_folder, scope=None, **overrides):
+        if self.name in {"reel.ask", "reel.verify"}:
+            return SimpleNamespace(
+                refused=False, payload={}, status="completed")
+        return execute(self, project_folder, scope, **overrides)
+
+    monkeypatch.setattr(operations.Operation, "execute", skip_model_followups)
+    monkeypatch.setattr(reel_build, "rebuild_reels_in_project", offline_rebuild)
+    args = _args(folder)
+    args.only_reel = [15]
+    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"):
+        if should_promote:
+            manage_project.cmd_build_reels(args)
+        else:
+            with pytest.raises(reel_build.ReelBuildError,
+                               match="mg_live_a.mov"):
+                manage_project.cmd_build_reels(args)
+
+    if should_promote:
+        report = promotion_results[0]["replace_reports"][case_final]
+        carried = report["disabled_clip_carry"]["carried"]
+        assert len(carried) == 3
+        assert [entry["staged_item"] for entry in carried] == [
+            "mg_stage_a.mov", "mg_stage_b.mov", "mg_stage_c.mov"]
+        promoted = next(t for t in project.timelines
+                        if t.GetName() == case_final)
+        assert [clip.GetClipEnabled() for clip in
+                promoted.GetItemListInTrack("video", 5)] == [False] * 3
+        assert original not in project.timelines
+    else:
+        assert not promotion_results
+        assert original in project.timelines
+        assert staged in project.timelines
+        assert [clip.GetClipEnabled() for clip in new_clips] == [True] * 3

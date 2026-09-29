@@ -2,9 +2,11 @@
 
 Resolve stores `TimelineItem` enablement on the live timeline. Replacing that
 timeline throws the declaration away unless the build carries it to a matching
-staged item. Semantic graphics use their rendered content and resolved visual
-intent, because their render paths and record frames are expected to change.
-Other clips use their source path and source-frame range.
+staged item. Text-bearing Semantic graphics use element type, displayed copy,
+and any attached asset or data. Their styling and render paths can change
+between builds without changing which message the captain disabled. Other
+Semantic elements retain their complete non-timing identity. Other clips use
+their source path and source-frame range.
 """
 
 from __future__ import annotations
@@ -27,16 +29,37 @@ _TIMING_FIELDS = frozenset({
 
 
 def semantic_graphic_identity(elements) -> list[dict]:
-    """The content and visual intent of a rendered Semantic segment.
+    """Stable content identity for a rendered Semantic segment.
 
-    Timeline timing is omitted so an opening shift does not change a
-    graphic's identity. The element, copy, data, asset, treatment, layout,
-    colour and rationale stay in the identity.
+    A text-bearing element is identified by its element type and ordered
+    displayed copy. Its color, anchor, layer defaults, run formatting, and
+    rationale are presentation details that can be re-resolved on a rerender.
+    Timeline position is omitted so an opening shift does not change the key;
+    occurrence order distinguishes repeated identical graphics. Explicit
+    asset and data values remain part of the key. Elements without text retain
+    every non-timing property, so a graphic with no copy is only carried when
+    its actual visual intent stays the same.
     """
     normalized = []
     for element in elements or ():
         if not isinstance(element, dict):
             return []
+        runs = element.get("runs")
+        element_type = element.get("element")
+        if (isinstance(element_type, str) and element_type
+                and isinstance(runs, list) and runs
+                and all(isinstance(run, dict)
+                        and isinstance(run.get("text"), str)
+                        for run in runs)):
+            copy = [run["text"] for run in runs]
+            if any(copy):
+                normalized.append({
+                    "element": element_type,
+                    "copy": copy,
+                    "asset": element.get("asset", ""),
+                    "data": element.get("data", {}),
+                })
+                continue
         normalized.append({
             key: value for key, value in element.items()
             if key not in _TIMING_FIELDS
@@ -203,9 +226,11 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
                          retiring_timeline, staged_timeline) -> dict:
     """Disable staging items that confidently match disabled live items.
 
-    Matching is by content and intent, with occurrence order used only to
-    distinguish repeated identical graphics or source spans. Any missing,
-    changed-count or ambiguous match refuses the promotion by name.
+    Semantic text graphics match by element type and displayed copy; attached
+    assets and data stay in the key. Occurrence order distinguishes repeated
+    identical graphics. Other elements use their complete non-timing identity,
+    and media clips use source identity. Any missing or changed occurrence
+    count refuses the promotion by name.
     """
     from library.tools import reel_read
 
@@ -243,7 +268,7 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
                 f"{row_label} at frame {source['record_in']} has "
                 f"{len(old_matches)} matching source occurrence(s), but "
                 f"the rebuilt staging {staging!r} has "
-                f"{len(new_matches)}. The content and intent do not map "
+                f"{len(new_matches)}. The semantic content does not map "
                 f"uniquely; promotion is refused rather than re-enabling "
                 f"it.")
 
@@ -287,7 +312,7 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
                 "staged_enabled_before": staged_enabled_before,
                 "staged_enabled_after": enabled,
                 "match_basis": (
-                    "semantic graphic content and intent"
+                    "semantic graphic type and copy"
                     if (new_matches[index]["track"]["type"] == "video"
                         and "semantic" in str(
                             new_matches[index]["track"]["name"] or ""
