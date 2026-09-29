@@ -504,6 +504,115 @@ def test_refused_stored_answer_escalates_to_the_brain():
         "have-target")
 
 
+def test_fresh_upstream_answer_invalidates_dependent_cached_answers(
+        tmp_path):
+    """A changed producer invalidates its cached consumers transitively.
+
+    Catches: serving a cached `select_broll` or `mesh_spine` answer after a
+    fresh upstream answer changed the inputs it was based on.
+    """
+    dag = {
+        "nodes": [
+            {"id": "speech_sequence",
+             "step_ref": "steps/step_2_02_speech_sequence"},
+            {"id": "mesh_spine", "step_ref": "steps/step_2_05_mesh_spine"},
+            {"id": "assign_aroll",
+             "step_ref": "steps/step_3_01_assign_aroll"},
+            {"id": "select_broll",
+             "step_ref": "steps/step_3_02_select_broll"},
+            {"id": "color_grade",
+             "step_ref": "steps/step_5_01_color_grade"},
+            {"id": "creative_direction",
+             "step_ref": "steps/step_2_01_creative_direction"},
+        ],
+        "edges": [
+            {"from": "speech_sequence", "to": "mesh_spine"},
+            {"from": "mesh_spine", "to": "assign_aroll"},
+            {"from": "assign_aroll", "to": "select_broll"},
+            {"from": "select_broll", "to": "color_grade"},
+        ],
+    }
+    answers = tmp_path / "answers"
+    answers.mkdir()
+    cached = {
+        "speech_sequence.json",
+        "mesh_spine.json",
+        "assign_aroll.json",
+        "select_broll.json",
+        "step_5_01_color_grade__stills.json",
+        "creative_direction.json",
+    }
+    for name in cached:
+        (answers / name).write_text("{}", encoding="utf-8")
+
+    invalidated = eval_harness.invalidate_dependent_answers(
+        answers, ("speech_sequence",), dag=dag)
+
+    assert set(invalidated) == {
+        name[:-5] for name in cached - {"creative_direction.json"}}
+    assert {path.name for path in answers.iterdir()} == {
+        "creative_direction.json"}
+
+
+def test_answer_loop_drops_cached_consumer_before_its_request_is_served(
+        tmp_path, monkeypatch, capsys):
+    """A brain answer for an upstream request clears cache before the next.
+
+    Catches: a downstream LLM_REQUEST_READY racing ahead of the answer
+    loop's next poll and receiving an answer authored for older inputs.
+    """
+    import time as _time
+    from types import SimpleNamespace
+
+    project = tmp_path / "project"
+    requests = project / "pipeline_output" / "llm_requests"
+    responses = project / "pipeline_output" / "llm_responses"
+    requests.mkdir(parents=True)
+    responses.mkdir(parents=True)
+    answers = tmp_path / "answers"
+    answers.mkdir()
+    stale_spine = answers / "mesh_spine.json"
+    stale_spine.write_text('{"stale": true}', encoding="utf-8")
+    log = tmp_path / "edit.log"
+    speech_request = requests / "speech_sequence.json"
+    spine_request = requests / "mesh_spine.json"
+    log.write_text(f"LLM_REQUEST_READY: {speech_request}\n",
+                   encoding="utf-8")
+    completed = json.dumps({
+        "status": "SUCCESS", "completed": [], "failed": [],
+        "outstanding_failures": [], "stranded_failures": [],
+        "skipped": [],
+    }, indent=2)
+    sleeps = 0
+
+    def advance_run(_seconds):
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 1:
+            (responses / "speech_sequence.json").write_text(
+                '{"fresh": true}', encoding="utf-8")
+            with log.open("a", encoding="utf-8") as stream:
+                stream.write(f"LLM_REQUEST_READY: {spine_request}\n")
+        elif sleeps == 2:
+            (responses / "mesh_spine.json").write_text(
+                '{"fresh": true}', encoding="utf-8")
+            with log.open("a", encoding="utf-8") as stream:
+                stream.write(completed + "\n")
+
+    monkeypatch.setattr(eval_harness, "time", SimpleNamespace(
+        time=_time.time, sleep=advance_run))
+
+    result = eval_harness.answer_loop(
+        log, str(project), str(answers), set(), answer_timeout_seconds=10)
+
+    output = capsys.readouterr().out
+    assert "NEEDS BRAIN (no stored answer): mesh_spine" in output
+    assert "eval: auto-answered mesh_spine" not in output
+    assert result["fresh_answers"] == ["speech_sequence", "mesh_spine"]
+    assert result["invalidated_cached_answers"] == ["mesh_spine"]
+    assert not stale_spine.exists()
+
+
 def test_failed_summary_is_not_a_done_run():
     """Unscoped FAILED summaries raise with the log tail.
 

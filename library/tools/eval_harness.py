@@ -777,12 +777,70 @@ def resolve_bracket_end(scratch: str, state: dict) -> dict:
 
 # ── the run loop ─────────────────────────────────────────────────────
 
-def _dag_node_ids() -> set:
+def _edit_video_dag() -> dict:
     import json as _json
 
-    dag = _json.loads((REPO_ROOT / "library" / "processes" / "edit_video"
-                       / "dag.json").read_text(encoding="utf-8"))
-    return {node["id"] for node in dag["nodes"]}
+    return _json.loads((REPO_ROOT / "library" / "processes" / "edit_video"
+                        / "dag.json").read_text(encoding="utf-8"))
+
+
+def _dag_node_ids() -> set:
+    return {node["id"] for node in _edit_video_dag()["nodes"]}
+
+
+def _answer_node(step: str, dag: dict) -> str | None:
+    """Resolve a response filename to its edit_video DAG node."""
+    step_name = step.removesuffix("__stills")
+    for node in dag["nodes"]:
+        if (step_name == node["id"]
+                or step_name == Path(node["step_ref"]).name):
+            return node["id"]
+    return None
+
+
+def invalidate_dependent_answers(answers_dir: str | Path,
+                                 changed_steps,
+                                 dag: dict | None = None) -> list[str]:
+    """Drop cached model answers owned by changed steps and their consumers.
+
+    Eval answers are files, so they have no input fingerprint of their own.
+    A translated operation identifies which producer changed; fresh upstream
+    model answers use the same rule while the run is in progress. The edit
+    graph is the authority for which cached answers that producer invalidates.
+    """
+    dag = dag or _edit_video_dag()
+    nodes = {node["id"]: node for node in dag["nodes"]}
+    children: dict[str, set[str]] = {node_id: set() for node_id in nodes}
+    for edge in dag["edges"]:
+        children[edge["from"]].add(edge["to"])
+
+    affected: set[str] = set()
+    for step in changed_steps:
+        node_id = _answer_node(step, dag)
+        if node_id is None:
+            continue
+        pending = [node_id]
+        while pending:
+            current = pending.pop()
+            if current in affected:
+                continue
+            affected.add(current)
+            pending.extend(children[current] - affected)
+
+    aliases = set()
+    for node_id in affected:
+        node = nodes[node_id]
+        step_dir = Path(node["step_ref"]).name
+        aliases.update((node_id, step_dir, f"{step_dir}__stills"))
+
+    answer_dir = Path(answers_dir)
+    invalidated = []
+    for answer_name in sorted(aliases):
+        path = answer_dir / f"{answer_name}.json"
+        if path.is_file():
+            path.unlink()
+            invalidated.append(answer_name)
+    return invalidated
 
 
 def check_edit_chain(chain=EDIT_RERUN_CHAIN) -> None:
@@ -1024,10 +1082,10 @@ def seed_answers(answers_src: str, answers_dir: str, old_base: str,
                  new_base: str, path_rewrites: tuple = ()) -> list:
     """Seed the run's answers from a base-answers dir (outside git).
 
-    Untouched steps auto-answer from the base's own answers, so the
-    brain only writes steps the request should change: delete the stored
-    file for each of those before running. Paths inside answers are
-    rewritten to the clone. Returns the seeded step names.
+    Untouched steps auto-answer from the base's own answers. The request
+    owner and its descendants are invalidated after translation, and fresh
+    model answers invalidate their descendants while the run advances.
+    Paths inside answers are rewritten to the clone. Returns seeded steps.
     """
     seeded = []
     dest = Path(answers_dir)
@@ -1137,13 +1195,31 @@ def answer_loop(log_path: Path, project_dir: str, answers_dir: str,
     resumes. A FAILED summary raises for an unscoped run. A scoped stage may
     opt into PARTIAL or FAILED here, then must verify its completed steps and
     failure scope against the pipeline summary before it proceeds.
-    Returns the fresh-answer ledger.
+    Returns the fresh-answer and invalidated-cache ledgers.
     """
     project_path = Path(project_dir)
     responses = project_path / "pipeline_output" / "llm_responses"
     fresh: list = []
+    invalidated: set[str] = set()
+    awaiting_fresh: dict[str, str] = {}
     seen = 0
     start = time.time()
+
+    def collect_fresh_answers() -> None:
+        for step in tuple(awaiting_fresh):
+            target = responses / f"{step}.json"
+            if not target.is_file():
+                continue
+            del awaiting_fresh[step]
+            if step in fresh:
+                continue
+            fresh.append(step)
+            dropped = invalidate_dependent_answers(answers_dir, (step,))
+            invalidated.update(dropped)
+            if dropped:
+                print(f"eval: invalidated cached answers for {step} and "
+                      f"its dependents: {sorted(dropped)}", flush=True)
+
     while True:
         if time.time() - start > answer_timeout_seconds:
             raise TimeoutError("eval: answer loop timed out waiting "
@@ -1152,18 +1228,23 @@ def answer_loop(log_path: Path, project_dir: str, answers_dir: str,
             text = log_path.read_text(encoding="utf-8")
         except OSError:
             text = ""
+        collect_fresh_answers()
         status = parse_run_status(text)
         if status is not None:
             if status == "SUCCESS" or (
                     allow_partial and status in {"PARTIAL", "FAILED"}):
                 return {"run_status": status,
                         "fresh_answers": fresh,
-                        "auto_answered": sorted(answered_by_harness)}
+                        "auto_answered": sorted(answered_by_harness),
+                        "invalidated_cached_answers": sorted(invalidated)}
             raise RuntimeError(
                 f"eval: run ended {status} - see log tail:\n"
                 + "\n".join(text.splitlines()[-15:]))
         seen, requests = _watch_log_for_request(log_path, seen)
         for step, request_path in requests:
+            # An upstream response may have arrived between polls while the
+            # pipeline already wrote the next downstream request marker.
+            collect_fresh_answers()
             target = responses / f"{step}.json"
             stored = Path(answers_dir) / f"{step}.json"
             action = decide_answer(step, target.is_file(),
@@ -1175,17 +1256,15 @@ def answer_loop(log_path: Path, project_dir: str, answers_dir: str,
             elif action == "needs-brain":
                 why = ("no stored answer" if not stored.is_file()
                        else "stored answer refused, asks again")
+                awaiting_fresh[step] = request_path
                 print(f"eval: NEEDS BRAIN ({why}): {step}\n"
                       f"  request: {request_path}\n"
                       f"  write the answer to: {target}\n"
                       f"  (waiting up to "
                       f"{answer_timeout_seconds // 3600}h)", flush=True)
-        # A freshly written brain answer is recorded on the next pass.
-        for step, _ in requests:
-            target = responses / f"{step}.json"
-            if (target.is_file() and step not in answered_by_harness
-                    and step not in fresh):
-                fresh.append(step)
+            elif action == "have-target" and step not in answered_by_harness:
+                awaiting_fresh[step] = request_path
+            collect_fresh_answers()
         time.sleep(5)
 
 
@@ -1705,6 +1784,16 @@ def prepare_edit_spec(project_dir: str, pull_path: str, request: dict,
                        in zip(spec["clauses"], recorded)]}
 
 
+def _translated_owner_steps(ledger: dict) -> tuple:
+    """Steps a recorded translation changes through the edit request."""
+    translation = ledger.get("edit_spec") or {}
+    if translation.get("status") != "recorded":
+        return ()
+    return tuple(dict.fromkeys(
+        route["owner"] for route in translation["routes"]
+        if route["owner"] != "render"))
+
+
 def _translated_owner_reruns(ledger: dict) -> tuple:
     """Owners a recorded translation routed to that the edit chain skips.
 
@@ -1713,13 +1802,9 @@ def _translated_owner_reruns(ledger: dict) -> tuple:
     `select_reels`). Without its rerun, a correctly translated request is
     scored as not followed. `render` is the build itself.
     """
-    translation = ledger.get("edit_spec") or {}
-    if translation.get("status") != "recorded":
-        return ()
     return tuple(dict.fromkeys(
-        route["owner"] for route in translation["routes"]
-        if route["owner"] not in EDIT_RERUN_CHAIN
-        and route["owner"] != "render"))
+        step for step in _translated_owner_steps(ledger)
+        if step not in EDIT_RERUN_CHAIN))
 
 
 def _write_clarification_result(request: dict, out: Path, ledger: dict,
@@ -1823,10 +1908,16 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
                 if translation["status"] == "needs_clarification":
                     return _write_clarification_result(
                         request, out, ledger, base_readback)
+        ledger["invalidated_cached_answers"] = (
+            invalidate_dependent_answers(
+                answers, _translated_owner_steps(ledger)))
         edit = run_pipeline_edit(
             clone["dest"], str(out / "edit.log"), str(answers),
             extra_reruns=_translated_owner_reruns(ledger))
         ledger["edit"] = edit
+        ledger["invalidated_cached_answers"] = sorted(set(
+            ledger["invalidated_cached_answers"])
+            | set(edit.get("invalidated_cached_answers", [])))
     finally:
         release_heavy_lock()
 
@@ -1844,6 +1935,9 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
                         clone["dest"], str(out / "build.log"),
                         str(answers))
                     ledger["build"] = build
+                    ledger["invalidated_cached_answers"] = sorted(set(
+                        ledger["invalidated_cached_answers"])
+                        | set(build.get("invalidated_cached_answers", [])))
                     timeline = _built_timeline_name(
                         out / "build.log", clone["timeline"])
                     ledger["timeline"] = timeline
@@ -1992,8 +2086,9 @@ Per rung (after the rung lands, on a machine with Resolve standing by):
   ren eval run --base <pristine-base> --out <eval-dir> --rung 7
   # The host model answers each NEEDS BRAIN request from that request's
   # prompt and context. Without --answers, every model step is asked.
-  # Optional: --answers <base-answers-dir> reuses stored answers, so remove
-  # any step answer that should be reconsidered for this request first.
+  # Optional: --answers <base-answers-dir> reuses stored answers. Answers
+  # for translated edit owners and their dependents are invalidated
+  # automatically; remove another answer file to force it to be fresh.
   ren eval finalize --out <eval-dir> --request <id>   # per request, after judging
   ren eval report --out <eval-dir>                    # REPORT.md + domain x level
 
@@ -2043,8 +2138,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="base export mp4 (else measured as missing)")
     runner.add_argument("--answers", default="",
                         help="base-answers dir to seed untouched steps from "
-                             "(outside git); delete a step's file to force "
-                             "a fresh brain answer")
+                             "(outside git); routed owners and dependent "
+                             "answers are invalidated automatically")
     runner.add_argument("--rewrite", action="append", default=[],
                         metavar="OLD=NEW",
                         help="extra path rewrite pair (repeatable); the "
