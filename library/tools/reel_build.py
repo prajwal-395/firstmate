@@ -3630,11 +3630,14 @@ def reel_time(master_time: float,
 def placements(ranges: Sequence[Tuple[float, float]],
                clips: Sequence, fps: float,
                lead_frames: int = 0) -> List[dict]:
-    """Where each master clip lands on the reel, in exact frames and seconds.
+    """Where each master clip lands on the reel, in frames and seconds.
 
     One entry per (keep range, overlapping clip). `record` is the running
     offset on the REEL, so the ranges close up and both tracks move
-    together. Math is done in frames to prevent rounding holes at cuts.
+    together. Record positions and durations are frame-exact. Source
+    starts retain the measured master-to-source offset until the media
+    frame boundary, so adjacent word edges do not shift when the master
+    and source starts are rounded independently.
 
     `lead_frames` is what a HEAD full-frame card occupies before any
     footage plays. It is added to the record cursor and to nothing else -
@@ -3647,6 +3650,8 @@ def placements(ranges: Sequence[Tuple[float, float]],
     out: List[dict] = []
     cursor_frames = int(lead_frames)
     for range_start, range_end in ranges:
+        range_start = float(range_start)
+        range_end = float(range_end)
         range_start_f = int(round(range_start * fps))
         range_end_f = int(round(range_end * fps))
         range_frames = range_end_f - range_start_f
@@ -3660,28 +3665,41 @@ def placements(ranges: Sequence[Tuple[float, float]],
             if overlap_end_f - overlap_start_f <= 0:
                 continue
                 
-            into_clip_f = overlap_start_f - clip_start_f
-            clip_source_in_f = int(round(clip.source_in * fps))
-            
-            # Keep seconds for backward compatibility, but provide exact snapped frames
-            source_in_f = clip_source_in_f + into_clip_f
-            source_out_f = source_in_f + (overlap_end_f - overlap_start_f)
+            # Map the selected master boundary through the clip's measured
+            # source offset before either edge is rounded to frames. The
+            # old expression rounded clip.source_in and clip.timeline_start
+            # separately, then added a frame delta; at a shared spoken-word
+            # edge that could put the source start one frame before the prior
+            # word or two frames into the first word. Resolve's append call
+            # converts this source time to the media's frame rate at the last
+            # boundary. Keep the placed duration on the master frame grid so
+            # record and source spans remain the same length.
+            overlap_start_seconds = max(
+                range_start, float(clip.timeline_start))
+            source_in = (float(clip.source_in)
+                         + overlap_start_seconds
+                         - float(clip.timeline_start))
+            source_duration = (overlap_end_f - overlap_start_f) / fps
+            source_out = source_in + source_duration
+            master_start = (float(clip.timeline_start)
+                            + source_in - float(clip.source_in))
+            master_end = master_start + source_duration
             record_f = cursor_frames + (overlap_start_f - range_start_f)
             
             out.append({
                 "clip": clip,
-                "source_in": source_in_f / fps,
-                "source_out": source_out_f / fps,
+                "source_in": source_in,
+                "source_out": source_out,
                 "record": record_f / fps,
                 "snapped_record": record_f,
                 "track_index": clip.track_index,
                 "speaker": clip.speaker,
-                # The master-transcript range this placement plays, in
-                # seconds. The captain's transform overrides anchor to
-                # SPOKEN WORDS, and this is the join: words in this
-                # range are the words this item speaks, across any
-                # rebuild, re-cut or renumbering.
-                "master": (overlap_start_f / fps, overlap_end_f / fps),
+                # Master-transcript range this source span plays, in
+                # seconds. It follows the same exact source mapping as
+                # source_in/source_out; only record positions are snapped
+                # to project frames. This is the join for word-anchored
+                # transform overrides across a rebuild or re-cut.
+                "master": (master_start, master_end),
             })
         cursor_frames += range_frames
     return out

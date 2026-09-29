@@ -95,15 +95,6 @@ _SNAP_PASSES = 12
 pulls in neighbours that can themselves be partially covered, so it
 iterates to a fixed point; this only bounds a pathological transcript."""
 
-OPENING_WORD_EDGE_GUARD_SECONDS = 0.05
-"""Keep a small lead inside a contiguous opening word.
-
-Measured on Reel 03 (2026-09-28): Resolve's staged played span began
-62ms before the transcript's shared source-word edge. A 50ms lead keeps
-the opening word while leaving at most 12ms of its predecessor, below
-F25's existing 20ms played-word floor. This applies only where two
-adjacent rows share one source item and meet on timed word edges."""
-
 _BOUNDARY_EPSILON_SECONDS = 1e-6
 
 MIN_REEL_SECONDS = 5.0
@@ -507,8 +498,7 @@ def straddling_segments(transcript: dict) -> List[dict]:
 def partial_overlaps(start: float, end: float,
                      transcript: dict) -> List[dict]:
     """Bound segments a `[start, end]` span cuts through rather than
-    contains, except for the measured 50ms lead into a contiguous opening
-    word. Non-empty otherwise means the reel opens or closes mid-sentence.
+    contains. Non-empty means the reel opens or closes mid-sentence.
     """
     # BOUND segments only - what this docstring has always said, and
     # what the code did not do.  A straddling segment carries no single
@@ -521,18 +511,9 @@ def partial_overlaps(start: float, end: float,
     # boundary anyone can snap to, and the reader gets to see them.
     cut = []
     segments = bound_segments(transcript)
-    guard_boundary = start - OPENING_WORD_EDGE_GUARD_SECONDS
-    guarded_opening = _opening_word_edge_guard(guard_boundary, transcript)
-    opens_on_guard = (
-        guarded_opening is not None
-        and abs(start - guarded_opening) <= _BOUNDARY_EPSILON_SECONDS)
     for segment in segments:
         s, e = float(segment["timeline_start"]), float(segment["timeline_end"])
-        starts_inside_opening = (
-            opens_on_guard
-            and abs(s - guard_boundary) <= _BOUNDARY_EPSILON_SECONDS
-            and s < start < e)
-        cuts_start = s < start < e and not starts_inside_opening
+        cuts_start = s < start < e
         cuts_end = s < end < e
         if e > start and s < end and (cuts_start or cuts_end):
             cut.append(segment)
@@ -557,101 +538,6 @@ def _word_intervals(transcript: dict) -> List[tuple]:
             if word_end > word_start:
                 out.append((word_start, word_end))
     return out
-
-
-def _opening_word_edge_guard(boundary: float,
-                             transcript: dict) -> float | None:
-    """A safe 50ms inset for a contiguous, same-item opening boundary.
-
-    Reel 03's proposal starts inside its first word, so the outward snap
-    lands on that word's onset. The preceding transcript row ends at the
-    same source edge, and its tail leaked into the staged audio. Keep the
-    first word but move the cut slightly into it, only when both rows
-    prove that edge on one Resolve item. Gaps, clip changes, missing
-    source or word timings and ambiguous overlaps do not qualify.
-    """
-    boundary = float(boundary)
-    segments = bound_segments(transcript)
-    current_rows = []
-    for current in segments:
-        try:
-            current_start = float(current["timeline_start"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if abs(current_start - boundary) > _BOUNDARY_EPSILON_SECONDS:
-            continue
-        current_words = []
-        for word in current.get("words") or ():
-            try:
-                ws, we = float(word["start"]), float(word["end"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if we > ws:
-                current_words.append((ws, we))
-        first_words = [(ws, we) for ws, we in current_words
-                       if abs(ws - current_start)
-                       <= _BOUNDARY_EPSILON_SECONDS]
-        if len(first_words) != 1:
-            continue
-
-        current_item = current.get("resolve_item_id")
-        current_file = current.get("source_file")
-        if not current_item or not current_file:
-            continue
-        try:
-            current_source_start = float(current["source_start"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        guarded = current_start + OPENING_WORD_EDGE_GUARD_SECONDS
-        if first_words[0][1] <= (
-                guarded + _BOUNDARY_EPSILON_SECONDS):
-            continue
-        current_rows.append((current, current_item, current_file,
-                             current_source_start))
-
-    previous_rows = []
-    for previous in segments:
-        try:
-            previous_end = float(previous["timeline_end"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if abs(previous_end - boundary) > _BOUNDARY_EPSILON_SECONDS:
-            continue
-        previous_item = previous.get("resolve_item_id")
-        previous_file = previous.get("source_file")
-        if not previous_item or not previous_file:
-            continue
-        try:
-            previous_source_end = float(previous["source_end"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        previous_word_ends = []
-        for word in previous.get("words") or ():
-            try:
-                ws, we = float(word["start"]), float(word["end"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if we > ws:
-                previous_word_ends.append(we)
-        if (previous_word_ends
-                and abs(max(previous_word_ends) - boundary)
-                <= _BOUNDARY_EPSILON_SECONDS):
-            previous_rows.append((previous, previous_item, previous_file,
-                                  previous_source_end))
-
-    pairs = [(current, previous)
-             for current, current_item, current_file, current_source
-             in current_rows
-             for previous, previous_item, previous_file, previous_source
-             in previous_rows
-             if current is not previous
-             and current_item == previous_item
-             and current_file == previous_file
-             and abs(current_source - previous_source)
-             <= _BOUNDARY_EPSILON_SECONDS]
-    if len(pairs) != 1:
-        return None
-    return boundary + OPENING_WORD_EDGE_GUARD_SECONDS
 
 
 def _snap_out_of_words(start: float, end: float,
@@ -726,14 +612,11 @@ def _widen_to_segments(start: float, end: float,
 
 def snap_to_speech(start: float, end: float, transcript: dict,
                    ) -> tuple:
-    """Snap outward, with a guarded inset at contiguous opening edges.
+    """Snap boundaries outward to transcript segment and word edges.
 
     Outward rather than inward, because trimming to the nearest inner
     boundary silently drops words the proposer meant to include, while
     extending adds only what was already being spoken across the line.
-    One measured exception keeps a cut 50ms inside the first word when
-    adjacent transcript rows share a source item and source-word edge;
-    it prevents the previous row's tail from leaking into staged audio.
     """
     # BOUND segments only.  `bound_segments` states the rule - "a reel
     # boundary is never placed using one" - and this function used to
@@ -763,16 +646,12 @@ def snap_to_speech(start: float, end: float, transcript: dict,
     # settle by the existing fixed-point loop and the word phases by the
     # one above, so the sequence always settles.
     # A final span that still cuts a bound row is refused downstream by
-    # `validate_proposal`, except for the measured contiguous-opening
-    # guard below. Other overlaps genuinely lack a reconciled edge, so
-    # the proposal refuses them instead of guessing.
+    # `validate_proposal`. Other overlaps genuinely lack a reconciled
+    # edge, so the proposal refuses them instead of guessing.
     start, end = _widen_to_segments(start, end, segments)
     start, end = _snap_out_of_words(start, end, words)
     start, end = _widen_to_segments(start, end, segments)
     start, end = _snap_out_of_words(start, end, words)
-    guarded_start = _opening_word_edge_guard(start, transcript)
-    if guarded_start is not None and guarded_start < end:
-        start = guarded_start
     return start, end
 
 

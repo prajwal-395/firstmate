@@ -1,24 +1,26 @@
-"""A contiguous opening must not pull the previous sentence into a reel."""
+"""A shared speech edge must open on the whole first word."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from library.tools import subtitle_coverage
+from library.tools import reel_look, subtitle_coverage
+from library.tools.reel_build import placements
 from library.tools.reel_proposal import (
-    OPENING_WORD_EDGE_GUARD_SECONDS,
     Approval,
     ReelMoment,
-    _opening_word_edge_guard,
     partial_overlaps,
     snap_to_speech,
     validate_proposal,
 )
+from library.tools.sub_block_anchor import resolve_anchor
 
 SOURCE = "/media/LCATL0013.MXF"
 ITEM = "same-resolve-item"
+FPS = 24000 / 1001
 EDGE = 126.02154166666666
-EARLY_PLAYBACK_START = EDGE - 0.062
 
 
 def _transcript(previous_item=ITEM, current_item=ITEM,
@@ -61,39 +63,47 @@ def _transcript(previous_item=ITEM, current_item=ITEM,
     ]}
 
 
-def _played(transcript, source_start):
-    return subtitle_coverage.played_words_from_transcript(
-        transcript["segments"],
-        [{"source_file": SOURCE,
-          "source_start": source_start,
-          "source_end": EDGE + 0.92,
-          "reel_start": 0.0}],
+def _clip():
+    # The source and timeline offsets match both transcript rows exactly.
+    return SimpleNamespace(
+        resolve_item_id=ITEM,
+        track_type="video",
+        track_index=1,
+        track_name="Craig",
+        speaker="Craig",
+        source_file=SOURCE,
+        source_in=124.67154166666667,
+        source_out=131.38154166666664,
+        timeline_start=211.55,
+        timeline_end=218.26,
     )
 
 
-def _captioned():
-    words = [
-        ("if", 0.0, 9 / (24000 / 1001)),
-        ("you're", 9 / (24000 / 1001), 12 / (24000 / 1001)),
-        ("attorney,", 12 / (24000 / 1001), 22 / (24000 / 1001)),
-    ]
-    return [
-        {"word": word, "norm": subtitle_coverage.normalize_word(word),
-         "reel_start": start, "reel_end": end, "card": "opening.mov"}
-        for word, start, end in words
-    ]
+def _captioned(played):
+    entries = []
+    norms = set()
+    for word in played:
+        norm = subtitle_coverage.normalize_word(word["word"])
+        norms.add(norm)
+        entries.append({
+            "word": word["word"],
+            "norm": norm,
+            "reel_start": word["reel_start"],
+            "reel_end": word["reel_end"],
+            "card": "opening.mov",
+        })
+    cards = [{"card": "opening.mov", "reel_start": 0.0,
+              "reel_end": 0.92, "text_norms": norms}]
+    return entries, cards
 
 
-def _cards():
-    return [{"card": "opening.mov", "reel_start": 0.0, "reel_end": 0.92,
-             "text_norms": {"if", "you're", "attorney"}}]
-
-
-def test_reel03_opening_snap_keeps_first_word_and_drops_prior_sentence():
+def test_reel03_shared_edge_excludes_prior_sentence_and_resolves_if_anchor():
     transcript = _transcript()
-
     start, end = snap_to_speech(213.26, 218.26, transcript)
-    assert start == pytest.approx(212.9 + OPENING_WORD_EDGE_GUARD_SECONDS)
+
+    # "that." ends exactly where "If" begins. Keep that measured edge;
+    # moving 50ms into If loses its onset after placement rounding.
+    assert start == pytest.approx(212.9)
     assert end == pytest.approx(218.26)
     assert partial_overlaps(start, end, transcript) == []
     validate_proposal(
@@ -104,30 +114,39 @@ def test_reel03_opening_snap_keeps_first_word_and_drops_prior_sentence():
         transcript, 500.0,
     )
 
-    # The staged item's measured source start is 62ms before the shared
-    # word edge. Before the guard that plays both previous-row words and
-    # fails F25 against the opening card.
-    before = _played(transcript, EARLY_PLAYBACK_START)["words"]
-    prior_words = [word for word in before if word["word"] in {"about", "that."}]
-    assert [word["word"] for word in prior_words] == ["about", "that."]
-    assert prior_words[0]["reel_start"] == pytest.approx(0.0)
-    assert prior_words[0]["reel_end"] == pytest.approx(0.032)
-    assert prior_words[1]["reel_start"] == pytest.approx(0.032)
-    assert prior_words[1]["reel_end"] == pytest.approx(0.062)
-    before_gate = subtitle_coverage.check_word_coverage(
-        before, _captioned(), _cards())
-    assert any(finding["kind"] == "word_mismatch"
-               and finding["severity"] == "error"
-               for finding in before_gate["findings"])
+    placed = placements([(start, end)], [_clip()], FPS)
+    assert len(placed) == 1
+    assert placed[0]["source_in"] == pytest.approx(EDGE, abs=1e-9)
 
-    guarded_source_start = EARLY_PLAYBACK_START + (
-        start - 212.9)
-    after = _played(transcript, guarded_source_start)["words"]
-    assert [word["word"] for word in after] == ["If", "you're", "attorney,"]
-    after_gate = subtitle_coverage.check_word_coverage(
-        after, _captioned(), _cards())
-    assert [finding for finding in after_gate["findings"]
+    played = subtitle_coverage.played_words_from_transcript(
+        transcript["segments"], [{
+            "source_file": SOURCE,
+            "source_start": placed[0]["source_in"],
+            "source_end": placed[0]["source_out"],
+            "reel_start": placed[0]["record"],
+        }])["words"]
+    assert [word["word"] for word in played] == [
+        "If", "you're", "attorney,"
+    ]
+    assert played[0]["reel_start"] == pytest.approx(0.0)
+    assert played[0]["reel_end"] == pytest.approx(0.38)
+    captioned, cards = _captioned(played)
+    gate = subtitle_coverage.check_word_coverage(played, captioned, cards)
+    assert [finding for finding in gate["findings"]
             if finding["severity"] == "error"] == []
+
+    spine = reel_look.motion_spine(placed, FPS, transcript["segments"])
+    block = spine["structure"][0]
+    assert block["source_start"] == pytest.approx(EDGE, abs=1e-9)
+    assert [word["word"] for word in block["word_timestamps"]] == [
+        "If", "you're", "attorney,"
+    ]
+    anchor = resolve_anchor(
+        {"word": "If"}, block=block, frame_rate=FPS,
+        step="plan_vfx", plan="reel_motion", index=0,
+    )
+    assert anchor["timeline_seconds"] == pytest.approx(0.0)
+    assert 0 <= anchor["timeline_seconds"] < block["timeline_end"]
 
 
 @pytest.mark.parametrize("changes", [
@@ -136,8 +155,14 @@ def test_reel03_opening_snap_keeps_first_word_and_drops_prior_sentence():
     {"current_item": None},
     {"current_source_start": EDGE + 0.001},
 ])
-def test_guard_needs_one_contiguous_same_item_word_edge(changes):
+def test_opening_still_snaps_to_the_whole_first_word_when_rows_differ(changes):
     transcript = _transcript(**changes)
-    assert _opening_word_edge_guard(212.9, transcript) is None
-    assert snap_to_speech(213.26, 218.26, transcript) == pytest.approx(
-        (212.9, 218.26))
+    start, end = snap_to_speech(213.26, 218.26, transcript)
+    assert (start, end) == pytest.approx((212.9, 218.26))
+
+
+def test_boundary_guard_does_not_leave_a_cut_inside_the_first_word():
+    transcript = _transcript()
+    assert partial_overlaps(212.95, 218.26, transcript) == [
+        transcript["segments"][1]
+    ]

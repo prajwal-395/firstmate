@@ -1321,6 +1321,13 @@ class TestClosingCallToAction:
         transcript = {"segments": [
             _row(468.0, 476.0, "Craig", "check it out",
                  words=_timed(["check", "it", "out"], 468.0)),
+            # The inherited CTA ending carries its trailing silence only
+            # to the next spoken word. Keep that boundary adjacent here;
+            # otherwise the synthetic gap to the body at 600s becomes a
+            # 124-second ending breath once exact placements retain all
+            # three CTA anchor words.
+            _row(476.01, 476.41, "Craig", "and",
+                 words=_timed(["and"], 476.01)),
             _row(600.0, 660.0, "Craig",
                  "what you are saying reverts back if your brand is "
                  "mentioned here today",
