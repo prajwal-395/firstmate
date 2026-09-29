@@ -125,7 +125,7 @@ def mock_project_env(tmp_path):
     # pipeline_output/scratch/timeline_transcript/transcript.json
     scratch_dir = project_dir / "pipeline_output" / "scratch" / "timeline_transcript"
     scratch_dir.mkdir(parents=True)
-    (scratch_dir / "transcript.json").write_text("{}")
+    (scratch_dir / "transcript.json").write_text('{"segments": []}')
     
     return project_dir
 
@@ -249,4 +249,3 @@ def test_rebuild_reels_unknown_slug_is_refused():
                 return_value=None):
         with pytest.raises(ValueError, match="Unknown project"):
             rebuild_reels_in_project("no-such-slug", organise=ORGANISE)
-

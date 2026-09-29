@@ -66,7 +66,8 @@ def project(tmp_path):
     (review / "reel_proposals_v2.json").write_text("[]", encoding="utf-8")
     scratch = root / "pipeline_output" / "scratch" / "timeline_transcript"
     scratch.mkdir(parents=True)
-    (scratch / "transcript.json").write_text("{}", encoding="utf-8")
+    (scratch / "transcript.json").write_text(
+        '{"segments": []}', encoding="utf-8")
     return root
 
 
@@ -466,4 +467,3 @@ def test_the_step_promotes_staged_timelines_only_after_the_gate_passes():
     assert sweep.call_count == 1
     assert sweep.call_args[1]["project_folder"] == "/tmp/project"
     assert sweep.call_args[1]["plan_path"] == "/tmp/project/plan.json"
-

@@ -722,10 +722,11 @@ def rebind_document(document: dict, snapshot,
                     project_folder: str | None = None) -> dict:
     """Re-ask the clip question of a transcript ALREADY ON DISK.
 
-    The words are not re-heard.  Every word timing in the returned
-    document is the one WhisperX produced, byte for byte; the only thing
-    that changes is which clip a row is bound to, and a row that already
-    binds is not touched at all.
+    The words are not re-transcribed. Every word timing in the returned
+    document is the one WhisperX produced, byte for byte. Clip bindings
+    are re-derived, and cached per-speaker WAVs may be read to resolve
+    duplicate mic bleed; a row that already binds is not re-read from
+    its words.
 
     Why this exists, measured 2026-09-06
     ------------------------------------
@@ -771,7 +772,11 @@ def rebind_document(document: dict, snapshot,
     # with the words. Dropping it would tell a later reader that a
     # hybrid transcript predates the confidence being kept, which is the
     # exact misreading `CONFIDENCE_ABSENT_HYBRID` exists to prevent.
-    rebound_segments, mic_bleed_resolution = merge_speakers(per_speaker)
+    audio_tracks = (cached_speaker_audio_tracks(
+        project_folder, per_speaker)
+        if project_folder else None)
+    rebound_segments, mic_bleed_resolution = merge_speakers(
+        per_speaker, audio_tracks)
     rebound = transcript_document(
         snapshot, rebound_segments,
         transcription=document.get("transcription"),
@@ -1139,6 +1144,116 @@ def transcript_path(project_folder) -> Path:
         Area.SCRATCH, SCRATCH_SUBDIR, TRANSCRIPT_FILENAME))
 
 
+def cached_speaker_audio_tracks(project_folder: str,
+                                speakers: Iterable[str | None]
+                                ) -> dict[str, Path]:
+    """Find the ISO WAVs already written beside a transcript.
+
+    ``build_and_transcribe`` keeps each reconstructed per-speaker track
+    so the transcript can be audited without re-running ASR.  Older
+    transcripts predate ``mic_bleed_resolution``; their saved tracks let
+    a reel build measure the same overlapping passages without
+    retranscribing the episode.
+    """
+    audio_dir = transcript_path(project_folder).parent
+    tracks = {}
+    for speaker in speakers:
+        if speaker is None:
+            continue
+        label = str(speaker).lower().replace(" ", "_")
+        path = audio_dir / f"{label}.wav"
+        if path.is_file():
+            tracks[speaker] = path
+    return tracks
+
+
+def resolve_document_mic_bleed(document: dict,
+                               project_folder: str) -> dict:
+    """Resolve saved duplicate speaker rows against the cached ISO WAVs.
+
+    The transcript producer performs this merge when it has the WAVs in
+    hand.  A reel build may consume a transcript written before that
+    producer change, though, so its planning boundary applies the same
+    measured merge before deriving captions.  Only clear RMS leads drop
+    a row; missing or inconclusive audio leaves both rows and records why.
+    """
+    from library.tools import transcript_fit
+    from library.tools.transcript_confidence import ALIGNMENT_SCORE
+
+    per_speaker: dict[str | None, list[SpokenSegment]] = {}
+    original_rows = {}
+    for row in document["segments"]:
+        segment = SpokenSegment(
+            speaker=row["speaker"],
+            text=row["text"],
+            timeline_start=row["timeline_start"],
+            timeline_end=row["timeline_end"],
+            source_file=row["source_file"],
+            source_start=row["source_start"],
+            source_end=row["source_end"],
+            resolve_item_id=row["resolve_item_id"],
+            words=tuple(row.get("words") or ()),
+            read_from_words=row.get("read_from_words", False),
+            avg_logprob=row.get("avg_logprob"),
+        )
+        original_rows[id(segment)] = row
+        per_speaker.setdefault(segment.speaker, []).append(segment)
+
+    audio_tracks = cached_speaker_audio_tracks(
+        project_folder, per_speaker)
+    merged, decisions = merge_speakers(per_speaker, audio_tracks)
+    segments = [original_rows[id(segment)] for segment in merged]
+
+    # A later build can re-evaluate a previously unresolved candidate
+    # after its saved audio becomes available. Replace matching old
+    # decisions with this run's measurements and retain the earlier
+    # record for rows that are no longer present in the transcript.
+    decisions_by_candidate = {}
+    for decision in document.get("mic_bleed_resolution") or []:
+        key = (decision["start"], decision["end"],
+               tuple(decision["speakers"]), decision["passage"])
+        decisions_by_candidate[key] = decision
+    for decision in decisions:
+        key = (decision["start"], decision["end"],
+               tuple(decision["speakers"]), decision["passage"])
+        decisions_by_candidate[key] = decision
+
+    resolved = dict(document)
+    resolved["segments"] = segments
+    resolved["segment_count"] = len(segments)
+    resolved["speakers"] = list(dict.fromkeys(
+        row["speaker"] for row in segments if row["speaker"]))
+    resolved["segments_straddling_a_cut"] = sum(
+        row["resolve_item_id"] is None for row in segments)
+    resolved["segments_read_from_words"] = sum(
+        bool(row.get("read_from_words", False)) for row in segments)
+    resolved["segments_rebound_from_words"] = sum(
+        bool(row.get("read_from_words", False))
+        and row["resolve_item_id"] is not None for row in segments)
+    resolved["segments_with_asr_confidence"] = sum(
+        row.get("avg_logprob") is not None for row in segments)
+    resolved["words_with_alignment_score"] = sum(
+        word.get(ALIGNMENT_SCORE) is not None
+        for row in segments for word in (row.get("words") or ()))
+    unfitted = [fit for row in segments
+                if (fit := transcript_fit.row_fit(row)) is not None]
+    resolved["segments_with_unfitted_text"] = len(unfitted)
+    resolved["words_with_no_timing"] = sum(
+        fit.text_words - fit.timed_words for fit in unfitted)
+    resolved["mic_bleed_resolution"] = list(
+        decisions_by_candidate.values())
+
+    if (decisions
+            and "cached ISO mic tracks re-evaluated"
+            not in resolved.get("measurement", "")):
+        resolved["measurement"] = (
+            resolved.get("measurement", "")
+            + " Cached ISO mic tracks re-evaluated overlapping speaker "
+            "copies for reel planning; words and timings were not "
+            "retranscribed.")
+    return resolved
+
+
 def transcription_record(heard_by: Dict[str, dict]) -> dict:
     """One account of the whole transcript's provenance, per speaker.
 
@@ -1290,7 +1405,9 @@ def main(argv=None) -> int:
             return 1
         before = json.loads(existing.read_text(encoding="utf-8"))
         print(f"re-binding {before.get('segment_count')} segments from "
-              f"{existing} - no audio is read", file=sys.stderr)
+              f"{existing} - no words are re-transcribed; cached ISO "
+              f"tracks may be measured for duplicate mic bleed",
+              file=sys.stderr)
         document = rebind_document(before, snapshot,
                                    project_folder=args.project_folder)
         print(f"  straddling a cut: "

@@ -152,11 +152,12 @@ def test_word_at_float_noisy_range_head_is_planned_and_f25_passes(
     assert _f25_errors(plan, transcript, ranges, tmp_path) == []
 
 
-def test_reel15_mic_bleed_merge_makes_caption_plan_pass_f25(
+def test_reel15_cached_iso_merge_makes_caption_plan_pass_f25(
         tmp_path, monkeypatch):
-    """The 50ms-earlier Craig copy is bleed; measured audio keeps Akshita."""
+    """A pre-1465 transcript is resolved from its cached ISO WAVs."""
     _skip_render(monkeypatch)
-    words = "Yeah so AI is actually better for small businesses".split()
+    words = ["Yeah", "so", "AI", "is", "actually", "better", "for",
+             "small", "businesses"]
 
     def segment(speaker, start):
         duration = 2.37
@@ -171,20 +172,24 @@ def test_reel15_mic_bleed_merge_makes_caption_plan_pass_f25(
             source_start=100.0, source_end=102.37,
             resolve_item_id=f"{speaker}-clip", words=timed)
 
+    audio_dir = (tmp_path / "pipeline_output" / "scratch"
+                 / "timeline_transcript")
+    audio_dir.mkdir(parents=True)
+    (audio_dir / "craig.wav").write_bytes(b"cached Craig ISO")
+    (audio_dir / "akshita.wav").write_bytes(b"cached Akshita ISO")
     monkeypatch.setattr(
         timeline_transcript, "_track_rms_dbfs",
         lambda path, _start, _end: (
             (-42.62 if Path(path).name == "craig.wav" else -27.12), None),
     )
-    merged, decisions = timeline_transcript.merge_speakers({
-        "Craig": [segment("Craig", 1.0)],
-        "Akshita": [segment("Akshita", 1.05)],
-    }, {"Craig": Path("craig.wav"), "Akshita": Path("akshita.wav")})
-    transcript = {
-        "segments": [row.as_dict() for row in merged],
-        "mic_bleed_resolution": decisions,
-    }
-    assert [row.speaker for row in merged] == ["Akshita"]
+    stale_document = {"segments": [row.as_dict() for row in
+                                    (segment("Craig", 1.0),
+                                     segment("Akshita", 1.05))]}
+    transcript = timeline_transcript.resolve_document_mic_bleed(
+        stale_document, str(tmp_path))
+    merged = transcript["segments"]
+    decisions = transcript["mic_bleed_resolution"]
+    assert [row["speaker"] for row in merged] == ["Akshita"]
     assert decisions[0]["level_difference_db"] == 15.5
 
     ranges = [(1.0, 3.42)]

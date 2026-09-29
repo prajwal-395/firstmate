@@ -129,7 +129,7 @@ def mock_project_env(tmp_path):
     scratch_dir = (project_dir / "pipeline_output" / "scratch"
                    / "timeline_transcript")
     scratch_dir.mkdir(parents=True)
-    (scratch_dir / "transcript.json").write_text("{}")
+    (scratch_dir / "transcript.json").write_text('{"segments": []}')
     return project_dir
 
 

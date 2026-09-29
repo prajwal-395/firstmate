@@ -10629,7 +10629,40 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"), "rb") as f:
         transcript_bytes = f.read()
     transcript = json.loads(transcript_bytes.decode("utf-8"))
-    transcript_digest = hashlib.sha256(transcript_bytes).hexdigest()
+    transcript_source_digest = hashlib.sha256(transcript_bytes).hexdigest()
+    from library.tools.timeline_transcript import (
+        resolve_document_mic_bleed,
+    )
+    transcript = resolve_document_mic_bleed(transcript, project_folder)
+    mic_bleed_rows = transcript["mic_bleed_resolution"]
+    # The saved document is one build input; its cached ISO measurements
+    # are another. Carry both through the rebuild-need fingerprint so a
+    # newly measurable mic choice cannot be mistaken for an unchanged
+    # transcript just because the words-on-disk did not change.
+    mic_bleed_digest = json.dumps(
+        mic_bleed_rows, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"))
+    transcript_digest = hashlib.sha256(
+        f"{transcript_source_digest}\0{mic_bleed_digest}".encode()
+    ).hexdigest()
+    mic_bleed_drops = sum(
+        decision["status"] == "dropped" for decision in mic_bleed_rows)
+    if mic_bleed_drops:
+        print(f"  cached ISO mic tracks resolved {mic_bleed_drops} "
+              f"duplicate speech passage(s); clearer microphone retained",
+              file=sys.stderr)
+        for decision in mic_bleed_rows:
+            if decision["status"] != "dropped":
+                continue
+            levels = decision["rms_dbfs"]
+            winner = decision["winner"]
+            dropped = decision["dropped_speaker"]
+            print(f"  ISO mic {decision['start']:.2f}-"
+                  f"{decision['end']:.2f}s: keep {winner} "
+                  f"({levels[winner]:.2f} dBFS) over {dropped} "
+                  f"({levels[dropped]:.2f} dBFS), "
+                  f"{decision['level_difference_db']:.2f} dB lead: "
+                  f"{decision['passage']!r}", file=sys.stderr)
 
     # Stored proposals predate the boundary drawer: a boundary drawn
     # before it can sit inside a word, and the build reads the file
@@ -14196,6 +14229,11 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
     try:
         with open(transcript_path, 'r', encoding='utf-8') as f:
             transcript = json.load(f)
+        from library.tools.timeline_transcript import (
+            resolve_document_mic_bleed,
+        )
+        transcript = resolve_document_mic_bleed(
+            transcript, project_folder)
             
         exit_code = run_verification(
             project_name=resolve_project_name,

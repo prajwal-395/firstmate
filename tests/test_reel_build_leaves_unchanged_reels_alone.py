@@ -46,7 +46,8 @@ def project(tmp_path):
     (review / "reel_proposals_v2.json").write_text("[]", encoding="utf-8")
     scratch = root / "pipeline_output" / "scratch" / "timeline_transcript"
     scratch.mkdir(parents=True)
-    (scratch / "transcript.json").write_text("{}", encoding="utf-8")
+    (scratch / "transcript.json").write_text(
+        '{"segments": []}', encoding="utf-8")
     return root
 
 

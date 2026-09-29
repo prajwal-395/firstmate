@@ -59,7 +59,8 @@ def project(tmp_path):
     (review / "reel_proposals_v2.json").write_text("[]", encoding="utf-8")
     scratch = root / "pipeline_output" / "scratch" / "timeline_transcript"
     scratch.mkdir(parents=True)
-    (scratch / "transcript.json").write_text("{}", encoding="utf-8")
+    (scratch / "transcript.json").write_text(
+        '{"segments": []}', encoding="utf-8")
     return root
 
 
@@ -186,7 +187,8 @@ def _drive(resolve_project, project_dir, gate_result, **kwargs):
 
 
 @contextmanager
-def _patched_build(resolve_project, project_dir, gate_result):
+def _patched_build(resolve_project, project_dir, gate_result,
+                   caption_planner=None, verifier=None, moments=None):
     """All patches for driving a build; yields (placed_mock, gate_mock).
 
     `_drive` covers the passing path; failing-path tests enter this
@@ -203,19 +205,30 @@ def _patched_build(resolve_project, project_dir, gate_result):
                                "audio_tracks": [],
                                "material": {}}}
 
+    caption_patch = (
+        patch("library.tools.reel_build.reel_subtitle_segments",
+              side_effect=caption_planner)
+        if caption_planner is not None else
+        patch("library.tools.reel_build.reel_subtitle_segments",
+              return_value=[]))
+    verifier_patch = (
+        patch("library.tools.reel_conformance_verifier.run_verification",
+              side_effect=verifier)
+        if verifier is not None else
+        patch("library.tools.reel_conformance_verifier.run_verification",
+              return_value=gate_result))
+    planned_moments = moments or [
+        _moment(i + 1, name) for i, name in enumerate(APPROVED)]
     with patch("library.tools.reel_build.build_reel_timeline",
                side_effect=_place) as placed, \
-            patch("library.tools.reel_build.reel_subtitle_segments",
-                  return_value=[]) as caps, \
+            caption_patch as caps, \
             patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
             patch("library.tools.reel_build.resolve_project_exactly",
                   return_value=resolve_project), \
             patch("library.tools.reel_proposal.read_proposal",
-                  return_value=[_moment(i + 1, name)
-                                for i, name in enumerate(APPROVED)]), \
+                  return_value=planned_moments), \
             patch("library.tools.timeline_ingest.snapshot_timeline"), \
-            patch("library.tools.reel_conformance_verifier.run_verification",
-                  return_value=gate_result) as gate:
+            verifier_patch as gate:
         caps.return_value = []
         yield placed, gate
 
@@ -320,3 +333,180 @@ def test_a_passing_build_replaces_the_target_and_reports_final_names(project):
                 if name.endswith(STAGING_SUFFIX)]
 
 
+def test_build_reels_cli_plans_reel15_from_cached_iso_and_f25_passes(
+        project, monkeypatch, capsys):
+    """The operator command consumes a pre-1465 transcript correctly.
+
+    This drives manage_project's real parser, reels runner, operation
+    registry, build step, and verifier caller. Only Resolve placement
+    and the gate's Resolve read are replaced; caption planning and the
+    played-word comparison are the production code. Everything lives
+    under tmp_path and cannot address the captain's project.
+    """
+    import sys
+    from pathlib import Path
+
+    import manage_project
+    from library.steps.step_4_05_render_subtitles import (
+        generate_remotion_props,
+    )
+    from library.tools import (
+        reel_build,
+        requirements,
+        subtitle_coverage,
+        timeline_transcript,
+    )
+    from library.tools import reel_conformance_verifier as verifier
+    from library.tools.reel_proposal import (
+        Approval,
+        ReelMoment,
+        proposal_path,
+        write_proposal,
+    )
+    from library.tools.transcript_corrections import spelling_corrections
+
+    phrase = "Yeah so AI is actually better for small businesses"
+    words = phrase.split()
+
+    def _row(speaker, start, source_start):
+        duration = 2.37
+        width = duration / len(words)
+        timed_words = [
+            {"word": word, "start": start + i * width,
+             "end": start + (i + 1) * width, "timed": True}
+            for i, word in enumerate(words)
+        ]
+        return {
+            "speaker": speaker, "text": phrase,
+            "timeline_start": start, "timeline_end": start + duration,
+            "source_file": "fixture.mxf",
+            "source_start": source_start,
+            "source_end": source_start + duration,
+            "resolve_item_id": f"{speaker}-clip",
+            "words": timed_words,
+        }
+
+    audio_dir = (project / "pipeline_output" / "scratch"
+                 / "timeline_transcript")
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    (audio_dir / "craig.wav").write_bytes(b"fixture Craig ISO")
+    (audio_dir / "akshita.wav").write_bytes(b"fixture Akshita ISO")
+    rows = [_row("Craig", 1200.57, 2716.084),
+            _row("Akshita", 1200.62, 2719.88775)]
+    transcript_path = audio_dir / "transcript.json"
+    transcript_path.write_text(json.dumps({
+        "segments": rows,
+        "segment_count": len(rows),
+        "speakers": ["Craig", "Akshita"],
+        "derived_from": {"duration_seconds": 1400.0},
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        timeline_transcript, "_track_rms_dbfs",
+        lambda path, _start, _end: (
+            (-42.62 if Path(path).name == "craig.wav" else -27.12), None),
+    )
+
+    moment = ReelMoment(
+        number=15, slug="the-3d-nail-art-salon-beats-the-chains",
+        reason="cached mic bleed regression",
+        timeline_start=1200.57, timeline_end=1202.94,
+        source_spans=({"source_file": "fixture.mxf",
+                       "source_start": 2716.084,
+                       "source_end": 2719.99775},),
+        approval=Approval.APPROVED,
+    )
+    write_proposal(str(proposal_path(project)), [moment],
+                   {"derived_from": {"duration_seconds": 1400.0}})
+    state = {"project_folder": str(project), "step_outputs": {}}
+    state[requirements._FORCE] = {
+        "resolve_scripting": True,
+        "face_detector": True,
+        "reel_build_libraries": True,
+    }
+    (project / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    monkeypatch.setattr(
+        generate_remotion_props, "generate_subtitle_props_per_block",
+        lambda *args, **kwargs: [],
+    )
+    planned = []
+    actual_planner = reel_build.reel_subtitle_segments
+
+    def _capture_plan(*args, **kwargs):
+        result = actual_planner(*args, **kwargs)
+        planned.append((result, args[1], list(args[2])))
+        return result
+
+    def _verify_with_f25(**kwargs):
+        transcript = kwargs["transcript"]
+        assert [row["speaker"] for row in transcript["segments"]] == [
+            "Akshita"]
+        assert len(planned) == 1
+        plan, planned_transcript, ranges = planned[0]
+        assert planned_transcript == transcript
+        audio_spans = [{
+            "source_file": row["source_file"],
+            "source_start": row["source_start"],
+            "source_end": row["source_end"],
+            "reel_start": reel_build.reel_time(
+                row["timeline_start"], ranges),
+        } for row in transcript["segments"]]
+        played_result = subtitle_coverage.played_words_from_transcript(
+            transcript["segments"], audio_spans)
+        played = subtitle_coverage.read_words_for_comparison(
+            played_result["words"], spelling_corrections(str(project)))
+        captioned = []
+        cards = []
+        for entry in plan.caption_entries:
+            cards.append({
+                "card": entry["id"],
+                "reel_start": entry["timeline_start"],
+                "reel_end": entry["timeline_end"],
+                "text_norms": sorted({
+                    subtitle_coverage.normalize_word(token)
+                    for token in entry["text"].split()
+                    if subtitle_coverage.normalize_word(token)
+                }),
+            })
+            for word in entry.get("words") or []:
+                norm = subtitle_coverage.normalize_word(word["word"])
+                if norm:
+                    captioned.append({
+                        "word": word["word"], "norm": norm,
+                        "card": entry["id"],
+                        "reel_start": word["start"],
+                        "reel_end": word["end"],
+                    })
+        coverage = subtitle_coverage.check_word_coverage(
+            played,
+            captioned,
+            cards,
+            suppressed=verifier._suppressed_played_words(
+                played, str(project)),
+        )
+        errors = [item for item in coverage["findings"]
+                  if item["severity"] == "error"]
+        assert errors == []
+        assert " ".join(entry["text"]
+                         for entry in plan.caption_entries).casefold() == (
+                             phrase.casefold())
+        return 0
+
+    monkeypatch.setattr(manage_project, "preflight_check", lambda _cmd: None)
+    monkeypatch.setattr(sys, "argv", [
+        "manage_project.py", "build-reels", str(project),
+        "--rebuild-all", "--only-reel", "15",
+    ])
+    resolve_project = FakeProject([MASTER] + APPROVED)
+    with _patched_build(
+            resolve_project, project, 0,
+            caption_planner=_capture_plan,
+            verifier=_verify_with_f25,
+            moments=[moment]):
+        manage_project.main()
+
+    assert len(planned) == 1
+    assert planned[0][0].caption_entries
+    assert ("ISO mic 1200.57-1202.99s: keep Akshita (-27.12 dBFS) over "
+            "Craig (-42.62 dBFS), 15.50 dB lead" in capsys.readouterr().err)
