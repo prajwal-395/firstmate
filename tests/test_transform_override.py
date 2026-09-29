@@ -374,6 +374,123 @@ def test_a_multi_property_aim_proves_the_window_once_all_hold(tmp_path):
         "ZoomX", "ZoomY", "Pan", "Tilt"]
 
 
+def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
+        tmp_path, capsys):
+    """Reel 24 has two LCATL0013.MXF placements, but only the opening
+    wide two-shot speaks this override's anchor. Its stored 2.307 zoom
+    was from an older aim; the old four-property transform left 168.8px
+    of the current TV window uncovered. The current manually selected
+    Craig aim is calculated from the opening shot's measured x/y, with
+    this build's gain=1.
+    Exercise the build's transform-override stage without Resolve.
+    """
+    from library.tools import reel_build, reel_framing, reel_look
+
+    project = _project(tmp_path)
+    anchor = "why do ai platforms love video content"
+    reel = "Reel 24 - why-ai-trusts-youtube"
+
+    def transform_records(values, reason):
+        return [{"kind": "transform_override",
+                 "anchor_phrase": anchor,
+                 "property": prop,
+                 "value": value,
+                 "reason": reason,
+                 "reel": reel}
+                for prop, value in values]
+
+    old_records = transform_records(
+        [("Pan", 20.679), ("Tilt", -0.395),
+         ("ZoomX", 2.307), ("ZoomY", 2.307)],
+        "firstmate 2026-09-18 batch 4 M24 (not the captain)")
+    _write_edits_file(project, old_records)
+
+    def segment(text, start):
+        words = []
+        cursor = start
+        for token in text.split():
+            words.append({"word": token, "start": round(cursor, 3),
+                          "end": round(cursor + 0.3, 3), "timed": True})
+            cursor += 0.4
+        return {"speaker": "Craig", "text": text,
+                "timeline_start": start,
+                "timeline_end": round(cursor, 3), "words": words}
+
+    transcript = {"segments": [
+        segment("why do ai platforms love video content", 10.0),
+        segment("later unrelated footage plays here", 20.0),
+    ]}
+    opening = _span((10.0, 14.0), speaker="Craig")
+    opening["clip"].source_file = "/media/LCATL0013.MXF"
+    opening["source_in"] = 3943.372
+    opening["source_out"] = 3947.001
+    next_shot = _span((20.0, 24.0), speaker="Craig")
+    next_shot["clip"].source_file = "/media/LCATL0013.MXF"
+    next_shot["snapped_record"] = 1
+    placements = [opening, next_shot]
+
+    class _FourKPoolItem(_PoolItem):
+        def GetClipProperty(self, name):
+            return "3840x2160" if name == "Resolution" else None
+
+    class _LCATLItem(_Item):
+        def GetName(self):
+            return "LCATL0013.MXF"
+
+        def GetMediaPoolItem(self):
+            return _FourKPoolItem()
+
+    def fresh_items():
+        items = [_LCATLItem(pan=0.0), _LCATLItem(pan=0.0)]
+        for item in items:
+            item.held = {"Pan": 0.0, "Tilt": 0.0,
+                         "ZoomX": 1.0, "ZoomY": 1.0}
+        return items
+
+    # Values read from the current TV 4k look and the failed build's
+    # draw-gain probe. These are the delivered screen-window pixels.
+    window = (56.106, 530.6365, 1022.967, 1829.827)
+    old_items = fresh_items()
+    with pytest.raises(reel_build.ReelBuildError) as exc:
+        reel_build.apply_transform_overrides(
+            reel, _TrackPlan(), {"1": 1}, placements,
+            _Timeline(old_items), transcript, str(project), 1080, 1920,
+            screen_window=window, draw_gain=1.0)
+    assert "recorded Pan=20.679" in str(exc.value)
+    assert "ZoomX=2.307" in str(exc.value)
+    assert "bottom 168.8px" in str(exc.value)
+    assert old_items[0].GetProperty("ZoomX") == pytest.approx(2.307)
+    assert old_items[1].sets == []
+
+    # Source measurement is center_x=.4828, center_y=.325. The recorded
+    # frame still shows Craig speaking, so this manual aim resolves the
+    # detector's `others=1` ambiguity without treating it as auto-punch.
+    current_records = transform_records(
+        [("Pan", 39.263), ("Tilt", -696.041),
+         ("ZoomX", 2.1386), ("ZoomY", 2.1386)],
+        "firstmate 2026-09-29 Reel 24: current TV-window aim for the "
+        "opening LCATL0013.MXF shot, source 3943.372-3947.001")
+    _write_edits_file(project, current_records)
+    corrected_items = fresh_items()
+    applied = reel_build.apply_transform_overrides(
+        reel, _TrackPlan(), {"1": 1}, placements,
+        _Timeline(corrected_items), transcript, str(project), 1080, 1920,
+        screen_window=window, draw_gain=1.0)
+    assert applied == 4
+    assert corrected_items[0].GetProperty("ZoomX") == pytest.approx(2.1386)
+    assert corrected_items[0].GetProperty("ZoomY") == pytest.approx(2.1386)
+    assert corrected_items[0].GetProperty("Pan") == pytest.approx(39.263)
+    assert corrected_items[0].GetProperty("Tilt") == pytest.approx(-696.041)
+    assert corrected_items[1].sets == []
+    picture = reel_framing.delivered_picture(
+        3840, 2160, 1080, 1920,
+        {key: corrected_items[0].GetProperty(key)
+         for key in ("ZoomX", "ZoomY", "Pan", "Tilt")},
+        draw_gain=1.0)
+    assert reel_look.uncovered_window_edges(picture, window) == []
+    assert "recorded ZoomX holds 2.1386" in capsys.readouterr().err
+
+
 # ── 4. The write side: record, refuse, supersede ────────────────────
 
 def test_record_creates_the_store_where_none_was_ever_written(tmp_path):

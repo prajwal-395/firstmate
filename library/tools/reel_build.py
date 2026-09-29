@@ -6452,25 +6452,21 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                               look=None, screen_window=None,
                               draw_gain: float = FALLBACK_DRAW_GAIN,
                               report_sibling_stale: bool = True) -> int:
-    """Hold the captain's recorded transform overrides on the picture.
+    """Hold recorded transform overrides on the picture.
 
-    The punch-in aims every shot at its measured subject; a hand move
-    the captain made in the Inspector (Reel 09, 2026-09-10: Akshita's
-    clip to Pan -35) is that aim being overruled, so overrides apply
-    AFTER it - the held value is the captain's, never the aim's. Each
-    one is judged the way the punch-in is: the `SetProperty` return
-    AND the read-back (a silent clamp reads back the clamp, not the
-    ask), and where the look declares a screen window the merged
-    transform is re-proved against it (`assert_punch_took`) - an
-    override that uncovered an edge raises rather than shipping
-    black. Without a look there is no declared window, so the
-    read-back equality is the whole proof. An override matching no
-    placed span reports STALE, loudly, like every other captain's
-    edit - and one whose words are spoken NOWHERE in the transcript
-    reports again, on its own, because that one is the captain's value
-    being overwritten for good rather than an override belonging to
-    another reel (`captain_edits.lost_overrides`). A single-reel build
-    suppresses routine per-reel staleness for siblings; globally lost
+    The punch-in aims every shot at its measured subject; a recorded
+    transform supersedes that aim, so overrides apply AFTER it and the
+    stored value is held. Each one is judged the way the punch-in is:
+    the `SetProperty` return AND the read-back (a silent clamp reads
+    back the clamp, not the ask), and where the look declares a screen
+    window the merged transform is re-proved against it
+    (`assert_punch_took`) - an override that uncovers an edge raises
+    rather than shipping black. Without a look there is no declared
+    window, so the read-back equality is the whole proof. An override
+    matching no placed span reports STALE, and one whose words are
+    spoken NOWHERE in the transcript reports separately through
+    `captain_edits.lost_overrides`. A single-reel build suppresses
+    routine per-reel staleness for sibling reels; globally lost
     decisions remain reportable. Returns how many property holds were
     applied.
     """
@@ -6556,7 +6552,7 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                 before = _held_property(item, prop)
                 if not item.SetProperty(prop, value):
                     raise ReelBuildError(
-                        f"{name}: Resolve refused the captain's "
+                        f"{name}: Resolve refused the recorded "
                         f"{prop}={value:g} on {item.GetName()!r} "
                         f"(speaks {record['anchor_phrase']!r}). The "
                         f"decision is recorded and the clip did not "
@@ -6564,11 +6560,11 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                 held = _held_property(item, prop)
                 if held is not None and abs(held - value) > 1e-3:
                     raise ReelBuildError(
-                        f"{name}: the captain's {prop}={value:g} did "
+                        f"{name}: the recorded {prop}={value:g} did "
                         f"not take on {item.GetName()!r} - Resolve "
                         f"holds {held:g} (asked {value:g}). A silent "
-                        f"clamp is a rebuild that reports the "
-                        f"captain's value and plays another.")
+                        f"clamp is a rebuild that reports the stored "
+                        f"value and plays another.")
                 record["held"] = held
                 record["before"] = before
             if screen_window is not None:
@@ -6592,7 +6588,7 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                         prop, value = (first["property"],
                                        first["value"])
                         raise ReelBuildError(
-                            f"{name}: the captain's {prop}={value:g} "
+                            f"{name}: the recorded {prop}={value:g} "
                             f"on {item.GetName()!r} uncovers the "
                             f"screen window: {exc}") from exc
             for record in records:
@@ -6602,7 +6598,7 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                              else "unreadable")
                 before_desc = (f"{before:g}" if before is not None
                                else "unreadable")
-                print(f"  {name}: captain's {prop} holds {held_desc} "
+                print(f"  {name}: recorded {prop} holds {held_desc} "
                       f"(was {before_desc}) on "
                       f"{os.path.basename(source_file)} - "
                       f"{record['reason']}", file=sys.stderr)
@@ -8119,9 +8115,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
               f"punch-in aimed on {aimed}/{placed_shots} shot(s) "
               f"({look['origin']})", file=sys.stderr)
 
-    # ── The captain's recorded transform overrides ──
-    # A hand move in the Inspector lives only in the project file, so
-    # a rebuild re-aims the punch-in over it. Overrides apply AFTER
+    # ── Recorded transform overrides ──
+    # A recorded transform lives in the project declarations, so a
+    # rebuild re-aims the punch-in over it. Overrides apply AFTER
     # the aim above (or with no look at all), hold the recorded value,
     # and re-prove coverage where the look declares a window. With no
     # look there is no window and the read-back is the whole proof.
@@ -8133,7 +8129,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         look=look, screen_window=screen_window, draw_gain=draw_gain,
         report_sibling_stale=not single_reel_scope)
     if held:
-        print(f"  {name}: {held} captain's transform hold(s) in force",
+        print(f"  {name}: {held} recorded transform hold(s) in force",
               file=sys.stderr)
 
     # ── The edit ledger's hands rows ──
