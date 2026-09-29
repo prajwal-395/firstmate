@@ -508,6 +508,13 @@
       }
     },
     {
+      "from": "catalog",
+      "to": "plan_subtitles",
+      "data_mapping": {
+        "project_fps": "project_fps"
+      }
+    },
+    {
       "from": "speech_sequence",
       "to": "plan_subtitles",
       "data_mapping": {

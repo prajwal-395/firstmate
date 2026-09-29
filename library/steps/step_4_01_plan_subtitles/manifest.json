@@ -13,6 +13,12 @@
         "description": "State input: audio_spine. Reads structure and optional max_words, the request-stated caption word ceiling emitted by mesh_spine; the brand caption_words_per_card and declared default apply only when the request states no count."
       },
       {
+        "name": "project_fps",
+        "type": "number",
+        "required": false,
+        "description": "State input: project_fps from catalog. Used to round a planned card to at least the gate's required frame count; defaults to the reels timeline rate for direct callers."
+      },
+      {
         "name": "rough_cut_review",
         "type": "object",
         "required": true,
@@ -41,7 +47,7 @@
       {
         "name": "subtitle_plan",
         "type": "object",
-        "description": "State output: subtitle_plan. max_words is the word ceiling every card was grouped at (rung 7, finding 31): the request's explicit number when present, otherwise the brand template's effect.caption_words_per_card, otherwise the grouping default. readability_issues names any final card below the 0.5 second readable floor or above 25 characters per second.",
+        "description": "State output: subtitle_plan. max_words is the word ceiling every card was grouped at (rung 7, finding 31): the request's explicit number when present, otherwise the brand template's effect.caption_words_per_card, otherwise the grouping default. Cards below the 0.5 second readable floor are held through a safe gap, merged with a same-block neighbour, or planning refuses; readability_issues names any remaining card above 25 characters per second.",
         "expected_schema": {
           "subtitle_entries": "list",
           "total_subtitles": "int",

@@ -4430,6 +4430,7 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
 
     plan = operations.get("subtitles.plan").run(
         spine, brand_effect={}, brand_style={}, project_folder=project_folder,
+        fps=fps,
         # This reel's declared caption row (`external/reel_caption_row.json`)
         # reaches the plan here, where the style is resolved - a reel that
         # declares none plans exactly as before, on the project value.

@@ -1563,9 +1563,9 @@ ANCHORS: Dict[str, str] = {
         "lookup dict built by comprehension - the idiom that made every "
         "per-clip read invisible to the first version of this map.",
     "OUT@catalog#project_fps":
-        "The timebase. Its manifest entry says in as many words that "
-        "every consumer used to read its own 30.0 default because no "
-        "edge carried it.",
+        "The timebase. `plan_subtitles` reads it from the catalog edge "
+        "to convert the readable-duration floor to the timeline's "
+        "required frame count.",
     "OUT@mesh_spine#audio_spine.structure[].block_type":
         "The spine contract (AGENTS.md 6). A SUBSCRIPT, so its absence "
         "raises rather than defaulting.",

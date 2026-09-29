@@ -43,20 +43,21 @@ from library.tools.subtitle_style import resolve_subtitle_style
 # trimmed or merged later without shifting a card away from its first word.
 MIN_DISPLAY_DURATION = 0.7
 
-# The hard floor, below which a card flashes rather than reads.  Same
+# The hard floor, below which a card flashes rather than reads. Same
 # number as `manifest_validator.MIN_CAPTION_DISPLAY_SECONDS` and
-# `render_qa`'s `subtitle_too_short`, and it is here because the GROUPING
-# is what sets it: a card is on screen until the next card's first word,
-# so nothing downstream of the split can lengthen one.
+# `render_qa`'s `subtitle_too_short`. After block clamping, the completed
+# plan holds a short card only through an uncaptioned gap, or merges it
+# with a compatible same-block neighbour. It never emits a card below it.
 MIN_CAPTION_FLASH_SECONDS = 0.5
+DEFAULT_CAPTION_FPS = 24000 / 1001
 
 # A caption also has to stay on screen long enough for its text to be read
 # at the QA ceiling. `MIN_DISPLAY_DURATION` remains the normal target; this
 # is the maximum rate the partitioner is allowed to plan around.
 MAX_CHARACTERS_PER_SECOND = 25.0
 
-# Below this a subtitle flashes rather than reads; clamping a block's
-# entries to its bounds can leave a sliver, and a sliver is worth dropping.
+# Below this a subtitle has no visible time; clamping a block's entries
+# to its bounds can leave a sliver that needs a safe hold or merge.
 MIN_VISIBLE_DURATION = 0.08
 
 #: Words per caption card when neither the request nor brand template
@@ -573,7 +574,8 @@ def split_into_groups(
     to word boundaries, then scheduled after the previous group with at
     least `min_display` seconds and enough time to stay at or under the
     reading-speed ceiling. A card that cannot fit before `display_until`
-    remains in the plan and is named by the plan's readability report.
+    is clamped there; the completed plan then holds or merges any
+    sub-floor card.
 
     Args:
         fits_fn: callable(text) -> bool, deciding whether the text fits
@@ -777,6 +779,126 @@ def _merge_entry(entry: dict, target: dict) -> None:
     target["emphasis_words"] = identify_emphasis_words(target["text"])
 
 
+def _enforce_caption_duration_floor(entries: list, structure: list,
+                                    fps: float) -> dict:
+    """Hold or merge every visible card to the F7 duration floor.
+
+    Per-block clamping can undo a minimum-duration hold on a block's final
+    card. The card may use an uncaptioned gap after that block, but not
+    another speech block or caption. If the gap is too short, it joins an
+    adjacent same-speaker card in its own block when doing so keeps the
+    sentence boundary intact. An impossible plan fails here instead of
+    emitting a card the F7 gate will reject.
+    """
+    floor = MIN_CAPTION_FLASH_SECONDS
+    fps = float(fps)
+    if not math.isfinite(fps) or fps <= 0:
+        raise ValueError(f"Caption planning fps must be positive, got {fps!r}")
+    floor_frames = math.ceil(floor * fps - 1e-9)
+    ordered = sorted(
+        entries, key=lambda entry: (entry["timeline_start"],
+                                    entry["timeline_end"]))
+    speech_blocks = [
+        block for block in structure
+        if block["block_type"] in ("hook", "speech")
+    ]
+    plan_end = max(
+        (float(block["timeline_end"]) for block in structure),
+        default=float("inf"),
+    )
+    extended = 0
+    merged = 0
+    index = 0
+
+    while index < len(ordered):
+        entry = ordered[index]
+        start = float(entry["timeline_start"])
+        end = float(entry["timeline_end"])
+        duration_frames = round((end - start) * fps)
+        if (end - start >= floor - 1e-9
+                and duration_frames >= floor_frames):
+            index += 1
+            continue
+
+        # The renderer rounds each card's duration to frames. At rates
+        # such as 25fps, a 0.5s card rounds below ceil(0.5 * fps), so
+        # raise the target to the first millisecond that reaches the gate.
+        target_duration = floor_frames / fps
+        target_end = math.ceil(
+            (start + target_duration) * 1000 - 1e-9) / 1000
+        while round((target_end - start) * fps) < floor_frames:
+            target_end = round(target_end + 0.001, 3)
+        next_card_start = (
+            float(ordered[index + 1]["timeline_start"])
+            if index + 1 < len(ordered) else float("inf"))
+        safe_end = min(plan_end, next_card_start)
+
+        # Do not hold this card across another speech block, including a
+        # talk-over whose first word has no separate card yet.
+        position = entry["spine_block_position"]
+        for block in speech_blocks:
+            if block["position"] == position:
+                continue
+            block_start = float(block["timeline_start"])
+            block_end = float(block["timeline_end"])
+            if block_start <= start < block_end:
+                safe_end = min(safe_end, start)
+            elif start < block_start < target_end:
+                safe_end = min(safe_end, block_start)
+
+        if target_end <= safe_end + 1e-9:
+            entry["timeline_end"] = target_end
+            extended += 1
+            index += 1
+            continue
+
+        previous = ordered[index - 1] if index else None
+        following = ordered[index + 1] if index + 1 < len(ordered) else None
+        candidates = (
+            [(previous, True), (following, False)]
+            if _ends_sentence_text(entry.get("text", ""))
+            else [(following, False), (previous, True)]
+        )
+        target = None
+        target_is_previous = False
+        for candidate, is_previous in candidates:
+            if candidate is None:
+                continue
+            same_block = candidate["spine_block_position"] == position
+            same_speaker = candidate.get("speaker") == entry.get("speaker")
+            if not (same_block and same_speaker):
+                continue
+            # Keep sentence terminals at the end of a card, as the
+            # grouping and overlap passes already require.
+            if is_previous and _ends_sentence_text(candidate.get("text", "")):
+                continue
+            if not is_previous and _ends_sentence_text(entry.get("text", "")):
+                continue
+            target = candidate
+            target_is_previous = is_previous
+            break
+
+        if target is not None:
+            _merge_entry(entry, target)
+            entries.remove(entry)
+            ordered.remove(entry)
+            merged += 1
+            if target_is_previous:
+                index = max(0, index - 1)
+            continue
+
+        raise ValueError(
+            f"Caption {entry.get('id', '?')} {entry.get('text', '')!r} "
+            f"would remain under the {floor:.3f}s readability floor "
+            f"({end - start:.3f}s, {duration_frames} frames; needs "
+            f"{floor_frames} at {fps:.3f}fps): the next safe hold ends at "
+            f"{safe_end:.3f}s, and no adjacent same-block, same-speaker "
+            f"card can absorb it without moving a sentence boundary"
+        )
+
+    return {"extended": extended, "merged": merged}
+
+
 def _readability_issues(entries: list) -> list:
     """Name final cards below the readable-duration or reading-speed floor."""
     issues = []
@@ -922,7 +1044,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                        brand_style: dict = None,
                        project_folder: str = "",
                        scope=None,
-                       reel_name: str = "") -> dict:
+                       reel_name: str = "",
+                       fps: float = DEFAULT_CAPTION_FPS) -> dict:
     """
     Generate subtitle entries from the spine's own word-level timestamps.
 
@@ -1347,12 +1470,11 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 # Advance timeline position for the next segment
                 current_tl_pos += seg_tl_dur
 
-    # ── Enforce minimum display duration PER BLOCK ──
-    # Each block's subtitles are enforced independently so that
-    # extending a short subtitle in one block never cascades into the
-    # next block.  The last subtitle in each block is clamped to the
-    # block's end time — it may be shorter than MIN_DISPLAY_DURATION,
-    # but that's preferable to bleeding across the block boundary.
+    # ── Enforce the normal hold PER BLOCK ──
+    # Each block's subtitles are extended independently so one block
+    # never pushes another block's caption. The clamp can leave a short
+    # final card; the plan-wide floor pass below handles it after overlap
+    # repair, using only a safe gap or a same-block merge.
     if subtitle_entries:
         # Group entries by spine block position
         block_groups = {}
@@ -1442,6 +1564,21 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             f"{overlap_fix.get('merged_backward', 0)} of them backward "
             f"into the sentence they close - two cards cannot cover "
             f"the same seconds on one track",
+            file=sys.stderr,
+        )
+
+    # A block's final caption may have been clamped shorter than the
+    # readability floor. Use only a free gap after that block, or merge
+    # with a compatible neighbour. A sub-floor card is refused rather
+    # than passed to the renderer and F7.
+    duration_fix = _enforce_caption_duration_floor(
+        subtitle_entries, structure, fps)
+    if duration_fix["extended"] or duration_fix["merged"]:
+        print(
+            f"NOTE: held {duration_fix['extended']} short caption card(s) "
+            f"through a safe gap and merged {duration_fix['merged']} into "
+            f"same-block neighbours to meet the "
+            f"{MIN_CAPTION_FLASH_SECONDS:.1f}s readability floor",
             file=sys.stderr,
         )
 
@@ -1661,7 +1798,8 @@ def main():
         result = generate_subtitles(
             audio_spine, caption_case=caption_case,
             brand_effect=brand_effect, brand_style=brand_style,
-            project_folder=input_data.get("project_folder", ""))
+            project_folder=input_data.get("project_folder", ""),
+            fps=input_data.get("project_fps") or DEFAULT_CAPTION_FPS)
     except (ValueError, AssertionError) as e:
         print(json.dumps({
             "error": str(e),
