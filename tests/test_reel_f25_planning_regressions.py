@@ -12,7 +12,9 @@ from library.steps.step_4_05_render_subtitles import generate_remotion_props
 from library.tools import (reel_build, subtitle_coverage,
                            timeline_transcript, transcript_corrections)
 from library.tools import reel_conformance_verifier as verifier
-from library.tools.reel_proposal import ReelMoment
+from library.tools.reel_proposal import (
+    CallToAction, ReelMoment, snap_moment_to_speech,
+)
 
 FPS = 24000 / 1001
 SOURCE = "fixture.mxf"
@@ -199,6 +201,77 @@ def test_reel15_mic_bleed_merge_makes_caption_plan_pass_f25(
 
     assert " ".join(entry["text"] for entry in plan.caption_entries).lower() == (
         "yeah so ai is actually better for small businesses")
+    assert _f25_errors(plan, transcript, ranges, tmp_path) == []
+
+
+def test_reel15_build_snap_keeps_full_edge_words_and_passes_f25(
+        tmp_path, monkeypatch):
+    """The build repairs both approved starts before placing and captioning.
+
+    The approved body and CTA starts sit 111ms and 108ms into their first
+    words. The build's normal boundary repair widens them to the measured
+    word starts, so the reel plays complete words and 4.01 captions them.
+    """
+    _skip_render(monkeypatch)
+    body_words = [
+        {"word": "If", "start": 1186.83, "end": 1187.10, "timed": True},
+        {"word": "you're", "start": 1187.10, "end": 1187.35, "timed": True},
+        {"word": "a", "start": 1187.35, "end": 1187.44, "timed": True},
+        {"word": "salon", "start": 1187.44, "end": 1187.80, "timed": True},
+        {"word": "owner", "start": 1187.80, "end": 1188.15, "timed": True},
+        {"word": "or", "start": 1188.15, "end": 1188.55, "timed": True},
+    ]
+    cta_words = [
+        {"word": "And", "start": 333.69, "end": 333.95, "timed": True},
+        {"word": "that's", "start": 333.95, "end": 334.11, "timed": True},
+        {"word": "why", "start": 334.11, "end": 334.21, "timed": True},
+        {"word": "we've", "start": 334.21, "end": 334.39, "timed": True},
+        {"word": "been", "start": 334.39, "end": 334.56, "timed": True},
+        {"word": "building", "start": 334.56, "end": 335.08, "timed": True},
+    ]
+    transcript = {"segments": [
+        _segment("If you're a salon owner or", body_words,
+                 1186.83, 1188.55, 100.0),
+        _segment("And that's why we've been building", cta_words,
+                 333.69, 335.08, 200.0, speaker="Akshita"),
+    ]}
+    moment = ReelMoment(
+        number=15,
+        slug="the-3d-nail-art-salon-beats-the-chains",
+        reason="edge-word regression",
+        timeline_start=1186.941,
+        timeline_end=1188.55,
+        source_spans=(
+            {"source_file": SOURCE, "source_start": 100.0,
+             "source_end": 101.72},
+            {"source_file": SOURCE, "source_start": 200.0,
+             "source_end": 201.39},
+        ),
+        call_to_action=CallToAction(
+            timeline_start=333.798,
+            timeline_end=335.08,
+            text="And that's why we've been building",
+            speaker="Akshita",
+        ),
+    )
+
+    repaired, moves = snap_moment_to_speech(moment, transcript)
+    assert [(move["boundary"], move["was"], move["now"])
+            for move in moves if move["boundary"] in
+            ("body_start", "cta_start")] == [
+        ("body_start", 1186.941, 1186.83),
+        ("cta_start", 333.798, 333.69),
+    ]
+    ranges = reel_build.reel_ranges(repaired, transcript)
+    assert ranges == [(1186.83, 1188.55), (333.69, 335.08)]
+
+    plan = reel_build.reel_subtitle_segments(
+        repaired, transcript, ranges, str(tmp_path), fps=FPS,
+        width=1080, height=1920)
+
+    planned = " ".join(entry["text"] for entry in plan.caption_entries).lower()
+    assert planned.startswith("if you're")
+    assert "and that's why" in planned
     assert _f25_errors(plan, transcript, ranges, tmp_path) == []
 
 
