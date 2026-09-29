@@ -1158,6 +1158,12 @@ def motion_spine(placements: Sequence[dict], fps: float,
             "position": index,
             "timeline_start": round(start / fps, 3),
             "timeline_end": round(end / fps, 3),
+            # The seconds are a display value; plan_vfx resolves word
+            # edges against the same frame cursor as the placed picture.
+            # Keeping both frame boundaries here lets a sub-frame
+            # transcript overrun snap to the actual played edge.
+            "timeline_start_frame": start,
+            "timeline_end_frame": end,
             "master_start": round(master_start, 3),
             "master_end": round(master_start
                                 + (p["source_out"] - p["source_in"]), 3),

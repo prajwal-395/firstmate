@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from library.tools import reel_look
 from library.tools import tv_frame
+from library.tools.sub_block_anchor import AnchorRefused
 
 
 @dataclass
@@ -335,6 +336,76 @@ def test_two_anchored_body_moves_compose_inside_one_picture_cut():
                            source_res=(3840, 2160))
     assert verdict["passed"] is True
     assert verdict["motion_over_time"] is True
+
+
+def test_build_motion_resolves_a_word_end_on_the_picture_frame_edge():
+    """The reel build sends its own frame span to plan_vfx.
+
+    The saved Reel 21 motion answer ends a word at 9.430s. Its picture
+    placement ends at frame 226 (9.426s) at 23.976 fps. Those timestamps
+    resolve to the same frame, so the visual span ends at the played edge
+    instead of refusing on the rounded seconds display.
+    """
+    fps = 24000 / 1001
+    placement = _placement("/a.mxf", 0, 9.426, fps)
+    words = [
+        {"word": "They're", "start": 0.0, "end": 0.19},
+        {"word": "like,", "start": 0.19, "end": 0.57},
+        {"word": "everything", "start": 4.32, "end": 4.73},
+        {"word": "I", "start": 3.51, "end": 3.63},
+        {"word": "I", "start": 4.03, "end": 4.12},
+        {"word": "I", "start": 4.73, "end": 4.81},
+        {"word": "enough?", "start": 9.06, "end": 9.430},
+    ]
+    spine = reel_look.motion_spine(
+        [placement], fps,
+        [{"source_file": "/a.mxf", "timeline_start": 0.0,
+          "timeline_end": 9.430, "source_start": 0.0,
+          "source_end": 9.430, "words": words}])
+    plan = [
+        {"target_block_position": 0,
+         "anchor": {"word": "like,"},
+         "anchor_end": {"word": "everything", "edge": "end"},
+         "effect_type": "ken_burns",
+         "params": {"zoom_start": 1.0, "zoom_end": 1.025},
+         "rationale": "the first explanation unfolds"},
+        {"target_block_position": 0,
+         "anchor": {"word": "I", "occurrence": 3},
+         "anchor_end": {"word": "enough?", "edge": "end"},
+         "effect_type": "ken_burns",
+         "params": {"zoom_start": 1.025, "zoom_end": 1.0},
+         "rationale": "the question lands"},
+    ]
+
+    assert spine["structure"][0]["timeline_end_frame"] == 226
+    resolved, record = reel_look.resolve_motion(plan, spine, fps)
+
+    assert record["resolved"] == 2
+    assert resolved[1]["timeline_end"] == pytest.approx(9.426)
+    assert "snapped to block end frame" in resolved[1]["anchor_method"]
+
+
+def test_build_motion_still_refuses_a_word_end_in_the_next_frame():
+    fps = 24000 / 1001
+    next_frame_edge = 227 / fps
+    placement = _placement("/a.mxf", 0, 9.426, fps)
+    spine = reel_look.motion_spine(
+        [placement], fps,
+        [{"source_file": "/a.mxf", "timeline_start": 0.0,
+          "timeline_end": next_frame_edge, "source_start": 0.0,
+          "source_end": next_frame_edge,
+          "words": [{"word": "starts", "start": 4.0, "end": 4.2},
+                    {"word": "outside", "start": 9.06,
+                     "end": next_frame_edge}]}])
+    plan = [{"target_block_position": 0,
+             "anchor": {"word": "starts"},
+             "anchor_end": {"word": "outside", "edge": "end"},
+             "effect_type": "ken_burns",
+             "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+             "rationale": "the move tracks the explanation"}]
+
+    with pytest.raises(AnchorRefused, match="outside block 0"):
+        reel_look.resolve_motion(plan, spine, fps)
 
 
 def test_closing_cta_ken_burns_keeps_its_existing_full_shot_window():
