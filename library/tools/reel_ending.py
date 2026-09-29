@@ -61,9 +61,9 @@ rebuild of it.
 `ends_on.anchor_phrase` is the SPOKEN WORDS the reel ends on, anchored
 into the master transcript exactly the way `span_retime` anchors a trim
 (`library/tools/captain_edits.py`): words survive a re-cut, a
-renumbering and a re-plan; a frame number survives none of them.  The
-shot carrying those words is the ending shot, and the reel's last keep
-range is truncated to that shot's own end.
+renumbering and a re-plan; a frame number survives none of them. The
+shot carrying those words is the ending shot. Later playback ranges are
+dropped, and the range carrying that shot is truncated to its own end.
 
 `tail_element` names what DRAWS over the tail, from `TAIL_ELEMENTS`.  It
 is a name, never a magnitude: how long a switch-off takes is
@@ -931,9 +931,28 @@ def closing_breath_end(transcript: dict, words_end: float,
 
 # ── Applying: the ranges seam ──────────────────────────────────────
 
+def _range_for_span(ranges, master) -> int | None:
+    """The played range that owns one placed span, or None if unmapped."""
+    try:
+        span_start, span_end = map(float, master)
+    except (TypeError, ValueError):
+        return None
+    overlaps = []
+    for index, (start, end) in enumerate(ranges):
+        overlap = min(float(end), span_end) - max(float(start), span_start)
+        if overlap > 0:
+            overlaps.append((overlap, index))
+    if not overlaps:
+        return None
+    # Equal overlaps can occur on repeated ranges; the later playback
+    # occurrence owns the ending, just as the last matching spoken span
+    # does below.
+    return max(overlaps)[1]
+
+
 def apply_ending(ranges, spans, transcript: dict, ending,
                  fps: float) -> tuple:
-    """Truncate the reel's last keep range to its declared ending shot.
+    """Truncate playback at the last played span that speaks the anchor.
 
     `ranges` are the reel's master keep ranges in play order and
     `spans` are `reel_build.placements()` entries probed from them,
@@ -946,10 +965,12 @@ def apply_ending(ranges, spans, transcript: dict, ending,
     declaration passes the ranges through untouched and reports
     nothing.
 
-    A DECLARED ending only ever REMOVES seconds.  The last range's new
-    end is `min(its current end, the ending shot's own end)`, so a
-    declaration can never admit the next shot - which is the whole
-    defect this owner exists for.
+    A DECLARED ending only ever REMOVES playback. Ranges after the last
+    played span that speaks the anchor are dropped, then that range's new
+    end is `min(its current end, the ending shot's own end)`. This handles
+    a borrowed CTA whose source seconds precede the body: a declaration
+    ending on the body removes the CTA even though its master time is
+    numerically earlier.
 
     An INHERITED ending may also move that end OUT, into the call to
     action's own trailing silence (`closing_breath_end`), and is
@@ -969,6 +990,7 @@ def apply_ending(ranges, spans, transcript: dict, ending,
     phrase = ending["ends_on"]["anchor_phrase"]
     anchor_tokens = _tokens(phrase)
     shot_end = None
+    ending_range = None
     for span in spans or []:
         master = span.get("master") if isinstance(span, dict) else None
         clip = span.get("clip") if isinstance(span, dict) else None
@@ -977,9 +999,12 @@ def apply_ending(ranges, spans, transcript: dict, ending,
         tokens = _span_word_tokens(transcript, float(master[0]),
                                    float(master[1]))
         if _contains_run(tokens, anchor_tokens):
-            # The LAST span speaking the anchor owns the ending: a
-            # phrase said twice ends the reel on the later saying,
-            # which is the one the reel was cut to close on.
+            range_index = _range_for_span(ranges, master)
+            if range_index is None:
+                continue
+            # The LAST played span speaking the anchor owns the ending:
+            # a phrase said twice ends on the later telling.
+            ending_range = range_index
             shot_end = float(getattr(clip, "timeline_end", master[1]))
     inherited = is_inherited(ending)
     if shot_end is None:
@@ -1002,11 +1027,14 @@ def apply_ending(ranges, spans, transcript: dict, ending,
                  f"request: {ending.get('reason', '')}").strip())})
         return list(ranges), empty
 
-    out = [tuple(r) for r in ranges]
+    out = [tuple(r) for r in ranges[:ending_range + 1]]
+    dropped_ranges = [
+        [round(float(start), 3), round(float(end), 3)]
+        for start, end in ranges[ending_range + 1:]]
     start, end = out[-1]
-    # TRUNCATION first, and it is unconditional: the last range may
-    # never reach past the shot that speaks the closing words, which is
-    # the defect this owner exists for.
+    # TRUNCATION first, and it is unconditional: the range carrying the
+    # closing words may never reach past their shot, which is the defect
+    # this owner exists for.
     new_end = min(float(end), shot_end)
     breath = None
     if inherited:
@@ -1029,14 +1057,16 @@ def apply_ending(ranges, spans, transcript: dict, ending,
                              else round(float(breath), 3)),
               "was": [round(float(start), 3), round(float(end), 3)],
               "now": [round(float(start), 3), round(new_end, 3)],
+              "dropped_ranges": dropped_ranges,
               "reason": ending.get("reason", "")}
-    if abs(new_end - float(end)) < 1e-6:
+    if abs(new_end - float(end)) < 1e-6 and not dropped_ranges:
         empty["held"].append(record)
         return out, empty
     if new_end - float(start) <= 0:
         raise ReelEndingError(
             f"REFUSING to build: the declared ending for "
-            f"{ending['reel']!r} would truncate its last range "
+            f"{ending['reel']!r} would truncate the range carrying its "
+            f"ending "
             f"({start:.3f}-{end:.3f}s) to nothing. The anchor "
             f"{phrase!r} resolves to a shot that ends at "
             f"{shot_end:.3f}s, before this range begins - the ending "
@@ -1072,16 +1102,24 @@ def report(record: dict) -> None:
         return f" - {row.get('reason', '')}"
 
     for row in record.get("applied", ()):
-        moved = ("truncated" if row["now"][1] < row["was"][1]
-                 # An inherited ending plays the call to action's own
-                 # trailing silence, so it can move the end OUT as well
-                 # as in - never past the shot, never into the next
-                 # word. Said in the verb, so a reader is not told
-                 # "truncated to" a larger number.
-                 else "extended into the closing breath to")
+        now = f"{row['now'][0]:.3f}-{row['now'][1]:.3f}s"
+        if row.get("dropped_ranges"):
+            count = len(row["dropped_ranges"])
+            unit = "range" if count == 1 else "ranges"
+            moved = (f"removed {count} {unit} after the ending in playback "
+                     f"order; ending range is now {now}")
+        else:
+            moved = (f"truncated to {now}"
+                     if row["now"][1] < row["was"][1]
+                     # An inherited ending plays the call to action's own
+                     # trailing silence, so it can move the end OUT as well
+                     # as in - never past the shot, never into the next
+                     # word. Said in the verb, so a reader is not told
+                     # "truncated to" a larger number.
+                     else f"extended into the closing breath to {now}")
         print(f"  Ending: {row['reel']} ends on {row['anchor_phrase']!r} "
-              f"- last range {row['was'][0]:.3f}-{row['was'][1]:.3f}s "
-              f"{moved} {row['now'][0]:.3f}-{row['now'][1]:.3f}s "
+              f"- ending range {row['was'][0]:.3f}-"
+              f"{row['was'][1]:.3f}s; {moved} "
               f"(ending shot ends {row.get('shot_end')}s), "
               f"tail element {row['tail_element']}, hold "
               f"{row.get('tail_hold', 'none')} "

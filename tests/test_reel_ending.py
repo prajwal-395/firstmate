@@ -86,6 +86,68 @@ def test_declared_ending_truncates_to_its_shot():
     assert [p["clip"].speaker for p in after] == ["A"]
 
 
+def test_body_ending_drops_a_later_played_cta_from_an_earlier_source():
+    """A closer can come from an earlier point in the episode than the
+    body. Ending on the body must remove that later-played closer, even
+    though its master seconds are numerically lower."""
+    from library.tools.reel_proposal import CallToAction
+
+    transcript = {
+        "segments": [
+            {"timeline_start": 10.0, "timeline_end": 12.0,
+             "text": "the links in the bio",
+             "words": [
+                 {"word": "the", "start": 10.0, "end": 10.2,
+                  "timed": True},
+                 {"word": "links", "start": 10.2, "end": 10.5,
+                  "timed": True},
+                 {"word": "in", "start": 10.5, "end": 10.7,
+                  "timed": True},
+                 {"word": "the", "start": 10.7, "end": 10.9,
+                  "timed": True},
+                 {"word": "bio", "start": 10.9, "end": 11.2,
+                  "timed": True},
+             ]},
+            {"timeline_start": 100.0, "timeline_end": 110.0,
+             "text": "and AI really likes that",
+             "words": [
+                 {"word": "and", "start": 108.0, "end": 108.2,
+                  "timed": True},
+                 {"word": "AI", "start": 108.2, "end": 108.5,
+                  "timed": True},
+                 {"word": "really", "start": 108.5, "end": 108.8,
+                  "timed": True},
+                 {"word": "likes", "start": 108.8, "end": 109.2,
+                  "timed": True},
+                 {"word": "that", "start": 109.2, "end": 109.6,
+                  "timed": True},
+             ]},
+        ]}
+    moment = SimpleNamespace(
+        timeline_start=100.0, timeline_end=110.0,
+        call_to_action=CallToAction(
+            timeline_start=10.0, timeline_end=12.0,
+            text="the links in the bio", speaker="Craig"))
+    ranges = reel_build.reel_ranges(moment, transcript)
+    assert ranges == [(100.0, 110.0), (10.0, 12.0)]
+    clips = [
+        SimpleNamespace(timeline_start=10.0, timeline_end=12.0,
+                        source_in=0.0, track_index=1, speaker="Craig"),
+        SimpleNamespace(timeline_start=100.0, timeline_end=110.0,
+                        source_in=0.0, track_index=2, speaker="Akshita"),
+    ]
+    ending = _ending(
+        reel="Reel 26 - write-for-the-question-your-customer-ask",
+        ends_on={"anchor_phrase": "and AI really likes that"},
+        tail_element="none")
+    out, record = reel_ending.apply_ending(
+        ranges, reel_build.placements(ranges, clips, 24.0),
+        transcript, ending, 24.0)
+    assert out == [(100.0, 110.0)]
+    assert len(record["applied"]) == 1 and not record["stale"]
+    assert record["applied"][0]["dropped_ranges"] == [[10.0, 12.0]]
+
+
 def test_an_ending_never_extends():
     """The rule the defect teaches. A declaration that would reach past
     the plan's own end holds instead - an ending removes seconds or it
@@ -199,19 +261,20 @@ def test_an_unreadable_declaration_refuses_rather_than_defaulting(tmp_path):
         reel_ending.load_endings(root)
 
 
-def test_an_ending_that_would_empty_the_reel_refuses():
+def test_ending_in_an_earlier_playback_range_drops_later_ranges():
     transcript = {"segments": [{
         "text": "alpha beta", "words": _words("alpha", "beta", start=10.0)}]}
-    shots = [SimpleNamespace(timeline_start=10.0, timeline_end=10.6,
+    shots = [SimpleNamespace(timeline_start=10.0, timeline_end=10.9,
                              source_in=50.0, track_index=1, speaker="A"),
-             SimpleNamespace(timeline_start=10.6, timeline_end=13.0,
+             SimpleNamespace(timeline_start=10.9, timeline_end=13.0,
                              source_in=80.0, track_index=2, speaker="B")]
-    ranges = [(10.0, 10.6), (11.0, 12.0)]
+    ranges = [(10.0, 10.9), (11.2, 12.0)]
     probe = reel_build.placements(ranges, shots, 24.0)
-    with pytest.raises(reel_ending.ReelEndingError, match="to nothing"):
-        reel_ending.apply_ending(
-            ranges, probe, transcript,
-            _ending(ends_on={"anchor_phrase": "alpha beta"}), 24.0)
+    out, record = reel_ending.apply_ending(
+        ranges, probe, transcript,
+        _ending(ends_on={"anchor_phrase": "alpha beta"}), 24.0)
+    assert out == [(10.0, 10.9)]
+    assert record["applied"][0]["dropped_ranges"] == [[11.2, 12.0]]
 
 
 # ── The freeze: hold the last frame, play the element over it ──────
@@ -258,5 +321,3 @@ def test_the_freeze_placement_is_a_picture_clip_that_speaks_nothing():
     # treatment of the shot it holds instead.
     assert place["master"] == (0.0, 0.0)
     assert place["freeze"] is True
-
-

@@ -217,7 +217,7 @@ import json
 import os
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 # ONE spelling of the captain's mechanical length bound, owned by the
@@ -765,6 +765,78 @@ def reel_text(moment, transcript: dict) -> str:
     return " ".join(line["text"] for line in played_speech(moment, transcript))
 
 
+def _declared_body_ending(moment, transcript: dict,
+                          ending: dict | None) -> dict | None:
+    """A project pin that ends the body suppresses its planned closer.
+
+    The proposal may still carry a borrowed CTA, whose source seconds
+    can precede the body. A word-anchored ending in the body's approved
+    transcript is the captain's declaration that playback stops there.
+    Prefer the timed transcript measurement; when it lacks corrected
+    words, the approved preview is the recorded wording the captain
+    approved. An anchor in the CTA itself keeps the CTA.
+    """
+    closer = getattr(moment, "call_to_action", None)
+    if (not ending or ending.get("source") == "call_to_action"
+            or closer is None):
+        return None
+    body = replace(moment, call_to_action=None)
+    reading = thesis_reading(body, transcript, ending)
+    if reading is not None:
+        if thesis_reading(moment, transcript, ending) is None:
+            return reading
+        return None
+    anchor = _words((ending.get("ends_on") or {}).get("anchor_phrase"))
+    if not anchor or _contains_word_run(_words(closer.text), anchor):
+        return None
+    return _approved_ending_preview(body, ending, require_tail=True)
+
+
+def _contains_word_run(haystack: list[str], needle: list[str]) -> bool:
+    return any(haystack[index:index + len(needle)] == needle
+               for index in range(len(haystack) - len(needle) + 1))
+
+
+def _approved_ending_preview(moment, ending: dict | None,
+                             require_tail: bool = False) -> dict | None:
+    """Read an explicit ending from the captain-approved moment text.
+
+    Some live, hand-edited endings restore words absent from the timed
+    transcript. The captain's keyed declaration still names the cut,
+    and the approved moment preview confirms those words belong to that
+    reel. This reading records that source without pretending the stale
+    timed transcript measured a span. A declaration whose anchor is not
+    in the approved moment remains absent.
+    """
+    anchor_text = ((ending or {}).get("ends_on") or {}).get(
+        "anchor_phrase")
+    anchor = _words(anchor_text)
+    preview = _words(getattr(moment, "transcript_preview", ""))
+    if not anchor or not _contains_word_run(preview, anchor):
+        return None
+    if require_tail and preview[-len(anchor):] != anchor:
+        return None
+    return {
+        "source": "thesis",
+        "span": None,
+        "text": str(anchor_text).strip(),
+        "speaker": None,
+        "shared_with": [],
+        "closes_reels": 0,
+        "in_own_body": False,
+        "outside_episode": False,
+        "silent": False,
+        "incomplete": False,
+        "unwritten_words": [],
+        "opens_mid_sentence": False,
+        "opening_head": "",
+        "is_the_ending": True,
+        "evidence": (
+            "captain ending declaration matches approved moment preview; "
+            "timed transcript did not resolve it"),
+    }
+
+
 def delivered_seconds(moment, transcript: dict,
                         project_folder=None) -> float:
     """How long the reel RUNS - the reconciled figure, not the body window.
@@ -892,9 +964,18 @@ def duration_reading(moment, transcript: dict,
     in the `ending` breakdown) - a body-only figure reported as the
     reel is the defect `DURATION_GATE_REMOVED` records.
     """
-    ranges, refusal = playable_ranges(moment, transcript)
+    measured_moment = moment
+    if project_folder and getattr(moment, "call_to_action", None) is not None:
+        from library.tools import reel_ending as _ending
+
+        declared = _ending.declared_ending(
+            project_folder, moment.timeline_name)
+        if _declared_body_ending(moment, transcript, declared) is not None:
+            measured_moment = replace(moment, call_to_action=None)
+
+    ranges, refusal = playable_ranges(measured_moment, transcript)
     body = sum(end - start for start, end in ranges)
-    ending = ending_seconds(moment, transcript, project_folder)
+    ending = ending_seconds(measured_moment, transcript, project_folder)
     if refusal:
         # A reel nothing can lay out has no length to hold against
         # anything, and reporting 0.0s as a length would be a finding
@@ -915,12 +996,14 @@ def duration_reading(moment, transcript: dict,
         delivered = body + ending["card_seconds"] + ending["freeze_seconds"]
     return {
         "delivered_seconds": round(delivered, 1),
-        "body_seconds": round(moment.timeline_end - moment.timeline_start, 1),
-        "closer_seconds": round(moment.call_to_action.duration, 1)
-        if moment.call_to_action else 0.0,
+        "body_seconds": round(
+            measured_moment.timeline_end - measured_moment.timeline_start, 1),
+        "closer_seconds": round(measured_moment.call_to_action.duration, 1)
+        if measured_moment.call_to_action else 0.0,
         "removed_by_cuts_seconds": round(
-            (moment.timeline_end - moment.timeline_start)
-            + (moment.call_to_action.duration if moment.call_to_action else 0.0)
+            (measured_moment.timeline_end - measured_moment.timeline_start)
+            + (measured_moment.call_to_action.duration
+               if measured_moment.call_to_action else 0.0)
             - body, 1),
         "ending_seconds": round(ending["total"], 1),
         "ending_resolved": ending["resolved"],
@@ -1138,6 +1221,11 @@ def cta_reading(moment, transcript: dict,
         "is_the_ending": False,
     }
 
+    body_ending = _declared_body_ending(moment, transcript, thesis)
+    if body_ending is not None:
+        reading.update(body_ending)
+        return reading
+
     if declared is not None:
         key = (round(declared[0], 2), round(declared[1], 2))
         others = [n for n in closers.get(key, ()) if n != int(moment.number)]
@@ -1192,11 +1280,15 @@ def cta_reading(moment, transcript: dict,
                for range_start, range_end in ranges)]
     if not contained:
         # No closer anywhere in what the reel plays. A project-declared
-        # thesis ending (`external/reel_ending.json`, captain-authorised
-        # re-cut) is the fourth answer: the reel ends on its own words
-        # and the declaration names them. Undeclared, or declared but
-        # not honoured, reads ABSENT exactly as before.
+        # ending (`external/reel_ending.json`, captain-authorised re-cut)
+        # is the fourth answer. Prefer timed-word evidence; a corrected
+        # ending absent from the transcript can still be confirmed by
+        # the approved moment preview. A declaration represented in
+        # neither place reads ABSENT.
         thesis_reading_result = thesis_reading(moment, transcript, thesis)
+        if thesis_reading_result is None:
+            thesis_reading_result = _approved_ending_preview(
+                moment, thesis)
         if thesis_reading_result is not None:
             reading.update(thesis_reading_result)
         return reading

@@ -6,13 +6,12 @@ episode. `declared`/`in_body` cannot express that - a closer inside
 its own body is refused as a double play - so QB-CTA-ABSENT failed a
 reel ending exactly where its authorised re-cut puts it (AGENTS.md
 10.4). A HAND-WRITTEN `external/reel_ending.json` entry the reel
-honours (anchor tail-matches played speech, run measured in timed
-words) now reads `thesis`, never ABSENT.
+honours (anchor measured in timed words or present in the approved
+transcript preview) now reads `thesis`, never ABSENT.
 
 Fail-closed both ways: undeclared absent reels still fail, and a
-declaration whose anchor is not the reel's tail (or is unmeasurable
-in timed words) fails too - a declaration nobody honours is not a
-pass.
+declaration whose anchor is neither timed nor in the approved preview
+fails too - a declaration nobody honours is not a pass.
 
 `library/tools/reel_quality_bar.py` (`thesis_reading`,
 `cta_reading`, `exact_findings`, `judge`); declarations owned by
@@ -28,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from library.tools import reel_quality_bar as qb
-from library.tools.reel_proposal import ReelMoment
+from library.tools.reel_proposal import CallToAction, ReelMoment
 
 
 def _w(word, start, end):
@@ -65,10 +64,54 @@ def _transcript():
     }
 
 
-def _moment(number=2, start=10.0, end=50.0):
+def _moment(number=2, start=10.0, end=50.0, transcript_preview=""):
     return ReelMoment(number=number, slug="the-question", reason="",
                       timeline_start=start, timeline_end=end,
+                      transcript_preview=transcript_preview,
                       call_to_action=None)
+
+
+def _moment_with_cta(transcript_preview=""):
+    return ReelMoment(
+        number=2, slug="the-question", reason="",
+        timeline_start=10.0, timeline_end=25.0,
+        transcript_preview=transcript_preview,
+        call_to_action=CallToAction(
+            timeline_start=5.0, timeline_end=8.0,
+            text="go check it out, the links in the bio",
+            speaker="Craig"))
+
+
+def _transcript_with_cta():
+    return {
+        "segments": [
+            {"timeline_start": 5.0, "timeline_end": 8.0,
+             "speaker": "Craig", "text": "go check it out the links in the bio",
+             "resolve_item_id": "cta",
+             "words": [
+                 _w(word, 5.0 + i * 0.5, 5.4 + i * 0.5)
+                 for i, word in enumerate([
+                     "go", "check", "it", "out", "the", "links",
+                     "in", "bio"])]},
+            {"timeline_start": 10.0, "timeline_end": 20.0,
+             "speaker": "Craig", "text": "so what actually changed about search",
+             "resolve_item_id": "body_1",
+             "words": [
+                 _w(word, 10.0 + i * 0.5, 10.4 + i * 0.5)
+                 for i, word in enumerate([
+                     "so", "what", "actually", "changed", "about",
+                     "search"])]},
+            {"timeline_start": 20.0, "timeline_end": 25.0,
+             "speaker": "Akshita", "text": "and AI really likes that",
+             "resolve_item_id": "body_2",
+             "words": [
+                 _w(word, 20.0 + i * 0.5, 20.4 + i * 0.5)
+                 for i, word in enumerate([
+                     "and", "AI", "really", "likes", "that"])]},
+        ],
+        "derived_from": {"duration_seconds": 1000.0,
+                         "fps": 24000 / 1001},
+    }
 
 
 def _thesis(anchor):
@@ -129,3 +172,59 @@ def test_judge_reads_thesis_endings_off_the_project(tmp_path):
         f.code for f in report.verdicts[0].findings}
 
 
+def test_recorded_ending_in_approved_preview_passes_when_timing_omits_words():
+    transcript = _transcript()
+    anchor = "clearly saying why you're better than your competitor"
+    moment = _moment(
+        transcript_preview=(
+            "The captain-approved answer ends with clearly saying why "
+            "you're better than your competitor. A later exchange follows."))
+    thesis = _thesis(anchor)
+
+    reading = qb.cta_reading(moment, transcript, {}, thesis=thesis)
+    codes = {f.code for f in qb.exact_findings(
+        moment, transcript, {}, thesis=thesis)}
+
+    assert reading["source"] == "thesis"
+    assert reading["span"] is None
+    assert "approved moment preview" in reading["evidence"]
+    assert qb.QB_CTA_ABSENT not in codes
+
+
+def test_a_recorded_body_ending_removes_a_planned_cta_from_the_batch_check(
+        tmp_path):
+    moment = _moment_with_cta()
+    transcript = _transcript_with_cta()
+    ending = _thesis("and AI really likes that")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "reel_ending.json").write_text(json.dumps({
+        "version": 1,
+        "endings": [ending],
+    }), encoding="utf-8")
+
+    report = qb.judge([moment], transcript, None,
+                      project_folder=str(tmp_path))
+
+    assert report.verdicts[0].cta["source"] == "thesis"
+    assert qb.QB_CTA_ABSENT not in {
+        f.code for f in report.verdicts[0].findings}
+
+
+def test_preview_phrase_inside_body_does_not_remove_a_planned_cta(tmp_path):
+    moment = _moment_with_cta(
+        transcript_preview=(
+            "clearly saying why you're better than your competitor. "
+            "A follow-up thought comes after it."))
+    ending = _thesis("clearly saying why you're better than your competitor")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "reel_ending.json").write_text(json.dumps({
+        "version": 1,
+        "endings": [ending],
+    }), encoding="utf-8")
+
+    report = qb.judge([moment], _transcript_with_cta(), None,
+                      project_folder=str(tmp_path))
+
+    assert report.verdicts[0].cta["source"] == "declared"
