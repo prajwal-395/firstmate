@@ -90,10 +90,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import re
+import struct
 import subprocess
 import sys
+import wave
 from dataclasses import dataclass, asdict, replace
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
@@ -109,6 +114,15 @@ SAMPLE_RATE = 16000
 """What Whisper wants. Resampling later would be a second lossy step."""
 
 CHANNELS = 1
+
+MIC_BLEED_MIN_WORDS = 4
+"""A repeated phrase this long is a candidate for mic bleed."""
+
+MIC_BLEED_TEXT_SIMILARITY = 0.8
+"""Text only finds passages to compare; audio decides the source."""
+
+MIC_BLEED_MIN_LEVEL_DELTA_DB = 6.0
+"""Required RMS lead before a track can be called the real microphone."""
 
 _SILENCE_CODEC = ("-f", "lavfi", "-i",
                   f"anullsrc=r={SAMPLE_RATE}:cl=mono")
@@ -757,8 +771,12 @@ def rebind_document(document: dict, snapshot,
     # with the words. Dropping it would tell a later reader that a
     # hybrid transcript predates the confidence being kept, which is the
     # exact misreading `CONFIDENCE_ABSENT_HYBRID` exists to prevent.
-    rebound = transcript_document(snapshot, merge_speakers(per_speaker),
-                                  transcription=document.get("transcription"))
+    rebound_segments, mic_bleed_resolution = merge_speakers(per_speaker)
+    rebound = transcript_document(
+        snapshot, rebound_segments,
+        transcription=document.get("transcription"),
+        mic_bleed_resolution=(mic_bleed_resolution
+                              or document.get("mic_bleed_resolution", [])))
     # A rebound transcript SAYS it is one.  The words came from the run
     # named here; the binding came from this machine's clip list, and a
     # reader comparing two transcripts of one timeline needs to know
@@ -777,18 +795,207 @@ def rebind_document(document: dict, snapshot,
     return rebound
 
 
-def merge_speakers(per_speaker: Dict[Optional[str], List[SpokenSegment]]
-                   ) -> List[SpokenSegment]:
-    """Every speaker's segments in one timeline-ordered conversation."""
+def merge_speakers(
+    per_speaker: Dict[Optional[str], List[SpokenSegment]],
+    audio_tracks: Optional[Dict[Optional[str], Path]] = None,
+) -> tuple[List[SpokenSegment], List[dict]]:
+    """Merge diarized tracks and resolve duplicate mic bleed from audio.
+
+    Similar transcript passages are only candidates. Their words are
+    removed from one speaker only when the reconstructed ISO tracks show
+    a clear RMS lead over the same timeline window. Without both tracks,
+    or without a meaningful level difference, both passages stay and the
+    unresolved measurement is reported.
+    """
     everything: List[SpokenSegment] = []
     for segments in per_speaker.values():
         everything.extend(segments)
     everything.sort(key=lambda s: (s.timeline_start, s.timeline_end))
-    return everything
+
+    candidates = []
+    for first_index, first in enumerate(everything):
+        if not first.speaker:
+            continue
+        for second_index in range(first_index + 1, len(everything)):
+            second = everything[second_index]
+            if second.timeline_start >= first.timeline_end:
+                break
+            if (not second.speaker or second.speaker == first.speaker
+                    or second.timeline_end <= first.timeline_start):
+                continue
+            similarity = _duplicate_text_similarity(first, second)
+            if similarity is None:
+                continue
+            start = min(first.timeline_start, second.timeline_start)
+            end = max(first.timeline_end, second.timeline_end)
+            candidate = {
+                "first_index": first_index,
+                "second_index": second_index,
+                "start": start,
+                "end": end,
+                "speakers": [first.speaker, second.speaker],
+                "passage": first.text,
+                "text_similarity": round(similarity, 4),
+                "status": "unresolved",
+                "reason": "audio_tracks_missing",
+                "rms_dbfs": {},
+                "winner": None,
+                "dropped_speaker": None,
+            }
+            if audio_tracks is not None:
+                levels = {}
+                errors = {}
+                for speaker in (first.speaker, second.speaker):
+                    path = audio_tracks.get(speaker)
+                    if path is None:
+                        errors[speaker] = "missing_track"
+                        continue
+                    level, error = _track_rms_dbfs(path, start, end)
+                    if error:
+                        errors[speaker] = error
+                    else:
+                        levels[speaker] = level
+                candidate["rms_dbfs"] = {
+                    speaker: round(level, 2)
+                    for speaker, level in levels.items()
+                }
+                if errors:
+                    candidate["reason"] = "audio_measurement_unavailable"
+                    candidate["audio_errors"] = errors
+                elif len(levels) != 2:
+                    candidate["reason"] = "audio_measurement_unavailable"
+                else:
+                    first_db = levels[first.speaker]
+                    second_db = levels[second.speaker]
+                    difference = abs(first_db - second_db)
+                    candidate["level_difference_db"] = round(difference, 2)
+                    if difference < MIC_BLEED_MIN_LEVEL_DELTA_DB:
+                        candidate["reason"] = "level_difference_below_threshold"
+                    else:
+                        candidate["status"] = "dropped"
+                        candidate["reason"] = "clearer_iso_track"
+                        candidate["winner"] = (
+                            first.speaker if first_db > second_db
+                            else second.speaker)
+                        candidate["dropped_speaker"] = (
+                            second.speaker if first_db > second_db
+                            else first.speaker)
+            candidates.append(candidate)
+
+    # Two simultaneous comparisons can disagree about a long segment's
+    # owner. In that case keep the passage and report the conflict rather
+    # than letting pair iteration order choose a microphone.
+    winners = set()
+    losers = set()
+    for candidate in candidates:
+        if candidate["status"] != "dropped":
+            continue
+        first_index = candidate["first_index"]
+        second_index = candidate["second_index"]
+        winner_index = (first_index if candidate["winner"]
+                        == everything[first_index].speaker else second_index)
+        winners.add(winner_index)
+        losers.add(second_index if winner_index == first_index
+                   else first_index)
+    conflicts = winners & losers
+    drop_indices = set()
+    for candidate in candidates:
+        if candidate["status"] != "dropped":
+            continue
+        if ({candidate["first_index"], candidate["second_index"]}
+                & conflicts):
+            candidate["status"] = "unresolved"
+            candidate["reason"] = "conflicting_level_measurements"
+            candidate["winner"] = None
+            candidate["dropped_speaker"] = None
+            continue
+        drop_indices.add(
+            candidate["second_index"]
+            if candidate["dropped_speaker"]
+            == everything[candidate["second_index"]].speaker
+            else candidate["first_index"])
+
+    decisions = [{key: value for key, value in candidate.items()
+                  if key not in ("first_index", "second_index")}
+                 for candidate in candidates]
+    return ([segment for index, segment in enumerate(everything)
+             if index not in drop_indices], decisions)
+
+
+def _duplicate_text_similarity(first: SpokenSegment,
+                               second: SpokenSegment) -> Optional[float]:
+    """Text and timing find duplicate candidates, never the winning mic."""
+    def tokens(segment: SpokenSegment) -> list[str]:
+        out = []
+        for word in segment.words:
+            if word.get("timed") is False:
+                continue
+            try:
+                if float(word["end"]) <= float(word["start"]):
+                    continue
+            except (KeyError, TypeError, ValueError):
+                continue
+            token = re.sub(r"[^a-z0-9']+", "",
+                           str(word.get("word", "")).lower())
+            if token:
+                out.append(token)
+        return out
+
+    first_tokens, second_tokens = tokens(first), tokens(second)
+    if min(len(first_tokens), len(second_tokens)) < MIC_BLEED_MIN_WORDS:
+        return None
+    similarity = SequenceMatcher(
+        a=first_tokens, b=second_tokens, autojunk=False).ratio()
+    if similarity < MIC_BLEED_TEXT_SIMILARITY:
+        return None
+    first_duration = first.timeline_end - first.timeline_start
+    second_duration = second.timeline_end - second.timeline_start
+    shortest = min(first_duration, second_duration)
+    overlap = min(first.timeline_end, second.timeline_end) - max(
+        first.timeline_start, second.timeline_start)
+    if shortest <= 0 or overlap / shortest < 0.8:
+        return None
+    return similarity
+
+
+def _track_rms_dbfs(audio_path: Path | str, start: float,
+                    end: float) -> tuple[Optional[float], Optional[str]]:
+    """Measure one reconstructed mono PCM ISO track over timeline seconds."""
+    try:
+        with wave.open(str(audio_path), "rb") as source:
+            if (source.getcomptype() != "NONE"
+                    or source.getsampwidth() != 2
+                    or source.getnchannels() != 1
+                    or source.getframerate() != SAMPLE_RATE):
+                return None, "unsupported_audio_format"
+            rate = source.getframerate()
+            if start < 0 or end <= start or end > source.getnframes() / rate:
+                return None, "window_outside_audio"
+            first = max(0, math.floor(start * rate))
+            last = min(source.getnframes(), math.ceil(end * rate))
+            source.setpos(first)
+            raw = source.readframes(last - first)
+    except (OSError, EOFError, wave.Error):
+        return None, "track_unreadable"
+
+    if len(raw) < rate // 10 * 2:
+        return None, "window_too_short"
+    total = 0
+    samples = 0
+    for (sample,) in struct.iter_unpack("<h", raw):
+        total += sample * sample
+        samples += 1
+    if not samples:
+        return None, "window_empty"
+    rms = math.sqrt(total / samples)
+    dbfs = -120.0 if rms == 0 else 20 * math.log10(rms / 32768)
+    return dbfs, None
 
 
 def transcript_document(snapshot, merged: List[SpokenSegment],
-                        transcription: Optional[dict] = None) -> dict:
+                        transcription: Optional[dict] = None,
+                        mic_bleed_resolution: Optional[List[dict]] = None
+                        ) -> dict:
     """The whole transcript, as written to disk.
 
     `transcription` is the seam's own account of itself - which arm
@@ -898,6 +1105,11 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
         # outside, so these keys are always present.
         "segments_with_unfitted_text": unfitted_segments,
         "words_with_no_timing": untimed_words,
+        # Similar duplicate phrases are only removed when their own ISO
+        # waveforms establish a clear source. Keep the measurements beside
+        # the transcript so a reader can distinguish a measured drop from
+        # an unresolved candidate.
+        "mic_bleed_resolution": list(mic_bleed_resolution or []),
         "segments": [s.as_dict() for s in merged],
     }
     if transcription is not None:
@@ -989,6 +1201,7 @@ def build_and_transcribe(project_folder: str, snapshot,
     wanted = set(only_speakers) if only_speakers else None
     per_speaker: Dict[Optional[str], List[SpokenSegment]] = {}
     heard_by: Dict[str, dict] = {}
+    audio_tracks: Dict[Optional[str], Path] = {}
 
     # Corrections recorded against this project are enforced after
     # transcription (`library/tools/transcript_corrections.py`: the
@@ -1013,6 +1226,7 @@ def build_and_transcribe(project_folder: str, snapshot,
                 print(f"    {_label}: {done}/{total} spans", file=sys.stderr)
 
         build_speaker_audio(clips, audio_path, cache_dir, progress=_progress)
+        audio_tracks[speaker] = audio_path
         aligned, record = transcribe_audio(
             audio_path, model_size=model_size,
             initial_prompt=initial_prompt or None,
@@ -1023,8 +1237,11 @@ def build_and_transcribe(project_folder: str, snapshot,
         print(f"[{speaker}] {len(segments)} spoken segments", file=sys.stderr)
         per_speaker[speaker] = segments
 
-    document = transcript_document(snapshot, merge_speakers(per_speaker),
-                                   transcription=transcription_record(heard_by))
+    merged, mic_bleed_resolution = merge_speakers(per_speaker, audio_tracks)
+    document = transcript_document(
+        snapshot, merged,
+        transcription=transcription_record(heard_by),
+        mic_bleed_resolution=mic_bleed_resolution)
     # The guarantee half: respell at the root, before anything
     # downstream reads it. Downstream consumers need no changes - they
     # read corrected words because corrected words are what is here.

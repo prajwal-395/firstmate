@@ -12,8 +12,12 @@ measure the assembly rather than mocking it.
 
 from __future__ import annotations
 
+import math
 import shutil
 import subprocess
+import sys
+import wave
+from array import array
 from pathlib import Path
 
 import pytest
@@ -41,6 +45,43 @@ def _duration(path: Path) -> float:
          "-of", "csv=p=0", str(path)],
         capture_output=True, encoding="utf-8", check=True)
     return float(out.stdout.strip())
+
+
+def _write_iso_level(path: Path, start: float, end: float,
+                     amplitude: int, duration: float = 4.0) -> Path:
+    """A small mono PCM track with a measurable voice-level window."""
+    rate = tt.SAMPLE_RATE
+    samples = array("h", [0]) * round(duration * rate)
+    for index in range(round(start * rate), round(end * rate)):
+        samples[index] = round(
+            amplitude * math.sin(2 * math.pi * 440 * index / rate))
+    if sys.byteorder != "little":
+        samples.byteswap()
+    with wave.open(str(path), "wb") as target:
+        target.setnchannels(1)
+        target.setsampwidth(2)
+        target.setframerate(rate)
+        target.writeframes(samples.tobytes())
+    return path
+
+
+def _reel15_duplicate(speaker: str, start: float) -> tt.SpokenSegment:
+    text = ("Yeah so AI is actually better for small businesses"
+            if speaker == "Craig"
+            else "Yeah, so AI is actually better for small businesses.")
+    words = text.split()
+    duration = 2.37
+    step = duration / len(words)
+    timed = tuple({"word": word,
+                   "start": start + index * step,
+                   "end": start + (index + 1) * step,
+                   "timed": True}
+                  for index, word in enumerate(words))
+    return tt.SpokenSegment(
+        speaker=speaker, text=text, timeline_start=start,
+        timeline_end=start + duration, source_file=f"/{speaker}.MXF",
+        source_start=2716.0, source_end=2718.37,
+        resolve_item_id=f"{speaker}-clip", words=timed)
 
 
 FPS = 24000 / 1001
@@ -78,6 +119,72 @@ def test_a_different_span_gets_a_different_key():
 def test_the_key_is_stable_across_float_noise():
     assert (tt.span_cache_key("/m/x.MXF", 10.0000001, 20.0)
             == tt.span_cache_key("/m/x.MXF", 10.0, 20.0))
+
+
+def test_reel15_duplicate_sentence_keeps_akshitas_clearer_iso(tmp_path):
+    """The passage arrived 50ms earlier on Craig's transcript, but
+    Akshita's measured mic is much louder and owns the caption/spine."""
+    tracks = {
+        "Craig": _write_iso_level(tmp_path / "craig.wav", 1.0, 3.42, 200),
+        "Akshita": _write_iso_level(tmp_path / "akshita.wav", 1.0, 3.42, 2000),
+    }
+    merged, decisions = tt.merge_speakers({
+        "Craig": [_reel15_duplicate("Craig", 1.0)],
+        "Akshita": [_reel15_duplicate("Akshita", 1.05)],
+    }, tracks)
+
+    assert len(merged) == 1
+    assert merged[0].speaker == "Akshita"
+    assert merged[0].text.startswith("Yeah,")
+    assert len(decisions) == 1
+    assert decisions[0]["status"] == "dropped"
+    assert decisions[0]["winner"] == "Akshita"
+    assert decisions[0]["dropped_speaker"] == "Craig"
+    assert decisions[0]["level_difference_db"] >= 19.0
+
+
+def test_duplicate_passage_is_kept_when_audio_does_not_decide(tmp_path):
+    tracks = {
+        "Craig": _write_iso_level(tmp_path / "craig.wav", 1.0, 3.42, 1000),
+        "Akshita": _write_iso_level(tmp_path / "akshita.wav", 1.0, 3.42, 1000),
+    }
+    merged, decisions = tt.merge_speakers({
+        "Craig": [_reel15_duplicate("Craig", 1.0)],
+        "Akshita": [_reel15_duplicate("Akshita", 1.05)],
+    }, tracks)
+
+    assert {segment.speaker for segment in merged} == {"Craig", "Akshita"}
+    assert decisions[0]["status"] == "unresolved"
+    assert decisions[0]["reason"] == "level_difference_below_threshold"
+
+
+def test_duplicate_passage_is_kept_without_both_iso_tracks():
+    merged, decisions = tt.merge_speakers({
+        "Craig": [_reel15_duplicate("Craig", 1.0)],
+        "Akshita": [_reel15_duplicate("Akshita", 1.05)],
+    })
+
+    assert {segment.speaker for segment in merged} == {"Craig", "Akshita"}
+    assert decisions[0]["status"] == "unresolved"
+    assert decisions[0]["reason"] == "audio_tracks_missing"
+
+
+def test_overlapping_distinct_speech_is_not_a_bleed_candidate():
+    first = _reel15_duplicate("Craig", 1.0)
+    second = tt.SpokenSegment(
+        speaker="Akshita", text="No, I was talking about the other thing.",
+        timeline_start=1.05, timeline_end=3.42, source_file="/Akshita.MXF",
+        source_start=2716.0, source_end=2718.37,
+        resolve_item_id="Akshita-clip", words=tuple(
+            {"word": word, "start": 1.05 + index * 0.26,
+             "end": 1.05 + (index + 1) * 0.26, "timed": True}
+            for index, word in enumerate(
+                "No I was talking about the other thing".split())))
+    merged, decisions = tt.merge_speakers({
+        "Craig": [first], "Akshita": [second]})
+
+    assert len(merged) == 2
+    assert decisions == []
 
 
 

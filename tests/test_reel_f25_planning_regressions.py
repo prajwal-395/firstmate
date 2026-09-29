@@ -6,8 +6,11 @@ the offline played-word coverage used by F25. Remotion rendering is
 stubbed; no Resolve or project output is involved.
 """
 
+from pathlib import Path
+
 from library.steps.step_4_05_render_subtitles import generate_remotion_props
-from library.tools import reel_build, subtitle_coverage, transcript_corrections
+from library.tools import (reel_build, subtitle_coverage,
+                           timeline_transcript, transcript_corrections)
 from library.tools import reel_conformance_verifier as verifier
 from library.tools.reel_proposal import ReelMoment
 
@@ -144,6 +147,58 @@ def test_word_at_float_noisy_range_head_is_planned_and_f25_passes(
 
     assert "and" in " ".join(entry["text"]
                               for entry in plan.caption_entries).split()
+    assert _f25_errors(plan, transcript, ranges, tmp_path) == []
+
+
+def test_reel15_mic_bleed_merge_makes_caption_plan_pass_f25(
+        tmp_path, monkeypatch):
+    """The 50ms-earlier Craig copy is bleed; measured audio keeps Akshita."""
+    _skip_render(monkeypatch)
+    words = "Yeah so AI is actually better for small businesses".split()
+
+    def segment(speaker, start):
+        duration = 2.37
+        step = duration / len(words)
+        timed = tuple({"word": word, "start": start + index * step,
+                       "end": start + (index + 1) * step, "timed": True}
+                      for index, word in enumerate(words))
+        text = " ".join(words)
+        return timeline_transcript.SpokenSegment(
+            speaker=speaker, text=text, timeline_start=start,
+            timeline_end=start + duration, source_file=SOURCE,
+            source_start=100.0, source_end=102.37,
+            resolve_item_id=f"{speaker}-clip", words=timed)
+
+    monkeypatch.setattr(
+        timeline_transcript, "_track_rms_dbfs",
+        lambda path, _start, _end: (
+            (-42.62 if Path(path).name == "craig.wav" else -27.12), None),
+    )
+    merged, decisions = timeline_transcript.merge_speakers({
+        "Craig": [segment("Craig", 1.0)],
+        "Akshita": [segment("Akshita", 1.05)],
+    }, {"Craig": Path("craig.wav"), "Akshita": Path("akshita.wav")})
+    transcript = {
+        "segments": [row.as_dict() for row in merged],
+        "mic_bleed_resolution": decisions,
+    }
+    assert [row.speaker for row in merged] == ["Akshita"]
+    assert decisions[0]["level_difference_db"] == 15.5
+
+    ranges = [(1.0, 3.42)]
+    moment = ReelMoment(
+        number=15, slug="the-3d-nail-art-salon-beats-the-chains",
+        reason="duplicate ISO transcript regression",
+        timeline_start=ranges[0][0], timeline_end=ranges[0][1],
+        source_spans=({"source_file": SOURCE, "source_start": 100.0,
+                       "source_end": 102.42},),
+    )
+    plan = reel_build.reel_subtitle_segments(
+        moment, transcript, ranges, str(tmp_path), fps=FPS,
+        width=1080, height=1920)
+
+    assert " ".join(entry["text"] for entry in plan.caption_entries).lower() == (
+        "yeah so ai is actually better for small businesses")
     assert _f25_errors(plan, transcript, ranges, tmp_path) == []
 
 
