@@ -238,12 +238,23 @@ def _segment_word_alignment(segment: dict) -> tuple[list[dict], list[dict]]:
     disappearing silently.
     Transcript-only array extras are ignored; they are not words in the
     segment text (for example a duplicated ``it`` or leading ``Um``).
+    A word marked ``display: False`` is also excluded from alignment:
+    transcript correction has already removed it from the sentence text,
+    so a repeated hidden token must not win the match and move the visible
+    token's timing later.
     """
     text_tokens = str(segment.get("text") or "").split()
     raw_words = list(segment.get("words") or [])
     array_tokens: list[str] = []
     owners: list[tuple[int, int]] = []
     for word_index, word in enumerate(raw_words):
+        # Transcript correction removes suppressed words from `text` while
+        # preserving their measured array entries for the audio and F25.
+        # Matching against those hidden entries can make SequenceMatcher
+        # prefer a later duplicate with a longer suffix (Reel 10: the
+        # visible first "I" was assigned the suppressed second "I"'s time).
+        if word.get("display") is False:
+            continue
         pieces = str(word.get("word") or "").split()
         for piece in pieces:
             array_tokens.append(piece)
