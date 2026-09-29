@@ -993,7 +993,7 @@ def _op_swap_pixels(edit, position, tracks, spans, changes, insertions,
                                                         int(item_index)),
         declared_properties=(dict(properties) if properties is not None
                              else None),
-        name=str(edit.get("name") or clip.get("name", "")),
+        name=str(edit.get("name") or os.path.basename(str(media))),
         position=position))
     notes.append(f"edit {position}: swap {row}[{item_index}] pixels "
                  f"for {media} at @{clip['record_in']} ({duration}f)")

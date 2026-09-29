@@ -529,6 +529,27 @@ def test_swap_pixels_honors_an_explicit_source_trim(tmp_path):
     assert qualification.insertions[0].left_offset == 0
 
 
+def test_swap_pixels_names_the_replacement_file(tmp_path):
+    from tests.composed_edit_harness import FakeMediaPoolItem
+
+    timeline, _pool, _media = build_reel(tmp_path)
+    timeline.rows["V4"][0].name = "logo_bulb_23976.mov"
+    replacement = tmp_path / "logo_bulb_lines_23976.mov"
+    replacement.write_bytes(b"replacement pixels")
+    qualification = tu.qualify(
+        _tracks(timeline),
+        {"reel": 1, "edits": [{
+            "op": "swap_pixels", "row": "V4", "item": 0,
+            "media": str(replacement),
+        }]})
+
+    insertion, = tu._resolve_insertions(
+        _StubPool([FakeMediaPoolItem(str(replacement))]), timeline,
+        qualification.insertions)
+
+    assert insertion.name == "logo_bulb_lines_23976.mov"
+
+
 def test_an_overlay_rendered_longer_at_its_path_is_reread_not_refused(
         tmp_path):
     """The geo-podcast fit-picture run, 2026-09-25: the TV overlay was
