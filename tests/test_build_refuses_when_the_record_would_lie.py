@@ -327,16 +327,23 @@ def test_a_pass_records_its_verdict_before_returning(project_dir):
     fake = MagicMock()
     fake.GetTimelineCount.return_value = len(timelines)
     fake.GetTimelineByIndex.side_effect = lambda i: timelines[i - 1]
+    fake.GetCurrentTimeline.return_value = timelines[0]
+    timelines[0].GetSetting.side_effect = lambda key: {
+        "timelineResolutionWidth": "1080",
+        "timelineResolutionHeight": "1920",
+    }.get(key, "")
 
     fps = 24000 / 1001
 
     def fake_snapshot(timeline, project_name):
-        snap = MagicMock()
-        snap._name = timeline.GetName()
-        snap.fps = fps
-        snap.duration = 10.0
-        snap.picture_clips.return_value = []
-        return snap
+        from library.tools.timeline_ingest import TimelineSnapshot
+
+        return TimelineSnapshot(
+            project_name=project_name,
+            timeline_name=timeline.GetName(),
+            fps=fps, reported_fps=23.976,
+            width=1080, height=1920,
+            start_frame=0, end_frame=240, clips=())
 
     json_path = str(project_dir / "conformance_report.json")
     with patch("library.tools.marker_feedback.connect_resolve") as connect, \
@@ -345,10 +352,11 @@ def test_a_pass_records_its_verdict_before_returning(project_dir):
             patch("library.tools.timeline_ingest.snapshot_timeline",
                   side_effect=fake_snapshot), \
             patch("library.tools.timeline_ingest.snapshot_to_dict",
-                  side_effect=lambda snap: {"timeline": snap._name}), \
+                  side_effect=lambda snap: {
+                      "timeline": snap.timeline_name}), \
             patch("library.tools.reel_conformance_verifier._snapshot_to_reel_timeline",
                   side_effect=lambda snap, **kwargs: ReelTimeline(
-                      reel_name=snap._name, fps=fps, total_frames=240,
+                      reel_name=snap.timeline_name, fps=fps, total_frames=240,
                       video_items=(), audio_items=(),
                       caption_items=())), \
             patch("library.tools.reel_conformance_verifier.verify_reel") as verified:

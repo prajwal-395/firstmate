@@ -171,6 +171,51 @@ def _timeline_size(timeline):
     return (width, height)
 
 
+def restore_transform_timeline_units(transform: Mapping,
+                                     current_size: tuple,
+                                     timeline_size: tuple) -> dict:
+    """Undo Resolve's current-timeline scale on a non-current read.
+
+    Resolve returns Pan and Tilt in the units of the CURRENT timeline,
+    even when `GetProperty()` is called through another timeline's item
+    handle. Convert those two axes back to the timeline being read before
+    using them as measurements. Zoom and every other property are already
+    in item units and pass through unchanged.
+
+    The scale is anisotropic: Pan is multiplied by
+    `current_width / timeline_width`, Tilt by
+    `current_height / timeline_height`. Reversing those ratios restores
+    the item's own values without moving the Resolve cursor.
+    """
+    try:
+        current_width, current_height = map(float, current_size)
+        timeline_width, timeline_height = map(float, timeline_size)
+    except (TypeError, ValueError) as exc:
+        raise ReelReadError(
+            f"cannot restore Pan/Tilt units from current size "
+            f"{current_size!r} and timeline size {timeline_size!r}") from exc
+
+    if min(current_width, current_height, timeline_width,
+           timeline_height) <= 0:
+        raise ReelReadError(
+            f"cannot restore Pan/Tilt units from non-positive current size "
+            f"{current_size!r} or timeline size {timeline_size!r}")
+
+    restored = dict(transform or {})
+    pan_scale = timeline_width / current_width
+    tilt_scale = timeline_height / current_height
+    for property_name, scale in (("Pan", pan_scale), ("Tilt", tilt_scale)):
+        if property_name not in restored or restored[property_name] is None:
+            continue
+        try:
+            restored[property_name] = float(restored[property_name]) * scale
+        except (TypeError, ValueError) as exc:
+            raise ReelReadError(
+                f"{property_name} read as {restored[property_name]!r}, "
+                "which cannot be restored to the timeline's units") from exc
+    return restored
+
+
 def assert_timeline_current(timeline, resolve_project) -> None:
     """Refuse unless `timeline` is `resolve_project`'s current one.
 

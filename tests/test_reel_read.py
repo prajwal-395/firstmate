@@ -233,6 +233,27 @@ def test_clips_carry_ranges_source_ranges_and_transforms(tmp_path):
     assert (result["width"], result["height"]) == (1080, 1920)
 
 
+def test_noncurrent_transform_read_restores_each_axis_to_target_units():
+    """A current landscape timeline scales the portrait read per axis."""
+    from library.tools.reel_read import restore_transform_timeline_units
+
+    target = {"Pan": -5.776, "Tilt": -696.041,
+              "ZoomX": 2.1386, "ZoomY": 2.1386}
+    observed = {
+        "Pan": target["Pan"] * (1920 / 1080),
+        "Tilt": target["Tilt"] * (1080 / 1920),
+        "ZoomX": target["ZoomX"], "ZoomY": target["ZoomY"],
+    }
+
+    restored = restore_transform_timeline_units(
+        observed, current_size=(1920, 1080), timeline_size=(1080, 1920))
+
+    assert restored["Pan"] == pytest.approx(target["Pan"])
+    assert restored["Tilt"] == pytest.approx(target["Tilt"])
+    assert restored["ZoomX"] == target["ZoomX"]
+    assert restored["ZoomY"] == target["ZoomY"]
+
+
 def test_the_guard_takes_its_rows_from_the_one_reader(tmp_path):
     timeline, project_folder = _reel(tmp_path)
     result = reel_read.read_reel(timeline, "Pipeline_Edit",
@@ -501,5 +522,3 @@ def _direct_reads(path: Path) -> set:
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in _WATCHED
     }
-
-

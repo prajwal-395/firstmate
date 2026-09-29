@@ -6647,22 +6647,19 @@ def run_verification(
     GetTimelineByIndex, GetTrackCount, GetItemListInTrack, GetName,
     GetSetting, GetStart, GetEnd, GetSourceStartFrame, GetSourceEndFrame,
     GetMediaPoolItem, GetClipProperty, GetUniqueId, GetMarkers,
-    GetStartFrame, GetEndFrame, GetTrackName.
+    GetStartFrame, GetEndFrame, GetTrackName, GetCurrentTimeline.
 
     No Set*, Add*, Append*, Delete*, OpenPage, LoadProject,
     SetCurrentTimeline or SetCurrentProject.
 
-    That read-only policy is also why the transform grades (F12
-    `check_delivered_framing`) cannot self-read: every reel here is
-    reached through its by-index handle under WHATEVER timeline is
-    current, and Pan/Tilt through a non-current handle come back
-    scaled by the current timeline's dimensions over the read one
-    (`reel_read.assert_timeline_current`,
-    docs/READING_A_TRANSFORM.md). An F12 verdict on a reel that was
-    not current grades scaled numbers - meaningless, in either
-    direction. Until the policy tradeoff is decided (cursor moves for
-    a read-only sweep), grade with the reel open: the current reel's
-    F12 is the trustworthy one.
+    The read-only policy leaves the current timeline where it was found.
+    Resolve scales Pan/Tilt read through a non-current handle by the
+    current timeline's dimensions over the timeline being read. Every
+    snapshot below records both resolutions and converts those two axes
+    back to the target timeline's units before grading and before hashing
+    (`reel_read.restore_transform_timeline_units`,
+    docs/READING_A_TRANSFORM.md). A changed current timeline during one
+    snapshot refuses the read rather than mixing units.
     """
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
     if draw_gain is None:
@@ -6794,6 +6791,74 @@ def run_verification(
         print(f"FATAL: {exc}", file=err)
         return 2
 
+    def _current_timeline_context():
+        """The dimensions Resolve uses for Pan/Tilt on this read."""
+        try:
+            current = project.GetCurrentTimeline()
+        except Exception as exc:
+            raise TimelineIngestError(
+                f"the current timeline could not be read ({exc}); "
+                "Pan/Tilt units cannot be established") from exc
+        if current is None:
+            raise TimelineIngestError(
+                "Resolve has no current timeline; Pan/Tilt units cannot "
+                "be established")
+        try:
+            name = current.GetName()
+            width = int(current.GetSetting("timelineResolutionWidth"))
+            height = int(current.GetSetting("timelineResolutionHeight"))
+        except Exception as exc:
+            raise TimelineIngestError(
+                f"the current timeline's name or resolution could not be "
+                f"read ({exc}); Pan/Tilt units cannot be established") from exc
+        if not name or width <= 0 or height <= 0:
+            raise TimelineIngestError(
+                f"the current timeline has unusable identity/resolution "
+                f"({name!r}, {width}x{height}); Pan/Tilt units cannot "
+                "be established")
+        return name, width, height
+
+    reported_unit_scales = set()
+
+    def _snapshot_in_timeline_units(timeline):
+        """Read a snapshot and restore Resolve-scaled Pan/Tilt values."""
+        context_before = _current_timeline_context()
+        snapshot = snapshot_timeline(timeline, project_name)
+        context_after = _current_timeline_context()
+        if context_before != context_after:
+            raise TimelineIngestError(
+                f"the current timeline changed while reading "
+                f"{snapshot.timeline_name!r}: {context_before!r} -> "
+                f"{context_after!r}; refusing a mixed-unit snapshot")
+        if snapshot.width <= 0 or snapshot.height <= 0:
+            raise TimelineIngestError(
+                f"timeline {snapshot.timeline_name!r} has unusable "
+                f"resolution {snapshot.width}x{snapshot.height}; "
+                "Pan/Tilt units cannot be restored")
+        from dataclasses import replace
+        from library.tools.reel_read import (
+            restore_transform_timeline_units)
+
+        current_size = context_before[1:]
+        target_size = (snapshot.width, snapshot.height)
+        if current_size != target_size:
+            context = (context_before, target_size)
+            if context not in reported_unit_scales:
+                pan_scale = target_size[0] / current_size[0]
+                tilt_scale = target_size[1] / current_size[1]
+                print(
+                    f"  Pan/Tilt units: {snapshot.timeline_name!r} read "
+                    f"through current timeline {context_before[0]!r} "
+                    f"({current_size[0]}x{current_size[1]}); restored "
+                    f"Pan x{pan_scale:g}, Tilt x{tilt_scale:g} to "
+                    f"{target_size[0]}x{target_size[1]}.", file=err)
+                reported_unit_scales.add(context)
+        clips = tuple(
+            replace(clip, transform=restore_transform_timeline_units(
+                clip.transform, current_size, target_size))
+            for clip in snapshot.clips)
+        return replace(snapshot, clips=clips)
+
     # The build's own record of what it placed. Read ONCE, and its
     # absence is a refusal per reel rather than a silent pass.
     from library.tools.plan_provenance import read_provenance
@@ -6898,16 +6963,22 @@ def run_verification(
     before_hashes = {}
     snapshots = {}
 
-    master_snapshot = snapshot_timeline(master_tl, project_name)
-    before_hashes[master_name] = hash_snapshot_dict(
-        snapshot_to_dict(master_snapshot))
-    snapshots[master_name] = master_snapshot
+    try:
+        master_snapshot = _snapshot_in_timeline_units(master_tl)
+        before_hashes[master_name] = hash_snapshot_dict(
+            snapshot_to_dict(master_snapshot))
+        snapshots[master_name] = master_snapshot
 
-    for tl in reel_timelines:
-        name = tl.GetName()
-        snap = snapshot_timeline(tl, project_name)
-        before_hashes[name] = hash_snapshot_dict(snapshot_to_dict(snap))
-        snapshots[name] = snap
+        for tl in reel_timelines:
+            name = tl.GetName()
+            snap = _snapshot_in_timeline_units(tl)
+            before_hashes[name] = hash_snapshot_dict(
+                snapshot_to_dict(snap))
+            snapshots[name] = snap
+    except Exception as exc:  # noqa: BLE001 - an unmeasurable read refuses
+        print(f"FATAL: cannot read a timeline in its own Pan/Tilt units "
+              f"({exc}).", file=err)
+        return 2
 
     print(f"  {len(before_hashes)} timelines hashed.", file=err)
 
@@ -7306,7 +7377,7 @@ def run_verification(
                       f"baseline to compare against).", file=err)
                 continue
             try:
-                final_snap = snapshot_timeline(final_tl, project_name)
+                final_snap = _snapshot_in_timeline_units(final_tl)
                 final_result = grade_one(final_name, final_snap)
             except Exception as exc:  # noqa: BLE001 - baseline, never a gate
                 print(f"  {result.reel_name}: {baselined} baseline: "
@@ -7404,15 +7475,20 @@ def run_verification(
           file=err)
     after_hashes = {}
 
-    master_after = snapshot_timeline(master_tl, project_name)
-    after_hashes[master_name] = hash_snapshot_dict(
-        snapshot_to_dict(master_after))
+    try:
+        master_after = _snapshot_in_timeline_units(master_tl)
+        after_hashes[master_name] = hash_snapshot_dict(
+            snapshot_to_dict(master_after))
 
-    for tl in reel_timelines:
-        name = tl.GetName()
-        snap_after = snapshot_timeline(tl, project_name)
-        after_hashes[name] = hash_snapshot_dict(
-            snapshot_to_dict(snap_after))
+        for tl in reel_timelines:
+            name = tl.GetName()
+            snap_after = _snapshot_in_timeline_units(tl)
+            after_hashes[name] = hash_snapshot_dict(
+                snapshot_to_dict(snap_after))
+    except Exception as exc:  # noqa: BLE001 - an unmeasurable read refuses
+        print(f"FATAL: cannot read a timeline after grading in its own "
+              f"Pan/Tilt units ({exc}).", file=err)
+        return 2
 
     # ── Read-only proof ──────────────────────────────────────────────
     all_identical = True

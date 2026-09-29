@@ -132,11 +132,50 @@ positioning question; this is evidence for it, not a repair of it.
    arms must be built with a delivery-shaped timeline current, and it
    is worth recording which.  With that controlled, a rebuild is a
    usable control arm - three of them here were byte-identical.
-2. **Never read a transform off a timeline that is not current.**  The
-   number will be wrong in a way that reads cleanly.  The engine's own
-   read-backs go through `carried_digest_live`.
+2. **Restore the current-timeline scale before grading a non-current
+   read.** Resolve scales Pan by current-width/read-width and Tilt by
+   current-height/read-height. `reel_read.restore_transform_timeline_units`
+   reverses those two ratios, and the conformance verifier records the
+   current and target dimensions around each snapshot. Other read-backs
+   that compare raw transforms still need a self-read, as
+   `carried_digest_live` does.
 3. **Re-placing an unchanged reel still carries risk.**  Leaving it
    alone is a protection as well as a saving - the reel the captain
    approved keeps the transforms it was approved with - and the
    carried digest is a comparison against the approved artefact rather
    than against a fresh build of it.
+
+## The verifier restores units before grading
+
+Measured on Reel 24 on 2026-09-29: its build logged a 1080x1920 punch-in
+with Zoom 2.138585 and Tilt -696.041, and the offline build calculation
+`reel_look.punch_in_properties` returns the same values at the recorded
+draw gain of 1.0. The separate verify command reported 5 F12 errors with
+the picture's height equal to the screen window's height but its bottom
+165.8 pixels high. The handmade build record supplied the recorded gain;
+it did not supply clip transforms, so it could not have replaced the
+build's Tilt.
+
+The same batch provides a comparison: Reel 25 used the same TV-frame
+look and draw gain, built an LC4932 shot at Zoom 2.1386 / Tilt -696.041,
+and its scoped `reel.verify` completed with zero errors before
+promotion. The builder's transform is therefore consistent with a reel
+that passed F12 under that look.
+
+`run_verification` used to grade raw Pan/Tilt read through each
+non-current timeline handle. That read is in the current timeline's
+units, so the verifier was comparing it as though it belonged to the
+target reel. Scaling both Pan and Tilt by one quarter reproduces the
+reported vertical geometry. The original verify run did not save the
+current timeline's dimensions, so that quarter-size context is a
+reproduction of the failure, not a claim about which timeline was
+current then.
+
+The verifier now reads the current timeline's name and dimensions on
+both sides of every snapshot, restores Pan and Tilt to the snapshot's
+resolution, and hashes and grades those restored values. It refuses a
+snapshot if the current timeline changed while it was read. The
+regression `tests/test_reel_verifier_timeline_units.py` exercises the
+real `reel.verify` operation offline: the build calculator's Reel 24
+values fail F12 when left at quarter scale and pass after the verifier
+restores their timeline units.
