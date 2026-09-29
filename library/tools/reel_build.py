@@ -129,6 +129,7 @@ leaving a repetition in a clip somebody chose deliberately.  Placed
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 
 from library.tools.paths import REMOTION_DIR
@@ -3629,15 +3630,17 @@ def reel_time(master_time: float,
 
 def placements(ranges: Sequence[Tuple[float, float]],
                clips: Sequence, fps: float,
-               lead_frames: int = 0) -> List[dict]:
+               lead_frames: int = 0,
+               transcript: Optional[dict] = None) -> List[dict]:
     """Where each master clip lands on the reel, in frames and seconds.
 
     One entry per (keep range, overlapping clip). `record` is the running
     offset on the REEL, so the ranges close up and both tracks move
     together. Record positions and durations are frame-exact. Source
     starts retain the measured master-to-source offset until the media
-    frame boundary, so adjacent word edges do not shift when the master
-    and source starts are rounded independently.
+    frame boundary; when transcript timing is available, speech follows
+    its word-bound source map so a separate audio item's in-point cannot
+    move a corrected boundary back into the prior words.
 
     `lead_frames` is what a HEAD full-frame card occupies before any
     footage plays. It is added to the record cursor and to nothing else -
@@ -3679,9 +3682,27 @@ def placements(ranges: Sequence[Tuple[float, float]],
             source_in = (float(clip.source_in)
                          + overlap_start_seconds
                          - float(clip.timeline_start))
+            transcript_mapped = False
+            if getattr(clip, "track_type", "video") == "audio":
+                # Transcript rows are bound to the picture clip that
+                # supplied the words. The audio row is a separate Resolve
+                # item and can carry a different source in-point; mapping
+                # that row independently reintroduces speech before a
+                # corrected word edge. Keep speech placement on the same
+                # measured source clock as its captions when that mapping
+                # is available.
+                transcript_source_in = (
+                    _transcript_source_time_at(
+                        transcript, clip.source_file,
+                        overlap_start_seconds)
+                    if transcript is not None else None)
+                if transcript_source_in is not None:
+                    source_in = transcript_source_in
+                    transcript_mapped = True
             source_duration = (overlap_end_f - overlap_start_f) / fps
             source_out = source_in + source_duration
-            master_start = (float(clip.timeline_start)
+            master_start = (overlap_start_seconds if transcript_mapped else
+                            float(clip.timeline_start)
                             + source_in - float(clip.source_in))
             master_end = master_start + source_duration
             record_f = cursor_frames + (overlap_start_f - range_start_f)
@@ -3703,6 +3724,71 @@ def placements(ranges: Sequence[Tuple[float, float]],
             })
         cursor_frames += range_frames
     return out
+
+
+def _transcript_source_time_at(transcript: dict, source_file: str,
+                               timeline_time: float) -> Optional[float]:
+    """Map a timeline edge through the transcript row bound to its words.
+
+    The row beginning at a shared edge wins over the row ending there.
+    That keeps the source position on the first word the corrected reel
+    boundary names, including when the master audio item's own source
+    offset differs from the picture-bound transcript by a frame.
+    """
+    target = os.path.normcase(os.path.abspath(str(source_file)))
+    time = float(timeline_time)
+    matches = []
+    for segment in (transcript or {}).get("segments", ()):
+        candidate_source = segment.get("source_file")
+        source_start = segment.get("source_start")
+        timeline_start = segment.get("timeline_start")
+        timeline_end = segment.get("timeline_end")
+        if (not candidate_source or source_start is None
+                or timeline_start is None or timeline_end is None):
+            continue
+        candidate = os.path.normcase(os.path.abspath(
+            str(candidate_source)))
+        if candidate != target:
+            continue
+        start = float(timeline_start)
+        end = float(timeline_end)
+        if start - 1e-6 <= time <= end + 1e-6:
+            at_start = abs(time - start) <= 1e-6
+            mapped = float(source_start) + (time - start)
+            matches.append((0 if at_start else 1, abs(time - start),
+                            mapped))
+    if not matches:
+        return None
+    matches.sort()
+    best_rank = matches[0][:2]
+    best = [item[2] for item in matches if item[:2] == best_rank]
+    if any(abs(value - best[0]) > 1e-6 for value in best[1:]):
+        return None
+    return best[0]
+
+
+def _resolve_source_frame_span(source_in: float, source_out: float,
+                               fps: float) -> Tuple[int, int]:
+    """Quantise a planned source span without crossing its left edge.
+
+    The placement plan keeps transcript boundaries in measured seconds,
+    but Resolve's `AppendToTimeline` accepts integer media frames. Rounding
+    the in-point to nearest can move it *before* a word edge and make the
+    staged timeline play speech that the caption plan correctly excluded
+    (Reel 03: `about that.` before `If`). Start at the first source frame
+    on or after the requested edge, then keep the planned frame duration
+    so the record span still abuts the next placement on its reel row.
+    """
+    source_in = float(source_in)
+    source_out = float(source_out)
+    fps = float(fps)
+    start_frame = int(math.ceil(source_in * fps - 1e-9))
+    duration_frames = int(round((source_out - source_in) * fps))
+    if start_frame < 0 or duration_frames <= 0:
+        raise ReelBuildError(
+            f"invalid Resolve source span [{source_in:.9f}, "
+            f"{source_out:.9f}) at {fps:g} fps")
+    return start_frame, start_frame + duration_frames
 
 
 class OffsetRefused(ReelBuildError):
@@ -7382,7 +7468,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             f"\"Semantic\", where they hand-placed the logo on Reel 09, "
             f"or the \"Motion Graphics\" row. Until it is declared the "
             f"build stops rather than guessing V1.")
-    placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
+    placements_list = placements(
+        ranges, master_clips, fps, lead_frames=lead,
+        transcript=transcript)
 
     # ── Offset placements: the audio cut moves, the picture hides ──
     # `plan_j_cut` moves the audio cut earlier at one join (picture
@@ -7763,6 +7851,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
         pool_fps_str = pool_item.GetClipProperty("FPS") or str(fps)
         pool_fps = float(pool_fps_str)
+        source_start_frame, source_end_frame = _resolve_source_frame_span(
+            p["source_in"], p["source_out"], pool_fps)
 
         assert_current_timeline(project, timeline)
 
@@ -7773,8 +7863,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         before = _speech_row_uids(timeline, track_plan)
         pool.AppendToTimeline([{
             "mediaPoolItem": pool_item,
-            "startFrame": int(round(p["source_in"] * pool_fps)),
-            "endFrame": int(round(p["source_out"] * pool_fps)),
+            "startFrame": source_start_frame,
+            "endFrame": source_end_frame,
             "mediaType": 1 if c.track_type == "video" else 2,
             "trackIndex": dest_row,
             "recordFrame": p["snapped_record"]

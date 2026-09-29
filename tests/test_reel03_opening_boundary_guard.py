@@ -12,6 +12,7 @@ from library.tools.reel_proposal import (
     Approval,
     ReelMoment,
     partial_overlaps,
+    snap_moment_to_speech,
     snap_to_speech,
     validate_proposal,
 )
@@ -165,4 +166,89 @@ def test_boundary_guard_does_not_leave_a_cut_inside_the_first_word():
     transcript = _transcript()
     assert partial_overlaps(212.95, 218.26, transcript) == [
         transcript["segments"][1]
+    ]
+
+
+def test_build_reel_timeline_places_audio_at_or_after_the_measured_edge(
+        tmp_path):
+    """The Resolve append path must not round a repaired word edge back.
+
+    The stored proposal starts at 213.26, so the build-time repair first
+    moves it to the shared edge at 212.9. That edge maps to source
+    126.0215417s, between source frames. The master audio item is one
+    frame behind the picture-bound transcript, so its independent map
+    makes the old append conversion choose frame 3020. That readback is
+    62ms before the edge and plays the ends of "about that." although
+    the proposal and subtitle plan both start on "If".
+    """
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from library.tools.reel_build import build_reel_timeline
+
+    transcript = _transcript()
+    stored = ReelMoment(
+        number=3, slug="people-stopped-searching",
+        reason="opening boundary regression",
+        timeline_start=213.26, timeline_end=218.26,
+        approval=Approval.APPROVED,
+    )
+    moment, moves = snap_moment_to_speech(stored, transcript)
+    assert moment.timeline_start == pytest.approx(212.9)
+    assert moves[0]["boundary"] == "body_start"
+
+    base = _clip()
+    video_attrs = {**vars(base), "track_type": "video"}
+    audio_attrs = {**vars(base), "track_type": "audio"}
+    # The master audio item's own in-point is one source frame behind the
+    # picture-bound transcript. The offline PR 1454 fixture used only the
+    # picture clip, so it could not expose the build's separate audio map.
+    audio_attrs["source_in"] -= 1 / float(FPS)
+    audio_attrs["source_out"] -= 1 / float(FPS)
+    video = SimpleNamespace(**video_attrs)
+    audio = SimpleNamespace(**audio_attrs)
+    clips = [video, audio]
+
+    project = MagicMock()
+    pool = MagicMock()
+    project.GetMediaPool.return_value = pool
+    timeline = MagicMock()
+    timeline.GetUniqueId.return_value = "test-reel03"
+    timeline.GetTrackCount.side_effect = lambda kind: (
+        1 if kind in ("video", "audio") else 0)
+    timeline.GetItemListInTrack.return_value = []
+    pool.CreateEmptyTimeline.return_value = timeline
+    project.GetCurrentTimeline.return_value = timeline
+
+    root = MagicMock()
+    pool.GetRootFolder.return_value = root
+    root.GetSubFolderList.return_value = []
+    source_item = MagicMock()
+    source_item.GetClipProperty.side_effect = lambda prop: (
+        SOURCE if prop == "File Path" else str(FPS) if prop == "FPS" else "")
+    root.GetClipList.return_value = [source_item]
+
+    build_reel_timeline(
+        project, moment, clips, [], FPS, 1080, 1920,
+        str(tmp_path), transcript, program_channels={"1": 1},
+    )
+
+    audio_append = next(
+        call.args[0][0] for call in pool.AppendToTimeline.call_args_list
+        if call.args[0][0]["mediaType"] == 2)
+    assert audio_append["startFrame"] == 3022
+    assert audio_append["endFrame"] - audio_append["startFrame"] == 129
+
+    # F25 reads the source frames Resolve was actually asked to place.
+    source_start = audio_append["startFrame"] / float(FPS)
+    source_end = audio_append["endFrame"] / float(FPS)
+    played = subtitle_coverage.played_words_from_transcript(
+        transcript["segments"], [{
+            "source_file": SOURCE,
+            "source_start": source_start,
+            "source_end": source_end,
+            "reel_start": 0.0,
+        }])["words"]
+    assert [word["word"] for word in played] == [
+        "If", "you're", "attorney,"
     ]
