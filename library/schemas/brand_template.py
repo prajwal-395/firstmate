@@ -91,10 +91,11 @@ class ContentSlots:
     # The lines at the bottom of the two-line closing animation
     # (captain, 2026-09-21). A template declares the copy this bookend
     # sets - `lines` plus the `color` they are set in - or omits the
-    # key and gets the logo-only animation. Deliberately NOT part of
-    # `bookends`: those slots become spine blocks, and this is not a
-    # card the spine places - it is type inside an asset
-    # `library/tools/logo_bulb.py` renders. Shape and readers: there.
+    # key and gets the logo-only animation when the external asset is
+    # rebuilt. Deliberately NOT part of `bookends`: those slots become
+    # spine blocks, and this is not a card the spine places. The pipeline
+    # has no reader for this slot; only the manual
+    # `logo_bulb.py --lines-from-template` CLI consumes it.
     closing_lockup: Optional[Dict[str, Any]] = None
     watermark: Dict[str, Any] = field(default_factory=dict)
     # NO READER.  Step 2.04's handoff names `brand_content.music_genre`,
@@ -238,7 +239,11 @@ class BrandTemplate:
                         },
                         "closing_lockup": {
                             "type": "object",
-                            "description": "The lines at the bottom of the two-line closing animation. Omit for the logo-only animation. See library/tools/logo_bulb.py.",
+                            "description": (
+                                "Manual logo_bulb.py --lines-from-template "
+                                "CLI input for the lines at the bottom of "
+                                "the closing animation. The pipeline has no "
+                                "reader for this slot."),
                             "properties": {
                                 "lines": {"type": "array", "items": {"type": "string"}},
                                 "color": {"type": "string"},

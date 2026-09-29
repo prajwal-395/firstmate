@@ -184,15 +184,94 @@ def test_the_absent_reading_of_every_slot_is_written_down():
     for group, cls in (("style", StyleSlots), ("effect", EffectSlots),
                        ("content", ContentSlots)):
         for f in fields(cls):
-            if f.name in ("reference_look_image", "watermark",
-                          "motion_accents", "motion_progress_bar",
-                          "series_title", "channel_name"):
-                continue
             key = f"{group}.{f.name}"
             assert key in ABSENT_SLOT_READINGS, (
                 f"{key} has no recorded reading of absence. Say what a "
                 f"project with no brand template gets for it, in "
                 f"library/tools/brand_registry.ABSENT_SLOT_READINGS.")
+
+
+def test_every_brand_slot_has_a_reachable_pipeline_reader_or_no_reader():
+    """A reader row must resolve to a pipeline node and its delivery route."""
+    from dataclasses import fields
+
+    from library.schemas.brand_template import (
+        ContentSlots, EffectSlots, StyleSlots)
+    from library.tools.brand_registry import (
+        ABSENT_SLOT_READINGS, BRAND_SLOT_READERS)
+    from library.tools.processes import every_dag, load_manifests
+    from library.tools.template_loader import BRAND_CONSTRAINT_STEPS
+
+    slot_keys = {
+        f"{group}.{field.name}"
+        for group, cls in (("style", StyleSlots), ("effect", EffectSlots),
+                           ("content", ContentSlots))
+        for field in fields(cls)
+    }
+    assert set(BRAND_SLOT_READERS) <= slot_keys
+    assert slot_keys <= set(ABSENT_SLOT_READINGS)
+
+    manifests_by_node = {}
+    step_paths_by_node = {}
+    library_root = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "library")
+    for dag in every_dag().values():
+        manifests_by_node.update(load_manifests(dag))
+        for node in dag.get("nodes", []):
+            step_paths_by_node[node["id"]] = os.path.join(
+                library_root, node["step_ref"], "step.py")
+
+    for slot in sorted(slot_keys):
+        reading = ABSENT_SLOT_READINGS[slot]
+        reader = BRAND_SLOT_READERS.get(slot)
+        if reader is None:
+            assert reading.startswith("NO READER."), (
+                f"{slot} has no reachable pipeline consumer. Mark it "
+                "NO READER in ABSENT_SLOT_READINGS or add a reachable "
+                "reader to BRAND_SLOT_READERS.")
+            continue
+
+        assert not reading.startswith("NO READER."), (
+            f"{slot} has a reader route but its absence is recorded as "
+            "NO READER")
+        node_id, route = reader
+        assert node_id in manifests_by_node, (
+            f"{slot} names {node_id!r}, which is not in any process DAG")
+
+        if route == "brand_constraints":
+            assert node_id in BRAND_CONSTRAINT_STEPS, (
+                f"{slot} names {node_id!r} as a prompt reader, but it is "
+                "not in TemplateLoader.BRAND_CONSTRAINT_STEPS")
+        elif route == "project_template":
+            assert node_id == "compile_manifest", (
+                f"{slot} uses the direct project-template route, which is "
+                "owned by compile_manifest")
+            with open(step_paths_by_node[node_id], encoding="utf-8") as f:
+                source = f.read()
+            assert (
+                "resolve_project_template(" in source
+                and "template=_template" in source
+            ), (
+                f"{slot} names compile_manifest, but its direct project "
+                "template reader is no longer present")
+        else:
+            group = slot.split(".", 1)[0]
+            expected_input = {
+                "style": "brand_style",
+                "effect": "brand_effect",
+                "content": "brand_content",
+            }[group]
+            assert route in (expected_input, "brand_template"), (
+                f"{slot} cannot reach {node_id!r} through {route!r}")
+            declared_inputs = {
+                inp.get("name") for inp in
+                manifests_by_node[node_id].get("interface", {}).get(
+                    "inputs", [])
+            }
+            assert route in declared_inputs, (
+                f"{slot} names {node_id!r}, but its manifest does not "
+                f"declare {route!r}")
 
 
 # ── a template nobody has raises, rather than rendering a default ───

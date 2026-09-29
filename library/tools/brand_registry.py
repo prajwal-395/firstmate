@@ -20,9 +20,18 @@ The key is spelled three ways and they are not interchangeable:
 - **The product ships no templates** (captain, 2026-09-21): a project
   carries its own `brand.json`, which every resolver below reads FIRST.
   An empty declaration still resolves to `no_brand_template()`.
-- An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: no grade (§12), no exposure normalisation, the whole drawable vocabulary permitted, nothing bounded. Add a slot, add its row. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
+- An absent slot reads as the ABSENCE OF DECORATION, never as a substitute
+  taste: no grade (§12), no exposure normalisation, the whole drawable
+  vocabulary permitted, nothing bounded. Add a slot, add its row.
+  `tests/test_brand_template_load.py` checks every schema slot has a reading
+  and either a pipeline reader route or an explicit `NO READER` note.
+- `BRAND_SLOT_READERS` is the positive half of that inventory: each reader
+  names a real pipeline node and the route that delivers the slot to it. A
+  slot without a route must say `NO READER` in `ABSENT_SLOT_READINGS`; the
+  test resolves each reader through the process DAG and step manifest (or
+  the runner's constraint path).
 - **`effect.caption_case` is the one creative value that survives absence**, recorded as an exception rather than left implicit.
-- Two slots have NO READER and no template value should state one: `content.music_genre` and `effect.sfx_density`.
+- A slot with NO READER remains in the schema only for compatibility or manual use; no template value makes it reach a pipeline consumer.
 
 **A project's own declarations reach every step through `state["project_config"]`.**
 `brand_registry.project_declared_config` reads them off project.yaml, `load_pipeline_state` puts them in state and the runner's whitelist broadcasts them. Only what the project DECLARES is in there; an undeclared key is absent, never filled in.
@@ -84,6 +93,10 @@ ABSENT_SLOT_READINGS = {
     "style.framing_intent": (
         "the frame fills, from the one enumeration "
         "(library/tools/framing_intent.py)"),
+    "style.reference_look_image": (
+        "no reference image is passed to the colorist; the grade is "
+        "decided from measured footage and any declared series_look "
+        "(step 5.01)"),
     "style.tv_frame": (
         "no TV-frame look: V1 plays at its conformed zoom with no "
         "punch-in, no frame asset is placed on V2, and no power "
@@ -121,10 +134,20 @@ ABSENT_SLOT_READINGS = {
         "short cards declares the number (rung 7, finding 31)"),
     "effect.timed_text_overlay": (
         "no timed text (library/tools/timed_text_overlay.py)"),
+    "effect.motion_accents": (
+        "NO READER.  The motion-graphics layer is planned from the footage; "
+        "the old boolean no longer gates its corner accents "
+        "(step 4.06 manifest, library/tools/motion_graphics_plan.py)"),
+    "effect.motion_progress_bar": (
+        "NO READER.  The motion-graphics layer is planned from the footage; "
+        "the old boolean no longer gates its progress bar "
+        "(step 4.06 manifest, library/tools/motion_graphics_plan.py)"),
     "content.bookends": "no intro, no outro, no end card (library/tools/bookends.py)",
     "content.closing_lockup": (
-        "no closing lines: the closing animation renders the logo-only "
-        "version, exactly as before (library/tools/logo_bulb.py)"),
+        "NO READER.  The pipeline does not read this slot.  Only the "
+        "manual `logo_bulb.py --lines-from-template` CLI reads it; without "
+        "that invocation the external closing asset is not rebuilt "
+        "(library/tools/logo_bulb.py)"),
     "content.target_duration_seconds": (
         "no duration zone from the brand; the PROJECT's own "
         "`target_duration_seconds` is the declaration the gates measure "
@@ -139,9 +162,58 @@ ABSENT_SLOT_READINGS = {
         "NO READER.  Step 2.04's handoff names `brand_content.music_genre` "
         "but no manifest routes brand_content to it, so the slot reaches "
         "no prompt from any template, chosen or not"),
+    "content.series_title": (
+        "NO READER.  No pipeline step consumes this slot for motion-graphics "
+        "copy; the declared title remains project artwork rather than "
+        "engine-generated text"),
+    "content.channel_name": (
+        "NO READER.  No pipeline step consumes this slot; channel copy "
+        "remains project artwork rather than engine-generated text"),
+    "content.watermark": (
+        "NO READER.  No pipeline step consumes this slot; a watermark must "
+        "be supplied as a project asset if it is wanted"),
+    "content.target_duration_seconds": (
+        "NO READER.  `get_target_duration_zone` can read this shape, but no "
+        "step that calls it receives the resolved brand template.  Pipeline "
+        "duration gates read `project_config.target_duration_seconds` "
+        "instead (library/tools/duration_targets.py)"),
     "effect.sfx_density": (
         "NO READER.  `audio_reactive_sfx.scale_sfx_density` was its only "
         "one and was deleted (AGENTS.md 10.5)"),
+}
+
+
+# One reachable pipeline consumer per slot that has a reader. The second
+# value is how the slot reaches that consumer:
+#
+# * brand_style / brand_effect / brand_content / brand_template are injected
+#   only when the step manifest declares that input;
+# * brand_constraints is the runner's prompt route, enumerated by
+#   TemplateLoader.BRAND_CONSTRAINT_STEPS;
+# * project_template is compile_manifest's direct project-template lookup,
+#   used by framing_intent and tv_frame.
+#
+# The absent-reading table is the explicit NO READER declaration for every
+# schema slot omitted here. Keep this ledger hand-auditable: the consumer is
+# a slot reader, not merely a step that happens to receive the whole template.
+BRAND_SLOT_READERS = {
+    "style.color_palette": ("render_motion_graphics", "brand_style"),
+    "style.series_look": ("color_grade", "brand_template"),
+    "style.reference_look_image": ("color_grade", "brand_template"),
+    "style.typography": ("plan_subtitles", "brand_style"),
+    "style.energy_profile": ("creative_direction", "brand_constraints"),
+    "style.framing_intent": ("compile_manifest", "project_template"),
+    "style.tv_frame": ("compile_manifest", "project_template"),
+    "effect.transition_types": ("plan_transitions", "brand_constraints"),
+    "effect.transition_duration_ms": (
+        "plan_transitions", "brand_constraints"),
+    "effect.vfx_intensity": ("plan_vfx", "brand_constraints"),
+    "effect.subtitle_style": ("plan_subtitles", "brand_effect"),
+    "effect.caption_case": ("plan_subtitles", "brand_effect"),
+    "effect.caption_words_per_card": ("plan_subtitles", "brand_effect"),
+    "effect.timed_text_overlay": (
+        "render_motion_graphics", "brand_effect"),
+    "content.bookends": ("mesh_spine", "brand_content"),
 }
 
 
