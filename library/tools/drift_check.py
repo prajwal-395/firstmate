@@ -261,20 +261,19 @@ def check_project(project_folder: str, *, when: str = "",
     showing another project) is the one case that returns `error`
     instead of lines, because every reading after it would lie.
 
-    Takes no lease of its own: both call sites - the reel build's
-    start/end sweep and the `drift` CLI wrapper - already hold the
-    instance, so the cursor moves refuse outside one exactly as every
-    other write does.
+    The caller holds an EXCLUSIVE lease: both the reel build's
+    start/end sweep and the `drift` CLI wrapper move the cursor for
+    these reads, so shared handle-only reads must wait until they finish.
     """
-    from library.tools.resolve_lock import held
+    from library.tools.resolve_lock import exclusive_held
 
     report: dict = {"when": when, "reels": {}, "lines": [],
                     "skipped_snapshots": [], "drifted": False,
                     "unreadable": False, "error": ""}
-    if not held():
+    if not exclusive_held():
         report["error"] = (
             "refusing: the drift check moves the cursor, which is a "
-            "write, and there is no instance lease held")
+            "write, and there is no EXCLUSIVE instance lease held")
         return report
     try:
         import yaml

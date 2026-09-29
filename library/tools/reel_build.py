@@ -10528,14 +10528,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # 2026-09-16 did is bracketed to this build instead of to 21
     # hours. Reports, never refuses: a detector that fails the build
     # is a gate, and this one is an instrument. Its cursor excursions
-    # run under a SHARED hold: they exclude another lane's placement
-    # while running beside its reads, and whatever cursor position
-    # they leave behind is re-established by every placement's own
-    # per-write check.
+    # run under an EXCLUSIVE hold because they move the instance cursor;
+    # handle-only shared reads wait until the self-reads restore it.
     try:
         from library.tools import drift_check as _drift_start
         with resolve_lease("build reels drift baseline",
-                           exclusive=False):
+                           exclusive=True):
             _drift_start.check_project(project_folder, when="build start",
                                        resolve=resolve, project=project)
     except Exception as exc:  # noqa: BLE001
@@ -11059,8 +11057,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # transforms come back different, and this digest is part of
     # EVERY reel's derivation - so a run that entered on another
     # timeline would rebuild the whole project. A cursor excursion,
-    # so under a SHARED hold like the baseline above.
-    with resolve_lease("build reels master digest", exclusive=False):
+    # so under an EXCLUSIVE hold like the baseline above.
+    with resolve_lease("build reels master digest", exclusive=True):
         _master_digest = _need.carried_digest_live(project, timeline)
     # The edit ledger's rows, read ONCE: each reel's own rows ride its
     # derivation digest in `extra` below, so a row on one reel rebuilds
@@ -12604,12 +12602,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # The closing half of the baseline above: start and end together
     # bracket whatever moves a built timeline's transforms to this
     # build. Same discipline - reports, never refuses, never fails
-    # the build it instruments - and the same SHARED hold, for the
-    # same cursor-excursion reason.
+    # the build it instruments. Its cursor excursions take an
+    # EXCLUSIVE hold so they cannot overlap other shared readers.
     _drift_end_report = None
     try:
         from library.tools import drift_check as _drift_end
-        with resolve_lease("build reels drift end", exclusive=False):
+        with resolve_lease("build reels drift end", exclusive=True):
             _drift_end_report = _drift_end.check_project(
                 project_folder, when="build end",
                 resolve=resolve, project=project)

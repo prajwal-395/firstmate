@@ -229,6 +229,7 @@ DEFAULT_TIMEOUT_SECONDS = 900.0
 #: checked alive, so a stale value inherited from a dead holder falls
 #: through to a real acquisition.
 INHERIT_ENV = "PIPELINE_RESOLVE_LEASE_HELD_BY"
+INHERIT_MODE_ENV = "PIPELINE_RESOLVE_LEASE_MODE"
 
 _POLL_SECONDS = 0.25
 
@@ -503,6 +504,12 @@ def held() -> bool:
     return _depth > 0 or _sole_writer_reason is not None
 
 
+def exclusive_held() -> bool:
+    """Does this process hold the instance exclusively?"""
+    return (_sole_writer_reason is not None
+            or (_depth > 0 and _mode == "exclusive"))
+
+
 @contextmanager
 def assume_sole_writer(reason: str):
     """Declare that no other writer exists, satisfying the guard.
@@ -575,7 +582,17 @@ def resolve_lease(purpose: str, exclusive: bool = True,
         return
     inherited = inherited_holder()
     if _depth == 0 and inherited is not None:
-        _depth, _mode = 1, "inherited"
+        # A child inherits the parent's lease contract as well as its
+        # owner. Older/manual environments without the mode fail closed
+        # as shared, since they cannot authorize cursor movement.
+        inherited_mode = os.environ.get(INHERIT_MODE_ENV, "shared")
+        if exclusive and inherited_mode != "exclusive":
+            raise ResolveBusy(
+                "this process inherited the Resolve instance SHARED and is "
+                "asking for it EXCLUSIVE",
+                "a shared parent lease cannot authorize a cursor write",
+                "take the exclusive lease at the outer call")
+        _depth, _mode = 1, inherited_mode
         try:
             yield holder()
         finally:
@@ -652,7 +669,9 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                       waited_on=waited_on)
         _depth, _mode = 1, "exclusive" if exclusive else "shared"
         previous_inherit = os.environ.get(INHERIT_ENV)
+        previous_inherit_mode = os.environ.get(INHERIT_MODE_ENV)
         os.environ[INHERIT_ENV] = str(os.getpid())
+        os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
         if exclusive:
             _write_lease(lease)
         try:
@@ -663,6 +682,10 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 os.environ.pop(INHERIT_ENV, None)
             else:
                 os.environ[INHERIT_ENV] = previous_inherit
+            if previous_inherit_mode is None:
+                os.environ.pop(INHERIT_MODE_ENV, None)
+            else:
+                os.environ[INHERIT_MODE_ENV] = previous_inherit_mode
             if exclusive:
                 _clear_lease()
             _unflock(handle)
@@ -893,7 +916,8 @@ def current_fence() -> Optional[_FenceRecord]:
 
 
 @contextmanager
-def cursor_excursion(project, timeline, purpose: str = "read"):
+def cursor_excursion(project, timeline, purpose: str = "read",
+                    timeout: Optional[float] = None):
     """Move the cursor, do something, and put it back - under the guard.
 
     The holder sometimes has to READ a timeline that is not the one its
@@ -904,7 +928,9 @@ def cursor_excursion(project, timeline, purpose: str = "read"):
     `docs/READING_A_TRANSFORM.md`).
 
     Both moves are real writes and go through `assert_current_timeline`,
-    so they refuse outside a lease exactly as every other write does.
+    so this helper takes an EXCLUSIVE lease across the move, read and
+    restore. A caller already holding a shared lease cannot upgrade and
+    is refused before the cursor moves.
     What they must NOT do is read as INTERFERENCE.  An enclosing
     `cursor_fence` measures every move against ITS expected timeline, so
     a holder's own excursion - leased, deliberate, and returned - would
@@ -922,35 +948,37 @@ def cursor_excursion(project, timeline, purpose: str = "read"):
     untouched: if the excursion fails to restore the cursor, that fence
     still catches it, which is the property worth keeping.
     """
-    previous = None
-    try:
-        previous = project.GetCurrentTimeline()
-    except Exception:                                     # noqa: BLE001
+    with resolve_lease(f"cursor excursion: {purpose}", exclusive=True,
+                       timeout=timeout):
         previous = None
-
-    def _move(target):
-        if current_fence() is None:
-            assert_current_timeline(project, target)
-            return
-        # Under a fence, measure this move against where the cursor
-        # actually IS, so the holder's own move is not charged to the
-        # enclosing section as interference.
-        here = project.GetCurrentTimeline()
-        token = _push_fence(_FenceRecord(
-            expected_id=_timeline_id(here),
-            expected_name=_timeline_name(here),
-            purpose=f"cursor excursion: {purpose}"))
         try:
-            assert_current_timeline(project, target)
-        finally:
-            _pop_fence(token)
+            previous = project.GetCurrentTimeline()
+        except Exception:                                     # noqa: BLE001
+            previous = None
 
-    _move(timeline)
-    try:
-        yield previous
-    finally:
-        if previous is not None:
-            _move(previous)
+        def _move(target):
+            if current_fence() is None:
+                assert_current_timeline(project, target)
+                return
+            # Under a fence, measure this move against where the cursor
+            # actually IS, so the holder's own move is not charged to the
+            # enclosing section as interference.
+            here = project.GetCurrentTimeline()
+            token = _push_fence(_FenceRecord(
+                expected_id=_timeline_id(here),
+                expected_name=_timeline_name(here),
+                purpose=f"cursor excursion: {purpose}"))
+            try:
+                assert_current_timeline(project, target)
+            finally:
+                _pop_fence(token)
+
+        _move(timeline)
+        try:
+            yield previous
+        finally:
+            if previous is not None:
+                _move(previous)
 
 
 # ── The per-write check, which is where the refusal lands ───────────
@@ -958,13 +986,15 @@ def cursor_excursion(project, timeline, purpose: str = "read"):
 def assert_current_timeline(project, expected_timeline):
     """Verify the current timeline is the expected one, under a lease.
 
-    Two refusals, and the second is the one that is new.
+    Refuse a missing lease and a shared lease before considering the
+    cursor read-back.
 
     A cursor that MOVED raises `ResolveRaceError` - that is the 2026-09-04
     defect (`PLACEMENT_REQUIRES_CURRENT` above), and the reason this
     function has 22 callers.
 
-    A write with NO LEASE raises `UnguardedPlacementError`. Setting the
+    A write with NO LEASE or only a SHARED lease raises
+    `UnguardedPlacementError`. Setting the
     cursor is itself a write to global state, so doing it without the
     instance is not a smaller act than appending - it is the act that
     breaks the other holder. Taking the lease is therefore not a rule a
@@ -980,6 +1010,13 @@ def assert_current_timeline(project, expected_timeline):
             f"`resolve_lock.cursor_fence(project, timeline, purpose)` - "
             f"or `resolve_lease(...)` where the cursor is set more than "
             f"once inside it. {PLACEMENT_REQUIRES_CURRENT}")
+    if not exclusive_held():
+        raise UnguardedPlacementError(
+            f"placing into {_timeline_name(expected_timeline)!r} while "
+            f"holding the Resolve instance SHARED. Setting the current "
+            f"timeline is a write that excludes other shared readers; take "
+            f"an EXCLUSIVE `resolve_lease(...)` before changing it. "
+            f"{PLACEMENT_REQUIRES_CURRENT}")
     # READ BEFORE SETTING. What the cursor was on arrival is the only
     # evidence a foreign writer moved it; setting first destroys it,
     # which is why the original check could enforce the precondition

@@ -8,8 +8,9 @@ at one build at a time however many lanes ran.
 
 The shape pinned here: derivation holds NOTHING, one exclusive hold
 per placed reel covers the carried self-read, the decision, the
-placement and the Fusion comp pass, and the gate and the surveys
-read under shared holds. A test that only asserts "the build takes
+placement and the Fusion comp pass, and handle-only gate/survey reads
+run under shared holds. Cursor-moving drift and digest reads take
+exclusive holds. A test that only asserts "the build takes
 a lease" would pass on both shapes; these fail on the old one.
 
 The failure mode the narrower hold must still survive is
@@ -281,6 +282,19 @@ def test_the_gate_reads_under_a_shared_hold(built_with_spies):
     assert len(verifies) == 2  # the scoped gate, then the sweep
     assert _holds_open(verifies[0]) == [("verify built reels", False)]
     assert _holds_open(verifies[1]) == [("sweep all reels", False)]
+
+
+def test_cursor_moving_self_reads_take_exclusive_holds(built_with_spies):
+    purposes = {
+        "build reels drift baseline",
+        "build reels master digest",
+        "build reels drift end",
+    }
+    leases = [(entry[1], entry[2]) for entry in built_with_spies["events"]
+              if entry[0] == "lease-enter" and entry[1] in purposes]
+    assert leases == [(purpose, True) for purpose in (
+        "build reels drift baseline", "build reels master digest",
+        "build reels drift end")]
 
 
 # ── The failure mode, demonstrated deliberately ───────────────────────

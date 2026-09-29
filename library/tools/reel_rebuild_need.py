@@ -434,12 +434,10 @@ def carried_digest_live(project, timeline) -> Optional[str]:
     therefore PROPAGATE; only a failure to read the timeline returns
     `None`, which the caller treats as a rebuild.
 
-    Both call sites hold the instance themselves
-    (`rebuild_reels_in_project` reads the master under a shared
-    survey hold and each reel under its per-reel exclusive place
-    hold; `promote_staged_reels` under its own exclusive hold), so
-    this takes no lease of its own and holds the instance no longer
-    than the section that called it.
+    The enclosing build holds the instance exclusively for the master
+    digest and per-reel place sections; `promote_staged_reels` does too.
+    `cursor_excursion` also acquires the exclusive lease itself, so a
+    direct caller cannot move the cursor under a shared read.
 
     The caller's current timeline is RESTORED.
     """

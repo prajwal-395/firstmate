@@ -24,6 +24,7 @@ from library.tools.resolve_lock import (
     ResolveRaceError,
     UnguardedPlacementError,
     assert_current_timeline,
+    cursor_excursion,
     cursor_fence,
     prefer_lease,
     resolve_lease,
@@ -131,6 +132,99 @@ def test_a_shared_holder_may_not_upgrade_in_place(lock_dir, unguarded):
         with pytest.raises(ResolveBusy, match="cannot upgrade in place"):
             with resolve_lease("write", exclusive=True, timeout=1.0):
                 pass
+
+
+_SHARED_HOLDER = textwrap.dedent("""
+    import sys
+    sys.path.insert(0, {repo!r})
+    from library.tools.resolve_lock import resolve_lease
+    with resolve_lease("holding a shared read", exclusive=False,
+                       timeout=5.0):
+        print("HELD", flush=True)
+        sys.stdin.readline()
+    print("RELEASED", flush=True)
+""")
+
+
+def _start_shared_holder(lock_dir):
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _SHARED_HOLDER.format(repo=REPO_ROOT)],
+        env={**os.environ, resolve_lock.LOCK_DIR_ENV: str(lock_dir)},
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8")
+    assert holder.stdout.readline().strip() == "HELD"
+    return holder
+
+
+def test_cursor_excursion_refuses_a_shared_holder(lock_dir, unguarded):
+    """A cursor excursion cannot join another shared critical section."""
+    home = FakeTimeline("home", uid="home")
+    target = FakeTimeline("read target", uid="target")
+    project = FakeProject(current=home)
+    holder = _start_shared_holder(lock_dir)
+    try:
+        with resolve_lease("second shared reader", exclusive=False,
+                           timeout=1.0):
+            with pytest.raises(ResolveBusy, match="cannot upgrade in place"):
+                with cursor_excursion(project, target, "stub read"):
+                    pytest.fail(
+                        "cursor excursion ran alongside a shared holder")
+    finally:
+        holder.stdin.write("release\n")
+        holder.stdin.flush()
+        holder.communicate(timeout=10)
+
+    assert project.set_calls == []
+
+
+def test_cursor_excursion_waits_for_another_shared_holder(lock_dir,
+                                                          unguarded):
+    """An unshared cursor read takes exclusive and waits for shared readers."""
+    home = FakeTimeline("home", uid="home")
+    target = FakeTimeline("read target", uid="target")
+    project = FakeProject(current=home)
+    holder = _start_shared_holder(lock_dir)
+    entered = threading.Event()
+    errors = []
+
+    def read_target():
+        try:
+            with cursor_excursion(project, target, "stub read"):
+                entered.set()
+                assert project.GetCurrentTimeline() is target
+        except Exception as exc:  # surfaced in the test thread below
+            errors.append(exc)
+
+    reader = threading.Thread(target=read_target)
+    reader.start()
+    try:
+        assert not entered.wait(0.35), (
+            "cursor excursion entered while another process held a shared "
+            "lease")
+        assert project.set_calls == [], (
+            "cursor moved before the shared holder released its lease")
+    finally:
+        holder.stdin.write("release\n")
+        holder.stdin.flush()
+        holder.communicate(timeout=10)
+    reader.join(timeout=10)
+
+    assert not reader.is_alive(), "cursor excursion did not finish"
+    assert not errors, errors
+    assert entered.is_set()
+    assert project.set_calls == ["read target", "home"]
+    assert project.GetCurrentTimeline() is home
+
+
+def test_cursor_write_guard_refuses_a_shared_lease(lock_dir, unguarded):
+    target = FakeTimeline("write target", uid="target")
+    project = FakeProject(current=target)
+
+    with resolve_lease("shared reader", exclusive=False, timeout=1.0):
+        with pytest.raises(UnguardedPlacementError, match="(?i)exclusive"):
+            assert_current_timeline(project, target)
+
+    assert project.set_calls == []
 
 
 # ── Real contention, across processes ───────────────────────────────
@@ -322,6 +416,27 @@ def test_a_child_the_holder_spawned_inherits_the_lease(lock_dir,
         out, err = child.communicate(timeout=30)
     assert out.startswith("INHERITED"), (out, err)
     assert float(out.split()[1]) < 1.0, out
+
+
+_SHARED_CHILD = textwrap.dedent("""
+    import sys
+    sys.path.insert(0, {repo!r})
+    from library.tools.resolve_lock import resolve_lease, ResolveBusy
+    try:
+        with resolve_lease("child cursor write", timeout=1.0):
+            print("UNSAFE", flush=True)
+    except ResolveBusy:
+        print("REFUSED", flush=True)
+""")
+
+
+def test_a_child_cannot_upgrade_an_inherited_shared_lease(lock_dir,
+                                                            unguarded):
+    with resolve_lease("shared parent read", exclusive=False, timeout=1.0):
+        child = _spawn(_SHARED_CHILD.format(repo=REPO_ROOT), lock_dir)
+        out, err = child.communicate(timeout=10)
+
+    assert out.strip() == "REFUSED", (out, err)
 
 
 def test_a_stale_inherited_pid_does_not_grant_the_lease(lock_dir,
