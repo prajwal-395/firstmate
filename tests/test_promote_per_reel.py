@@ -15,6 +15,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools.reel_build import (
     ReelBuildError,
@@ -182,7 +183,8 @@ def test_one_refusal_promotes_its_siblings(project_dir):
         with pytest.raises(ReelBuildError) as refused:
             promote_staged_reels(
                 str(project_dir), "Mock Project", MASTER,
-                staged_to_final, organise=False)
+                staged_to_final, organise=False,
+                track_plans=no_a_roll_track_plans(staged_to_final))
 
     message = str(refused.value)
     # The promoted line says what landed; the refusal body names only
@@ -227,3 +229,66 @@ def test_one_refusal_promotes_its_siblings(project_dir):
     archived = [name for name in names
                 if reel_retirement.is_archived_timeline(name)]
     assert archived == []
+
+
+def test_unlinked_aroll_staging_is_refused_before_promotion(project_dir):
+    """Promotion reads the same a-roll link verdict as verify_timeline."""
+    from library.tools.timeline_layout import A_ROLL, SPEECH, TrackSpec
+
+    final = "Reel 11 - your-website-is-your-resume"
+    staging_name = final + " (rebuild staging)"
+    retired = FakeTimeline(final, video=[
+        ("Craig", [FakeItem("LCATL0013.MXF", 0, 138)]),
+    ], audio=[
+        ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
+    ])
+    staging = FakeTimeline(staging_name, video=[
+        ("Craig", [FakeItem("LCATL0013.MXF", 7, 138)]),
+    ], audio=[
+        ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
+    ])
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+    staged_to_final = {final: staging_name}
+    raw_plan = {
+        "video_tracks": [vars(TrackSpec(
+            1, "video", A_ROLL, "Craig", "2"))],
+        "audio_tracks": [vars(TrackSpec(
+            1, "audio", SPEECH, "Craig CH1", "2"))],
+        "material": {},
+    }
+
+    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
+            patch("library.tools.reel_build.resolve_project_exactly",
+                  return_value=resolve), \
+            pytest.raises(ReelBuildError,
+                          match="failed `aroll_linked`"):
+        promote_staged_reels(
+            str(project_dir), "Mock Project", MASTER,
+            staged_to_final, organise=False,
+            track_plans={staging_name: raw_plan})
+
+    assert retired.GetName() == final
+    assert staging.GetName() == staging_name
+    assert retired in resolve.timelines
+    assert staging in resolve.timelines
+
+
+def test_promotion_refuses_when_staging_track_plan_is_missing(project_dir):
+    final = "Reel 11 - your-website-is-your-resume"
+    staging_name = final + " (rebuild staging)"
+    retired, staging = _clean_reel(final)
+    staging._name = staging_name
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
+            patch("library.tools.reel_build.resolve_project_exactly",
+                  return_value=resolve), \
+            pytest.raises(ReelBuildError, match="has no track plan"):
+        promote_staged_reels(
+            str(project_dir), "Mock Project", MASTER,
+            {final: staging_name}, organise=False)
+
+    assert retired.GetName() == final
+    assert staging.GetName() == staging_name
+    assert retired in resolve.timelines
+    assert staging in resolve.timelines

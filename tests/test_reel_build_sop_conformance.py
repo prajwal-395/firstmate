@@ -461,6 +461,40 @@ def test_picture_links_to_speech_in_one_call_per_pair():
                 f"every a-roll item is linked, found {item.GetName()} alone"
 
 
+def test_seven_frame_audio_lead_links_same_angle_a_roll():
+    """Reel 11's source-edge offset still links picture and speech.
+
+    Craig's speech starts seven frames before his picture item. The
+    placement entry point must join the overlapping items from the
+    same angle despite their different start frames.
+    """
+    from library.tools.timeline_layout import TrackPlan, TrackSpec
+
+    timeline, pool, project = _world()
+    clips = _master_clips()
+    clips[-1] = _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF",
+                      9.7, 20.0)
+    record = _build(timeline, pool, project, clips,
+                    program_channels={"1": 1, "2": 1})
+    raw = record["track_plan"]
+    plan = TrackPlan(
+        video_tracks=[TrackSpec(**row) for row in raw["video_tracks"]],
+        audio_tracks=[TrackSpec(**row) for row in raw["audio_tracks"]],
+        material=raw.get("material", {}))
+
+    picture = timeline.GetItemListInTrack("video", 2)[0]
+    speech = timeline.GetItemListInTrack("audio", 2)[0]
+    assert picture.GetStart() == 240
+    assert speech.GetStart() == 233
+    assert picture.GetLinkedItems() == [speech]
+    assert speech.GetLinkedItems() == [picture]
+    report = verify_timeline(timeline, plan=plan)
+    assert report["passed"]
+    assert "aroll_linked" in report["checks_run"]
+    assert not [v for v in report["violations"]
+                if v["check"] == "aroll_unlinked"]
+
+
 def test_caption_inside_speech_joins_one_three_group():
     """Defect 2 (captions): picture, speech and caption link in a single
     call - a later pair-call would break the group."""

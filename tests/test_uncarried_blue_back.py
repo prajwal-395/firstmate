@@ -21,6 +21,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import marker_carry
 from library.tools.reel_build import promote_staged_reels
@@ -320,7 +321,8 @@ def test_promotion_puts_the_blue_back_at_the_seam(tmp_path):
                       if t.GetName() in set(names)]):
         record = promote_staged_reels(
             str(project_dir), "Mock Project", MASTER,
-            staged_to_final, organise=False)
+            staged_to_final, organise=False,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
     markers = record["markers"][FINAL]
     assert len(markers["uncarried"]) == 1

@@ -21,6 +21,7 @@ Each test fails if its mechanism is removed:
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import reel_signoff as signoff
 from library.tools.reel_build import ReelBuildError, promote_staged_reels
@@ -176,7 +177,8 @@ def _promote(resolve, project, staged_to_final, supersede=None):
                   return_value=resolve):
         return promote_staged_reels(
             str(project), "Mock Project", MASTER, staged_to_final,
-            organise=False, supersede=supersede)
+            organise=False, supersede=supersede,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
 
 def test_promotion_refuses_over_an_undeclared_signoff(project):
@@ -244,5 +246,3 @@ def test_a_signed_off_reel_never_holds_back_a_sibling(project):
     assert OTHER in resolve.names()
     assert signed.GetName() == REEL
     assert signed_staging.GetName() == f"{REEL} (rebuild staging)"
-
-

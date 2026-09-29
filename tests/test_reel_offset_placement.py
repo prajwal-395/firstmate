@@ -427,9 +427,8 @@ def test_captions_follow_the_audio_lead():
 # ── the link pass ──
 
 
-def test_legacy_link_pass_untouched_without_offset_links():
-    """No offsets, no change: a same-start build links exactly as
-    before and warns exactly as before."""
+def test_ordinary_link_pass_joins_overlapping_same_angle_spans():
+    """Ordinary placement links source-edge offsets by angle and span."""
     FakeTimeline._registry = {}
     timeline = FakeTimeline()
     plan = plan_layout({
@@ -445,8 +444,11 @@ def test_legacy_link_pass_untouched_without_offset_links():
         FakeTimeline._registry[item.GetUniqueId()] = item
     timeline.tracks = {("video", 1): [pic], ("audio", 1): [speech]}
     record = link_reel_groups(timeline, plan)
-    assert len(record["warnings"]) == 1 and not record["link_groups"]
-    assert "left unlinked" in record["warnings"][0]
+    assert not record["warnings"]
+    assert len(record["link_groups"]) == 1
+    assert len(timeline.link_calls) == 1
+    assert set(pic.GetLinkedItems()) == {speech}
+    assert set(speech.GetLinkedItems()) == {pic}
 
 
 # ── version A: the J-cut ──
@@ -619,5 +621,4 @@ def test_resolve_cutaway_window_refuses_a_stale_recorded_window():
         resolve_cutaway_window_frames(stale, cover, moved, FPS)
     with pytest.raises(OffsetRefused, match="re-record"):
         resolve_cutaway_window_frames(stale, cover, moved, FPS)
-
 

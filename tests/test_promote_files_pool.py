@@ -18,6 +18,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools.reel_build import promote_staged_reels
 
@@ -155,7 +156,8 @@ def _promote(project, project_dir, staged_to_final):
             patch("library.tools.reel_build.resolve_project_exactly",
                   return_value=project):
         return promote_staged_reels(
-            str(project_dir), "Mock Project", MASTER, staged_to_final)
+            str(project_dir), "Mock Project", MASTER, staged_to_final,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
 
 def test_filing_refusal_never_fails_promotion(project_dir, capsys):
@@ -189,5 +191,3 @@ def test_idle_filing_is_quiet(project_dir, capsys):
     out = capsys.readouterr().out
     assert "already organised" in out
     assert "Filed" not in out
-
-

@@ -333,7 +333,8 @@ def verify_reels(data: dict) -> dict:
             promoted = promote_staged_reels(
                 project_folder, resolve_project_name, master_timeline_name,
                 staged, allow_drops=recorded, supersede=superseding,
-                retain=retaining)
+                retain=retaining,
+                track_plans=build.get("track_plans"))
         except _PromoteError as partial:
             # A partial promotion raises AFTER its passing reels fully
             # promoted - and their marker losses ride on the exception

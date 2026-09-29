@@ -788,19 +788,19 @@ def link_reel_groups(timeline, plan, offset_links=()) -> dict:
 
     `offset_links` are the `OffsetLink` groups an offset placement
     declared (`plan_j_cut`, `plan_cutaway`): picture and speech that
-    deliberately start on different frames. Each is matched to
-    timeline items by exact record span and unioned with whatever
-    group those items already sit in, then linked in ONE call per
-    union - so an offset build keeps the SOP guarantee (picture, its
-    speech, and captions inside that speech stay linked) without a
-    same-start match. An offset build is strict: anything still
-    unlinked afterwards raises `OffsetRefused` naming it, rather than
-    placing silently unlinked. Without `offset_links` the legacy
-    behaviour stands - leftovers warn and conformance fails them.
+    deliberately start on different frames. Ordinary placements also
+    pair overlapping picture and speech items whose rows name the same
+    angle, which covers source-edge quantisation shifts. These pairs
+    are matched by exact record spans and unioned with whatever group
+    their items already sit in, then linked in ONE call per union. An
+    explicitly offset build is strict: anything still unlinked raises
+    `OffsetRefused`. In an ordinary build, unmatched items remain
+    warnings for the conformance gate to catch.
     """
     record = {"link_groups": [], "caption_links": [], "warnings": []}
     verified_groups: list = []  # each verified call's member items
-    offset_links = list(offset_links or [])
+    declared_offset_links = list(offset_links or [])
+    offset_links = list(declared_offset_links)
 
     speech_index = []  # (start, end, item, angle_key), plan row order
     for row in plan.speech_rows():
@@ -815,6 +815,7 @@ def link_reel_groups(timeline, plan, offset_links=()) -> dict:
             speech_index.append((span[0], span[1], item, row.occupant))
 
     picture_starts: Dict[int, list] = {}
+    picture_index = []  # (start, end, item, angle_key)
     for row in plan.aroll_rows():
         try:
             items = timeline.GetItemListInTrack("video", row.index) or []
@@ -825,6 +826,31 @@ def link_reel_groups(timeline, plan, offset_links=()) -> dict:
             if span is None:
                 continue
             picture_starts.setdefault(span[0], []).append(item)
+            picture_index.append((span[0], span[1], item, row.occupant))
+
+    # A separate master audio item can begin on a nearby frame from its
+    # picture after source-edge quantisation. The rows still name their
+    # shared angle, and overlapping record spans identify the pair. Add
+    # those measured pairs to the same union pass used by intentional
+    # J-cuts and cutaways, which preserves any captions or same-start
+    # groups already formed without issuing a second overlapping link
+    # call.
+    auto_offset_speech_ids = set()
+    for start, end, speech, angle_key in speech_index:
+        if not angle_key:
+            continue
+        speech_span = (int(start), int(end))
+        for picture_start, picture_end, picture, picture_angle in picture_index:
+            if (picture_angle != angle_key or picture_start == start
+                    or min(end, picture_end) <= max(start, picture_start)
+                    or _is_held_frame(picture)):
+                continue
+            offset_links.append(OffsetLink(
+                speech=speech_span,
+                pictures=((int(picture_start), int(picture_end)),)))
+            speech_uid = _item_uid(speech)
+            if speech_uid is not None:
+                auto_offset_speech_ids.add(speech_uid)
 
     caption_row = plan.caption_row()
     caption_items = []
@@ -852,7 +878,14 @@ def link_reel_groups(timeline, plan, offset_links=()) -> dict:
     for start in order:
         bucket = starts[start]
         pictures_here = picture_starts.get(start, [])
-        if offset_links and not pictures_here:
+        bucket_speech_ids = {
+            _item_uid(speech)
+            for _speech_start, _speech_end, speech in bucket["speeches"]
+        }
+        has_auto_offset = (bool(bucket_speech_ids)
+                           and bucket_speech_ids <= auto_offset_speech_ids)
+        if (not pictures_here
+                and (declared_offset_links or has_auto_offset)):
             # An offset build's heads start where no picture does -
             # the J-cut's early audio, a cutaway's trimmed piece.
             # Linking those speeches among themselves here would
@@ -925,14 +958,15 @@ def link_reel_groups(timeline, plan, offset_links=()) -> dict:
     if offset_links:
         _link_offset_unions(timeline, plan, record, verified_groups,
                             speech_index, caption_items, claimed_captions,
-                            offset_links)
+                            offset_links,
+                            require_all=bool(declared_offset_links))
     return record
 
 
 def _link_offset_unions(timeline, plan, record, verified_groups,
                         speech_index, caption_items, claimed_captions,
-                        offset_links) -> None:
-    """Link what an offset placement declared, strictly.
+                        offset_links, require_all=True) -> None:
+    """Link explicit or measured offset groups without breaking links.
 
     Each `OffsetLink` is matched to timeline items by exact record
     span, unioned with the verified groups its items already sit in
@@ -942,11 +976,11 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
     with their first host: a hint only ever claims the unclaimed, so
     two speech groups can never merge through one shared caption.
 
-    Strict means strict: a hint matching nothing, a union that reads
-    back unlinked, or any a-roll picture or speech item still linked
-    to nothing afterwards raises `OffsetRefused` naming it. On success
-    the legacy warnings stand resolved and are cleared - every one of
-    them names an item this pass just linked.
+    Every hint is strict: a hint matching nothing or a union that reads
+    back unlinked raises `OffsetRefused`. Explicit offset builds also
+    census every a-roll picture and speech item, refusing any leftover.
+    Automatic source-edge pairs do not make unrelated unmatched items
+    strict; their warnings remain for the conformance gate.
 
     The one thing the picture census EXCLUDES is a rendered HOLD
     (`_is_held_frame`), because a held frame has no audio anywhere on
@@ -1088,51 +1122,40 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
                      "speech_start": start,
                      "members": len(items)})
 
-    unlinked = []
-    for _start, _end, item, _key in speech_index:
-        if not _linked_ids(item):
-            span = _timeline_span(item)
-            unlinked.append(f"speech at {span[0]}-{span[1]}")
-    for row in plan.aroll_rows():
-        try:
-            items = timeline.GetItemListInTrack("video", row.index) or []
-        except Exception:
-            # A row the census cannot read is not a row with nothing
-            # unlinked: it joins `unlinked` so the OffsetRefused below
-            # fires, rather than placing silently over an unchecked row.
-            unlinked.append(
-                f"picture census on {row.name} unreadable - unverified")
-            continue
-        for item in items:
-            if _is_held_frame(item):
-                # A HELD FRAME is a copy of a frame the reel already
-                # plays, laid on the ending shot's own row so it
-                # inherits that shot's framing and grade
-                # (`reel_ending`, AGENTS.md 10.4). It carries no audio
-                # and answers no speech, so there is nothing on this
-                # timeline for it to link TO - and an item that cannot
-                # be linked is not an item that was left unlinked.
-                # Measured 2026-09-12 rebuilding Reel 09 through the
-                # variant path: every reel whose ending declares
-                # `tail_hold: freeze` refused here with "picture at
-                # 1650-1669 on Craig", after placing correctly. The
-                # ordinary rebuild's own link pass records a warning
-                # and carries on; only this offset census raises.
-                continue
+    if require_all:
+        unlinked = []
+        for _start, _end, item, _key in speech_index:
             if not _linked_ids(item):
                 span = _timeline_span(item)
+                unlinked.append(f"speech at {span[0]}-{span[1]}")
+        for row in plan.aroll_rows():
+            try:
+                items = timeline.GetItemListInTrack("video", row.index) or []
+            except Exception:  # noqa: BLE001 - unreadable census refuses
+                # A row the census cannot read is not a row with nothing
+                # unlinked: it joins `unlinked` so the refusal below fires,
+                # rather than placing silently over an unchecked row.
                 unlinked.append(
-                    f"picture at {span[0]}-{span[1]} on {row.name}"
-                    if span else f"picture on {row.name}")
-    if unlinked:
-        shown = "; ".join(unlinked[:4])
-        if len(unlinked) > 4:
-            shown += f" (+{len(unlinked) - 4} more)"
-        raise OffsetRefused(
-            f"Offset build leaves {len(unlinked)} a-roll item(s) "
-            f"unlinked: {shown} - refused rather than placed silently "
-            f"unlinked.")
-    record["warnings"] = []
+                    f"picture census on {row.name} unreadable - unverified")
+                continue
+            for item in items:
+                if _is_held_frame(item):
+                    # A held frame carries no audio and answers no speech.
+                    continue
+                if not _linked_ids(item):
+                    span = _timeline_span(item)
+                    unlinked.append(
+                        f"picture at {span[0]}-{span[1]} on {row.name}"
+                        if span else f"picture on {row.name}")
+        if unlinked:
+            shown = "; ".join(unlinked[:4])
+            if len(unlinked) > 4:
+                shown += f" (+{len(unlinked) - 4} more)"
+            raise OffsetRefused(
+                f"Offset build leaves {len(unlinked)} a-roll item(s) "
+                f"unlinked: {shown} - refused rather than placed silently "
+                f"unlinked.")
+        record["warnings"] = []
 
 
 def reel_resolution(project_folder) -> tuple:
@@ -8884,7 +8907,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          organise: bool = True,
                          allow_drops=None,
                          supersede=None,
-                         retain=None) -> dict:
+                         retain=None,
+                         track_plans: dict | None = None) -> dict:
     """Move passing stagings onto their final timeline names.
 
     The ONLY place an approved timeline is deleted. Reachable only
@@ -8906,6 +8930,10 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
        held back by a failing one, and nothing for a refused reel is
        renamed - its staging, baselines and hold remain, and the
        refusal names only itself;
+    0. the standalone timeline verifier also grades `aroll_linked` on
+       every staging, against the track plan that placed it. A missing
+       plan, skipped check, unreadable verifier or unlinked item refuses
+       that reel before any rename;
     1. the approved original, where one exists, is renamed to its
        backup name - nothing is deleted and nothing is lost;
     2. the staging is renamed to the final name - each `SetName` is
@@ -9042,6 +9070,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"timeline(s) {missing_staging} that are not in Resolve "
             f"project {resolve_project_name!r}. Deleting the approved "
             f"originals now would replace them with nothing.")
+    requested_finals = list(staged_to_final)
     originals = {t.GetName(): t for t in
                  timelines_to_replace(project, set(finals))}
     assert_deletion_scope(list(originals.values()), set(finals))
@@ -9066,6 +9095,68 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"REFUSING to promote: {bad_declaration}") from bad_declaration
     replace_reports = {}
     refused = {}
+    # The promotion boundary repeats the standalone verifier's A-roll
+    # link check on the actual staging handle. The earlier reel quality
+    # gate and its plan are separate contracts; a pass there cannot
+    # stand in for this check. Plans are keyed by staging during a
+    # staged build, with the final name accepted for an already remapped
+    # build record.
+    from library.tools.timeline_conformance import verify_timeline
+    from library.tools.timeline_layout import TrackPlan, TrackSpec
+    plans_by_name = track_plans if isinstance(track_plans, dict) else {}
+    link_refused = {}
+    for final, staging in staged_to_final.items():
+        raw_plan = plans_by_name.get(staging)
+        if raw_plan is None:
+            raw_plan = plans_by_name.get(final)
+        if not isinstance(raw_plan, dict):
+            link_refused[final] = (
+                f"REFUSING to promote {final!r}: the build record has no "
+                f"track plan for staging {staging!r}; `aroll_linked` "
+                f"cannot be checked.")
+            continue
+        try:
+            plan = TrackPlan(
+                video_tracks=[TrackSpec(**row)
+                              for row in raw_plan["video_tracks"]],
+                audio_tracks=[TrackSpec(**row)
+                              for row in raw_plan["audio_tracks"]],
+                material=raw_plan.get("material", {}))
+            report = verify_timeline(staged_found[staging], plan=plan)
+        except Exception as exc:  # noqa: BLE001 - no verifier means no pass
+            link_refused[final] = (
+                f"REFUSING to promote {final!r}: `aroll_linked` could not "
+                f"be verified on staging {staging!r} ({exc}).")
+            continue
+        if not isinstance(report, dict):
+            link_refused[final] = (
+                f"REFUSING to promote {final!r}: `aroll_linked` returned "
+                f"no report for staging {staging!r}.")
+            continue
+        if "aroll_linked" not in report.get("checks_run", ()):
+            link_refused[final] = (
+                f"REFUSING to promote {final!r}: `aroll_linked` was not "
+                f"run on staging {staging!r}; checks skipped: "
+                f"{report.get('checks_skipped', [])}.")
+            continue
+        unlinked = [violation["detail"]
+                    for violation in report.get("violations", ())
+                    if isinstance(violation, dict)
+                    and violation.get("check") == "aroll_unlinked"]
+        if unlinked:
+            link_refused[final] = (
+                f"REFUSING to promote {final!r}: staging "
+                f"{staging!r} failed `aroll_linked`: "
+                + "; ".join(unlinked))
+    if link_refused:
+        refused.update(link_refused)
+        staged_to_final = {
+            final: staging for final, staging in staged_to_final.items()
+            if final not in link_refused
+        }
+        finals = list(staged_to_final)
+        if not finals:
+            _raise_partial_promotion(requested_finals, [], refused)
     superseded_signoffs = {}
     # ── THESIS GATE (post-build reading, pre-promotion) ──
     # Gap G1 (`library/tools/reel_thesis.py`): nothing reads a
@@ -9825,7 +9916,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                   f"further was removed; the reels are unaffected",
                   file=_sys.stderr)
     if refused:
-        _raise_partial_promotion(finals, ok_finals, refused,
+        _raise_partial_promotion(requested_finals, ok_finals, refused,
                                  markers=carried_markers)
     if _thesis_refused:
         # The passing reels fully promoted above (renames, sidecars,
@@ -12346,7 +12437,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             dict(staged_to_final), organise=organise,
             allow_drops=declared_drops,
             supersede=declared_supersede,
-            retain=declared_retain)
+            retain=declared_retain,
+            track_plans=track_plans)
         organised = promoted["organised"]
         # The end-of-build summaries file from this record (retirement,
         # markers, version control below join it there).

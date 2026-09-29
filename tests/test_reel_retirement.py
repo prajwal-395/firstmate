@@ -24,6 +24,7 @@ rather than sitting beside a deliverable.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import reel_retirement as retire
 from library.tools import resolve_bin_layout as bins
@@ -347,7 +348,8 @@ def _promote(resolve, project, staged_to_final, retain=None,
                   return_value=resolve):
         return promote_staged_reels(
             str(project), "Mock Project", MASTER, staged_to_final,
-            organise=False, retain=retain, supersede=supersede)
+            organise=False, retain=retain, supersede=supersede,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
 
 def test_default_promotion_leaves_one_timeline_per_reel(review_project):
@@ -439,5 +441,3 @@ def test_a_signed_off_backup_retires_on_the_default_path(review_project):
     assert signoff.signoff_for(str(review_project), REEL) is None
     assert signoff.read_signoffs(
         str(review_project))["superseded"][0]["note"] == "ships"
-
-

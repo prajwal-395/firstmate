@@ -19,6 +19,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import marker_carry, marker_gate
 from library.tools.reel_build import (
@@ -192,7 +193,8 @@ def _promote(project, project_dir, staged_to_final):
                   return_value=project):
         return promote_staged_reels(
             str(project_dir), "Mock Project", MASTER, staged_to_final,
-            organise=False)
+            organise=False,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
 
 def _captures(project_dir):

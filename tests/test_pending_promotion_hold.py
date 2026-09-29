@@ -32,6 +32,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import staging_holds as holds
 from library.tools.execution import remove_proof as proof_ex
@@ -428,7 +429,8 @@ def _promote(project, project_dir, staged_to_final, allow_drops=None):
         from library.tools.reel_build import promote_staged_reels
         return promote_staged_reels(
             str(project_dir), "Mock Project", MASTER, staged_to_final,
-            organise=False, allow_drops=allow_drops)
+            organise=False, allow_drops=allow_drops,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
 
 def _full_rows(extra=()):

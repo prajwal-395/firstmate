@@ -18,6 +18,7 @@ fix.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import marker_carry
 from library.tools.reel_build import (
@@ -349,7 +350,8 @@ def _promote(project, project_dir, staged_to_final):
                   return_value=project):
         return promote_staged_reels(
             str(project_dir), "Mock Project", MASTER, staged_to_final,
-            organise=False)
+            organise=False,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
 
 def _reel_a():
@@ -432,5 +434,3 @@ def test_promotion_carries_the_unique_clip_note_and_reports_the_other(
     err = capsys.readouterr().err
     assert "CLIP MARKER NOT CARRIED" in err
     assert "this card flashes" in err
-
-

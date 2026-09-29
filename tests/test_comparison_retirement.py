@@ -16,6 +16,7 @@ stays bounded across two rounds instead of growing with them.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import comparison_retirement as comp
 from library.tools import reel_retirement as retire
@@ -420,7 +421,8 @@ def test_promotion_retires_the_comparison_it_supersedes(project_dir,
                   return_value=resolve):
         result = promote_staged_reels(
             str(project_dir), "Mock Project", MASTER,
-            staged_to_final, organise=False)
+            staged_to_final, organise=False,
+            track_plans=no_a_roll_track_plans(staged_to_final))
 
     assert result["comparison_retirement"]["refused"] == ""
     assert result["comparison_retirement"]["retired"] == {

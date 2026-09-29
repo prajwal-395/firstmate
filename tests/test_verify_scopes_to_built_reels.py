@@ -150,7 +150,13 @@ def _run_build(resolve_project, project_dir, **kwargs):
     def _place(**place_kwargs):
         name = place_kwargs.get("timeline_name")
         assert name, "the placer was asked to build into no container"
-        return resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        timeline = resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        timeline.GetTrackCount.return_value = 0
+        return {
+            "track_plan": {
+                "video_tracks": [], "audio_tracks": [], "material": {},
+            },
+        }
 
     with patch("library.tools.reel_build.build_reel_timeline",
                side_effect=_place), \
@@ -458,7 +464,6 @@ def test_the_step_promotes_staged_timelines_only_after_the_gate_passes():
     assert sweep.call_count == 1
     assert sweep.call_args[1]["project_folder"] == "/tmp/project"
     assert sweep.call_args[1]["plan_path"] == "/tmp/project/plan.json"
-
 
 
 

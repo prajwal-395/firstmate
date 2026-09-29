@@ -45,6 +45,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools.reel_build import (
     ReelBuildError,
@@ -170,6 +171,8 @@ def _seed_provenance(project_dir):
 
 def _promote(project_dir, resolve, **kwargs):
     kwargs.setdefault("organise", False)
+    kwargs.setdefault("track_plans", no_a_roll_track_plans(
+        {REEL_01: STAGING_01}))
     with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
             patch("library.tools.reel_build.resolve_project_exactly",
                   return_value=resolve):
