@@ -62,10 +62,11 @@ def project_dir(tmp_path):
 class FakeItem:
     """One timeline item: a name over a record span."""
 
-    def __init__(self, name, start, end):
+    def __init__(self, name, start, end, enabled=True):
         self._name = name
         self._start = start
         self._end = end
+        self.enabled = enabled
 
     def GetName(self):
         return self._name
@@ -78,6 +79,9 @@ class FakeItem:
 
     def GetDuration(self):
         return self._end - self._start
+
+    def GetClipEnabled(self):
+        return self.enabled
 
 
 class FakeTimeline:
@@ -250,6 +254,54 @@ def test_build_with_failed_overlay_renders_refuses(project_dir):
     assert sorted(resolve.names()) == sorted(
         [MASTER, FINAL, staging.GetName()])
     assert resolve.deleted == []
+
+
+def test_snapshot_and_replace_diff_report_enabled_state_change():
+    retired = FakeTimeline(FINAL, video=[
+        ("Semantic", [FakeItem("semantic-card", 120, 168, enabled=False)])])
+    incoming = FakeTimeline(FINAL + " (rebuild staging)", video=[
+        ("Semantic", [FakeItem("semantic-card", 120, 168, enabled=True)])])
+
+    old_rows = guard.snapshot_timeline(retired, FINAL)
+    new_rows = guard.snapshot_timeline(
+        incoming, incoming.GetName(), side="staged")
+    semantic = old_rows["video:Semantic"]
+
+    assert semantic["items"][0]["enabled"] is False
+    report = guard.check_replacement(
+        FINAL, incoming.GetName(), old_rows, new_rows)
+    assert report["rows"][0]["enabled_changes"] == [{
+        "name": "semantic-card", "start": 120, "end": 168,
+        "retired_enabled": False, "incoming_enabled": True,
+    }]
+
+
+def test_legacy_snapshots_without_enabled_are_unknown_not_changes():
+    legacy = {"video:Semantic": {
+        "media_type": "video", "index": 1, "name": "Semantic",
+        "count": 1, "frames": 48,
+        "items": [{"name": "semantic-card", "start": 120,
+                   "end": 168, "duration": 48}],
+    }}
+    current = {"video:Semantic": {
+        "media_type": "video", "index": 1, "name": "Semantic",
+        "count": 1, "frames": 48,
+        "items": [{"name": "semantic-card", "start": 120,
+                   "end": 168, "duration": 48, "enabled": False}],
+    }}
+
+    changes = guard.diff_rows(legacy, current)[0]["enabled_changes"]
+
+    assert changes == []
+
+
+def test_live_snapshot_refuses_unreadable_enabled_state():
+    timeline = FakeTimeline(FINAL, video=[(
+        "Semantic", [FakeItem("semantic-card", 120, 168, enabled=None)])])
+
+    with pytest.raises(guard.ReplaceGuardUnreadable,
+                       match="enabled state"):
+        guard.snapshot_timeline(timeline, FINAL)
 
 
 @pytest.mark.parametrize("declaration", [

@@ -365,6 +365,7 @@ class FakeRowItem:
     def GetStart(self): return self._start
     def GetEnd(self): return self._end
     def GetDuration(self): return self._end - self._start
+    def GetClipEnabled(self): return True
 
 
 class FakeRowTimeline:

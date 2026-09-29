@@ -301,7 +301,10 @@ def clip_detail(item, track_type: str, track_index: int,
         "media_pool_item_id": pool_item_id,
         "clip_color": _call(item, "GetClipColor", ""),
         "flags": list(_call(item, "GetFlagList", []) or []),
-        "enabled": _call(item, "GetClipEnabled", True),
+        # Unknown stays unknown. A replacement snapshot must not turn a
+        # failed enabled-state read into `True`, because that is exactly
+        # the state a rebuild would silently restore.
+        "enabled": _call(item, "GetClipEnabled", None),
         "transform": _item_transform(item),
         "fusion": {
             "comp_count": _call(item, "GetFusionCompCount", 0),
@@ -890,7 +893,11 @@ def rows_of(result: dict) -> dict:
                              f"#{track['index']}")
         items = [
             {"name": clip["name"], "start": clip["record_in"],
-             "end": clip["record_out"], "duration": clip["duration"]}
+             "end": clip["record_out"], "duration": clip["duration"],
+             # Some row producers project historical or derived reads
+             # that predate enabled-state capture. Preserve that as
+             # unknown; live replacement snapshots separately refuse it.
+             "enabled": clip.get("enabled")}
             for clip in track.get("clips", [])
         ]
         rows[key] = {

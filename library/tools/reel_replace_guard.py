@@ -105,7 +105,7 @@ def row_key(media_type: str, track_name: str) -> str:
 
 def snapshot_timeline(timeline, timeline_name: str,
                        side: str = "retiring") -> dict:
-    """Every row of a live timeline: its items and their spans.
+    """Every row of a live timeline: each item's enabled state and span.
 
     A slice of the one enumeration: the items are read once, in
     `reel_read.read_tracks`, and this is the row projection of it. It is
@@ -125,7 +125,22 @@ def snapshot_timeline(timeline, timeline_name: str,
 
     try:
         tracks = reel_read.read_tracks(timeline)
+        unreadable_enabled = [
+            (track, clip) for track in tracks
+            for clip in track.get("clips", ())
+            if not isinstance(clip["enabled"], bool)]
+        if unreadable_enabled:
+            track, clip = unreadable_enabled[0]
+            raise ReplaceGuardUnreadable(
+                f"the enabled state of {clip['name']!r} on "
+                f"{track['type']}:{track['name'] or track['index']} "
+                f"could not be read")
         return reel_read.rows_of({"tracks": tracks})
+    except ReplaceGuardUnreadable as unreadable:
+        raise ReplaceGuardUnreadable(
+            f"the {side} timeline {timeline_name!r} could not be read "
+            f"({unreadable}); the replace guard refuses rather than "
+            f"promoting over what it cannot see.") from unreadable
     except reel_read.ReelReadError as unreadable:
         raise ReplaceGuardUnreadable(
             f"the {side} timeline {timeline_name!r} could not be read "
@@ -167,10 +182,35 @@ def diff_rows(retired: dict, incoming: dict) -> list:
                 "retired_frames": old["frames"],
                 "incoming_frames": None,
                 "missing": list(old["items"]),
+                "enabled_changes": [],
                 "lost_row": True,
             })
             continue
-        new_keys = {_match_key(entry) for entry in new["items"]}
+        new_by_key = {}
+        for entry in new["items"]:
+            new_by_key.setdefault(_match_key(entry), []).append(entry)
+        enabled_changes = []
+        old_occurrences = {}
+        for old_item in old["items"]:
+            item_key = _match_key(old_item)
+            occurrence = old_occurrences.get(item_key, 0)
+            old_occurrences[item_key] = occurrence + 1
+            matches = new_by_key.get(item_key, ())
+            retired_enabled = old_item.get("enabled")
+            incoming_enabled = (
+                matches[occurrence].get("enabled")
+                if occurrence < len(matches) else None)
+            if (occurrence < len(matches)
+                    and isinstance(retired_enabled, bool)
+                    and isinstance(incoming_enabled, bool)
+                    and retired_enabled is not incoming_enabled):
+                enabled_changes.append({
+                    "name": old_item["name"],
+                    "start": old_item["start"],
+                    "end": old_item["end"],
+                    "retired_enabled": retired_enabled,
+                    "incoming_enabled": incoming_enabled,
+                })
         verdicts.append({
             "key": key,
             "media_type": old["media_type"],
@@ -181,10 +221,46 @@ def diff_rows(retired: dict, incoming: dict) -> list:
             "retired_frames": old["frames"],
             "incoming_frames": new["frames"],
             "missing": [entry for entry in old["items"]
-                        if _match_key(entry) not in new_keys],
+                        if _match_key(entry) not in new_by_key],
+            "enabled_changes": enabled_changes,
             "lost_row": False,
         })
     return verdicts
+
+
+def include_disabled_carries(report: dict, carries: list[dict]) -> dict:
+    """Report state differences matched by stable identity across retimes.
+
+    The ordinary row diff can pair an item by its name and record span.
+    A rerendered Semantic graphic has a new filename and may move with an
+    opening shift, so its carry result supplies the content-and-intent match
+    the span diff cannot see.
+    """
+    rows = {row["key"]: row for row in report["rows"]}
+    for carry in carries:
+        row = rows.get(carry["row"])
+        if row is None:
+            continue
+        change = next((entry for entry in row["enabled_changes"]
+                       if entry["name"] == carry["source_item"]
+                       and entry["start"] == carry["source_frame"]), None)
+        if change is None:
+            change = {
+                "name": carry["source_item"],
+                "start": carry["source_frame"],
+                "end": carry["source_end"],
+                "retired_enabled": carry["source_enabled"],
+                "incoming_enabled": carry["staged_enabled_before"],
+            }
+            row["enabled_changes"].append(change)
+        change.update({
+            "incoming_enabled": carry["staged_enabled_before"],
+            "staged_item": carry["staged_item"],
+            "staged_start": carry["staged_frame"],
+            "staged_enabled_after": carry["staged_enabled_after"],
+            "match_basis": carry["match_basis"],
+        })
+    return report
 
 
 def _declared(key: str, name: str, allowed: set) -> bool:

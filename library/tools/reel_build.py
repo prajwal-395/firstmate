@@ -9196,6 +9196,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                  timelines_to_replace(project, set(finals))}
     assert_deletion_scope(list(originals.values()), set(finals))
 
+    from library.tools import reel_disabled_clip_carry as _disabled
     from library.tools import reel_replace_guard as _guard
     try:
         declared = _guard.parse_specs(allow_drops, finals)
@@ -9360,14 +9361,28 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         try:
             supersede_entries[final] = _signoff.assert_declared(
                 project_folder, final, declared_supersessions)
+            retired_rows = _guard.snapshot_timeline(
+                originals[final], final, side="retiring")
+            staged_before_carry = _guard.snapshot_timeline(
+                staged_found[staging], staging, side="staged")
+            # Keep the pre-carry difference in the report: it proves the
+            # rebuild would have re-enabled the captain's disabled clip.
+            enabled_state_report = _guard.check_replacement(
+                final, staging, retired_rows, staged_before_carry,
+                allowed=declared.get(final, ()))
+            disabled_state = _disabled.carry_disabled_state(
+                project_folder, final, staging,
+                originals[final], staged_found[staging])
             incoming_rows = _guard.snapshot_timeline(
                 staged_found[staging], staging, side="staged")
             incoming_by_final[final] = incoming_rows
-            retired_rows = _guard.snapshot_timeline(
-                originals[final], final, side="retiring")
             replace_reports[final] = _guard.check_replacement(
                 final, staging, retired_rows, incoming_rows,
                 allowed=declared.get(final, ()))
+            replace_reports[final] = _guard.include_disabled_carries(
+                {**replace_reports[final], "rows": enabled_state_report["rows"]},
+                disabled_state["carried"])
+            replace_reports[final]["disabled_clip_carry"] = disabled_state
             notes = _markers.read_markers(originals[final], final)
             if notes:
                 # `final`: the re-pair binds replies to notes by
@@ -9412,6 +9427,11 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 "path": _gate.write_capture(
                     project_folder, final, capture)}
         except _guard.ReplaceGuardUnreadable as unreadable:
+            refused[final] = (
+                f"REFUSING to promote {final!r}: {unreadable} Nothing "
+                f"for this reel was renamed; its approved timeline is "
+                f"still in the project.")
+        except _disabled.DisabledClipCarryRefused as unreadable:
             refused[final] = (
                 f"REFUSING to promote {final!r}: {unreadable} Nothing "
                 f"for this reel was renamed; its approved timeline is "

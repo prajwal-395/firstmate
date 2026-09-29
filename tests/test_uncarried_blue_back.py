@@ -64,6 +64,9 @@ class _Item:
     def GetDuration(self):
         return self._end - self._start
 
+    def GetClipEnabled(self):
+        return True
+
     def GetLeftOffset(self):
         return self._left
 

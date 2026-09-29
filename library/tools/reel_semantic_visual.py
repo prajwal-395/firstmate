@@ -486,12 +486,37 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
             project_folder=project_folder)
         if rendered is None:
             continue
+        from library.tools.reel_disabled_clip_carry import (
+            semantic_graphic_identity)
+        carry_identity = semantic_graphic_identity(
+            ((planned.get("props") or {}).get("elements")
+             if isinstance(planned, dict) else None))
+        if carry_identity:
+            # The generated file name includes rendered timing and can
+            # change after an opening shift. Preserve the actual elements'
+            # stable content and visual intent beside the plan instead.
+            rendered["carry_identity"] = carry_identity
         segments.append(rendered)
     if not segments:
         return [], _record(name, NOTHING_RENDERED, answer,
                            resolved=resolved, dropped=resolved.dropped)
     return segments, _record(name, PLANNED, answer, resolved=resolved,
                              dropped=resolved.dropped, segments=segments)
+
+
+def _record_segment(segment: dict) -> dict:
+    record = {
+        "overlay_path": segment.get("overlay_path"),
+        "segment_id": segment.get("segment_id"),
+        "placement_label": segment.get("placement_label"),
+        "timeline_start": segment["timeline_start"],
+        "timeline_end": segment["timeline_end"],
+        "total_frames": segment["total_frames"],
+        "elements": list(segment.get("elements") or []),
+    }
+    if segment.get("carry_identity"):
+        record["carry_identity"] = segment["carry_identity"]
+    return record
 
 
 def _record(reel_name: str, basis: str, entries: list, resolved=None,
@@ -505,15 +530,8 @@ def _record(reel_name: str, basis: str, entries: list, resolved=None,
         "dropped": [
             {"element": d.element, "reason": d.reason, "detail": d.detail}
             for d in (dropped or [])],
-        "segments": [
-            {"overlay_path": s.get("overlay_path"),
-             "segment_id": s.get("segment_id"),
-             "placement_label": s.get("placement_label"),
-             "timeline_start": s["timeline_start"],
-             "timeline_end": s["timeline_end"],
-             "total_frames": s["total_frames"],
-             "elements": list(s.get("elements") or [])}
-            for s in (segments or [])],
+        "segments": [_record_segment(segment)
+                     for segment in (segments or [])],
     }
     if resolved is not None:
         record["resolved"] = len(resolved.moments)

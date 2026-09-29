@@ -89,6 +89,9 @@ class FakeItem:
     def GetDuration(self):
         return self._end - self._start
 
+    def GetClipEnabled(self):
+        return True
+
 
 class FakeTimeline:
     def __init__(self, name, video=(), audio=()):
