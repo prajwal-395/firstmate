@@ -894,8 +894,8 @@ def mapping_carries_program(channels, expected) -> bool:
     return expected in list(channels or [])
 
 
-@heavy_work_locked("edit timeline placement")
 @under_lease("render the edit timeline")
+@heavy_work_locked("edit timeline placement")
 def build_timeline(
     manifest: dict,
     subtitle_overlay_path: Optional[str] = None,

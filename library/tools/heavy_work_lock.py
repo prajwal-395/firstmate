@@ -5,6 +5,11 @@ processes inherit it and can re-enter the lock without waiting on their own
 parent. Lock directories are never reclaimed automatically: a waiter will
 name the recorded owner and wait rather than risk deleting a live owner's
 lock.
+
+When an operation needs both this lock and Resolve's instance lease, it
+acquires the Resolve lease first and this lock second. Waiting on Resolve
+while holding the machine-wide heavy-work lock would block unrelated heavy
+work and could deadlock a caller that takes them in the opposite order.
 """
 
 from __future__ import annotations

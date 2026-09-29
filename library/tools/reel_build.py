@@ -11597,8 +11597,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # and must not run while another lane moves the cursor.
             # A `continue` below exits the hold; the loop's failure
             # path discards under its own hold.
-            with heavy_work_lock(f"reel placement {name}"), \
-                    resolve_lease(f"place {name}", exclusive=True) as _lease:
+            # Keep the global order: Resolve lease first, machine-wide
+            # heavy-work lock second. A Resolve waiter must not reserve
+            # heavy work while it queues behind another lane.
+            with resolve_lease(f"place {name}", exclusive=True) as _lease, \
+                    heavy_work_lock(f"reel placement {name}"):
                 # Lease-contention measurement: one `wait` line per
                 # placement acquisition, ALWAYS including the
                 # uncontended ones - the fraction that contended is the

@@ -47,6 +47,7 @@ from library.tools.heavy_work_lock import (
     release_heavy_lock,
     take_heavy_lock,
 )
+from library.tools.resolve_lock import resolve_lease
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VEP = REPO_ROOT / "bin" / "vep"
@@ -1807,10 +1808,9 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
     task_id = (os.environ.get("VEP_TASK_ID")
                or os.environ.get("FIRSTMATE_TASK_ID", "ren-eval-harness"))
     owner = f"{task_id} ren-eval-harness {batch} {stamp}"
-    # One request's model decisions and its Resolve build are one serial job.
-    # Take the shared mutex before the first model request, then keep it
-    # through render/readback so another lane cannot start a model or render
-    # between this request's declared edits and the timeline that replays them.
+    # Serialize the model/edit stage on the shared machine lock. Release it
+    # before waiting for Resolve; the Resolve stage reacquires in the global
+    # order below so a queued instance lease never reserves heavy work.
     wait_for_quiet()
     take_heavy_lock(owner)
     try:
@@ -1827,33 +1827,44 @@ def run_request(request: dict | None, base: str, out_dir: str, batch: str,
             clone["dest"], str(out / "edit.log"), str(answers),
             extra_reruns=_translated_owner_reruns(ledger))
         ledger["edit"] = edit
-        take_resolve_lock(owner)
-        try:
-            captain = resolve_bracket_start(scratch)
-            ledger["captain_saved"] = captain
-            try:
-                build = run_pipeline_render(
-                    clone["dest"], str(out / "build.log"), str(answers))
-                ledger["build"] = build
-                timeline = _built_timeline_name(out / "build.log",
-                                                clone["timeline"])
-                ledger["timeline"] = timeline
-                readback_timeline(scratch, timeline,
-                                  str(out / "readback.txt"))
-                ledger["export"] = find_export(clone["dest"])
-            finally:
-                ledger["restore"] = resolve_bracket_end(scratch, captain)
-                restore = ledger["restore"]
-                if (not restore.get("project_restored")
-                        or not restore.get("timeline_restored")
-                        or restore.get("scratch_deleted") is False):
-                    raise RuntimeError(
-                        "eval: Resolve session did not restore the captain's "
-                        f"project and timeline cleanly: {restore}")
-        finally:
-            release_resolve_lock()
     finally:
         release_heavy_lock()
+
+    # When both locks are needed, acquire the Resolve lease first and the
+    # machine-wide heavy-work lock second. The child build inherits both.
+    with resolve_lease(f"eval harness Resolve build {batch}"):
+        take_heavy_lock(owner)
+        try:
+            take_resolve_lock(owner)
+            try:
+                captain = resolve_bracket_start(scratch)
+                ledger["captain_saved"] = captain
+                try:
+                    build = run_pipeline_render(
+                        clone["dest"], str(out / "build.log"),
+                        str(answers))
+                    ledger["build"] = build
+                    timeline = _built_timeline_name(
+                        out / "build.log", clone["timeline"])
+                    ledger["timeline"] = timeline
+                    readback_timeline(scratch, timeline,
+                                      str(out / "readback.txt"))
+                    ledger["export"] = find_export(clone["dest"])
+                finally:
+                    ledger["restore"] = resolve_bracket_end(scratch,
+                                                            captain)
+                    restore = ledger["restore"]
+                    if (not restore.get("project_restored")
+                            or not restore.get("timeline_restored")
+                            or restore.get("scratch_deleted") is False):
+                        raise RuntimeError(
+                            "eval: Resolve session did not restore the "
+                            "captain's project and timeline cleanly: "
+                            f"{restore}")
+            finally:
+                release_resolve_lock()
+        finally:
+            release_heavy_lock()
     ledger["finished_at"] = _dt.datetime.now(_dt.UTC).isoformat()
     (out / "run.json").write_text(json.dumps(ledger, indent=2)
                                   + "\n", encoding="utf-8")

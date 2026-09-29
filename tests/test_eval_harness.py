@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -1083,6 +1084,16 @@ def test_run_serializes_model_decisions_and_resolve_build(
                             "run_status": "SUCCESS"})
     monkeypatch.setattr(eval_harness, "take_resolve_lock",
                         lambda *args: events.append("lock"))
+
+    @contextmanager
+    def resolve_lease(*args, **kwargs):
+        events.append("resolve-lease")
+        try:
+            yield None
+        finally:
+            events.append("resolve-unlock")
+
+    monkeypatch.setattr(eval_harness, "resolve_lease", resolve_lease)
     monkeypatch.setattr(eval_harness, "take_heavy_lock",
                         lambda *args: events.append("heavy-lock"))
     monkeypatch.setattr(eval_harness, "resolve_bracket_start",
@@ -1114,10 +1125,12 @@ def test_run_serializes_model_decisions_and_resolve_build(
 
     request = eval_corpus.select(request_id="ST1.1")[0]
     eval_harness.run_request(request, str(base), str(out), "T1")
-    assert events == ["note", "quiet", "heavy-lock", "translate", "edit",
-                      "lock",
-                      "save-and-open", "build", "readback",
-                      "restore-and-delete", "unlock", "heavy-unlock"]
+    assert events == [
+        "note", "quiet", "heavy-lock", "translate", "edit",
+        "heavy-unlock", "resolve-lease", "heavy-lock", "lock",
+        "save-and-open", "build", "readback", "restore-and-delete",
+        "unlock", "heavy-unlock", "resolve-unlock",
+    ]
 
 
 def test_run_releases_heavy_lock_when_edit_stage_fails(tmp_path, monkeypatch):
