@@ -53,6 +53,23 @@ def test_events_carry_their_own_timestamps_in_filed_order(tmp_path):
         assert event["reel"] == "Reel 05"
 
 
+def test_latest_event_filters_to_one_plan_channel(tmp_path):
+    project = _project(tmp_path)
+    motion = phase_log.log_event(
+        project, 5, "Reel 05", phase_log.PLAN_ASKED,
+        detail="motion ask written: reel_motion_05.json")
+    semantic = phase_log.log_event(
+        project, 5, "Reel 05", phase_log.PLAN_ASKED,
+        detail="semantic ask written: reel_semantic_05.json")
+
+    selected = phase_log.latest_event(
+        project, 5, phase_log.PLAN_ASKED,
+        detail_prefix="motion ask written: reel_motion_05.json")
+
+    assert selected == motion
+    assert selected != semantic
+
+
 def test_an_unknown_phase_is_refused_not_filed(tmp_path):
     project = _project(tmp_path)
     with pytest.raises(ValueError):
@@ -457,5 +474,4 @@ def test_the_timed_wrapper_files_nothing_when_there_is_nothing(tmp_path):
     assert reel_build.render_reel_cards_timed(
         project, 5, "Reel 05", [], "/remotion") == []
     assert phase_log.read_events(project) == []
-
 

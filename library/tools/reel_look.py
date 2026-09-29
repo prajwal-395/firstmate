@@ -59,11 +59,13 @@ V2, captions V3 - that is the MASTER path's shape in
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
 import subprocess
 import sys
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from library.tools.ren_refusal import RenRefusal
@@ -85,6 +87,11 @@ at 1.00, V3 captions at 1.00).
 
 MOTION_PLAN_KEY = "reel_motion_plan"
 """What the model's answer file carries, as `read_answer` accepts a bare list."""
+
+MOTION_BASIS_KEY = "_vep_motion_basis"
+MOTION_ANSWER_SHAPE_KEY = "_vep_motion_answer_shape"
+MOTION_BASIS_SCHEMA = "reel_motion_basis/1"
+"""Private response metadata binding an answer to the motion ask it saw."""
 
 MOTION_NOT_DECLARED = "look_not_declared"
 MOTION_AWAITING_ANSWER = "awaiting_model_answer"
@@ -1298,6 +1305,134 @@ def _read_motion_plan_file(path: str) -> Optional[list]:
     return None
 
 
+def motion_request_basis(request: dict) -> dict:
+    """Fingerprint the prompt inputs that determine anchored motion.
+
+    The old plan is intentionally excluded: it is echoed into a follow-up
+    ask for continuity, and including it would make a response invalidate
+    itself. The shots and locked closing positions are the spine the model
+    addresses, including each block's text, timing and word spans.
+    """
+    context = request["context"]
+    source = {
+        "schema": MOTION_BASIS_SCHEMA,
+        "step_id": request["step_id"],
+        "reel_number": int(request["reel_number"]),
+        "prompt": request["prompt"],
+        "expected_schema": request["expected_schema"],
+        "shots": context["shots"],
+        "locked_closing_positions": context["locked_closing_positions"],
+    }
+    canonical = json.dumps(
+        source, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False, allow_nan=False).encode("utf-8")
+    return {"schema": MOTION_BASIS_SCHEMA,
+            "sha256": hashlib.sha256(canonical).hexdigest()}
+
+
+def _load_motion_request(project_folder: str,
+                         reel_number: int) -> Optional[dict]:
+    from library.tools.project_layout import Area
+
+    path = _motion_path(project_folder, reel_number, Area.LLM_REQUESTS)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            request = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return request if isinstance(request, dict) else None
+
+
+def bind_motion_answer(project_folder: str, reel_number: int,
+                       answer: Any) -> dict:
+    """Attach the current ask's source fingerprint to a model answer."""
+    request = _load_motion_request(project_folder, reel_number)
+    if request is None:
+        raise ValueError(
+            f"reel {int(reel_number):02d} has no readable motion ask; "
+            "write the ask before its answer")
+    answer_shape = "object"
+    if isinstance(answer, list):
+        payload = {MOTION_PLAN_KEY: answer}
+        answer_shape = "list"
+    elif isinstance(answer, dict):
+        payload = dict(answer)
+    else:
+        raise TypeError(
+            f"reel {int(reel_number):02d} motion answer must be a list "
+            "or object")
+    if (MOTION_BASIS_KEY in payload
+            or MOTION_ANSWER_SHAPE_KEY in payload):
+        raise ValueError(
+            f"reel {int(reel_number):02d} motion answer uses a reserved "
+            f"pipeline metadata key")
+    payload[MOTION_BASIS_KEY] = motion_request_basis(request)
+    if answer_shape == "list":
+        payload[MOTION_ANSWER_SHAPE_KEY] = answer_shape
+    return payload
+
+
+def strip_motion_answer_basis(payload: Any) -> Any:
+    """Return the model payload without pipeline-owned response metadata."""
+    if not isinstance(payload, dict) or MOTION_BASIS_KEY not in payload:
+        return payload
+    answer = dict(payload)
+    del answer[MOTION_BASIS_KEY]
+    answer_shape = answer.pop(MOTION_ANSWER_SHAPE_KEY, None)
+    if answer_shape == "list":
+        plan = answer.pop(MOTION_PLAN_KEY, None)
+        if isinstance(plan, list):
+            return plan
+    return answer
+
+
+def _response_basis(payload: Any) -> Optional[dict]:
+    if not isinstance(payload, dict):
+        return None
+    basis = payload.get(MOTION_BASIS_KEY)
+    if (isinstance(basis, dict)
+            and basis.get("schema") == MOTION_BASIS_SCHEMA
+            and isinstance(basis.get("sha256"), str)):
+        return basis
+    return None
+
+
+def _answer_is_after_latest_ask(project_folder: str, reel_number: int,
+                                response_path: str) -> bool:
+    """Whether a legacy answer file landed after the recorded motion ask."""
+    from library.tools import reel_phase_log
+
+    event = reel_phase_log.latest_event(
+        project_folder, reel_number, reel_phase_log.PLAN_ASKED,
+        detail_prefix=(f"motion ask written: "
+                       f"{motion_request_stem(reel_number)}.json"))
+    if event is None:
+        return False
+    try:
+        asked_at = datetime.fromisoformat(
+            event["at"].replace("Z", "+00:00")).timestamp()
+        answered_at = os.stat(response_path).st_mtime
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+    return answered_at >= asked_at
+
+
+def _write_motion_response(path: str, payload: dict) -> None:
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
+def _invalidate_motion_answer(response_path: str, reel_number: int,
+                              reason: str) -> None:
+    try:
+        os.unlink(response_path)
+    except FileNotFoundError:
+        return
+    print(f"  reel {int(reel_number):02d}: invalidated stored motion "
+          f"answer - {reason}; answer the current motion ask again",
+          file=sys.stderr)
+
+
 def locked_closing_positions(project_folder: str,
                              reel_number: int) -> set[int]:
     """The request's closing/CTA blocks whose existing plan is protected."""
@@ -1394,9 +1529,70 @@ def write_motion_request(reel_number: int, reel_name: str,
               f"transcript has nothing over the master seconds they were "
               f"cut from, so any motion planned for them is planned blind",
               file=sys.stderr)
-    existing_plan = _read_motion_plan_file(
-        _motion_path(project_folder, reel_number, Area.LLM_RESPONSES)) or []
     closing_positions = set(_closing_positions(spine, call_to_action))
+    basis_request = {
+        "step_id": "reel_motion",
+        "reel_number": int(reel_number),
+        "prompt": MOTION_HANDOFF,
+        "expected_schema": MOTION_EXPECTED_SCHEMA,
+        "context": {
+            "shots": rows,
+            "locked_closing_positions": sorted(closing_positions),
+        },
+    }
+    current_basis = motion_request_basis(basis_request)
+    previous_request = _load_motion_request(project_folder, reel_number)
+    response_path = _motion_path(
+        project_folder, reel_number, Area.LLM_RESPONSES)
+    stored_plan = _read_motion_plan_file(response_path)
+    existing_plan = stored_plan or []
+    if stored_plan is not None:
+        try:
+            with open(response_path, "r", encoding="utf-8") as handle:
+                response_payload = json.load(handle)
+        except (OSError, ValueError):
+            response_payload = None
+        response_basis = _response_basis(response_payload)
+        if response_basis is not None:
+            if response_basis != current_basis:
+                _invalidate_motion_answer(
+                    response_path, reel_number,
+                    "the shot text, word timings or closing positions changed")
+                existing_plan = []
+        elif (isinstance(response_payload, dict)
+              and MOTION_BASIS_KEY in response_payload):
+            _invalidate_motion_answer(
+                response_path, reel_number,
+                "its source fingerprint metadata is malformed")
+            existing_plan = []
+        else:
+            previous_basis = None
+            if previous_request is not None:
+                try:
+                    previous_basis = motion_request_basis(previous_request)
+                except (KeyError, TypeError, ValueError):
+                    pass
+            if previous_basis != current_basis:
+                _invalidate_motion_answer(
+                    response_path, reel_number,
+                    "the legacy answer was keyed only by reel number and "
+                    "its previous ask differs")
+                existing_plan = []
+            elif not _answer_is_after_latest_ask(
+                    project_folder, reel_number, response_path):
+                _invalidate_motion_answer(
+                    response_path, reel_number,
+                    "the latest recorded ask is newer than the legacy answer")
+                existing_plan = []
+            elif isinstance(response_payload, (dict, list)):
+                if isinstance(response_payload, list):
+                    response_payload = {
+                        MOTION_PLAN_KEY: response_payload,
+                        MOTION_ANSWER_SHAPE_KEY: "list",
+                    }
+                response_payload[MOTION_BASIS_KEY] = current_basis
+                _write_motion_response(response_path, response_payload)
+
     locked_closing_moves = [
         entry for entry in existing_plan
         if _is_locked_motion_entry(entry, closing_positions)]
@@ -1444,18 +1640,57 @@ def read_motion_answer(project_folder: str,
     """
     from library.tools.project_layout import Area
 
-    plan = _read_motion_plan_file(
-        _motion_path(project_folder, reel_number, Area.LLM_RESPONSES))
+    response_path = _motion_path(
+        project_folder, reel_number, Area.LLM_RESPONSES)
+    plan = _read_motion_plan_file(response_path)
     if plan is None:
         return None
-    request_path = _motion_path(
-        project_folder, reel_number, Area.LLM_REQUESTS)
-    request = None
+    request = _load_motion_request(project_folder, reel_number)
+    if request is None:
+        _invalidate_motion_answer(
+            response_path, reel_number, "the current motion ask is missing")
+        return None
     try:
-        with open(request_path, "r", encoding="utf-8") as handle:
-            request = json.load(handle)
+        expected_basis = motion_request_basis(request)
+    except (KeyError, TypeError, ValueError):
+        _invalidate_motion_answer(
+            response_path, reel_number,
+            "the current motion ask has no readable source basis")
+        return None
+    try:
+        with open(response_path, "r", encoding="utf-8") as handle:
+            response_payload = json.load(handle)
     except (OSError, ValueError):
-        pass
+        return None
+    response_basis = _response_basis(response_payload)
+    if response_basis is not None:
+        if response_basis != expected_basis:
+            _invalidate_motion_answer(
+                response_path, reel_number,
+                "its recorded source fingerprint does not match the current "
+                "motion ask")
+            return None
+    elif (isinstance(response_payload, dict)
+          and MOTION_BASIS_KEY in response_payload):
+        _invalidate_motion_answer(
+            response_path, reel_number,
+            "its source fingerprint metadata is malformed")
+        return None
+    elif not _answer_is_after_latest_ask(
+            project_folder, reel_number, response_path):
+        _invalidate_motion_answer(
+            response_path, reel_number,
+            "the latest recorded ask is newer than the legacy answer")
+        return None
+    else:
+        if isinstance(response_payload, list):
+            response_payload = {
+                MOTION_PLAN_KEY: response_payload,
+                MOTION_ANSWER_SHAPE_KEY: "list",
+            }
+        response_payload[MOTION_BASIS_KEY] = expected_basis
+        _write_motion_response(response_path, response_payload)
+
     context = (request or {}).get("context") or {}
     locked_positions = {
         int(position)
@@ -1467,6 +1702,17 @@ def read_motion_answer(project_folder: str,
                 if not _is_locked_motion_entry(entry, locked_positions)]
         plan.extend(locked_moves)
     return plan
+
+
+def resolve_motion_for_build(project_folder: str, reel_number: int,
+                             spine: dict, fps: float) -> Tuple[list, dict]:
+    """Read and resolve the stored answer at the build's pre-placement gate.
+
+    This is kept offline so the build's plan check can be exercised without
+    opening Resolve; both reel build paths call this same gate.
+    """
+    return resolve_motion(read_motion_answer(project_folder, reel_number),
+                          spine, fps)
 
 
 def resolve_motion(plan: Optional[list], spine: dict,

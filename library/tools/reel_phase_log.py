@@ -185,6 +185,32 @@ def log_event(project_folder: str, reel_number: int, reel_name: str,
     return event
 
 
+def latest_event(project_folder: str, reel_number: int,
+                 phase: str,
+                 detail_prefix: Optional[str] = None
+                 ) -> Optional[Dict[str, Any]]:
+    """The newest recorded event for one reel and phase, if present.
+
+    Callers that pair an answer with an ask use the event's recorded
+    timestamp. Request file mtimes are the time of their latest rewrite,
+    which is not necessarily when the model was asked.
+    """
+    if phase not in PHASES:
+        raise ValueError(
+            f"{phase!r} is not a reel phase this log may carry: "
+            f"{list(PHASES)}")
+    events = read_events(project_folder)
+    matches = [event for event in events
+               if event.get("format") == FORMAT
+               and event.get("reel_number") == int(reel_number)
+               and event.get("phase") == phase
+               and isinstance(event.get("at"), str)
+               and (detail_prefix is None
+                    or str(event.get("detail", "")).startswith(
+                        detail_prefix))]
+    return max(matches, key=lambda event: event["at"]) if matches else None
+
+
 def log_wait(project_folder: str, reel_number: int, reel_name: str,
              reason: str) -> Dict[str, Any]:
     """One line saying why this reel is not moving, by the waiter.

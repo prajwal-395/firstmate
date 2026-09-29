@@ -9,10 +9,10 @@ close that gap: `read_visual_asks` reads all three asks in one call,
 
 What this file proves, and how
 ------------------------------
-- Reading back returns exactly what was written: a full write through
-  `write_visual_answers` round-trips byte-identical through
-  `read_visual_answers`, and the three payloads exercise both answer
-  shapes pass 2 accepts (a dict under its plan key, and a bare list).
+- Semantic and span payloads round-trip unchanged. A motion response
+  records the ask fingerprint beside the original answer; the batch
+  reader strips that private metadata, and the per-ask reader accepts it.
+  The three payloads exercise the answer shapes pass 2 accepts.
 - A partial write is never silently accepted as three answers: a
   missing key, an extra key, or a None payload RAISES - and raises
   before anything is written, so a refused write leaves no answer
@@ -86,6 +86,25 @@ def _project(tmp_path):
     return str(root)
 
 
+def _write_motion_ask(project, number=9):
+    spine = {"structure": [{
+        "position": 0,
+        "timeline_start": 0.0,
+        "timeline_end": 8.0,
+        "source_start": 0.0,
+        "source_end": 8.0,
+        "master_start": 0.0,
+        "master_end": 8.0,
+        "word_timestamps": [
+            {"word": "line", "source_start": 1.0, "source_end": 1.2}]}]}
+    look.write_motion_request(
+        number, f"Reel {number:02d}", spine,
+        [{"timeline_start": 0.0, "timeline_end": 8.0,
+          "text": "The line lands."}],
+        project,
+        call_to_action={"timeline_start": 20.0, "timeline_end": 21.0})
+
+
 def _answers():
     return {
         "reel_semantic": {"motion_graphics_plan": [
@@ -97,8 +116,11 @@ def _answers():
                        "anchor_phrase": "mind", "lead_seconds": 0.2,
                        "why": "the noun"}],
         "reel_motion": {look.MOTION_PLAN_KEY: [
-            {"target_block_position": 1, "effect_type": "push_in",
-             "magnitude": 0.5, "why": "the line leans in"}]},
+            {"target_block_position": 0, "effect_type": "ken_burns",
+             "anchor": {"word": "line"},
+             "anchor_end": {"word": "line", "edge": "end"},
+             "params": {"zoom_start": 1.0, "zoom_end": 1.02},
+             "rationale": "the line leans in"}]},
     }
 
 
@@ -155,7 +177,13 @@ def test_batch_answers_land_where_pass_2_reads(tmp_path):
     silence - no answer file still reads as unanswered."""
     project = _project(tmp_path)
     written = _answers()
+    _write_motion_ask(project)
     build.write_visual_answers(project, 9, written)
+
+    response = json.loads(_response_files(project)["reel_motion_09.json"].read_text(
+        encoding="utf-8"))
+    assert response[look.MOTION_BASIS_KEY] == look.motion_request_basis(
+        build.read_visual_asks(project, 9)["reel_motion"])
 
     assert (sem_vis.read_answer(project, 9)
             == written["reel_semantic"]["motion_graphics_plan"])
@@ -168,3 +196,16 @@ def test_batch_answers_land_where_pass_2_reads(tmp_path):
     assert sem_vis.read_answer(project, 10) is None
     assert sem_vis.read_span_answer(project, 10) is None
     assert look.read_motion_answer(project, 10) is None
+
+
+def test_motion_bare_list_shape_survives_private_fingerprint(tmp_path):
+    project = _project(tmp_path)
+    answers = _answers()
+    _write_motion_ask(project)
+    answers["reel_motion"] = answers["reel_motion"][look.MOTION_PLAN_KEY]
+
+    build.write_visual_answers(project, 9, answers)
+
+    assert build.read_visual_answers(project, 9)["reel_motion"] == \
+        answers["reel_motion"]
+    assert look.read_motion_answer(project, 9) == answers["reel_motion"]

@@ -165,9 +165,6 @@ def test_no_ken_burns_moves_outside_cta_sections(tmp_path):
         "params": {"zoom_start": 1.04, "zoom_end": 1.0},
         "rationale": "the existing CTA pull-back",
     }
-    response_path = os.path.join(response_dir, "reel_motion_42.json")
-    with open(response_path, "w", encoding="utf-8") as handle:
-        json.dump({"reel_motion_plan": [closer]}, handle)
 
     placements = [
         _placement("/body.mxf", 0, 12.0),
@@ -188,10 +185,16 @@ def test_no_ken_burns_moves_outside_cta_sections(tmp_path):
         [{"source_file": "/body.mxf", "timeline_start": 100.0,
           "timeline_end": 112.0, "source_start": 2.0,
           "source_end": 14.0, "words": words}])
+    says = [{"timeline_start": 0.0, "timeline_end": 12.0,
+             "text": "We explain the idea."}]
+    reel_look.write_motion_request(
+        42, "Reel 42", spine, says, project_folder)
+    response_path = os.path.join(response_dir, "reel_motion_42.json")
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump(reel_look.bind_motion_answer(
+            project_folder, 42, {"reel_motion_plan": [closer]}), handle)
     path = reel_look.write_motion_request(
-        42, "Reel 42", spine,
-        [{"timeline_start": 0.0, "timeline_end": 12.0,
-          "text": "We explain the idea."}], project_folder)
+        42, "Reel 42", spine, says, project_folder)
     with open(path, "r", encoding="utf-8") as handle:
         request = json.load(handle)
 
@@ -254,10 +257,6 @@ def test_existing_cta_motion_is_locked_by_its_span_not_the_last_shot(
         "params": {"zoom_start": 1.0, "zoom_end": 1.03},
         "rationale": "the later body shot",
     }
-    response_path = os.path.join(response_dir, "reel_motion_43.json")
-    with open(response_path, "w", encoding="utf-8") as handle:
-        json.dump({"reel_motion_plan": [cta_move, later_move]}, handle)
-
     placements = [
         _placement("/body.mxf", 0, 4.0),
         _placement("/cta.mxf", 96, 4.0),
@@ -266,12 +265,20 @@ def test_existing_cta_motion_is_locked_by_its_span_not_the_last_shot(
     placements[1]["clip"] = _Clip("/cta.mxf", timeline_start=4.0)
     placements[2]["clip"] = _Clip("/tail.mxf", timeline_start=8.0)
     spine = reel_look.motion_spine(placements, 24.0)
+    says = [{"timeline_start": 0.0, "timeline_end": 12.0,
+             "text": "A body, then the CTA, then a trailing shot."}]
+    call_to_action = {"timeline_start": 4.0, "timeline_end": 8.0}
+    reel_look.write_motion_request(
+        43, "Reel 43", spine, says, project_folder,
+        call_to_action=call_to_action)
+    response_path = os.path.join(response_dir, "reel_motion_43.json")
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump(reel_look.bind_motion_answer(
+            project_folder, 43,
+            {"reel_motion_plan": [cta_move, later_move]}), handle)
     request_path = reel_look.write_motion_request(
         43, "Reel 43", spine,
-        [{"timeline_start": 0.0, "timeline_end": 12.0,
-          "text": "A body, then the CTA, then a trailing shot."}],
-        project_folder,
-        call_to_action={"timeline_start": 4.0, "timeline_end": 8.0})
+        says, project_folder, call_to_action=call_to_action)
     with open(request_path, "r", encoding="utf-8") as handle:
         request = json.load(handle)
 
@@ -285,6 +292,118 @@ def test_existing_cta_motion_is_locked_by_its_span_not_the_last_shot(
 
     assert reel_look.read_motion_answer(project_folder, 43) == [
         later_move, cta_move]
+
+
+def test_changed_motion_spine_invalidates_answer_and_offline_build_resolves(
+        tmp_path):
+    """A re-asked motion plan binds to its shot text and resolves pre-placement.
+
+    The build calls `resolve_motion_for_build` before creating a timeline.
+    This exercises that exact gate with no Resolve connection.
+    """
+    from library.tools import reel_build
+
+    project_folder = os.fspath(tmp_path / "project")
+    call_to_action = {"timeline_start": 20.0, "timeline_end": 21.0}
+
+    def make_spine(repeated_you):
+        placements = [_placement("/clip.mxf", 0, 8.0)]
+        words = [
+            {"word": "The", "start": 0.2, "end": 0.4},
+            {"word": "point", "start": 0.6, "end": 0.9},
+            {"word": "you.", "start": 1.2, "end": 1.4},
+            {"word": "you.", "start": 2.2, "end": 2.4},
+        ]
+        if repeated_you == 3:
+            words.append({"word": "you.", "start": 3.2, "end": 3.4})
+        words.extend([
+            {"word": "learn", "start": 5.8, "end": 6.2},
+            {"word": "today.", "start": 7.0, "end": 7.3},
+        ])
+        return reel_look.motion_spine(
+            placements, 24.0,
+            [{"source_file": "/clip.mxf", "timeline_start": 0.0,
+              "timeline_end": 8.0, "source_start": 0.0,
+              "source_end": 8.0, "words": words}])
+
+    old_spine = make_spine(3)
+    old_text = "The point you. you. you. learn today."
+    reel_look.write_motion_request(
+        24, "Reel 24", old_spine,
+        [{"timeline_start": 0.0, "timeline_end": 8.0,
+          "text": old_text}], project_folder,
+        call_to_action=call_to_action)
+    old_plan = [{
+        "target_block_position": 0,
+        "anchor": {"word": "point"},
+        "anchor_end": {"word": "learn", "edge": "end"},
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.02},
+        "rationale": "the explanation opens into its conclusion",
+    }]
+    reel_build.write_visual_answers(project_folder, 24, {
+        "reel_semantic": [],
+        "reel_span": [],
+        "reel_motion": {reel_look.MOTION_PLAN_KEY: old_plan},
+    })
+    assert reel_look.read_motion_answer(project_folder, 24) == old_plan
+
+    new_spine = make_spine(2)
+    new_text = "The point you. you. learn today."
+    reel_look.write_motion_request(
+        24, "Reel 24", new_spine,
+        [{"timeline_start": 0.0, "timeline_end": 8.0,
+          "text": new_text}], project_folder,
+        call_to_action=call_to_action)
+    response_path = (tmp_path / "project" / "pipeline_output"
+                     / "llm_responses" / "reel_motion_24.json")
+    assert not response_path.exists()
+
+    fresh_plan = [{
+        "target_block_position": 0,
+        "anchor": {"word": "point"},
+        "anchor_end": {"word": "learn", "edge": "end"},
+        "effect_type": "ken_burns",
+        "params": {"zoom_start": 1.0, "zoom_end": 1.018},
+        "rationale": "the explanation relaxes as its conclusion lands",
+    }]
+    reel_build.write_visual_answers(project_folder, 24, {
+        "reel_semantic": [],
+        "reel_span": [],
+        "reel_motion": {reel_look.MOTION_PLAN_KEY: fresh_plan},
+    })
+    resolved, record = reel_look.resolve_motion_for_build(
+        project_folder, 24, new_spine, 24.0)
+
+    assert record["basis"] == reel_look.MOTION_PLANNED
+    assert record["resolved"] == 1
+    assert record["dropped"] == []
+    assert [item["effect_type"] for item in resolved] == ["slow_zoom_in"]
+
+
+def test_legacy_motion_answer_older_than_latest_ask_is_invalidated(
+        tmp_path):
+    from library.tools import reel_phase_log
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project_folder = os.fspath(tmp_path / "project")
+    spine = reel_look.motion_spine([_placement("/clip.mxf", 0, 8.0)], 24.0)
+    says = [{"timeline_start": 0.0, "timeline_end": 8.0,
+             "text": "The same words are still here."}]
+    reel_look.write_motion_request(25, "Reel 25", spine, says,
+                                  project_folder)
+
+    response_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.LLM_RESPONSES))
+    response_path = os.path.join(response_dir, "reel_motion_25.json")
+    with open(response_path, "w", encoding="utf-8") as handle:
+        json.dump({reel_look.MOTION_PLAN_KEY: []}, handle)
+    reel_phase_log.log_event(
+        project_folder, 25, "Reel 25", reel_phase_log.PLAN_ASKED,
+        detail="motion ask written: reel_motion_25.json")
+
+    assert reel_look.read_motion_answer(project_folder, 25) is None
+    assert not os.path.exists(response_path)
 
 
 def test_two_anchored_body_moves_compose_inside_one_picture_cut():

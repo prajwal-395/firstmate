@@ -5146,10 +5146,12 @@ def write_visual_answers(project_folder: str, reel_number: int,
     call instead of three. Returns the three paths, keyed the way
     `read_visual_asks` keys the asks.
 
-    This moves the plumbing, never the judgement: each payload is
-    written VERBATIM (a dict with its plan key, or a bare list - both
-    shapes the readers accept), with no default, no template and no
-    reading of what the answer says. `None` is never a payload: an
+    This moves the plumbing, never the judgement: semantic and span
+    payloads are written VERBATIM, while the motion payload carries a
+    pipeline-owned fingerprint for the ask it answers. The reader hides
+    that fingerprint and returns the model's original payload shape.
+    No default or template is supplied, and nothing reads what the
+    answer says. `None` is never a payload: an
     unanswered channel is an ABSENT KEY, and an absent or extra key
     RAISES before anything is written - a partial write is never
     silently accepted as three answers.
@@ -5176,6 +5178,8 @@ def write_visual_answers(project_folder: str, reel_number: int,
             f"An unanswered channel is an absent key - and an absent "
             f"key refuses above - because None on file would read as "
             f"unanswered while reporting success.")
+    motion_payload = _look.bind_motion_answer(
+        project_folder, reel_number, answers["reel_motion"])
     responses_dir = str(
         ProjectLayout(project_folder).write_dir(Area.LLM_RESPONSES))
     stems = {"reel_semantic": sem_vis.request_stem(reel_number),
@@ -5185,20 +5189,21 @@ def write_visual_answers(project_folder: str, reel_number: int,
     for key in VISUAL_ANSWER_KEYS:
         path = os.path.join(responses_dir, stems[key] + ".json")
         with open(path, "w", encoding="utf-8") as handle:
-            json.dump(answers[key], handle, indent=2)
+            payload = (motion_payload if key == "reel_motion"
+                       else answers[key])
+            json.dump(payload, handle, indent=2)
         paths[key] = path
     return paths
 
 
 def read_visual_answers(project_folder: str, reel_number: int) -> dict:
-    """All three visual answers for one reel, in ONE call, VERBATIM.
+    """All three visual answers for one reel, in ONE call.
 
-    What `write_visual_answers` wrote, read back exactly: each value
-    is the raw file payload - no plan-key unwrapping, so a round trip
-    compares equal - or None where no answer file exists or it will
-    not parse, which is the per-ask readers' own discipline (a
-    malformed answer is not a decision for no visuals, and pass 2
-    builds without and says so).
+    Each value is the original answer payload - no plan-key unwrapping.
+    For motion, pipeline-owned source metadata is stripped before the
+    answer is returned. A missing or unreadable file returns None, which
+    is the per-ask readers' own discipline (a malformed answer is not a
+    decision for no visuals, and pass 2 builds without and says so).
     """
     import json
     import os
@@ -5220,7 +5225,9 @@ def read_visual_answers(project_folder: str, reel_number: int) -> dict:
             continue
         try:
             with open(path, "r", encoding="utf-8") as handle:
-                found[key] = json.load(handle)
+                payload = json.load(handle)
+            found[key] = (_look.strip_motion_answer_basis(payload)
+                          if key == "reel_motion" else payload)
         except (OSError, ValueError):
             found[key] = None
     return found
@@ -11695,9 +11702,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # The spine the ask above was written against - the
                 # TRIMMED ranges, never a recompute from the moment.
                 spine = ask_paths["motion_spine"]
-                reel_motion, motion_record = _look.resolve_motion(
-                    _look.read_motion_answer(project_folder, moment.number),
-                    spine, 24000/1001)
+                reel_motion, motion_record = _look.resolve_motion_for_build(
+                    project_folder, moment.number, spine, 24000/1001)
                 motion_record["locked_closing_positions"] = sorted(
                     _look.locked_closing_positions(project_folder,
                                                    moment.number))
@@ -13735,10 +13741,9 @@ def build_reel_variants(project_slug: str, reel_number: int,
                     moment.number, final, spine,
                     transcript.get("segments") or [], project_folder,
                     call_to_action=getattr(moment, "call_to_action", None))
-                reel_motion, motion_record = _reel_look.resolve_motion(
-                    _reel_look.read_motion_answer(project_folder,
-                                                 moment.number),
-                    spine, fps)
+                reel_motion, motion_record = (
+                    _reel_look.resolve_motion_for_build(
+                        project_folder, moment.number, spine, fps))
                 motion_record["locked_closing_positions"] = sorted(
                     _reel_look.locked_closing_positions(
                         project_folder, moment.number))
