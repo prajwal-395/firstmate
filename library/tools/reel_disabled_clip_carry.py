@@ -3,10 +3,11 @@
 Resolve stores `TimelineItem` enablement on the live timeline. Replacing that
 timeline throws the declaration away unless the build carries it to a matching
 staged item. Text-bearing Semantic graphics use element type, displayed copy,
-and any attached asset or data. Their styling and render paths can change
-between builds without changing which message the captain disabled. Other
-Semantic elements retain their complete non-timing identity. Other clips use
-their source path and source-frame range.
+and any attached asset or data for an exact match. If the element type changed,
+one overlapping staged graphic with the same displayed copy is a safe fallback:
+the staged item is disabled and the change is reported. Other Semantic
+elements retain their complete non-timing identity. Other clips use their
+source path and source-frame range.
 """
 
 from __future__ import annotations
@@ -136,6 +137,56 @@ def _semantic_identity(clip: dict, identities_by_segment: dict,
         f"re-enabling it.")
 
 
+def _semantic_copy_details(identity: str):
+    """Displayed-copy key and element types for a text-bearing identity."""
+    try:
+        elements = json.loads(identity)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(elements, list) or not elements:
+        return None
+    copies, element_types = [], []
+    for element in elements:
+        if (not isinstance(element, dict)
+                or not isinstance(element.get("element"), str)
+                or not isinstance(element.get("copy"), list)
+                or not all(isinstance(line, str)
+                           for line in element["copy"])):
+            return None
+        copies.append(element["copy"])
+        element_types.append(element["element"])
+    return _canonical(sorted(copies, key=_canonical)), sorted(element_types)
+
+
+def _semantic_items_by_copy(tracks: list[dict], identities_by_segment: dict,
+                            final: str) -> dict[str, list[dict]]:
+    """Index identifiable staged text graphics without their element type."""
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for track in tracks:
+        if (track["type"] != "video"
+                or "semantic" not in str(track["name"] or "").casefold()):
+            continue
+        label = f"{track['type']}:{track['name'] or track['index']} " \
+            f"(V{track['index']} {track['name']!r})"
+        for clip in track.get("clips", ()):
+            try:
+                identity = _semantic_identity(
+                    clip, identities_by_segment, final, label)
+            except DisabledClipCarryRefused:
+                continue
+            details = _semantic_copy_details(identity)
+            if details is None:
+                continue
+            copy_key, element_types = details
+            grouped[copy_key].append({
+                "clip": clip,
+                "track": track,
+                "identity": identity,
+                "element_types": element_types,
+            })
+    return dict(grouped)
+
+
 def _source_identity(clip: dict, final: str, row_label: str) -> str:
     source = str(clip["source_file"] or "")
     source_in = clip["source_in_frame"]
@@ -215,6 +266,88 @@ def _record_unmatched_semantic(source_item: dict,
     }
 
 
+def _same_copy_type_change(source_item: dict, source_identity: str,
+                           staged_tracks: list[dict], staged_by_copy: dict,
+                           claimed_targets: set, final: str):
+    """Find one overlapping staged text graphic with the same copy and new type."""
+    details = _semantic_copy_details(source_identity)
+    if details is None:
+        return None
+    copy_key, source_types = details
+    source = source_item["clip"]
+    source_track = source_item["track"]
+    place_items = _semantic_place_items(source, source_track, staged_tracks)
+    place_ids = {id(item["clip"]) for item in place_items}
+    candidates = [item for item in staged_by_copy.get(copy_key, ())
+                  if id(item["clip"]) in place_ids
+                  and item["identity"] != source_identity
+                  and item["element_types"] != source_types]
+    if not candidates:
+        return None
+    row_label = (f"{source_track['type']}:{source_track['name'] or source_track['index']} "
+                 f"(V{source_track['index']} {source_track['name']!r})")
+    if len(candidates) != 1 or id(candidates[0]["clip"]) in claimed_targets:
+        raise DisabledClipCarryRefused(
+            f"{final}: disabled Semantic item {source['name']!r} on "
+            f"{row_label} at frame {source['record_in']} has more than one "
+            f"possible same-copy staged type-change match. Promotion is "
+            f"refused rather than re-enabling it.")
+    candidate = candidates[0]
+    candidate_id = id(candidate["clip"])
+    other_enabled = [item["clip"] for item in place_items
+                     if item["clip"]["enabled"] is not False
+                     and id(item["clip"]) != candidate_id]
+    same_copy_ids = {
+        id(item["clip"]) for item in staged_by_copy.get(copy_key, ())
+        if id(item["clip"]) in place_ids
+    }
+    different_copy_enabled = [
+        clip for clip in other_enabled if id(clip) not in same_copy_ids]
+    if different_copy_enabled:
+        replacement = different_copy_enabled[0]
+        raise DisabledClipCarryRefused(
+            f"{final}: disabled Semantic item {source['name']!r} on "
+            f"{row_label} at frame {source['record_in']} has a same-copy "
+            f"type-change match, but enabled item {replacement['name']!r} "
+            f"with different copy occupies its place at frame "
+            f"{replacement['record_in']}. Promotion is refused rather "
+            f"than showing a graphic the captain disabled.")
+    if other_enabled:
+        replacement = other_enabled[0]
+        raise DisabledClipCarryRefused(
+            f"{final}: disabled Semantic item {source['name']!r} on "
+            f"{row_label} at frame {source['record_in']} has more than one "
+            f"enabled same-copy item at its place, including "
+            f"{replacement['name']!r} at frame {replacement['record_in']}. "
+            f"Promotion is refused because the carry is ambiguous.")
+    return candidate
+
+
+def _set_disabled(target: dict, source: dict, final: str, *, apply: bool):
+    """Disable a staged live item and verify Resolve's result when applying."""
+    staged_enabled_before = target["enabled"]
+    if not apply:
+        return staged_enabled_before, False
+    try:
+        written = target["_item"].SetClipEnabled(False)
+        enabled = target["_item"].GetClipEnabled()
+    except Exception as failed:
+        raise DisabledClipCarryRefused(
+            f"{final}: could not carry disabled state from "
+            f"{source['name']!r} at frame {source['record_in']} onto staged "
+            f"item {target['name']!r} at frame {target['record_in']} "
+            f"({failed}); promotion is refused.") from failed
+    if written is not True or enabled is not False:
+        raise DisabledClipCarryRefused(
+            f"{final}: Resolve did not verify disabled state on staged "
+            f"item {target['name']!r} at frame {target['record_in']} for "
+            f"the disabled source {source['name']!r} at frame "
+            f"{source['record_in']} (SetClipEnabled returned {written!r}; "
+            f"read-back was {enabled!r}); promotion is refused.")
+    target["enabled"] = False
+    return staged_enabled_before, enabled
+
+
 def _attach_live_items(tracks, timeline, *, final: str):
     """Pair the reader's plain rows with their live Resolve handles."""
     from library.tools import reel_read
@@ -283,14 +416,16 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
                          apply: bool = True) -> dict:
     """Disable staging items that confidently match disabled live items.
 
-    Semantic text graphics match by element type and displayed copy; attached
-    assets and data stay in the key. Occurrence order distinguishes repeated
-    identical graphics. Other elements use their complete non-timing identity,
-    and media clips use source identity. An unmatched disabled Semantic graphic
-    is recorded when staging leaves its place invisible; an enabled graphic at
-    that place refuses promotion. `apply=False` reads and reports the intended
-    carry without changing staged enabled state, so callers can account for
-    invisible removals before running other promotion guards.
+    Semantic text graphics match exactly by element type, copy, and attached
+    assets or data. One overlapping same-copy graphic with a changed element
+    type is a fallback and is disabled with the change recorded. Occurrence
+    order distinguishes repeated identical graphics. Other elements use their
+    complete non-timing identity, and media clips use source identity. An
+    unmatched disabled Semantic graphic is recorded when staging leaves its
+    place invisible; an enabled different-copy graphic there refuses promotion.
+    `apply=False` reads and reports the intended carry without changing staged
+    enabled state, so callers can account for invisible removals before running
+    other promotion guards.
     """
     from library.tools import reel_read
 
@@ -310,12 +445,16 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
         old_tracks, final=final, semantic_identities=old_semantic_record)
     new_by_identity = _items_by_identity(
         new_tracks, final=final, semantic_identities=new_semantic_record)
+    new_by_copy = _semantic_items_by_copy(
+        new_tracks, new_semantic_record, final)
     disabled_by_identity = _items_by_identity(
         old_tracks, final=final, semantic_identities=old_semantic_record,
         disabled_only=True)
 
     carried = []
     unchanged_unmatched = []
+    safe_replacements = []
+    claimed_type_change_targets = set()
     for identity, old_disabled in disabled_by_identity.items():
         old_matches = old_by_identity.get(identity, [])
         new_matches = new_by_identity.get(identity, [])
@@ -357,42 +496,63 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
                     f"{len(new_matches)}. The source identity does not "
                     f"map uniquely; promotion is refused rather than "
                     f"re-enabling it.")
-            unchanged_unmatched.append(_record_unmatched_semantic(
-                source_item, new_tracks, final))
+            changed_type_match = _same_copy_type_change(
+                source_item, identity, new_tracks, new_by_copy,
+                claimed_type_change_targets, final)
+            if changed_type_match is None:
+                unchanged_unmatched.append(_record_unmatched_semantic(
+                    source_item, new_tracks, final))
+                continue
+
+            target = changed_type_match["clip"]
+            source = source_item["clip"]
+            staged_enabled_before, staged_enabled_after = _set_disabled(
+                target, source, final, apply=apply)
+            claimed_type_change_targets.add(id(target))
+            _copy_key, source_types = _semantic_copy_details(identity)
+            _copy_key, staged_types = _semantic_copy_details(
+                changed_type_match["identity"])
+            element_type_change = {
+                "retired": source_types,
+                "staged": staged_types,
+            }
+            carried.append({
+                "row": (
+                    f"{changed_type_match['track']['type']}:"
+                    f"{changed_type_match['track']['name'] or changed_type_match['track']['index']}"),
+                "source_item": source["name"],
+                "source_frame": source["record_in"],
+                "source_end": source["record_out"],
+                "source_enabled": False,
+                "staged_item": target["name"],
+                "staged_frame": target["record_in"],
+                "staged_enabled_before": staged_enabled_before,
+                "staged_enabled_after": staged_enabled_after,
+                "match_basis": "semantic graphic copy with element type change",
+                "element_type_change": element_type_change,
+            })
+            safe_replacements.append({
+                "row": (f"{source_track['type']}:"
+                        f"{source_track['name'] or source_track['index']}"),
+                "source_item": source["name"],
+                "source_frame": source["record_in"],
+                "source_end": source["record_out"],
+                "replacement_item": target["name"],
+                "replacement_frame": target["record_in"],
+                "reason": "same copy carried disabled across an element type change",
+            })
 
         for index in sorted(disabled_indexes):
             if index in unmatched_indexes:
                 continue
             target = new_matches[index]["clip"]
-            staged_enabled_before = target["enabled"]
-            if apply:
-                # Resolve writes are judged by their result and read back.
-                try:
-                    written = target["_item"].SetClipEnabled(False)
-                    enabled = target["_item"].GetClipEnabled()
-                except Exception as failed:
-                    source = old_matches[index]["clip"]
-                    raise DisabledClipCarryRefused(
-                        f"{final}: could not carry disabled state from "
-                        f"{source['name']!r} at frame {source['record_in']} "
-                        f"onto staged item {target['name']!r} at frame "
-                        f"{target['record_in']} ({failed}); promotion is "
-                        f"refused.") from failed
-                if written is not True or enabled is not False:
-                    source = old_matches[index]["clip"]
-                    raise DisabledClipCarryRefused(
-                        f"{final}: Resolve did not verify disabled state on "
-                        f"staged item {target['name']!r} at frame "
-                        f"{target['record_in']} for the disabled source "
-                        f"{source['name']!r} at frame {source['record_in']} "
-                        f"(SetClipEnabled returned {written!r}; read-back "
-                        f"was {enabled!r}); promotion is refused.")
-                target["enabled"] = False
-            else:
-                enabled = False
+            source = old_matches[index]["clip"]
+            staged_enabled_before, enabled = _set_disabled(
+                target, source, final, apply=apply)
             carried.append({
-                "row": (f"{new_matches[index]['track']['type']}:"
-                        f"{new_matches[index]['track']['name'] or new_matches[index]['track']['index']}"),
+                "row": (
+                    f"{new_matches[index]['track']['type']}:"
+                    f"{new_matches[index]['track']['name'] or new_matches[index]['track']['index']}"),
                 "source_item": old_matches[index]["clip"]["name"],
                 "source_frame": old_matches[index]["clip"]["record_in"],
                 "source_end": old_matches[index]["clip"]["record_out"],
@@ -412,4 +572,5 @@ def carry_disabled_state(project_folder: str, final: str, staging: str,
             })
     return {"source_timeline": final, "staging_timeline": staging,
             "carried": carried,
-            "unchanged_unmatched": unchanged_unmatched}
+            "unchanged_unmatched": unchanged_unmatched,
+            "safe_replacements": safe_replacements}

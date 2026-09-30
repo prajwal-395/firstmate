@@ -87,7 +87,7 @@ that reel - there is nothing being replaced.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 
 #: How many missing items a refusal names inline per row. The report the
 #: promote result carries names every one; the message stays readable.
@@ -264,6 +264,8 @@ def include_disabled_carries(report: dict, carries: list[dict]) -> dict:
             "staged_enabled_after": carry["staged_enabled_after"],
             "match_basis": carry["match_basis"],
         })
+        if "element_type_change" in carry:
+            change["element_type_change"] = carry["element_type_change"]
     return report
 
 
@@ -357,10 +359,13 @@ def check_replacement(final: str, staging: str, retired: dict,
     exact declaration that would proceed deliberately.
     """
     allowed = set(allowed or ())
-    safe_drop_counts = Counter(
-        (entry["row"], entry["source_item"], entry["source_frame"],
-         entry["source_end"])
-        for entry in (safe_disabled_drops or ()))
+    safe_drop_entries = defaultdict(list)
+    for entry in safe_disabled_drops or ():
+        key = (entry["row"], entry["source_item"], entry["source_frame"],
+               entry["source_end"])
+        safe_drop_entries[key].append(entry)
+    safe_drop_counts = Counter({key: len(entries)
+                                for key, entries in safe_drop_entries.items()})
     verdicts = diff_rows(retired, incoming)
     reduced = []
     for verdict in verdicts:
@@ -372,7 +377,7 @@ def check_replacement(final: str, staging: str, retired: dict,
                         item["end"])
             if safe_drop_counts[identity]:
                 safe_drop_counts[identity] -= 1
-                safe.append(item)
+                safe.append((item, safe_drop_entries[identity].pop(0)))
             else:
                 remaining.append(item)
         effective_old = {
@@ -381,7 +386,10 @@ def check_replacement(final: str, staging: str, retired: dict,
             "count": len(remaining),
             "frames": sum((item["duration"] or 0) for item in remaining),
         }
-        verdict["unchanged_disabled"] = safe
+        verdict["unchanged_disabled"] = [
+            item for item, entry in safe if "replacement_item" not in entry]
+        verdict["carried_disabled_replacements"] = [
+            entry for _item, entry in safe if "replacement_item" in entry]
         verdict["effective_retired_count"] = effective_old["count"]
         verdict["joined"] = bool(
             new is not None and not verdict["lost_row"]

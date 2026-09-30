@@ -397,14 +397,15 @@ def test_build_reels_carries_or_refuses_disabled_semantic_graphic(
         assert staged.GetItemListInTrack("video", 1)[0].GetClipEnabled() is True
 
 
-@pytest.mark.parametrize("staged_enabled,should_promote", [
-    (False, True),
-    (None, True),
-    (True, False),
+@pytest.mark.parametrize("staged_enabled,staged_display,should_promote", [
+    (False, "Descriptions / Titles / Headers", True),
+    (None, "Descriptions / Titles / Headers", True),
+    (True, "Descriptions / Titles / Headers", True),
+    (True, "Different copy", False),
 ])
-def test_build_reels_reel24_type_change_only_refuses_visible_replacement(
+def test_reel24_carries_type_change_and_refuses_different_copy(
         tmp_path, monkeypatch, stub_resolve_script,
-        staged_enabled, should_promote):
+        staged_enabled, staged_display, should_promote):
     """Replay the saved Reel 24 type change through build-reels offline."""
     from library.tools import reel_disabled_clip_carry as disabled_carry
 
@@ -442,7 +443,7 @@ def test_build_reels_reel24_type_change_only_refuses_visible_replacement(
             _saved_semantic_graphic_record(
                 final, old_id, "list_build", display),
             _saved_semantic_graphic_record(
-                staging, new_id, "title_lockup", display),
+                staging, new_id, "title_lockup", staged_display),
         ],
     }), encoding="utf-8")
     assert (disabled_carry.semantic_graphic_identity(
@@ -485,22 +486,70 @@ def test_build_reels_reel24_type_change_only_refuses_visible_replacement(
     if should_promote:
         report = promotion_results[0]["replace_reports"][final]
         carry_report = report["disabled_clip_carry"]
-        assert carry_report["carried"] == []
-        assert carry_report["unchanged_unmatched"] == [{
-            "row": "video:Semantic",
-            "source_item": f"{old_id}.mov",
-            "source_frame": 1256,
-            "source_end": 1400,
-            "staged_items": ([{
-                "name": f"{new_id}.mov",
-                "start": 1256,
-                "end": 1400,
-                "enabled": False,
-            }] if staged_enabled is False else []),
-            "reason": ("staging has no enabled graphic at this place"
-                       if staged_enabled is False
-                       else "staging has no graphic at this place"),
-        }]
+        if staged_display == display and staged_enabled is not None:
+            assert carry_report["carried"] == [{
+                "row": "video:Semantic",
+                "source_item": f"{old_id}.mov",
+                "source_frame": 1256,
+                "source_end": 1400,
+                "source_enabled": False,
+                "staged_item": f"{new_id}.mov",
+                "staged_frame": 1256,
+                "staged_enabled_before": staged_enabled,
+                "staged_enabled_after": False,
+                "match_basis": (
+                    "semantic graphic copy with element type change"),
+                "element_type_change": {
+                    "retired": ["list_build"],
+                    "staged": ["title_lockup"],
+                },
+            }]
+            assert carry_report["unchanged_unmatched"] == []
+            assert carry_report["safe_replacements"] == [{
+                "row": "video:Semantic",
+                "source_item": f"{old_id}.mov",
+                "source_frame": 1256,
+                "source_end": 1400,
+                "replacement_item": f"{new_id}.mov",
+                "replacement_frame": 1256,
+                "reason": (
+                    "same copy carried disabled across an element type change"),
+            }]
+            semantic_row = next(row for row in report["rows"]
+                                if row["key"] == "video:Semantic")
+            assert semantic_row["enabled_changes"][0][
+                "element_type_change"] == {
+                    "retired": ["list_build"],
+                    "staged": ["title_lockup"],
+                }
+            assert semantic_row["carried_disabled_replacements"] == [{
+                "row": "video:Semantic",
+                "source_item": f"{old_id}.mov",
+                "source_frame": 1256,
+                "source_end": 1400,
+                "replacement_item": f"{new_id}.mov",
+                "replacement_frame": 1256,
+                "reason": (
+                    "same copy carried disabled across an element type change"),
+            }]
+        else:
+            assert carry_report["carried"] == []
+            assert carry_report["safe_replacements"] == []
+            assert carry_report["unchanged_unmatched"] == [{
+                "row": "video:Semantic",
+                "source_item": f"{old_id}.mov",
+                "source_frame": 1256,
+                "source_end": 1400,
+                "staged_items": ([{
+                    "name": f"{new_id}.mov",
+                    "start": 1256,
+                    "end": 1400,
+                    "enabled": False,
+                }] if staged_enabled is False else []),
+                "reason": ("staging has no enabled graphic at this place"
+                           if staged_enabled is False
+                           else "staging has no graphic at this place"),
+            }]
         promoted = next(t for t in project.timelines
                         if t.GetName() == final)
         assert all(clip.GetClipEnabled() is False for clip in
@@ -548,11 +597,11 @@ def test_semantic_identity_ignores_timing_but_keeps_content():
 
 
 @pytest.mark.parametrize("changed,should_promote", [
-    (None, True), ("copy", False), ("element_type", False),
+    (None, True), ("copy", False), ("element_type", True),
 ])
 def test_build_reels_carries_reel15_rerenders_and_refuses_changes(
         tmp_path, monkeypatch, stub_resolve_script, changed, should_promote):
-    """Same-copy rerenders carry; changed copy or type blocks promotion."""
+    """Same-copy rerenders or type changes carry; changed copy blocks."""
     case_final = "Reel 15 - the-3d-nail-art-salon-beats-the-chains"
     case_staging = case_final + " (rebuild staging)"
     folder = _ready_project(tmp_path)
