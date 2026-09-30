@@ -9448,20 +9448,33 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 originals[final], final, side="retiring")
             staged_before_carry = _guard.snapshot_timeline(
                 staged_found[staging], staging, side="staged")
+            disabled_preview = _disabled.carry_disabled_state(
+                project_folder, final, staging,
+                originals[final], staged_found[staging], apply=False)
             # Keep the pre-carry difference in the report: it proves the
             # rebuild would have re-enabled the captain's disabled clip.
             enabled_state_report = _guard.check_replacement(
                 final, staging, retired_rows, staged_before_carry,
-                allowed=declared.get(final, ()))
+                allowed=declared.get(final, ()),
+                safe_disabled_drops=(
+                    disabled_preview["unchanged_unmatched"]))
             disabled_state = _disabled.carry_disabled_state(
                 project_folder, final, staging,
                 originals[final], staged_found[staging])
+            if (disabled_state["unchanged_unmatched"]
+                    != disabled_preview["unchanged_unmatched"]):
+                raise _disabled.DisabledClipCarryRefused(
+                    f"{final}: staged disabled-graphic differences changed "
+                    f"between the promotion preview and carry; promotion "
+                    f"is refused.")
             incoming_rows = _guard.snapshot_timeline(
                 staged_found[staging], staging, side="staged")
             incoming_by_final[final] = incoming_rows
             replace_reports[final] = _guard.check_replacement(
                 final, staging, retired_rows, incoming_rows,
-                allowed=declared.get(final, ()))
+                allowed=declared.get(final, ()),
+                safe_disabled_drops=(
+                    disabled_state["unchanged_unmatched"]))
             replace_reports[final] = _guard.include_disabled_carries(
                 {**replace_reports[final], "rows": enabled_state_report["rows"]},
                 disabled_state["carried"])

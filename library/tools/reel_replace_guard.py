@@ -22,6 +22,9 @@ not):
   at all (a whole feature class gone);
 - a row the incoming one holds FEWER items on, unless it reads as a
   JOIN (below).
+- a disabled Semantic item missing from staging does not count as a loss
+  when the disabled-carry check records that no enabled graphic occupies
+  its place.
 
 Frame totals are REPORTED per row, and join the trigger as the join
 half: a shortened cut holds the same items over fewer frames, and
@@ -84,6 +87,7 @@ that reel - there is nothing being replaced.
 
 from __future__ import annotations
 
+from collections import Counter
 
 #: How many missing items a refusal names inline per row. The report the
 #: promote result carries names every one; the message stays readable.
@@ -342,7 +346,8 @@ def parse_specs(raw, finals) -> dict:
 
 
 def check_replacement(final: str, staging: str, retired: dict,
-                      incoming: dict, allowed=None) -> dict:
+                      incoming: dict, allowed=None,
+                      safe_disabled_drops=None) -> dict:
     """Refuse by name when the incoming timeline holds less, or report.
 
     Returns the per-reel report: every retired row with its counts on
@@ -352,15 +357,44 @@ def check_replacement(final: str, staging: str, retired: dict,
     exact declaration that would proceed deliberately.
     """
     allowed = set(allowed or ())
+    safe_drop_counts = Counter(
+        (entry["row"], entry["source_item"], entry["source_frame"],
+         entry["source_end"])
+        for entry in (safe_disabled_drops or ()))
     verdicts = diff_rows(retired, incoming)
+    reduced = []
     for verdict in verdicts:
         old, new = retired[verdict["key"]], incoming.get(verdict["key"])
+        safe = []
+        remaining = []
+        for item in old["items"]:
+            identity = (verdict["key"], item["name"], item["start"],
+                        item["end"])
+            if safe_drop_counts[identity]:
+                safe_drop_counts[identity] -= 1
+                safe.append(item)
+            else:
+                remaining.append(item)
+        effective_old = {
+            **old,
+            "items": remaining,
+            "count": len(remaining),
+            "frames": sum((item["duration"] or 0) for item in remaining),
+        }
+        verdict["unchanged_disabled"] = safe
+        verdict["effective_retired_count"] = effective_old["count"]
         verdict["joined"] = bool(
-            new is not None and not verdict["lost_row"] and _is_join(old, new))
-    reduced = [verdict for verdict in verdicts
-               if (verdict["lost_row"]
-                   or verdict["incoming_count"] < verdict["retired_count"])
-               and not verdict["joined"]]
+            new is not None and not verdict["lost_row"]
+            and _is_join(effective_old, new))
+        if new is None:
+            unexplained_loss = (verdict["lost_row"]
+                                and not (safe and not remaining))
+        else:
+            unexplained_loss = (
+                new["count"] < effective_old["count"]
+                and not _is_join(effective_old, new))
+        if unexplained_loss:
+            reduced.append(verdict)
     losses = [verdict for verdict in reduced
               if not _declared(verdict["key"], verdict["name"], allowed)]
     joined_keys = sorted({verdict["key"] for verdict in verdicts

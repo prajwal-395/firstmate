@@ -207,6 +207,24 @@ def _semantic_record(reel, segment_id, display="Launch plan"):
     }
 
 
+def _saved_semantic_graphic_record(reel, segment_id, element, display):
+    """The saved Reel 24 props: same copy, regenerated element type."""
+    return {
+        "reel": reel,
+        "basis": "planned",
+        "segments": [{
+            "segment_id": segment_id,
+            "overlay_path": f"/fixture/{segment_id}.mov",
+            "carry_identity": [{
+                "element": element,
+                "runs": [{"text": display, "type_role": "display"}],
+                "asset": "",
+                "data": {},
+            }],
+        }],
+    }
+
+
 def _rerendered_title(copy, index, *, rebuilt):
     """A saved Semantic props row before or after a rerender.
 
@@ -302,7 +320,8 @@ def test_build_reels_carries_or_refuses_disabled_semantic_graphic(
                      enabled=False))
     staged = _Timeline(
         STAGING, _Clip("new-render-name", f"/fixture/{NEW_SEGMENT}.mov",
-                       624, enabled=True))
+                       624 if new_display == "Launch plan" else 480,
+                       enabled=True))
     project = _Project([
         _Timeline("Fixture Timeline", _Clip("master", "/fixture/master.mov",
                                              0, True)),
@@ -376,6 +395,121 @@ def test_build_reels_carries_or_refuses_disabled_semantic_graphic(
         original_clip = original.GetItemListInTrack("video", 1)[0]
         assert original_clip.GetClipEnabled() is False
         assert staged.GetItemListInTrack("video", 1)[0].GetClipEnabled() is True
+
+
+@pytest.mark.parametrize("staged_enabled,should_promote", [
+    (False, True),
+    (None, True),
+    (True, False),
+])
+def test_build_reels_reel24_type_change_only_refuses_visible_replacement(
+        tmp_path, monkeypatch, stub_resolve_script,
+        staged_enabled, should_promote):
+    """Replay the saved Reel 24 type change through build-reels offline."""
+    from library.tools import reel_disabled_clip_carry as disabled_carry
+
+    final = "Reel 24 - why-ai-trusts-youtube"
+    staging = final + " (rebuild staging)"
+    old_id = "mg_geo-podcast_2c578933"
+    new_id = "mg_geo-podcast_e2da4fb8"
+    display = "Descriptions / Titles / Headers"
+    folder = _ready_project(tmp_path)
+    write_proposal(proposal_path(folder), [ReelMoment(
+        number=24, slug="why-ai-trusts-youtube", reason="fixture replay",
+        timeline_start=10.0, timeline_end=40.0,
+        approval=Approval.APPROVED)],
+        {"derived_from": {"duration_seconds": 60.0}})
+
+    original = _Timeline(
+        final, _Clip(f"{old_id}.mov", f"/fixture/{old_id}.mov", 1256,
+                     enabled=False, duration=144), semantic_index=5)
+    staged_clip = ([] if staged_enabled is None else _Clip(
+        f"{new_id}.mov", f"/fixture/{new_id}.mov", 1256,
+        enabled=staged_enabled, duration=144))
+    staged = _Timeline(staging, staged_clip, semantic_index=5)
+    project = _Project([
+        _Timeline("Fixture Timeline", _Clip("master", "/fixture/master.mov",
+                                             0, True)),
+        original, staged,
+    ])
+    review = Path(folder) / "pipeline_output" / "review"
+    review.mkdir(parents=True, exist_ok=True)
+    (review / "plan_provenance.json").write_text(json.dumps({
+        "built_reels": [final, staging]}), encoding="utf-8")
+    (review / "semantic_visual_plans.json").write_text(json.dumps({
+        "format": "semantic_visual_plans/1",
+        "plans": [
+            _saved_semantic_graphic_record(
+                final, old_id, "list_build", display),
+            _saved_semantic_graphic_record(
+                staging, new_id, "title_lockup", display),
+        ],
+    }), encoding="utf-8")
+    assert (disabled_carry.semantic_graphic_identity(
+        [{"element": "list_build", "runs": [{"text": display}]}])
+        != disabled_carry.semantic_graphic_identity(
+            [{"element": "title_lockup", "runs": [{"text": display}]}]))
+
+    promotion_results = []
+
+    def offline_rebuild(project_folder, **_kwargs):
+        result = reel_build.promote_staged_reels(
+            project_folder, "Fixture Project", "Fixture Timeline",
+            {final: staging}, organise=False,
+            track_plans=no_a_roll_track_plans({final: staging}))
+        promotion_results.append(result)
+        return result
+
+    monkeypatch.setattr(
+        reel_build, "resolve_project_exactly", lambda *_args: project)
+    execute = operations.Operation.execute
+
+    def skip_model_followups(self, project_folder, scope=None, **overrides):
+        if self.name in {"reel.ask", "reel.verify"}:
+            return SimpleNamespace(
+                refused=False, payload={}, status="completed")
+        return execute(self, project_folder, scope, **overrides)
+
+    monkeypatch.setattr(operations.Operation, "execute", skip_model_followups)
+    monkeypatch.setattr(reel_build, "rebuild_reels_in_project", offline_rebuild)
+    args = _args(folder)
+    args.only_reel = [24]
+    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"):
+        if should_promote:
+            manage_project.cmd_build_reels(args)
+        else:
+            with pytest.raises(reel_build.ReelBuildError,
+                               match="enabled item.*at frame 1256"):
+                manage_project.cmd_build_reels(args)
+
+    if should_promote:
+        report = promotion_results[0]["replace_reports"][final]
+        carry_report = report["disabled_clip_carry"]
+        assert carry_report["carried"] == []
+        assert carry_report["unchanged_unmatched"] == [{
+            "row": "video:Semantic",
+            "source_item": f"{old_id}.mov",
+            "source_frame": 1256,
+            "source_end": 1400,
+            "staged_items": ([{
+                "name": f"{new_id}.mov",
+                "start": 1256,
+                "end": 1400,
+                "enabled": False,
+            }] if staged_enabled is False else []),
+            "reason": ("staging has no enabled graphic at this place"
+                       if staged_enabled is False
+                       else "staging has no graphic at this place"),
+        }]
+        promoted = next(t for t in project.timelines
+                        if t.GetName() == final)
+        assert all(clip.GetClipEnabled() is False for clip in
+                   promoted.GetItemListInTrack("video", 5))
+    else:
+        assert not promotion_results
+        assert original in project.timelines
+        assert staged in project.timelines
+        assert staged.GetItemListInTrack("video", 5)[0].GetClipEnabled() is True
 
 
 def test_semantic_identity_ignores_timing_but_keeps_content():
