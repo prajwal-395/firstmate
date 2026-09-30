@@ -55,6 +55,8 @@ class FakeItem:
         self._channel = channel
         self._uid = f"ritem-{next(FakeItem._ids)}"
         self._group = {self._uid}
+        self._transform = {"ZoomX": 1.0, "ZoomY": 1.0,
+                           "Pan": 0.0, "Tilt": 0.0}
 
     def GetName(self): return self._name
     def GetStart(self): return self._start
@@ -65,7 +67,14 @@ class FakeItem:
         class _P:
             def __init__(self, p): self._p = p
             def GetClipProperty(self, k):
-                return self._p if k == "File Path" else ""
+                if k == "File Path": return self._p
+                if k == "Resolution":
+                    return ("1920x1080" if any(
+                        name in self._p for name in
+                        ("LCATL0013", "LC4932", "reel_freeze_"))
+                        else "3840x2160")
+                if k == "FPS": return "23.976"
+                return ""
         return _P(self._pool_path)
     def GetLinkedItems(self):
         return [i for i in FakeTimeline._registry.values()
@@ -75,7 +84,12 @@ class FakeItem:
             "embedded_audio_channels": 4, "linked_audio": {},
             "track_mapping": {"1": {"channel_idx": [self._channel],
                                     "mute": False, "type": "mono"}}})
-    def SetProperty(self, *a): return True
+    def GetProperty(self, prop=None):
+        return (dict(self._transform) if prop is None
+                else self._transform.get(prop))
+    def SetProperty(self, prop, value):
+        self._transform[prop] = value
+        return True
 
 
 class FakeTimeline:
@@ -133,6 +147,10 @@ class FakeTimeline:
     def SetSetting(self, k, v): return True
     def GetUniqueId(self): return "fake-reel-timeline"
     def GetName(self): return "Fake Reel"
+    def GetSetting(self, key):
+        return {"timelineResolutionWidth": "1080",
+                "timelineResolutionHeight": "1920",
+                "timelineFrameRate": "23.976"}.get(key, "")
 
 
 class FakePoolItem:
@@ -141,7 +159,11 @@ class FakePoolItem:
     def GetClipProperty(self, k):
         if k == "File Path": return self._path
         if k == "FPS": return "23.976"
-        if k == "Resolution": return "3840x2160"
+        if k == "Resolution":
+            return ("1920x1080" if any(
+                name in self._path for name in
+                ("LCATL0013", "LC4932", "reel_freeze_"))
+                else "3840x2160")
         return ""
 
 
@@ -298,6 +320,143 @@ def _build(timeline, pool, project, clips, captions=(), semantic=(),
         look=look, semantic_segments=list(semantic) or None,
         master_timeline=None, program_channels=program_channels,
         edit_ledger_rows=edit_ledger_rows, draw_gain=draw_gain)
+
+
+def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
+        tmp_path, monkeypatch):
+    """The real timeline builder proves Reel 24 transforms offline.
+
+    The opening two-shot has no automatic face aim, so its word-anchored
+    transform override is the only thing that can cover the TV window.
+    Five later shots use the normal punch-in path. The real
+    ``build_reel_timeline`` runs against fake Resolve objects; no Resolve
+    connection, project, media or rendered asset is used.
+    """
+    from types import SimpleNamespace
+
+    from library.tools import reel_look, tv_frame
+    from library.tools.project_layout import ProjectLayout
+
+    reel = "Reel 24 - why-ai-trusts-youtube"
+    source = "/media/LCATL0013.MXF"
+    window = (56.106, 530.6365, 1022.967, 1829.827)
+    monkeypatch.setattr(tv_frame, "screen_window_rect",
+                        lambda *_args, **_kwargs: window)
+    monkeypatch.setattr(reel_look, "frame_overlay_segments",
+                        lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(reel_look, "frame_properties",
+                        lambda *_args, **_kwargs: {"ZoomX": 1.0})
+    monkeypatch.setattr(
+        "library.tools.reel_post_header.plan_for_reel",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            segments=[], as_dict=lambda: {}))
+
+    subject = SimpleNamespace(center_x=0.518, center_y=0.325,
+                              others=0, detected=12, samples=12)
+    monkeypatch.setattr(
+        "library.tools.reel_build._recorded_first_measure",
+        lambda _project: lambda _source, source_in, _source_out: (
+            None if source_in < 3944.0 else subject))
+
+    def _segment(text, start):
+        words = []
+        cursor = start
+        for token in text.split():
+            words.append({"word": token, "start": cursor,
+                          "end": cursor + 0.2, "timed": True})
+            cursor += 0.25
+        return {"speaker": "Craig", "text": text,
+                "timeline_start": start,
+                "timeline_end": start + 4.0, "words": words}
+
+    phrases = [
+        "why do ai platforms love video content",
+        "later shot two has a different sentence",
+        "later shot three carries its own sentence",
+        "later shot four ends with another sentence",
+        "later shot five carries a different thought",
+        "later shot six finishes the thought",
+    ]
+    transcript = {"segments": [
+        _segment(text, index * 4.0)
+        for index, text in enumerate(phrases)]}
+    master_clips = []
+    source_files = [
+        source,
+        "/media/LC4932.MXF",
+        "/media/LC4932.MXF",
+        "/media/LC4932.MXF",
+        "/media/reel_freeze_1b8ac2919c.mov",
+        source,
+    ]
+    for index, source_file in enumerate(source_files):
+        start, end = index * 4.0, (index + 1) * 4.0
+        source_in = 3943.372 + index * 4.0
+        master_clips.extend([
+            _clip("video", 1, "Craig", "Craig", source_file,
+                  start, end, src_in=source_in),
+            _clip("audio", 1, "Craig CH1", "Craig", source_file,
+                  start, end, src_in=source_in),
+        ])
+    moment = SimpleNamespace(
+        number=24, slug="why-ai-trusts-youtube",
+        timeline_name=reel + " (rebuild staging)",
+        timeline_start=0.0, timeline_end=24.0,
+        call_to_action=None)
+
+    def _build(gain, suffix):
+        project_folder = tmp_path / suffix
+        project_folder.mkdir()
+        ProjectLayout(str(project_folder)).ensure()
+        edit_path = project_folder / "external" / "captain_edits.json"
+        edit_path.parent.mkdir(parents=True, exist_ok=True)
+        edits = [
+            {"kind": "transform_override",
+             "anchor_phrase": phrases[0], "property": prop,
+             "value": value, "reason": "offline Reel 24 regression",
+             "reel": reel}
+            for prop, value in (("Pan", 39.263), ("Tilt", -696.041),
+                                ("ZoomX", 2.1386),
+                                ("ZoomY", 2.1386))]
+        edit_path.write_text(json.dumps({
+            "key": "captain_edits", "source": "test", "value": edits}),
+            encoding="utf-8")
+
+        timeline = FakeTimeline()
+        pool = FakePool(timeline, source_files)
+        project = SimpleNamespace(
+            GetMediaPool=lambda: pool,
+            GetCurrentTimeline=lambda: timeline,
+            SetCurrentTimeline=lambda _timeline: True)
+        return (build_reel_timeline(
+            project, moment, master_clips, [], 23.976, 1080, 1920,
+            str(project_folder), transcript,
+            look={"asset": "frame.png", "punch_in": 2.3,
+                  "scale": 2.1386 / 2.3, "power": {},
+                  "origin": "offline regression"},
+            program_channels={"1": 1}, ranges=[(0.0, 24.0)],
+            edit_ledger_rows=[], draw_gain=gain), timeline)
+
+    built = {}
+    for gain in (1.0, 4.0):
+        record, timeline = _build(
+            gain, f"reel24-legacy-override-gain-{gain:g}")
+        picture_items = timeline.GetItemListInTrack("video", 1)
+        assert len(picture_items) == 6
+        built[gain] = [dict(item.GetProperty()) for item in picture_items]
+        assert record["motion_coverage"] == []
+
+    # The same legacy 1.0-reference values cover the opening at both
+    # measured gains. The five automatic punch-ins also keep their
+    # pixel aims: only the raw Resolve Pan/Tilt values scale by 1/gain.
+    assert built[1.0][0]["Pan"] == pytest.approx(39.263)
+    assert built[1.0][0]["Tilt"] == pytest.approx(-696.041)
+    assert built[4.0][0]["Pan"] == pytest.approx(39.263 / 4)
+    assert built[4.0][0]["Tilt"] == pytest.approx(-696.041 / 4)
+    for one, four in zip(built[1.0], built[4.0]):
+        assert four["Pan"] == pytest.approx(one["Pan"] / 4, abs=0.001)
+        assert four["Tilt"] == pytest.approx(one["Tilt"] / 4, abs=0.001)
+        assert four["ZoomX"] == pytest.approx(one["ZoomX"])
 
 
 # ── Angles come from the master's own picture rows ──

@@ -98,8 +98,11 @@ hand move away. That pin is a `transform_override` edit: the same
 word anchor (the words the moved shot speaks), naming one Edit-page
 transform property (`Pan`, `Tilt`, `ZoomX`, `ZoomY` - what the build
 sets and the Inspector shows as Position/Zoom) and the number it must
-hold. Zoom must be positive; Pan/Tilt must sit inside what Resolve
-holds on a 1080x1920 timeline (`PAN_TILT_RAIL_1080X1920`, measured in
+hold. Pan/Tilt also record the renderer draw gain that gave the number
+its visual meaning; the build rebases it to its measured gain. Legacy
+entries with no gain metadata use reference gain 1.0. Zoom must be
+positive; Pan/Tilt must sit inside what Resolve holds on a 1080x1920
+timeline (`PAN_TILT_RAIL_1080X1920`, measured in
 `library/tools/tight_box.py`), because
 past it Resolve clamps silently and the held value would not be the
 recorded one.
@@ -126,7 +129,9 @@ Recording a decision: the one route
 - `list` (the default): what is in force, in plain language.
 - `record-closer --anchor ... --from ... --reason ...`: pin a closer.
 - `record-transform --anchor ... --property Pan --value -35
-  --reason ...`: the typed fallback for a decision settled in words.
+  --reason ... [--draw-gain G]`: the typed fallback for a decision
+  settled in words. Pan/Tilt numbers default to reference gain 1.0;
+  supply `--draw-gain` when the number was chosen under another gain.
 - `record-retime --anchor ... --edge head --reason ...`: the typed
   fallback for a hand trim - one placed span's head (or tail) onto
   the anchor's own word edge. Trims only. The write stamps where
@@ -134,9 +139,11 @@ Recording a decision: the one route
   re-transcription that moves those words reports DRIFTED
   pre-build rather than following them silently.
 - `capture-transform --reel 9 --timeline 'Reel 09 - ...' --words ...
-  [--property Pan] [--reason ...]`: read the value out of the LIVE
-  Resolve timeline - the hand move, which exists nowhere else - and
-  record what Resolve holds. Footage items only (the master snapshot
+  [--property Pan] --draw-gain G [--reason ...]`: read the value out
+  of the LIVE Resolve timeline - the hand move, which exists nowhere
+  else - and record what Resolve holds with its measured draw gain.
+  Pan/Tilt captures require `--draw-gain`; Zoom does not. Footage items
+  only (the master snapshot
   decides membership, never an extension guess); ambiguity - the
   words twice on the reel, two items on one track, stacked angles
   without `--track` - refuses, naming what matched.
@@ -305,6 +312,21 @@ def validate_edits(value) -> list:
                         "and clamps past it silently, so the held value "
                         "would not be the recorded one. Aim inside what "
                         "Resolve holds.")
+                recorded_gain = edit.get("recorded_draw_gain")
+                if recorded_gain is not None and (
+                        isinstance(recorded_gain, bool)
+                        or not isinstance(recorded_gain, (int, float))
+                        or not math.isfinite(recorded_gain)
+                        or recorded_gain <= 0):
+                    raise CaptainEditError(
+                        f"{label}.recorded_draw_gain is "
+                        f"{recorded_gain!r}: a Pan/Tilt override must "
+                        f"name the positive finite draw gain under "
+                        f"which its value was recorded.")
+            elif "recorded_draw_gain" in edit:
+                raise CaptainEditError(
+                    f"{label} records recorded_draw_gain for {prop}: "
+                    f"draw gain applies only to Pan/Tilt, not zoom.")
             reel = edit.get("reel")
             if reel is not None and (
                     not isinstance(reel, str) or not reel.strip()):
@@ -963,12 +985,16 @@ def match_transform_overrides(spans: list, transcript: dict,
                 f"holds nothing here. Expected on every build of a "
                 f"reel the decision is not about. Original request: "
                 f"{edit.get('reason', '')}").strip()
-            stale.append(
-                {"kind": "transform_override",
-                 "anchor_phrase": anchor, "property": prop,
-                 "value": edit["value"],
-                 "scope": "reel",
-                 "reason": reason})
+            stale_record = {
+                "kind": "transform_override",
+                "anchor_phrase": anchor, "property": prop,
+                "value": edit["value"],
+                "scope": "reel",
+                "reason": reason}
+            if "recorded_draw_gain" in edit:
+                stale_record["recorded_draw_gain"] = edit[
+                    "recorded_draw_gain"]
+            stale.append(stale_record)
             continue
         anchor_tokens = _tokens(anchor)
         hits = []
@@ -1020,18 +1046,26 @@ def match_transform_overrides(spans: list, transcript: dict,
                     f"capture-transform --reel N --timeline ... --words "
                     f"...`. Original request: "
                     f"{edit.get('reason', '')}").strip()
-            stale.append(
-                {"kind": "transform_override",
-                 "anchor_phrase": anchor, "property": prop,
-                 "value": edit["value"],
-                 "scope": "reel" if spoken else "transcript",
-                 "reason": reason})
+            stale_record = {
+                "kind": "transform_override",
+                "anchor_phrase": anchor, "property": prop,
+                "value": edit["value"],
+                "scope": "reel" if spoken else "transcript",
+                "reason": reason}
+            if "recorded_draw_gain" in edit:
+                stale_record["recorded_draw_gain"] = edit[
+                    "recorded_draw_gain"]
+            stale.append(stale_record)
             continue
         for index in hits:
-            matched.append(
-                {"span_index": index, "property": prop,
-                 "value": edit["value"], "anchor_phrase": anchor,
-                 "reason": edit.get("reason", "")})
+            matched_record = {
+                "span_index": index, "property": prop,
+                "value": edit["value"], "anchor_phrase": anchor,
+                "reason": edit.get("reason", "")}
+            if "recorded_draw_gain" in edit:
+                matched_record["recorded_draw_gain"] = edit[
+                    "recorded_draw_gain"]
+            matched.append(matched_record)
     return matched, stale
 
 
@@ -1537,10 +1571,15 @@ def describe_edits(edits: list) -> list:
                 f"{anchor!r}, end fixed - {reason}")
         elif kind == "transform_override":
             scoped = edit.get("reel")
+            gain = edit.get("recorded_draw_gain", 1.0)
+            gain_note = (f" (recorded at draw gain {gain:g})"
+                         if edit.get("property") in ("Pan", "Tilt")
+                         else "")
             lines.append(
                 f"{number}. Framing: wherever the speech says "
                 f"{anchor!r}, {edit.get('property')} holds "
                 f"{edit.get('value')}"
+                f"{gain_note}"
                 f"{f' on reel {scoped!r}' if scoped else ''}"
                 f" - {reason}")
         elif kind == "span_retime":
@@ -1797,20 +1836,23 @@ def main(argv=None) -> int:
         fixed. Checked against the measured transcript at write time,
         so a typo fails here and not on the next build.
     `... record-transform --anchor ... --property Pan --value -35
-    --reason ... [--on-reel 'Reel 01 - ...']`
+    --reason ... [--draw-gain G] [--on-reel 'Reel 01 - ...']`
         hold one Edit-page transform at the captain's number on every
-        shot speaking the anchor. The typed fallback for a decision
-        settled in words. `--on-reel` scopes it to one reel's build -
-        the per-reel Pan on a shot several reels share.
+        shot speaking the anchor. Pan/Tilt values default to reference
+        draw gain 1.0; pass `--draw-gain` if the number was chosen
+        under another renderer state. `--on-reel` scopes it to one
+        reel's build - the per-reel Pan on a shot several reels share.
     `... record-retime --anchor ... --edge head --reason ...`
         move one placed span's head (or tail) onto the anchor's own
         word edge - the typed fallback for a hand trim. Trims only;
         an extension is refused at apply time.
     `... capture-transform --reel 9 --timeline 'Reel 09 - ...'
-    --words ... [--property Pan] --reason ...`
+    --words ... [--property Pan] --draw-gain G --reason ...`
         read the value out of the LIVE Resolve timeline - the captain's
-        hand move, which exists nowhere else - and record it. The
-        route for a change made by hand in Resolve. `--on-reel`
+        hand move, which exists nowhere else - and record it with the
+        measured draw gain. Pan/Tilt captures require the gain; Zoom
+        does not. The route for a change made by hand in Resolve.
+        `--on-reel`
         scopes the hold to that reel, like `record-transform`.
 
     Every record refuses before writing: structurally (`validate_edits`)
@@ -1831,6 +1873,8 @@ def main(argv=None) -> int:
     parser.add_argument("--from", dest="opening", default="")
     parser.add_argument("--property", dest="prop", default="")
     parser.add_argument("--value", default=None)
+    parser.add_argument("--draw-gain", type=float, default=None,
+                        help="measured renderer gain for a recorded Pan/Tilt value (typed records default to 1.0; capture-transform requires it)")
     parser.add_argument("--edge", default="")
     parser.add_argument("--on-reel", default="")
     parser.add_argument("--reason", default="")
@@ -1878,6 +1922,9 @@ def main(argv=None) -> int:
                     "anchor_phrase": args.anchor,
                     "property": args.prop, "value": number,
                     "reason": args.reason}
+            if args.prop in ("Pan", "Tilt"):
+                edit["recorded_draw_gain"] = (
+                    1.0 if args.draw_gain is None else args.draw_gain)
             if args.on_reel.strip():
                 edit["reel"] = args.on_reel.strip()
             _, action = record_edit(args.project_folder, edit,
@@ -1923,6 +1970,15 @@ def _capture_transform(args) -> tuple:
         raise CaptainEditError(
             f"--property {prop!r} is not one the build sets: "
             f"{', '.join(TRANSFORM_PROPERTIES)}.")
+    if prop in ("Pan", "Tilt") and args.draw_gain is None:
+        raise CaptainEditError(
+            "capture-transform for Pan/Tilt requires --draw-gain, the "
+            "measured renderer gain in force when this value was "
+            "captured. The build rebases it to its own measured gain.")
+    if args.draw_gain is not None and (
+            not math.isfinite(args.draw_gain) or args.draw_gain <= 0):
+        raise CaptainEditError(
+            f"--draw-gain {args.draw_gain!r} must be positive and finite.")
     try:
         number = int(args.reel)
     except (TypeError, ValueError):
@@ -2115,6 +2171,8 @@ def _capture_transform(args) -> tuple:
             f"Re-run per track after --track selects one.")
     edit = {"kind": "transform_override", "anchor_phrase": anchor,
             "property": prop, "value": value, "reason": args.reason}
+    if prop in ("Pan", "Tilt"):
+        edit["recorded_draw_gain"] = args.draw_gain
     if args.on_reel.strip():
         edit["reel"] = args.on_reel.strip()
     return record_edit(args.project_folder, edit, args.source)

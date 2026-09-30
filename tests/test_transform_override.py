@@ -34,6 +34,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from library.tools import captain_edits
 from library.tools.project_layout import ProjectLayout
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
@@ -61,8 +62,11 @@ def _tx():
 
 def _override(anchor="explains the number", prop="Pan", value=-35.0,
               reason="captain: akshita sits left of the frame edge"):
-    return {"kind": "transform_override", "anchor_phrase": anchor,
+    edit = {"kind": "transform_override", "anchor_phrase": anchor,
             "property": prop, "value": value, "reason": reason}
+    if prop in ("Pan", "Tilt"):
+        edit["recorded_draw_gain"] = FALLBACK_DRAW_GAIN
+    return edit
 
 
 def _project(tmp_path):
@@ -115,8 +119,8 @@ class _Item:
     def GetName(self):
         return "LC4932.MXF"
 
-    def GetProperty(self, prop):
-        return self.held.get(prop)
+    def GetProperty(self, prop=None):
+        return dict(self.held) if prop is None else self.held.get(prop)
 
     def SetProperty(self, prop, value):
         self.sets.append((prop, value))
@@ -144,6 +148,48 @@ class _Timeline:
     def GetItemListInTrack(self, kind, index):
         assert kind == "video" and index == 1
         return list(self.items)
+
+    def GetName(self):
+        return "Reel 24 - why-ai-trusts-youtube (staging)"
+
+    def GetSetting(self, key):
+        return {"timelineResolutionWidth": "1080",
+                "timelineResolutionHeight": "1920"}.get(key, "")
+
+
+class _CurrentTimeline:
+    def GetName(self):
+        return "Podcast (field test)"
+
+    def GetSetting(self, key):
+        return {"timelineResolutionWidth": "3840",
+                "timelineResolutionHeight": "2160"}.get(key, "")
+
+
+class _ScaledReadItem(_Item):
+    """Model Resolve's per-axis scaling on a non-current timeline read."""
+
+    def __init__(self, pan=0.0, tilt=0.0, zoom=1.0):
+        super().__init__(pan)
+        self.held = {"Pan": pan, "Tilt": tilt,
+                     "ZoomX": zoom, "ZoomY": zoom}
+
+    def GetProperty(self, prop=None):
+        scale = {"Pan": 3840 / 1080, "Tilt": 2160 / 1920}
+        raw = {key: (value * scale.get(key, 1.0)
+                     if value is not None else None)
+               for key, value in self.held.items()}
+        return raw if prop is None else raw.get(prop)
+
+    def SetProperty(self, prop, value):
+        self.sets.append((prop, value))
+        self.held[prop] = value
+        return True
+
+
+class _HDPoolItem(_PoolItem):
+    def GetClipProperty(self, name):
+        return "1920x1080" if name == "Resolution" else None
 
 
 # ── 1. The override validates, number-anchored ───────────────────────
@@ -299,6 +345,24 @@ def test_a_rebuild_reproduces_minus_35_rather_than_14(tmp_path):
     assert item.GetProperty("Pan") == pytest.approx(-35.0)
 
 
+def test_a_gain_four_capture_rebases_when_the_next_build_is_gain_one(
+        tmp_path):
+    from library.tools import reel_build
+
+    project = _project(tmp_path)
+    edit = _override(value=-8.75)
+    edit["recorded_draw_gain"] = 4.0
+    _write_edits_file(project, [edit])
+    item = _Item(pan=14.0)
+    applied = reel_build.apply_transform_overrides(
+        "Reel 09", _TrackPlan(), {"1": 1}, [_span((10.0, 14.0))],
+        _Timeline([item]), _tx(), str(project), 1080, 1920,
+        draw_gain=1.0)
+    assert applied == 1
+    assert item.GetProperty("Pan") == pytest.approx(-35.0)
+    assert item.sets == [("Pan", -35.0)]
+
+
 def test_a_refused_setproperty_refuses_the_build(tmp_path, capsys):
     from library.tools import reel_build
     project = _project(tmp_path)
@@ -377,12 +441,13 @@ def test_a_multi_property_aim_proves_the_window_once_all_hold(tmp_path):
 def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
         tmp_path, capsys):
     """Reel 24 has two LCATL0013.MXF placements, but only the opening
-    wide two-shot speaks this override's anchor. Its stored 2.307 zoom
-    was from an older aim; the old four-property transform left 168.8px
-    of the current TV window uncovered. The current manually selected
-    Craig aim is calculated from the opening shot's measured x/y, with
-    this build's gain=1.
-    Exercise the build's transform-override stage without Resolve.
+    wide two-shot speaks this override's anchor. Its earlier stored
+    2.307 zoom left 168.8px of the current TV window uncovered. With the
+    2026-09-29 build's measured draw gain of 4.0, Tilt -696.041 moves the
+    1920x1080 source too far down; -174.014 matches the other punch-ins
+    and covers the window. The fake Resolve reads through a 3840x2160
+    current timeline so the build check must restore the vertical
+    timeline units before judging either value.
     """
     from library.tools import reel_build, reel_framing, reel_look
 
@@ -447,8 +512,8 @@ def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
                          "ZoomX": 1.0, "ZoomY": 1.0}
         return items
 
-    # Values read from the current TV 4k look and the failed build's
-    # draw-gain probe. These are the delivered screen-window pixels.
+    # The saved values are at the legacy reference gain 1.0. Both gain
+    # readings must apply this same anchor to the same delivered pixels.
     window = (56.106, 530.6365, 1022.967, 1829.827)
     old_items = fresh_items()
     with pytest.raises(reel_build.ReelBuildError) as exc:
@@ -471,24 +536,94 @@ def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
         "firstmate 2026-09-29 Reel 24: current TV-window aim for the "
         "opening LCATL0013.MXF shot, source 3943.372-3947.001")
     _write_edits_file(project, current_records)
-    corrected_items = fresh_items()
+    target_timeline = _Timeline([])
+    resolve_project = type("Project", (), {
+        "GetCurrentTimeline": lambda self: _CurrentTimeline(),
+    })()
+    gain_four_items = [
+        type("CrossReadLCATLItem", (_ScaledReadItem,), {
+            "GetName": lambda self: "LCATL0013.MXF",
+            "GetMediaPoolItem": lambda self: _HDPoolItem(),
+        })(zoom=1.0),
+        type("CrossReadLCATLItem", (_ScaledReadItem,), {
+            "GetName": lambda self: "LCATL0013.MXF",
+            "GetMediaPoolItem": lambda self: _HDPoolItem(),
+        })(zoom=1.0),
+    ]
     applied = reel_build.apply_transform_overrides(
         reel, _TrackPlan(), {"1": 1}, placements,
-        _Timeline(corrected_items), transcript, str(project), 1080, 1920,
-        screen_window=window, draw_gain=1.0)
+        _Timeline(gain_four_items), transcript, str(project), 1080, 1920,
+        screen_window=window, draw_gain=4.0,
+        resolve_project=resolve_project)
     assert applied == 4
-    assert corrected_items[0].GetProperty("ZoomX") == pytest.approx(2.1386)
-    assert corrected_items[0].GetProperty("ZoomY") == pytest.approx(2.1386)
-    assert corrected_items[0].GetProperty("Pan") == pytest.approx(39.263)
-    assert corrected_items[0].GetProperty("Tilt") == pytest.approx(-696.041)
-    assert corrected_items[1].sets == []
+    assert gain_four_items[0].held["ZoomX"] == pytest.approx(2.1386)
+    assert gain_four_items[0].held["ZoomY"] == pytest.approx(2.1386)
+    assert gain_four_items[0].held["Pan"] == pytest.approx(39.263 / 4)
+    assert gain_four_items[0].held["Tilt"] == pytest.approx(-696.041 / 4)
+    assert gain_four_items[1].sets == []
     picture = reel_framing.delivered_picture(
-        3840, 2160, 1080, 1920,
-        {key: corrected_items[0].GetProperty(key)
-         for key in ("ZoomX", "ZoomY", "Pan", "Tilt")},
-        draw_gain=1.0)
+        1920, 1080, 1080, 1920, gain_four_items[0].held,
+        draw_gain=4.0)
     assert reel_look.uncovered_window_edges(picture, window) == []
     assert "recorded ZoomX holds 2.1386" in capsys.readouterr().err
+
+
+def test_reel24_punch_ins_and_override_share_vertical_timeline_units(
+        capsys, monkeypatch):
+    """The other Reel 24 shots take the same values the F12 path grades.
+
+    Each item is on the 1080x1920 staging timeline, while the fake
+    Resolve project has a 3840x2160 master current. The readback scales
+    Pan/Tilt by current/target dimensions; both the generated punch-in
+    check and recorded override must restore them before calculating
+    picture coverage.
+    """
+    from types import SimpleNamespace
+
+    from library.tools import reel_build, reel_framing, reel_look
+
+    monkeypatch.setattr(reel_look, "window_zoom_for",
+                        lambda *_args: 2.1386)
+
+    window = (56.106, 530.6365, 1022.967, 1829.827)
+    target_timeline = _Timeline([])
+    resolve_project = type("Project", (), {
+        "GetCurrentTimeline": lambda self: _CurrentTimeline(),
+    })()
+    items = []
+    places = []
+    for index in range(5):
+        item_type = type("CrossReadLCATLItem", (_ScaledReadItem,), {
+            "GetName": lambda self: "LCATL0013.MXF",
+            "GetMediaPoolItem": lambda self: _HDPoolItem(),
+        })
+        items.append(item_type(zoom=1.0))
+        place = _span((index * 4.0, (index + 1) * 4.0), speaker="Craig")
+        place["clip"].source_file = "/media/LCATL0013.MXF"
+        places.append(place)
+
+    subject = SimpleNamespace(center_x=0.518, center_y=0.325,
+                              others=0, detected=12, samples=12)
+    aimed = reel_build.aim_picture_row(
+        "Reel 24 - why-ai-trusts-youtube",
+        {"punch_in": 2.3, "scale": 2.1386 / 2.3},
+        window, 1080, 1920, items, places,
+        measure=lambda *_: subject,
+        size_of=lambda _item: (1920, 1080),
+        draw_gain=4.0, timeline=target_timeline,
+        resolve_project=resolve_project)
+
+    assert aimed == 5
+    assert all(item.held["Tilt"] == pytest.approx(-174.014)
+               for item in items)
+    assert all(item.held["ZoomX"] == pytest.approx(2.1386)
+               for item in items)
+    pictures = [reel_framing.delivered_picture(
+        1920, 1080, 1080, 1920, item.held, draw_gain=4.0)
+        for item in items]
+    assert all(reel_look.uncovered_window_edges(picture, window) == []
+               for picture in pictures)
+    assert capsys.readouterr().err.count("Tilt -174.014") == 5
 
 
 # ── 4. The write side: record, refuse, supersede ────────────────────
@@ -650,6 +785,7 @@ def test_cli_capture_without_proposal_is_refused(tmp_path, capsys):
         str(project), "capture-transform", "--reel", "9",
         "--timeline", "Reel 09 - your-website-is-only-20-percent",
         "--words", "explains the number",
+        "--draw-gain", "1",
         "--reason", "captain: moved by hand"]) == 1
     out, _ = capsys.readouterr()
     assert "no readable reel proposal" in out
@@ -665,9 +801,12 @@ def test_cli_capture_without_proposal_is_refused(tmp_path, capsys):
 def _scoped(anchor="explains the number", prop="Pan", value=-35.0,
             reel="Reel 01 - the-cta",
             reason="captain: reel 01 sits her left"):
-    return {"kind": "transform_override", "anchor_phrase": anchor,
+    edit = {"kind": "transform_override", "anchor_phrase": anchor,
             "property": prop, "value": value, "reel": reel,
             "reason": reason}
+    if prop in ("Pan", "Tilt"):
+        edit["recorded_draw_gain"] = FALLBACK_DRAW_GAIN
+    return edit
 
 
 
@@ -786,8 +925,21 @@ def test_cli_record_transform_on_reel_stamps_the_scope(tmp_path,
         "--reason", "captain: reel 01 sits her left"]) == 0
     out, _ = capsys.readouterr()
     assert "Reel 01 - the-cta" in out
-    assert captain_edits.load_edits(str(project))[0]["reel"] == \
-        "Reel 01 - the-cta"
+    saved = captain_edits.load_edits(str(project))[0]
+    assert saved["reel"] == "Reel 01 - the-cta"
+    assert saved["recorded_draw_gain"] == pytest.approx(1.0)
+
+
+def test_cli_record_transform_keeps_the_source_gain(tmp_path, capsys):
+    project = _project(tmp_path)
+    assert captain_edits.main([
+        str(project), "record-transform", "--anchor", "explains the number",
+        "--property", "Tilt", "--value", "-174.01", "--draw-gain", "4",
+        "--reason", "captain: measured gain-four aim"]) == 0
+    assert captain_edits.load_edits(str(project))[0][
+        "recorded_draw_gain"] == pytest.approx(4.0)
+    out, _ = capsys.readouterr()
+    assert "draw gain 4" in out
 
 
 def test_describe_names_the_scope(capsys):

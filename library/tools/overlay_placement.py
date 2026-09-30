@@ -214,7 +214,8 @@ def apply_placement_transform(timeline, track_index: int,
                               frame: Optional[tuple] = None,
                               placement_label: Optional[str] = None,
                               intent_matched: Optional[list] = None,
-                              draw_gain: float = FALLBACK_DRAW_GAIN
+                              draw_gain: float = FALLBACK_DRAW_GAIN,
+                              resolve_project=None
                               ) -> str:
     """Move an already-placed overlay clip onto its tight box.
 
@@ -358,8 +359,26 @@ def apply_placement_transform(timeline, track_index: int,
         except Exception:  # noqa: BLE001 - read back off placed_item
             reader = placed_item
         held_values = {}
+        held_transform = None
+        if resolve_project is not None:
+            from library.tools.reel_read import (
+                read_transform_timeline_units)
+            try:
+                held_transform = read_transform_timeline_units(
+                    reader, timeline, resolve_project)
+            except Exception as exc:  # noqa: BLE001 - reported below
+                refused.append(
+                    f"transform units could not be established ({exc})")
         for prop, value in pending:
-            held = _read_back(reader, prop)
+            if resolve_project is not None:
+                try:
+                    held = (float(held_transform[prop])
+                            if held_transform is not None
+                            and held_transform.get(prop) is not None else None)
+                except (TypeError, ValueError):
+                    held = None
+            else:
+                held = _read_back(reader, prop)
             if held is None:
                 continue
             held_values[prop] = held
@@ -392,7 +411,8 @@ def place_overlay_segment(media_pool, timeline, pool_item,
                           frame: Optional[tuple] = None,
                           placement_label: Optional[str] = None,
                           intent_matched: Optional[list] = None,
-                          draw_gain: float = FALLBACK_DRAW_GAIN
+                          draw_gain: float = FALLBACK_DRAW_GAIN,
+                          resolve_project=None
                           ) -> tuple[bool, str]:
     """Place one overlay clip and, where asked, transform it.
 
@@ -431,4 +451,4 @@ def place_overlay_segment(media_pool, timeline, pool_item,
         kind=kind, segment_id=segment_id, intent=intent,
         draw_intent=draw_intent, canvas=canvas, frame=frame,
         placement_label=placement_label, intent_matched=intent_matched,
-        draw_gain=draw_gain)
+        draw_gain=draw_gain, resolve_project=resolve_project)

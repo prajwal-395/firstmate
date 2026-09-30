@@ -328,7 +328,8 @@ ComputedMap = Dict[Tuple[Optional[str], Optional[str]], Optional[dict]]
 
 
 def _stored_transform(timeline, track_index: int,
-                      record_frame: int) -> Optional[Dict[str, float]]:
+                      record_frame: int,
+                      resolve_project) -> Optional[Dict[str, float]]:
     """What Resolve holds for one placed overlay clip, or None.
 
     Read off a FRESH handle for the item at `(track, record frame)` -
@@ -354,7 +355,14 @@ def _stored_transform(timeline, track_index: int,
         except Exception:  # noqa: BLE001 - a stale handle, keep looking
             continue
         try:
-            values = {prop: float(item.GetProperty(prop))
+            from library.tools.reel_read import (
+                read_transform_timeline_units)
+
+            transform = read_transform_timeline_units(
+                item, timeline, resolve_project)
+            if transform is None:
+                return None
+            values = {prop: float(transform[prop])
                       for prop in ("Scaling", "Pan", "Tilt")}
         except (TypeError, ValueError):
             return None
@@ -396,6 +404,7 @@ def _asset_still(segment_files: dict) -> Optional[str]:
 
 
 def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
+                        resolve_project,
                         intent: Optional[dict] = None,
                         full_wh: Tuple[int, int],
                         draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
@@ -422,6 +431,7 @@ def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
 
     try:
         return _sweep_reel_overlays(timeline, placed, intent=intent,
+                                    resolve_project=resolve_project,
                                     full_wh=full_wh,
                                     draw_gain=draw_gain)
     except Exception as failed:  # noqa: BLE001 - report, never refuse
@@ -432,6 +442,7 @@ def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
 
 
 def _sweep_reel_overlays(timeline, placed: Sequence[dict], *,
+                         resolve_project,
                          intent: Optional[dict] = None,
                          full_wh: Tuple[int, int],
                          draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
@@ -445,7 +456,8 @@ def _sweep_reel_overlays(timeline, placed: Sequence[dict], *,
         segment_id = entry.get("segment_id")
         computed[(kind, segment_id)] = entry.get("placement")
         stored = _stored_transform(timeline, entry.get("track_index"),
-                                   entry.get("record_frame"))
+                                   entry.get("record_frame"),
+                                   resolve_project)
         clip = {"label": entry.get("label", "?"), "kind": kind,
                 "segment_id": segment_id,
                 "placement_label": entry.get("placement_label"),

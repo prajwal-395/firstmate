@@ -145,37 +145,75 @@ positioning question; this is evidence for it, not a repair of it.
    carried digest is a comparison against the approved artefact rather
    than against a fresh build of it.
 
-## The verifier restores units before grading
+## Reel 24: normalize every transform read before grading
 
-Measured on Reel 24 on 2026-09-29: its build logged a 1080x1920 punch-in
-with Zoom 2.138585 and Tilt -696.041, and the offline build calculation
-`reel_look.punch_in_properties` returns the same values at the recorded
-draw gain of 1.0. The separate verify command reported 5 F12 errors with
-the picture's height equal to the screen window's height but its bottom
-165.8 pixels high. The handmade build record supplied the recorded gain;
-it did not supply clip transforms, so it could not have replaced the
-build's Tilt.
+The earlier ending of this document incorrectly treated Tilt -696.041
+as a generated Reel 24 punch-in. The 2026-09-29 build log separates the
+two: the five generated punches logged Tilt -174.01, while the opening
+LCATL0013.MXF two-shot had no automatic punch and later received the
+captain's recorded override Tilt -696.041. That run measured renderer
+draw gain 4.0.
 
-The same batch provides a comparison: Reel 25 used the same TV-frame
-look and draw gain, built an LC4932 shot at Zoom 2.1386 / Tilt -696.041,
-and its scoped `reel.verify` completed with zero errors before
-promotion. The builder's transform is therefore consistent with a reel
-that passed F12 under that look.
+The output reel frame is 1080x1920: `reel_build.reel_resolution`
+resolves the delivery format and the builder explicitly sets that
+resolution on each staging timeline. The project default remains
+3840x2160. When a 1080x1920 reel is read through a non-current handle
+while that master is current, Resolve scales returned Pan by 3840/1080
+(3.5556) and Tilt by 2160/1920 (1.125). These are readback scales, not
+the target timeline's stored values. `reel_read.restore_transform_timeline_units`
+is the single conversion: F12 applies it to snapshot transforms, and
+build-time punch, override and motion coverage reads go through
+`reel_read.read_transform_timeline_units`, which uses that same
+conversion and refuses a current-timeline change during the read.
+Placement-time overlay geometry, the post-build overlay intent sweep,
+and its stored-position and pixel checks use that helper too, so all
+compare against delivery-frame placements in the same units.
 
-`run_verification` used to grade raw Pan/Tilt read through each
-non-current timeline handle. That read is in the current timeline's
-units, so the verifier was comparing it as though it belonged to the
-target reel. Scaling both Pan and Tilt by one quarter reproduces the
-reported vertical geometry. The original verify run did not save the
-current timeline's dimensions, so that quarter-size context is a
-reproduction of the failure, not a claim about which timeline was
-current then.
+The stored override is a pair of Pan/Tilt unit values, not a pixel
+offset. A value preserves one visual shift only at the draw gain where
+it was recorded. The same Pan/Tilt law computes automatic aims with
+the current gain; override application rebases the stored values from
+their recorded gain to the build's measured gain:
 
-The verifier now reads the current timeline's name and dimensions on
-both sides of every snapshot, restores Pan and Tilt to the snapshot's
-resolution, and hashes and grades those restored values. It refuses a
-snapshot if the current timeline changed while it was read. The
-regression `tests/test_reel_verifier_timeline_units.py` exercises the
-real `reel.verify` operation offline: the build calculator's Reel 24
-values fail F12 when left at quarter scale and pass after the verifier
-restores their timeline units.
+    applied_value = recorded_value * recorded_draw_gain / build_draw_gain
+
+Legacy overrides without `recorded_draw_gain` use the documented
+reference gain 1.0. The Reel 24 opening override is one of those: the
+19:08Z build measured gain 1.0, so its `Pan=39.263`, `Tilt=-696.041`
+remain the reference values. At the later gain 4.0 build, the pipeline
+applies Pan 9.81575 and Tilt -174.01025; no project JSON edit is needed.
+For any legacy value known to have been recorded under another gain,
+the one-time data conversion is to add `recorded_draw_gain` with that
+source gain. New `capture-transform` records require `--draw-gain` and
+store the value with its source gain. Typed `record-transform` values
+use reference gain 1.0 unless given `--draw-gain`.
+
+For the failed opening shot, source 1920x1080, frame 1080x1920, zoom
+2.1386, the unrebased Pan/Tilt and draw gain 4.0 produce these offline
+rectangles against screen window (56.106, 530.6365, 1022.967, 1829.827):
+
+| Applied Tilt | Picture rectangle | Coverage |
+|---:|---|---|
+| -696.041 | (-458, 1191, 1852, 2490) | misses the top by 660.4 px |
+| -174.014 | (-458, 531, 1852, 1830) | covers the window |
+
+The current generated aim for the matching subject returns Tilt -174.014
+at three-decimal storage precision. The -696.041 value is correct at
+gain 1, but wrong when applied raw at gain 4. PR #1474 keeps the visual
+aim by rebasing the override at application time, while
+https://github.com/prajwal-395/video_editing_pilot/pull/1472 keeps
+non-current timeline Pan/Tilt in the same target timeline units.
+https://github.com/prajwal-395/video_editing_pilot/pull/1474 adds the
+application-time rebase. `tests/test_reel_build_sop_conformance.py` exercises the
+actual `build_reel_timeline` path offline at both gains, including the
+opening override and the other punch-ins.
+
+The two 2026-09-29 Reel 24 builds used the same controlled gain probe:
+a full-frame 1080x1920 plate, native red-marker check, Tilt -200, and
+two agreeing stills. At 19:08Z, the white bars moved from file rows
+283..403 to rows 483..603, measuring gain 1.0. At 22:39Z they moved to
+rows 1083..1203, measuring gain 4.0. The plate and measurement checks
+were unchanged, and the PR's readback normalization does not alter the
+probe or renderer. This is a measured change in Resolve's renderer
+state, as both build logs report; those logs do not identify which
+underlying Resolve state changed.

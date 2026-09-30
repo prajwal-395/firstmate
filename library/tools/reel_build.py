@@ -135,7 +135,8 @@ import os
 from library.tools.paths import REMOTION_DIR
 from library.tools.frame_utils import span_frames
 from library.tools.heavy_work_lock import heavy_work_lock
-from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+from library.tools.resolve_transform import (
+    FALLBACK_DRAW_GAIN, LEGACY_OVERRIDE_DRAW_GAIN, rebase_draw_gain)
 from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_lock import (
     assert_current_timeline, resolve_lease, under_lease)
@@ -6003,34 +6004,56 @@ def _source_frame_size(item):
         return None
 
 
-def _held_property(item, prop: str):
-    """What Resolve actually holds for one transform property, or None.
+def _held_transform(item, timeline=None, resolve_project=None):
+    """Read one whole transform in the item timeline's own units."""
+    if resolve_project is not None:
+        from library.tools.reel_read import (
+            ReelReadError, read_transform_timeline_units)
+        try:
+            return read_transform_timeline_units(
+                item, timeline, resolve_project)
+        except ReelReadError as exc:
+            raise ReelBuildError(
+                f"cannot establish the Pan/Tilt units for "
+                f"{item.GetName()!r}: {exc}") from exc
 
-    None means the read-back itself is unavailable - a proxy that does
-    not serve `GetProperty`, an exception, a null read - and the caller
-    falls back to judging the `SetProperty` return, the old behaviour,
-    rather than refusing a placement it cannot see.  No `hasattr`:
-    always True on Resolve's proxies, invented names included
-    (AGENTS.md 5).  Same contract as
-    `overlay_placement._read_back`, spelled here because that one is
-    private to the caption path.
-    """
+    # None means the read-back itself is unavailable - a proxy that does
+    # not serve `GetProperty`, an exception, or a non-dictionary result.
+    # The caller then retains the existing SetProperty-return fallback.
     try:
-        read = item.GetProperty(prop)
+        transform = item.GetProperty()
     except Exception:  # noqa: BLE001 - judged below, not raised
         return None
-    if read is None:
+    return dict(transform) if isinstance(transform, dict) else None
+
+
+def _held_number(value):
+    """One returned transform property as a float, or None."""
+    if value is None:
         return None
     try:
-        return float(read)
+        return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _held_property(item, prop: str, timeline=None, resolve_project=None):
+    """What Resolve actually holds for one transform property, or None.
+
+    The whole transform is read first (AGENTS.md 5); when the target is
+    not current its Pan/Tilt are restored to target-timeline units by the
+    shared conversion in ``reel_read``.
+    """
+    transform = _held_transform(item, timeline, resolve_project)
+    return (_held_number(transform.get(prop))
+            if transform is not None else None)
 
 
 def assert_punch_took(name: str, item, source_file: str, properties: dict,
                       source_size, frame_width: int, frame_height: int,
                       screen_window,
-                      draw_gain: float = FALLBACK_DRAW_GAIN) -> None:
+                      draw_gain: float = FALLBACK_DRAW_GAIN,
+                      timeline=None, resolve_project=None) -> None:
     """Raise unless the transform Resolve HOLDS covers the screen window.
 
     PR 862's discipline, applied to the punch-in: `SetProperty` returns
@@ -6052,7 +6075,10 @@ def assert_punch_took(name: str, item, source_file: str, properties: dict,
     from library.tools import reel_look as _look
     from library.tools.reel_framing import delivered_picture
 
-    held = {key: _held_property(item, key) for key in properties}
+    transform = _held_transform(item, timeline, resolve_project)
+    held = {key: (None if transform is None else
+                  _held_number(transform.get(key)))
+            for key in properties}
     if all(value is None for value in held.values()):
         return
     effective = {key: (held[key] if held[key] is not None
@@ -6085,7 +6111,8 @@ def verify_motion_screen_coverage(name: str, track_plan,
                                   video_row_by_angle: dict, timeline,
                                   motion: Sequence[dict], frame_width: int,
                                   frame_height: int, screen_window,
-                                  draw_gain: float) -> list:
+                                  draw_gain: float,
+                                  resolve_project=None) -> list:
     """Prove each drift envelope on its placed shot before comp import."""
     if screen_window is None or not motion:
         return []
@@ -6116,7 +6143,9 @@ def verify_motion_screen_coverage(name: str, track_plan,
             specs = by_position.get(position, [])
             if not specs:
                 continue
-            held = {key: _held_property(item, key)
+            transform = _held_transform(item, timeline, resolve_project)
+            held = {key: (_held_number(transform.get(key))
+                          if transform is not None else None)
                     for key in ("ZoomX", "ZoomY", "Pan", "Tilt")}
             if any(value is None for value in held.values()):
                 missing = [key for key, value in held.items()
@@ -6192,7 +6221,9 @@ def aim_picture_row(name: str, look: dict, screen_window,
                     frame_width: int, frame_height: int,
                     row_items, row_places,
                     measure=None, size_of=None, project_folder=None,
-                    draw_gain: float = FALLBACK_DRAW_GAIN) -> int:
+                    draw_gain: float = FALLBACK_DRAW_GAIN,
+                    timeline=None,
+                    resolve_project=None) -> int:
     """Aim one picture row's punch-in, shot by shot, and prove it took.
 
     `row_items` are the row's timeline items in play order, `row_places`
@@ -6299,7 +6330,9 @@ def aim_picture_row(name: str, look: dict, screen_window,
                     f"different size to the ones beside it.")
         assert_punch_took(name, item, source_file, properties,
                           source_size, frame_width, frame_height,
-                          screen_window, draw_gain=draw_gain)
+                          screen_window, draw_gain=draw_gain,
+                          timeline=timeline,
+                          resolve_project=resolve_project)
         aimed += 1
         print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
               f"(declared {look['punch_in']}, screen window needs "
@@ -6451,12 +6484,15 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                               project_folder: str, width: int, height: int,
                               look=None, screen_window=None,
                               draw_gain: float = FALLBACK_DRAW_GAIN,
-                              report_sibling_stale: bool = True) -> int:
+                              report_sibling_stale: bool = True,
+                              resolve_project=None) -> int:
     """Hold recorded transform overrides on the picture.
 
     The punch-in aims every shot at its measured subject; a recorded
-    transform supersedes that aim, so overrides apply AFTER it and the
-    stored value is held. Each one is judged the way the punch-in is:
+    transform supersedes that aim, so overrides apply AFTER it. Pan/Tilt
+    values are rebased from their recorded draw gain to this build's
+    measured gain; old records without gain metadata use the documented
+    1.0 reference convention. Each one is judged the way the punch-in is:
     the `SetProperty` return AND the read-back (a silent clamp reads
     back the clamp, not the ask), and where the look declares a screen
     window the merged transform is re-proved against it
@@ -6549,28 +6585,59 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
             # proved once, on the merged hold.
             for record in records:
                 prop, value = record["property"], record["value"]
-                before = _held_property(item, prop)
-                if not item.SetProperty(prop, value):
+                applied_value = value
+                recorded_gain = None
+                if prop in ("Pan", "Tilt"):
+                    recorded_gain = record.get(
+                        "recorded_draw_gain", LEGACY_OVERRIDE_DRAW_GAIN)
+                    try:
+                        applied_value = rebase_draw_gain(
+                            value, recorded_gain, draw_gain)
+                    except (TypeError, ValueError) as exc:
+                        raise ReelBuildError(
+                            f"{name}: cannot rebase recorded {prop}="
+                            f"{value:g} from draw gain {recorded_gain!r} "
+                            f"to measured build gain {draw_gain!r}: {exc}") \
+                            from exc
+                    if abs(applied_value) > _edits.PAN_TILT_RAIL_1080X1920:
+                        raise ReelBuildError(
+                            f"{name}: recorded {prop}={value:g} at draw "
+                            f"gain {recorded_gain:g} rebases to "
+                            f"{applied_value:g} at build gain {draw_gain:g}, "
+                            f"past Resolve's +/- "
+                            f"{_edits.PAN_TILT_RAIL_1080X1920:g} rail.")
+                    record["recorded_draw_gain"] = recorded_gain
+                record["applied_value"] = applied_value
+                before = _held_property(item, prop, timeline,
+                                        resolve_project)
+                if not item.SetProperty(prop, applied_value):
                     raise ReelBuildError(
                         f"{name}: Resolve refused the recorded "
-                        f"{prop}={value:g} on {item.GetName()!r} "
+                        f"{prop}={value:g} (rebased to "
+                        f"{applied_value:g} for draw gain "
+                        f"{draw_gain:g}) on {item.GetName()!r} "
                         f"(speaks {record['anchor_phrase']!r}). The "
                         f"decision is recorded and the clip did not "
                         f"take it - {record['reason']}")
-                held = _held_property(item, prop)
-                if held is not None and abs(held - value) > 1e-3:
+                held = _held_property(item, prop, timeline,
+                                      resolve_project)
+                if held is not None and abs(held - applied_value) > 1e-3:
                     raise ReelBuildError(
                         f"{name}: the recorded {prop}={value:g} did "
-                        f"not take on {item.GetName()!r} - Resolve "
-                        f"holds {held:g} (asked {value:g}). A silent "
+                        f"not take on {item.GetName()!r} - it was "
+                        f"rebased to {applied_value:g} for draw gain "
+                        f"{draw_gain:g}, but Resolve holds {held:g}. A silent "
                         f"clamp is a rebuild that reports the stored "
                         f"value and plays another.")
                 record["held"] = held
                 record["before"] = before
             if screen_window is not None:
-                current = {key: _held_property(item, key)
-                           for key in ("ZoomX", "ZoomY", "Pan",
-                                       "Tilt")}
+                transform = _held_transform(item, timeline,
+                                            resolve_project)
+                current = {
+                    key: (_held_number(transform.get(key))
+                          if transform is not None else None)
+                    for key in ("ZoomX", "ZoomY", "Pan", "Tilt")}
                 if any(v is not None for v in current.values()):
                     effective = {
                         key: (current[key]
@@ -6582,7 +6649,9 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                         assert_punch_took(
                             name, item, source_file, effective,
                             _source_frame_size(item), width, height,
-                            screen_window, draw_gain=draw_gain)
+                            screen_window, draw_gain=draw_gain,
+                            timeline=timeline,
+                            resolve_project=resolve_project)
                     except Exception as exc:
                         first = records[0]
                         prop, value = (first["property"],
@@ -6598,7 +6667,15 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                              else "unreadable")
                 before_desc = (f"{before:g}" if before is not None
                                else "unreadable")
-                print(f"  {name}: recorded {prop} holds {held_desc} "
+                recorded_gain = record.get(
+                    "recorded_draw_gain", LEGACY_OVERRIDE_DRAW_GAIN)
+                rebase_desc = (
+                    f" from {value:g} at gain {recorded_gain:g} to "
+                    f"{record.get('applied_value', value):g} at "
+                    f"gain {draw_gain:g}"
+                    if prop in ("Pan", "Tilt") else "")
+                print(f"  {name}: recorded {prop}{rebase_desc} "
+                      f"holds {held_desc} "
                       f"(was {before_desc}) on "
                       f"{os.path.basename(source_file)} - "
                       f"{record['reason']}", file=sys.stderr)
@@ -7238,6 +7315,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             placement_label=placed_label,
             intent_matched=intent_applied,
             draw_gain=draw_gain,
+            resolve_project=project,
             draw_intent=draw_intent_for_segment(
                 segment, kind=kind, segment_id=placed_segment_id,
                 placement_label=placed_label,
@@ -8069,7 +8147,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             aimed += aim_picture_row(
                 name, look, screen_window, width, height,
                 row_items, row_places, project_folder=project_folder,
-                draw_gain=draw_gain)
+                draw_gain=draw_gain, timeline=timeline,
+                resolve_project=project)
 
         runs = _look.frame_runs(placements_list, fps)
         # The frame goes on as a RENDERED overlay, through the same
@@ -8127,7 +8206,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         name, track_plan, video_row_by_angle, placements_list,
         timeline, transcript, project_folder, width, height,
         look=look, screen_window=screen_window, draw_gain=draw_gain,
-        report_sibling_stale=not single_reel_scope)
+        report_sibling_stale=not single_reel_scope,
+        resolve_project=project)
     if held:
         print(f"  {name}: {held} recorded transform hold(s) in force",
               file=sys.stderr)
@@ -8293,6 +8373,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             frame=(width, height),
             intent_matched=applied_intent_keys,
             draw_gain=draw_gain,
+            resolve_project=project,
             draw_intent=_draw_intent_for_segment(
                 segment, kind="caption",
                 segment_id=segment.get("segment_id"),
@@ -8521,7 +8602,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         print(f"── Overlay sweep ({len(_sweep_records)} tight overlay(s)) ──",
               file=sys.stderr)
         build_record["overlay_sweep"] = _sweep_reel_overlays(
-            timeline, _sweep_records, intent=overlay_intent,
+            timeline, _sweep_records, resolve_project=project,
+            intent=overlay_intent,
             full_wh=(width, height), draw_gain=draw_gain)
     else:
         build_record["overlay_sweep"] = {
@@ -8601,7 +8683,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if look is not None and screen_window is not None:
         build_record["motion_coverage"] = verify_motion_screen_coverage(
             name, track_plan, placements_list, video_row_by_angle, timeline,
-            motion or [], width, height, screen_window, draw_gain)
+            motion or [], width, height, screen_window, draw_gain,
+            resolve_project=project)
     else:
         build_record["motion_coverage"] = []
 

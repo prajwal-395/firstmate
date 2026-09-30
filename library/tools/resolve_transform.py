@@ -99,6 +99,8 @@ with a fresh rendered-pixel calibration, never by arithmetic.
 
 from __future__ import annotations
 
+import math
+
 #: What Resolve draws a clip at when it is at `Scaling=1` (Crop):
 #: native pixels, centred. Not a tuning knob - the identity.
 NATIVE_BASE_SCALE = 1.0
@@ -153,6 +155,11 @@ MEASURED_PICTURE_CASES = (
 #: finding. Never derive it by arithmetic from an observed
 #: misplacement - re-measure it by setting known values and rendering.
 FALLBACK_DRAW_GAIN = 2.0
+
+#: Pan/Tilt values in pre-metadata recorded overrides are understood as
+#: values measured against the original gain-1.0 transform law. New
+#: records carry their own `recorded_draw_gain`.
+LEGACY_OVERRIDE_DRAW_GAIN = 1.0
 
 
 class ResolveTransformError(ValueError):
@@ -211,6 +218,24 @@ def units_for_shift(shift: float, clip_dim: float, frame_dim: float,
     _positive(clip_dim, frame_dim, base_scale)
     return float(shift) / ((float(clip_dim) / float(frame_dim))
                            * float(base_scale) * float(draw_gain))
+
+
+def rebase_draw_gain(value: float, recorded_gain: float,
+                     build_gain: float) -> float:
+    """Preserve a recorded Pan/Tilt pixel shift at this build's gain.
+
+    Transform overrides store the Resolve unit value plus the draw gain
+    under which that value was chosen. The target timeline and clip
+    geometry are unchanged, so the shared forward/inverse law reduces to
+    `value * recorded_gain / build_gain`. This helper owns that conversion
+    so an override and the picture geometry cannot invent separate laws.
+    """
+    values = (value, recorded_gain, build_gain)
+    if any(not math.isfinite(float(part)) for part in values):
+        raise ResolveTransformError(
+            f"draw-gain rebasing needs finite values; got {values!r}")
+    _positive(recorded_gain, build_gain)
+    return float(value) * float(recorded_gain) / float(build_gain)
 
 
 def drawn_centre(clip_w: float, clip_h: float,

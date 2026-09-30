@@ -2270,7 +2270,8 @@ def build_timeline(
                 draw_intent=draw_intent_for_segment(
                     seg, kind="caption",
                     frame_wh=(width, height),
-                    project_folder=project_folder))
+                    project_folder=project_folder),
+                resolve_project=project)
             if placed:
                 v3_count += 1
                 print(f"  ✓ [{si}] {seg_basename} on V{_caption_row} ({seg_frames}f @ TL {tl_in_frame})",
@@ -2350,7 +2351,8 @@ def build_timeline(
                 track_index=_mg_row, record_frame=tl_in_frame,
                 source_in_frame=0, source_out_frame=seg_frames,
                 placement=(seg.get("tight_box") or {}).get("placement"),
-                label=f"V{_mg_row}[{mi}] {seg_basename}")
+                label=f"V{_mg_row}[{mi}] {seg_basename}",
+                resolve_project=project)
             if placed:
                 v4_count += 1
                 _mg_counts[_mg_row] = _mg_counts.get(_mg_row, 0) + 1
@@ -2515,7 +2517,8 @@ def build_timeline(
                 media_pool, timeline, pool_item,
                 track_index=_tt_row, record_frame=tl_in_frame,
                 source_in_frame=0, source_out_frame=seg_frames,
-                label=f"V{_tt_row}[{ti}] {seg_basename}")
+                label=f"V{_tt_row}[{ti}] {seg_basename}",
+                resolve_project=project)
             if placed:
                 v6_count += 1
                 _tt_counts[_tt_row] = _tt_counts.get(_tt_row, 0) + 1

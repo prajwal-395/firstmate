@@ -351,6 +351,19 @@ def _validate_params(label: str, row: dict, anchor: dict) -> None:
             raise EditLedgerError(
                 f"{label} wants {prop} {number!r}: a zoom of zero or "
                 f"less draws nothing.")
+        if prop in ("Pan", "Tilt"):
+            recorded_gain = params.get("recorded_draw_gain")
+            if recorded_gain is not None and (
+                    not _is_number(recorded_gain) or recorded_gain <= 0):
+                raise EditLedgerError(
+                    f"{label}.params.recorded_draw_gain is "
+                    f"{recorded_gain!r}: a Pan/Tilt override must name "
+                    f"the positive finite draw gain under which its "
+                    f"value was recorded.")
+        elif "recorded_draw_gain" in params:
+            raise EditLedgerError(
+                f"{label} records recorded_draw_gain for {prop}: draw "
+                f"gain applies only to Pan/Tilt, not zoom.")
         if prop in ("Pan", "Tilt") and abs(number) > \
                 _edits.PAN_TILT_RAIL_1080X1920:
             raise EditLedgerError(
@@ -801,10 +814,17 @@ def describe_rows(rows: list) -> list:
                 f"lead {params.get('lead_frames')}f{where} "
                 f"({stated}) - {reason}")
         elif op == "transform_override":
+            prop = params.get("property")
+            gain_note = (
+                f" (recorded at draw gain "
+                f"{params.get('recorded_draw_gain', 1.0):g})"
+                if prop in ("Pan", "Tilt") else "")
             lines.append(
                 f"{number}. Framing: wherever the speech says "
-                f"{phrase!r}, {params.get('property')} holds "
-                f"{params.get('value')}{where} ({stated}) - {reason}")
+                f"{phrase!r}, {prop} holds "
+                f"{params.get('value')}"
+                f"{gain_note}"
+                f"{where} ({stated}) - {reason}")
         elif op == "span_retime":
             lines.append(
                 f"{number}. Trim: the {params.get('edge')} of the span "
@@ -860,6 +880,8 @@ def project_onto_captain_edits(rows: list) -> list:
         if op == "transform_override":
             edit["property"] = params.get("property")
             edit["value"] = params.get("value")
+            if params.get("recorded_draw_gain") is not None:
+                edit["recorded_draw_gain"] = params["recorded_draw_gain"]
             if row.get("reel") is not None:
                 edit["reel"] = row.get("reel")
         elif op == "span_retime":

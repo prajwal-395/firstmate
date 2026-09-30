@@ -68,7 +68,9 @@ class _Item:
     def GetStart(self):
         return self._start
 
-    def GetProperty(self, prop):
+    def GetProperty(self, prop=None):
+        if prop is None:
+            return dict(self._held)
         return self._held.get(prop)
 
     def SetProperty(self, prop, value):
@@ -81,15 +83,30 @@ class _Pool:
         return ("placed",)
 
 
-def _timeline_with(items_by_track):
+def _timeline_with(items_by_track, size=FRAME):
     """A fake timeline keyed by track index (GetStart is the record frame)."""
 
     class _T:
+        def GetName(self):
+            return "Reel"
+
+        def GetSetting(self, name):
+            return str(size[0] if name == "timelineResolutionWidth"
+                       else size[1])
+
         def GetItemListInTrack(self, kind, index):
             assert kind == "video"
             return items_by_track.get(index, [])
 
     return _T()
+
+
+def _project_with_current_timeline(timeline):
+    class _P:
+        def GetCurrentTimeline(self):
+            return timeline
+
+    return _P()
 
 
 # ── Finding 1, proved: Tilt 5184 is REFUSED by the pixel half ─────────
@@ -256,7 +273,9 @@ def test_sweep_honours_a_label_pin():
                                               "Pan": expected["pan"],
                                               "Tilt": expected["tilt"]})]})
     report = sweep_reel_overlays(timeline, [entry], intent=intent,
-                                 full_wh=FRAME)
+                                 full_wh=FRAME,
+                                 resolve_project=_project_with_current_timeline(
+                                     timeline))
     assert report["passed"] and report["values"]["checked"] == 1, (
         "a label-pinned store must pass the sweep, not foul it")
 
@@ -269,12 +288,32 @@ def test_sweep_refuses_the_reel09_clamp():
                                               "Tilt": -7680.0})]})
     report = sweep_reel_overlays(
         timeline, [_sweep_entry("sub_r09_x", REEL09_CLAMPED)], intent={},
-        full_wh=FRAME)
+        full_wh=FRAME,
+        resolve_project=_project_with_current_timeline(timeline))
     assert not report["passed"]
     assert not report["values"]["passed"]
     finding = report["values"]["findings"][0]
     assert finding["stored"]["tilt"] == -7680.0
     assert finding["expected"]["tilt"] == -7929.0
+
+
+def test_overlay_sweep_restores_cross_current_pan_and_tilt_units():
+    """Intent checks use the same target-timeline units as picture checks."""
+    expected = {"scaling": 1.0, "pan": 23.0, "tilt": -400.0}
+    timeline = _timeline_with({
+        3: [_Item(10, {"Scaling": 1.0,
+                       "Pan": expected["pan"] * 3840 / FRAME[0],
+                       "Tilt": expected["tilt"] * 2160 / FRAME[1]})]})
+    current = _timeline_with({}, size=(3840, 2160))
+    report = sweep_reel_overlays(
+        timeline, [_sweep_entry("overlay_units", expected,
+                                computed=expected)],
+        intent={}, full_wh=FRAME,
+        resolve_project=_project_with_current_timeline(current))
+
+    assert report["passed"]
+    assert report["values"]["checked"] == 1
+    assert report["values"]["findings"] == []
 
 
 
@@ -316,15 +355,33 @@ def test_placer_stays_quiet_without_draw_intent():
         "no intent supplied behaves exactly as before")
 
 
+def test_placer_normalizes_cross_current_transform_readback():
+    class _ScaledItem(_Item):
+        def GetProperty(self, prop=None):
+            values = dict(self._held)
+            values["Pan"] *= 3840 / FRAME[0]
+            values["Tilt"] *= 2160 / FRAME[1]
+            return values if prop is None else values.get(prop)
+
+    item = _ScaledItem(10)
+    timeline = _timeline_with({3: [item]})
+    current = _timeline_with({}, size=(3840, 2160))
+    ok, note = place_overlay_segment(
+        _Pool(), timeline, object(), track_index=3, record_frame=10,
+        source_in_frame=0, source_out_frame=40,
+        placement={"scaling": 1, "pan": 23.0, "tilt": -400.0},
+        label="overlay_units",
+        resolve_project=_project_with_current_timeline(current))
+
+    assert ok and note == ""
+
+
 # ── The wiring itself, pinned so it cannot drift back to zero ─────────
 
 def _library_source(relative):
     path = os.path.join(PROJECT_ROOT, *relative.split("/"))
     with open(path, encoding="utf-8") as handle:
         return handle.read()
-
-
-
 
 
 

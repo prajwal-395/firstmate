@@ -140,7 +140,8 @@ def test_recorded_plan_edits_reach_the_existing_replayers(tmp_path):
     project = _project(tmp_path)
     hold = {"op": "transform_override",
             "anchor": {"kind": "words", "phrase": "akshitas line"},
-            "params": {"property": "Pan", "value": -35.0},
+            "params": {"property": "Pan", "value": -8.75,
+                        "recorded_draw_gain": 4.0},
             "stated_by": "captain", "reason": "hand move in inspector"}
     edit_ledger.record_row(str(project), hold)
     edit_ledger.record_row(str(project), _isolate())
@@ -155,6 +156,7 @@ def test_recorded_plan_edits_reach_the_existing_replayers(tmp_path):
     assert len(edits) == 1
     assert edits[0]["kind"] == "transform_override"
     assert edits[0]["property"] == "Pan"
+    assert edits[0]["recorded_draw_gain"] == pytest.approx(4.0)
     captain_edits.validate_edits(edits)
 
 

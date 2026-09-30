@@ -74,10 +74,11 @@ class _Item:
         self._set[key] = value
         return True
 
-    def GetProperty(self, key):
-        if self._held is not None:
-            return self._held.get(key)
-        return self._set.get(key)
+    def GetProperty(self, key=None):
+        values = self._held if self._held is not None else self._set
+        if key is None:
+            return dict(values)
+        return values.get(key)
 
     def GetName(self):
         return "shot"

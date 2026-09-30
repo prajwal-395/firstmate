@@ -632,6 +632,10 @@ class _FakeTimeline:
     def GetName(self):
         return "fake reel"
 
+    def GetSetting(self, key):
+        return {"timelineResolutionWidth": "1080",
+                "timelineResolutionHeight": "1920"}.get(key, "")
+
 
 class _FakeProject:
     def __init__(self, timeline):
@@ -797,8 +801,9 @@ class _PlacedItem:
     def GetStart(self):
         return self._start
 
-    def GetProperty(self, prop):
-        return self._held.get(prop)
+    def GetProperty(self, prop=None):
+        return (dict(self._held) if prop is None
+                else self._held.get(prop))
 
     def SetProperty(self, prop, value):
         self.set_calls[prop] = value
@@ -856,5 +861,4 @@ def test_a_graphic_resolve_has_moved_is_reported_by_name(capsys):
     err = capsys.readouterr().err
     assert "semantic visual" in err
     assert "Tilt" in err and "-3840" in err
-
 
