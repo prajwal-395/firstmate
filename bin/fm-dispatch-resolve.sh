@@ -81,6 +81,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-$FM_ROOT}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
@@ -415,7 +416,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg run
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   {
     model: $r.model, latency_ms: $lat, rung: $rung, tokens: ($r.usage // null),
-    rule: $choice,
+    rule: $choice, source: $sel.source,
     rule_when: (if $rule == null then $none_criterion else $rule.when end | .[0:60]),
     confidence: $a.confidence, probabilities: $a.probabilities
   } as $ev |
@@ -457,6 +458,21 @@ TEXT=$(jq -r '
       + "  -> " + (if .unranked then "eligible, unranked: \(.reason | flat): disclosed uncertainty" elif .eligible then "eligible" else "not eligible: \(.reason | flat)" end)),
   (if .chosen then "  profile: --harness \(.chosen.profile.harness | shell_arg)"
       + (if .chosen.profile.model then " --model \(.chosen.profile.model | shell_arg)" else "" end)
-      + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
+      + (if .chosen.profile.effort then " --effort \(.chosen.profile.effort | shell_arg)" else "" end)
+      + (if .source == "default" and (
+            (.chosen.profile.harness == "codex" and .chosen.profile.model == "gpt-6-luna") or
+            (.chosen.profile.harness == "opencode" and (.chosen.profile.model as $m | (["opencode/muse-spark-1.3-contributor-free", "opencode-go/muse-spark-1.3-contributor"] | index($m) != null)))
+          ) then " --dispatch-ladder opencode" else "" end) else empty end)' <<<"$RESULT") || emit_error "output rendering failed"
 printf '%s\n' "$TEXT"
+for rung in free plus go; do
+  case "$rung" in free) label='OpenCode free' ;; plus) label='Codex Plus' ;; go) label='OpenCode Go' ;; esac
+  cap=$("$SCRIPT_DIR/fm-opencode-retry.sh" check-cap "$STATE" "$rung" 2>/dev/null) || cap=
+  case "$cap" in
+    *'status=blocked'*)
+      reset_at=$(printf '%s\n' "$cap" | sed -n 's/.*reset_at=//p')
+      reset_iso=$(jq -nr --arg reset "$reset_at" 'try ($reset | tonumber | gmtime | strftime("%Y-%m-%dT%H:%M:%SZ")) catch "unknown"' 2>/dev/null)
+      printf '  cap: %s capped until %s\n' "$label" "${reset_iso:-unknown}"
+      ;;
+  esac
+done
 exit 0

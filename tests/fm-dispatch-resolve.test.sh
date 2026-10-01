@@ -538,6 +538,19 @@ assert_contains "$out" '  note: no rule matched' "default is explained"
 assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "default resolves by declared order"
 pass "default: no rule matched resolves among the default profiles"
 
+CODEX_LADDER_DEFAULT="$TMP_ROOT/codex-ladder-default.json"
+cat > "$CODEX_LADDER_DEFAULT" <<'JSON'
+{"rules":[{"when":"Some other task.","use":{"harness":"claude","model":"sonnet","provider":"claude"}}],"default":[{"harness":"codex","model":"gpt-6-luna","effort":"max","provider":"codex"}]}
+JSON
+cp "$CODEX_LADDER_DEFAULT" "$RULES"
+cat > "$RESPONSE" <<'JSON'
+{"model":"jev-1.13.0","answers":{"rule":{"type":"choice","choice":"default","confidence":0.88,"probabilities":{"rule_1":0.12,"default":0.88}}},"usage":{"input_tokens":812,"output_tokens":60}}
+JSON
+TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
+assert_contains "$out" "profile: --harness 'codex' --model 'gpt-6-luna' --effort 'max' --dispatch-ladder opencode" "a default Codex Plus profile carries the spawn-time ladder gate"
+cp "$BASE_RULES" "$RULES"
+pass "a default-array Codex Plus profile preserves ladder enforcement through spawn"
+
 # --- equal quota resolves by declared order, never by tie-break ----------------
 reset_log
 TIE="$TMP_ROOT/tie.json"

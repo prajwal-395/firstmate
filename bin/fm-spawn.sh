@@ -54,6 +54,9 @@
 #   from that harness's launch rather than guessed. Ultra is the explicit
 #   exception: bin/fm-harness.sh validate-native-effort owns its model scope;
 #   supported Pi launches receive --codex-effort ultra, never --thinking ultra.
+#   --dispatch-ladder opencode carries typed default-array provenance when a
+#   Codex Plus profile was selected; the shared rung gate resolves the actual
+#   model and harness so dispatch cannot route around a capped earlier rung.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -563,6 +566,7 @@ BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
+DISPATCH_LADDER=
 RELAUNCH=0
 POS=()
 want_value=
@@ -579,6 +583,7 @@ for a in "$@"; do
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
+      dispatch-ladder) DISPATCH_LADDER=$a ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -602,10 +607,13 @@ for a in "$@"; do
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
+    --dispatch-ladder) want_value=dispatch-ladder ;;
+    --dispatch-ladder=*) DISPATCH_LADDER=${a#--dispatch-ladder=} ;;
     *) POS+=("$a") ;;
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
+[ -z "$DISPATCH_LADDER" ] || [ "$DISPATCH_LADDER" = opencode ] || { echo "error: --dispatch-ladder accepts only opencode" >&2; exit 1; }
 [ "$HARNESS_SET" -eq 0 ] || [ -n "$HARNESS_ARG" ] || { echo "error: --harness requires a non-empty value" >&2; exit 1; }
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
@@ -1899,18 +1907,19 @@ case "$HARNESS" in
     LAUNCH="FM_PI_HARNESS=$HARNESS $LAUNCH"
     ;;
   opencode)
-    # The free-then-Go-then-Plus ladder, enforced rather than remembered
-    # (bin/fm-opencode-ladder-lib.sh owns the rungs, the reactive evidence
-    # rule, and why an absent reading never moves a launch). It runs here
+    # The free-then-Codex-then-Go ladder, enforced rather than remembered
+    # (bin/fm-opencode-ladder-lib.sh owns the rungs and cap records). It runs here
     # because this case is on the one path every opencode crewmate and scout
     # launch already takes, so an ordinary dispatch has nowhere to route
-    # around it. A proven free cap routes to Go, Go exhaustion routes to Plus,
-    # and exhaustion of all three refuses the new spawn. MODEL_SET is left as it was: the
+    # around it. A cap routes to the first uncapped rung, and exhaustion of all
+    # three refuses the new spawn. MODEL_SET is left as it was: the
     # meta record below reads MODEL itself, so the routed tier is what
     # recovery relaunches on.
     _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
     if [ -n "$_FM_OPENCODE_LADDER_NOTE" ]; then
-      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "${MODEL:-}" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
+      _FM_OPENCODE_LADDER_REQUEST=${MODEL:-}
+      [ "$DISPATCH_LADDER" != opencode ] || _FM_OPENCODE_LADDER_REQUEST=$FM_OPENCODE_LADDER_FREE
+      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$_FM_OPENCODE_LADDER_REQUEST" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
         [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
         rm -f "$_FM_OPENCODE_LADDER_NOTE"
         exit 1
@@ -1928,7 +1937,7 @@ case "$HARNESS" in
       [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
     fi
-    unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL
+    unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL _FM_OPENCODE_LADDER_REQUEST
     # The descent tick cannot see FM_OPENCODE_LADDER_OVERRIDE where it runs -
     # the watcher is a long-lived process that predates the instruction - so
     # a launch held on free on the captain's word is recorded per task where
@@ -1938,6 +1947,29 @@ case "$HARNESS" in
       fm_opencode_pin_task "$STATE" "$ID" "$FM_OPENCODE_LADDER_OVERRIDE" || true
     else
       fm_opencode_pin_clear "$STATE" "$ID" || true
+    fi
+    ;;
+  codex)
+    if [ "$DISPATCH_LADDER" = opencode ]; then
+      _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
+      [ -n "$_FM_OPENCODE_LADDER_NOTE" ] || { echo "error: could not prepare opencode ladder decision" >&2; exit 1; }
+      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "$FM_OPENCODE_LADDER_FREE" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") || {
+        [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
+        rm -f "$_FM_OPENCODE_LADDER_NOTE"
+        exit 1
+      }
+      [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
+      rm -f "$_FM_OPENCODE_LADDER_NOTE"
+      MODEL=$_FM_OPENCODE_LADDER_MODEL
+      if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
+        EFFORT=max
+        HARNESS=codex
+      else
+        HARNESS=opencode
+        EFFORT=
+      fi
+      LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: opencode ladder launch template is unavailable" >&2; exit 1; }
+      unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL
     fi
     ;;
   cursor)

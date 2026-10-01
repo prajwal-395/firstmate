@@ -22,6 +22,8 @@ OpenCode can auto-upgrade in the background, and the running TUI can exit mid-ta
 That behavior was observed live during an upgrade from 1.15.7 to 1.17.3.
 If the pane shows the exit banner, use the verified resume path above.
 
+The managed model ladder routes free, Codex Plus, then Go, with shared reset records and cross-harness descent owned by `../../../bin/fm-opencode-ladder-lib.sh` and `../../../bin/fm-opencode-descent-lib.sh`.
+
 ## Busy-queued Enter
 
 While OpenCode 1.18.4 is mid-turn, its composer accepts Enter as a "send when the turn ends" keystroke but does not clear the typed text until the turn finishes.
