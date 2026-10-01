@@ -32,7 +32,7 @@
 # even if a stale sidecar survives.
 #
 # THE RUNG-SCOPED RECORD (record-cap / check-cap below). A cap is a property
-# of the rung and the vendor horizon, not of the task that happened to
+# of the rung and its reset time, not of the task that happened to
 # discover it - but the sidecar above is per-task private state, so the
 # descent's own post-move cleanup clears it and the task's teardown takes the
 # rest of the per-task state with it, and the next spawn has to pay for the
@@ -42,13 +42,10 @@
 #
 #   v1 next=<epoch-ms> ts=<epoch-s>
 #
-# where `next` is the vendor's own scheduled-retry timestamp from the proven
-# observation and `ts` is when it was preserved. Newer evidence wins: a lane
-# proving an older horizon never shortens the rung's recorded cap, while a
-# malformed or expired incumbent loses to any valid observation. Validity,
-# threshold, and grace are the sidecar's own semantics, so the record stops
-# describing the present - and dispatch climbs back - exactly when the
-# sidecar would have.
+# where `next` is the source's reset timestamp and `ts` is when it was
+# preserved. OpenCode retry horizons and quota-axi reset times use the same
+# field. A rung record expires exactly at `next`; retry threshold and stale
+# grace apply only to per-task retry sidecars.
 #
 # THE IDLE SHAPE (2026-09-14: four of five capped lanes were invisible).
 # A lane that takes the provider error and ends its turn goes idle: the plugin
@@ -119,9 +116,9 @@
 #       unreadable text still exits 1. Without the flag this is byte-for-byte
 #       the old sidecar-only contract.
 #
-#   record-cap <state-dir> <rung> <next-ms>
+#   record-cap <state-dir> <rung> <reset-ms>
 #       Preserve a proven rung cap past the discovering task's own cleanup.
-#       Validates and atomically stores the vendor's scheduled-retry
+#       Validates and atomically stores the source reset
 #       timestamp as state/.opencode-cap-<rung> (`v1 next=<ms> ts=<s>`).
 #       <rung> must be one of the ladder's own rung keys
 #       (FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG /
@@ -135,12 +132,11 @@
 #
 #   check-cap <state-dir> <rung>
 #       Classify the preserved rung cap. Prints one line:
-#         status=<blocked|waiting> horizon_s=<s>
+#         status=blocked horizon_s=<s> reset_at=<epoch-s>
 #       <rung> must be a ladder rung key (see record-cap): anything else is
 #       refused (exit 1) with the accepted names listed.
 #       Exit 0 when the record is present, well-formed, and unexpired;
-#       exit 1 when it is absent, malformed, or expired. `blocked` iff
-#       horizon_s exceeds FM_OPENCODE_RETRY_BLOCK_SECS, exactly as check.
+#       exit 1 when it is absent, malformed, or its reset time has passed.
 #       Absent and expired collapse here on purpose: both route to free.
 #       Callers that must SHOW the answer rather than route it use
 #       verdict-cap below, which keeps the two tellable apart.
@@ -321,14 +317,13 @@ if [ "$CMD" = record-cap ] || [ "$CMD" = check-cap ] || [ "$CMD" = verdict-cap ]
   CAP_REC="$CAP_STATE/.opencode-cap-$CAP_RUNG"
 fi
 
-# rung_cap_check: classify the preserved rung cap at <path>, on the sidecar's
-# own semantics. Prints `status=<blocked|waiting> horizon_s=<s>` and returns
+# rung_cap_check: classify the preserved rung cap at <path>. Prints
+# `status=blocked horizon_s=<s> reset_at=<epoch-s>` and returns
 # 0 whenever the record is present, well-formed, and unexpired; returns 1
 # with RUNG_STATUS set to absent|malformed|expired when there is nothing to
 # report, so verdict-cap can name the reason honestly instead of guessing.
-# RUNG_STATUS is blocked|waiting on success, mirroring the printed status for
-# callers that must tell a quota-scale record from a transient one without
-# re-parsing.
+# RUNG_STATUS is blocked on success because every unexpired reset record is
+# an active cap, even when its reset is within the sidecar transient horizon.
 RUNG_STATUS=
 rung_cap_check() {  # <path>
   local path=$1 line extra ver next='' ts='' f status horizon_s now_ms
@@ -355,21 +350,16 @@ rung_cap_check() {  # <path>
   case "$next" in ''|*[!0-9]*) return 1 ;; esac
   case "$ts" in ''|*[!0-9]*) return 1 ;; esac
   now_ms=$(($(date +%s) * 1000))
-  # Expired: the vendor's own scheduled retry time plus grace has passed, so
-  # this record no longer describes the present - dispatch climbs back.
-  if [ "$now_ms" -gt $((next + STALE_SECS * 1000)) ]; then
+  # A rung cap expires at the source reset time without retry-sidecar grace.
+  if [ "$now_ms" -ge "$next" ]; then
     RUNG_STATUS=expired
     return 1
   fi
   horizon_s=$(((next - now_ms) / 1000))
   [ "$horizon_s" -ge 0 ] || horizon_s=0
-  if [ "$horizon_s" -gt "$BLOCK_SECS" ]; then
-    status=blocked
-  else
-    status=waiting
-  fi
+  status=blocked
   RUNG_STATUS=$status
-  printf 'status=%s horizon_s=%s\n' "$status" "$horizon_s"
+  printf 'status=%s horizon_s=%s reset_at=%s\n' "$status" "$horizon_s" "$((next / 1000))"
 }
 
 if [ "$CMD" = record-cap ]; then

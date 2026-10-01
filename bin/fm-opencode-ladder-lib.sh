@@ -1,62 +1,45 @@
 #!/usr/bin/env bash
-# fm-opencode-ladder-lib.sh - the opencode free-then-Go-then-Plus ladder.
+# fm-opencode-ladder-lib.sh - the opencode free-then-Codex-then-Go ladder.
 # Usage: . bin/fm-opencode-ladder-lib.sh
 # Sourced by bin/fm-spawn.sh. Sourcing has no side effects beyond the rung
 # constants below.
 #
 # THE POLICY. The standing rule for opencode dispatch is a fixed three-rung
-# ladder: free, paid Go, then Codex Plus (gpt-6-luna at max effort). Work runs
+# ladder: free, Codex Plus (gpt-6-luna at max effort), then paid Go. Work runs
 # on free first; new spawns fall through only when the preceding rung is
 # exhausted. The rungs are stated once, here, as constants - there is
 # no config order to derive, because the order is fixed by economics rather
 # than ranked by the captain.
 #
-# REACTIVE, NOT PREDICTIVE - AND THAT IS THE HONEST DIFFERENCE FROM AGY. The
-# agy ladder reads quota percentages before spending (bin/fm-agy-ladder-lib.sh
-# owns that shape), so it refuses a rung BEFORE the floor is crossed. quota-axi
-# reports nothing for opencode - `quota-axi --provider opencode` answers
-# "unsupported provider" - so there is no reading to decide on and no floor to
-# refuse ahead of. This ladder decides AFTER the fact, on the refusal the
-# vendor already issued: bin/fm-opencode-retry.sh classifies a lane's own
-# retry-backoff horizon as quota-scale, and that classification IS the
-# "free is exhausted" signal - plus, since the 2026-09-14 four-lane blind
-# spot, the same helper's scan of a lane's pane tail for the cap verbatim,
-# which covers lanes that took the error and went idle with no sidecar left.
-# A free lane that hits the cap mid-run still spends into the cap before
-# anyone knows; this ladder only routes the NEXT spawn. Do not pretend it
-# prevents the spend it reacts to.
+# QUOTA SOURCES. OpenCode free is reactive because quota-axi has no free row:
+# bin/fm-opencode-retry.sh records the vendor retry horizon and the pane-text
+# detector covers an idle refusal. Codex and OpenCode Go use fresh known zero
+# quota rows only when quota-axi supplies a valid reset timestamp; Go also
+# accepts reactive vendor evidence. All durable reset records use the same
+# state/.opencode-cap-<rung> store and become eligible exactly at reset.
 #
-# THE CLIMB-BACK USES THE VENDOR'S OWN HORIZON, NOT A TIMER OF ITS OWN. The
-# refusal carries its backoff ("retrying in 21h 54m"), the plugin records it
-# as the sidecar's `next` timestamp, and bin/fm-opencode-retry.sh stops
-# classifying the sidecar once that time plus grace has passed. So a cap that
-# has elapsed simply stops being evidence, and the next spawn climbs back to
-# free with nothing here counting down. If the vendor's horizon proves
-# unreliable in practice, the remedy is a probe launch on free, not a second
-# clock kept beside the vendor's.
+# RESET LIFECYCLE. Vendor retry `next` and quota-axi `resetsAt` are written as
+# epoch milliseconds by bin/fm-opencode-retry.sh. A cap stops applying at that
+# exact time, so new spawns return to the first rung without a manual clear.
 #
 # RUNNING WORKERS ARE OWNED BY THE DESCENT, NOT LEFT IN PLACE. This file
 # routes the next spawn only. bin/fm-opencode-descent-lib.sh re-evaluates a
 # lane already running: a lane recorded on free with a proven cap relaunches
-# onto Go through bin/fm-control.sh relaunch --model, keeping its worktree,
-# branch, commits, and brief and carrying a handoff note, while its
+# onto the next uncapped rung through bin/fm-control.sh relaunch, keeping its
+# worktree, branch, commits, and brief and carrying a handoff note, while its
 # conversation ends with the parked session. There is still no verified
 # in-session model switch for opencode (agy's guarded /model walk does not
 # transfer), which is why the move is a control-plane relaunch rather than a
 # live tier switch. This file routes the next spawn only, and says so.
 #
-# THE TWO DIRECTIONS ARE NOT SYMMETRIC. A running worker that has descended
-# onto Go never climbs back to free: moving a healthy lane would risk its
-# conversation for zero gain. Climb-back belongs to new spawns only, which
-# return to free through this file once the vendor's horizon elapses. The agy
-# ladder has no climb-back in either direction, so its rules do not transfer.
+# THE TWO DIRECTIONS ARE NOT SYMMETRIC. Running workers descend when capped,
+# but never climb back to a newly reset earlier rung. New spawns always start
+# from the first rung and use the current cap records.
 #
-# THE FAILURE DIRECTION, STATED NOT IMPLIED. A quota-scale free cap without a
-# model binding still falls through to Go (the notice owns the ambiguity).
-# Go exhaustion is known zero `all_models` effective availability from a
-# fresh quota-axi result, or current reactive cap evidence. Unknown data never
-# counts as exhaustion. A free cap plus Go exhaustion plus Codex Plus
-# exhaustion refuses dispatch and names all three tiers.
+# FAILURE DIRECTION. Unknown or stale quota data never counts as exhaustion.
+# A free cap may fall through despite an absent model binding; a destination
+# rung with its own unexpired cap is skipped. If all three are capped, dispatch
+# is refused with every rung and reset time named.
 #
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE, set to a non-empty reason, holds
 # a free request on free past a proven cap and prints that it did. It is an
@@ -88,19 +71,34 @@ FM_OPENCODE_LADDER_GO_RUNG='go'
 # shellcheck disable=SC2034 # Static consumer in fm-opencode-retry.sh reads this rung name.
 FM_OPENCODE_LADDER_PLUS_RUNG='plus'
 
-# quota-axi exhaustion is deliberately strict: known effective availability
-# of zero for all_models means exhausted. Any missing, stale, or unknown reading
-# is not exhaustion; Go also has the reactive vendor-cap evidence below.
-fm_opencode_ladder_quota_exhausted() {  # <provider>
-  local provider=$1 report
-  command -v quota-axi >/dev/null 2>&1 || return 1
-  command -v jq >/dev/null 2>&1 || return 1
-  report=$(quota-axi --provider "$provider" --json 2>/dev/null) || return 1
-  printf '%s' "$report" | jq -e --arg provider "$provider" '
-    any(.providers[]?; .provider == $provider and .state.stale == false
-      and any(.quotaSemantics.effectiveAvailability[]?;
-        .scope == "all_models" and .status == "known"
-        and .effectivePercentRemaining == 0))' >/dev/null 2>&1
+# quota-axi exhaustion is deliberately strict: fresh known zero availability
+# plus a valid future reset records a durable cap. Unknown or stale readings do
+# not cap a rung.
+# Refresh predictive rung records from one quota-axi snapshot. The record-cap
+# helper remains the only durable store; only fresh, known zero availability
+# with a valid future reset is authoritative enough to write one.
+fm_opencode_ladder_quota_caps() {  # <state-dir>
+  local state_dir=$1 report provider reset_s reset_ms rung
+  [ -d "$state_dir" ] || return 0
+  command -v quota-axi >/dev/null 2>&1 || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  report=$(quota-axi --json 2>/dev/null) || return 0
+  for provider in codex opencode-go; do
+    reset_s=$(printf '%s' "$report" | jq -r --arg provider "$provider" '
+      .providers[]? | select(.provider == $provider and (.state.stale == false or .state.status == "fresh"))
+      | . as $p | .quotaSemantics.effectiveAvailability[]?
+      | select(.scope == "all_models" and .status == "known" and .effectivePercentRemaining == 0)
+      | (if (.resetsAt | type) == "string" then .resetsAt
+         else ([.limitingWindowIds[]? as $id | $p.windows[]? | select(.id == $id) | .resetsAt]
+               | map(select(type == "string")) | max // empty) end)
+      | try fromdateiso8601 catch empty' 2>/dev/null | head -n 1)
+    case "$reset_s" in ''|*[!0-9]*) continue ;; esac
+    [ "$reset_s" -gt "$(date +%s)" ] || continue
+    reset_ms=$((reset_s * 1000))
+    rung=plus
+    [ "$provider" = opencode-go ] && rung=go
+    "$_FM_OPENCODE_LADDER_RETRY" record-cap "$state_dir" "$rung" "$reset_ms" 2>/dev/null || true
+  done
 }
 
 fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
@@ -121,8 +119,18 @@ fm_opencode_ladder_go_reactive_capped() {  # <state-dir>
     [ "$status" = blocked ] || continue
     case "$horizon" in ''|*[!0-9]*) continue ;; esac
     model_bare=$(fm_opencode_ladder_bare_model "$model")
-    [ "$model_bare" = "$go_bare" ] && return 0
+    if [ "$model_bare" = "$go_bare" ]; then
+      "$_FM_OPENCODE_LADDER_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" "$((($(date +%s) + horizon) * 1000))" 2>/dev/null || true
+      return 0
+    fi
   done
+  return 1
+}
+
+fm_opencode_ladder_plus_capped() {  # <state-dir>
+  local state_dir=$1 out status horizon model
+  out=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null) || return 1
+  case "$out" in *'status=blocked'*) return 0 ;; esac
   return 1
 }
 
@@ -331,13 +339,11 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
 }
 
 # fm_opencode_ladder_model: the model id a launch with <requested> should run.
-# Prints exactly one line - the effective model id - on stdout, and the human
-# notice (if any) on stderr. An empty or `default` request is free intent and
-# dispatches on free unless its cap and both downstream exhaustion signals are
-# present; that proven all-out case returns failure.
+# Prints exactly one line - the effective model id - on stdout. All three
+# governed requests pass through the same ordered cap gate.
 fm_opencode_ladder_model() {  # <requested> <state-dir>
   local requested=${1:-} state_dir=${2:-} cap='' horizon='' bound=''
-  local word effective notice='' go_exhausted=0
+  local word free_capped=0 plus_capped=0 go_capped=0
   if [ -z "$requested" ] || [ "$requested" = default ]; then
     requested=$FM_OPENCODE_LADDER_FREE
   fi
@@ -348,66 +354,76 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
     return 0
   fi
   case "$requested" in
-    "$FM_OPENCODE_LADDER_FREE")
-      if cap=$(fm_opencode_ladder_free_capped "$state_dir" 2>/dev/null); then
-        for word in $cap; do
-          case "$word" in
-            horizon_s=*) horizon=${word#horizon_s=} ;;
-            bound=*) bound=${word#bound=} ;;
-          esac
-        done
-        # Text-only evidence carries no horizon: own that instead of printing
-        # a broken "next retry in ~?".
-        case "$horizon" in
-          ''|*[!0-9]*)
-            when='the cap is showing in a lane'"'"'s pane with no retry horizon on record' ;;
-          *)
-            when="next retry in $(fm_opencode_ladder_horizon_human "$horizon")" ;;
-        esac
-        if fm_opencode_ladder_quota_exhausted opencode-go || fm_opencode_ladder_go_reactive_capped "$state_dir"; then
-          go_exhausted=1
-          if fm_opencode_ladder_quota_exhausted codex; then
-            printf 'error: opencode ladder exhausted: free, Go, and Codex Plus are all out of quota\n' >&2
-            return 1
-          fi
-        fi
-        if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
-          printf '%s\n' "$FM_OPENCODE_LADDER_FREE"
-          printf 'notice: opencode ladder OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=%s - holding free past a proven cap (%s)\n' \
-            "$FM_OPENCODE_LADDER_OVERRIDE" "$when" >&2
-          return 0
-        fi
-        if [ "$go_exhausted" -eq 1 ]; then
-          printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
-          printf 'notice: opencode ladder: free and Go are exhausted; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
-          return 0
-        fi
-        effective=$FM_OPENCODE_LADDER_GO
-        if [ "$bound" = unbound ]; then
-          notice=$(printf 'notice: opencode ladder: free tier %s may be exhausted (a quota-scale retry backoff with no model binding, %s) - biasing toward the Go tier %s rather than stalling; set FM_OPENCODE_LADDER_OVERRIDE=<reason> to hold free' \
-            "$FM_OPENCODE_LADDER_FREE" "$when" "$FM_OPENCODE_LADDER_GO")
-        else
-          notice=$(printf 'notice: opencode ladder: free tier %s is proven exhausted (quota-scale retry backoff, %s) - dispatching on the Go tier %s instead; it climbs back to free once the cap elapses' \
-            "$FM_OPENCODE_LADDER_FREE" "$when" "$FM_OPENCODE_LADDER_GO")
-        fi
-        printf '%s\n' "$effective"
-        printf '%s\n' "$notice" >&2
-        return 0
-      fi
-      printf '%s\n' "$FM_OPENCODE_LADDER_FREE"
-      return 0
-      ;;
-    "$FM_OPENCODE_LADDER_GO")
-      # An explicit Go request always stands, even while free is capped: the
-      # ladder never downgrades a choice the captain made on purpose.
-      printf '%s\n' "$FM_OPENCODE_LADDER_GO"
-      return 0
-      ;;
+    "$FM_OPENCODE_LADDER_FREE"|"$FM_OPENCODE_LADDER_GO"|"$FM_OPENCODE_LADDER_PLUS_MODEL") ;;
     *)
       printf '%s\n' "$requested"
-      printf 'notice: opencode ladder not applied: model %s is outside the governed ladder (%s, %s, %s), so this launch is unchecked against the free cap\n' \
-        "$requested" "$FM_OPENCODE_LADDER_FREE" "$FM_OPENCODE_LADDER_GO" "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
-      return 0
-      ;;
+      printf 'notice: opencode ladder not applied: model %s is outside the governed ladder (%s, %s, %s)\n' \
+        "$requested" "$FM_OPENCODE_LADDER_FREE" "$FM_OPENCODE_LADDER_PLUS_MODEL" "$FM_OPENCODE_LADDER_GO" >&2
+      return 0 ;;
   esac
+  fm_opencode_ladder_quota_caps "$state_dir"
+  if [ "$requested" = "$FM_OPENCODE_LADDER_GO" ]; then
+    local explicit_go_cap
+    explicit_go_cap=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null) || explicit_go_cap=
+    case "$explicit_go_cap" in *'status=blocked'*)
+      printf 'error: requested Go rung is capped until %s\n' "$(printf '%s\n' "$explicit_go_cap" | sed -n 's/.*reset_at=//p')" >&2
+      return 1 ;;
+    esac
+    printf '%s\n' "$FM_OPENCODE_LADDER_GO"
+    return 0
+  fi
+  if [ "$requested" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
+    local explicit_plus_cap explicit_go_cap
+    explicit_plus_cap=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null) || explicit_plus_cap=
+    case "$explicit_plus_cap" in *'status=blocked'*)
+      explicit_go_cap=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null) || explicit_go_cap=
+      case "$explicit_go_cap" in *'status=blocked'*) printf 'error: requested Codex Plus and Go rungs are capped\n' >&2; return 1 ;; esac
+      printf '%s\n' "$FM_OPENCODE_LADDER_GO"
+      printf 'notice: opencode ladder: Codex Plus is capped; dispatching on Go %s\n' "$FM_OPENCODE_LADDER_GO" >&2
+      return 0 ;;
+    esac
+    printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
+    return 0
+  fi
+  if cap=$(fm_opencode_ladder_free_capped "$state_dir" 2>/dev/null); then
+    free_capped=1
+    for word in $cap; do case "$word" in horizon_s=*) horizon=${word#horizon_s=} ;; bound=*) bound=${word#bound=} ;; esac; done
+    case "$horizon" in ''|*[!0-9]*) : ;; *)
+      "$_FM_OPENCODE_LADDER_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_FREE_RUNG" "$((($(date +%s) + horizon) * 1000))" 2>/dev/null || true ;;
+    esac
+  fi
+  fm_opencode_ladder_plus_capped "$state_dir" && plus_capped=1
+  { fm_opencode_ladder_go_reactive_capped "$state_dir" ||
+    [ "$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/^status=//p')" = blocked ]; } && go_capped=1
+  [ "$free_capped" -eq 1 ] || { printf '%s\n' "$FM_OPENCODE_LADDER_FREE"; return 0; }
+  if [ "$plus_capped" -eq 1 ] && [ "$go_capped" -eq 1 ]; then
+    local free_until plus_until go_until
+    free_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_FREE_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
+    plus_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
+    go_until=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_GO_RUNG" 2>/dev/null | sed -n 's/.*reset_at=//p')
+    printf 'error: opencode ladder exhausted: free capped until %s; Codex Plus capped until %s; Go capped until %s\n' \
+      "${free_until:-unknown}" "${plus_until:-unknown}" "${go_until:-unknown}" >&2
+    return 1
+  fi
+  if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+    printf '%s\n' "$FM_OPENCODE_LADDER_FREE"
+    printf 'notice: opencode ladder OVERRIDDEN by FM_OPENCODE_LADDER_OVERRIDE=%s - holding free past a proven cap\n' "$FM_OPENCODE_LADDER_OVERRIDE" >&2
+    return 0
+  fi
+  if [ "$plus_capped" -eq 0 ]; then
+    printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
+    if [ "$bound" = unbound ]; then
+      printf 'notice: opencode ladder: free may be capped with no model binding; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
+    elif [ "$horizon" = unknown ]; then
+      printf 'notice: opencode ladder: free cap is showing in a lane pane with no retry horizon on record; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
+    else
+      printf 'notice: opencode ladder: free is capped; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
+    fi
+    return 0
+  fi
+  if [ "$go_capped" -eq 0 ]; then
+    printf '%s\n' "$FM_OPENCODE_LADDER_GO"
+    printf 'notice: opencode ladder: free and Codex Plus are capped; dispatching on Go %s\n' "$FM_OPENCODE_LADDER_GO" >&2
+    return 0
+  fi
 }

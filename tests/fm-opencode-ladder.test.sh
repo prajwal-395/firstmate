@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
-# Behavior tests for bin/fm-opencode-ladder-lib.sh - the free-then-Go-then-Plus ladder.
+# Behavior tests for bin/fm-opencode-ladder-lib.sh - the free-then-Codex-then-Go ladder.
 #
-# The dispatch rule: spend the FREE tier first, fall through to paid Go after
-# a free cap, and use Codex Plus (gpt-6-luna at max effort) after Go exhaustion.
+# The dispatch rule: spend the FREE tier first, then Codex Plus
+# (gpt-6-luna at max effort), then paid Go.
 # New spawns climb back when the preceding tier becomes available again.
 #
-# Where the agy ladder is predictive (it reads quota percentages before
-# spending), OpenCode free exhaustion is reactive because quota-axi has no
-# OpenCode provider row. Go and Codex Plus use fresh known zero effective
-# availability readings, with existing reactive cap evidence also accepted
-# for Go.
+# OpenCode free exhaustion is reactive because quota-axi has no free row.
+# Codex Plus and Go use fresh zero-availability readings with reset timestamps;
+# Go also accepts reactive vendor-cap evidence.
 #
 # The load-bearing contracts:
 #   1. A fresh home dispatches FREE by default, including a spawn that names
 #      no model at all.
 #   2. A free request with no proven cap stays on free, silently.
 #   3. A free request with a proven quota-scale cap on the free tier falls
-#      through to Go, and says so. The recorded vendor refusal below
+#      through to Codex Plus, and says so. The recorded vendor refusal below
 #      ("Free usage exceeded, subscribe to Go [retrying in 21h 54m]") is the
 #      text that case is built from: the test converts its horizon into the
 #      vendor's own `next` timestamp through the real record helper, so the
@@ -54,6 +52,10 @@ provider=
 while [ "$#" -gt 0 ]; do
   case "$1" in --provider) provider=$2; shift 2 ;; *) shift ;; esac
 done
+if [ -z "$provider" ] && [ -n "${QUOTA_AXI_SNAPSHOT:-}" ] && [ -f "$QUOTA_AXI_SNAPSHOT" ]; then
+  cat "$QUOTA_AXI_SNAPSHOT"
+  exit 0
+fi
 case "$provider" in
   opencode-go) remaining=${FM_TEST_GO_REMAINING:-100} ;;
   codex) remaining=${FM_TEST_CODEX_REMAINING:-100} ;;
@@ -163,7 +165,7 @@ test_explicit_free_stays_free_when_healthy() {
 
 # --- 2/3. the recorded refusal falls through ----------------------------------
 
-test_recorded_refusal_falls_through_to_go() {
+test_recorded_refusal_falls_through_to_codex() {
   local state out
   state=$(fresh_state refusal)
   # Recorded vendor refusal, verbatim from the 2026-09-07 twelve-wide stall:
@@ -175,45 +177,47 @@ test_recorded_refusal_falls_through_to_go() {
   record_cap "$state" lane1 78840 "$FREE" || fail "record refused the refusal-shaped observation"
   out=$(run_gate "$state" "$FREE") || fail "gate must never refuse, even past the cap"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "proven free cap must fall through to Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "proven free cap must fall through to Codex Plus, got '$GOT'"
   case "$NOTE" in
     *'free'*|*'Free'*) : ;;
     *) fail "fall-through must name the exhausted free tier, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "the recorded free refusal falls through to Go with the reason stated"
+  pass "the recorded free refusal falls through to Codex Plus with the reason stated"
 }
 
 test_go_exhaustion_routes_to_codex_plus() {
   local state out
   state=$(fresh_state go-exhausted)
   record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
-  out=$(FM_TEST_GO_REMAINING=0 run_gate "$state" "$FREE") || fail "gate must route to Plus when Go is out"
+  out=$(run_gate "$state" "$FREE") || fail "gate must route to Plus after free is capped"
   split_gate "$out"
-  [ "$GOT" = gpt-6-luna ] || fail "Go exhaustion must route to gpt-6-luna, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "a free cap must route to gpt-6-luna, got '$GOT'"
   case "$NOTE" in *'Codex Plus'*) : ;; *) fail "Plus route must be named, said: $NOTE" ;; esac
-  pass "known zero Go quota routes the next spawn to Codex Plus"
+  pass "a free cap routes the next spawn to Codex Plus before Go"
 }
 
 test_reactive_go_cap_routes_to_codex_plus() {
   local state out
   state=$(fresh_state go-reactive)
   record_cap "$state" free-lane 78840 "$FREE" || fail "record refused free fixture"
-  record_cap "$state" go-lane 78840 "$GO" || fail "record refused Go fixture"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Codex cap fixture"
   out=$(run_gate "$state" "$FREE") || fail "gate must route past a reactive Go cap"
   split_gate "$out"
-  [ "$GOT" = gpt-6-luna ] || fail "reactive Go cap must route to gpt-6-luna, got '$GOT'"
-  pass "reactive Go cap evidence routes the next spawn to Codex Plus"
+  [ "$GOT" = "$GO" ] || fail "a Codex cap must route to Go, got '$GOT'"
+  pass "a recorded Codex cap routes the next spawn to Go"
 }
 
 test_all_rungs_exhausted_refuses() {
   local state note got
   state=$(fresh_state all-out)
   record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Plus fixture"
+  "$HELPER" record-cap "$state" go "$(ms_from_now 78840)" || fail "record refused Go fixture"
   note=$(mktemp "$TMP_ROOT/all-out.XXXXXX")
   if got=$(FM_TEST_GO_REMAINING=0 FM_TEST_CODEX_REMAINING=0 PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$FREE" "$state" 2>"$note"); then
     fail "all exhausted tiers must refuse, got '$got'"
   fi
-  case "$(cat "$note")" in *'free, Go, and Codex Plus'*) : ;; *) fail "refusal must name all exhausted tiers: $(cat "$note")" ;; esac
+  case "$(cat "$note")" in *'free capped until'*'Codex Plus capped until'*'Go capped until'*) : ;; *) fail "refusal must name all reset times: $(cat "$note")" ;; esac
   if got=$(FM_OPENCODE_LADDER_OVERRIDE=hold FM_TEST_GO_REMAINING=0 FM_TEST_CODEX_REMAINING=0 PATH="$QUOTA_BIN:$PATH" fm_opencode_ladder_model "$FREE" "$state" 2>"$note"); then
     fail "override must not bypass refusal when all tiers are exhausted, got '$got'"
   fi
@@ -231,12 +235,12 @@ test_plugin_vocabulary_free_cap_falls_through_to_go() {
   record_cap "$state" lane1 69412 "$FREE_BARE" || fail "record refused the bare-model observation"
   out=$(run_gate "$state" "$FREE") || fail "gate must never refuse, even past the cap"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "a bare-model free cap must fall through to Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "a bare-model free cap must fall through to Codex Plus, got '$GOT'"
   case "$NOTE" in
     *'free'*|*'Free'*) : ;;
     *) fail "fall-through must name the exhausted free tier, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "a free cap in the plugin's bare-model vocabulary falls through to Go"
+  pass "a free cap in the plugin's bare-model vocabulary falls through to Codex Plus"
 }
 
 test_plugin_vocabulary_go_cap_does_not_move_free() {
@@ -336,7 +340,7 @@ test_unbound_cap_falls_through() {
   record_cap "$state" lane1 78840 || fail "record refused an unbound observation"
   out=$(run_gate "$state" "$FREE") || fail "gate must never refuse"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "an unbound quota-scale cap must still fall through, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "an unbound quota-scale cap must still fall through, got '$GOT'"
   case "$NOTE" in
     *'no model'*|*'unbound'*) : ;;
     *) fail "an unbound fall-through must own the ambiguity, said: ${NOTE:-<silent>}" ;;
@@ -451,8 +455,11 @@ SH
 
 # spawn_opencode <dir> <id> [model]: a REAL bin/fm-spawn.sh opencode launch.
 # Prints "<launch-log> <herdr-call-log> <home>". Model empty means no --model flag at all.
-spawn_opencode() {  # <dir> <id> [model]
-  local dir=$1 id=$2 model=${3:-} home proj wt fakebin
+spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder]
+  local dir=$1 id=$2 model=${3:-} harness=${4:-opencode} ladder=${5:-} home proj wt fakebin
+  local -a ladder_args
+  ladder_args=()
+  [ -z "$ladder" ] || ladder_args=(--dispatch-ladder "$ladder")
   home="$dir/home"
   proj="$dir/proj"
   wt="$dir/wt"
@@ -472,7 +479,7 @@ spawn_opencode() {  # <dir> <id> [model]
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
       FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
       "$SPAWN" "$id" "$proj" \
-      --harness opencode --model "$model" --mode no-mistakes --yolo off >/dev/null 2>&1
+      --harness "$harness" --model "$model" "${ladder_args[@]}" --mode no-mistakes --yolo off >/dev/null 2>&1
   else
     env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" \
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
@@ -480,7 +487,7 @@ spawn_opencode() {  # <dir> <id> [model]
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
       FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
       "$SPAWN" "$id" "$proj" \
-      --harness opencode --mode no-mistakes --yolo off >/dev/null 2>&1
+      --harness "$harness" "${ladder_args[@]}" --mode no-mistakes --yolo off >/dev/null 2>&1
   fi
   printf '%s %s %s\n' "$dir/launch.log" "$dir/herdr-calls.log" "$home"
 }
@@ -496,10 +503,11 @@ test_spawn_falls_through_on_proven_cap() {
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   [ -f "$log" ] || fail "spawn wrote no launch command"
   launch=$(cat "$log")
-  assert_contains "$launch" "$GO" "a proven free cap routes the real launch to Go"
+  assert_contains "$launch" "codex --model 'gpt-6-luna'" "a proven free cap routes the real launch to Codex Plus"
+  assert_contains "$launch" "model_reasoning_effort=\"max\"" "Codex Plus keeps PR 182's max effort"
   assert_not_contains "$launch" "$FREE" "a proven free cap leaves no free model flag on the launch"
-  assert_contains "$(cat "$home/state/task-go.meta")" "model=$GO" "the durable record names the Go model"
-  pass "a proven free cap routes a real spawn to Go"
+  assert_contains "$(cat "$home/state/task-go.meta")" "model=gpt-6-luna" "the durable record names the Plus model"
+  pass "a proven free cap routes a real spawn to Codex Plus"
 }
 
 test_spawn_switches_to_codex_when_go_is_exhausted() {
@@ -507,18 +515,17 @@ test_spawn_switches_to_codex_when_go_is_exhausted() {
   mkdir -p "$dir/home/state"
   "$HELPER" record "$dir/home/state" free-lane 3 "$(ms_from_now 78840)" "$FREE" "ses_free" \
     || fail "record refused free fixture"
-  log_home=$(FM_TEST_GO_REMAINING=0 spawn_opencode "$dir" task-plus "$FREE")
+  "$HELPER" record-cap "$dir/home/state" plus "$(ms_from_now 78840)" || fail "record refused Plus cap fixture"
+  log_home=$(spawn_opencode "$dir" task-plus "$FREE")
   log=${log_home%% *}; log_home=${log_home#* }
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   launch=$(cat "$log")
-  assert_contains "$launch" "codex --model 'gpt-6-luna' -c 'model_reasoning_effort=\"max\"'" \
-    "exhausted Go must launch the Codex Plus model at max effort"
-  assert_not_contains "$launch" "opencode --model" "the Plus rung must switch the harness to Codex"
-  assert_contains "$(cat "$home/state/task-plus.meta")" "harness=codex" "the task record must identify the Codex harness"
-  assert_contains "$(cat "$home/state/task-plus.meta")" "model=gpt-6-luna" "the task record must identify the Plus model"
-  assert_contains "$(cat "$home/state/task-plus.meta")" "effort=max" "the task record must preserve the applied max effort"
-  pass "an exhausted Go rung launches and records Codex Plus at max effort"
+  assert_contains "$launch" "opencode --model '$GO'" "capped Codex Plus must launch on Go"
+  assert_not_contains "$launch" "codex --model" "the Go rung stays on OpenCode"
+  assert_contains "$(cat "$home/state/task-plus.meta")" "harness=opencode" "the task record must identify the Go harness"
+  assert_contains "$(cat "$home/state/task-plus.meta")" "model=$GO" "the task record must identify the Go model"
+  pass "a capped Codex Plus rung launches and records Go"
 }
 
 test_spawn_defaults_to_free() {
@@ -533,6 +540,19 @@ test_spawn_defaults_to_free() {
   assert_contains "$launch" "$FREE" "a modelless opencode spawn carries the free id"
   assert_contains "$(cat "$home/state/task-free.meta")" "model=$FREE" "the durable record names the free model"
   pass "a modelless opencode spawn dispatches free end to end"
+}
+
+test_default_resolver_codex_profile_still_enters_ladder_gate() {
+  local dir log herdr_calls home launch log_home
+  dir="$TMP_ROOT/spawn-resolver-codex"
+  log_home=$(spawn_opencode "$dir" resolver-codex gpt-6-luna codex opencode)
+  log=${log_home%% *}; log_home=${log_home#* }
+  herdr_calls=${log_home%% *}; home=${log_home#* }
+  assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
+  launch=$(cat "$log")
+  assert_contains "$launch" "opencode --model '$FREE'" "the resolver's Codex profile must pass through the shared gate"
+  assert_contains "$(cat "$home/state/resolver-codex.meta")" "harness=opencode" "the routed task record must follow the free rung"
+  pass "a default-array Codex profile is gated through the OpenCode ladder"
 }
 
 test_idle_lane_falls_through_to_go() {
@@ -551,12 +571,12 @@ test_idle_lane_falls_through_to_go() {
     'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
   out=$(run_gate "$state" "$FREE") || fail "gate must never refuse, even past the cap"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "an idle-after-cap lane must fall through to Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "an idle-after-cap lane must fall through to Codex Plus, got '$GOT'"
   case "$NOTE" in
     *'pane'*|*'horizon'*) : ;;
     *) fail "a text-evidence fall-through must own the missing horizon, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "an idle-after-cap lane falls through to Go"
+  pass "an idle-after-cap lane falls through to Codex Plus"
 }
 
 test_idle_healthy_lane_stays_free() {
@@ -577,7 +597,7 @@ test_idle_healthy_lane_stays_free() {
 }
 
 # --- 12. the preserved rung cap routes dispatch past task cleanup --------------
-# A descent proves free is exhausted, moves its lane onto Go, and clears the
+# A descent proves free is exhausted, moves its lane onto Codex Plus, and clears the
 # dead session's sidecar with the task's own state. The rung-scoped record it
 # preserved must still fall a later free request through - asserted here
 # through the public gate with no per-task evidence left at all.
@@ -589,12 +609,12 @@ test_preserved_rung_cap_falls_through_to_go() {
     || fail "record-cap refused a well-formed rung observation"
   out=$(run_gate "$state" "$FREE") || fail "gate must never refuse, even past the cap"
   split_gate "$out"
-  [ "$GOT" = "$GO" ] || fail "a preserved rung cap must fall through to Go, got '$GOT'"
+  [ "$GOT" = gpt-6-luna ] || fail "a preserved rung cap must fall through to Codex Plus, got '$GOT'"
   case "$NOTE" in
     *'free'*|*'Free'*) : ;;
     *) fail "fall-through must name the exhausted free tier, said: ${NOTE:-<silent>}" ;;
   esac
-  pass "a preserved rung cap falls through to Go with no per-task evidence left"
+  pass "a preserved rung cap falls through to Codex Plus with no per-task evidence left"
 }
 
 test_expired_rung_cap_climbs_back_to_free() {
@@ -608,9 +628,35 @@ test_expired_rung_cap_climbs_back_to_free() {
   pass "an expired rung cap climbs back to free on the vendor's own horizon"
 }
 
+test_free_then_codex_cap_skips_to_go_and_returns_after_reset() {
+  local state out fixture
+  state=$(fresh_state predictive-codex)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused Codex cap"
+  out=$(run_gate "$state" "$FREE") || fail "an uncapped Go rung should accept the spawn"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "both earlier caps must route to Go, got '$GOT'"
+  state=$(fresh_state predictive-codex-reset)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" || fail "record refused free cap"
+  "$HELPER" record-cap "$state" plus "$(ms_from_now -1)" || fail "record refused expired Codex cap"
+  out=$(run_gate "$state" "$FREE") || fail "free remains capped until its own reset"
+  split_gate "$out"
+  [ "$GOT" = gpt-6-luna ] || fail "after Codex resets, it must be used again before Go, got '$GOT'"
+
+  fixture="$TMP_ROOT/codex-zero.json"
+  cat > "$fixture" <<'JSON'
+{"providers":[{"provider":"codex","state":{"stale":false},"windows":[{"id":"weekly","resetsAt":"2030-01-01T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"limitingWindowIds":["weekly"]}]}},{"provider":"opencode-go","state":{"status":"fresh"},"windows":[{"id":"daily","resetsAt":"2030-01-02T00:00:00Z"}],"quotaSemantics":{"effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":0,"limitingWindowIds":["daily"]}]}}]}
+JSON
+  state=$(fresh_state predictive-snapshot)
+  out=$(QUOTA_AXI_SNAPSHOT="$fixture" run_gate "$state" "$FREE") || fail "a fresh quota fixture should leave free eligible"
+  [ -f "$state/.opencode-cap-plus" ] || fail "fresh Codex zero quota with resetAt must create the shared plus cap record"
+  [ -f "$state/.opencode-cap-go" ] || fail "fresh Go zero quota with its window reset must create the shared go cap record"
+  pass "rung records skip Codex until reset and use it again afterward"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
-test_recorded_refusal_falls_through_to_go
+test_recorded_refusal_falls_through_to_codex
 test_go_exhaustion_routes_to_codex_plus
 test_reactive_go_cap_routes_to_codex_plus
 test_all_rungs_exhausted_refuses
@@ -628,5 +674,7 @@ test_idle_healthy_lane_stays_free
 test_spawn_falls_through_on_proven_cap
 test_spawn_switches_to_codex_when_go_is_exhausted
 test_spawn_defaults_to_free
+test_default_resolver_codex_profile_still_enters_ladder_gate
 test_preserved_rung_cap_falls_through_to_go
 test_expired_rung_cap_climbs_back_to_free
+test_free_then_codex_cap_skips_to_go_and_returns_after_reset

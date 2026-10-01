@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# fm-opencode-descent-lib.sh - keep an ALREADY RUNNING opencode worker on the
-# free-then-Go ladder.
+# fm-opencode-descent-lib.sh - move capped workers along the
+# free-then-Codex-then-Go ladder.
 # Usage: . bin/fm-opencode-descent-lib.sh
 # Sourced by bin/fm-watch.sh. Defining functions is all this file does; the
 # only things it pulls in on its own are the libraries below, and only when a
@@ -36,7 +36,7 @@
 #     for agy's own deny primitive.
 #
 # So the honest move is not an in-session switch but the verified control-plane
-# relaunch: bin/fm-control.sh relaunch --model is transactional, keeps the same
+# relaunch: bin/fm-control.sh relaunch is transactional, keeps the same
 # worktree, branch, commits, and brief, and carries a handoff note because the
 # replacement inherits the local copy but none of the conversation. A capped
 # lane is parked doing nothing, so ending its session loses no in-flight work
@@ -44,38 +44,27 @@
 # That is a heavier act than agy's conversation-preserving switch, which is
 # why every move below is reported as a wake the supervisor sees.
 #
-# THE TRIGGER IS THE SUPERVISION-GRADE VERDICT, NOT JUST THE SIDECAR. The
-# dispatch gate scans sidecars alone; a relaunch destroys a session, so this
-# evaluation additionally requires the busy latch bin/fm-crew-state.sh owns:
-# the record must read busy, from the opencode plugin, on the latched
-# session-retry event. A stale sidecar beside a resumed turn (which writes
-# session-busy first) therefore never moves a worker. The composition is
-# restated here rather than calling into bin/fm-crew-state.sh because that
-# file is a main script with no source guard; both owners it composes -
-# bin/fm-busy-lib.sh and bin/fm-opencode-retry.sh - are called, not copied.
+# THE TRIGGER IS THE VERIFIED RUNG RESET, WITH A SESSION LATCH FOR OPENCODE.
+# OpenCode free and Go sidecars require the busy latch to remain on that exact
+# retry event, so a stale sidecar beside a resumed turn never moves a worker.
+# Codex Plus uses a fresh quota-axi zero with a reset, or a usage-limit pane
+# message that states its reset time. bin/fm-opencode-retry.sh owns rung-record
+# validation and bin/fm-busy-lib.sh owns the OpenCode session latch.
 #
-# WHAT MOVES, AND WHAT ONLY SURFACES. A lane recorded on the free tier with a
-# proven cap relaunches onto Go, including when the cap evidence carries no
-# model binding - the dispatch gate's own throughput-first bias, with the
-# handoff note owning the ambiguity. Three cases surface as `refused` instead:
-# a lane recorded on Go (the ladder has no third rung), a secondmate
-# (automatic relaunch never touches a persistent supervision agent), and a
-# lane recording no model at all (refusing to move blind). Off-ladder models
-# are never governed and stay silent. A move the durable record did not follow
-# is reported as `unrecorded`, never claimed. Each episode gets exactly one
-# automatic attempt: unlike agy's switch, every attempt here stops a live
-# worker, so a failed move is surfaced rather than retried, and the refusal
-# wake hands the retry to firstmate with full context.
+# WHAT MOVES, AND WHAT ONLY SURFACES. A capped free lane moves to Codex Plus
+# unless Plus is capped, then to Go; a capped Plus lane moves to Go. Go has no
+# later rung. A secondmate or a lane with no recorded model is refused rather
+# than moved blind. Off-ladder models are never governed. A move the durable
+# record did not follow is reported as `unrecorded`. Each episode gets one
+# automatic attempt, and a refusal wake hands the retry to firstmate.
 #
-# THERE IS NO CLIMB-BACK FOR RUNNING WORKERS, BY DESIGN. A healthy lane on Go
-# is making progress; moving it back to free would risk its conversation for
-# zero gain, and new spawns already climb back through the dispatch gate the
-# moment the vendor's horizon elapses. The descent is one-directional: free
-# onto Go, never Go onto free.
+# THERE IS NO CLIMB-BACK FOR RUNNING WORKERS, BY DESIGN. A healthy lane on a
+# later rung is making progress; moving it back would risk its conversation
+# for zero gain. New spawns start at free after earlier cap records expire.
 #
-# THE FINDING OUTLIVES THE TASK. The per-task sidecar describes one session's
+# THE FINDING OUTLIVES THE TASK. An OpenCode sidecar describes one session's
 # backoff and is cleared with it after a move - but the cap it proved is a
-# property of the rung and the vendor horizon, so the tick records it
+# property of the rung and its reset time, so the tick records it
 # rung-scoped through bin/fm-opencode-retry.sh record-cap at proof time,
 # before any per-lane decision. The dispatch gate reads that record, so a cap
 # a descent paid for still routes the next spawn after the discovering task
@@ -87,15 +76,15 @@
 # the watcher waits between firstmate's turns. A capped opencode lane spends
 # nothing - the vendor parked it - so there is no spend to race, and a capped
 # lane never reaches a turn end that could drive anything. The watcher's poll
-# is the only evaluation, rate-limited by FM_OPENCODE_DESCENT_INTERVAL, and it
-# costs local file reads only: no quota subprocess exists for opencode.
+# is rate-limited by FM_OPENCODE_DESCENT_INTERVAL and refreshes the Codex and
+# Go cap records only when a governed lane is present.
 #
 # NO POINT-OF-SPEND GATE EXISTS FOR OPENCODE, AND NONE IS FAKED HERE. agy's
 # gate works because agy invokes it PostInvocation inside the worker's own
 # loop AND because quota evidence exists to decide on before the floor is
-# crossed. opencode has neither half: no hook ends the agent loop (see the
-# surface above), and no pre-spend evidence exists anywhere (quota-axi answers
-# "unsupported provider"; the Go plan has no public usage API). The retry
+# crossed. OpenCode free and Go have neither half: no hook ends their agent
+# loop (see the surface above), and OpenCode free has no quota-axi row. The
+# retry
 # event fires after the refusal, when the vendor has already parked the
 # session - gating there would be polling pretending to be synchronous, which
 # the brief forbids. This evaluation plus the sidecar detector is the whole
@@ -382,6 +371,26 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
   printf 'unknown %s %s\n' "$bound" "$episode"
 }
 
+# A Codex usage-limit notice can carry an absolute ISO-8601 reset time even
+# when quota-axi has not yet refreshed its account window. Preserve it in the
+# shared plus-rung record only when both the limit phrase and a future UTC
+# reset timestamp are present in that lane's pane.
+fm_opencode_descent_codex_limit_cap() {  # <state-dir> <id>
+  local state_dir=$1 id=$2 cap_file reset reset_s
+  cap_file=$(fm_opencode_ladder_pane_file "$state_dir" "$id" 2>/dev/null) || return 1
+  if ! grep -Eiq 'usage limit|limit reached|limit exceeded' "$cap_file"; then
+    rm -f "$cap_file"
+    return 1
+  fi
+  reset=$(grep -Eo '20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$cap_file" | tail -n 1)
+  rm -f "$cap_file"
+  [ -n "$reset" ] || return 1
+  reset_s=$(jq -nr --arg reset "$reset" 'try ($reset | fromdateiso8601) catch empty' 2>/dev/null)
+  case "$reset_s" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$reset_s" -gt "$(date +%s)" ] || return 1
+  "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" "$((reset_s * 1000))" >/dev/null 2>&1
+}
+
 # fm_opencode_descent_tick: one evaluation of this home's live opencode lanes.
 #
 # One line per outcome on stdout, and nothing at all in the ordinary case
@@ -398,41 +407,54 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
 fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} rc=0
   local meta id harness model model_bare kind cap horizon bound note ctl_out reason
+  local plus_bare target_model target_harness target_rung target_cap
   local recorded after next rest hold_reason when
   local free_bare go_bare
+  local -a relaunch_args
   # The recorded model is the routed tier the way the launch left it, which
   # may be the plugin's own bare vocabulary when the request named it so; the
   # governance below normalises through the dispatch gate's shared helper, or
   # a bare-recorded lane would read as off-ladder and stay silent past its cap.
   free_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_FREE")
+  plus_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_PLUS_MODEL")
   go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO")
 
   fm_opencode_descent_off "$state_dir" && return 0
   [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 0
   [ -n "$now" ] || now=$(date +%s)
 
-  # Cheap pre-filter: does this home run any opencode lane at all? A home
+  # Cheap pre-filter: does this home run any governed ladder lane? A home
   # with none must not start the evaluation clock either.
   harness=''
   for meta in "$state_dir"/*.meta; do
     [ -e "$meta" ] || continue
-    case "$(fm_meta_get "$meta" harness 2>/dev/null)" in opencode*) harness=found; break ;; esac
+    harness=$(fm_meta_get "$meta" harness 2>/dev/null) || harness=''
+    model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
+    case "$harness" in
+      opencode*) harness=found; break ;;
+      codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] && { harness=found; break; } ;;
+    esac
   done
   [ "$harness" = found ] || return 0
   fm_opencode_descent_due "$state_dir" "$now" || return 0
   printf '%s' "$now" > "$state_dir/.opencode-descent-last" 2>/dev/null || true
+  fm_opencode_ladder_quota_caps "$state_dir"
 
   for meta in "$state_dir"/*.meta; do
     [ -e "$meta" ] || continue
     id=$(basename "$meta" .meta)
     case "$id" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
     harness=$(fm_meta_get "$meta" harness 2>/dev/null) || continue
-    case "$harness" in opencode*) ;; *) continue ;; esac
     model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
+    case "$harness" in
+      opencode*) ;;
+      codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] || continue ;;
+      *) continue ;;
+    esac
     kind=$(fm_meta_get "$meta" kind 2>/dev/null) || kind=''
     model_bare=$(fm_opencode_ladder_bare_model "$model")
     case "$model_bare" in
-      "$free_bare"|"$go_bare") ;;
+      "$free_bare"|"$plus_bare"|"$go_bare") ;;
       # An empty record stays governed (it is refused loudly below, never
       # moved blind); anything else bare or prefixed outside the pair stays
       # silent as off-ladder.
@@ -442,9 +464,17 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
 
     # The trigger: a quota-scale cap on the supervision-grade verdict. A lane
     # that does not meet it ends whatever episode it was in.
-    if ! cap=$(fm_opencode_descent_cap "$state_dir" "$id"); then
-      fm_opencode_descent_clear_task "$state_dir" "$id"
-      continue
+    if [ "$model_bare" = "$plus_bare" ]; then
+      fm_opencode_descent_codex_limit_cap "$state_dir" "$id" || true
+      cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_PLUS_RUNG" 2>/dev/null) || cap=
+      case "$cap" in *'status=blocked'*) horizon=${cap##*horizon_s=} ;;
+        *) fm_opencode_descent_clear_task "$state_dir" "$id"; continue ;; esac
+      cap="$horizon plus plus-record"
+    else
+      if ! cap=$(fm_opencode_descent_cap "$state_dir" "$id"); then
+        fm_opencode_descent_clear_task "$state_dir" "$id"
+        continue
+      fi
     fi
     horizon=${cap%% *}; rest=${cap#* }
     bound=${rest%% *}; next=${rest#* }
@@ -463,8 +493,9 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
       *)
         case "$bound" in
           free|unbound)
-            "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" free "$next" \
-              2>/dev/null || true ;;
+            "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" free "$next" 2>/dev/null || true ;;
+          go)
+            "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" go "$next" 2>/dev/null || true ;;
         esac
         ;;
     esac
@@ -505,6 +536,12 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
       fi
       continue
     fi
+    target_model=$FM_OPENCODE_LADDER_PLUS_MODEL
+    target_harness=codex
+    [ "$model_bare" = "$plus_bare" ] && { target_model=$FM_OPENCODE_LADDER_GO; target_harness=opencode; }
+    target_rung=plus
+    [ "$target_model" = "$FM_OPENCODE_LADDER_GO" ] && target_rung=go
+    target_cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$target_rung" 2>/dev/null) || target_cap=
     if [ "$model_bare" = "$go_bare" ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
         printf 'refused %s is on the Go tier %s and it is capped too (%s); the ladder has no third rung - firstmate decision needed\n' \
@@ -520,6 +557,23 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
       continue
     fi
 
+    case "$target_cap" in
+      *'status=blocked'*)
+        if [ "$target_model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] && [ "$model_bare" = "$free_bare" ]; then
+          target_model=$FM_OPENCODE_LADDER_GO
+          target_harness=opencode
+          target_rung=go
+          target_cap=$("$_FM_OPENCODE_DESCENT_RETRY" check-cap "$state_dir" "$target_rung" 2>/dev/null) || target_cap=
+        fi
+        case "$target_cap" in *'status=blocked'*)
+          if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
+            printf 'refused %s cannot descend from %s because every later rung is capped\n' "$id" "$model"
+          fi
+          continue ;;
+        esac
+        ;;
+    esac
+
     # The move: the proven free cap relaunches the lane onto Go. The handoff
     # note owns the ambiguity when the cap evidence carries no model binding,
     # exactly as the dispatch gate's own notice does.
@@ -532,16 +586,17 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     if [ "$bound" = unbound ]; then
       note="$note, with no model binding on the cap evidence - biasing toward Go rather than stalling"
     fi
-    note="$note); the free session is parked with no forward progress. Relaunched onto the Go tier $FM_OPENCODE_LADDER_GO. Continue the task from this note plus the brief and committed work."
+    note="$note); the capped session is parked with no forward progress. Relaunched onto $target_harness rung $target_model. Continue the task from this note plus the brief and committed work."
+    relaunch_args=("$id" relaunch --harness "$target_harness" --model "$target_model" --note "$note")
+    [ "$target_harness" != codex ] || relaunch_args+=(--effort max)
     ctl_out=$(FM_HOME="${FM_HOME:-}" FM_STATE_OVERRIDE="$state_dir" \
-      "$(fm_opencode_descent_control)" "$id" relaunch \
-      --harness opencode --model "$FM_OPENCODE_LADDER_GO" --note "$note" 2>&1) && rc=0 || rc=$?
+      "$(fm_opencode_descent_control)" "${relaunch_args[@]}" 2>&1) && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then
       reason=${ctl_out%%$'\n'*}
       [ -n "$reason" ] || reason="the control plane refused without a reason"
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
         printf 'refused %s could not be relaunched from %s onto %s: %s\n' \
-          "$id" "$model" "$FM_OPENCODE_LADDER_GO" "$reason"
+          "$id" "$model" "$target_model" "$reason"
       fi
       continue
     fi
@@ -549,17 +604,17 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     # from the durable record, so a record still naming free would bring the
     # next relaunch straight back onto the capped tier.
     recorded=$(fm_meta_get "$meta" model 2>/dev/null) || recorded=''
-    if [ "$recorded" = "$FM_OPENCODE_LADDER_GO" ]; then
+    if [ "$recorded" = "$target_model" ]; then
       # The dead session's backoff describes nobody now; leaving it behind
       # would brand the replacement lane capped on its first evaluation.
       "$_FM_OPENCODE_DESCENT_RETRY" clear "$state_dir" "$id" 2>/dev/null || true
       fm_opencode_descent_clear_task "$state_dir" "$id"
-      printf 'relaunched %s %s -> %s\n' "$id" "$model" "$FM_OPENCODE_LADDER_GO"
+      printf 'relaunched %s %s -> %s\n' "$id" "$model" "$target_model"
     else
       after=${recorded:-<unreadable>}
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
         printf 'unrecorded %s was relaunched onto %s but its durable record still names %s; a further relaunch would bring it back onto the capped tier - investigate before moving it again\n' \
-          "$id" "$FM_OPENCODE_LADDER_GO" "$after"
+          "$id" "$target_model" "$after"
       fi
     fi
   done

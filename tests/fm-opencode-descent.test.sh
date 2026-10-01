@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Behavior tests for bin/fm-opencode-descent-lib.sh - the running-worker half
-# of the opencode free-then-Go ladder.
+# of the opencode free-then-Codex-then-Go ladder.
 #
 # The dispatch gate (bin/fm-opencode-ladder-lib.sh) routes the NEXT spawn; it
 # never looks at a lane again. A lane that starts on free and hits the cap
@@ -44,12 +44,26 @@ TMP_ROOT=$(fm_test_tmproot fm-opencode-descent)
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 trap 'rm -rf "$TMP_ROOT"' EXIT
+FAKEBIN="$TMP_ROOT/fakebin"
+mkdir -p "$FAKEBIN"
+cat > "$FAKEBIN/quota-axi" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${QUOTA_AXI_SNAPSHOT:-}" ] && [ -f "$QUOTA_AXI_SNAPSHOT" ]; then
+  cat "$QUOTA_AXI_SNAPSHOT"
+  exit 0
+fi
+exit 1
+SH
+chmod +x "$FAKEBIN/quota-axi"
+PATH="$FAKEBIN:$PATH"
+export PATH
 
 RETRY="$ROOT/bin/fm-opencode-retry.sh"
 BUSY="$ROOT/bin/fm-busy-event.sh"
 
 FREE='opencode/muse-spark-1.3-contributor-free'
 GO='opencode-go/muse-spark-1.3-contributor'
+PLUS='gpt-6-luna'
 # The plugin's own vocabulary: OpenCode's event stream reports model.id with
 # NO provider prefix, and recordRetry passes it straight through to the
 # sidecar. Production sidecars (2026-09-19) carry these bare forms, so the
@@ -133,8 +147,14 @@ printf '%s\n' "$*" >> "$FM_STUB_LOG"
 [ "${FM_STUB_EXIT:-0}" != 0 ] && exit 1
 if [ "${FM_STUB_PUBLISH_GO:-0}" = 1 ]; then
   id=$1
+  shift
+  model=
+  harness=
+  while [ "$#" -gt 0 ]; do
+    case "$1" in --model) model=$2; shift 2 ;; --harness) harness=$2; shift 2 ;; *) shift ;; esac
+  done
   meta="$FM_STUB_STATE/$id.meta"
-  sed 's|^model=.*|model=opencode-go/muse-spark-1.3-contributor|' "$meta" > "$meta.new" \
+  sed -e "s|^model=.*|model=$model|" -e "s|^harness=.*|harness=$harness|" "$meta" > "$meta.new" \
     && mv "$meta.new" "$meta"
 fi
 exit 0
@@ -214,7 +234,7 @@ test_stale_sidecar_needs_latch() {
   pass "a stale sidecar beside a resumed turn never moves a worker"
 }
 
-# --- 3. the recorded refusal relaunches onto Go -------------------------------
+# --- 3. the recorded refusal relaunches onto Codex Plus -----------------------
 
 test_recorded_refusal_relaunches_to_go() {
   local state out
@@ -232,22 +252,38 @@ test_recorded_refusal_relaunches_to_go() {
   esac
   stub_called || fail "a proven free cap must reach the control plane"
   case "$(stub_calls)" in
-    *'relaunch'*"$GO"*) : ;;
-    *) fail "the move must be a relaunch onto the Go tier, called: $(stub_calls)" ;;
+    *'relaunch'*"$PLUS"*) : ;;
+    *) fail "the move must be a relaunch onto Codex Plus, called: $(stub_calls)" ;;
   esac
   case "$(stub_calls)" in
     *'--note'*) : ;;
     *) fail "the replacement must inherit a handoff note, called: $(stub_calls)" ;;
   esac
-  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] \
-    || fail "the durable record must name Go after the move"
+  [ "$(fm_meta_model "$state" lane1)" = "$PLUS" ] \
+    || fail "the durable record must name Codex Plus after the move"
   [ ! -f "$state/lane1.opencode-retry" ] \
     || fail "the dead session's sidecar must be cleared after the move"
-  pass "the recorded free refusal relaunches the lane onto Go"
+  pass "the recorded free refusal relaunches the lane onto Codex Plus"
 }
 
 fm_meta_model() {  # <state-dir> <id> -> recorded model (test reader only)
   sed -n 's/^model=//p' "$1/$2.meta"
+}
+
+test_capped_plus_lane_descends_to_go() {
+  local state out cap
+  state=$(fresh_state plus-lane)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 codex "$PLUS" scout
+  printf '%s\n' "You've hit your usage limit. Try again at 2030-01-01T00:00:00Z" \
+    > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  out=$(run_tick "$state") || fail "tick must not fail on a Codex cap"
+  case "$out" in relaunched' '*) : ;; *) fail "a capped Codex lane must descend, said: ${out:-<silent>}" ;; esac
+  case "$(stub_calls)" in *'--harness opencode'*"$GO"*) : ;; *) fail "Codex must relaunch onto OpenCode Go, called: $(stub_calls)" ;; esac
+  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] || fail "the lane record must follow the Go relaunch"
+  cap=$("$RETRY" check-cap "$state" plus) || fail "Codex's stated reset must persist as the shared rung record"
+  assert_contains "$cap" 'reset_at=1893456000' "the Codex limit message's stated reset is preserved"
+  pass "a Codex usage-limit message records its reset and descends across harnesses"
 }
 
 # --- 3b. the plugin's bare-model vocabulary binds the same rungs -------------
@@ -288,14 +324,14 @@ test_plugin_vocabulary_bare_free_lane_descends() {
   esac
   stub_called || fail "a bare-recorded free lane must reach the control plane"
   case "$(stub_calls)" in
-    *'relaunch'*"$GO"*) : ;;
-    *) fail "the move must be a relaunch onto the Go tier, called: $(stub_calls)" ;;
+    *'relaunch'*"$PLUS"*) : ;;
+    *) fail "the move must be a relaunch onto Codex Plus, called: $(stub_calls)" ;;
   esac
-  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] \
+  [ "$(fm_meta_model "$state" lane1)" = "$PLUS" ] \
     || fail "the durable record must name Go after the move"
   [ ! -f "$state/lane1.opencode-retry" ] \
     || fail "the dead session's sidecar must be cleared after the move"
-  pass "a bare-recorded free lane descends onto Go past a bare-model cap"
+  pass "a bare-recorded free lane descends onto Codex Plus past a bare-model cap"
 }
 
 test_plugin_vocabulary_bare_go_lane_refused() {
@@ -525,21 +561,21 @@ test_idle_after_cap_relaunches_to_go() {
   esac
   stub_called || fail "an idle-after-cap lane must reach the control plane"
   case "$(stub_calls)" in
-    *'relaunch'*"$GO"*) : ;;
-    *) fail "the move must be a relaunch onto the Go tier, called: $(stub_calls)" ;;
+    *'relaunch'*"$PLUS"*) : ;;
+    *) fail "the move must be a relaunch onto Codex Plus, called: $(stub_calls)" ;;
   esac
   case "$(stub_calls)" in
     *'no retry horizon on record'*) : ;;
     *) fail "the handoff note must own the missing horizon, called: $(stub_calls)" ;;
   esac
-  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] \
-    || fail "the durable record must name Go after the move"
+  [ "$(fm_meta_model "$state" lane1)" = "$PLUS" ] \
+    || fail "the durable record must name Codex Plus after the move"
   # A relaunched lane wakes in a fresh pane: the next evaluation sees clean
   # text and stays silent rather than re-firing on the old capture.
   printf '%s\n' 'fresh session, working' 'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
   out=$(run_tick "$state") || fail "tick must never fail"
   [ -z "$out" ] || fail "a relaunched lane with a clean pane must stay silent, said: $out"
-  pass "an idle-after-cap lane relaunches onto Go"
+  pass "an idle-after-cap lane relaunches onto Codex Plus"
 }
 
 test_idle_healthy_lane_stays() {
@@ -560,6 +596,7 @@ test_transient_retry_stays
 test_expired_cap_stays
 test_stale_sidecar_needs_latch
 test_recorded_refusal_relaunches_to_go
+test_capped_plus_lane_descends_to_go
 test_plugin_vocabulary_free_cap_binds_free
 test_plugin_vocabulary_bare_free_lane_descends
 test_plugin_vocabulary_bare_go_lane_refused

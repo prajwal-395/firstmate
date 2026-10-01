@@ -245,14 +245,14 @@ test_rung_cap_expires_and_degrades() {
   pass "an expired or malformed rung record degrades to nothing-to-classify"
 }
 
-test_rung_cap_threshold_is_tunable() {
+test_rung_cap_ignores_retry_threshold() {
   local d="$TMP_ROOT/rung-threshold"; mkdir -p "$d"
   "$HELPER" record-cap "$d" free "$(ms_from_now 8)" || fail "record-cap refused fixture"
   FM_OPENCODE_RETRY_BLOCK_SECS=1 "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=blocked" \
-    || fail "a 1s threshold should flip an 8s rung horizon to blocked"
-  FM_OPENCODE_RETRY_BLOCK_SECS=999999 "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=waiting" \
-    || fail "a huge threshold should keep a rung-scale horizon waiting"
-  pass "the rung record honors the same blocked threshold"
+    || fail "a rung reset record stays blocked until its reset"
+  FM_OPENCODE_RETRY_BLOCK_SECS=999999 "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=blocked" \
+    || fail "a rung record remains capped until its reset regardless of retry threshold"
+  pass "a rung reset record ignores the retry threshold"
 }
 
 test_rung_cap_verdict_keeps_expired_and_absent_apart() {
@@ -270,12 +270,12 @@ test_rung_cap_verdict_keeps_expired_and_absent_apart() {
     || fail "verdict-cap must always answer, even past the cap"
   assert_contains "$out" "verdict=capped" "a live rung cap reads capped"
   assert_contains "$out" "evidence=rung-record" "the finding names where it lives"
-  # Live but short horizon: worth watching, not quota-scale.
+  # A future reset remains capped even inside the sidecar transient horizon.
   "$HELPER" record-cap "$d" go "$(ms_from_now 8)" \
     || fail "record-cap refused a transient rung observation"
   out=$("$HELPER" verdict-cap "$d" go) \
     || fail "verdict-cap must always answer a transient record"
-  assert_contains "$out" "verdict=waiting" "a transient rung horizon reads waiting, never capped"
+  assert_contains "$out" "verdict=capped" "any future reset reads capped"
   # Expired: a cap WAS proved and its window has passed - free is worth
   # trying, and the record says why. Same routing as absent, different fact.
   # An isolated dir keeps the expired free record clear of the live one above.
@@ -341,8 +341,7 @@ test_rung_cap_commands_reject_the_same_set() {
 }
 
 test_rung_cap_accepted_rungs_work_end_to_end() {
-  # Every ladder rung classifies consistently: a quota-scale horizon
-  # reads blocked (capped) and a seconds-long horizon reads waiting.
+  # Every unexpired rung reset record reads blocked until its exact reset.
   local rung d_long d_short out
   for rung in free go plus; do
     d_long="$TMP_ROOT/rung-e2e-$rung-blocked"; mkdir -p "$d_long"
@@ -354,17 +353,17 @@ test_rung_cap_accepted_rungs_work_end_to_end() {
     out=$("$HELPER" verdict-cap "$d_long" "$rung") \
       || fail "verdict-cap must answer a live record for rung '$rung'"
     assert_contains "$out" "verdict=capped" "a quota-scale record on '$rung' reads capped"
-    d_short="$TMP_ROOT/rung-e2e-$rung-waiting"; mkdir -p "$d_short"
+    d_short="$TMP_ROOT/rung-e2e-$rung-short-reset"; mkdir -p "$d_short"
     "$HELPER" record-cap "$d_short" "$rung" "$(ms_from_now 8)" \
       || fail "record-cap refused a transient observation for rung '$rung'"
     out=$("$HELPER" check-cap "$d_short" "$rung") \
       || fail "check-cap refused a transient record for rung '$rung'"
-    assert_contains "$out" "status=waiting" "8s horizon on '$rung' reads waiting, never blocked"
+    assert_contains "$out" "status=blocked" "a recorded cap on '$rung' stays blocked until reset"
     out=$("$HELPER" verdict-cap "$d_short" "$rung") \
       || fail "verdict-cap must answer a transient record for rung '$rung'"
-    assert_contains "$out" "verdict=waiting" "a transient record on '$rung' reads waiting"
+    assert_contains "$out" "verdict=capped" "a future reset on '$rung' remains capped"
   done
-  pass "the accepted rungs classify blocked above the threshold and waiting below it"
+  pass "all accepted rung records stay capped until their exact reset"
 }
 
 test_cap_horizon_is_blocked
@@ -379,7 +378,7 @@ test_verdict_three_states
 test_rung_cap_is_preserved_and_classified
 test_rung_cap_newer_evidence_wins
 test_rung_cap_expires_and_degrades
-test_rung_cap_threshold_is_tunable
+test_rung_cap_ignores_retry_threshold
 test_rung_cap_verdict_keeps_expired_and_absent_apart
 test_rung_cap_rejects_unknown_rung
 test_rung_cap_commands_reject_the_same_set
