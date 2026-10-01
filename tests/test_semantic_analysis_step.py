@@ -24,7 +24,9 @@ import sys
 
 import pytest
 
+from library.steps.step_1_03_semantic_analysis import step as semantic_step
 from library.steps.step_1_03_semantic_analysis.step import (
+    _analyse_missing,
     _profile_stems,
     _run_clip_vision,
 )
@@ -91,3 +93,53 @@ def test_clip_vision_failure_still_raises_for_the_caller():
     with pytest.raises(subprocess.CalledProcessError):
         _run_clip_vision(
             [sys.executable, "-c", "import sys; sys.exit(1)"])
+
+
+def _fake_vision(analysis_dir, dies_on=()):
+    """A stand-in vision child: works its --clip list in order, writes a
+    profile per clip, and dies on any clip named in `dies_on`."""
+    calls = []
+
+    def run(cmd, progress=None):
+        clips = cmd[cmd.index("--clip") + 1:]
+        calls.append(clips)
+        for clip in clips:
+            stem = os.path.splitext(os.path.basename(clip))[0]
+            if stem in dies_on:
+                raise subprocess.CalledProcessError(1, cmd)
+            _touch(analysis_dir, f"clip_profile_{stem}_v3.json")
+
+    return run, calls
+
+
+def test_missing_clips_share_one_vision_child(tmp_path):
+    """The defect: one child per clip loaded Gemma once per clip
+    (measured 2026-10-01, three 6s clips: three model loads). All
+    missing clips now go to one child, so the model loads once."""
+    run, calls = _fake_vision(str(tmp_path))
+    clips = [f"/raw/A{i}.MOV" for i in range(3)]
+    _analyse_missing(clips, ["vision"], str(tmp_path), run=run)
+    assert calls == [clips]
+    assert _profile_stems(str(tmp_path)) == {"A0", "A1", "A2"}
+
+
+def test_a_clip_that_kills_the_child_costs_only_itself(tmp_path):
+    """Per-clip children isolated a bad clip; the batch keeps that: the
+    clip the child died on is skipped and a fresh child takes the rest."""
+    run, calls = _fake_vision(str(tmp_path), dies_on={"A1"})
+    clips = [f"/raw/A{i}.MOV" for i in range(4)]
+    _analyse_missing(clips, ["vision"], str(tmp_path), run=run)
+    assert calls == [clips, clips[2:]]
+    assert _profile_stems(str(tmp_path)) == {"A0", "A2", "A3"}
+
+
+def test_the_wedge_ceiling_restarts_on_each_finished_clip(monkeypatch):
+    """One child now runs N clips, so the ceiling must stay per CLIP:
+    a child that keeps landing profiles is never killed, one that
+    stalls is."""
+    monkeypatch.setattr(semantic_step, "CLIP_ANALYSIS_TIMEOUT_S", 0.6)
+    ticks = iter(range(1000))
+    sleeper = [sys.executable, "-c", "import time; time.sleep(1.5)"]
+    _run_clip_vision(sleeper, progress=lambda: next(ticks), poll_s=0.1)
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_clip_vision(sleeper, progress=lambda: 0, poll_s=0.1)

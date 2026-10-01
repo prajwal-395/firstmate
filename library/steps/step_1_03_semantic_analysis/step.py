@@ -13,7 +13,7 @@ and points here.
 **Never invoke `step_1_03_semantic_analysis/step.py` against a real project to test it.**
 Exercise the collection half with an analysis dir of copied profiles and `raw_footage_files: []`. [why](docs/RULE_EVIDENCE.md#semantic-analysis-triggers-a-vision-run)
 """
-import json, sys, subprocess, os, glob
+import json, sys, subprocess, os, glob, time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
@@ -28,11 +28,16 @@ from library.tools import code_identity
 # minutes. A clip that overruns is SKIPPED, not fatal, so a tight ceiling
 # silently drops the longest - and therefore usually the most important -
 # footage from the analysis. This one exists to break a wedge.
+#
+# It stays a PER-CLIP ceiling although one child now analyses the whole
+# batch: the clock restarts every time the child lands a profile, so a
+# wedge is broken after this long on ONE clip, never after N times it.
 CLIP_ANALYSIS_TIMEOUT_S = int(os.environ.get("PIPELINE_CLIP_ANALYSIS_TIMEOUT_S", 3600))
+_PROGRESS_POLL_S = 5.0
 
 
-def _run_clip_vision(cmd):
-    """Run one per-clip vision child without letting it write our stdout.
+def _run_clip_vision(cmd, progress=None, poll_s=_PROGRESS_POLL_S):
+    """Run one vision child without letting it write our stdout.
 
     The step's contract with the runner is JSON on stdout, logs on
     stderr (`library/tools/step_stdout.py`), and the final `json.dump`
@@ -42,26 +47,84 @@ def _run_clip_vision(cmd):
     prepended to the result, so the runner rejects the whole step as
     "Step produced invalid JSON" AFTER every clip was analysed
     (measured 2026-09-24 on the rung-0a proof run: 11 profiles
-    collected, step failed, retry burned the same wall twice). Capture
-    both streams and forward them to stderr, where the runner streams
-    them as the step's log. `check`/`timeout` semantics are unchanged:
-    a nonzero exit still raises `CalledProcessError`, an overrun still
-    raises `TimeoutExpired`, and the caller skips the clip either way.
+    collected, step failed, retry burned the same wall twice). Both of
+    the child's streams go to this process's stderr descriptor, where
+    the runner streams them as the step's log, live.
+
+    `progress` is a zero-argument callable returning a count that grows
+    as the child finishes clips (profiles on disk); the
+    `CLIP_ANALYSIS_TIMEOUT_S` deadline restarts whenever it grows. A
+    nonzero exit raises `CalledProcessError`; an overrun kills the child
+    and raises `TimeoutExpired`.
     """
-    completed = subprocess.run(
-        cmd,
-        check=True,
-        timeout=CLIP_ANALYSIS_TIMEOUT_S,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if completed.stdout:
-        print(completed.stdout, file=sys.stderr, end="")
-    if completed.stderr:
-        print(completed.stderr, file=sys.stderr, end="")
-    return completed
+    stderr_fd = sys.stderr.fileno()
+    child = subprocess.Popen(cmd, stdout=stderr_fd, stderr=stderr_fd)
+    last = progress() if progress else None
+    deadline = time.monotonic() + CLIP_ANALYSIS_TIMEOUT_S
+    try:
+        while True:
+            try:
+                returncode = child.wait(
+                    timeout=max(0.0, min(poll_s, deadline - time.monotonic())))
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if progress:
+                now = progress()
+                if now != last:
+                    last = now
+                    deadline = time.monotonic() + CLIP_ANALYSIS_TIMEOUT_S
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(cmd, CLIP_ANALYSIS_TIMEOUT_S)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+    if returncode:
+        raise subprocess.CalledProcessError(returncode, cmd)
+    return returncode
+
+
+def _analyse_missing(missing_paths, base_cmd, analysis_dir, run=None):
+    """Analyse `missing_paths` in as few vision children as possible.
+
+    One child takes the whole batch, so Gemma is loaded once per run
+    instead of once per clip (measured 2026-10-01: three 6s clips paid
+    three model loads). The child writes each profile the moment its
+    clip finishes, so an interrupted run still resumes per clip.
+
+    A clip that kills the child (crash, nonzero exit, wedge) costs only
+    itself, as when each clip had its own child: the child works the
+    list IN ORDER, so the clip it died on is the first one still without
+    a profile. That clip is reported and skipped, and a fresh child takes
+    the rest. A clip the child declines without dying (no video stream)
+    gets no profile and is not retried, as before.
+    """
+    run = run or _run_clip_vision
+    pending = list(missing_paths)
+
+    def _profiles_on_disk():
+        return len(_profile_stems(analysis_dir))
+
+    while pending:
+        print(f"  Analyzing {len(pending)} clip(s) in one vision run: "
+              + ", ".join(os.path.basename(p) for p in pending),
+              file=sys.stderr)
+        try:
+            run(base_cmd + ['--clip', *pending], progress=_profiles_on_disk)
+            return
+        except subprocess.TimeoutExpired:
+            failure = "Timeout"
+        except subprocess.CalledProcessError as e:
+            failure = f"Error ({e})"
+        done = _profile_stems(analysis_dir)
+        remaining = [p for p in pending
+                     if os.path.splitext(os.path.basename(p))[0] not in done]
+        if not remaining:
+            return
+        print(f"  ⚠ {failure} on {os.path.basename(remaining[0])}, skipping",
+              file=sys.stderr)
+        pending = remaining[1:]
 
 
 # Profiles are keyed by the media file's STEM, and that is deliberate.
@@ -238,30 +301,18 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
     if missing_clips:
         print(f"Running vision pipeline on {len(missing_clips)} new clips...", file=sys.stderr)
         
-        # Run on each missing clip individually. Each writes its own profile
-        # before the next starts, so an interrupted run resumes where it
-        # stopped instead of starting over.
-        for n, clip in enumerate(missing_clips, 1):
-            clip_path = clip["path"]
-            print(f"  [{n}/{len(missing_clips)}] Analyzing: "
-                  f"{os.path.basename(clip_path)}", file=sys.stderr)
-            try:
-                # --project-folder gives the still-vision handshake a
-                # project to file under when a host drives (the
-                # captain's 2026-09-24 ruling: stills to the driver
-                # first, gemma fallback). The harness itself travels
-                # via PIPELINE_HOST_HARNESS, set by the runner from
-                # --full-auto - this step never guesses it, and with
-                # no host the still passes stay on gemma.
-                cmd = [sys.executable, VISION_PIPELINE, '--clip', clip_path,
-                       '--output-dir', analysis_dir]
-                if project_folder:
-                    cmd += ['--project-folder', project_folder]
-                _run_clip_vision(cmd)
-            except subprocess.TimeoutExpired:
-                print(f"  ⚠ Timeout on {os.path.basename(clip_path)}, skipping", file=sys.stderr)
-            except subprocess.CalledProcessError as e:
-                print(f"  ⚠ Error on {os.path.basename(clip_path)}: {e}", file=sys.stderr)
+        # --project-folder gives the still-vision handshake a project to
+        # file under when a host drives (the captain's 2026-09-24 ruling:
+        # stills to the driver first, gemma fallback). The harness itself
+        # travels via PIPELINE_HOST_HARNESS, set by the runner from
+        # --full-auto - this step never guesses it, and with no host the
+        # still passes stay on gemma.
+        base_cmd = [sys.executable, VISION_PIPELINE,
+                    '--output-dir', analysis_dir]
+        if project_folder:
+            base_cmd += ['--project-folder', project_folder]
+        _analyse_missing([clip["path"] for clip in missing_clips],
+                         base_cmd, analysis_dir)
     else:
         print("All clips already have vision profiles, skipping analysis.", file=sys.stderr)
     
