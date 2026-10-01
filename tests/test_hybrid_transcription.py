@@ -377,6 +377,10 @@ def test_the_record_says_which_transcriber_and_which_window(monkeypatch):
         "windows": 1,
         # 0.0..0.95: the head pad is clipped at the file's start.
         "covered_seconds": pytest.approx(0.95),
+        # A clean run places every boundary with MFA: nothing keeps
+        # the transcriber's own timings.
+        "transcriber_timed_windows": 0,
+        "transcriber_timed_words": 0,
     }
 
 
@@ -405,6 +409,54 @@ def test_the_aligner_is_asked_for_the_language_the_identifier_heard(
 
     hybrid_transcription.transcribe_and_align("audio.wav", _aligner(_remember))
     assert asked["language"] == "en"
+
+
+def test_transcriber_timed_words_are_counted_on_the_record(monkeypatch):
+    """A window MFA could not align keeps voz's timings marked
+    `timing_source: "transcriber"` (the LCATL0013 shape, 2026-10-01):
+    the pass succeeds and the record counts how many windows and words
+    MFA never placed, because the two timings are different
+    measurements."""
+    monkeypatch.setattr(heard_speech, "identify_language",
+                        lambda path, **kw: heard_speech.HeardLanguage("en", 1.0))
+    monkeypatch.setattr(
+        heard_speech, "transcribe",
+        lambda path, **kw: _heard(
+            [("Craig", 1.0, 1.2), ("nods", 1.2, 1.5),
+             ("Yeah.", 5.0, 5.16)],
+            [("Craig nods", 1.0, 1.5), ("Yeah.", 5.0, 5.16)]))
+
+    def _one_fallback_window(windows, language, audio_path):
+        segments = []
+        for window in windows:
+            if window["text"] == "Yeah.":
+                words = [{"word": w["word"], "start": w["start"],
+                          "end": w["end"], "timed": True,
+                          "timing_source":
+                          hybrid_transcription.TRANSCRIBER_TIMING_SOURCE}
+                         for w in window["source_words"]]
+            else:
+                words = [{"word": token, "start": window["start"],
+                          "end": window["end"]}
+                         for token in window["text"].split()]
+            segments.append({"start": window["start"],
+                             "end": window["end"],
+                             "text": window["text"], "words": words})
+        return {"segments": segments}
+
+    result = hybrid_transcription.transcribe_and_align(
+        "audio.wav", _aligner(_one_fallback_window))
+    assert len(result.aligned["segments"]) == 2
+    assert result.record["alignment_window"]["transcriber_timed_windows"] == 1
+    assert result.record["alignment_window"]["transcriber_timed_words"] == 1
+
+
+def test_a_clean_pass_counts_no_transcriber_timed_words(monkeypatch):
+    _clean(monkeypatch)
+    record = hybrid_transcription.transcribe_and_align(
+        "audio.wav", _aligner(_one_word_per_window)).record
+    assert record["alignment_window"]["transcriber_timed_windows"] == 0
+    assert record["alignment_window"]["transcriber_timed_words"] == 0
 
 
 def test_a_fallback_record_names_the_trigger_and_what_was_measured():

@@ -614,9 +614,32 @@ def transcribe_clips_batched(requests: list,
                     offsets = {path: offset for path, offset in spans}
                     by_language: dict = {}
                     for key, path, onsets, detected, windows in batchable:
-                        shifted = [dict(w, start=w["start"] + offsets[path],
-                                        end=w["end"] + offsets[path])
-                                   for w in windows]
+                        offset = offsets[path]
+                        shifted = []
+                        for window in windows:
+                            row = dict(window, start=window["start"] + offset,
+                                       end=window["end"] + offset)
+                            sources = row.get("source_words")
+                            if isinstance(sources, list):
+                                # The merge falls back to these spans for
+                                # a window no pass can align, so they
+                                # ride the concat clock like the window
+                                # itself - unshifted, the split-back
+                                # below would subtract the offset from
+                                # the wrong clock.
+                                row["source_words"] = [
+                                    dict(span,
+                                         start=span["start"] + offset,
+                                         end=span["end"] + offset)
+                                    if isinstance(span, dict)
+                                    and isinstance(span.get("start"),
+                                                   (int, float))
+                                    and isinstance(span.get("end"),
+                                                   (int, float))
+                                    else span
+                                    for span in sources
+                                ]
+                            shifted.append(row)
                         by_language.setdefault(detected, []).append(
                             (key, path, onsets, shifted))
                     # The reel path's own aligner (MFA, the only one

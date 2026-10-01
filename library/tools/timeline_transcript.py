@@ -458,7 +458,12 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
     * Anything else - an uncovered speech-window language, an alignment
       window that produced no words, MFA declining the run, the
       transcriber not installed at all - propagates as
-      `hybrid_transcription.FallbackRequired`. Stretched MFA word tails
+      `hybrid_transcription.FallbackRequired`. Since 2026-10-01 a single
+      MFA window no pass can align no longer propagates: it is recovered
+      on a widened span first, then kept with the transcriber's own
+      timings marked as unaligned, and only broad failure (past
+      `mfa_align.MAX_UNALIGNED_FRACTION`) still refuses. Stretched MFA
+      word tails
       are sanitized by `word_boundaries` before they reach this seam's
       callers. An empty transcript would read as "no speech" where the
       honest answer is "could not hear". Step 1.04 catches a refusal per

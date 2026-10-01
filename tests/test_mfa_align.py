@@ -1,4 +1,5 @@
-"""MFA in the aligner slot: normalization, merge, retry, decline, record.
+"""MFA in the aligner slot: normalization, merge, retry, recovery, decline,
+record.
 
 Nothing here runs the real `mfa` binary, loads an alignment model, or
 reaches a real project. The subprocess is stubbed at
@@ -17,8 +18,10 @@ What these pin, and why each is here
   token is timed only when every normalized piece aligns or an exact
   measured one-to-one transcriber span exists.
 - A transiently empty chunk (~0.9% of sentences, recovered 12 of
-  12 on rerun) is RETRIED; only a chunk still empty after the retry
-  declines the run.
+  12 on rerun) is RETRIED; a chunk still empty after the retry is
+  RECOVERED on a widened span, and only a window no pass can align
+  keeps the transcriber's own timings marked - the run is refused
+  only past MAX_UNALIGNED_FRACTION (one window never refuses).
 - An absent MFA environment declines rather than raising, and the
   record says which aligner timed the run either way. Since
   2026-09-24 there is no wav2vec2 second chance behind a decline:
@@ -231,7 +234,175 @@ def test_mfa_dropped_word_keeps_transcriber_timing_through_transcript(
         "text": "Hello there friend", "words": words}) is None
 
 
-# ── 4. the retry, then the decline
+# ── 4. one unaligned window no longer refuses the file ──
+#
+# Pins the LCATL0013 defect, 2026-10-01: the disfluent "Then you're
+# then you're Yeah, okay." failed in the full 1,025-window corpus and
+# after the same-span retry, yet aligned in a one-window corpus - and
+# the old zero-tolerance rule refused the whole file over it
+# (`mfa_chunk_unaligned`, 10,621 words lost over 6). These tests stub
+# `_run_mfa` by planting TextGrids, the same seam the retry tests use;
+# the proof the widened span recovers the real window is the
+# transcription itself, reported in firstmate
+# `data/vep-mfa-one-window-drops-whole-file/eval.md`.
+
+
+def _sourced_windows():
+    """Real hybrid windows (with `source_words`) over synthetic spans."""
+    texts = [
+        "Craig nods along",
+        "Lucie laughs then continues",
+        "Then you're then you're Yeah, okay.",
+        "So the system ships",
+    ]
+    words, sentences = [], []
+    cursor = 10.0
+    for text in texts:
+        spans = []
+        for token in text.split():
+            spans.append((token, round(cursor, 3), round(cursor + 0.24, 3)))
+            cursor = round(cursor + 0.34, 3)
+        words.extend(spans)
+        sentences.append((text, spans[0][1], spans[-1][2]))
+        cursor = round(cursor + 0.8, 3)
+    spoken = heard_speech.HeardSpeech(
+        words=[heard_speech.HeardWord(word, start, end)
+               for word, start, end in words],
+        sentences=[heard_speech.HeardSentence(text, start, end)
+                   for text, start, end in sentences],
+        text=" ".join(word for word, _s, _e in words))
+    return hybrid_transcription.alignment_windows(spoken)
+
+
+def _plant_lab_text(corpus_dir: Path, out_dir: Path, name: str) -> None:
+    """A TextGrid timing every token of the chunk's own `.lab` text."""
+    lab = (corpus_dir / f"{name}.lab").read_text(encoding="utf-8")
+    tokens = lab.split()
+    _plant(out_dir, name,
+           [(token.lower(), 0.05 + 0.1 * at, 0.1 + 0.1 * at)
+            for at, token in enumerate(tokens)])
+
+
+def test_a_single_unaligned_window_keeps_transcriber_timings_rather_than_refusing_the_file(
+        monkeypatch, tmp_path):
+    """The old whole-file refusal, pinned: one window MFA cannot align
+    on any pass used to raise `mfa_chunk_unaligned` and drop the file.
+    Now the file completes, the window keeps voz's own timings marked,
+    and the document names it."""
+    audio = _wav(tmp_path / "speaker.wav", seconds=30.0)
+    windows = _sourced_windows()
+    bad = 2
+
+    def _never_bad(corpus_dir, out_dir):
+        for wav_path in sorted(corpus_dir.glob("*.wav")):
+            if wav_path.stem.endswith(f"{bad:04d}"):
+                continue
+            _plant_lab_text(corpus_dir, out_dir, wav_path.stem)
+
+    monkeypatch.setattr(mfa_align, "_run_mfa", _never_bad)
+    out = mfa_align.align(windows, "en", str(audio))
+
+    assert len(out["segments"]) == len(windows)
+    for index, segment in enumerate(out["segments"]):
+        own = windows[index]["source_words"]
+        assert [w["word"] for w in segment["words"]] == [
+            s["word"] for s in own]
+        assert all("start" in w and "end" in w
+                   for w in segment["words"])
+    fallen = out["segments"][bad]["words"]
+    assert all(w.get("timing_source") == "transcriber" for w in fallen)
+    assert [(w["start"], w["end"]) for w in fallen] == [
+        (s["start"], s["end"]) for s in windows[bad]["source_words"]]
+    for index, segment in enumerate(out["segments"]):
+        if index != bad:
+            assert all("timing_source" not in w
+                       for w in segment["words"])
+    assert out["mfa_recovery"] == {
+        "recovered_window_indexes": [],
+        "transcriber_timed_window_indexes": [bad],
+    }
+
+
+def test_a_widened_recovery_realigns_a_window_the_main_pass_lost(
+        monkeypatch, tmp_path):
+    """Recovery is tried before fallback: a window empty on the main
+    and retry passes but alignable on the widened span comes back with
+    MFA timings (no `timing_source` mark) and is named as recovered."""
+    audio = _wav(tmp_path / "speaker.wav", seconds=30.0)
+    windows = _sourced_windows()
+    bad = 2
+    seen_spans = {}
+
+    def _wide_only(corpus_dir, out_dir):
+        for wav_path in sorted(corpus_dir.glob("*.wav")):
+            name = wav_path.stem
+            with wave.open(str(wav_path), "rb") as wav:
+                frames = wav.getnframes()
+                rate = wav.getframerate()
+            seen_spans[name] = frames / rate
+            if name.endswith(f"{bad:04d}") and not name.startswith(
+                    "recovered_"):
+                continue
+            _plant_lab_text(corpus_dir, out_dir, name)
+
+    monkeypatch.setattr(mfa_align, "_run_mfa", _wide_only)
+    out = mfa_align.align(windows, "en", str(audio))
+
+    assert out["mfa_recovery"] == {
+        "recovered_window_indexes": [bad],
+        "transcriber_timed_window_indexes": [],
+    }
+    fallen = out["segments"][bad]["words"]
+    assert all("timing_source" not in w for w in fallen)
+    assert all("start" in w and "end" in w for w in fallen)
+    main_span = seen_spans[f"chunk_{bad:04d}"]
+    recovery_span = seen_spans[f"recovered_{bad:04d}"]
+    assert recovery_span == pytest.approx(
+        main_span + 2 * mfa_align.RECOVERY_PAD_SECONDS)
+
+
+def test_broad_alignment_failure_still_refuses(monkeypatch, tmp_path):
+    """6 of 10 windows unaligned (60%, far past the 5% fraction) still
+    declines with `mfa_chunk_unaligned` - the refusal stays for a file
+    where alignment genuinely fails broadly."""
+    audio = _wav(tmp_path / "speaker.wav", seconds=60.0)
+    words, sentences = [], []
+    cursor = 1.0
+    for line in range(10):
+        text = f"line number {line} here"
+        spans = []
+        for token in text.split():
+            spans.append((token, round(cursor, 3), round(cursor + 0.2, 3)))
+            cursor = round(cursor + 0.3, 3)
+        words.extend(spans)
+        sentences.append((text, spans[0][1], spans[-1][2]))
+        cursor = round(cursor + 0.5, 3)
+    spoken = heard_speech.HeardSpeech(
+        words=[heard_speech.HeardWord(word, start, end)
+               for word, start, end in words],
+        sentences=[heard_speech.HeardSentence(text, start, end)
+                   for text, start, end in sentences],
+        text=" ".join(word for word, _s, _e in words))
+    windows = hybrid_transcription.alignment_windows(spoken)
+    assert len(windows) == 10
+    dead = {0, 1, 2, 3, 4, 5}
+
+    def _mostly_dead(corpus_dir, out_dir):
+        for wav_path in sorted(corpus_dir.glob("*.wav")):
+            name = wav_path.stem
+            tail = name.rsplit("_", 1)[-1]
+            if tail.isdigit() and int(tail) in dead:
+                continue
+            _plant_lab_text(corpus_dir, out_dir, name)
+
+    monkeypatch.setattr(mfa_align, "_run_mfa", _mostly_dead)
+    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
+        mfa_align.align(windows, "en", str(audio))
+    assert refused.value.reason == mfa_align.MFA_CHUNK_UNALIGNED
+    assert "6 of 10" in refused.value.detail
+
+
+# ── 5. the retry, then the decline
 
 
 def _plant(out_dir: Path, name: str, words) -> None:
@@ -292,7 +463,7 @@ def test_a_chunk_empty_after_retry_declines_the_run(monkeypatch, tmp_path):
     assert refused.value.reason == mfa_align.MFA_CHUNK_UNALIGNED
 
 
-# ── 5. the declines, each one a refusal rather than a crash
+# ── 6. the declines, each one a refusal rather than a crash
 
 
 def test_an_absent_environment_declines_rather_than_raising(monkeypatch, tmp_path):
@@ -302,7 +473,7 @@ def test_an_absent_environment_declines_rather_than_raising(monkeypatch, tmp_pat
     assert refused.value.reason == mfa_align.MFA_ENVIRONMENT_ABSENT
 
 
-# ── 6. the seam: MFA times the run, the record says which aligner ──
+# ── 7. the seam: MFA times the run, the record says which aligner ──
 
 
 def _heard(monkeypatch):
@@ -395,7 +566,7 @@ def test_the_document_says_which_aligner_timed_each_speaker():
     assert record["aligners"] == {"Akshita": "mfa", "Craig": "wav2vec2"}
 
 
-# ── 7. the environment half: discovered, overridable, refusing by name
+# ── 8. the environment half: discovered, overridable, refusing by name
 
 
 def test_the_mfa_binary_lives_under_vep_home(monkeypatch, tmp_path):

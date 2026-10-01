@@ -323,3 +323,73 @@ def test_speech_window_language_avoids_language_not_covered_for_batch(
     # first second, on their own clocks.
     assert first["words"][0]["start"] == second["words"][0]["start"]
     assert first["words"][0]["start"] < 1.0
+
+
+def test_batch_windows_carry_source_spans_on_the_concat_clock(
+        monkeypatch, tmp_path):
+    """The merge falls back to a window's `source_words` for a span no
+    pass can align, so the batch shifts those spans into the concat
+    like the window itself - unshifted, the split-back subtracts the
+    offset from the wrong clock and a kept window lands seconds off."""
+    from library.tools import heard_speech
+
+    monkeypatch.setattr(
+        heard_speech, "identify_language",
+        lambda path, **kw: heard_speech.HeardLanguage("en", 0.98))
+    monkeypatch.setattr(
+        heard_speech, "transcribe",
+        lambda path, **kw: heard_speech.HeardSpeech(
+            words=[heard_speech.HeardWord("Hi.", 0.5, 0.9)],
+            sentences=[heard_speech.HeardSentence("Hi.", 0.5, 0.9)],
+            text="Hi.",
+            engine={"transcriber": "da", "version": "0.1.1"}))
+
+    import library.tools.timeline_transcript as tt
+
+    received = []
+
+    def _capture(segments, language, audio_path):
+        received.extend(segments)
+        out = []
+        for segment in segments:
+            out.append({
+                "start": segment["start"], "end": segment["end"],
+                "text": segment["text"],
+                "words": [{"word": "Hi.",
+                           "start": segment["start"],
+                           "end": segment["end"]}],
+            })
+        return {"segments": out,
+                "aligner": hybrid_transcription.ALIGNER_MFA}
+
+    monkeypatch.setattr(
+        tt, "_aligner",
+        lambda: hybrid_transcription.Aligner(
+            covers=lambda language: True, align=_capture))
+
+    import wave
+    audios = []
+    for name in ("a.wav", "b.wav"):
+        path = str(tmp_path / name)
+        with wave.open(path, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16000)
+            wav.writeframes(b"\x00\x00" * 16000)
+        audios.append(path)
+
+    temporal_index.transcribe_clips_batched(
+        [{"key": "clip_001", "audio_path": audios[0]},
+         {"key": "clip_002", "audio_path": audios[1]}],
+        language="en")
+
+    assert len(received) == 2
+    first_sources = received[0]["source_words"]
+    second_sources = received[1]["source_words"]
+    # Clip 2 starts one second into the concat: its window AND its
+    # source spans ride one second up.
+    assert received[1]["start"] == pytest.approx(
+        received[0]["start"] + 1.0)
+    assert second_sources[0]["start"] == pytest.approx(
+        first_sources[0]["start"] + 1.0)
+    assert second_sources[0]["start"] == pytest.approx(0.5 + 1.0)

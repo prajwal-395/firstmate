@@ -69,9 +69,13 @@ Two conditions refuse a hybrid result:
      used. An uncovered language still refuses rather than getting
      forced through an English aligner.
   2. **A window that produced no words.** The aligner logs `backtrack
-     failed, resorting to original` and emits an empty word list. A
-     measured alignment failure still refuses rather than publishing a
-     hollow transcript.
+     failed, resorting to original` and emits an empty word list. Under
+     MFA a window no pass can align is recovered on a widened span
+     first, and only when that fails too does the window keep voz's
+     own timings marked as unaligned - a measured alignment failure
+     refuses the file only past `mfa_align.MAX_UNALIGNED_FRACTION`,
+     rather than publishing a hollow transcript or dropping the file
+     over one line.
 
 An MFA word that runs over the shared clamp is corrected at the same
 boundary used by temporal indexing and the reel transcript path. It no
@@ -83,13 +87,22 @@ is installed and **refused this file**. Measured on six seconds of
 silence, it exits 1 with `no speech found`, and a record that called
 that "unavailable" would send someone to check their PATH.
 
-**Why zero tolerance on 2 and 3 rather than a rate.** A rate needs a
-threshold and this pipeline does not invent one. Zero is not invented:
-it is what this exact configuration measured over 150.7 minutes, so a
-single occurrence says the audio is not the material the configuration
-was proved on. The downside is bounded and worth writing down - with
-no fallback transcriber left, a refusal on speech-bearing audio is a
-loud failure rather than a slower answer.
+**Why the refusal is a rate, and where the threshold lives.**
+A rate needs a threshold and this pipeline does not invent one - so
+the threshold is stated where it is enforced, as
+`mfa_align.MAX_UNALIGNED_FRACTION` (5%, with a floor of one tolerated
+window: a single unaligned window never refuses a file). Zero was the
+old rule because zero is what this exact configuration measured over
+150.7 minutes; 2026-10-01 measured the first counterexample, one
+disfluent window in 1,025 failing deterministically at corpus scale
+while aligning alone, which is a rare event rather than unproved
+material. What stays refused: an uncovered language, a run that heard
+nothing, and a file whose unaligned windows exceed the fraction after
+the widened recovery pass - genuinely broad failure, not one line.
+With no fallback transcriber left, a refusal on speech-bearing audio
+is a loud failure rather than a slower answer, and the downside is
+bounded the same way: the file that keeps a few voz-timed windows
+says so on its record (`transcriber_timed_words`).
 
 What the hybrid CANNOT give back
 ---------------------------------
@@ -148,6 +161,16 @@ reads as "nobody has doubted this line", which is how Reel 26's caption
 defect stayed invisible. This value says the number does not exist for
 these words and no stand-in was derived; the sentence a reader gets is
 `transcript_confidence.CONFIDENCE_ABSENT_HYBRID`.
+"""
+
+TRANSCRIBER_TIMING_SOURCE = "transcriber"
+"""The mark on a word whose timing is the transcriber's own, not MFA's.
+
+`mfa_align` writes it when a window no pass can align keeps voz's spans
+rather than refusing the file. The hybrid's record counts such words
+(`transcriber_timed_words`) so a run says how much of it MFA never
+placed. Spelled once, here: the writer and every reader must agree on
+the value, and a bare string in two modules is how they stop agreeing.
 """
 
 
@@ -481,6 +504,17 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
     _check_alignment(aligned)
 
     covered = sum(window["end"] - window["start"] for window in windows)
+    fallback_words = 0
+    fallback_windows = 0
+    for segment in aligned.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        hits = sum(
+            1 for word in segment.get("words") or []
+            if isinstance(word, dict)
+            and word.get("timing_source") == TRANSCRIBER_TIMING_SOURCE)
+        fallback_words += hits
+        fallback_windows += 1 if hits else 0
     return HybridTranscription(
         aligned=aligned,
         record={
@@ -498,6 +532,13 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
                 "pad_seconds": WINDOW_PAD_SECONDS,
                 "windows": len(windows),
                 "covered_seconds": round(covered, 3),
+                # Words whose timing is voz's own because no MFA pass
+                # could align their window (`timing_source` on the
+                # word). Zero on a clean run; counted, never hidden,
+                # because an MFA-placed boundary and a voz-placed one
+                # are different measurements.
+                "transcriber_timed_windows": fallback_windows,
+                "transcriber_timed_words": fallback_words,
             },
             "asr_confidence": ASR_CONFIDENCE_ABSENT,
         },

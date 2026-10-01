@@ -24,14 +24,26 @@ Do not bother parallelising: MFA splits jobs by speaker, so a
 single-speaker corpus gets one effective job and `--num_jobs 10`
 measured identical to `--num_jobs 1`.
 
-The two required pieces, both measured, both here
+The three required pieces, all measured, all here
 -----------------------------------------------
 1. RETRY for transient empty chunks. About 0.9% of chunks produced no
    TextGrid, including mundane ones like "Absolutely.", and a rerun
    recovered 12 of 12 with sane timings. Transient, not
-   text-dependent. Chunks still empty after the retry DECLINE the run
-   rather than silently losing real words' timings.
-2. DIGIT AND SYMBOL NORMALIZATION before alignment. Tokens like "20%"
+   text-dependent. Chunks still empty after the retry go to RECOVERY,
+   below - never straight to a decline.
+2. RECOVERY for a window the retry cannot align. The window is
+   re-aligned once more on a widened span (one silence-split of extra
+   audio each side), because a marginal backtrack failure is often a
+   context failure: measured 2026-10-01, the disfluent "Then you're
+   then you're Yeah, okay." fails in the full 1,025-window corpus and
+   after the same-span retry, yet aligns in a one-window corpus. A
+   window the widened span still cannot align keeps the transcriber's
+   own words and timings, marked `timing_source: "transcriber"`, in
+   the returned document - every word stays, and the record says
+   whose timing it carries. Only a BROAD failure still declines:
+   more unaligned windows than `MAX_UNALIGNED_FRACTION` of the run
+   (at least two - one window never refuses a file).
+3. DIGIT AND SYMBOL NORMALIZATION before alignment. Tokens like "20%"
    and "3.5" fall outside the pronunciation dictionary and are
    dropped. They are spelled out for the aligner's benefit ONLY - the
    transcript text the rest of the pipeline consumes is unchanged; the
@@ -48,8 +60,9 @@ untimed. Downstream reel spines do not turn that absence into a timing.
 Where the decline goes
 ----------------------
 Every failure of THIS aligner - environment absent, language not
-covered, the `mfa` run itself failing, a chunk still empty after the
-retry - raises `hybrid_transcription.FallbackRequired`, and since
+covered, the `mfa` run itself failing, or more windows unaligned
+after recovery than `MAX_UNALIGNED_FRACTION` allows - raises
+`hybrid_transcription.FallbackRequired`, and since
 2026-09-24 there is no wav2vec2 second chance behind it: that aligner
 left with the whisperx pin. A lane or machine without MFA no longer
 transcribes - the decline travels up to `transcribe_audio`, which
@@ -124,6 +137,32 @@ def covers(language: str) -> bool:
     return (language or "").strip().lower() in MFA_COVERED_LANGUAGES
 
 
+RECOVERY_PAD_SECONDS = 1.0
+"""Extra audio each side of a still-missing window on the recovery pass.
+
+One silence-split of context: the recovery re-aligns the SAME words
+against a wider span, because a marginal backtrack failure is often a
+context failure rather than a text failure. MECHANICAL, not a creative
+floor (AGENTS.md 10.5): it bounds where a re-measurement may look."""
+
+MAX_UNALIGNED_FRACTION = 0.05
+"""When a run with unaligned windows left after recovery still refuses.
+
+The old rule was zero tolerance - zero being what the configuration
+measured over 150.7 minutes, so one failure said the material was not
+proved. 2026-10-01 proved otherwise: one disfluent window in 1,025 can
+fail deterministically at corpus scale while aligning alone, which is
+a rare event, not unproved material. The refusal stays for a file
+where alignment genuinely fails broadly: more than this fraction of
+the run's windows unaligned, with a floor of one tolerated window so
+a single unaligned window never refuses a file of any length."""
+
+
+def _unaligned_allowance(total_windows: int) -> int:
+    """How many unaligned windows a run of this size may keep, at most."""
+    return max(1, int(MAX_UNALIGNED_FRACTION * total_windows))
+
+
 def align(segments: List[dict], language: str, audio_path: str) -> dict:
     """Time `segments` against `audio_path` with MFA.
 
@@ -131,8 +170,15 @@ def align(segments: List[dict], language: str, audio_path: str) -> dict:
     `text` in audio-file time); the return is the same
     `{"segments": [...]}` shape whisperx used to return, with the
     ORIGINAL window text and tokens on it, stamped `"aligner": "mfa"`.
-    Raises `FallbackRequired` for anything MFA cannot answer, which
-    travels up to `transcribe_audio` - there is no second aligner.
+    A window no pass can align is kept with the transcriber's own
+    timings (`timing_source: "transcriber"` on its words), and the
+    document stamps `mfa_recovery` naming which windows were recovered
+    on the widened span and which kept transcriber timings - so a
+    reader can tell MFA-placed boundaries from voz-placed ones.
+    Raises `FallbackRequired` for what MFA cannot answer at all
+    (environment, language, a failed `mfa` run) and for a run whose
+    unaligned windows exceed `_unaligned_allowance` - which travels up
+    to `transcribe_audio`, as there is no second aligner.
     """
     usable, detail = shared_environment.mfa_available()
     if not usable:
@@ -160,15 +206,34 @@ def align(segments: List[dict], language: str, audio_path: str) -> dict:
                 names=[f"chunk_{index:04d}" for index in missing],
             )
             if still_missing:
-                texts = "; ".join(
-                    repr((segments[index].get("text") or "").strip()[:60])
-                    for index in still_missing[:5]
+                recovered, still_missing = _recover_windows(
+                    [missing[position] for position in still_missing],
+                    segments,
+                    audio,
+                    scratch_path,
                 )
-                raise hybrid_transcription.FallbackRequired(
-                    MFA_CHUNK_UNALIGNED,
-                    f"{len(still_missing)} window(s) still produced no "
-                    f"alignment after a retry ({texts}); the loss would "
-                    f"be silent, so this run is refused instead.",
+                if len(still_missing) > _unaligned_allowance(len(segments)):
+                    texts = "; ".join(
+                        repr((segments[index].get("text") or "").strip()[:60])
+                        for index in still_missing[:5]
+                    )
+                    raise hybrid_transcription.FallbackRequired(
+                        MFA_CHUNK_UNALIGNED,
+                        f"{len(still_missing)} of {len(segments)} "
+                        f"window(s) still produced no alignment after a "
+                        f"retry and a widened recovery ({texts}); more "
+                        f"than the {MAX_UNALIGNED_FRACTION:.0%} the run "
+                        f"may keep, so this run is refused instead.",
+                    )
+                return _merge_all(
+                    segments,
+                    scratch_path,
+                    missing_names={
+                        f"chunk_{index:04d}": (scratch_path / "retry_out")
+                        for index in missing
+                    },
+                    recovered=recovered,
+                    transcriber_timed=still_missing,
                 )
             return _merge_all(
                 segments,
@@ -179,6 +244,58 @@ def align(segments: List[dict], language: str, audio_path: str) -> dict:
                 },
             )
         return _merge_all(segments, scratch_path)
+
+
+def _widened_window(window: dict, audio: dict) -> dict:
+    """The same words against more audio: `RECOVERY_PAD_SECONDS` extra
+    each side, clamped to the file. Text and `source_words` are
+    untouched - only the span the aligner hears widens."""
+    params = audio["params"]
+    rate = params.framerate or 16000
+    total = len(audio["frames"]) // (params.sampwidth * params.nchannels)
+    duration = total / rate if rate else float(window["end"])
+    return dict(
+        window,
+        start=max(0.0, float(window["start"]) - RECOVERY_PAD_SECONDS),
+        end=min(duration, float(window["end"]) + RECOVERY_PAD_SECONDS),
+    )
+
+
+def _recover_windows(indexes: List[int], segments: Sequence[dict],
+                     audio: dict, scratch: Path
+                     ) -> Tuple[Dict[int, float], List[int]]:
+    """Re-align `indexes` on widened spans, in one corpus.
+
+    Returns `(recovered_offsets, still_missing)`: the widened span's
+    start per recovered ORIGINAL window index (chunk-time words shift
+    by it at merge), and the indexes still missing. A window counts
+    as recovered only when its widened TextGrid carries words - an
+    empty tier is still missing, same as on the main pass.
+    """
+    widened = [(index, _widened_window(segments[index], audio))
+               for index in indexes]
+    names = [f"recovered_{index:04d}" for index, _ in widened]
+    recovery_corpus = scratch / "recovery_corpus"
+    recovery_out = scratch / "recovery_out"
+    empty = set(_run_corpus(
+        recovery_corpus,
+        [window for _, window in widened],
+        audio,
+        recovery_out,
+        names=names,
+    ))
+    print(
+        f"  MFA recovery on a widened span (±{RECOVERY_PAD_SECONDS:g}s): "
+        f"{len(widened) - len(empty)} of {len(widened)} window(s) "
+        f"recovered",
+        file=sys.stderr,
+    )
+    recovered = {index: float(window["start"])
+                 for position, (index, window) in enumerate(widened)
+                 if position not in empty}
+    still = [index for position, (index, _) in enumerate(widened)
+             if position in empty]
+    return recovered, still
 
 
 def _run_corpus(
@@ -631,7 +748,8 @@ def merge_window(
         elif index in source_spans:
             start, end = source_spans[index]
             words.append({"word": token, "start": start, "end": end,
-                          "timed": True, "timing_source": "transcriber"})
+                          "timed": True, "timing_source":
+                          hybrid_transcription.TRANSCRIBER_TIMING_SOURCE})
         else:
             words.append({"word": token, "timed": False,
                           "timing_reason": "mfa_word_not_fully_aligned"})
@@ -642,17 +760,37 @@ def _merge_all(
     segments: Sequence[dict],
     scratch: Path,
     missing_names: Optional[Dict[str, Path]] = None,
+    recovered: Optional[Dict[int, float]] = None,
+    transcriber_timed: Optional[Sequence[int]] = None,
 ) -> dict:
-    """Every window's TextGrid as one whisperx-shaped document."""
+    """Every window's TextGrid as one whisperx-shaped document.
+
+    A window in `recovered` (index to its widened span's start) is
+    merged from its widened recovery TextGrid; a window in
+    `transcriber_timed` is merged with no MFA words at all, so
+    `merge_window` keeps the transcriber's own spans, marked
+    `timing_source: "transcriber"`. The document stamps `mfa_recovery`
+    naming both sets, so no reader mistakes a voz-placed boundary for
+    an MFA-placed one.
+    """
     missing_names = missing_names or {}
+    recovered = dict(recovered or {})
+    transcriber_timed = set(transcriber_timed or [])
     out_segments = []
     for index, window in enumerate(segments):
         name = f"chunk_{index:04d}"
         out_dir = missing_names.get(name, scratch / "out")
+        offset = float(window["start"])
+        chunk = _chunk_words(out_dir / f"{name}.TextGrid")
+        if not chunk and index in recovered:
+            recovery_name = f"recovered_{index:04d}"
+            chunk = _chunk_words(
+                scratch / "recovery_out" / f"{recovery_name}.TextGrid")
+            offset = recovered[index]
         words = merge_window(
             str(window.get("text") or ""),
-            _chunk_words(out_dir / f"{name}.TextGrid"),
-            float(window["start"]),
+            chunk,
+            offset,
             source_words=window.get("source_words"),
         )
         timed = [w for w in words if "start" in w and "end" in w]
@@ -664,4 +802,11 @@ def _merge_all(
                 "words": words,
             }
         )
-    return {"segments": out_segments, "aligner": hybrid_transcription.ALIGNER_MFA}
+    return {
+        "segments": out_segments,
+        "aligner": hybrid_transcription.ALIGNER_MFA,
+        "mfa_recovery": {
+            "recovered_window_indexes": sorted(recovered),
+            "transcriber_timed_window_indexes": sorted(transcriber_timed),
+        },
+    }
