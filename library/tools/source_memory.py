@@ -142,6 +142,7 @@ SLOT_SCENES = "scenes.json"                    # M4 (CLIP lane)
 SLOT_SOUND = "sound.json"                      # M5 (SoundAnalysis lane)
 SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
 SLOT_EVENTS = "events.json"                    # M7 - written by event_spans.py
+SLOT_VERDICTS = "verdicts.json"                # M8 - written by span_verification.py
 
 RESERVED_SLOTS = (
     SLOT_SPEAKERS, SLOT_SCENES, SLOT_SOUND,

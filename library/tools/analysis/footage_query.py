@@ -1154,9 +1154,16 @@ def _print_structured(answer):
     named = (f" = {naming['name']} ({naming['by']}, agreement "
              f"{naming['agreement']})" if naming.get("name")
              else f" ({naming['by']})")
-    print(f"{answer['person']}{named} x {answer['predicate']}: "
+    asked = (f"{answer['predicate']} verified \"{answer['verify']}\""
+             if "verify" in answer else answer["predicate"])
+    print(f"{answer['person']}{named} x {asked}: "
           f"{answer['spans']} source spans, {answer['source_seconds']} s; "
           f"{answer['spans_placed']} placed on the timeline")
+    if "verify" in answer:
+        cost = answer["cost"]
+        print(f"  {answer['candidates']} candidates judged: {answer['spans']} yes, "
+              f"{len(answer['rejected'])} no; {cost['vlm_calls']} VLM calls "
+              f"({cost['vlm_seconds']} s), {cost['cached_verdicts']} recorded verdicts reused")
     for stage, signal in answer["signals"].items():
         print(f"  {stage:9s} {signal}")
     if not answer["timeline_transcript"]:
@@ -1164,6 +1171,8 @@ def _print_structured(answer):
     for hit in answer["hits"]:
         name = os.path.basename(hit["source_file"])
         print(f"  {name} {hit['start']:9.2f}-{hit['end']:9.2f}")
+        if "verification" in hit:
+            print(f"      VLM: {hit['verification']['reason']}")
         for p in hit["placements"]:
             print(f"      timeline {p['timeline_start']:8.2f}-{p['timeline_end']:8.2f}"
                   f"  item {p['resolve_item_id'][:8]} ({p['track_speaker']} track, "
@@ -1212,6 +1221,12 @@ def main(argv=None):
                                "answered from the per-source event spans "
                                "(M7), joined across angles on the M6 clock "
                                "and placed on the timeline")
+    p_search.add_argument("--verify", metavar="STATEMENT",
+                          help="with --predicate: have the local VLM judge "
+                               "each CANDIDATE span against this statement "
+                               "about the person (e.g. \"covers his mouth "
+                               "with his hand\") and return only the spans "
+                               "it verifies, each with its reason")
     p_search.add_argument("--json", action="store_true",
                           help="with --predicate: print the whole answer as JSON")
     p_search.add_argument("--index-dir")
@@ -1306,7 +1321,11 @@ def main(argv=None):
                 f"{args.predicate}")
         from library.tools import event_spans
         started = time.perf_counter()
-        answer = event_spans.query(args.project, args.person, args.predicate)
+        if args.verify is not None:
+            answer = event_spans.verified_query(args.project, args.person,
+                                                args.predicate, args.verify)
+        else:
+            answer = event_spans.query(args.project, args.person, args.predicate)
         elapsed = time.perf_counter() - started
         if args.json:
             print(json.dumps(answer, indent=2))
@@ -1314,6 +1333,13 @@ def main(argv=None):
             _print_structured(answer)
             print(f"\n{elapsed * 1000:.1f} ms")
         return 0
+
+    if args.command == "search" and args.verify is not None:
+        raise RenRefusal("--verify needs --person and --predicate",
+                         "the VLM judges a person's candidate spans, never "
+                         "a whole episode",
+                         f"ren search {args.project} --person <name> "
+                         f"--predicate hand_near_mouth --verify \"<statement>\"")
 
     if args.command == "search" and not args.query:
         raise RenRefusal("search needs a query",

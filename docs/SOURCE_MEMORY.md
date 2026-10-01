@@ -25,6 +25,7 @@ copy it; nothing goes into `pipeline_data.json`.
   sound.json                     # M5  - SoundAnalysis lane (RESERVED)
   clock.json                     # M6  - written
   events.json                    # M7  - written (library/tools/event_spans.py)
+  verdicts.json                  # M8  - written (library/tools/span_verification.py)
 ```
 
 A slot no lane has written is ABSENT, never a default. An absent M1
@@ -278,6 +279,13 @@ decode, no model, no lock.
                   "voice_unavailable_reason": null,
                   "spans": [{"voice_track": "voice_001", "face_track": "face_001",
                              "start": 25.27, "end": 27.36}]}
+  },
+  "candidates": {
+    "hand_near_mouth": {"basis": "...",
+                        "spans": [{"face_track": "face_001", "start": 553.6,
+                                   "end": 557.4,
+                                   "frames": [{"index": 1108, "t": 554.1,
+                                               "d": 0.02, "box": [x1, y1, x2, y2]}]}]}
   }
 }
 ```
@@ -290,10 +298,14 @@ decode, no model, no lock.
   `speech_face_links` (co-occurrence) attach every voice to the only face
   on a one-person angle - the listener is on screen too. `face_track:
   null` is a voice no face on this angle speaks with (off-screen here).
-- `hand_near_mouth` is NOT here: measured on all 10,873 Craig-angle
-  frames and not shipped (recall 11/17 events against a 0.80 bar -
-  `data/vep-structured-footage-query/eval/results.md` in firstmate's
-  home). Asked for by name it REFUSES; it never answers empty.
+- `hand_near_mouth` is NOT a predicate: as a rule it recalled 11/17
+  events against a 0.80 bar (`data/vep-structured-footage-query/eval/
+  results.md` in firstmate's home), and asked for alone it REFUSES. It
+  is recorded under `candidates` instead: frames whose nearest hand
+  joint is under `HAND_CANDIDATE_MAX_DISTANCE` (1.5) face widths from
+  the lips, with each frame's distance `d` and face box - a looser cutoff
+  that reaches 16/17 events at 257 spans on the Craig angles, for the
+  VLM to verify (M8). Candidates are never an answer.
 
 ```sh
 python3 -m library.tools.event_spans build <project>
@@ -310,6 +322,47 @@ play them (constant source-to-timeline offset, inside the item's
 RECORDED source extent). A span outside every recorded extent is
 `unplaced` - the transcript records speech, and an item can run past
 its last word.
+
+## M8 `verdicts.json` (written)
+
+Owner: `library/tools/span_verification.py`. The local VLM's verdicts on
+candidate spans - never on a whole episode. One VLM call per span: up to
+`MAX_FRAMES_PER_SPAN` (4) whole M2 frames (all of a short span, else the
+four with the smallest candidate distance), a fixed prompt
+(`PROMPT_VERSION`) stating the caller's statement about "the person".
+
+```json
+{"content_digest": "sha256 hex",
+ "verdicts": {"<key>": {"answer": "yes|no|unparsed", "frame": 2,
+                        "frame_t": 554.6, "reason": "...",
+                        "frames": [554.1, 554.6], "statement": "covers his mouth with his hand",
+                        "model": "mlx-community/gemma-4-12b-it-4bit",
+                        "prompt_version": 1, "seconds": 4.1, "reply": "<raw>"}}}
+```
+
+The key hashes prompt version, model, statement (lowercased) and the
+frame times shown, so asking the same question again costs nothing and
+any change to what was asked is a new verdict. `unparsed` is a reply with
+no JSON yes/no and counts as NOT verified. New verdicts take the heavy-work
+lock; an answer made wholly of recorded verdicts takes none.
+
+Measured (Craig angles, 17 labelled events, "covers his mouth with his
+hand"): 14/17 events, span precision 14/15, 257 calls in 17.3 min for
+1.51 h of footage (0.19x real time), identical verdicts on a rerun. A
+person crop instead of the whole frame recalled 11/17. A span longer than
+four frames is shown through its four closest frames and can miss the
+moment. `data/vep-query-hit-verification/eval/` in firstmate's home.
+
+```sh
+ren search <project> --person Craig --predicate hand_near_mouth \
+  --verify "covers his mouth with his hand" [--json]
+```
+
+Hits are the YES spans, placed on the timeline like any other (below),
+each carrying its `verification` (answer, reason, frames, model); the
+NO spans come back as `rejected` with their reasons. `--verify` with a
+predicate that is not a candidate generator (on_screen, speaking)
+REFUSES: those spans run the length of the takes.
 
 ## Staleness
 

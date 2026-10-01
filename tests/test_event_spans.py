@@ -114,6 +114,15 @@ def test_an_unshipped_predicate_is_refused_not_answered_empty(tmp_path):
     assert "11/17" in str(refused.value.why)
 
 
+def test_verify_refuses_a_predicate_whose_spans_are_the_whole_episode(tmp_path):
+    """on_screen spans run the length of every take: verifying them is the
+    whole-episode VLM pass the candidate stage exists to avoid."""
+    with pytest.raises(RenRefusal) as refused:
+        event_spans.verified_query(str(tmp_path), "Craig", "on_screen",
+                                   "covers his mouth with his hand")
+    assert "whole episode" in str(refused.value.why)
+
+
 def test_insightface_is_unavailable_when_this_interpreter_cannot_import_it(
         tmp_path, monkeypatch):
     """Weights on disk without the package answered True, and every clip of

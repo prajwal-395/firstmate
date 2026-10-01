@@ -25,7 +25,7 @@ already records. No model runs at query time.
   off-screen there; it is still that person's speech on the angle that
   shows them, and reaches every other angle through the clock.
 
-**`hand_near_mouth` is NOT a predicate here, by measurement.** The
+**`hand_near_mouth` is NOT answered alone, by measurement.** The
 pre-registered span rule was evaluated on every 2 Hz frame of the
 captain's four Craig angles (10,873 frames, 17 labelled events):
 event recall 11/17 (bar 0.80), precision 0.50 - and the frame rule with
@@ -34,6 +34,11 @@ neither cleared the bar fixed before measuring. Rule, labels and numbers:
 `data/vep-structured-footage-query/eval/` in firstmate's home. A
 predicate the engine cannot measure is REFUSED by name (`UNSHIPPED`),
 never answered with an empty list that reads as "he never did".
+It is recorded as a CANDIDATE generator instead (`CANDIDATE_PREDICATES`,
+a looser cutoff), and `verified_query` / `ren search --verify` puts each
+candidate span to the local VLM (`span_verification`): measured 14/17
+events at span precision 14/15 for "covers his mouth with his hand",
+`data/vep-query-hit-verification/eval/` in firstmate's home.
 
 **Names.** A person is named by the project's declaration
 (`source.person_names`, `person_entity.declared_person_names`) when it
@@ -83,12 +88,21 @@ UNSHIPPED = {
         "angles (10,873 frames, 17 labelled hand-at-mouth events) the "
         "pre-registered span rule recalled 11/17 events at precision 0.50, "
         "under the 0.80 recall bar fixed before measuring; a single finger "
-        "on the lips can carry no detected hand at all. "
-        "data/vep-structured-footage-query/eval/results.md (firstmate's "
-        "home) has the rule, the labels and every number"),
+        "on the lips can carry no detected hand at all. It is answered "
+        "ONLY as candidates the local VLM verifies: add --verify "
+        "\"<what you see>\" (14/17 events at precision 14/15, "
+        "data/vep-query-hit-verification/eval/results.md in firstmate's "
+        "home)"),
 }
 """Predicates asked for by name that the engine refuses, and why. A
 silent empty answer would read as "this never happens in the footage"."""
+
+CANDIDATE_PREDICATES = {
+    "hand_near_mouth": "M3 hand joint within HAND_CANDIDATE_MAX_DISTANCE "
+                       "face widths of the lips (a candidate, not an answer)",
+}
+"""Predicates M7 records as CANDIDATES: too imprecise to answer alone,
+cheap enough to propose spans that `--verify` puts to the local VLM."""
 
 SPAN_GAP_FRAMES = 1
 """A run of hit frames survives this many missing frames inside it -
@@ -113,6 +127,18 @@ the face at the M2 cadence)."""
 NAME_MIN_AGREEMENT = 0.6
 """A derived name needs this share of the person's attributed speech
 seconds that overlap ANY timeline speaker label to overlap ONE label."""
+
+HAND_JOINT_MIN_CONFIDENCE = 0.1
+"""Hand joints below this Vision confidence are not measured from (the
+floor every hand-at-mouth evaluation so far has used)."""
+
+HAND_CANDIDATE_MAX_DISTANCE = 1.5
+"""A frame is a hand-at-mouth CANDIDATE when a hand joint is under this
+many face widths from the lips. Set from the measured candidate table on
+the four Craig angles (17 labelled events): <= 1.25 reaches 14/17
+events, 1.5 reaches 16/17 at 257 spans, 2.0 adds none - a looser cutoff
+than any rule that answers alone, because the verifier throws the false
+ones away. `data/vep-query-hit-verification/eval/` (firstmate's home)."""
 
 STATUS_BUILT = "built"
 
@@ -308,6 +334,62 @@ def speaking_spans(identity: dict, links: List[dict]) -> List[dict]:
             for start, end in voice.get("spans") or []]
 
 
+# ── hand-at-mouth CANDIDATES (never an answer on their own) ─────────
+
+
+def hand_mouth_distance(face: dict, hands: Sequence[dict],
+                        width: float, height: float) -> Optional[float]:
+    """Min pixel distance from a confident hand joint to an outer-lip
+    point, over the face's width in pixels. Both are image-normalised in
+    M3, so x scales by `width` and y by `height` before measuring (the
+    coordinate mistake `person_measurements` documents). None with no
+    lips or no confident joint."""
+    lips = face.get("outer_lips")
+    face_width = (face["box"][2] - face["box"][0]) * width
+    if not lips or face_width <= 0:
+        return None
+    best = None
+    for hand in hands:
+        for x, y, confidence in hand["joints"].values():
+            if confidence < HAND_JOINT_MIN_CONFIDENCE:
+                continue
+            for lx, ly in lips:
+                d = math.hypot((x - lx) * width, (y - ly) * height) / face_width
+                best = d if best is None or d < best else best
+    return best
+
+
+def hand_at_mouth_candidates(m3: dict, assignment: List[List[Optional[str]]]
+                             ) -> List[dict]:
+    """Per face track, runs of frames whose hand-to-lips distance is under
+    `HAND_CANDIDATE_MAX_DISTANCE`, each frame carrying its distance and
+    face box so a verifier can choose and crop frames without re-reading
+    M3."""
+    width, height = (m3.get("instrument") or {})["frame_pixels"]
+    times = [f["t"] for f in m3["frames"]]
+    per_track: Dict[str, Dict[int, dict]] = {}
+    for i, (frame, row) in enumerate(zip(m3["frames"], assignment)):
+        for face, track_id in zip(frame["faces"], row):
+            if track_id is None:
+                continue
+            d = hand_mouth_distance(face, frame["hands"], width, height)
+            if d is None or d >= HAND_CANDIDATE_MAX_DISTANCE:
+                continue
+            held = per_track.setdefault(track_id, {}).get(i)
+            if held is None or d < held["d"]:
+                per_track[track_id][i] = {"index": i, "t": times[i],
+                                          "d": round(d, 3), "box": face["box"]}
+    spans = []
+    for track_id, frames in sorted(per_track.items()):
+        hits = [i in frames for i in range(len(times))]
+        for first, last, _count in runs(hits):
+            start, end = span_bounds(times, first, last)
+            spans.append({"face_track": track_id, "start": start, "end": end,
+                          "frames": [frames[i] for i in range(first, last + 1)
+                                     if i in frames]})
+    return spans
+
+
 # ── building M7 ─────────────────────────────────────────────────────
 
 
@@ -347,6 +429,13 @@ def build_source_events(content_digest: str, source_file: str,
                                              ).get("voice_unavailable_reason"),
                 "spans": speaking_spans(identity, links)},
         },
+        "candidates": {
+            "hand_near_mouth": {
+                "basis": f"M3 hand joint within {HAND_CANDIDATE_MAX_DISTANCE} "
+                         f"face widths of the lips; a CANDIDATE for "
+                         f"`--verify`, never an answer",
+                "spans": hand_at_mouth_candidates(m3, assignment)},
+        },
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
             timespec="seconds"),
     }
@@ -358,6 +447,8 @@ def build_source_events(content_digest: str, source_file: str,
             "faces_unassigned": faces_total - faces_assigned,
             **{name: len(body["spans"])
                for name, body in record["predicates"].items()},
+            "hand_near_mouth_candidates": len(
+                record["candidates"]["hand_near_mouth"]["spans"]),
             "voice_face_links": {link["voice_track"]: link["face_track"]
                                  for link in links}}
 
@@ -575,13 +666,112 @@ def resolve_person(project_folder: str, query: str,
         "or declare `source.person_names` in project.yaml")
 
 
+def _candidate_spans(person: dict, predicate: str,
+                     root: Optional[Path] = None) -> List[dict]:
+    spans = []
+    for digest, tracks in _tracks_of(person).items():
+        record = read_m7(digest, root)
+        body = ((record or {}).get("candidates") or {}).get(predicate)
+        if body is None:
+            raise RenRefusal(
+                f"M7 on {digest[:12]} carries no {predicate!r} candidates",
+                "it was built before candidates were recorded; an unbuilt "
+                "source would read as 'never happens there'",
+                "python3 -m library.tools.event_spans build <project>")
+        for span in body["spans"]:
+            if span.get("face_track") in tracks:
+                spans.append({"content_digest": digest,
+                              "source_file": record["source_file"], **span})
+    return sorted(spans, key=lambda s: (s["source_file"], s["start"]))
+
+
+def verified_query(project_folder: str, person_query: str, predicate: str,
+                   statement: str, root: Optional[Path] = None,
+                   model=None) -> dict:
+    """person x candidate predicate -> the local VLM judges `statement`
+    on each candidate span's frames -> the YES spans, placed like any
+    other hit. Every verdict (yes, no or unparsed) is returned with its
+    reason; only YES spans are hits."""
+    from library.tools import span_verification
+
+    if predicate not in CANDIDATE_PREDICATES:
+        raise RenRefusal(
+            f"--verify cannot judge {predicate!r}",
+            "the VLM looks at candidate spans only, never a whole episode; "
+            f"{predicate!r} spans are not candidates (on_screen runs the "
+            "length of every take)",
+            f"candidate predicates: {', '.join(CANDIDATE_PREDICATES)}")
+    if not statement.strip():
+        raise RenRefusal("--verify needs a statement", "nothing to judge",
+                         "--verify \"covers his mouth with his hand\"")
+    person, naming = resolve_person(project_folder, person_query, root)
+    missing = [digest for digest in _tracks_of(person)
+               if read_m7(digest, root) is None]
+    if missing:
+        raise RenRefusal(
+            f"M7 is missing for {len(missing)} of this person's sources",
+            "an unbuilt source would read as 'never happens there'",
+            f"python3 -m library.tools.event_spans build '{project_folder}'")
+    candidates = _candidate_spans(person, predicate, root)
+    items = timeline_items(project_folder)
+    files = _digest_of_files(project_folder)
+    by_digest: Dict[str, List[dict]] = {}
+    for span in candidates:
+        by_digest.setdefault(span["content_digest"], []).append(span)
+    hits, rejected = [], []
+    calls = cached = 0
+    vlm_seconds = 0.0
+    for digest, spans in by_digest.items():
+        verdicts = span_verification.verify_spans(digest, spans, statement,
+                                                  root=root, model=model)
+        for span, verdict in zip(spans, verdicts):
+            cached += verdict["cached"]
+            if not verdict["cached"]:
+                calls += 1
+                vlm_seconds += verdict["seconds"]
+            entry = {"source_file": span["source_file"], "start": span["start"],
+                     "end": span["end"],
+                     "verification": {k: verdict[k] for k in (
+                         "answer", "reason", "frames", "frame_t", "model",
+                         "cached")}}
+            if verdict["answer"] != span_verification.ANSWER_YES:
+                rejected.append(entry)
+                continue
+            entry["placements"] = place(project_folder, digest, span["start"],
+                                        span["end"], items, files, root)
+            hits.append(entry)
+    placed = [h for h in hits if h["placements"]]
+    return {
+        "person": person["person_id"], "naming": naming,
+        "predicate": predicate, "verify": statement,
+        "signals": {
+            "person": "M3b ArcFace face tracks, unified across sources",
+            "candidates": CANDIDATE_PREDICATES[predicate],
+            "verification": f"{span_verification.MAX_FRAMES_PER_SPAN} M2 "
+                            f"frames per span (whole frame), "
+                            f"judged by the local VLM",
+            "join": "M6 conversation clock",
+            "placement": "timeline_transcript items (resolve_item_id, "
+                         "constant offset, recorded source extent)"},
+        "timeline_transcript": bool(items),
+        "candidates": len(candidates),
+        "cost": {"vlm_calls": calls, "cached_verdicts": cached,
+                 "vlm_seconds": round(vlm_seconds, 1)},
+        "spans": len(hits), "spans_placed": len(placed),
+        "source_seconds": round(sum(h["end"] - h["start"] for h in hits), 1),
+        "hits": hits, "rejected": rejected,
+    }
+
+
 def query(project_folder: str, person_query: str, predicate: str,
           root: Optional[Path] = None) -> dict:
     """person x predicate -> source spans -> every angle -> timeline items."""
     if predicate in UNSHIPPED:
-        raise RenRefusal(f"predicate {predicate!r} is not answered",
+        raise RenRefusal(f"predicate {predicate!r} is not answered alone",
                          UNSHIPPED[predicate],
-                         f"answerable predicates: {', '.join(PREDICATES)}")
+                         f"ren search <project> --person <name> --predicate "
+                         f"{predicate} --verify \"<what you see>\"; or "
+                         f"answerable alone: {', '.join(PREDICATES)}")
     if predicate not in PREDICATES:
         raise RenRefusal(f"unknown predicate {predicate!r}",
                          f"M7 measures: {', '.join(PREDICATES)}",
