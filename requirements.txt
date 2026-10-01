@@ -113,6 +113,21 @@ torchaudio>=2.8
 # transcript records single-label output with the reason.
 speechbrain>=1.1
 scikit-learn>=1.9
+# Person entity store (`library/tools/person_entity.py`, the M3b entity
+# lane). insightface's `buffalo_l` bundle (detector + ArcFace recognizer,
+# both MIT) carries face identity - chosen over Apple Vision, which has
+# no public face-identity request (measured in the video-intelligence
+# scout). onnxruntime (MIT) is insightface's inference backend; it was
+# previously present only transitively. Measured floor: insightface 2.0
+# ran the false-accept study at data/vep-person-entity-store/eval/ in
+# firstmate's home (FAR=0/FRR=0 at cosine >= 0.30, 83 real faces). The
+# ~281 MB weights are data, not a pin: fetched once per machine by
+# scripts/install_insightface.sh into insightface's own cache. A machine
+# whose venv lacks these still runs the rest of the pipeline: the entity
+# lane refuses with InsightfaceEnvironmentMissing and the project is
+# left without face identity, said aloud rather than guessed at.
+insightface>=0.7
+onnxruntime>=1.19
 # Timed non-speech sound events (step 1.04 via sound_event_pipeline,
 # read by the cut planners through view:soundevents and anchor
 # {event}). panns-inference (MIT) + torchlibrosa (MIT) are pure Python

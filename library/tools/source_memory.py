@@ -18,8 +18,8 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1 and M2 are written now; every later lane writes
-into its named slot without inventing its own shape:
+**The slots.** M0, M1, M2, M3b and M6 are written now; every later lane
+writes into its named slot without inventing its own shape:
 
 ======== ============================ ============================= ==========
 slot     file                         what                          producer
@@ -35,7 +35,10 @@ M1b      `speakers.json`              diarized turns + voice        diarization
 M2       `frames/` +                  I-frame thumbnails, 384 px,   this module
                                       `frames.index.json`           at ~2 Hz
 M3       `persons.json`               faces, hands, pose at 2 Hz    Vision lane
-M3b      `identity.json`              face/voice identity tracks    entity lane
+M3b      `identity.json`              face/voice identity tracks,   `library/tools/
+                                      speech-face links (face-only  person_entity.py`
+                                      cross-source identity - see
+                                      that module's docstring for why)
 M4       `scenes.json`                scene embeddings              CLIP lane
 M5       `sound.json`                 sound-event labels            SoundAnalysis
 M6       `clock.json`                 per-source multicam offset    conversation_clock.py
@@ -73,12 +76,16 @@ min for a software 5 Hz full-decode pass (scout report §2.2, §2.5).
 fails with it retries in software, since the shape that matters is
 "I-frames only", not the accelerator. Every per-frame measurement
 (Vision, CLIP, entity) reads this one sample instead of decoding its
-own - `library/tools/analysis/footage_frames.py` is the first wired
-consumer. `gop_frames` in M0 is filled in from the measured spacing
-once M2 has sampled a source.
+own - `library/tools/analysis/footage_frames.py` and
+`library/tools/person_entity.py` are the wired consumers. `gop_frames`
+in M0 is filled in from the measured spacing once M2 has sampled a
+source.
 
-**Scope.** Audio and the shared frame sample (M0/M1/M2). The clock,
-predicates and cross-project identity are later lanes with reserved
+**Scope.** Audio and the shared frame sample (M0/M1/M2) in this
+module; M3b (face/voice identity) is written by
+`library/tools/person_entity.py` into the same slot layout, reading M2
+when a fresh sample exists rather than decoding its own. Speaker-turn
+diarization into M1b and predicates are later lanes with reserved
 slots above; their code is untouched here. Media is read-only: the
 only writes are under the memory root and a temp dir for demuxed
 audio or extracted frames.
@@ -117,10 +124,10 @@ MEMORY_ROOT_ENV = "PIPELINE_SOURCE_MEMORY_ROOT"
 
 # ── The slots ──────────────────────────────────────────────────────
 # A lane writes into its named file and no other. `source.json`,
-# `transcript.words.json` and the `frames/`/`frames.index.json` pair
-# are written now; the rest are RESERVED - named here so later lanes
-# share the shapes instead of inventing their own, with no code
-# behind them yet.
+# `transcript.words.json`, the `frames/`/`frames.index.json` pair and
+# `identity.json` (by `library/tools/person_entity.py`) are written
+# now; the rest are RESERVED - named here so later lanes share the
+# shapes instead of inventing their own, with no code behind them yet.
 
 SLOT_SOURCE = "source.json"                    # M0
 SLOT_TRANSCRIPT = "transcript.words.json"      # M1
@@ -128,19 +135,19 @@ SLOT_SPEAKERS = "speakers.json"                # M1b (diarization lane)
 SLOT_FRAMES_DIR = "frames"                     # M2
 SLOT_FRAMES_INDEX = "frames.index.json"        # M2
 SLOT_PERSONS = "persons.json"                  # M3 (Vision lane)
-SLOT_IDENTITY = "identity.json"                # M3b (entity lane)
+SLOT_IDENTITY = "identity.json"                # M3b - written by person_entity.py
 SLOT_SCENES = "scenes.json"                    # M4 (CLIP lane)
 SLOT_SOUND = "sound.json"                      # M5 (SoundAnalysis lane)
-SLOT_CLOCK = "clock.json"                      # M6 (clock lane)
+SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
 SLOT_EVENTS = "events.json"                    # M7 (predicate lane)
 
 RESERVED_SLOTS = (
-    SLOT_SPEAKERS, SLOT_PERSONS,
-    SLOT_IDENTITY, SLOT_SCENES, SLOT_SOUND, SLOT_EVENTS,
+    SLOT_SPEAKERS, SLOT_PERSONS, SLOT_SCENES, SLOT_SOUND, SLOT_EVENTS,
 )
 # SLOT_CLOCK (M6) is no longer reserved: `library/tools/conversation_clock.py`
 # writes it. SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX (M2) are no longer reserved:
-# `extract_iframes`/`build_frames` below write them.
+# `extract_iframes`/`build_frames` below write them. SLOT_IDENTITY (M3b)
+# is no longer reserved: `library/tools/person_entity.py` writes it.
 
 SILENCE_DB = -60.0
 """Below this a track is room tone off, not a candidate for anything.

@@ -86,6 +86,7 @@ from library.tools.analysis.footage_segments import (
     coverage_report,
     ingest_fingerprint,
 )
+from library.tools import person_entity
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 INDEX_SUBDIR = os.path.join("pipeline_output", "scratch", "footage_index")
@@ -680,6 +681,28 @@ class FootageIndex:
         report["abstained"] = not report["results"]
         return report
 
+    def _person_windows(self, person: str) -> list:
+        """`[(clip_id, start, end)]` the entity store measured for one
+        person - face spans (seen) union voice spans (heard), from
+        `person_entity.resolve_person_tracks`. Raises when the query
+        names nobody the roster knows, the same way an unknown `kind`
+        raises: a silent empty filter would read as "this person has no
+        footage" rather than "this name does not resolve"."""
+        match = person_entity.find_person(self.project_folder, person)
+        if match is None:
+            raise RenRefusal(
+                f"no person matching {person!r}",
+                "the person entity store (M3b) has no face or declared "
+                "name resolving to this query",
+                "build it first: python3 -m library.tools.person_entity "
+                f"build '{self.project_folder}', or check the spelling "
+                "against `person_entity roster`")
+        windows = [(span["clip_id"], span["start"], span["end"])
+                  for span in match["face_spans"]]
+        windows += [(span["clip_id"], span["start"], span["end"])
+                   for span in match["voice_spans"]]
+        return windows
+
     def filter(
         self,
         kind: str | None = None,
@@ -698,6 +721,7 @@ class FootageIndex:
         max_motion: float | None = None,
         min_motion: float | None = None,
         contains: str | None = None,
+        person: str | None = None,
     ) -> list:
         """Select footage by measurable properties, with no query at all.
 
@@ -720,6 +744,12 @@ class FootageIndex:
             min_motion / max_motion: mean motion energy over the span,
                 reduced from step 1.04's 30 Hz curve.
             contains: plain substring match against the segment text.
+            person: a person_id ("person_001") or declared name
+                ("Craig") from the entity store (M3b). Keeps segments
+                whose clip and time range overlap that person's measured
+                face or voice spans - this is how "who says X" and
+                "clips of this person" are answered. Raises when the
+                name resolves to nobody the store knows.
 
         Returns:
             Every matching segment, in index order.
@@ -729,6 +759,8 @@ class FootageIndex:
                 f"unknown kind {kind!r}",
                 f"the index only holds these kinds: {sorted(SEGMENT_KINDS)}",
                 f"use --kind {' / --kind '.join(sorted(SEGMENT_KINDS))}")
+
+        person_windows = self._person_windows(person) if person else None
 
         # A named facet must MATCH; an unmeasured numeric facet fails its
         # bound rather than passing it, because "not measured" is not
@@ -743,9 +775,19 @@ class FootageIndex:
             ("motion", min_motion, max_motion),
         )
 
+        def _overlaps_person(segment: dict) -> bool:
+            for window_clip, window_start, window_end in person_windows:
+                if (segment["clip_id"] == window_clip
+                        and segment["start"] < window_end
+                        and segment["end"] > window_start):
+                    return True
+            return False
+
         def keeps(segment: dict) -> bool:
             facets = segment.get("facets", {})
             if kind is not None and segment["kind"] != kind:
+                return False
+            if person_windows is not None and not _overlaps_person(segment):
                 return False
             if clip_id is not None and segment["clip_id"] != clip_id:
                 return False
@@ -912,6 +954,15 @@ class FootageIndex:
             "max_motion": {
                 "type": "number",
                 "description": "0..1 mean motion energy over the span. Use a low value to find steady footage.",
+            },
+            "person": {
+                "type": "string",
+                "description": (
+                    "Restrict to one person's measured face or voice spans "
+                    "(person_id like 'person_001', or a declared name like "
+                    "'Craig') from the entity store. Use for 'who says X' "
+                    "or 'clips of this person'."
+                ),
             },
         }
         return [
@@ -1129,6 +1180,10 @@ def main(argv=None):
     p_search.add_argument("--floor", type=float, default=None,
                           help=f"minimum dense cosine to count as evidence "
                                f"(default {DENSE_SCORE_FLOOR}; 0 disables the abstain)")
+    p_search.add_argument("--person",
+                          help="restrict to one person's measured face/voice "
+                              "spans (person_id or declared name, e.g. "
+                              "'Craig') - the entity store (M3b)")
     p_search.add_argument("--index-dir")
 
     p_filter = sub.add_parser("filter", help="Select by measurable properties")
@@ -1145,6 +1200,9 @@ def main(argv=None):
     p_filter.add_argument("--max-face-presence", type=float)
     p_filter.add_argument("--max-motion", type=float)
     p_filter.add_argument("--contains")
+    p_filter.add_argument("--person",
+                          help="restrict to one person's measured face/voice "
+                              "spans (person_id or declared name)")
     p_filter.add_argument("--index-dir")
 
     p_hybrid = sub.add_parser("hybrid", help="Search restricted by filters")
@@ -1161,6 +1219,9 @@ def main(argv=None):
     p_hybrid.add_argument("--min-face-presence", type=float)
     p_hybrid.add_argument("--max-face-presence", type=float)
     p_hybrid.add_argument("--max-motion", type=float)
+    p_hybrid.add_argument("--person",
+                          help="restrict to one person's measured face/voice "
+                              "spans (person_id or declared name)")
     p_hybrid.add_argument("--index-dir")
 
     p_detail = sub.add_parser("detail", help="Full record for one segment")
@@ -1226,7 +1287,8 @@ def main(argv=None):
     if args.command == "search":
         started = time.perf_counter()
         report = idx.search_report(args.query, top_k=args.top_k, mode=args.mode,
-                                   floor=args.floor)
+                                   floor=args.floor,
+                                   filters={"person": args.person})
         elapsed = time.perf_counter() - started
         _print_report(report)
         print(f"\n{elapsed * 1000:.1f} ms")
@@ -1239,6 +1301,7 @@ def main(argv=None):
             max_duration=args.max_duration, min_face_presence=args.min_face_presence,
             max_face_presence=args.max_face_presence,
             max_motion=args.max_motion, contains=args.contains,
+            person=args.person,
         )
         print(f"{len(results)} matching segments:")
         for hit in results:
@@ -1253,7 +1316,8 @@ def main(argv=None):
                      "framing": args.framing,
                      "min_face_presence": args.min_face_presence,
                      "max_face_presence": args.max_face_presence,
-                     "max_motion": args.max_motion},
+                     "max_motion": args.max_motion,
+                     "person": args.person},
         )
         elapsed = time.perf_counter() - started
         _print_report(report)

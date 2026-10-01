@@ -20,7 +20,7 @@ copy it; nothing goes into `pipeline_data.json`.
   speakers.json                  # M1b - diarization lane (RESERVED)
   frames/ + frames.index.json    # M2  - written
   persons.json                   # M3  - Vision lane (RESERVED)
-  identity.json                  # M3b - entity lane (RESERVED)
+  identity.json                  # M3b - entity lane (library/tools/person_entity.py)
   scenes.json                    # M4  - CLIP lane (RESERVED)
   sound.json                     # M5  - SoundAnalysis lane (RESERVED)
   clock.json                     # M6  - written
@@ -170,6 +170,57 @@ python3 -m library.tools.conversation_clock build <project>
 python3 -m library.tools.conversation_clock status <project>
 ```
 
+## M3b `identity.json` (written)
+
+Owner: `library/tools/person_entity.py`. Measured, not guessed: the
+face-match threshold below is the false-accept study at
+`data/vep-person-entity-store/eval/results.md` in firstmate's home
+(FAR=0/FRR=0 across 83 real faces, 2 cameras, profile and eyes-closed
+frames included). Reads the shared M2 sample for its frames when a
+fresh one exists, falling back to its own sparse `ffmpeg -ss` decode
+otherwise (`instrument.frame_source` below says which).
+
+```json
+{
+  "content_digest": "sha256 hex",
+  "source_file": "<absolute path>",
+  "status": "measured",
+  "face_match_threshold": 0.30,
+  "faces": [{"track_id": "face_001", "embedding": [512 floats],
+             "spans": [{"start": 60.0, "end": 60.2, "box": [x1, y1, x2, y2],
+                       "det_score": 0.9}]}],
+  "voices": [{"track_id": "voice_001", "embedding": [192 floats],
+              "spans": [[25.27, 27.36]]}],
+  "speech_face_links": [{"t": 61.0, "face_track": "face_001",
+                         "voice_track": "voice_001",
+                         "basis": "co-occurrence: voice span + face span overlap"}],
+  "instrument": {"face": "insightface buffalo_l (ArcFace, 512-d)",
+                 "face_unavailable_reason": null,
+                 "voice": "speechbrain ECAPA (192-d) via single_track_diarization.diarize_track",
+                 "frame_source": "M2-shared-sample|own-decode",
+                 "sample_count": 12, "sample_interval_s": 10.0}
+}
+```
+
+Faces and voices are tracks WITHIN this one source, clustered by cosine
+similarity (face: `FACE_MATCH_THRESHOLD`; voice reuses the already-landed
+diarization clusters outright, PR #1482). `status` is `measured`,
+`no-video-stream`, `no-faces-detected` or `face-identity-unavailable`
+(insightface unreachable) - never a default where nothing was measured.
+
+**Cross-source person identity is face-only.** `person_entity.
+resolve_person_tracks` unifies face tracks across every source digest a
+project's catalog references, by the same measured threshold. Voice
+embeddings are NOT matched across sources - only the diarization DER
+(separating voices WITHIN one file) is proven; porting that into a
+cross-file identity claim would be exactly the unmeasured leap the rigor
+gate exists to catch. A source's voice spans travel with whichever
+person their speech-face link (within that same source) attaches them
+to. `ren search --person <name-or-id>` and `filter --person` read this
+resolution; a project may declare `source.person_names: {person_001:
+"Craig"}` to give a measured cluster a human name (a label, never a
+substitute for the embedding match that assigned the id).
+
 ## Staleness
 
 A record is fresh when the file on disk still fingerprints to the
@@ -200,6 +251,20 @@ a fresh M2 sample the same way; both record per-file failures without
 aborting the project. `PIPELINE_SOURCE_MEMORY_ROOT` overrides the root
 (`--memory-root` per run, e.g. for tests).
 
+M3b builds the same way, under its own module. Run `source_memory
+frames` first (or let `person_entity build` fall back to its own
+decode) so the entity lane reads the shared M2 sample instead of paying
+for a second decode:
+
+```sh
+# Heavy: buffalo_l + ECAPA, reading M2's frames when fresh. Under the lock.
+bin/vep -m library.tools.heavy_work_lock run \
+  --owner <lane> -- python3 -m library.tools.person_entity build <project>
+
+python3 -m library.tools.person_entity roster <project>   # resolved persons
+python3 -m library.tools.person_entity find <project> "Craig"
+```
+
 ## Reading (search)
 
 `footage_segments.build_segments` serves fresh M1 utterances ahead of
@@ -211,3 +276,8 @@ record when it is not, so search works with footage offline.
 no fresh sample is SKIPPED with the `frames` command to run, never
 decoded on the spot - the frame-level CLIP index is a reader of the
 memory, not a second producer of it.
+
+`ren search --person <name-or-id>` / `ren search filter --person
+<name-or-id>` read M3b through `person_entity.resolve_person_tracks` the
+same way, restricting results to that person's measured face or voice
+spans.

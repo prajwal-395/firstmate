@@ -879,6 +879,104 @@ def require_ecapa(explicit: Optional[str | Path] = None) -> Path:
     return ecapa_model_dir(explicit)
 
 
+# ── person-entity store: the ArcFace face encoder ─────────────────────
+#
+# `library/tools/person_entity.py` (the M3b entity lane) measures face
+# identity with insightface's `buffalo_l` bundle (detector + ArcFace
+# recognizer in one pass) rather than Apple Vision, which has no public
+# face-identity request (measured in the video-intelligence scout,
+# `data/vep-video-intelligence-entities-and-search/report.md` section 4).
+# The false-accept study at `data/vep-person-entity-store/eval/results.md`
+# (83 real faces, 2 cameras, profile and eyes-closed frames included)
+# measured FAR=0/FRR=0 at cosine >= `person_entity.FACE_MATCH_THRESHOLD`.
+# The pip half (`insightface`, `onnxruntime`, both MIT/Apache) lives in
+# the shared ML venv via requirements.txt. The weights (~281 MB) are
+# data, not code, and insightface already keeps them once per machine in
+# its own cache (`~/.insightface/models/buffalo_l/`) - this module reads
+# that location rather than inventing a second one under `vep_home()`,
+# so a machine the scout already ran on (as this one was) needs no
+# re-fetch. `scripts/install_insightface.sh` fills it where absent.
+
+INSIGHTFACE_ROOT_ENV = "PIPELINE_INSIGHTFACE_MODEL_DIR"
+"""Names the insightface model root outright (insightface's own `root=`
+kwarg), for a machine whose cache lives somewhere this module did not
+anticipate."""
+
+INSIGHTFACE_PACK_NAME = "buffalo_l"
+"""The insightface model pack this machine identifies faces with."""
+
+INSIGHTFACE_INSTALL_SCRIPT = "scripts/install_insightface.sh"
+"""The one way to fill the buffalo_l checkout. Named in every refusal."""
+
+INSIGHTFACE_REQUIRED_FILES = (
+    "det_10g.onnx", "w600k_r50.onnx",
+)
+"""What makes a checkout usable: the detector and the ArcFace recognizer.
+buffalo_l also ships landmark/attribute models this module never reads -
+identity comes from the recognizer embedding only (AGENTS.md: never from
+sex/age attributes), so their absence does not fail this check."""
+
+
+class InsightfaceEnvironmentMissing(RuntimeError):
+    """The buffalo_l checkout is not reachable on this machine.
+
+    Raised rather than left for insightface to report a download failure
+    mid-build. The message carries the command that fixes it.
+    """
+
+
+def insightface_model_dir(explicit: Optional[str | Path] = None) -> Path:
+    """The insightface model root this machine identifies faces with
+    (the `root=` insightface's own `FaceAnalysis` expects).
+
+    `PIPELINE_INSIGHTFACE_MODEL_DIR` wins outright, the same escape
+    hatch as `ecapa_model_dir`. Otherwise insightface's own default
+    cache, `~/.insightface`, where `FaceAnalysis(name="buffalo_l")`
+    already downloads to on first use.
+    """
+    if explicit is not None:
+        return Path(explicit).expanduser()
+    env = os.environ.get(INSIGHTFACE_ROOT_ENV)
+    if env:
+        return Path(env).expanduser()
+    return Path.home() / ".insightface"
+
+
+def _insightface_pack_dir(explicit: Optional[str | Path] = None) -> Path:
+    return insightface_model_dir(explicit) / "models" / INSIGHTFACE_PACK_NAME
+
+
+def insightface_available(explicit: Optional[str | Path] = None) -> tuple:
+    """`(usable, detail)` - whether this machine can embed a face."""
+    directory = _insightface_pack_dir(explicit)
+    missing = [name for name in INSIGHTFACE_REQUIRED_FILES
+               if not (directory / name).is_file()]
+    if missing:
+        return False, insightface_missing_message(explicit)
+    return True, f"insightface {INSIGHTFACE_PACK_NAME} via {directory}"
+
+
+def insightface_missing_message(explicit: Optional[str | Path] = None) -> str:
+    """Why buffalo_l is not reachable, and the command that fixes it."""
+    return (
+        f"The insightface {INSIGHTFACE_PACK_NAME} checkout is not "
+        f"reachable ({_insightface_pack_dir(explicit)}).\n"
+        f"Install once per machine:\n"
+        f"    {INSIGHTFACE_INSTALL_SCRIPT}\n"
+        f"A machine without it builds no M3b identity record: the entity "
+        f"lane refuses with InsightfaceEnvironmentMissing and the project "
+        f"is left without face identity, said aloud rather than guessed "
+        f"at from a default.")
+
+
+def require_insightface(explicit: Optional[str | Path] = None) -> Path:
+    """Return the insightface model root, or REFUSE by name."""
+    usable, detail = insightface_available(explicit)
+    if not usable:
+        raise InsightfaceEnvironmentMissing(detail)
+    return insightface_model_dir(explicit)
+
+
 # ── the BUILD half: what a reel build needs in its own interpreter ───
 #
 # Four instances, all on 2026-09-10/11, each costing a lane a failed
