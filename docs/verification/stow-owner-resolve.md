@@ -43,7 +43,7 @@ Item 2 re-run with `--secondmate-home` stayed `captain-shared-md` at 0.91 confid
 `tests/fm-stow-owner-resolve.test.sh` drives the public interface with a fake `curl` that records argv, the request body, the header read from file descriptor 3, and whether the secret reached its environment, plus a recording fake `quota-axi`.
 It proves the absent key (environment and `.env`) prints one stderr line, nothing on stdout, exits 0, and never invokes `curl`.
 It proves the request uses the fixed endpoint and model, carries only the finding text and one owner Choice with one option per knowledge owner plus the fixed neutral none option, and never carries tier, pinning, or aging language.
-It proves the secondmate read-only reroute, the project-memory delivery-path gate, the fixed-floor ambiguous outcome with no owner or write lines, and the gateway-first ladder with its one-call fallback.
+It proves the secondmate read-only reroute, the project-memory delivery-path gate, the fixed-floor ambiguous outcome with no owner or write lines, and the typesafe-first ladder with its one-call fallback.
 It proves missing-curl and quota-axi are never touched, HTTP 500, transport failure, malformed or incomplete probabilities, out-of-range confidence, and unknown owner ids are error outcomes with exit 0, and missing, unreadable, or empty learning files plus unknown flags exit 2 before any network call.
 
 ```console

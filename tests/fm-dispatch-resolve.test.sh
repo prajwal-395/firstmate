@@ -762,7 +762,7 @@ expect_code 0 "$code" "--help exits 0"
 assert_contains "$out" 'Usage:' "--help prints usage"
 pass "configuration errors exit 2 before any network call"
 
-# --- Jev gateway ladder: free first, captain's key on refusal -----------------
+# --- Jev typesafe-first ladder: captain's key first, gateway on refusal -----
 # Both rungs speak the same request shape; only the base URL, model, and key
 # change. Every request re-derives the rung, so nothing is pinned.
 GWKEY='test-gateway-key-4b7e1a9c-never-on-argv'
@@ -804,53 +804,53 @@ assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header")" "typesafe ke
 assert_equals '1' "$(curl_calls)" "typesafe-only makes one call"
 pass "typesafe-only key keeps today's behaviour"
 
-# --- both keys, gateway healthy: free rung wins --------------------------------
+# --- both keys, typesafe healthy: typesafe rung wins ----------------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "both-keys healthy exits 0"
 assert_contains "$out" '  status: clear' "both-keys healthy resolves"
-assert_contains "$out" '  rung: gateway' "both-keys healthy stays on the free rung"
-assert_contains "$(cat "$LOG/argv")" "$GW_URL" "both-keys healthy posts to the gateway"
-assert_not_contains "$(cat "$LOG/argv")" "$TS_URL" "both-keys healthy never spends the paid key"
-assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header")" "both-keys healthy authenticates as the gateway key"
+assert_contains "$out" '  rung: typesafe' "both-keys healthy stays on the typesafe rung"
+assert_contains "$(cat "$LOG/argv")" "$TS_URL" "both-keys healthy posts to the typesafe endpoint"
+assert_not_contains "$(cat "$LOG/argv")" "$GW_URL" "both-keys healthy never spends the gateway key"
+assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header")" "both-keys healthy authenticates as the captain's key"
 assert_equals '1' "$(curl_calls)" "both-keys healthy makes one call"
-pass "both keys with a healthy gateway stay on the free rung"
+pass "both keys with a healthy typesafe stay on the typesafe rung"
 
-# --- both keys, gateway 429: one fallback to the captain's key -----------------
+# --- both keys, typesafe 429: one fallback to the gateway ---------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=200 run code out err "$BRIEF" --project pager
-expect_code 0 "$code" "gateway 429 fallback exits 0"
-assert_contains "$out" '  status: clear' "gateway 429 still resolves through fallback"
-assert_contains "$out" '  rung: typesafe' "gateway 429 names the rung that answered"
-assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "gateway 429 fallback resolves the same profile"
+expect_code 0 "$code" "typesafe 429 fallback exits 0"
+assert_contains "$out" '  status: clear' "typesafe 429 still resolves through fallback"
+assert_contains "$out" '  rung: gateway' "typesafe 429 names the rung that answered"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "typesafe 429 fallback resolves the same profile"
 argv=$(cat "$LOG/argv")
-assert_contains "$argv" "$GW_URL" "gateway 429 tries the gateway first"
-assert_contains "$argv" "$TS_URL" "gateway 429 falls back to the paid endpoint"
-gw_line=$(grep -n "$GW_URL" "$LOG/argv" | head -n1 | cut -d: -f1)
+assert_contains "$argv" "$TS_URL" "typesafe 429 tries the typesafe endpoint first"
+assert_contains "$argv" "$GW_URL" "typesafe 429 falls back to the gateway"
 ts_line=$(grep -n "$TS_URL" "$LOG/argv" | head -n1 | cut -d: -f1)
-[ "$gw_line" -lt "$ts_line" ] || fail "the gateway must be tried before the fallback (gateway line $gw_line, typesafe line $ts_line)"
-assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header-1")" "first attempt authenticates as the gateway key"
-assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header-2")" "fallback authenticates as the captain's key"
-assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-1")" "first attempt asks for the gateway model slug"
-assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-2")" "fallback asks for jev-latest"
-assert_equals '2' "$(curl_calls)" "gateway 429 makes exactly two calls"
+gw_line=$(grep -n "$GW_URL" "$LOG/argv" | head -n1 | cut -d: -f1)
+[ "$ts_line" -lt "$gw_line" ] || fail "the typesafe rung must be tried before the fallback (typesafe line $ts_line, gateway line $gw_line)"
+assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header-1")" "first attempt authenticates as the captain's key"
+assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header-2")" "fallback authenticates as the gateway key"
+assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-1")" "first attempt asks for jev-latest"
+assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-2")" "fallback asks for the gateway model slug"
+assert_equals '2' "$(curl_calls)" "typesafe 429 makes exactly two calls"
 assert_not_contains "$argv" "$GWKEY" "the gateway key never appears on curl argv"
 assert_not_contains "$argv" "$TSKEY" "the typesafe key never appears on curl argv"
-pass "gateway 429 falls back to the captain's key once in the same call"
+pass "typesafe 429 falls back to the gateway once in the same call"
 
-# --- both keys, gateway auth failure: same single fallback ----------------------
+# --- both keys, typesafe auth failure: same single fallback --------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=401 FAKE_CURL_HTTP2=200 run code out err "$BRIEF" --project pager
-expect_code 0 "$code" "gateway 401 fallback exits 0"
-assert_contains "$out" '  status: clear' "gateway 401 still resolves through fallback"
-assert_contains "$out" '  rung: typesafe' "gateway 401 names the rung that answered"
-assert_equals '2' "$(curl_calls)" "gateway 401 makes exactly two calls"
-assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header-1")" "first attempt authenticates as the gateway key"
-assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header")" "fallback authenticates as the captain's key"
-pass "gateway auth failure falls back to the captain's key once"
+expect_code 0 "$code" "typesafe 401 fallback exits 0"
+assert_contains "$out" '  status: clear' "typesafe 401 still resolves through fallback"
+assert_contains "$out" '  rung: gateway' "typesafe 401 names the rung that answered"
+assert_equals '2' "$(curl_calls)" "typesafe 401 makes exactly two calls"
+assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header-1")" "first attempt authenticates as the captain's key"
+assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header")" "fallback authenticates as the gateway key"
+pass "typesafe auth failure falls back to the gateway once"
 
 # --- both rungs unavailable: clean error, exit 0 --------------------------------
 reset_log
@@ -858,10 +858,10 @@ write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=500 run code out err "$BRIEF" --project pager
 expect_code 0 "$code" "both rungs down exits 0"
 assert_contains "$out" '  status: error' "both rungs down is an error outcome"
-assert_contains "$out" 'gateway http 429' "both rungs down names the gateway refusal"
-assert_contains "$out" 'typesafe http 500' "both rungs down names the fallback refusal"
+assert_contains "$out" 'typesafe http 429' "both rungs down names the typesafe refusal"
+assert_contains "$out" 'gateway http 500' "both rungs down names the fallback refusal"
 assert_not_contains "$out" '  profile:' "both rungs down emits no profile"
-assert_contains "$err" 'dispatch-resolve: error (gateway http 429' "both rungs down is also reported on stderr"
+assert_contains "$err" 'dispatch-resolve: error (typesafe http 429' "both rungs down is also reported on stderr"
 assert_equals '2' "$(curl_calls)" "both rungs down tries each rung once"
 pass "both rungs unavailable is a clean error outcome"
 
@@ -873,16 +873,16 @@ expect_code 0 "$code" "gateway-only 429 exits 0"
 assert_contains "$out" '  status: error' "gateway-only 429 is an error outcome"
 assert_contains "$out" '  reason: http 429 after' "gateway-only 429 names its refusal"
 assert_equals '1' "$(curl_calls)" "gateway-only 429 makes one call and stays there"
-pass "gateway-only exhaustion is an error without a paid key to spend"
+pass "gateway-only exhaustion is an error without a fallback rung"
 
-# --- gateway 500 is not a descent trigger ------------------------------------------
+# --- typesafe 500 is not a descent trigger ------------------------------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=500 run code out err "$BRIEF" --project pager
-expect_code 0 "$code" "gateway 500 exits 0"
-assert_contains "$out" '  status: error' "gateway 500 is an error outcome"
-assert_not_contains "$(cat "$LOG/argv")" "$TS_URL" "gateway 500 does not spend the paid key"
-assert_equals '1' "$(curl_calls)" "gateway 500 makes one call"
+expect_code 0 "$code" "typesafe 500 exits 0"
+assert_contains "$out" '  status: error' "typesafe 500 is an error outcome"
+assert_not_contains "$(cat "$LOG/argv")" "$GW_URL" "typesafe 500 does not spend the gateway key"
+assert_equals '1' "$(curl_calls)" "typesafe 500 makes one call"
 pass "only exhaustion and auth failures descend the ladder"
 
 printf '# all fm-dispatch-resolve tests passed\n'

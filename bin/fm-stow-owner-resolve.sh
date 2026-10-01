@@ -14,20 +14,20 @@
 #   one shell variable and reaches curl as a header read from a file
 #   descriptor, never on argv; nothing logs or writes either key.
 #
-# Ladder: with both keys present the tool tries the free Vercel AI Gateway
-#   rung first and falls back to the captain's typesafe.ai key once, in the
-#   same invocation, when the gateway answers 429 or 401/403. The fallback is
+# Ladder: with both keys present the tool tries the captain's typesafe.ai key
+#   first and falls back to the free Vercel AI Gateway rung once, in the
+#   same invocation, when typesafe.ai answers 429 or 401/403. The fallback is
 #   per request with no persisted rung record, so every call re-derives the
 #   answer. With one key present the tool uses that rung only.
 #
 # What it does when on: one POST asking the Jev question, answered by
-#   whichever rung serves it. Gateway rung: model typesafe-ai/jev at
-#   https://ai-gateway.vercel.sh/typesafe/v1/systemone. Typesafe rung: model
-#   jev-latest at https://api.typesafe.ai/v1/systemone, what the sibling
-#   dispatch tool did before the ladder. Both rungs accept the same request
-#   and response shapes; only the base URL, model, and key change. The free
-#   tier answers 429 when exhausted, which descends the ladder with auth
-#   failures (401/403). The candidate learning text travels as state and ONE
+#   whichever rung serves it. Typesafe rung: model jev-latest at
+#   https://api.typesafe.ai/v1/systemone, what the sibling dispatch tool did
+#   before the ladder. Gateway rung: model typesafe-ai/jev at
+#   https://ai-gateway.vercel.sh/typesafe/v1/systemone. Both rungs accept the
+#   same request and response shapes; only the base URL, model, and key
+#   change. Typesafe.ai answers 429 when exhausted, which descends the ladder
+#   with auth failures (401/403). The candidate learning text travels as state and ONE
 #   Choice question whose options are the seven fixed knowledge owners from
 #   AGENTS.md section 6 plus one fixed neutral none option. Jev returns the
 #   matched owner, a probability per option, and a confidence. Everything
@@ -68,7 +68,7 @@
 # Environment:
 #   TYPESAFE_API_KEY and AI_GATEWAY_API_KEY are the resolver-specific
 #   environment settings. Either one opts the tool in; both together arm the
-#   gateway-first ladder.
+#   typesafe-first ladder.
 #
 # Authority: this tool never replaces the stow pass, the tier clocks, or the
 #   write boundaries; it publishes one inspectable answer, in code.
@@ -184,31 +184,31 @@ post_rung() { # <base-url> <model> <key>: one Jev POST; sets HTTP and LAT_MS
   T1=$(fm_timing_now_ms)
   LAT_MS=$(( T1 - T0 ))
 }
-gateway_declined() { # <http>: 429 or auth failure means "not available now"
+primary_declined() { # <http>: 429 or auth failure means "not available now"
   case "$1" in 429|401|403) return 0 ;; *) return 1 ;; esac
 }
-if [ -n "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
-  post_rung "$GW_BASE" "$GW_MODEL" "$AI_GATEWAY_API_KEY_PRIVATE"
+if [ -n "$TYPESAFE_API_KEY_PRIVATE" ]; then
+  post_rung "$TS_BASE" "$TS_MODEL" "$TYPESAFE_API_KEY_PRIVATE"
   if [ "$HTTP" = 200 ]; then
-    RUNG=gateway
-  elif gateway_declined "$HTTP" && [ -n "$TYPESAFE_API_KEY_PRIVATE" ]; then
-    GW_HTTP=$HTTP
-    GW_LAT_MS=$LAT_MS
-    GW_HEAD=$(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')
-    post_rung "$TS_BASE" "$TS_MODEL" "$TYPESAFE_API_KEY_PRIVATE"
+    RUNG=typesafe
+  elif primary_declined "$HTTP" && [ -n "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
+    TS_HTTP=$HTTP
+    TS_LAT_MS=$LAT_MS
+    TS_HEAD=$(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')
+    post_rung "$GW_BASE" "$GW_MODEL" "$AI_GATEWAY_API_KEY_PRIVATE"
     if [ "$HTTP" = 200 ]; then
-      RUNG=typesafe
+      RUNG=gateway
     else
-      emit_error "gateway http $GW_HTTP after ${GW_LAT_MS} ms (${GW_HEAD}), then typesafe http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
+      emit_error "typesafe http $TS_HTTP after ${TS_LAT_MS} ms (${TS_HEAD}), then gateway http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
     fi
   else
     [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
-    RUNG=gateway
+    RUNG=typesafe
   fi
 else
-  post_rung "$TS_BASE" "$TS_MODEL" "$TYPESAFE_API_KEY_PRIVATE"
+  post_rung "$GW_BASE" "$GW_MODEL" "$AI_GATEWAY_API_KEY_PRIVATE"
   [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
-  RUNG=typesafe
+  RUNG=gateway
 fi
 jq -e '
     ["backlog-note", "captain-md", "captain-shared-md", "elsewhere-or-drop", "firstmate-tracked", "learnings-md", "project-agents-md", "scout-report"] as $choices |

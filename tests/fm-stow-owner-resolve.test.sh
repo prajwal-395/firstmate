@@ -284,7 +284,7 @@ expect_code 0 "$code" "--help exits 0"
 assert_contains "$out" 'Usage:' "--help prints usage"
 pass "configuration errors exit 2 before any network call"
 
-# --- Jev gateway ladder: free first, captain's key on refusal -----------------
+# --- Jev typesafe-first ladder: captain's key first, gateway on refusal ---
 GWKEY='test-gateway-key-4b7e1a9c-never-on-argv'
 GW_URL='https://ai-gateway.vercel.sh/typesafe/v1/systemone'
 TS_URL='https://api.typesafe.ai/v1/systemone'
@@ -317,16 +317,16 @@ assert_contains "$out" '  rung: typesafe' "typesafe-only names its rung"
 assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body")" "typesafe rung asks for jev-latest"
 pass "typesafe-only key answers on the typesafe rung"
 
-# --- gateway 429 descends to the captain's key once ----------------------------
+# --- typesafe 429 descends to the gateway once --------------------------------
 reset_log
 write_response "$RESPONSE" learnings-md 0.9
 TYPESAFE_API_KEY=$KEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=200 run code out err "$LEARNING"
 expect_code 0 "$code" "ladder fallback exits 0"
 assert_contains "$out" '  status: clear' "ladder fallback resolves"
-assert_contains "$out" '  rung: typesafe' "ladder fallback names the serving rung"
+assert_contains "$out" '  rung: gateway' "ladder fallback names the serving rung"
 assert_equals '2' "$(curl_calls)" "ladder fallback makes exactly two calls"
-assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-1")" "the first call tries the gateway model"
-assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-2")" "the second call descends to the typesafe model"
-assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header-1")" "the first call carries the gateway key"
-assert_equals "Authorization: Bearer $KEY" "$(cat "$LOG/header")" "the second call carries the typesafe key"
-pass "gateway 429 descends the ladder once in the same call"
+assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-1")" "the first call tries the typesafe model"
+assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-2")" "the second call descends to the gateway model"
+assert_equals "Authorization: Bearer $KEY" "$(cat "$LOG/header-1")" "the first call carries the typesafe key"
+assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header")" "the second call carries the gateway key"
+pass "typesafe 429 descends the ladder once in the same call"

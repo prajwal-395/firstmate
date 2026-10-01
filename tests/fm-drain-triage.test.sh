@@ -238,24 +238,30 @@ assert_contains "$out" '  row: 2 signal b.status -> wake confidence=- (decided i
 assert_equals '["row_1"]' "$(jq -c '.questions | keys' < "$LOG/body")" "only capped rows are asked"
 pass "rows past the cap wake in code as unasked"
 
-# --- gateway ladder: free first, captain's key on refusal ----------------------------
+# --- typesafe-first ladder: captain's key first, gateway on refusal ------------
 GWKEY='test-gateway-key-4b7e1a9c-never-on-argv'
+TS_URL='https://api.typesafe.ai/v1/systemone'
+GW_URL='https://ai-gateway.vercel.sh/typesafe/v1/systemone'
 reset_log
 write_response suppress 0.9 wake 0.85 wake 0.88
 AI_GATEWAY_API_KEY=$GWKEY run code out err --rows-file "$ROWS"
 expect_code 0 "$code" "gateway-only exits 0"
 assert_contains "$out" '  rung: gateway' "gateway-only names its rung"
-assert_contains "$(cat "$LOG/argv")" 'https://ai-gateway.vercel.sh/typesafe/v1/systemone' "gateway-only posts to the gateway endpoint"
+assert_contains "$(cat "$LOG/argv")" "$GW_URL" "gateway-only posts to the gateway endpoint"
 assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body")" "gateway rung asks for the gateway model slug"
 assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header")" "gateway key reaches curl on the fd header"
 assert_equals '1' "$(cat "$LOG/curl-count")" "gateway-only makes one call"
 reset_log
+write_response suppress 0.9 wake 0.85 wake 0.88
 TYPESAFE_API_KEY=$KEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=200 FAKE_CURL_RESPONSE2="$RESPONSE" run code out err --rows-file "$ROWS"
-expect_code 0 "$code" "gateway 429 with fallback exits 0"
-assert_contains "$out" '  rung: typesafe' "a declined gateway falls back to the captain's key"
+expect_code 0 "$code" "typesafe 429 with fallback exits 0"
+assert_contains "$out" '  rung: gateway' "a declined typesafe falls back to the gateway"
 assert_contains "$out" '  status: clear' "the fallback still resolves"
 assert_equals '2' "$(cat "$LOG/curl-count")" "the ladder makes one call per rung"
-pass "gateway-first ladder with one fallback on refusal"
+assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-1")" "the first call tries the typesafe model"
+assert_contains "$(cat "$LOG/argv")" "$TS_URL" "the first call posts to the typesafe endpoint"
+assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-2")" "the second call descends to the gateway model"
+pass "typesafe-first ladder with one fallback on refusal"
 
 # --- configuration errors exit 2 -------------------------------------------------------
 reset_log
