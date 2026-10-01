@@ -144,6 +144,121 @@ def test_a_speaker_appearing_twice_gets_exactly_one_graphic(tmp_path):
 
 
 
+# ── A speaker who appears but says nothing still gets a card ──────
+
+def _appearing_project(tmp_path, name):
+    return _project(tmp_path, name,
+                    effect={si.DECLARATION_KEY: DECLARATION})
+
+
+def test_a_speaker_who_appears_but_says_nothing_still_gets_a_card(tmp_path):
+    """The captain's 2026-09-30 ruling: the card identifies the person,
+    not the sentence. Reel 05's stale `no_lines_in_the_reel` row named
+    nobody although both speakers were in the reel's cast list.
+
+    The card opens the reel - 0.0s is the reel's own start, and each
+    further line-less speaker starts where the previous card's hold
+    ends, in the proposal's speaker order. The hold is the project's,
+    the order is the proposal's, so no timing is invented."""
+    from library.tools.motion_graphics_plan import resolve_plan
+
+    folder = _appearing_project(tmp_path, "lineless")
+    plan = si.plan_for_reel(
+        "Reel 05", [], 60.0, folder, width=1080, height=1920,
+        appearing_speakers=("Ada", "Bram"))
+    assert plan.declared is True
+    assert plan.basis == si.SPEAKERS_INTRODUCED
+    assert [i.speaker for i in plan.introductions] == ["Ada", "Bram"]
+    assert all(i.line_less for i in plan.introductions)
+    assert [i.says for i in plan.introductions] == ["", ""]
+    assert [e["start_seconds"] for e in plan.entries] == [0.0, 3.0]
+    assert plan.refused == []
+    resolved = resolve_plan(plan.entries, timeline_duration=60.0, fps=24.0)
+    assert not resolved.dropped, [d.reason for d in resolved.dropped]
+    assert len(resolved.moments) == 2
+
+
+def test_the_old_skip_stands_where_nobody_appears(tmp_path):
+    """The skip this change retires, pinned where it still applies: no
+    lines AND no appearance is no anchor at all, so the plan still
+    says `no_lines_in_the_reel` rather than inventing a card."""
+    folder = _appearing_project(tmp_path, "still-skips")
+    plan = si.plan_for_reel(
+        "Reel 05", [], 60.0, folder, width=1080, height=1920)
+    assert plan.entries == []
+    assert plan.introductions == []
+    assert plan.declared is True
+    assert plan.basis == si.NO_LINES_IN_THE_REEL
+
+
+def test_lines_without_a_declared_speaker_keep_their_skip(tmp_path):
+    """The sibling skip: the reel speaks, but nobody the project
+    declared - and nobody appearing either - so there is still nobody
+    to name."""
+    folder = _appearing_project(tmp_path, "stranger")
+    plan = si.plan_for_reel(
+        "R", _lines(("Zoe", 1.0)), 60.0, folder, width=1080, height=1920)
+    assert plan.entries == []
+    assert plan.basis == si.NO_DECLARED_SPEAKER_SPOKE
+
+
+def test_a_silent_appearing_speaker_joins_a_speaking_one(tmp_path):
+    """Mixed reel: Bram is in the cast list but says nothing, Ada
+    speaks at 5s. Bram's card opens the reel; Ada's lands on her
+    line. Neither is truncated: 0 + 3.0 <= 5.0."""
+    folder = _appearing_project(tmp_path, "mixed")
+    plan = si.plan_for_reel(
+        "R", _lines(("Ada", 5.0)), 60.0, folder, width=1080, height=1920,
+        appearing_speakers=("Bram",))
+    assert plan.basis == si.SPEAKERS_INTRODUCED
+    assert [(i.speaker, i.at_seconds, i.line_less)
+            for i in plan.introductions] == [
+                ("Bram", 0.0, True), ("Ada", 5.0, False)]
+    assert [(e["start_seconds"], e["duration_seconds"])
+            for e in plan.entries] == [(0.0, 3.0), (5.0, 3.0)]
+
+
+def test_an_undeclared_appearing_voice_is_not_named(tmp_path):
+    """The declaration is the cast list: a voice the project never
+    declared is passed over in silence even where the proposal lists
+    them as appearing."""
+    folder = _appearing_project(tmp_path, "undeclared-appears")
+    plan = si.plan_for_reel(
+        "R", [], 60.0, folder, width=1080, height=1920,
+        appearing_speakers=("Zoe",))
+    assert plan.entries == []
+    assert plan.basis == si.NO_LINES_IN_THE_REEL
+
+
+def test_speech_wins_a_tie_against_appearance(tmp_path):
+    """Ada speaks at 0.0s and Bram appears silently: both cards want
+    the opening second of one row, so the appearance-anchored one is
+    the one shortened away - below the readability floor, refused -
+    and the line keeps its card."""
+    folder = _appearing_project(tmp_path, "tie")
+    plan = si.plan_for_reel(
+        "R", _lines(("Ada", 0.0)), 60.0, folder, width=1080, height=1920,
+        appearing_speakers=("Bram",))
+    assert plan.basis == si.SPEAKERS_INTRODUCED
+    assert [i.speaker for i in plan.introductions] == ["Ada"]
+    assert [(r["speaker"], r["reason"]) for r in plan.refused] == [
+        ("Bram", si.TRUNCATED_BELOW_READABLE)]
+
+
+def test_a_line_less_card_past_the_reels_end_is_refused(tmp_path):
+    """Hold-spaced openings can walk off a short reel: the second
+    3.0s card of a 2.0s reel starts outside it and is refused, while
+    the first still opens the reel."""
+    folder = _appearing_project(tmp_path, "short")
+    plan = si.plan_for_reel(
+        "R", [], 2.0, folder, width=1080, height=1920,
+        appearing_speakers=("Ada", "Bram"))
+    assert plan.basis == si.SPEAKERS_INTRODUCED
+    assert [i.speaker for i in plan.introductions] == ["Ada"]
+    assert [(r["speaker"], r["reason"]) for r in plan.refused] == [
+        ("Bram", si.OUTSIDE_THE_REEL)]
+
+
 # ── The colour: the project's, or nothing ────────────────────────────
 
 

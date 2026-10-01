@@ -24,6 +24,19 @@ words cannot disagree about who spoke first.  Not from the master
 timeline, where Craig speaks first in every reel whether the reel keeps
 that line or not.
 
+A declared speaker who APPEARS in the reel - the proposal's own cast
+list, ``moment.speakers`` - but says no attributed line in it still
+gets the card (captain's 2026-09-30 ruling: the card identifies the
+person, not the sentence).  The card opens the reel: the first such
+speaker at 0.0s and each further one where the previous card's hold
+ends, in the proposal's speaker order.  The hold is the project's, the
+order is the proposal's and 0.0s is the reel's own start, so no timing
+is invented; the existing colour, outside-the-reel, truncation and
+readability machinery applies unchanged.  Where no appearance is known
+the old skips stand - ``no_lines_in_the_reel`` and
+``no_declared_speaker_spoke`` - because a card with no anchor at all
+would be taste (AGENTS.md 10.5).
+
 **"not words animated but like an actual motion graphic"** - the
 drawing is ``remotion-subtitles/src/compositions/MotionGraphics``'s
 ``lower_third`` arm, rebuilt as a staged construction (a rule that
@@ -173,7 +186,14 @@ class SpeakerIdentityError(ValueError):
 
 @dataclass
 class Introduction:
-    """One speaker, named once, at the second they first speak."""
+    """One speaker, named once, at the second they first speak.
+
+    ``line_less`` is the appearance-anchored case: the speaker is in
+    the reel's cast list but says no attributed line in it, so the
+    card opens the reel instead of landing on a line.  ``says`` is
+    then empty, and the record says so rather than carrying a line
+    nobody spoke.
+    """
 
     speaker: str
     name: str
@@ -182,6 +202,7 @@ class Introduction:
     colour_basis: str
     at_seconds: float
     says: str
+    line_less: bool = False
 
 
 @dataclass
@@ -217,7 +238,8 @@ class SpeakerPlan:
             "introductions": [
                 {"speaker": i.speaker, "name": i.name, "title": i.title,
                  "colour": i.colour, "colour_basis": i.colour_basis,
-                 "at_seconds": i.at_seconds, "says": i.says}
+                 "at_seconds": i.at_seconds, "says": i.says,
+                 "line_less": bool(i.line_less)}
                 for i in self.introductions],
             "entries": list(self.entries),
             "refused": list(self.refused),
@@ -457,6 +479,44 @@ def first_appearances(lines: Sequence[dict],
     return out
 
 
+def opening_appearances(appearing: Sequence[str],
+                        speakers: Sequence[str],
+                        already_introduced: Sequence[str],
+                        hold_seconds: float) -> List[dict]:
+    """The declared speakers who appear but say nothing, and when.
+
+    ``appearing`` is the reel's own cast list - ``moment.speakers`` at
+    the call site - in the proposal's order.  A label is kept only
+    where the project declared it (the declaration is the cast list,
+    so an undeclared voice is passed over in silence rather than
+    named from a guess) and where ``already_introduced`` does not
+    carry it (speech anchors first; one card per speaker per reel).
+
+    The timing is the reel's opening, hold-spaced: the first such
+    speaker at 0.0s, each further one where the previous card's hold
+    ends.  The hold is the project's declared number, the order is
+    the proposal's and 0.0s is the reel's own start - nothing here is
+    chosen.  ``says`` is empty: there is no line, and the record says
+    so rather than borrowing one.
+    """
+    declared = {str(s) for s in speakers}
+    introduced = {str(s) for s in already_introduced}
+    hold = max(0.0, float(hold_seconds or 0.0))
+    out: List[dict] = []
+    seen = set()
+    for label in (str(s) for s in (appearing or ())):
+        if label in seen or label in introduced or label not in declared:
+            continue
+        seen.add(label)
+        out.append({
+            "speaker": label,
+            "at_seconds": round(len(out) * hold, 3),
+            "says": "",
+            "line_less": True,
+        })
+    return out
+
+
 # ── Where it sits ────────────────────────────────────────────────────
 
 def measured_caption_height(subtitle_segments: Sequence[dict]) -> Optional[int]:
@@ -561,9 +621,10 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
                   reel_seconds: float,
                   project_folder: Optional[str],
                   brand_effect: Optional[dict] = None,
-                  *,
-                  width: int, height: int,
-                  subtitle_segments: Sequence[dict] = ()) -> SpeakerPlan:
+                   *,
+                   width: int, height: int,
+                   subtitle_segments: Sequence[dict] = (),
+                   appearing_speakers: Sequence[str] = ()) -> SpeakerPlan:
     """One reel's speaker lower-thirds, as plan entries and a record.
 
     The entries are ``motion_graphics_plan.resolve_plan``'s own shape -
@@ -575,10 +636,16 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
     begins first, in which case it is truncated to end there - two cards
     cannot occupy one row at one time (:func:`truncate_to_next`).
 
-    A project declaring nothing returns a plan with no entries and
-    ``basis == NOT_DECLARED``.  That is the whole of "a project that
-    declares none gets no lower-thirds": there is no crash and no
-    placeholder, and the reel builds as it built before this existed.
+    ``appearing_speakers`` is the reel's own cast list - the
+    proposal's ``moment.speakers`` at the call site.  A declared
+    speaker in it who says no attributed line in the reel still gets
+    a card opening the reel (:func:`opening_appearances`); without
+    that list there is no appearance to anchor to and the old skips
+    stand.  A project declaring nothing returns a plan with no
+    entries and ``basis == NOT_DECLARED``.  That is the whole of "a
+    project that declares none gets no lower-thirds": there is no
+    crash and no placeholder, and the reel builds as it built before
+    this existed.
     """
     plan = SpeakerPlan(reel_name=reel_name)
 
@@ -588,13 +655,13 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
 
     declared = declared_speakers(declaration, project_folder)
     plan.declared = True
-    if not lines:
-        plan.basis = NO_LINES_IN_THE_REEL
-        return plan
-
     appearances = first_appearances(lines, declared["speakers"].keys())
-    if not appearances:
-        plan.basis = NO_DECLARED_SPEAKER_SPOKE
+    openings = opening_appearances(
+        appearing_speakers, declared["speakers"].keys(),
+        [a["speaker"] for a in appearances], declared["hold_seconds"])
+    if not appearances and not openings:
+        plan.basis = NO_LINES_IN_THE_REEL if not lines \
+            else NO_DECLARED_SPEAKER_SPOKE
         return plan
 
     box = placement_box(project_folder, width, height,
@@ -603,7 +670,7 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
     plan.box = dict(box["insets"])
     plan.box["_basis"] = box["basis"]
     if not box_has_room(box["insets"], width, height):
-        for appearance in appearances:
+        for appearance in list(openings) + list(appearances):
             plan.refused.append({
                 "speaker": appearance["speaker"],
                 "reason": NO_ROOM_ABOVE_THE_CAPTIONS,
@@ -611,7 +678,11 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
         plan.basis = NO_DECLARED_SPEAKER_SPOKE
         return plan
 
-    for appearance in appearances:
+    # The openings go first, so a card anchored to speech wins a tie
+    # against one anchored to appearance: `truncate_to_next` is stable,
+    # and the earlier of two cards starting on the same second is the
+    # one it shortens away.
+    for appearance in list(openings) + list(appearances):
         label = appearance["speaker"]
         entry = declared["speakers"][label]
         colour, colour_basis = speaker_colour(label, entry, project_folder)
@@ -627,16 +698,23 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
             continue
         start = float(appearance["at_seconds"])
         if start >= float(reel_seconds or 0.0):
+            if appearance.get("line_less"):
+                detail = (f"appears in this reel but says no attributed "
+                          f"line in it, so the card would open at "
+                          f"{start}s of a {reel_seconds}s reel")
+            else:
+                detail = (f"first heard at {start}s of a "
+                          f"{reel_seconds}s reel")
             plan.refused.append({
                 "speaker": label,
                 "reason": OUTSIDE_THE_REEL,
-                "detail": (f"first heard at {start}s of a "
-                           f"{reel_seconds}s reel")})
+                "detail": detail})
             continue
         plan.introductions.append(Introduction(
             speaker=label, name=entry["name"], title=entry["title"],
             colour=colour, colour_basis=colour_basis,
-            at_seconds=start, says=appearance["says"]))
+            at_seconds=start, says=appearance["says"],
+            line_less=bool(appearance.get("line_less"))))
         plan.entries.append(entry_for(
             introduction=plan.introductions[-1], declared=declared))
 
@@ -669,6 +747,13 @@ def entry_for(introduction: Introduction, declared: dict) -> dict:
     if introduction.title:
         runs.append({"text": introduction.title,
                      "type_role": "supporting"})
+    if introduction.line_less:
+        why = (f"{introduction.speaker!r} appears in this reel but says "
+               f"no attributed line in it, so the card opens the reel "
+               f"at {introduction.at_seconds}s")
+    else:
+        why = (f"first appearance of {introduction.speaker!r} in this "
+               f"reel, at {introduction.at_seconds}s")
     return {
         "element": ELEMENT,
         "anchor": declared["anchor"],
@@ -679,8 +764,7 @@ def entry_for(introduction: Introduction, declared: dict) -> dict:
         "exit": declared["exit"],
         "start_seconds": introduction.at_seconds,
         "duration_seconds": declared["hold_seconds"],
-        "why": (f"first appearance of {introduction.speaker!r} in this "
-                f"reel, at {introduction.at_seconds}s"),
+        "why": why,
         "data": {
             # WHAT to build, not how. The composition's `lower_third`
             # arm reads this and draws the staged construction; without

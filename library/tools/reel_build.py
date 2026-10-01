@@ -5724,7 +5724,13 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
         reel_name=name, lines=lines, reel_seconds=reel_seconds,
         project_folder=project_folder, brand_effect=brand_effect,
         width=width, height=height,
-        subtitle_segments=subtitle_segments or [])
+        subtitle_segments=subtitle_segments or [],
+        # The reel's own cast list: a declared speaker in it who says
+        # no attributed line still gets the card, opening the reel
+        # (`speaker_identity.opening_appearances`). Without this the
+        # planner has no appearance to anchor such a card to and keeps
+        # the old skip.
+        appearing_speakers=tuple(getattr(moment, "speakers", None) or ()))
 
     # Every refusal is SAID on the run that made it: a speaker declared
     # and then not named is a claim the viewer is shown half of.
