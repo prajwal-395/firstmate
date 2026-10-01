@@ -28,7 +28,11 @@ Why this matters for editing:
 Redundant components removed:
 - Emotion detection: covered by Gemma4 vision (mood/body language/facial
   expressions), transcript content, and prosodic features themselves
-- Speaker diarization: already in WhisperX (via pyannote integration)
+- Speaker diarization: WhisperX (and its pyannote integration) left on
+  2026-09-24, so nothing here diarizes. Per-ISO timelines separate
+  voices by track in `timeline_transcript`; one-audio-path timelines
+  with no declared roster diarize-then-transcribe through
+  `library/tools/single_track_diarization.py`.
 - Sound events: already in temporal index + vision pipeline
 
 Input:  { "audio_files": [{"path": "...", "clip_id": "..."}], "output_dir": "..." }

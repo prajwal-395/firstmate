@@ -206,6 +206,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # recorded as learnings, so a fix here changes what the cached
         # transcript carries. (Its own imports are exempt plumbing.)
         "library/tools/learned_context.py",
+        # Imported by timeline_transcript: one-audio-path timelines are
+        # diarized here before transcription, so a fix here changes
+        # which speaker and voice embedding the cached segments carry.
+        "library/tools/single_track_diarization.py",
         # The executed sound-event measurement: PANNs AudioSet spans
         # per clip, so a fix here changes the cached sound_events.
         "library/tools/analysis/sound_event_pipeline.py",

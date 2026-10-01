@@ -1063,7 +1063,6 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
                 "reported": bool(move.get("reported", False)),
                 "held_for_decision": bool(
                     move.get("held_for_decision", False)),
-                "why": move.get("why", ""),
             })
         entries.append({"reel": int(moment.number),
                         "slug": moment.slug,

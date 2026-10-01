@@ -783,6 +783,102 @@ def require_panns() -> Path:
     return panns_checkpoint()
 
 
+# ── single-track diarization: the ECAPA speaker encoder ──────────────
+#
+# The fallback in `library/tools/single_track_diarization.py` diarizes
+# one mixed track with open ECAPA embeddings rather than pyannote (gated
+# weights, HF token - deliberately not ported; see the eval at
+# `data/vep-single-track-diarization/eval/` in firstmate's home for the
+# measured DER 0.02-0.09 vs 0.34-1.14 single-label baselines). The pip
+# half (`speechbrain`, MIT) lives in the shared ML venv via
+# requirements.txt. The weights are data, not code: they live once per
+# machine under `vep_home()/models/ecapa/`, fetched at the PINNED
+# HuggingFace revision by `scripts/install_ecapa.sh`. Public repo, no
+# token. The recipe is speechbrain's (Apache-2.0); the encoder is trained
+# on VoxCeleb, whose dataset terms govern the weights - check them for
+# the use at hand (see `library/tools/single_track_diarization.py`).
+
+ECAPA_REPO = "speechbrain/spkrec-ecapa-voxceleb"
+"""The public speaker-encoder repo the fallback embeds with. No token."""
+
+ECAPA_REVISION = "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286"
+"""The HF commit the eval measured (2026-09-30). PINNED: a floating model
+is a different instrument until it is measured as one."""
+
+ECAPA_MODELS_DIRNAME = "models/ecapa"
+"""The directory under `vep_home()` holding the encoder checkout."""
+
+ECAPA_MODEL_DIRNAME = "spkrec-ecapa-voxceleb"
+"""The checkout directory under `ECAPA_MODELS_DIRNAME`."""
+
+ECAPA_INSTALL_SCRIPT = "scripts/install_ecapa.sh"
+"""The one way to fill the ECAPA checkout. Named in every refusal."""
+
+ECAPA_REQUIRED_FILES = ("hyperparams.yaml", "embedding_model.ckpt")
+"""What makes a checkout usable: the recipe and the encoder weights."""
+
+
+class EcapaEnvironmentMissing(RuntimeError):
+    """The ECAPA checkout is not reachable on this machine.
+
+    Raised rather than left for speechbrain to report as a download
+    failure several layers down. The message carries the command that
+    fixes it. The transcript treats this as single-label output with
+    the reason recorded - today's behavior, said aloud - never a skip.
+    """
+
+
+def ecapa_model_dir(explicit: Optional[str | Path] = None) -> Path:
+    """The ECAPA checkout this machine diarizes with.
+
+    `PIPELINE_ECAPA_MODEL_DIR` wins outright - the escape hatch for a
+    machine whose layout this module did not anticipate, set in the
+    per-user config (`~/.config/ren/config.env`) like every other
+    external path. `explicit` is the caller-supplied override (tests,
+    eval harnesses). Otherwise it is
+    `<vep_home>/models/ecapa/spkrec-ecapa-voxceleb`, because that is
+    where `scripts/install_ecapa.sh` puts it at `ECAPA_REVISION`.
+    """
+    if explicit is not None:
+        return Path(explicit).expanduser()
+    env = os.environ.get("PIPELINE_ECAPA_MODEL_DIR")
+    if env:
+        return Path(env).expanduser()
+    return vep_home() / ECAPA_MODELS_DIRNAME / ECAPA_MODEL_DIRNAME
+
+
+def ecapa_available(explicit: Optional[str | Path] = None) -> tuple:
+    """`(usable, detail)` - whether this machine can diarize one track."""
+    directory = ecapa_model_dir(explicit)
+    missing = [name for name in ECAPA_REQUIRED_FILES
+               if not (directory / name).is_file()]
+    if missing:
+        return False, ecapa_missing_message(explicit)
+    return True, f"ECAPA {ECAPA_REPO}@{ECAPA_REVISION[:12]} via {directory}"
+
+
+def ecapa_missing_message(explicit: Optional[str | Path] = None) -> str:
+    """Why ECAPA is not reachable, and the command that fixes it."""
+    lines = [
+        f"The ECAPA checkout is not reachable "
+        f"({ecapa_model_dir(explicit)}).",
+        f"Install once per machine:\n"
+        f"    {ECAPA_INSTALL_SCRIPT}\n"
+        f"A machine without it still transcribes: a single-track timeline "
+        f"records single-label output with this reason, which is today's "
+        f"behavior said aloud rather than a skip.",
+    ]
+    return "\n".join(lines)
+
+
+def require_ecapa(explicit: Optional[str | Path] = None) -> Path:
+    """Return the ECAPA checkout, or REFUSE by name."""
+    usable, detail = ecapa_available(explicit)
+    if not usable:
+        raise EcapaEnvironmentMissing(detail)
+    return ecapa_model_dir(explicit)
+
+
 # ── the BUILD half: what a reel build needs in its own interpreter ───
 #
 # Four instances, all on 2026-09-10/11, each costing a lane a failed

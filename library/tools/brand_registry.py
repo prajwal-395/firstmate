@@ -148,11 +148,6 @@ ABSENT_SLOT_READINGS = {
         "manual `logo_bulb.py --lines-from-template` CLI reads it; without "
         "that invocation the external closing asset is not rebuilt "
         "(library/tools/logo_bulb.py)"),
-    "content.target_duration_seconds": (
-        "no duration zone from the brand; the PROJECT's own "
-        "`target_duration_seconds` is the declaration the gates measure "
-        "against, and when neither declares one nothing is checked "
-        "(library/tools/duration_targets.py)"),
     "delivery_format": (
         "the product's own enumeration decides, and its default is "
         "vertical 1080x1920 - the preference layer's explicit "

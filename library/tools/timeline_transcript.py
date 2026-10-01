@@ -179,9 +179,24 @@ class SpokenSegment:
     `library/tools/transcript_confidence.py` holds the account of what
     the absence cost and why no stand-in is computed for it."""
 
+    voice_embedding: Optional[tuple] = None
+    """The voice that spoke this row, as a 192-d ECAPA embedding.
+
+    Measured ONLY by the single-track diarization fallback
+    (`library/tools/single_track_diarization.py`): the mean of the
+    member-window embeddings overlapping the row, L2-normalized, so the
+    person-entity task can consume voice identities without re-hearing
+    the audio. `None` everywhere else - the per-ISO path, the
+    single-label path, every transcript written before the fallback
+    existed. Never derived, never defaulted: a zero vector would read
+    as a voice print. Serializes as a JSON list; rehydrated to a tuple
+    on read like `words`."""
+
     def as_dict(self) -> dict:
         body = asdict(self)
         body["words"] = list(self.words)
+        if body.get("voice_embedding") is not None:
+            body["voice_embedding"] = list(body["voice_embedding"])
         return body
 
 
@@ -761,7 +776,13 @@ def rebind_document(document: dict, snapshot,
 
     per_speaker: dict[Optional[str], list[SpokenSegment]] = {}
     for row in document.get("segments", []):
-        segment = SpokenSegment(**{**row, "words": tuple(row.get("words") or ())})
+        embedded = row.get("voice_embedding")
+        segment = SpokenSegment(**{
+            **row,
+            "words": tuple(row.get("words") or ()),
+            "voice_embedding": (tuple(embedded)
+                                if embedded is not None else None),
+        })
         clips = by_speaker.get(segment.speaker)
         if (segment.resolve_item_id is not None or not segment.words
                 or not clips):
@@ -1004,7 +1025,8 @@ def _track_rms_dbfs(audio_path: Path | str, start: float,
 
 def transcript_document(snapshot, merged: List[SpokenSegment],
                         transcription: Optional[dict] = None,
-                        mic_bleed_resolution: Optional[List[dict]] = None
+                        mic_bleed_resolution: Optional[List[dict]] = None,
+                        diarization: Optional[dict] = None,
                         ) -> dict:
     """The whole transcript, as written to disk.
 
@@ -1012,12 +1034,19 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
     heard each speaker, and what fell back and why. It is written onto
     the document rather than left in a log line because the one thing a
     reader of this file must be able to establish is what made it.
+
+    `diarization` is the speaker-separation account alongside it: which
+    path separated the voices (`per-iso`, `single-track-fallback`,
+    `single-label`) and why. A transcript whose voices were never
+    separated reads that here rather than leaving the reader to infer
+    it from one speaker key.
     """
     unbound = sum(1 for s in merged if s.resolve_item_id is None)
     read_from_words = sum(1 for s in merged if s.read_from_words)
     rebound = sum(1 for s in merged
                   if s.read_from_words and s.resolve_item_id is not None)
     with_confidence = sum(1 for s in merged if s.avg_logprob is not None)
+    with_voice = sum(1 for s in merged if s.voice_embedding is not None)
     # Rows whose TEXT outruns their TIMINGS, read with the one predicate
     # that already answers that question - `transcript_fit.row_fit`, a
     # count against a count with no threshold in it. This is the Reel 26
@@ -1101,6 +1130,12 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
         # no `avg_logprob` at all: `transcription.asr_confidence` is
         # what tells the three apart, and it is on this document.
         "segments_with_asr_confidence": with_confidence,
+        # How many rows carry a measured voice print
+        # (`SpokenSegment.voice_embedding`, single-track fallback only).
+        # Said for the same reason as the confidence count above: zero
+        # and "nobody measured" read the same from outside, and zero is
+        # what every per-ISO and single-label transcript holds.
+        "segments_with_voice_embedding": with_voice,
         # The ALIGNER's own per-word score, which is a different number
         # and is never read as that one - see
         # `transcript_confidence.ALIGNMENT_SCORE_LEGEND`.
@@ -1124,6 +1159,8 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
     }
     if transcription is not None:
         body["transcription"] = transcription
+    if diarization is not None:
+        body["diarization"] = diarization
     return body
 
 
@@ -1237,6 +1274,8 @@ def resolve_document_mic_bleed(document: dict,
         and row["resolve_item_id"] is not None for row in segments)
     resolved["segments_with_asr_confidence"] = sum(
         row.get("avg_logprob") is not None for row in segments)
+    resolved["segments_with_voice_embedding"] = sum(
+        row.get("voice_embedding") is not None for row in segments)
     resolved["words_with_alignment_score"] = sum(
         word.get(ALIGNMENT_SCORE) is not None
         for row in segments for word in (row.get("words") or ()))
@@ -1296,18 +1335,194 @@ def transcription_record(heard_by: Dict[str, dict]) -> dict:
     }
 
 
+# ── one timeline speaker: the per-ISO path and the single-track path ──
+
+def _transcribe_iso_path(speaker, clips, scratch, cache_dir,
+                         per_speaker, heard_by, audio_tracks,
+                         model_size, initial_prompt, hotwords) -> None:
+    """One timeline speaker the per-ISO way: rebuild, hear, bind back.
+
+    Factored out of `build_and_transcribe` so the single-track branch
+    reads beside it rather than inside it. Behavior unchanged: this is
+    the path multi-track timelines have always taken.
+    """
+    label = (speaker or "unnamed").lower().replace(" ", "_")
+    audio_path = scratch / f"{label}.wav"
+    print(f"\n[{speaker}] rebuilding {len(clips)} spans -> {audio_path.name}",
+          file=sys.stderr)
+
+    def _progress(done, total, _label=label):
+        if done % 20 == 0 or done == total:
+            print(f"    {_label}: {done}/{total} spans", file=sys.stderr)
+
+    build_speaker_audio(clips, audio_path, cache_dir, progress=_progress)
+    audio_tracks[speaker] = audio_path
+    aligned, record = transcribe_audio(
+        audio_path, model_size=model_size,
+        initial_prompt=initial_prompt or None,
+        hotwords=hotwords or None,
+        label=str(speaker or "unnamed"))
+    heard_by[str(speaker) if speaker else "unattributed"] = record
+    segments = segments_for_speaker(aligned, speaker, clips)
+    print(f"[{speaker}] {len(segments)} spoken segments", file=sys.stderr)
+    per_speaker[speaker] = segments
+
+
+def _slice_wav_spans(source: Path, spans: Sequence[tuple[float, float]],
+                     dest: Path) -> Path:
+    """Concatenated spans of a 16k mono s16 wav, in span order.
+
+    Cluster audio for diarize-then-transcribe-per-cluster: each cluster
+    is heard on its own spans only, so a second voice never smears its
+    transcription. Spans are track seconds - the rebuilt track runs on
+    the timeline clock, so cluster turns slice it directly.
+    """
+    with wave.open(str(source), "rb") as handle:
+        if (handle.getcomptype() != "NONE" or handle.getsampwidth() != 2
+                or handle.getnchannels() != 1
+                or handle.getframerate() != SAMPLE_RATE):
+            raise TimelineTranscriptError(
+                f"{source.name} is not 16k mono s16; refusing to slice "
+                f"cluster audio out of an unexpected format")
+        rate = handle.getframerate()
+        total = handle.getnframes()
+        frames = []
+        for start, end in spans:
+            first = max(0, int(round(start * rate)))
+            last = min(total, int(round(end * rate)))
+            if last <= first:
+                continue
+            handle.setpos(first)
+            frames.append(handle.readframes(last - first))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(dest), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(SAMPLE_RATE)
+        out.writeframes(b"".join(frames))
+    return dest
+
+
+def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
+                            per_speaker, heard_by, audio_tracks,
+                            model_size, initial_prompt, hotwords,
+                            diarize) -> dict:
+    """One audio path: diarize-then-transcribe-per-cluster, or one label.
+
+    Returns the `diarization` record for the document, always. The
+    fallback is taken only when `should_diarize_single_track` says the
+    timeline has one audio path and the project does not declare fewer
+    than two voices, AND the caller allows it (`diarize` None reads
+    `DIARIZE_SINGLE_TRACK_DEFAULT`). Anything else - a declared
+    monologue, an opt-out flag, an encoder the machine cannot reach -
+    transcribes
+    the rebuilt track under one label, which is today's behavior, with
+    the reason on the record rather than in a log line.
+    """
+    from library.tools import single_track_diarization
+
+    label = (sole or "unnamed").lower().replace(" ", "_")
+    audio_path = scratch / f"{label}.wav"
+    print(f"\n[{sole}] rebuilding {len(clips)} spans -> {audio_path.name}",
+          file=sys.stderr)
+
+    def _progress(done, total, _label=label):
+        if done % 20 == 0 or done == total:
+            print(f"    {_label}: {done}/{total} spans", file=sys.stderr)
+
+    build_speaker_audio(clips, audio_path, cache_dir, progress=_progress)
+    audio_tracks[sole] = audio_path
+
+    def _single_label(reason: str) -> dict:
+        aligned, record = transcribe_audio(
+            audio_path, model_size=model_size,
+            initial_prompt=initial_prompt or None,
+            hotwords=hotwords or None,
+            label=str(sole or "unnamed"))
+        heard_by[str(sole) if sole else "unattributed"] = record
+        segments = segments_for_speaker(aligned, sole, clips)
+        print(f"[{sole}] {len(segments)} spoken segments", file=sys.stderr)
+        per_speaker[sole] = segments
+        return single_track_diarization.DiarizationRecord(
+            path="single-label", reason=reason).as_dict()
+
+    eligible, eligibility, declared_k = (
+        single_track_diarization.should_diarize_single_track(
+            project_folder, [sole]))
+    if not eligible:
+        return _single_label(eligibility)
+    if diarize is False:
+        return _single_label("one eligible path, but --no-diarize-single-track")
+    if diarize is None and not single_track_diarization.DIARIZE_SINGLE_TRACK_DEFAULT:
+        return _single_label("one eligible path, but the fallback default "
+                             "is off; --diarize-single-track opts in")
+    try:
+        diarization = single_track_diarization.diarize_track(
+            str(audio_path), num_speakers=declared_k)
+    except single_track_diarization.DiarizationUnavailable as exc:
+        return _single_label(f"one eligible path, but diarization is "
+                             f"unavailable: {exc}")
+    print(f"[{sole}] diarized into {diarization.speakers_estimated} "
+          f"voice(s) in {diarization.inference_seconds}s", file=sys.stderr)
+    for cluster in diarization.clusters:
+        cluster_path = scratch / (
+            cluster.label.lower().replace(" ", "_") + ".wav")
+        _slice_wav_spans(audio_path, cluster.turns, cluster_path)
+        aligned, record = transcribe_audio(
+            cluster_path, model_size=model_size,
+            initial_prompt=initial_prompt or None,
+            hotwords=hotwords or None,
+            label=cluster.label)
+        heard_by[cluster.label] = record
+        segments = segments_for_speaker(aligned, cluster.label, clips)
+        embeddings = single_track_diarization.segment_voice_embeddings(
+            [(s.timeline_start, s.timeline_end) for s in segments],
+            diarization)
+        # The voice print travels on the row: `replace` keeps every
+        # measured field and sets only the embedding, so the per-ISO
+        # construction above stays the one place segments are born.
+        per_speaker[cluster.label] = [
+            replace(segment, voice_embedding=embedding)
+            for segment, embedding in zip(segments, embeddings)]
+        print(f"[{cluster.label}] {len(segments)} spoken segments",
+              file=sys.stderr)
+    return single_track_diarization.DiarizationRecord(
+        path="single-track-fallback",
+        reason=(eligibility + "; "
+                + ("--diarize-single-track" if diarize else "auto")),
+        method=diarization.method,
+        speakers_estimated=diarization.speakers_estimated,
+        inference_seconds=diarization.inference_seconds,
+        weights=diarization.weights).as_dict()
+
+
 # ── CLI ──────────────────────────────────────────────────────────────
 
 def build_and_transcribe(project_folder: str, snapshot,
                          model_size: str = "large-v3",
-                         only_speakers: Optional[Iterable[str]] = None) -> dict:
+                         only_speakers: Optional[Iterable[str]] = None,
+                         diarize: Optional[bool] = None) -> dict:
     """The whole job: rebuild each speaker's audio, transcribe, bind back.
 
     Which transcriber hears each speaker is `transcribe_audio`'s to
     decide (the seam); this function only carries the account of it onto
     the document.
+
+    Which path separates the voices is decided here, once, and said on
+    the document's `diarization` record:
+
+    * more than one audio path: the per-ISO path below, unchanged;
+    * one audio path and no roster declaring fewer than two voices: the
+      single-track diarization fallback (`library/tools/single_track_diarization.py`)
+      - diarize the rebuilt track, then transcribe per cluster - unless
+      `diarize` refuses it or the encoder is unavailable, in which case
+      the track transcribes under one label with the reason recorded.
+      `diarize` is None (auto: `DIARIZE_SINGLE_TRACK_DEFAULT`), True
+      (force when eligible) or False (never); `--diarize-single-track`
+      / `--no-diarize-single-track` on the CLI.
     """
     from library.tools.project_layout import Area, ProjectLayout
+    from library.tools import single_track_diarization
 
     layout = ProjectLayout(project_folder)
     scratch = Path(layout.write_dir(Area.SCRATCH)) / SCRATCH_SUBDIR
@@ -1333,35 +1548,54 @@ def build_and_transcribe(project_folder: str, snapshot,
     initial_prompt, hotwords = transcript_corrections.bias_strings(
         project_folder)
 
-    for speaker, clips in by_speaker.items():
-        if wanted and speaker not in wanted:
-            continue
-        label = (speaker or "unnamed").lower().replace(" ", "_")
-        audio_path = scratch / f"{label}.wav"
-        print(f"\n[{speaker}] rebuilding {len(clips)} spans -> {audio_path.name}",
-              file=sys.stderr)
+    diarization_record = None
+    # One key of ANY kind is one path: a None speaker (an untagged
+    # track) is a path, not an absence. Testing `sole is not None` here
+    # once routed every untagged single-mic timeline to per-ISO and the
+    # tests caught it.
+    if len(by_speaker) == 1:
+        sole = next(iter(by_speaker))
+        if wanted is None or sole in wanted:
+            diarization_record = _transcribe_single_path(
+                project_folder, sole, by_speaker[sole], scratch, cache_dir,
+                per_speaker, heard_by, audio_tracks,
+                model_size, initial_prompt, hotwords, diarize)
+    else:
+        for speaker, clips in by_speaker.items():
+            if wanted and speaker not in wanted:
+                continue
+            _transcribe_iso_path(
+                speaker, clips, scratch, cache_dir,
+                per_speaker, heard_by, audio_tracks,
+                model_size, initial_prompt, hotwords)
+        if by_speaker:
+            diarization_record = (
+                single_track_diarization.DiarizationRecord(
+                    path="per-iso",
+                    reason=(f"{len(by_speaker)} audio paths: the per-ISO "
+                            f"path owns multi-track timelines "
+                            f"unchanged")).as_dict())
 
-        def _progress(done, total, _label=label):
-            if done % 20 == 0 or done == total:
-                print(f"    {_label}: {done}/{total} spans", file=sys.stderr)
-
-        build_speaker_audio(clips, audio_path, cache_dir, progress=_progress)
-        audio_tracks[speaker] = audio_path
-        aligned, record = transcribe_audio(
-            audio_path, model_size=model_size,
-            initial_prompt=initial_prompt or None,
-            hotwords=hotwords or None,
-            label=str(speaker or "unnamed"))
-        heard_by[str(speaker) if speaker else "unattributed"] = record
-        segments = segments_for_speaker(aligned, speaker, clips)
-        print(f"[{speaker}] {len(segments)} spoken segments", file=sys.stderr)
-        per_speaker[speaker] = segments
-
-    merged, mic_bleed_resolution = merge_speakers(per_speaker, audio_tracks)
+    if (diarization_record is not None
+            and diarization_record.get("path") == "single-track-fallback"):
+        # Mic bleed needs two microphones: one path cannot bleed into
+        # itself, and cluster turns are disjoint by construction, so
+        # there are no cross-cluster duplicates to resolve. The merge
+        # runs on the per-ISO path only; skipping it here is structural,
+        # not an optimization.
+        merged = sorted(
+            (segment for segments in per_speaker.values()
+             for segment in segments),
+            key=lambda s: (s.timeline_start, s.timeline_end))
+        mic_bleed_resolution = []
+    else:
+        merged, mic_bleed_resolution = merge_speakers(
+            per_speaker, audio_tracks)
     document = transcript_document(
         snapshot, merged,
         transcription=transcription_record(heard_by),
-        mic_bleed_resolution=mic_bleed_resolution)
+        mic_bleed_resolution=mic_bleed_resolution,
+        diarization=diarization_record)
     # The guarantee half: respell at the root, before anything
     # downstream reads it. Downstream consumers need no changes - they
     # read corrected words because corrected words are what is here.
@@ -1394,6 +1628,13 @@ def main(argv=None) -> int:
              "transcript already on disk, keeping every word timing it "
              "carries. For a project transcribed before the word-level "
              "re-read landed - see `rebind_document`")
+    parser.add_argument(
+        "--diarize-single-track", action=argparse.BooleanOptionalAction,
+        default=None,
+        help="diarize a one-audio-path timeline into voices before "
+             "transcribing (the single-track fallback). Default is auto: "
+             "on while the fallback default holds, off otherwise. "
+             "--no-diarize-single-track forces one label.")
     args = parser.parse_args(argv)
 
     project_name, timeline_name = timeline_ingest.resolve_binding(args.project_folder)
@@ -1421,7 +1662,8 @@ def main(argv=None) -> int:
     else:
         document = build_and_transcribe(
             args.project_folder, snapshot, model_size=args.model,
-            only_speakers=args.speaker or None)
+            only_speakers=args.speaker or None,
+            diarize=args.diarize_single_track)
 
     out = (Path(args.out) if args.out
            else transcript_path(args.project_folder))

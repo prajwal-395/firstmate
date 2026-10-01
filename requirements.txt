@@ -96,6 +96,23 @@ scipy>=1.10
 # floors together and let the resolver match the pair.
 torch>=2.8
 torchaudio>=2.8
+# Single-track diarization fallback (`library/tools/
+# single_track_diarization.py`, measured on the captain's footage at
+# data/vep-single-track-diarization/eval/ in firstmate's home).
+# speechbrain (MIT) carries the open ECAPA speaker encoder
+# (spkrec-ecapa-voxceleb, public weights, no HF token - deliberately
+# chosen over pyannote's gated weights); scikit-learn carries the
+# agglomerative clustering + silhouette k search. scikit-learn was
+# previously present only transitively - stated here so a resolver run
+# that drops it fails loudly at install instead of inside a transcript.
+# Measured floors: speechbrain 1.1.1 embedded the eval pair; sklearn
+# 1.9.0 clustered it. The weights are data, not a pin: ~90 MB at the
+# revision pinned in shared_environment, fetched once per machine by
+# scripts/install_ecapa.sh. A machine whose venv lacks these still
+# transcribes: the fallback refuses with DiarizationUnavailable and the
+# transcript records single-label output with the reason.
+speechbrain>=1.1
+scikit-learn>=1.9
 # Timed non-speech sound events (step 1.04 via sound_event_pipeline,
 # read by the cut planners through view:soundevents and anchor
 # {event}). panns-inference (MIT) + torchlibrosa (MIT) are pure Python

@@ -10,6 +10,7 @@ and the whole transcription was lost.
 
 from types import SimpleNamespace
 
+from library.tools import single_track_diarization as std
 from library.tools import timeline_transcript as tt
 
 
@@ -21,6 +22,13 @@ def test_a_suppression_entry_does_not_crash_the_summary(tmp_path, monkeypatch):
     monkeypatch.setattr(tt, "segments_for_speaker", lambda *a, **k: [])
     monkeypatch.setattr(tt, "transcript_document",
                         lambda *a, **k: {"segments": []})
+    # The single-timeline-speaker routing now consults the diarizer
+    # before transcribing; this test mocks the rebuild (no wav is
+    # written), so the encoder must read as unavailable rather than
+    # reaching for the file the mock never wrote.
+    def _missing(*args, **kwargs):
+        raise std.DiarizationUnavailable("no checkout")
+    monkeypatch.setattr(std, "diarize_track", _missing)
 
     from library.tools import transcript_corrections
 
