@@ -1,102 +1,44 @@
 """The vision pass's per-clip analysis as ONE document, reached by path.
 
-Step 3.02 `select_broll` carried **three views of one vision analysis**
-in a single prompt.  Measured on 001's frozen snapshot at 75d3e84, over
-a context of 88,475 B:
+Step 3.02 `select_broll` reads three views of one vision analysis.  Two
+stay inline because each carries something the model needs where it
+reads it; the raw structure they were rendered from goes BY REFERENCE,
+through this module.
 
-    semantic_analysis_documents   35,813 B   40.5%
-    picture                       10,250 B   11.6%
-    broll_candidates_toon          7,613 B    8.6%
-    ---------------------------------------------
-                                  53,676 B   60.7%   of 88,475 B
+## The current contract
 
-After: 57,169 B, and the structure is at a path.  With #340's frame
-strips also in the context, 94,994 B -> 63,688 B: the collapse is what
-pays for putting a picture in front of the step that chooses one.
-
-    picture                       10,250 B   17.9%
-    broll_candidates_toon          7,613 B   13.3%
-    footage_analysis_reference     4,507 B    7.9%
-    ---------------------------------------------
-                                  22,370 B   39.1%
-
-and the share had grown, not shrunk: #295 stopped copying the captain's
-brief into the prompt, so the denominator fell faster than the
-duplication did.  This is the step whose cutaway choices the captain
-complained about, and it is the step about to be handed a real frame.
-
-## What each of the three carries, and why only one of them moves
-
-`broll_candidates_toon` is the pre-bridge's table and the handoff calls
-it "the primary source of WHAT is in each clip".  Its `description` is
-`vision_schema_adapter.scene_prose` - `scene[]` rendered - and its
-`framing`/`stability`/`camera_move` are the `camera[]` summaries.  On
-001 that rendering is LOSSLESS: no clip's scene prose reaches the 600
-character cap, and 16 of 17 clips have exactly one `camera[]` segment.
-It also carries two things the analysis has not got at all - the clip's
-catalogue `duration_s`, and `used_as_aroll`.  It stays inline.
-
-`view:picture` is `actions[]`: one row per observed action window, with
-its own bounds, covering 95.0% of 001's footage where `scene[]` covers
-46.4%.  It is also the view the ANSWER is resolved against -
-`cutaway_window.choose_window` matches the model's `preferred_moment`
-against `blocks[].visual` - so a model that cannot see it is writing a
-moment into a matcher it cannot see.  It stays inline.
-
-`semantic_analysis_documents` is the raw structure both of those were
-rendered from, and it is 40.5% of the prompt.  62.8% of its cells are
-`objects[]` alone.  It is also the only one of the three keyed by the
-document's own file stem (`IMG_1806_v3`) rather than the catalogue id
-(`clip_001`) every other table in the context uses, so it is the one
-view the model cannot join to the others without a mapping.  It moves.
-
-## What moving it must not lose
-
-The handoff tells the model to read it, twice: *"read these when a
-candidate row is not enough to choose a sub-range"*, and Step C's *"use
-the scene segment bounds ... and the per-range `camera[]` entries"*.
-So it is not deleted.  Every byte of it is written to the step's own
-directory and reached by a line range, through the mechanism #295 built
-for the brief and #299 applied to the SFX catalogue - the same rule,
-the same map, the same clause 5.  Nothing is filtered, ranked,
-shortlisted or summarised away.
-
-Four things really are only in here, and the map's per-clip lede is
-sized to say which clips have them:
-
-  * `objects[]` past the four labels the table's `subjects` column
-    keeps - 159 objects on 001, of which 68 reach the table - with the
-    role, the category, the time ranges and any `readable_text`;
-  * `camera[]`'s per-segment TIME BOUNDS, which the table's deduped
-    `wide -> close-up` summary does not carry;
-  * `scene[]` as structure - location, type, lighting and
-    notable_features as fields rather than as one prose line;
-  * the assessment fields the table has no column for:
-    `interest_score`, `keywords`, `clip_type`, `primary_subject_visible`
-    and `usable_ranges_method`.
+* `broll_candidates_toon` stays inline: the pre-bridge's table, "the
+  primary source of WHAT is in each clip", plus the catalogue
+  `duration_s` and `used_as_aroll` the analysis does not carry.
+* `view:picture` (`actions[]`) stays inline: it is the view the ANSWER is
+  resolved against (`cutaway_window.choose_window` matches the model's
+  `preferred_moment` against `blocks[].visual`).
+* `semantic_analysis_documents` MOVES: every byte is written to the
+  step's own directory and reached by a line range
+  (`footage_document`), through the same mechanism as the brief
+  (`brief_reference`).  Nothing is filtered, ranked, shortlisted or
+  summarised away - it is what holds `objects[]` past the table's four
+  labels, `camera[]`'s per-segment time bounds, `scene[]` as structure,
+  and the assessment fields no table has a column for.
 
 ## The shape
 
-One `##` section per clip, titled with the CATALOGUE clip id - the
-exact string an answer has to name, and the id `broll_candidates_toon`
-and `view:picture` are keyed by, so following the map lands in the
-same vocabulary the rest of the context speaks.  A document that joins
-to no routed clip list keeps its own id and is NAMED as such, the rule
-`context_views._picture` already follows.
+One `##` section per clip, titled with the CATALOGUE clip id - the exact
+string an answer has to name and the id the inline views are keyed by.  A
+document that joins to no routed clip keeps its own id and is NAMED as
+such (as `context_views._picture` does).  Each section opens with its
+measured facts on one line, so `##`-splitting alone gives the map a
+per-clip lede.
 
-The section opens with its measured facts on one line, so `##`-splitting
-alone gives the map a per-clip lede saying how much is behind the range.
+Two shapes are chosen for the MAP rather than the page: nothing below a
+`##` is a heading (`parse_sections` lifts every deeper heading into the
+map), and the identity line carries no underscore (`brief_reference._lede`
+strips markdown emphasis and would corrupt identifiers).  The vision
+pass's own id for a clip is inside the section, where nothing rewrites
+it.
 
-Two shapes inside a section are chosen for the MAP rather than for the
-page.  Nothing below a `##` is a heading, because `parse_sections`
-collects every deeper heading into the map and four identical
-subheadings per clip is 68 lines of the prompt saying nothing.  And the
-identity line carries no underscore, because `brief_reference._lede`
-strips markdown emphasis out of a lede and would turn `content_type`
-into `contenttype` and `IMG_1806_v3` into `IMG1806v3` - a corrupted
-identifier in the one line a model reads to decide whether to open the
-section.  The vision pass's own id for a clip is inside the section,
-where nothing rewrites it.
+The byte measurements on 001's snapshot that motivated the move, and what
+each view was found to carry uniquely: docs/evidence/footage_reference.md.
 
 
 Rules relocated from AGENTS.md 10.1

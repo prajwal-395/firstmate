@@ -1,69 +1,38 @@
 """How much of a chosen sound plays, and what stops the cut clicking.
 
-Step 4.04 used to carry a length and lost it.  The plan on the run of
-record (001, 2026-08-26) asked for **0.25 s** under a defocus blur and
-**3.0 s** across a pivot slot, and #298 - which fixed a real defect, the
-model naming a TYPE that a keyword matcher turned into a file - replaced
-the schema with ``{spine_block_position, sfx_id, volume_level,
-rationale}``.  The sound then ran its own measured length.  The same
-``whoosh_impact.mp3`` the run of record played for 0.25 s plays for
-**8.04 s** at that revision.
-
-The rule that produced it is right and was applied one step too far.
-*A sound's duration is a property of the sound, not of a type name* -
-so ``DURATION_DEFAULTS`` had to go, because ``bass_impact: 0.5`` was a
-number nobody measured sitting in front of a 5.317 s riser.  But
-**refusing to ASK for a length is the same defect in the other
-direction**: it removes a decision the plan should be making and
-substitutes the file's full length for it, which is a value that also
-reached the timeline without anybody choosing it.
-
-The library is what makes this matter.  Measured 2026-08-28 over the
-captain's 78 entries: median duration **3.94 s**, only **9 of 78** at or
-under 1.0 s, only **4** at or under 0.5 s, **30** over 3 s, longest
-**76.14 s**.  Without a length, "put a short accent on this cut" is
-expressible only by choosing one of nine files.
+How long a sound plays is the PLAN's decision, bounded by what the file
+measures.  A sound's duration is a property of the sound, not of a type
+name - and refusing to ASK the plan for a length would substitute the
+file's full length for a decision nobody made.
 
 ## The bound
 
 **The upper bound is the sound's own measured length, less whatever the
-transient trim already skipped.**  You cannot play more of a file than
-it has.  A request past that is REFUSED BY NAME, never clamped: a clamp
-would silently hand back a different length from the one the plan asked
-for, and a plan that asked for four seconds of a two-second sound is a
-plan written against a sound it has not read.
+transient trim already skipped.**  A request past that is REFUSED BY NAME,
+never clamped: a clamp would silently hand back a different length from
+the one the plan asked for.
 
 **The lower bound is two frames of the run's own timebase**, and it is
-the only floor here.  It is mechanical, not creative: a slice shorter
-than one frame at level plus one frame of de-click ramp is a fade rather
-than a sound, and the keyframe grid cannot express it either way.  At
-30 fps that is 0.067 s, which admits the run of record's 0.25 s with
-room to spare.  **How short a sound should be is the plan's call and
-this module has no opinion**; there is no minimum "audible" length here
-and none may be added (AGENTS.md 10.5).
+the only floor here.  It is mechanical, not creative: one frame at level
+plus one frame of de-click ramp.  **How short a sound should be is the
+plan's call and this module has no opinion**; there is no minimum
+"audible" length here and none may be added (AGENTS.md 10.5).
 
-**A selection that declares no length plays the whole remainder**, and
-that is the ABSENCE of a decision rather than a decision - the same
-reading ``music_section`` gives a track that names no section, and
-``transition_vocabulary.CUT_TYPES`` gives a cut that draws nothing.
+**A selection that declares no length plays the whole remainder** - the
+ABSENCE of a decision, read the same way `music_section` reads a track
+that names no section.
 
 ## The click
 
-Cutting a sound short leaves the waveform wherever it happens to be, and
-the step to silence at the clip's out point is an audible click.
-Measured on exactly the run of record's request - ``whoosh_impact.mp3``
-decoded from its 0.714 s transient for 0.25 s, 48 kHz mono - the final
-sample sits at **16.5% of the slice's peak** (-2185 against 13209).
-That is a discontinuity, not a natural decay, so honouring a length
-includes ending it cleanly.
+A sound cut short ends wherever the waveform happens to be, which is an
+audible click.  **The ramp is ONE FRAME** - the shortest the delivery
+route can express, because the mix reaches Fairlight as OTIO volume
+keyframes (`library/tools/otio_mix.py`) addressed by frame.  It is
+applied only where the play window was TRUNCATED: a sound played to its
+own end already ends where the file ends.
 
-**The ramp is ONE FRAME, and it is the shortest the delivery route can
-express.**  The mix reaches Fairlight as OTIO volume keyframes
-(``library/tools/otio_mix.py``) and a keyframe is addressed by FRAME, so
-a conventional 5-10 ms de-click ramp has no representation on a 30 fps
-grid - 33 ms is the floor the format sets, not a number chosen for feel.
-It is applied only where the play window was TRUNCATED: a sound played
-to its own end already ends where the file ends.
+The run of record that lost the plan's lengths, the library's measured
+duration distribution, and the measured click: docs/evidence/sfx_duration.md.
 
 
 Rules relocated from AGENTS.md 10.5

@@ -1,11 +1,8 @@
 """A change to the timeline in front of you, instead of a rebuild of it.
 
-The only path the captain could reach staged a fresh timeline and
-promoted it over the old one (`manage_project.py build-reels`).  There
-was no verb that changed the timeline they were looking at - while
-`library/tools/composed_edit.py` sat beside it: a complete, tested,
-pixel-verified in-place editor with zero production callers.  This
-module is the path that connects the two.
+`manage_project.py build-reels` stages a fresh timeline and promotes it
+over the old one; this module changes the built reel instead, through
+`library/tools/composed_edit.py`'s in-place editor.
 
 What the caller states, and what it does not
 --------------------------------------------
@@ -93,25 +90,15 @@ The qualification gate
 ----------------------
 `qualify` classifies a change before anything is staged, into:
 
-- `composed` - no clip's played length changes.  No comp is
-  re-derived and no comp pass runs.  What this costs against a
-  rebuild is MEASURED, not quoted: the composition mechanism holds
-  at ~2s (delete 0.01-0.14s, place 0.25-0.57s, restore 0.03-4.09s)
-  but staging (copy + conform) measured 8.9-25.9s and a rebuild of
-  the same edit measured 19.4-67.1s (`docs/RULE_EVIDENCE.md`,
-  "What it costs, and it is not the spike's figure").  Both cases
-  measured there were length-CHANGING, so the no-length-change
-  class - this one - had never been measured at all until this
-  module's own live measurement.  The gate routes it; the numbers
-  say whether it was worth routing.
+- `composed` - no clip's played length changes.  No comp is re-derived
+  and no comp pass runs.  Whether that beats a rebuild is MEASURED per
+  edit in the receipt, never quoted; if it does not, that is reported as
+  a measured non-finding, not shipped as a speed improvement.
 - `composed_with_rederivation` - a played length changes.  Routed
   through the same composition, but ONLY with the real comp pass
-  (`ReelLookRederiver` over the recorded fusion manifest) and ONLY
-  with its cost said out loud: the comp pass is 17.0-63.7s of
-  fixed overhead, most of what a rebuild costs, and on the two
-  measured length-changing cases the composed totals (44.1s,
-  54.9s) were SLOWER than or level with the rebuilds (24.0s,
-  59.2s).  Never presented as a quick refresh.
+  (`ReelLookRederiver` over the recorded fusion manifest) and ONLY with
+  its cost said out loud: the comp pass is most of what a rebuild
+  costs.  Never presented as a quick refresh.
 - refusal - anything the gate cannot classify.  No guess, and no
   silent fallback to a full rebuild: a silent fallback is exactly the
   behaviour this module exists to remove.
@@ -127,26 +114,30 @@ refusals in `composed_edit` are untouched -
 `tests/test_composed_edit_refusal.py` attempts the bypass eight ways
 and must keep passing.
 
+A pixel swap is still delete-and-place: Resolve has no
+`SetMediaPoolItem`, so changing what an item plays means deleting it and
+placing a new one.  "Cheap" for a swap means "no comp pass", never "no
+delete".
+
 "Staged", not "in place on the captain's timeline"
 --------------------------------------------------
-The captain ruled 2026-09-09: build beside them.  "In place" here
-means "onto the existing built reel rather than a from-scratch
-rebuild", NOT onto whatever the captain is reviewing without a copy.
-`apply_touchup` duplicates the approved timeline into
-`reel_build.staging_name` (the same staging the build uses, so the
-bin layout and the stale-debris refusal both recognise it), conforms
-it against the source, edits the copy, verifies by re-reading the
-track, and only then swaps the names - with the replace guard, the
-sign-off check, marker carry, the undo journal and the carried
-signature close, mirroring `promote_staged_reels` phases 0-2.
+Build beside the captain (ruling 2026-09-09).  "In place" here means
+"onto the existing built reel rather than a from-scratch rebuild", NOT
+onto whatever the captain is reviewing without a copy.  `apply_touchup`
+duplicates the approved timeline into `reel_build.staging_name` (the
+same staging the build uses, so the bin layout and the stale-debris
+refusal both recognise it), conforms it against the source, edits the
+copy, verifies by re-reading the track, and only then swaps the names -
+with the replace guard, the sign-off check, marker carry, the undo
+journal and the carried signature close, mirroring
+`promote_staged_reels` phases 0-2.
 
-The way back is the JOURNAL, not a copy (captain, D5, 2026-09-23:
-"in-place for touches"). `undo_journal.open_entry` reads the approved
-timeline before anything is staged; `close_entry` reads the promoted
-one before the replaced generation is deleted; `ren undo` reverses the
-touch in place from the two. A removal of a GRADED item refuses here,
-like a graded swap: no script can record a grade, so the journal could
-not put it back.
+The way back is the JOURNAL, not a copy (captain, D5, 2026-09-23).
+`undo_journal.open_entry` reads the approved timeline before anything is
+staged; `close_entry` reads the promoted one before the replaced
+generation is deleted; `ren undo` reverses the touch in place from the
+two.  A removal of a GRADED item refuses here, like a graded swap: no
+script can record a grade, so the journal could not put it back.
 
 Grades ride from the APPROVED timeline: a re-placed item comes back
 with one colour node where it had eight, so every re-placed change
@@ -154,30 +145,9 @@ carries its grade from the live item on the untouched reel
 (`_grade_sources_for`, resolved by source row + pre-edit record
 frame and judged by read-back).
 
-On `reel_rebuild_need`'s "on this reel the composed path is not
-faster"
------------------------------------------------
-Answered, not a contradiction: the ~2s is the mechanism alone,
-and the totals include staging (8.9-25.9s) and re-derivation
-(17.8-37.4s).  Both cases measured in `docs/RULE_EVIDENCE.md` were
-length-changing, so both paid step 7.  The gate's design rests on
-exactly that reading: no-length-change edits skip the comp pass,
-and length-changing edits pay it and say so.  Whether skipping the
-comp pass is enough to beat a rebuild - staging alone can cost more
-than a whole rebuild's best case - is what the live measurement
-under `apply_touchup` decides, per edit, in the receipt.  If the
-composed path loses on the no-length-change class too, that is
-reported as a measured non-finding, not shipped as a speed
-improvement.
-
-On whether a pixel swap avoids delete-and-place
-------------------------------------------------
-It does not.  Resolve has no `SetMediaPoolItem`: changing what an
-item plays means deleting it and placing a new one.  So a swap is the
-full seven steps - delete-all, place-all, verify by re-read,
-restore - and "cheap" for swaps means "no comp pass", never "no
-delete" and never a ratio against a rebuild quoted from the old
-spike figure.
+The measured staging, mechanism, comp-pass and rebuild costs behind the
+gate, and the reading of `reel_rebuild_need`'s "not faster" finding:
+docs/evidence/reel_touchup.md.
 """
 
 from __future__ import annotations
