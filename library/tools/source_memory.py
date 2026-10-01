@@ -37,7 +37,7 @@ M3       `persons.json`               faces, hands, pose at 2 Hz    Vision lane
 M3b      `identity.json`              face/voice identity tracks    entity lane
 M4       `scenes.json`                scene embeddings              CLIP lane
 M5       `sound.json`                 sound-event labels            SoundAnalysis
-M6       `clock.json`                 per-source multicam offset    clock lane
+M6       `clock.json`                 per-source multicam offset    conversation_clock.py
 M7       `events.json`                DERIVED predicate spans       predicate lane
 ======== ============================ ============================= ==========
 
@@ -118,8 +118,10 @@ SLOT_EVENTS = "events.json"                    # M7 (predicate lane)
 
 RESERVED_SLOTS = (
     SLOT_SPEAKERS, SLOT_FRAMES_DIR, SLOT_FRAMES_INDEX, SLOT_PERSONS,
-    SLOT_IDENTITY, SLOT_SCENES, SLOT_SOUND, SLOT_CLOCK, SLOT_EVENTS,
+    SLOT_IDENTITY, SLOT_SCENES, SLOT_SOUND, SLOT_EVENTS,
 )
+# SLOT_CLOCK (M6) is no longer reserved: `library/tools/conversation_clock.py`
+# writes it.
 
 SILENCE_DB = -60.0
 """Below this a track is room tone off, not a candidate for anything.

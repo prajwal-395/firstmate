@@ -23,7 +23,7 @@ copy it; nothing goes into `pipeline_data.json`.
   identity.json                  # M3b - entity lane (RESERVED)
   scenes.json                    # M4  - CLIP lane (RESERVED)
   sound.json                     # M5  - SoundAnalysis lane (RESERVED)
-  clock.json                     # M6  - clock lane (RESERVED)
+  clock.json                     # M6  - this task
   events.json                    # M7  - predicate lane (RESERVED)
 ```
 
@@ -79,6 +79,62 @@ Utterances carry the same keys as step 1.04 speech regions, so the
 search serves either without branching. Text and words are
 lowercased; boundaries are MFA's (no onset snapping).
 `confidence` is 0.0 - no arm publishes one.
+
+## M6 `clock.json` (written)
+
+Owner: `library/tools/conversation_clock.py`. One record per source
+that landed in a measured multicam group - a source in no group gets
+no file, never a zero offset. Groups are MEASURED, never declared:
+two sources join a group when unique word 4-grams between their M1
+transcripts agree on a near-constant offset for most of the matches
+that exist (`MIN_NGRAM_MATCHES`, `MIN_AGREEMENT_FRACTION`).
+
+```json
+{
+  "content_digest": "sha256 hex",
+  "source_file": "<absolute path>",
+  "group_id": "sha256 of the sorted member digests",
+  "group_members": ["<digest>", "..."],
+  "reference_digest": "<the group member with the most transcribed words>",
+  "offset_to_reference_seconds": 3.80,
+  "path_to_reference": ["<this digest>", "...", "<reference digest>"],
+  "direct_measurement": {"ngram_size": 4, "total_candidate_matches": 7471,
+                         "agreeing_matches": 7438,
+                         "agreement_fraction": 0.9956,
+                         "offset_seconds": 3.80, "p5_seconds": 3.76,
+                         "p95_seconds": 3.85, "tolerance_seconds": 1.0},
+  "resolve_cross_check": {"timeline": "GEO Podcast - Synced",
+                          "boundary_count": 63, "offset_seconds": 3.875,
+                          "median_absolute_deviation_seconds": 0.1,
+                          "agrees_with_ngram_offset": true,
+                          "difference_from_ngram_offset_seconds": 0.075},
+  "ngram_size": 4, "built_at": "2026-10-01T00:00:00+00:00"
+}
+```
+
+`this_source_time + offset_to_reference_seconds == reference_time`.
+`direct_measurement` is null when the offset is transitive (more than
+one hop in `path_to_reference` - e.g. two shorter takes of the same
+camera that both overlap a longer reference take but not each other).
+The reference member's own record carries `offset_to_reference_seconds:
+0.0` and `direct_measurement: null`.
+
+`resolve_cross_check` reads a SAVED `timeline_transcript` output only -
+never Resolve, never a new build - and is null when the project has no
+such output. It finds adjacent timeline segments from two different
+sources whose timeline gap is tight (a real camera-switch cut, not a
+coincidental pause) and reads the offset the cut implies; this is
+noisier than the n-gram match (a segment boundary is the nearest WORD
+to the cut, not the cut itself), so it is reported with its own spread
+rather than asserted to match.
+
+Building is read-only and light - no ffmpeg, no model inference, no
+heavy-work lock - over whatever M1 transcripts are already fresh:
+
+```sh
+python3 -m library.tools.conversation_clock build <project>
+python3 -m library.tools.conversation_clock status <project>
+```
 
 ## Staleness
 
