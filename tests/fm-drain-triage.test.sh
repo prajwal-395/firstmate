@@ -259,6 +259,7 @@ assert_contains "$out" '  rung: gateway' "a declined typesafe falls back to the 
 assert_contains "$out" '  status: clear' "the fallback still resolves"
 assert_equals '2' "$(cat "$LOG/curl-count")" "the ladder makes one call per rung"
 assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-1")" "the first call tries the typesafe model"
+assert_contains "$(cat "$LOG/argv")" "$TS_URL" "the first call posts to the typesafe endpoint"
 assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-2")" "the second call descends to the gateway model"
 pass "typesafe-first ladder with one fallback on refusal"
 
