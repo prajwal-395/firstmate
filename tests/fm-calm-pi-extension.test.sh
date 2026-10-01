@@ -3741,7 +3741,19 @@ if (!messages || !tree) process.exit(1);
 if (!/<div class="user-message"[^>]*>[\s\S]*Show a deterministic tool example\./.test(messages)) process.exit(1);
 if (!/<div class="assistant-message"[^>]*>[\s\S]*The deterministic tool example is complete\./.test(messages)) process.exit(1);
 if (messages.includes('<div class="hook-message"')) process.exit(1);
-if (messages.includes("[firstmate-synthetic-input]")) process.exit(1);
+// Pi 0.99 keeps display:false custom messages in the export DOM behind the
+// hook-message-hidden class (hidden by CSS unless the viewer toggles them),
+// while older Pi omits them from the messages column entirely. A synthetic row
+// holds the conversation boundary in either shape only while it is never a
+// visible row, and while the viewer keeps hidden rows out of sight by default.
+const hookRowClass = (segment) => segment.match(/^ ([^"]*)"/)?.[1]?.split(/\s+/) ?? [];
+const syntheticHookHidden = messages.split('<div class="hook-message').slice(1)
+  .some((segment) => hookRowClass(segment).includes("hook-message-hidden") && segment.includes("[firstmate-synthetic-input]"));
+if (messages.includes("[firstmate-synthetic-input]") && !syntheticHookHidden) process.exit(1);
+if (messages.includes("[firstmate-synthetic-input]")) {
+  if (!/\.hook-message-hidden\s*\{[^}]*display:\s*none/.test(dom)) process.exit(1);
+  if (/<body[^>]*\bshow-hidden-messages\b/.test(dom)) process.exit(1);
+}
 for (const current of ["CURRENT_WATCHER_E2E", "CURRENT_TURN_END_E2E", "CURRENT_AWAY_E2E", "CURRENT_FROM_FIRSTMATE_E2E", "CURRENT_LAUNCH_BRIEF_E2E"]) {
   if (!messages.includes(current)) process.exit(1);
 }

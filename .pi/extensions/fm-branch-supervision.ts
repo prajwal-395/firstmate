@@ -2000,6 +2000,71 @@ ${context.command}
       .replace(/\r/g, "");
   };
 
+  // Whether Pi's stock tool-call header includes the call arguments.
+  // Current Pi renders `title key=value ...` collapsed (cut to 100 chars) and
+  // `title` plus one `key: value` line per argument expanded; older Pi renders
+  // the bare title. The probe below reads the answer off a real stock row, so
+  // no version string decides it, and the stock-comparison case in
+  // tests/fm-pi-branch-extension.test.sh fails loudly on the next drift.
+  let stockToolCallShowsArgs: boolean | undefined;
+  const stockToolCallIncludesArgs = (): boolean => {
+    if (stockToolCallShowsArgs !== undefined) return stockToolCallShowsArgs;
+    try {
+      const probeDefinition: ToolDefinition = {
+        name: "fm_stock_args_probe",
+        label: "Args probe",
+        description: "Args probe",
+        parameters: Type.Object({}),
+        execute: async () => ({ content: [], details: undefined }),
+      };
+      const probe = new ToolExecutionComponent(
+        probeDefinition.name,
+        "fm-stock-args-probe",
+        { fmStockArgsProbe: "FM_STOCK_ARGS_PROBE" },
+        { showImages: false },
+        probeDefinition,
+        { requestRender() {} } as ConstructorParameters<typeof ToolExecutionComponent>[5],
+        root,
+      );
+      stockToolCallShowsArgs = probe.render(4096).join("\n").includes("FM_STOCK_ARGS_PROBE");
+    } catch {
+      stockToolCallShowsArgs = false;
+    }
+    return stockToolCallShowsArgs;
+  };
+
+  // Stock tool-call header mimic for Pi's formatToolCallWithArgs
+  // (@earendil-works/pi-coding-agent/dist/core/tools/render-utils.js).
+  // That helper is not exported from the package root, and the call renderer
+  // runs synchronously, so this replicates it instead of importing it.
+  const STOCK_TOOL_CALL_ARGS_CHARS = 100;
+  const formatStockToolCallHeader = (
+    title: string,
+    args: unknown,
+    theme: Parameters<NonNullable<ToolDefinition["renderCall"]>>[1],
+    expanded: boolean,
+  ): string => {
+    const header = theme.fg("toolTitle", theme.bold(title));
+    if (!stockToolCallIncludesArgs()) return header;
+    if (args === null || args === undefined) return header;
+    const entries: Array<[string, unknown]> = typeof args === "object" && !Array.isArray(args)
+      ? Object.entries(args as Record<string, unknown>)
+      : [["args", args]];
+    if (entries.length === 0) return header;
+    if (expanded) {
+      const lines = entries.map(([key, value]) => {
+        const text = typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? String(value));
+        return `  ${key}: ${text.replace(/\t/g, "   ").replace(/\r/g, "").split("\n").join("\n    ")}`;
+      });
+      return `${header}\n${theme.fg("muted", lines.join("\n"))}`;
+    }
+    const pairs = entries.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`).join(" ");
+    const preview = pairs.length > STOCK_TOOL_CALL_ARGS_CHARS
+      ? `${pairs.slice(0, STOCK_TOOL_CALL_ARGS_CHARS - 3)}...`
+      : pairs;
+    return `${header} ${theme.fg("muted", preview)}`;
+  };
+
   let stockOutcomesPreviewLines: number | null | undefined;
   const getStockOutcomesPreviewLines = (): number | undefined => {
     if (stockOutcomesPreviewLines !== undefined) return stockOutcomesPreviewLines ?? undefined;
@@ -2071,11 +2136,11 @@ ${context.command}
       recent: Type.Optional(Type.Number({ description: "How many most-recent outcomes to read (default 20)" })),
     }),
     renderShell: "self",
-    renderCall: (_args, theme, context) => {
+    renderCall: (args, theme, context) => {
       if (calmPresentation.stockExportRendering) throw new Error("Use Pi stock export rendering");
       if (calmHides("assistant-tool-call")) return new Container();
       const shellState = context.state as OutcomesToolShellState;
-      shellState.call = new Text(theme.fg("toolTitle", theme.bold("fm_branch_outcomes")), 0, 0);
+      shellState.call = new Text(formatStockToolCallHeader("fm_branch_outcomes", args, theme, context.expanded), 0, 0);
       return refreshOutcomesToolShell(shellState, theme, context);
     },
     renderResult: (result, options, theme, context) => {
@@ -2133,11 +2198,11 @@ ${context.command}
       through: Type.Number({ description: "The highest outcome sequence number this conversation has processed" }),
     }),
     renderShell: "self",
-    renderCall: (_args, theme, context) => {
+    renderCall: (args, theme, context) => {
       if (calmPresentation.stockExportRendering) throw new Error("Use Pi stock export rendering");
       if (calmHides("assistant-tool-call")) return new Container();
       const shellState = context.state as OutcomesToolShellState;
-      shellState.call = new Text(theme.fg("toolTitle", theme.bold("fm_branch_processed")), 0, 0);
+      shellState.call = new Text(formatStockToolCallHeader("fm_branch_processed", args, theme, context.expanded), 0, 0);
       return refreshOutcomesToolShell(shellState, theme, context);
     },
     renderResult: (result, _options, theme, context) => {
