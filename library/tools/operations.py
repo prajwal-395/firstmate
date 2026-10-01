@@ -1351,6 +1351,21 @@ _REGISTRY: tuple[Operation, ...] = (
         # address would promise a scope the function does not keep.
     ),
     Operation(
+        name="vfx.splice",
+        summary="Resolve a region's re-planned effects and put them back into the stored plan",
+        owning_node="plan_vfx",
+        owning_dir="step_4_03_plan_vfx", body="post_bridge.py",
+        attr="splice_region_vfx",
+        # REGION only, beside `vfx.resolve` the way `subtitles.splice`
+        # sits beside `subtitles.plan`. The model's answer FOR THE REGION
+        # is supplied as `vfx_creative` and the plan it goes INTO as
+        # `stored_spec`; every effect on a block outside the region comes
+        # back byte-identical and the report measures it
+        # (`plan_splice`). At PROJECT scope this would be `vfx.resolve`
+        # again.
+        scopes=(REGION,),
+    ),
+    Operation(
         name="sfx.resolve",
         summary="Resolve the model's SFX plan to playable placements",
         owning_node="plan_sfx",

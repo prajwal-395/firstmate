@@ -896,11 +896,29 @@ def resolve_vfx(
             resolved[-1]["anchor_method"] = anchor_method
 
     resolved.sort(key=lambda v: v["timeline_start"])
-    for i, v in enumerate(resolved, start=1):
-        v["vfx_id"] = f"vfx_{i:03d}"
+    _number_within_block(resolved, "vfx_id", "vfx")
 
     _assert_vfx_distinct(resolved)
     return resolved
+
+
+def _number_within_block(entries: list, id_key: str, prefix: str) -> None:
+    """Number entries WITHIN their block, in timeline order.
+
+    Block-local for the reason 4.01's caption ids are: a region re-plan
+    resolves only the region's blocks, and under a run-global counter
+    every id after the region would renumber - so a splice that left
+    every out-of-region effect alone would still report them all as
+    changed.  `vfx_7_002` is the second effect on block 7 however many
+    effects any other block carries.
+    """
+    from library.tools.subtitle_segment_id import slug
+
+    counters = {}
+    for entry in entries:
+        token = slug(entry["target_block_position"], "noblock")
+        counters[token] = counters.get(token, 0) + 1
+        entry[id_key] = f"{prefix}_{token}_{counters[token]:03d}"
 
 
 def _assert_vfx_distinct(resolved: list) -> None:
@@ -994,8 +1012,7 @@ def resolve_generator_overlays(
         })
 
     overlays.sort(key=lambda o: o["timeline_start"])
-    for i, o in enumerate(overlays, start=1):
-        o["overlay_id"] = f"gen_{i:03d}"
+    _number_within_block(overlays, "overlay_id", "gen")
 
     if overlays:
         print(
@@ -1005,6 +1022,105 @@ def resolve_generator_overlays(
         )
 
     return overlays
+
+
+# ── Region-scoped re-plan, and putting it back ──────────────────────
+
+def splice_region_vfx(vfx_creative: list, timed_spine: dict,
+                      stored_spec: dict, scope,
+                      frame_rate: float = 30.0,
+                      music_analysis: dict | None = None,
+                      music_selection: dict | None = None,
+                      temporal_event_indices=None) -> dict:
+    """Resolve a REGION's fresh effect plan and splice it into `stored_spec`.
+
+    "Redo the effects in 45-72s" re-plans those blocks and nothing else.
+    `vfx_creative` is the model's answer FOR THE REGION - entries naming
+    only blocks the region touches - and `stored_spec` is the step's
+    recorded `enhancement_spec`.  Every effect and generator overlay on a
+    block outside the region comes back byte-identical, and the report
+    MEASURES that rather than asserting it.
+
+    Resolution is per block - an entry is anchored inside its own block
+    against the whole spine, the beat grid and the temporal index - so a
+    block resolves identically whether or not its neighbours are in the
+    plan, and with block-local ids (`_number_within_block`) it gets the
+    same ids too.
+
+    Refuses rather than doing something surprising:
+
+    - a region touching no block, so a typo redoes nothing quietly;
+    - a fresh entry on a block outside the region (`plan_splice`);
+    - a merged plan with two effects on one span (`_assert_vfx_distinct`).
+
+    `planning_basis` stays the stored WHOLE-plan basis; the region's own
+    basis travels in the report, because a region's proposed/dropped
+    counts are not the plan's.
+
+    Returns `{"enhancement_spec": ..., "splice": <report>}`.
+    """
+    from library.tools.plan_splice import (
+        SpliceRefused,
+        splice_entries,
+        splice_report,
+    )
+    from library.tools.spine_contract import blocks_overlapping
+
+    span = scope.region_span
+    structure = timed_spine.get(
+        "structure", timed_spine.get("audio_spine", {}).get("structure", []))
+    touched = blocks_overlapping(structure, span.start, span.end)
+    if not touched:
+        raise SpliceRefused(
+            f"region {span} touches no spine block",
+            "there is nothing in it to re-plan",
+            "address a region inside the timeline")
+    positions = [b["position"] for b in touched]
+
+    creative = [v for v in (vfx_creative or []) if isinstance(v, dict)]
+    temporal = temporal_event_indices or []
+    if isinstance(temporal, dict):
+        temporal = temporal.get("temporal_event_indices", [])
+
+    dropped = []
+    fresh = resolve_vfx(creative, timed_spine, frame_rate, dropped=dropped,
+                        music_analysis=music_analysis or {},
+                        music_selection=music_selection or {},
+                        temporal_indices=temporal)
+    fresh_overlays = resolve_generator_overlays(creative, timed_spine,
+                                                frame_rate)
+    routed = {str(o["target_block_position"]) for o in fresh_overlays}
+    dropped = [d for d in dropped
+               if not (d.reason == "generator_not_a_clip_effect"
+                       and str(d.target_block_position) in routed)]
+
+    stored_effects = stored_spec.get("visual_effects", [])
+    stored_overlays = stored_spec.get("generator_overlays", [])
+    key = "target_block_position"
+    effects = splice_entries(stored_effects, fresh, positions, key, "vfx_id")
+    overlays = splice_entries(stored_overlays, fresh_overlays, positions,
+                              key, "overlay_id")
+    _assert_vfx_distinct(effects)
+
+    spec = dict(stored_spec)
+    spec["visual_effects"] = effects
+    if overlays:
+        spec["generator_overlays"] = overlays
+    else:
+        spec.pop("generator_overlays", None)
+
+    report = splice_report(stored_effects, effects, positions, key)
+    overlay_report = splice_report(stored_overlays, overlays, positions, key)
+    report["generator_overlays"] = overlay_report
+    report["outside_unchanged"] = (report["outside_unchanged"]
+                                   and overlay_report["outside_unchanged"])
+    report["region"] = span.as_address()
+    report["region_planning_basis"] = PlanBasis(
+        proposed=len(creative),
+        resolved=len(fresh) + len(fresh_overlays),
+        dropped=dropped,
+    ).as_dict()
+    return {"enhancement_spec": spec, "splice": report}
 
 
 def main():

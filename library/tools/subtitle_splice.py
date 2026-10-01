@@ -31,7 +31,9 @@ bisects a block leave half its captions from one plan and half from
 another, with the grouping decided against two different neighbourhoods -
 cards that overlap, or a gap where the two halves disagree about where a
 sentence broke.  Grouping is a block-wide decision, so blocks are the
-unit that can be exchanged.
+unit that can be exchanged.  The exchange itself is
+`library/tools/plan_splice.py`, shared with every block-keyed planner;
+this module adds what is captions' own, the duration refusal.
 
 What this module does NOT do
 ----------------------------
@@ -47,18 +49,14 @@ from __future__ import annotations
 
 from typing import List, Sequence
 
-from library.tools.ren_refusal import RenRefusal
+from library.tools import plan_splice
+from library.tools.plan_splice import SpliceRefused
 
+KEY = "spine_block_position"
+"""The field a caption entry names its spine block with."""
 
-class SpliceRefused(RenRefusal):
-    """The splice would have changed something outside the region."""
-
-
-def _by_position(entries: Sequence[dict]) -> dict:
-    grouped = {}
-    for entry in entries:
-        grouped.setdefault(entry["spine_block_position"], []).append(entry)
-    return grouped
+__all__ = ["SpliceRefused", "assert_durations_preserved", "splice_plan",
+           "outside_region", "splice_report"]
 
 
 def assert_durations_preserved(stored_structure: Sequence[dict],
@@ -108,69 +106,23 @@ def assert_durations_preserved(stored_structure: Sequence[dict],
 def splice_plan(stored_entries: Sequence[dict],
                 fresh_entries: Sequence[dict],
                 positions: Sequence) -> List[dict]:
-    """Replace exactly `positions`' entries with `fresh_entries`.
+    """Replace exactly `positions`' captions with `fresh_entries`.
 
-    `positions` is passed explicitly rather than inferred from
-    `fresh_entries`, and that is deliberate: a region can legitimately
-    resolve to a block whose fresh plan is EMPTY - a re-index that found
-    the passage was silence - and inferring the set from what came back
-    would silently keep the old captions for exactly that case.
-
-    Returns a new list in timeline order.  The input is not mutated.
+    `plan_splice.splice_entries` keyed on the caption's block; see there
+    for why `positions` is explicit.
     """
-    targets = set(positions)
-
-    stray = {e["spine_block_position"] for e in fresh_entries} - targets
-    if stray:
-        raise SpliceRefused(
-            f"the fresh plan carries entries for block(s) "
-            f"{sorted(stray, key=str)}, which are not in the region being "
-            f"spliced ({sorted(targets, key=str)})",
-            "a splice may only write the blocks it was asked for - "
-            "writing further would disturb captions outside the region",
-            "re-plan exactly the spliced region so the fresh entries "
-            "cover its blocks and no others, then splice again")
-
-    kept = [dict(e) for e in stored_entries
-            if e["spine_block_position"] not in targets]
-    merged = kept + [dict(e) for e in fresh_entries]
-    merged.sort(key=lambda e: (e["timeline_start"], str(e["id"])))
-    return merged
+    return plan_splice.splice_entries(stored_entries, fresh_entries,
+                                      positions, KEY, "id")
 
 
 def outside_region(entries: Sequence[dict], positions: Sequence) -> List[dict]:
-    """The entries a splice must leave byte-identical.
-
-    The evidence half of this module.  A caller proves a splice was
-    bounded by comparing this before and after; it is here rather than in
-    a test so the demonstration and the tests measure the same thing.
-    """
-    targets = set(positions)
-    return [e for e in entries if e["spine_block_position"] not in targets]
+    """The captions a splice must leave byte-identical."""
+    return plan_splice.outside_region(entries, positions, KEY)
 
 
 def splice_report(stored_entries: Sequence[dict],
                   merged_entries: Sequence[dict],
                   positions: Sequence) -> dict:
-    """What the splice did, in numbers a reader can check.
-
-    `outside_unchanged` is the claim that matters, and it is COMPUTED
-    here rather than asserted by the caller - a splice that reports its
-    own success without measuring it is the vacuous gate this repository
-    keeps removing.
-    """
-    before = outside_region(stored_entries, positions)
-    after = outside_region(merged_entries, positions)
-    was = _by_position(stored_entries)
-    now = _by_position(merged_entries)
-    return {
-        "positions": sorted(positions, key=str),
-        "entries_before": len(stored_entries),
-        "entries_after": len(merged_entries),
-        "replaced": {str(p): {"before": len(was.get(p, [])),
-                              "after": len(now.get(p, []))}
-                     for p in sorted(positions, key=str)},
-        "outside_count_before": len(before),
-        "outside_count_after": len(after),
-        "outside_unchanged": before == after,
-    }
+    """What the splice did; `outside_unchanged` is MEASURED."""
+    return plan_splice.splice_report(stored_entries, merged_entries,
+                                     positions, KEY)

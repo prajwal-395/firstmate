@@ -49,6 +49,7 @@ run at a declared scope. It owns no logic of its own.
 | `rough_cut.review` | `review_rough_cut` | project | Run the mechanical duration, continuity and source checks over the rough cut |
 | `transitions.resolve` | `plan_transitions` | project | Resolve the model's transition plan to execution specs |
 | `vfx.resolve` | `plan_vfx` | project | Resolve the model's VFX plan to execution specs |
+| `vfx.splice` | `plan_vfx` | region | Resolve a region's re-planned effects and put them back into the stored plan |
 | `sfx.resolve` | `plan_sfx` | project | Resolve the model's SFX plan to playable placements |
 | `transcript.reindex` | `temporal_index` | region | Re-measure the speech in one region, back at the raw footage |
 | `transcript.splice` | `temporal_index` | region | Put a re-measured region back into the per-clip speech index |
