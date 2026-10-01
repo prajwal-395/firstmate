@@ -336,7 +336,7 @@ def compose_for_report(change_spec: dict, tracks) -> dict:
     if plan.refused:
         raise DryRunRefused(f"the reel goal refused: {plan.refusal_reason()}")
     for op_name in plan.operations:
-        owner = ops_mod.get(op_name).owning_node
+        owner = ops_mod.get(op_name).legacy_node
         if owner == "compile_manifest":
             raise DryRunFinding(
                 f"the reel-goal plan names {op_name}, owned by "

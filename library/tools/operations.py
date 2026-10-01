@@ -25,8 +25,13 @@ status, the review gate, the marker routing, the step export, the three
 run-level collectors.  An operation that did not declare its owning node
 would lose its place in all of them - it would run, and nothing would
 record that it had.  So an operation names the node whose decision it
-is, and `test_every_owning_node_is_a_real_dag_node` checks the name is
-real.
+is, and `library/tools/capabilities.problems` checks the name is real.
+
+It is LEGACY metadata, not identity.  An operation's `name` is its
+capability id (`library/tools/capabilities.py`), and every node-keyed
+read below goes through `library/tools/dag_adapter.py` - the one place
+that still translates a capability into the node those services key by,
+until nothing reads the node and the graph can go.
 
 The two services that are NOT node-keyed are the handbrake, which is
 keyed by project, and the provenance snapshot, which takes no key at all
@@ -394,7 +399,7 @@ class Operation:
 
     name: str
     summary: str
-    owning_node: str            # the DAG node whose decision this is
+    owning_node: str            # LEGACY: the DAG node, via dag_adapter
     owning_dir: str             # its directory under library/steps/
     body: str                   # step.py | bridge.py | post_bridge.py
     attr: str                   # the function's name in that body
@@ -443,6 +448,17 @@ class Operation:
         return STEPS_ROOT / self.owning_dir / self.body
 
     @property
+    def legacy_node(self) -> str:
+        """The DAG node, reached through the compatibility adapter.
+
+        Every node-keyed read in this class asks here rather than reading
+        `owning_node`, so the capability id stays the identity and the
+        node stays metadata (`library/tools/dag_adapter.py`).
+        """
+        from library.tools import dag_adapter
+        return dag_adapter.node_of(self)
+
+    @property
     def requires(self) -> tuple:
         """Every requirement this operation's OWNING NODE has.
 
@@ -456,9 +472,8 @@ class Operation:
         ids; `owning_node` is what makes an operation addressable in that
         vocabulary, which is the second reason it is not decoration.
         """
-        from library.tools import requirements
-        return tuple(r for r in requirements.all_requirements()
-                     if self.owning_node in r.consumers)
+        from library.tools import dag_adapter
+        return dag_adapter.requirements_consumed(self)
 
     @property
     def effect(self) -> tuple:
@@ -483,9 +498,8 @@ class Operation:
         precondition.  See the module docstring for the kind and
         the composition consequence.
         """
-        from library.tools import requirements
-        return tuple(r for r in requirements.all_requirements()
-                     if self.owning_node in r.produced_by)
+        from library.tools import dag_adapter
+        return dag_adapter.requirements_produced(self)
 
     @property
     def run(self) -> Callable:
@@ -568,7 +582,7 @@ class Operation:
         test fails if this argument grows.
         """
         from library.tools import requirements
-        return requirements.check([self.owning_node],
+        return requirements.check([self.legacy_node],
                                   self.context(project_folder),
                                   self.requires)
 
@@ -586,8 +600,8 @@ class Operation:
         what makes "which graph declares this node" a question with one
         answer.
         """
-        from library.tools import processes
-        return processes.dag_declaring(self.owning_node)
+        from library.tools import dag_adapter
+        return dag_adapter.declaring_dag(self)
 
     def gather(self, project_folder: str) -> dict:
         """The step's inputs, assembled the way the RUNNER assembles them.
@@ -621,8 +635,8 @@ class Operation:
             state = json.loads(Path(path).read_text(encoding="utf-8"))
         state.setdefault("project_folder", project_folder)
         return run_pipeline.gather_step_inputs(
-            self.owning_node, dag, state,
-            manifests.get(self.owning_node), step_type="operation")
+            self.legacy_node, dag, state,
+            manifests.get(self.legacy_node), step_type="operation")
 
     def execute(self, project_folder: str, scope: Scope = None,
                 **overrides) -> OperationResult:
@@ -926,7 +940,7 @@ class Operation:
         import run_pipeline
 
         manifest = run_scope.load_manifests(
-            self._dag()).get(self.owning_node) or {}
+            self._dag()).get(self.legacy_node) or {}
         declared = run_pipeline.llm_output_declarations(manifest,
                                                         set(merged))
         return tuple(o.get("name") for o in declared
@@ -1600,7 +1614,8 @@ def looks_like_an_address(text: str) -> bool:
 
 def by_node(node_id: str) -> tuple[Operation, ...]:
     """Everything owned by one DAG node."""
-    return tuple(op for op in _REGISTRY if op.owning_node == node_id)
+    from library.tools import dag_adapter
+    return dag_adapter.capabilities_at(node_id)
 
 
 # ── Presentation: the CLI, and the skill that is a projection of it ──
@@ -1753,7 +1768,11 @@ def main(argv=None) -> int:
         print(refused.render(), file=sys.stderr)
         return REFUSAL_EXIT_CODE
 
-    result = op.execute(args.project, scope=where, **overrides)
+    # The execution receipt: what this run wrote, under the capability
+    # id, with the legacy node derived (`provenance.observing_operation`).
+    from library.tools import provenance
+    with provenance.observing_operation(args.project, op.name):
+        result = op.execute(args.project, scope=where, **overrides)
 
     if result.refused:
         print(f"REFUSED: {op.name}", file=sys.stderr)

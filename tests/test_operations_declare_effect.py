@@ -22,23 +22,9 @@ refuses it.
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from library.tools import operations
-from library.tools import requirements as R
-
-
-def _mirror(op) -> tuple:
-    """The effect definition, recomputed independently of the property."""
-    return tuple(r for r in R.all_requirements() if op.owning_node in r.produced_by)
-
-
-
-
-
-
 
 
 def test_empty_effect_reasons_are_real():
@@ -59,7 +45,7 @@ def test_empty_effect_reasons_are_real():
             f"(VERDICT left the blind set by the captain's ruling "
             f"2026-09-23)"
         )
-        assert by_name[name].owning_node in reason, (
+        assert by_name[name].legacy_node in reason, (
             f"{name}: the reason must name the owning node it excuses, "
             f"so a re-owned operation reads as wrong"
         )

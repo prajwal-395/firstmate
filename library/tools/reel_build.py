@@ -3849,7 +3849,11 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
         source_start = float(placement["source_in"])
         cursor = master_start
 
-        def keep_piece(start: float, end: float) -> None:
+        # This iteration's values, bound now: the closure is only called
+        # inside the iteration that defines it, and binding says so (B023).
+        def keep_piece(start: float, end: float, placement=placement,
+                       master_start=master_start, source_start=source_start,
+                       base_record_frame=base_record_frame) -> None:
             start_frame = int(round((start - master_start) * fps))
             end_frame = int(round((end - master_start) * fps))
             if end_frame <= start_frame:

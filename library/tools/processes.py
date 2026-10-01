@@ -34,7 +34,7 @@ as though it were the only one -
     requirements.all_requirements   derives every state_key requirement
     operations.Operation.gather     assembles a step's inputs
     operations.Operation.requires   via all_requirements
-    tests/test_step_dag_coverage    every step dir has a node
+    capabilities.problems           every step dir is reached
 
 - and each now asks this module instead.  A run still derives from the
 dag it was HANDED (`run_pipeline` passes its own), which is what keeps a
@@ -55,7 +55,7 @@ A process is a DIRECTORY, never a list
 `process_ids()` scans `library/processes/*/dag.json`.  A hand-written
 enumeration would be a second place to update, and the failure mode -
 adding a process nobody registered - is exactly the 1.06/1.07 defect
-`tests/test_step_dag_coverage.py` exists to stop.
+`capabilities.unregistered_step_dirs` exists to stop.
 """
 from __future__ import annotations
 

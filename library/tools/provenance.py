@@ -69,6 +69,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -252,6 +253,30 @@ class RunRecord:
     before this field existed - which is not the same claim, and
     `run_restart.reconstruct_from_ledger` is what answers for those.
     """
+
+
+@contextmanager
+def observing_operation(project_folder, operation_id: str,
+                        run_id: str | None = None):
+    """The execution receipt for one capability run outside the runner.
+
+    Snapshots the output tree, yields, and records whatever appeared or
+    changed under `operation_id` - on a refusal or a raise too, because a
+    file half-written by a failed call was still written by it.  Used at
+    the front doors that execute a capability as an act of its own (the
+    operations CLI, the reels process), never around a capability another
+    capability calls, which would attribute one file to both.
+    """
+    from library.tools import dag_adapter, operations
+    ledger = ProvenanceLedger(project_folder, step_ids=dag_adapter.node_ids(),
+                              operation_ids=operations.names())
+    run_id = run_id or new_run_id()
+    before = ledger.snapshot()
+    try:
+        yield ledger
+    finally:
+        ledger.observe_operation(operation_id, run_id, before,
+                                 ledger.snapshot())
 
 
 def new_run_id(now=None, pid=None) -> str:
@@ -479,6 +504,21 @@ class ProvenanceLedger:
             records.append(rec)
             self._append(ARTIFACTS_FILE, asdict(rec))
         return records
+
+    def observe_operation(self, operation_id: str, run_id: str,
+                          before: dict, after: dict) -> list:
+        """Record what a CAPABILITY wrote, named by its id alone.
+
+        The capability id is the authoritative name; the legacy `step_id`
+        every node-keyed reader still groups by is DERIVED through
+        `library/tools/dag_adapter.py`, never supplied by the caller - so
+        a caller cannot attribute a capability to a node it is not.
+        Every refusal `observe` makes still applies.
+        """
+        from library.tools import dag_adapter, operations
+        node = dag_adapter.node_of(operations.get(operation_id))
+        return self.observe(node, run_id, before, after,
+                            operation_id=operation_id)
 
     # ── Runs ────────────────────────────────────────────────────────
 

@@ -32,7 +32,6 @@ from library.tools.project_layout import (
     MAX_PIPELINE_DATA_BACKUPS,
     WRITABLE_KINDS,
     Area,
-    Kind,
     ProjectLayout,
     ProjectLayoutViolation,
 )
@@ -205,6 +204,14 @@ def test_the_unwired_steps_are_marked_unwired():
     for step in STEPS:
         assert step.wired == (step.node_id in dag_ids), (
             f"{step.node_id}: wired={step.wired} disagrees with every DAG")
+
+
+def test_wired_false_requires_reason_at_import_time():
+    """StepDir.__post_init__ rejects wired=False without a reason."""
+    from library.tools.project_layout import StepDir
+
+    with pytest.raises(ValueError, match="unwired_reason"):
+        StepDir("fake_step", "99_99_fake", wired=False)
 
 
 # ── The layout itself ───────────────────────────────────────────────
@@ -385,8 +392,10 @@ def test_read_paths_survive_a_project_with_no_directories(tmp_path):
 
     # 1. review_gate: every read function returns a safe default.
     from library.tools.review_gate import (
-        get_all_gate_statuses, get_gate_status,
-        load_gate_feedback, load_gate_snapshot,
+        get_all_gate_statuses,
+        get_gate_status,
+        load_gate_feedback,
+        load_gate_snapshot,
     )
     assert get_all_gate_statuses(str(tmp_path)) == {}
     assert get_gate_status(str(tmp_path), "scan") == "none"
@@ -401,7 +410,7 @@ def test_read_paths_survive_a_project_with_no_directories(tmp_path):
     # 3. music_selection_contract: sources include paths but no crash.
     from library.tools.music_selection_contract import catalogue_sources
     sources = catalogue_sources(str(tmp_path))
-    for label, dirs in sources.items():
+    for dirs in sources.values():
         for d in dirs:
             # The path may not exist, but the caller is expected to
             # check os.path.isdir() before listing.

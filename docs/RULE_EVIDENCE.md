@@ -2988,8 +2988,10 @@ argument (10 of 159), not an impossibility one. The reason recorded in
 `library/tools/run_scope.DESELECTED_BY_DEFAULT` states it that way.
 
 **The structural fix**: `StepDir.__post_init__` in `project_layout.py` now rejects `wired=False`
-without an `unwired_reason`. `tests/test_step_dag_coverage.py` scans every step directory on disk
-and fails if any has no DAG node and no documented unwired declaration. A step that exists but
+without an `unwired_reason`. `capabilities.unregistered_step_dirs` (pinned by
+`tests/test_capabilities.py`; it replaced `tests/test_step_dag_coverage.py`) scans every step
+directory on disk and fails if no capability or DAG node reaches one and no documented unwired
+declaration explains it. A step that exists but
 never runs is no longer silent.
 
 **EasyOCR measurement on 001** (17 clips, 807s footage, 2026-08-28): 445s wall-clock at 1fps

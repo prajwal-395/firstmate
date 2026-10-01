@@ -25,7 +25,6 @@ thing it complained about is supplied.  A gate that always says no is no
 more evidence than one that always says yes.
 """
 
-import json
 
 import pytest
 
@@ -33,7 +32,6 @@ from library.tools.project_layout import Area, ProjectLayout
 from library.tools.provenance import (
     PRODUCER_OPERATION,
     PRODUCER_STEP,
-    ArtifactRecord,
     ProvenanceError,
     ProvenanceLedger,
 )
@@ -167,3 +165,28 @@ def test_and_a_fully_declared_ledger_still_records(project):
     assert records[0].step_id == "plan_subtitles"
 
 
+
+
+# ── The receipt a capability run leaves ─────────────────────────────
+
+def test_running_a_capability_records_its_id_and_derives_the_node(
+        project, monkeypatch):
+    """The defect: no caller ever passed `operation_id`, so a capability
+    run from the CLI or the reels process wrote files provenance never
+    attributed. The id is the caller's only input; the node is derived."""
+    from library.tools import operations
+
+    def writes_a_segment(self, project_folder, scope=None, **overrides):
+        _write(project, Area.SUBTITLE_SEGMENTS, "seg.mov")
+        return operations.OperationResult(
+            operation=self.name, owning_node=self.owning_node,
+            scope=scope, status=operations.COMPLETED, payload={})
+
+    monkeypatch.setattr(operations.Operation, "execute", writes_a_segment)
+    assert operations.main(["subtitles.render", "--project",
+                            str(project)]) == 0
+
+    rows = ProvenanceLedger(project)._read("artifacts.jsonl")
+    assert [(r["operation_id"], r["step_id"], r["producer_kind"])
+            for r in rows] == [
+        ("subtitles.render", "render_subtitles", PRODUCER_OPERATION)]

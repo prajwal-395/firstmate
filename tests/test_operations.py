@@ -27,7 +27,6 @@ machinery; this file is about reels and about the enumeration that keeps
 the derivation honest.
 """
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -35,7 +34,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from library.tools import operations, run_scope
+from library.tools import operations
 from library.tools import requirements as R
 from library.tools.timeline_transcript import transcript_path
 
@@ -45,11 +44,11 @@ REEL_OPERATIONS = tuple(op for op in operations.all()
                         if op.name.startswith("reel."))
 
 SELECTION_OPERATIONS = tuple(op for op in REEL_OPERATIONS
-                             if op.owning_node == "select_reels")
+                             if op.legacy_node == "select_reels")
 """PROPOSING a reel: step 3.04's two halves, inside `edit_video`."""
 
 PROCESS_OPERATIONS = tuple(op for op in REEL_OPERATIONS
-                           if op.owning_node != "select_reels")
+                           if op.legacy_node != "select_reels")
 """BUILDING and VERIFYING one: the two nodes of `library/processes/reels`,
 which is the second process the finding asked for and the captain
 authorised.  They are separated from the pair above because they have
@@ -92,8 +91,8 @@ def test_building_a_reel_is_addressable_and_not_only_a_subcommand():
     """
     build = operations.get("reel.build")
     verify = operations.get("reel.verify")
-    assert build.owning_node == "build_reels"
-    assert verify.owning_node == "verify_reels"
+    assert build.legacy_node == "build_reels"
+    assert verify.legacy_node == "verify_reels"
 
     from library.tools import processes
     assert processes.process_of("build_reels") == processes.REELS
@@ -218,7 +217,11 @@ def _reel_project(tmp_path, *, transcript=True, approved=True, binding=True,
     """
     from library.tools import requirements as _R
     from library.tools.reel_proposal import (
-        Approval, ReelMoment, proposal_path, write_proposal)
+        Approval,
+        ReelMoment,
+        proposal_path,
+        write_proposal,
+    )
 
     (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
     state = {"project_folder": str(tmp_path), "step_outputs": {}}

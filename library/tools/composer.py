@@ -371,6 +371,7 @@ def compose(goal: str) -> Composition:
     for an unreachable goal, because the refusal is the deliverable.
     Blank goals raise: that is a caller error, not an unreachable goal.
     """
+    from library.tools import dag_adapter
     from library.tools import operations as ops_mod
     from library.tools import requirements as req_mod
 
@@ -381,12 +382,12 @@ def compose(goal: str) -> Composition:
             "state.verify_reels.reel_build")
 
     by_name = {r.name: r for r in req_mod.all_requirements()}
-    op_nodes = {op.owning_node for op in ops_mod.all()}
+    op_nodes = dag_adapter.nodes_with_capabilities()
     all_producers = {n: tuple(sorted(set(r.produced_by)))
                      for n, r in by_name.items()}
     capable = {n: tuple(sorted(set(r.produced_by) & op_nodes))
                for n, r in by_name.items()}
-    needs = {op.owning_node: tuple(r.name for r in op.requires)
+    needs = {dag_adapter.node_of(op): tuple(r.name for r in op.requires)
              for op in ops_mod.all()}
 
     req = by_name.get(name)
@@ -799,6 +800,7 @@ def compose_with_change(goal: str, change_spec=None,
     `timeline_oracle.snapshot_live_rows` projects (the gate reads
     the tracks, not the projection).  Neither is measured here.
     """
+    from library.tools import dag_adapter
     from library.tools import operations as ops_mod
     from library.tools import requirements as req_mod
 
@@ -809,12 +811,12 @@ def compose_with_change(goal: str, change_spec=None,
             "state.verify_reels.reel_build")
 
     by_name = {r.name: r for r in req_mod.all_requirements()}
-    op_nodes = {op.owning_node for op in ops_mod.all()}
+    op_nodes = dag_adapter.nodes_with_capabilities()
     all_producers = {n: tuple(sorted(set(r.produced_by)))
                      for n, r in by_name.items()}
     capable = {n: tuple(sorted(set(r.produced_by) & op_nodes))
                for n, r in by_name.items()}
-    needs = {op.owning_node: tuple(r.name for r in op.requires)
+    needs = {dag_adapter.node_of(op): tuple(r.name for r in op.requires)
              for op in ops_mod.all()}
 
     req = by_name.get(name)
@@ -865,10 +867,10 @@ def reachable_goals() -> tuple[str, ...]:
     The composer's addressable set: composing one either resolves or
     refuses naming a deeper blocker, but never with "not a requirement".
     """
-    from library.tools import operations as ops_mod
+    from library.tools import dag_adapter
     from library.tools import requirements as req_mod
 
-    op_nodes = {op.owning_node for op in ops_mod.all()}
+    op_nodes = dag_adapter.nodes_with_capabilities()
     return tuple(sorted(
         r.name for r in req_mod.all_requirements()
         if set(r.produced_by) & op_nodes))

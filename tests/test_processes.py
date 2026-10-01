@@ -10,7 +10,7 @@ a second process beside it.  The captain authorised one, and
 The risk in adding a second process is not that it fails to work.  It is
 that the FIRST one was hardcoded in four places that read like general
 code - `requirements.all_requirements`, `operations.Operation.gather`,
-`test_step_dag_coverage`, `run_traceback.unwired_step_ids` - so a node of
+the step-coverage test, `run_traceback.unwired_step_ids` - so a node of
 the new process would silently derive nothing, gather nothing, and be
 reported as unwired.  Every one of those is a confidently wrong answer
 rather than a crash, which is the class this repository keeps paying for.

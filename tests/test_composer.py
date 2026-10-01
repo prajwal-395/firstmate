@@ -340,7 +340,7 @@ def test_reachable_goals_are_exactly_the_capability_produced():
     """`--list` shows every requirement at least one capability
     produces - each composable to a plan or a named deeper blocker,
     never to "not a requirement"."""
-    op_nodes = {op.owning_node for op in O.all()}
+    op_nodes = {op.legacy_node for op in O.all()}
     expected = sorted(r.name for r in R.all_requirements()
                       if set(r.produced_by) & op_nodes)
     assert list(C.reachable_goals()) == expected

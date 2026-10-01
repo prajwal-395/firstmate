@@ -102,7 +102,7 @@ def run(project_folder: str, args) -> int:
     refused on, and makes no closing commit: nothing after it ran.
     4 is the refusal code (`library/tools/ren_refusal.py`).
     """
-    from library.tools import operations, processes
+    from library.tools import operations, processes, provenance
     from library.tools.project_file_lock import lock_project_file
     from library.tools.project_layout import ProjectLayout
 
@@ -123,15 +123,18 @@ def run(project_folder: str, args) -> int:
                 print(f"{op.name}: skipped (caller-supplied)",
                       file=sys.stderr)
                 continue
-            result = op.execute(
-                project_folder,
-                skip_captions=args.skip_captions,
-                only_reels=args.only_reel or None,
-                timeline_name_suffix=args.name_suffix,
-                allow_drops=args.allow_drop or None,
-                supersede=args.supersede or None,
-                retain=args.retain or None,
-                rebuild_all=bool(getattr(args, "rebuild_all", False)))
+            # The execution receipt, keyed by capability id: before this a
+            # reel build wrote its files and provenance recorded nothing.
+            with provenance.observing_operation(project_folder, op.name):
+                result = op.execute(
+                    project_folder,
+                    skip_captions=args.skip_captions,
+                    only_reels=args.only_reel or None,
+                    timeline_name_suffix=args.name_suffix,
+                    allow_drops=args.allow_drop or None,
+                    supersede=args.supersede or None,
+                    retain=args.retain or None,
+                    rebuild_all=bool(getattr(args, "rebuild_all", False)))
             if result.refused:
                 from library.tools.ren_refusal import REFUSAL_EXIT_CODE
                 print(f"REFUSED: {op.name}", file=sys.stderr)
