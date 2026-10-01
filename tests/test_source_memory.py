@@ -332,6 +332,102 @@ def test_utterance_cut_keeps_region_keys():
 # ── Layering ───────────────────────────────────────────────────────
 
 
+# ── M2: the shared frame sample ────────────────────────────────────
+
+
+def test_select_frames_at_step_matches_old_decode_cadence():
+    """Nearest-neighbour thinning of a dense M2 sample must land on the
+    same marks a direct `fps=1/step_s` decode would - the only thing
+    that changed is who decodes, not which seconds get embedded."""
+    from library.tools.analysis.footage_frames import _select_m2_frames
+
+    dense = [{"t": t} for t in
+             [0.0, 0.5, 1.0, 1.5, 2.0, 9.5, 10.0, 10.5, 20.0, 100.0]]
+    selected = [f["t"] for f in _select_m2_frames(dense, step_s=10.0)]
+    assert selected == [0.0, 10.0, 20.0, 100.0]
+
+
+def test_build_frames_writes_m2_and_fills_gop_in_m0(tmp_path, memory_root,
+                                                     monkeypatch):
+    """`build_frames` writes the frame index and backfills M0's
+    `gop_frames` from the measured keyframe spacing - the field stays
+    null (§ the M0 contract) until a sample has actually been taken."""
+    from library.tools import footage_identity
+
+    media = _media(tmp_path, "TAKE.MXF", b"iframe-source")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+    size = media.stat().st_size
+    m0 = _m0_doc(media, digest, size)
+    m0["video_streams"] = [{"avg_frame_rate": "24/1"}]
+    source_memory.write_json(
+        source_memory.source_dir(digest) / source_memory.SLOT_SOURCE, m0)
+
+    pairs = [("/fake/frame_000000.jpg", 0.0), ("/fake/frame_000001.jpg", 0.5),
+             ("/fake/frame_000002.jpg", 1.0)]
+
+    def fake_extract(source_file, out_dir, width, use_hwaccel):
+        return pairs, True
+
+    monkeypatch.setattr(source_memory, "extract_iframes", fake_extract)
+    account = source_memory.build_frames(str(media), digest)
+
+    assert account["reused"] is False
+    assert account["frame_count"] == 3
+    # 0.5 s spacing at 24 fps is a 12-frame GOP.
+    assert account["gop_frames"] == 12
+
+    doc = source_memory.read_m2(digest)
+    assert doc["frame_count"] == 3
+    assert doc["instrument"]["hwaccel"] == "videotoolbox"
+    assert doc["gop_frames"] == 12
+
+    updated_m0 = source_memory.read_m0(digest)
+    assert updated_m0["gop_frames"] == 12
+
+
+def test_build_frames_reuses_a_fresh_sample(tmp_path, memory_root, monkeypatch):
+    """A second call does not re-decode a sample that still fingerprints
+    to the live file - `reused: true` the same way `build_source` reuses
+    a fresh transcript."""
+    from library.tools import footage_identity
+
+    media = _media(tmp_path, "TAKE.MXF", b"iframe-two")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+    size = media.stat().st_size
+    target = source_memory.source_dir(digest)
+    source_memory.write_json(target / source_memory.SLOT_FRAMES_INDEX, {
+        "content_digest": digest, "size_bytes": size, "frame_count": 1,
+        "frames": [{"file": "frames/frame_000000.jpg", "t": 0.0}],
+    })
+
+    calls = {"n": 0}
+
+    def fake_extract(source_file, out_dir, width, use_hwaccel):
+        calls["n"] += 1
+        return [("/fake/frame_000000.jpg", 0.0)], True
+
+    monkeypatch.setattr(source_memory, "extract_iframes", fake_extract)
+    account = source_memory.build_frames(str(media), digest)
+
+    assert account["reused"] is True
+    assert calls["n"] == 0
+
+
+def test_m2_project_report_skips_offline_media(tmp_path, memory_root):
+    """`build_project_frames` reports an offline clip rather than failing
+    the whole project - the same shape `build_project` uses for M0/M1."""
+    root = tmp_path / "proj"
+    _write(root / "pipeline_data.json", {
+        "step_outputs": {"catalog": {"clip_catalog": [
+            {"clip_id": "clip_001", "filename": "GONE.MXF",
+             "source_file": str(tmp_path / "GONE.MXF")},
+        ]}},
+    })
+    report = source_memory.build_project_frames(str(root))
+    assert report["clips"][0]["skipped"] == "media-offline"
+    assert report["failed"] == []
+
+
 def test_memory_reaches_no_step_or_process():
     """The search stays importable without the pipeline behind it.
 

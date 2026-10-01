@@ -4,9 +4,10 @@ Scout report `data/vep-long-footage-memory-scout/report.md` (in
 firstmate's home, outside this checkout) measured that Ren remembers
 the TIMELINE, not the footage: on the 3.03 h geo-podcast episode it
 holds a transcript of 24.6% of the source and no picture measurement at
-all. This module is build-plan items 1-2 of that report's section 5:
-a per-source store keyed by content digest, and the whole-source
-transcription that fills it first.
+all. This module is build-plan items 1-3 of that report's section 5:
+a per-source store keyed by content digest, the whole-source
+transcription that fills it first, and a shared 2 Hz I-frame sample
+every per-frame measurement rides instead of decoding on its own.
 
 **The shape.** `<memory root>/<content_digest>/`, where the digest is
 `footage_identity.fingerprint` - size plus sha256 of the first and last
@@ -17,8 +18,8 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0 and M1 are written now; every later lane writes into
-its named slot without inventing its own shape:
+**The slots.** M0, M1 and M2 are written now; every later lane writes
+into its named slot without inventing its own shape:
 
 ======== ============================ ============================= ==========
 slot     file                         what                          producer
@@ -31,8 +32,8 @@ M1       `transcript.words.json`      whole-SOURCE word-timed       this module
                                       MFA, the reel path's seam)
 M1b      `speakers.json`              diarized turns + voice        diarization
                                       embeddings                    lane
-M2       `frames/` +                  I-frame thumbnails, 384 px,   frame
-                                      `frames.index.json`            sampler lane
+M2       `frames/` +                  I-frame thumbnails, 384 px,   this module
+                                      `frames.index.json`           at ~2 Hz
 M3       `persons.json`               faces, hands, pose at 2 Hz    Vision lane
 M3b      `identity.json`              face/voice identity tracks    entity lane
 M4       `scenes.json`                scene embeddings              CLIP lane
@@ -63,10 +64,24 @@ by default; the selection says which track and on what basis
 (`declared`, `single`, `loudest-live`) with the measured levels as
 evidence, so the choice is auditable per file.
 
-**Scope.** Audio only (M0/M1). The frame sampler, clock, predicates
-and cross-project identity are later lanes with reserved slots above;
-their code is untouched here. Media is read-only: the only writes are
-under the memory root and a temp dir for demuxed audio.
+**M2's decode.** `-skip_frame nokey` on the decoder drops the other
+11/12 frames of a 12-frame GOP before they are decoded, not after, so
+a whole file samples at its I-frame cadence (measured at 2 Hz on both
+geo-podcast cameras) in about 4.7 min per 82-minute file against 76
+min for a software 5 Hz full-decode pass (scout report §2.2, §2.5).
+`-hwaccel videotoolbox` is tried first on this machine; a decode that
+fails with it retries in software, since the shape that matters is
+"I-frames only", not the accelerator. Every per-frame measurement
+(Vision, CLIP, entity) reads this one sample instead of decoding its
+own - `library/tools/analysis/footage_frames.py` is the first wired
+consumer. `gop_frames` in M0 is filled in from the measured spacing
+once M2 has sampled a source.
+
+**Scope.** Audio and the shared frame sample (M0/M1/M2). The clock,
+predicates and cross-project identity are later lanes with reserved
+slots above; their code is untouched here. Media is read-only: the
+only writes are under the memory root and a temp dir for demuxed
+audio or extracted frames.
 """
 
 from __future__ import annotations
@@ -76,6 +91,8 @@ import hashlib
 import json
 import math
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -99,15 +116,16 @@ MEMORY_ROOT_ENV = "PIPELINE_SOURCE_MEMORY_ROOT"
 """Names the memory root outright, for a machine whose layout differs."""
 
 # ── The slots ──────────────────────────────────────────────────────
-# A lane writes into its named file and no other. `source.json` and
-# `transcript.words.json` are written now; the rest are RESERVED -
-# named here so later lanes share the shapes instead of inventing
-# their own, with no code behind them yet.
+# A lane writes into its named file and no other. `source.json`,
+# `transcript.words.json` and the `frames/`/`frames.index.json` pair
+# are written now; the rest are RESERVED - named here so later lanes
+# share the shapes instead of inventing their own, with no code
+# behind them yet.
 
 SLOT_SOURCE = "source.json"                    # M0
 SLOT_TRANSCRIPT = "transcript.words.json"      # M1
 SLOT_SPEAKERS = "speakers.json"                # M1b (diarization lane)
-SLOT_FRAMES_DIR = "frames"                     # M2 (sampler lane)
+SLOT_FRAMES_DIR = "frames"                     # M2
 SLOT_FRAMES_INDEX = "frames.index.json"        # M2
 SLOT_PERSONS = "persons.json"                  # M3 (Vision lane)
 SLOT_IDENTITY = "identity.json"                # M3b (entity lane)
@@ -117,11 +135,12 @@ SLOT_CLOCK = "clock.json"                      # M6 (clock lane)
 SLOT_EVENTS = "events.json"                    # M7 (predicate lane)
 
 RESERVED_SLOTS = (
-    SLOT_SPEAKERS, SLOT_FRAMES_DIR, SLOT_FRAMES_INDEX, SLOT_PERSONS,
+    SLOT_SPEAKERS, SLOT_PERSONS,
     SLOT_IDENTITY, SLOT_SCENES, SLOT_SOUND, SLOT_EVENTS,
 )
 # SLOT_CLOCK (M6) is no longer reserved: `library/tools/conversation_clock.py`
-# writes it.
+# writes it. SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX (M2) are no longer reserved:
+# `extract_iframes`/`build_frames` below write them.
 
 SILENCE_DB = -60.0
 """Below this a track is room tone off, not a candidate for anything.
@@ -137,6 +156,20 @@ TRANSCRIPT_RATE_HZ = 16000
 `extract_audio_16k` and the scout's whole-source measurement agree."""
 
 M1_STATUS_TRANSCRIBED = "transcribed"
+
+M2_WIDTH = 384
+"""Thumbnail width, as measured (§2.2): 10.3 KB/frame JPEG at this size,
+~225 MB for a 3.03 h project at 2 Hz. Shared by every per-frame reader -
+CLIP resizes to its own small input anyway, so this loses nothing a
+consumer needs."""
+
+M2_RATE_HZ_NOMINAL = 2.0
+"""The nominal cadence `-skip_frame nokey` lands at on a 12-frame GOP
+(measured on both geo-podcast cameras, §2.2). The real cadence is
+whatever the source's own keyframes give - this is a label, not a
+target the sampler enforces."""
+
+M2_STATUS_SAMPLED = "sampled"
 
 
 # ── Where the memory lives ─────────────────────────────────────────
@@ -583,6 +616,49 @@ def read_m1_for_clip(project_folder: str, clip: dict,
     return doc, status
 
 
+def read_m2(content_digest: str,
+            root: Optional[Path] = None) -> Optional[dict]:
+    """The M2 frame-sample index for a digest, or None when never built."""
+    path = source_dir(content_digest, root) / SLOT_FRAMES_INDEX
+    doc = _load_json(path)
+    return doc if isinstance(doc, dict) else None
+
+
+def read_m2_for_clip(project_folder: str, clip: dict,
+                     recorded: Optional[dict] = None,
+                     root: Optional[Path] = None) -> Tuple[Optional[dict], str]:
+    """A catalog clip's M2 frame sample, or None and why not.
+
+    Same freshness shape as `read_m1_for_clip`: a recorded digest
+    serves a reader with the footage offline, but a live digest the
+    sample disagrees with reads as stale rather than served.
+    """
+    digest, basis = digest_for_clip(project_folder, clip, recorded)
+    if digest is None:
+        return None, "absent"
+    doc = read_m2(digest, root)
+    if doc is None:
+        return None, "missing"
+    if basis == "live":
+        path = clip.get("source_file") or clip.get("path") or ""
+        if not is_fresh(doc, path):
+            return None, "stale"
+    return doc, "fresh"
+
+
+def frame_abspath(content_digest: str, frame: dict,
+                  root: Optional[Path] = None) -> str:
+    """An M2 frame record's thumbnail as an absolute path.
+
+    `frame["file"]` is stored relative to the source's memory
+    directory - the same shape the project-side consumer resolves
+    against the per-source root, never against its own index dir
+    (the memory is referenced, never copied, AGENTS.md's per-source
+    memory contract).
+    """
+    return str(source_dir(content_digest, root) / frame["file"])
+
+
 # ── The project-side fingerprint (for the search index) ────────────
 
 
@@ -804,9 +880,198 @@ def build_project(project_folder: str,
             "failed": failed}
 
 
+# ── M2: the shared frame sample ─────────────────────────────────────
+
+
+def _parse_frame_rate(rate_str: Optional[str]) -> Optional[float]:
+    """`"24000/1001"` style `avg_frame_rate` into a float fps, or None."""
+    if not rate_str:
+        return None
+    try:
+        num, den = str(rate_str).split("/")
+        den_f = float(den)
+        return float(num) / den_f if den_f else None
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def extract_iframes(source_file: str, out_dir: str,
+                    width: int = M2_WIDTH,
+                    use_hwaccel: bool = True) -> Tuple[list, bool]:
+    """Decode only I-frames, scaled to `width` px. One pass, whole file.
+
+    `-skip_frame nokey` drops the other 11/12 frames of a GOP before
+    they are decoded, not after - the measured 4.7 min vs 76 min gap
+    (§2.2, §2.5). `-hwaccel videotoolbox` is tried first; a decode
+    that fails with it retries in software, since a machine without
+    the accelerator should still get the I-frame-only shape rather
+    than refuse outright. `-fps_mode passthrough` matters as much as
+    `-skip_frame nokey` itself: an image2 mux otherwise pads the
+    kept I-frames back out to the source's full frame count to hold a
+    constant rate (measured: 24 kept frames became 287 written files
+    without it). `showinfo` on the output side is the timestamp
+    source: a frame's spacing is whatever the source's own keyframes
+    give, so the pts it actually carries is read off the filter log
+    rather than inferred from a fixed step.
+
+    Returns `(pairs, hwaccel_used)` with `pairs` a list of
+    `(thumbnail_path, pts_seconds)` in time order.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    out_pattern = os.path.join(out_dir, "frame_%06d.jpg")
+
+    def run(hwaccel: bool):
+        for stale in Path(out_dir).glob("frame_*.jpg"):
+            stale.unlink()
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info", "-y"]
+        if hwaccel:
+            cmd += ["-hwaccel", "videotoolbox"]
+        cmd += ["-skip_frame", "nokey", "-i", source_file,
+                "-an", "-sn", "-vf", f"scale={width}:-2,showinfo",
+                "-fps_mode", "passthrough", "-q:v", "3", out_pattern]
+        return subprocess.run(cmd, capture_output=True, encoding="utf-8",
+                              errors="replace", timeout=3600, check=False)
+
+    proc = run(use_hwaccel)
+    hwaccel_used = use_hwaccel
+    if proc.returncode != 0 and use_hwaccel:
+        proc = run(False)
+        hwaccel_used = False
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg I-frame sample failed for {source_file}: "
+            f"{(proc.stderr or '')[-500:]}")
+    times = [float(m) for m in re.findall(r"pts_time:([0-9.]+)",
+                                          proc.stderr or "")]
+    files = sorted(Path(out_dir).glob("frame_*.jpg"))
+    if len(times) != len(files):
+        raise RuntimeError(
+            f"frame/timestamp count mismatch for {source_file}: "
+            f"{len(files)} thumbnails, {len(times)} showinfo timestamps")
+    return list(zip((str(f) for f in files), times)), hwaccel_used
+
+
+def build_frames(source_file: str, content_digest: Optional[str] = None,
+                 root: Optional[Path] = None, width: int = M2_WIDTH,
+                 use_hwaccel: bool = True) -> dict:
+    """M2 for one source: the shared 2 Hz I-frame sample.
+
+    Heavy: one whole-file decode. Reuses a fresh sample rather than
+    re-decoding (`reused: true`) - the per-frame lanes (Vision, CLIP,
+    entity) and `footage_frames.py` all read this instead of decoding
+    their own. Callers run this under the heavy-work lock; media is
+    read-only.
+    """
+    started = time.perf_counter()
+    fp = footage_identity.fingerprint(source_file)
+    digest = content_digest or fp["content_digest"]
+    size = fp["size_bytes"]
+    target = source_dir(digest, root)
+
+    existing = read_m2(digest, root)
+    if is_fresh(existing, source_file):
+        return {"source_file": os.path.abspath(source_file),
+                "content_digest": digest, "reused": True,
+                "frame_count": existing.get("frame_count", 0),
+                "timings": {"total": round(time.perf_counter() - started, 1)}}
+
+    frames_dir = target / SLOT_FRAMES_DIR
+    if frames_dir.exists():
+        shutil.rmtree(frames_dir)
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    t0 = time.perf_counter()
+    pairs, hwaccel_used = extract_iframes(source_file, str(frames_dir),
+                                          width, use_hwaccel)
+    decode_seconds = round(time.perf_counter() - t0, 1)
+
+    m0 = read_m0(digest, root)
+    fps = _parse_frame_rate(
+        ((m0 or {}).get("video_streams") or [{}])[0].get("avg_frame_rate"))
+    gop_frames = None
+    if fps and len(pairs) >= 2:
+        diffs = sorted(b[1] - a[1] for a, b in zip(pairs, pairs[1:]))
+        median = diffs[len(diffs) // 2]
+        if median > 0:
+            gop_frames = round(median * fps)
+
+    frames = [{"file": os.path.relpath(path, target), "t": round(t, 3)}
+              for path, t in pairs]
+    doc = {
+        "content_digest": digest,
+        "size_bytes": size,
+        "source_file": os.path.abspath(source_file),
+        "status": M2_STATUS_SAMPLED,
+        "rate_hz_nominal": M2_RATE_HZ_NOMINAL,
+        "width": width,
+        "frame_count": len(frames),
+        "frames": frames,
+        "instrument": {"decoder": "iframe-skip",
+                       "hwaccel": "videotoolbox" if hwaccel_used else None},
+        "gop_frames": gop_frames,
+    }
+    write_json(target / SLOT_FRAMES_INDEX, doc)
+
+    # The sampler measures GOP directly from keyframe spacing; M0's own
+    # field stays null until a sample has actually been taken (the
+    # contract in `build_source_record`), so this is the one place that
+    # fills it in.
+    if gop_frames is not None and m0 is not None and m0.get("gop_frames") != gop_frames:
+        updated_m0 = dict(m0)
+        updated_m0["gop_frames"] = gop_frames
+        write_json(target / SLOT_SOURCE, updated_m0)
+
+    return {"source_file": os.path.abspath(source_file),
+            "content_digest": digest, "reused": False,
+            "frame_count": len(frames), "gop_frames": gop_frames,
+            "timings": {"decode": decode_seconds,
+                       "total": round(time.perf_counter() - started, 1)}}
+
+
+def build_project_frames(project_folder: str,
+                         clip_ids: Optional[List[str]] = None,
+                         root: Optional[Path] = None,
+                         width: int = M2_WIDTH,
+                         use_hwaccel: bool = True) -> dict:
+    """M2 for every catalog file with media present.
+
+    Same reporting shape as `build_project`: offline or undigestable
+    clips are reported, not failed.
+    """
+    catalog = load_catalog(project_folder)
+    recorded = load_recorded_fingerprints(project_folder)
+    results, failed = [], []
+    for clip in catalog:
+        clip_id = clip.get("clip_id")
+        if clip_ids and clip_id not in clip_ids:
+            continue
+        path = clip.get("source_file") or clip.get("path") or ""
+        if not path or not os.path.isfile(path):
+            results.append({"clip_id": clip_id, "source_file": path,
+                            "skipped": "media-offline"})
+            continue
+        digest, _ = digest_for_clip(project_folder, clip, recorded)
+        if digest is None:
+            results.append({"clip_id": clip_id, "source_file": path,
+                            "skipped": "no content digest"})
+            continue
+        try:
+            account = build_frames(path, digest, root, width, use_hwaccel)
+        except Exception as exc:
+            failed.append(clip_id)
+            results.append({"clip_id": clip_id, "source_file": path,
+                            "failed": f"{type(exc).__name__}: {exc}"})
+            continue
+        results.append({"clip_id": clip_id, **account})
+    return {"project_folder": os.path.abspath(project_folder),
+            "memory_root": str(source_dir("x", root).parent),
+            "clips": results,
+            "failed": failed}
+
+
 def status_report(project_folder: str,
                   root: Optional[Path] = None) -> dict:
-    """Per-clip memory state: digest basis, M0 freshness, M1 status."""
+    """Per-clip memory state: digest basis, M0 freshness, M1/M2 status."""
     recorded = load_recorded_fingerprints(project_folder)
     rows = []
     for clip in load_catalog(project_folder):
@@ -821,10 +1086,21 @@ def status_report(project_folder: str,
             if doc is not None:
                 utterances = doc.get("utterance_count", 0)
                 words = doc.get("word_count", 0)
+        m2_status = "absent"
+        frame_count = 0
+        if digest is not None:
+            m2_doc = read_m2(digest, root)
+            if m2_doc is None:
+                m2_status = "missing"
+            else:
+                m2_status = "fresh" if (basis != "live"
+                                        or is_fresh(m2_doc, path)) else "stale"
+                frame_count = m2_doc.get("frame_count", 0)
         rows.append({"clip_id": clip.get("clip_id"),
                      "content_digest": digest, "digest_basis": basis,
                      "m0_fresh": m0_fresh, "m1": m1_status,
-                     "utterances": utterances, "words": words})
+                     "utterances": utterances, "words": words,
+                     "m2": m2_status, "frames": frame_count})
     return {"project_folder": os.path.abspath(project_folder),
             "memory_root": str(source_dir("x", root).parent),
             "clips": rows}
@@ -836,10 +1112,11 @@ def status_report(project_folder: str,
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="source_memory",
-        description="Per-source footage memory: probe (M0) and "
-                    "whole-source transcription (M1). Reads media, "
-                    "writes only under the memory root. Heavy commands "
-                    "run under the heavy-work lock.")
+        description="Per-source footage memory: probe (M0), "
+                    "whole-source transcription (M1) and the shared "
+                    "2 Hz I-frame sample (M2). Reads media, writes only "
+                    "under the memory root. Heavy commands run under "
+                    "the heavy-work lock.")
     sub = parser.add_subparsers(dest="command")
 
     p_build = sub.add_parser("build", help="M0 + M1 for a project's catalog")
@@ -848,6 +1125,17 @@ def main(argv=None) -> int:
                          help="one clip id (repeatable; default: all)")
     p_build.add_argument("--memory-root",
                          help="override the memory root for this run")
+
+    p_frames = sub.add_parser(
+        "frames", help="M2: shared 2 Hz I-frame sample for a project's catalog")
+    p_frames.add_argument("project")
+    p_frames.add_argument("--clip", action="append", default=None,
+                          help="one clip id (repeatable; default: all)")
+    p_frames.add_argument("--width", type=int, default=M2_WIDTH)
+    p_frames.add_argument("--no-hwaccel", action="store_true",
+                          help="software I-frame decode only")
+    p_frames.add_argument("--memory-root",
+                          help="override the memory root for this run")
 
     p_status = sub.add_parser("status", help="per-clip memory state")
     p_status.add_argument("project")
@@ -861,6 +1149,12 @@ def main(argv=None) -> int:
     root = Path(args.memory_root).expanduser() if args.memory_root else None
     if args.command == "build":
         report = build_project(args.project, clip_ids=args.clip, root=root)
+        print(json.dumps(report, indent=2))
+        return 1 if report["failed"] else 0
+    if args.command == "frames":
+        report = build_project_frames(
+            args.project, clip_ids=args.clip, root=root, width=args.width,
+            use_hwaccel=not args.no_hwaccel)
         print(json.dumps(report, indent=2))
         return 1 if report["failed"] else 0
     print(json.dumps(status_report(args.project, root=root), indent=2))

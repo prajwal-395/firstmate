@@ -21,6 +21,15 @@ never abstains and never claims absence: every answer is top-k with scores,
 every hit is labelled unverified, and the report says absence cannot be
 concluded.  Adding a floor here would repeat the failure the text index's
 floor was built to fix.
+
+Frames come from the per-source memory's shared I-frame sample (M2,
+`library/tools/source_memory.py`), never from a decode of its own: the
+long-footage memory scout (§2.2, §2.5) measured one shared 2 Hz
+I-frame pass at 4.7 min per 82-minute file against the per-clip `-ss`
+seek extraction this module used to run itself.  A clip with no fresh
+M2 sample is SKIPPED with the build command to run, the same shape
+`footage_segments` uses for an absent M1 transcript - this index reads
+the memory, it does not build it.
 """
 
 from __future__ import annotations
@@ -28,7 +37,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -40,17 +48,20 @@ import numpy as np
 if __package__ in (None, ""):  # direct `python3 footage_frames.py`
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from library.tools import source_memory
 from library.tools.analysis import footage_segments
 from library.tools.analysis.footage_query import INDEX_SUBDIR
 
 CLIP_MODEL = "openai/clip-vit-large-patch14"
 
-# Sampling geometry, as measured in the eval: 1 frame per 10 s at 960 px
-# wide embeds at ~172 ms/frame CPU batched, so a full 82-minute episode
-# indexes in ~85 s.  Denser sampling is the caller's choice, not a default:
-# the eval showed density does not fix action resolution.
+# Sampling geometry for CLIP embedding, as measured in the eval: 1 frame
+# per 10 s embeds at ~172 ms/frame CPU batched, so a full 82-minute
+# episode indexes in ~85 s.  Denser sampling is the caller's choice, not
+# a default: the eval showed density does not fix action resolution.
+# This governs ONLY which M2 frames are picked for embedding - the
+# decode that produces them runs once per source at M2's own 2 Hz,
+# never per search-index build.
 FRAME_STEP_S = 10.0
-FRAME_WIDTH = 960
 EMBED_BATCH = 16
 
 # Adjacent frame hits merge into one time range when they are this close.
@@ -65,7 +76,6 @@ SEARCH_POOL = 40
 
 FRAME_INDEX_FILE = "frame_index.json"
 FRAME_EMBEDDINGS_FILE = "frame_embeddings.npy"
-FRAMES_DIRNAME = "frames"
 
 # What this index answers, and the notice every answer carries.  "Cannot be
 # concluded" is the whole of (iii): a ranking cannot say "not here".
@@ -163,49 +173,53 @@ def _load_clip():
         return None, None, f"no CLIP available ({type(exc).__name__}: {exc})"
 
 
-def _extract_frames(video_path, out_pattern, step_s: float, width: int) -> list:
-    """Sample a clip to stills.  Returns ``[(path, t_seconds)]`` in time order.
+def _select_m2_frames(m2_frames: list, step_s: float) -> list:
+    """The M2 record's dense ~2 Hz frames, thinned to one per `step_s`.
 
-    `t` is arithmetic, not probed: the fps filter emits a frame every
-    `step_s` seconds starting at zero, so frame N sits at (N-1)*step_s.
+    M2 is read-only and shared across every per-frame consumer, so this
+    index keeps its own embedding cadence by picking the nearest
+    available M2 frame to each `step_s` mark rather than embedding
+    every dense sample (that would multiply the CLIP cost ~17x for no
+    benefit the eval measured). Pure and ffmpeg-free: no decode happens
+    here, ever - `source_memory.build_frames` is the only thing that
+    decodes.
     """
-    proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-i", str(video_path),
-         "-vf", f"fps=1/{step_s:g},scale={width}:-1",
-         "-q:v", "3", str(out_pattern)],
-        capture_output=True, encoding="utf-8", errors="replace",
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RenRefusal(
-            f"ffmpeg could not read {video_path}",
-            (proc.stderr or "").strip()[-300:] or "ffmpeg exited nonzero",
-            "that clip stays out of the frame index; the rest still build")
-    parent = Path(str(out_pattern).rsplit("%", 1)[0]).parent
-    found = sorted(parent.glob(Path(out_pattern).name.replace("%06d", "*")))
-    return [(str(p), i * step_s) for i, p in enumerate(found)]
+    ordered = sorted(m2_frames, key=lambda f: f["t"])
+    if not ordered:
+        return []
+    duration = ordered[-1]["t"]
+    selected, idx, n = [], 0, len(ordered)
+    t = 0.0
+    while t <= duration + 1e-6:
+        while idx + 1 < n and abs(ordered[idx + 1]["t"] - t) <= abs(ordered[idx]["t"] - t):
+            idx += 1
+        if not selected or selected[-1]["t"] != ordered[idx]["t"]:
+            selected.append(ordered[idx])
+        t += step_s
+    return selected
 
 
 def build_frame_index(project_folder, index_dir=None,
-                      step_s: float = FRAME_STEP_S,
-                      width: int = FRAME_WIDTH, verbose=False) -> dict:
-    """Sample every catalogued clip, embed the stills, store the index.
+                      step_s: float = FRAME_STEP_S, verbose=False) -> dict:
+    """Embed a `step_s`-spaced thinning of every clip's M2 sample.
 
-    Reads the project's catalog; writes ONLY into `index_dir`, which
-    defaults to the project's scratch area beside the text index.  A clip
-    whose file is missing or unreadable is SKIPPED with its reason, never
-    fatal: one moved file must not take down the other six clips' index.
+    Reads the project's catalog and the per-source memory's M2 frame
+    sample (`source_memory.read_m2_for_clip`); writes ONLY into
+    `index_dir`, which defaults to the project's scratch area beside
+    the text index.  A clip with no fresh M2 sample is SKIPPED with
+    the build command to run, never fatal - one unbuilt source must
+    not take down the other six clips' index.  No ffmpeg call happens
+    in this function; the decode already happened once, per source, in
+    `source_memory.build_frames`.
     """
     from library.tools.analysis.footage_query import index_dir_for
 
     started = time.perf_counter()
     target = Path(index_dir) if index_dir else index_dir_for(project_folder)
     target.mkdir(parents=True, exist_ok=True)
-    frames_root = target / FRAMES_DIRNAME
-    frames_root.mkdir(exist_ok=True)
 
     catalog = footage_segments.load_catalog(project_folder)
+    recorded = source_memory.load_recorded_fingerprints(project_folder)
     frames, sources, skipped = [], [], []
     t0 = time.perf_counter()
     for clip in catalog:
@@ -219,30 +233,36 @@ def build_frame_index(project_folder, index_dir=None,
         except OSError as exc:
             skipped.append({"clip_id": clip_id, "reason": f"stat failed: {exc}"})
             continue
-        clip_dir = frames_root / clip_id
-        clip_dir.mkdir(exist_ok=True)
-        try:
-            extracted = _extract_frames(
-                src, str(clip_dir / f"{clip_id}_t%06d.jpg"), step_s, width)
-        except RenRefusal as refused:
-            skipped.append({"clip_id": clip_id, "reason": refused.render()})
+        digest, basis = source_memory.digest_for_clip(project_folder, clip, recorded)
+        if digest is None:
+            skipped.append({"clip_id": clip_id,
+                            "reason": "no content digest (file unreadable)"})
             continue
-        for path, t in extracted:
+        m2 = source_memory.read_m2(digest)
+        if m2 is None or (basis == "live" and not source_memory.is_fresh(m2, src)):
+            skipped.append({
+                "clip_id": clip_id,
+                "reason": ("no fresh frame sample (M2); build it with "
+                          f"`python3 -m library.tools.source_memory frames "
+                          f"{project_folder!r}`"),
+            })
+            continue
+        for frame in _select_m2_frames(m2.get("frames") or [], step_s):
             frames.append({
-                "file": str(Path(path).relative_to(target)),
+                "file": source_memory.frame_abspath(digest, frame),
                 "clip_id": clip_id,
                 "filename": clip.get("filename", ""),
-                "t": round(float(t), 3),
+                "t": round(float(frame["t"]), 3),
             })
         sources.append({"clip_id": clip_id, "path": str(src),
                         "size_bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns})
-    extract_seconds = time.perf_counter() - t0
+    select_seconds = time.perf_counter() - t0
 
     encode_images, _, backend = _load_clip()
     embed_seconds, dimension = 0.0, 0
     if encode_images is not None and frames:
         t0 = time.perf_counter()
-        matrix = encode_images([str(target / f["file"]) for f in frames])
+        matrix = encode_images([f["file"] for f in frames])
         embed_seconds = time.perf_counter() - t0
         dimension = int(matrix.shape[1])
         np.save(target / FRAME_EMBEDDINGS_FILE, matrix)
@@ -260,12 +280,12 @@ def build_frame_index(project_folder, index_dir=None,
         "embed_dimension": dimension,
         "frame_count": len(frames),
         "step_s": step_s,
-        "width": width,
         "scope": SCOPE,
         "built_at": time.time(),
-        # What this index was built FROM.  Frames come off the video files,
-        # not the ingest JSON, so staleness compares the video files'
-        # own size/mtime - a replaced MXF must read as a moved index.
+        # What this index was built FROM.  Frames reference the per-source
+        # memory's M2 sample (absolute paths, never copied), but staleness
+        # still compares the video files' own size/mtime - a replaced MXF
+        # must read as a moved index even though M2 would also notice.
         "sources": sources,
         "skipped": skipped,
         "frames": frames,
@@ -280,7 +300,7 @@ def build_frame_index(project_folder, index_dir=None,
         "skipped": skipped,
         "embed_backend": backend,
         "embed_dimension": dimension,
-        "extract_seconds": round(extract_seconds, 1),
+        "select_seconds": round(select_seconds, 1),
         "embed_seconds": round(embed_seconds, 1),
         "total_seconds": round(time.perf_counter() - started, 1),
         "bytes_on_disk": sum(

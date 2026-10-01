@@ -4,9 +4,10 @@ Companion to `test_footage_query_prototype.py` (which owns the stay-unwired
 guard - `footage_frames` is in its `PROTOTYPE_MODULES`).  Every test here
 names a defect it would catch; no count, existence or snapshot tests.
 
-All CLIP/ffmpeg work is stubbed: a test must not download weights, run a
-model, or shell out.  The retrieval arithmetic and the scope gates are the
-things under test.
+All CLIP work and the per-source memory's M2 frame sample are stubbed: a
+test must not download weights, run a model, shell out to ffmpeg, or touch
+`source_memory`'s machine-wide store.  The retrieval arithmetic and the
+scope gates are the things under test.
 """
 
 import json
@@ -76,28 +77,45 @@ def stub_clip(monkeypatch):
 
 
 @pytest.fixture
-def stub_extract(monkeypatch):
-    """Frame times per clip, no ffmpeg: clip_001 at t=0/10/20/100,
-    other_002 at t=5.  The clip comes off the output directory, the way the
-    real extractor's one-clip-per-call contract provides it."""
-    def fake_extract(video_path, out_pattern, step_s, width):
-        clip_id = Path(str(out_pattern).rsplit("%", 1)[0]).parent.name
-        times = {"clip_001": [0.0, 10.0, 20.0, 100.0],
-                 "other_002": [5.0]}[clip_id]
-        parent = Path(str(out_pattern).rsplit("%", 1)[0]).parent
-        parent.mkdir(parents=True, exist_ok=True)
-        out = []
-        for t in times:
-            path = parent / f"{clip_id}_t{int(t):06d}.jpg"
-            path.write_bytes(b"fake-still")
-            out.append((str(path), t))
-        return out
+def stub_m2(monkeypatch):
+    """M2 frame samples with no ffmpeg or `source_memory` store: clip_001
+    at t=0/10/20/100, other_002 at t=5 - the per-clip digest IS the clip
+    id here, so each clip reads its own fake record.  These are the same
+    frame times the old per-clip extractor stubbed, so the retrieval
+    tests still exercise the arithmetic they were written for."""
+    frame_times = {"clip_001": [0.0, 10.0, 20.0, 100.0],
+                  "other_002": [5.0]}
 
-    monkeypatch.setattr(footage_frames, "_extract_frames", fake_extract)
+    def fake_digest_for_clip(project_folder, clip, recorded=None):
+        return clip["clip_id"], "live"
+
+    def fake_read_m2(content_digest, root=None):
+        times = frame_times.get(content_digest)
+        if times is None:
+            return None
+        return {
+            "content_digest": content_digest,
+            "frame_count": len(times),
+            "frames": [{"file": f"frames/frame_{i:06d}.jpg", "t": t}
+                      for i, t in enumerate(times)],
+        }
+
+    def fake_is_fresh(record, source_file):
+        return True
+
+    def fake_frame_abspath(content_digest, frame, root=None):
+        return f"/memory/{content_digest}/{frame['file']}"
+
+    monkeypatch.setattr(footage_frames.source_memory, "digest_for_clip",
+                        fake_digest_for_clip)
+    monkeypatch.setattr(footage_frames.source_memory, "read_m2", fake_read_m2)
+    monkeypatch.setattr(footage_frames.source_memory, "is_fresh", fake_is_fresh)
+    monkeypatch.setattr(footage_frames.source_memory, "frame_abspath",
+                        fake_frame_abspath)
 
 
 @pytest.fixture
-def frame_index(project, tmp_path, stub_clip, stub_extract):
+def frame_index(project, tmp_path, stub_clip, stub_m2):
     index_dir = tmp_path / "findex"
     footage_frames.build_frame_index(project, index_dir=index_dir)
     return FrameIndex(project, index_dir=index_dir)
@@ -195,7 +213,7 @@ def test_object_queries_pass_the_gate(frame_index):
 
 
 def test_build_writes_only_into_the_index_dir(project, tmp_path, stub_clip,
-                                              stub_extract):
+                                              stub_m2):
     before = sorted(p.relative_to(project) for p in project.rglob("*")
                     if p.is_file())
     index_dir = tmp_path / "elsewhere"
@@ -205,6 +223,24 @@ def test_build_writes_only_into_the_index_dir(project, tmp_path, stub_clip,
     assert before == after, "building the frame index must not touch the project"
     assert (index_dir / footage_frames.FRAME_INDEX_FILE).exists()
     assert stats["frame_count"] == 5
+
+
+def test_a_clip_with_no_m2_sample_is_skipped_not_fatal(project, tmp_path,
+                                                        stub_clip, monkeypatch):
+    """This index reads the shared M2 sample; it must never fall back to
+    decoding the clip itself when that sample is missing."""
+    def fake_digest_for_clip(project_folder, clip, recorded=None):
+        return clip["clip_id"], "live"
+
+    monkeypatch.setattr(footage_frames.source_memory, "digest_for_clip",
+                        fake_digest_for_clip)
+    monkeypatch.setattr(footage_frames.source_memory, "read_m2",
+                        lambda content_digest, root=None: None)
+    index_dir = tmp_path / "findex"
+    stats = footage_frames.build_frame_index(project, index_dir=index_dir)
+    assert stats["frame_count"] == 0
+    assert len(stats["skipped"]) == 2
+    assert all("source_memory frames" in s["reason"] for s in stats["skipped"])
 
 
 def test_a_replaced_source_video_reads_as_stale(frame_index, project):

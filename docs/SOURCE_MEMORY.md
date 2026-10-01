@@ -1,7 +1,7 @@
 # Per-source footage memory: directory and file contract
 
 Owner: `library/tools/source_memory.py`. Scout basis:
-`data/vep-long-footage-memory-scout/report.md` (§3.1, §5 items 1-2 -
+`data/vep-long-footage-memory-scout/report.md` (§3.1, §5 items 1-3 -
 in firstmate's home, outside this checkout).
 
 ## Root
@@ -15,15 +15,15 @@ copy it; nothing goes into `pipeline_data.json`.
 
 ```
 <root>/<content_digest>/          # footage_identity.fingerprint
-  source.json                    # M0 - this task
-  transcript.words.json          # M1 - this task
+  source.json                    # M0 - written
+  transcript.words.json          # M1 - written
   speakers.json                  # M1b - diarization lane (RESERVED)
-  frames/ + frames.index.json    # M2  - sampler lane (RESERVED)
+  frames/ + frames.index.json    # M2  - written
   persons.json                   # M3  - Vision lane (RESERVED)
   identity.json                  # M3b - entity lane (RESERVED)
   scenes.json                    # M4  - CLIP lane (RESERVED)
   sound.json                     # M5  - SoundAnalysis lane (RESERVED)
-  clock.json                     # M6  - this task
+  clock.json                     # M6  - written
   events.json                    # M7  - predicate lane (RESERVED)
 ```
 
@@ -53,8 +53,8 @@ silence or refusal and is served as the answer.
 `channel` is the 1-based audio ordinal (`-map 0:a:<channel-1>`).
 `program_track.channel` is null with basis `no-audio-streams`,
 `no-live-track` or `declaration-refused` when nothing is
-transcribable. `gop_frames` is null until the sampler lane measures
-it.
+transcribable. `gop_frames` is null until M2 samples the source, then
+filled in from the measured keyframe spacing.
 
 ## M1 `transcript.words.json` (written)
 
@@ -79,6 +79,40 @@ Utterances carry the same keys as step 1.04 speech regions, so the
 search serves either without branching. Text and words are
 lowercased; boundaries are MFA's (no onset snapping).
 `confidence` is 0.0 - no arm publishes one.
+
+## M2 `frames/` + `frames.index.json` (written)
+
+One shared decode per source: `-skip_frame nokey` drops every frame
+but the keyframes before they are decoded, landing at the source's own
+GOP cadence (measured 2 Hz on both geo-podcast cameras - 4.7 min per
+82-minute file against 76 min for a software 5 Hz full-decode pass,
+scout report §2.2, §2.5). `-hwaccel videotoolbox` is tried first on
+this machine; a decode that fails with it retries in software. Every
+per-frame reader (Vision, CLIP, entity) rides this one sample instead
+of decoding its own - `library/tools/analysis/footage_frames.py` is
+the first wired consumer.
+
+```json
+{
+  "content_digest": "sha256 hex",
+  "size_bytes": 0,
+  "source_file": "<absolute path>",
+  "status": "sampled",
+  "rate_hz_nominal": 2.0,
+  "width": 384,
+  "frame_count": 0,
+  "frames": [{"file": "frames/frame_000001.jpg", "t": 0.521}],
+  "instrument": {"decoder": "iframe-skip", "hwaccel": "videotoolbox|null"},
+  "gop_frames": 12
+}
+```
+
+`frames[].file` is relative to the digest's own memory directory
+(`<root>/<content_digest>/`), never to a project - a reader resolves
+it with `source_memory.frame_abspath`, the same reference-not-copy
+contract M1 follows. `frames[].t` is read off `showinfo`'s own
+`pts_time` for that output frame, not computed from a fixed step: the
+real cadence is whatever the source's keyframes give.
 
 ## M6 `clock.json` (written)
 
@@ -152,13 +186,19 @@ lands or a source changes.
 bin/vep -m library.tools.heavy_work_lock run \
   --owner <lane> -- python3 -m library.tools.source_memory build <project>
 
+# Heavy: one whole-file I-frame decode per source. Under the heavy-work lock.
+bin/vep -m library.tools.heavy_work_lock run \
+  --owner <lane> -- python3 -m library.tools.source_memory frames <project>
+
 python3 -m library.tools.source_memory status <project>   # light, reads only
 python3 -m library.tools.source_memory build <project> --clip clip_003
+python3 -m library.tools.source_memory frames <project> --clip clip_003
 ```
 
-`build` reuses a fresh transcript (`reused: true`) and records
-per-file failures without aborting the project. `PIPELINE_SOURCE_MEMORY_ROOT`
-overrides the root (`--memory-root` per run, e.g. for tests).
+`build` reuses a fresh transcript (`reused: true`) and `frames` reuses
+a fresh M2 sample the same way; both record per-file failures without
+aborting the project. `PIPELINE_SOURCE_MEMORY_ROOT` overrides the root
+(`--memory-root` per run, e.g. for tests).
 
 ## Reading (search)
 
@@ -166,3 +206,8 @@ overrides the root (`--memory-root` per run, e.g. for tests).
 the 1.04 regions for the same clip - never both. Digests resolve live
 off disk when media is present, off the runner's `source_fingerprints`
 record when it is not, so search works with footage offline.
+
+`footage_frames.build_frame_index` reads M2 the same way: a clip with
+no fresh sample is SKIPPED with the `frames` command to run, never
+decoded on the spot - the frame-level CLIP index is a reader of the
+memory, not a second producer of it.
