@@ -196,13 +196,14 @@ def test_reel_verify_operation_corrects_noncurrent_transform_read(
                   return_value={"promoted": [FINAL],
                                 "organised": None, "markers": {}}), \
             patch("library.tools.reel_build."
-                  "sweep_all_reels_informational"), \
+                  "sweep_all_reels_informational") as sweep, \
             patch("library.tools.versions.store.record_reel_promotion",
                   return_value={"committed": False,
                                 "reason": "offline verifier test"}):
             result = operations.get("reel.verify").execute(str(tmp_path))
 
     assert result.completed, result.error
+    assert sweep.call_args.kwargs["draw_gain"] == 1.0
     output = capsys.readouterr().err
     assert "restored Pan x4, Tilt x4 to 1080x1920" in output
     report_path = tmp_path / "pipeline_output" / "review" / \

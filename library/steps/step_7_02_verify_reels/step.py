@@ -431,7 +431,8 @@ def verify_reels(data: dict) -> dict:
             master_timeline_name=master_timeline_name,
             plan_path=plan_path,
             transcript_path=str(transcript_path(project_folder)),
-            only_reels=timelines_verified)
+            only_reels=timelines_verified,
+            draw_gain=run_gain)
         # A promotion that leaves other stagings pending says so: the
         # holds file is the pending-promotion record, and a build that
         # stages but never promotes otherwise sits protected and

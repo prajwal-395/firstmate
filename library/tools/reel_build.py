@@ -12946,7 +12946,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     "pipeline_output/scratch/timeline_transcript/"
                     "transcript.json"),
                 only_reels=(sorted(target_names) if only is not None
-                            else None))
+                            else None),
+                draw_gain=run_gain)
 
     # File the layer-vs-source findings OUTSIDE the scan, and keep
     # only counts in the record below. The full rows quote the heard
@@ -14342,7 +14343,8 @@ def sweep_all_reels_informational(project_folder: str,
                                   master_timeline_name: str,
                                   plan_path: str,
                                   transcript_path: str,
-                                  only_reels=None) -> dict:
+                                  only_reels=None,
+                                  draw_gain: float = None) -> dict:
     """Grade selected reel timelines and PRINT the findings. Never raises.
 
     The detection half of the conformance sweep, restored beside the
@@ -14359,6 +14361,11 @@ def sweep_all_reels_informational(project_folder: str,
     Read-only (the verifier's getters only) into its own
     `conformance_sweep_report.json` - never the gate's
     `conformance_report.json`, which a sweep must not overwrite.
+
+    `draw_gain` is the build's measured Resolve Pan/Tilt gain. Reuse it
+    when grading stored transforms; a different gain moves the F12
+    picture rectangle even though the timeline itself did not change.
+    `None` keeps the verifier's fallback for older, uncalibrated runs.
 
     How to read it: a finding on a reel this build placed is news. A
     PLAN-MISMATCH on a reel it did not touch means that reel was built
@@ -14393,6 +14400,7 @@ def sweep_all_reels_informational(project_folder: str,
             review_dir=review_dir,
             project_folder=str(project_folder),
             only_reels=(None if only_reels is None else list(only_reels)),
+            draw_gain=draw_gain,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"  whole-project conformance sweep unavailable "

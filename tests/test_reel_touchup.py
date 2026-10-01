@@ -32,7 +32,9 @@ What is pinned:
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -56,6 +58,77 @@ def _v4_first_record(timeline):
         if track["type"] == "video" and int(track["index"]) == 4:
             return int(track["clips"][0]["record_in"])
     raise AssertionError("the fixture stopped carrying V4")
+
+
+def test_live_touchup_read_holds_lease_and_makes_reel_current(monkeypatch):
+    """A touchup's Resolve handshake and transform read are both guarded."""
+    from library.tools import (
+        project_registry, reel_build, reel_read, resolve_lock,
+    )
+
+    project = object()
+    timeline = SimpleNamespace(GetName=lambda: "Reel 22 - moment")
+    events = []
+    state = {"lease": False, "excursion": False}
+
+    @contextmanager
+    def lease(purpose, *, exclusive):
+        assert purpose == "read touchup Reel 22 - moment"
+        assert exclusive is True
+        state["lease"] = True
+        events.append("lease-enter")
+        try:
+            yield
+        finally:
+            state["lease"] = False
+            events.append("lease-exit")
+
+    @contextmanager
+    def excursion(actual_project, actual_timeline, purpose):
+        assert state["lease"] is True
+        assert actual_project is project
+        assert actual_timeline is timeline
+        assert purpose == "read touchup Reel 22 - moment"
+        state["excursion"] = True
+        events.append("cursor-enter")
+        try:
+            yield
+        finally:
+            state["excursion"] = False
+            events.append("cursor-exit")
+
+    def connect(name):
+        assert state["lease"] is True
+        assert name == "Podcast (field test)"
+        events.append("connect")
+        return project
+
+    def read_tracks(actual_timeline, *, resolve_project):
+        assert state["lease"] is True
+        assert state["excursion"] is True
+        assert actual_timeline is timeline
+        assert resolve_project is project
+        events.append("read")
+        return [{"name": "Akshita"}]
+
+    monkeypatch.setattr(
+        project_registry, "get_project",
+        lambda _folder: SimpleNamespace(
+            resolve=SimpleNamespace(project_name="Podcast (field test)")))
+    monkeypatch.setattr(reel_build, "_connect_resolve_project", connect)
+    monkeypatch.setattr(
+        reel_build, "timelines_to_replace",
+        lambda _project, names: [timeline]
+        if names == {"Reel 22 - moment"} else [])
+    monkeypatch.setattr(resolve_lock, "resolve_lease", lease)
+    monkeypatch.setattr(resolve_lock, "cursor_excursion", excursion)
+    monkeypatch.setattr(reel_read, "read_tracks", read_tracks)
+
+    assert tu._live_tracks_for_reel("/project", 22,
+                                    "Reel 22 - moment") == [
+                                        {"name": "Akshita"}]
+    assert events == ["lease-enter", "connect", "cursor-enter", "read",
+                      "cursor-exit", "lease-exit"]
 
 
 # ── The composed class ───────────────────────────────────────────────

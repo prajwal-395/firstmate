@@ -538,6 +538,7 @@ def _live_tracks_for_reel(project_folder: str, reel: int,
     from library.tools.project_registry import get_project
     from library.tools.reel_build import _connect_resolve_project as _connect
     from library.tools.reel_build import timelines_to_replace
+    from library.tools.resolve_lock import cursor_excursion, resolve_lease
 
     try:
         resolve_name = get_project(project_folder).resolve.project_name
@@ -548,17 +549,25 @@ def _live_tracks_for_reel(project_folder: str, reel: int,
                   encoding="utf-8") as handle:
             resolve_name = ((_yaml.safe_load(handle).get("resolve")
                              or {}).get("project_name", ""))
-    project = _connect(resolve_name or "")
-    found = {timeline.GetName(): timeline for timeline
-             in timelines_to_replace(project, {final_name})}
-    if final_name not in found:
-        raise TouchupRefused(
-            f"no timeline called {final_name!r} is in the "
-            f"open Resolve project",
-            "a touchup edits the reel's existing timeline, and there "
-            "is none to edit",
-            "build it first (`ren build <project>`), then touch it up")
-    return _read.read_tracks(found[final_name])
+    # The connection handshake itself must happen after the lease is
+    # acquired. Pan/Tilt readings also depend on the CURRENT timeline,
+    # so read_tracks must run inside a cursor excursion to this reel.
+    # The excursion restores the captain's entry timeline and timecode.
+    with resolve_lease(f"read touchup {final_name}", exclusive=True):
+        project = _connect(resolve_name or "")
+        found = {timeline.GetName(): timeline for timeline
+                 in timelines_to_replace(project, {final_name})}
+        if final_name not in found:
+            raise TouchupRefused(
+                f"no timeline called {final_name!r} is in the "
+                f"open Resolve project",
+                "a touchup edits the reel's existing timeline, and there "
+                "is none to edit",
+                "build it first (`ren build <project>`), then touch it up")
+        with cursor_excursion(project, found[final_name],
+                              f"read touchup {final_name}"):
+            return _read.read_tracks(found[final_name],
+                                     resolve_project=project)
 
 
 def _spans_of(tracks: Sequence[Mapping]) -> dict:

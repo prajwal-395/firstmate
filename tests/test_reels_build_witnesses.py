@@ -126,6 +126,20 @@ def test_the_sweep_grades_every_reel_not_the_built_subset(tmp_path):
     assert result["exit_code"] == 0
 
 
+def test_the_sweep_grades_transforms_with_the_build_calibration(tmp_path):
+    """F12 must read the same Pan/Tilt units the build used."""
+    folder, transcript = _sweep_project(tmp_path)
+
+    with patch("library.tools.reel_conformance_verifier.run_verification",
+               return_value=0) as run:
+        rb.sweep_all_reels_informational(
+            project_folder=folder, resolve_project_name="Mock",
+            master_timeline_name="Master", plan_path="/x/plan.json",
+            transcript_path=transcript, draw_gain=4.0)
+
+    assert run.call_args[1]["draw_gain"] == 4.0
+
+
 def test_the_sweep_writes_beside_the_gate_report_not_over_it(tmp_path):
     """The gate's `conformance_report.json` is the refusal's evidence.
 
