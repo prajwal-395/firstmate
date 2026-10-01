@@ -1,0 +1,36 @@
+# Identity: who is speaking and whose face this is. A machine without
+# this group still runs the rest of the pipeline; each lane refuses by
+# name (DiarizationUnavailable, InsightfaceEnvironmentMissing).
+
+# Single-track diarization fallback (`library/tools/
+# single_track_diarization.py`, measured on the captain's footage at
+# data/vep-single-track-diarization/eval/ in firstmate's home).
+# speechbrain (MIT) carries the open ECAPA speaker encoder
+# (spkrec-ecapa-voxceleb, public weights, no HF token - deliberately
+# chosen over pyannote's gated weights); scikit-learn carries the
+# agglomerative clustering + silhouette k search. scikit-learn was
+# previously present only transitively - stated here so a resolver run
+# that drops it fails loudly at install instead of inside a transcript.
+# Measured floors: speechbrain 1.1.1 embedded the eval pair; sklearn
+# 1.9.0 clustered it. The weights are data, not a pin: ~90 MB at the
+# revision pinned in shared_environment, fetched once per machine by
+# scripts/install_ecapa.sh. A machine whose venv lacks these still
+# transcribes: the fallback refuses with DiarizationUnavailable and the
+# transcript records single-label output with the reason.
+speechbrain>=1.1
+scikit-learn>=1.9
+# Person entity store (`library/tools/person_entity.py`, the M3b entity
+# lane). insightface's `buffalo_l` bundle (detector + ArcFace recognizer,
+# both MIT) carries face identity - chosen over Apple Vision, which has
+# no public face-identity request (measured in the video-intelligence
+# scout). onnxruntime (MIT) is insightface's inference backend; it was
+# previously present only transitively. Measured floor: insightface 2.0
+# ran the false-accept study at data/vep-person-entity-store/eval/ in
+# firstmate's home (FAR=0/FRR=0 at cosine >= 0.30, 83 real faces). The
+# ~281 MB weights are data, not a pin: fetched once per machine by
+# scripts/install_insightface.sh into insightface's own cache. A machine
+# whose venv lacks these still runs the rest of the pipeline: the entity
+# lane refuses with InsightfaceEnvironmentMissing and the project is
+# left without face identity, said aloud rather than guessed at.
+insightface>=0.7
+onnxruntime>=1.19

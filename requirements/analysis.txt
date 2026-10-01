@@ -1,0 +1,126 @@
+# Analysis / ML: the preflight's measuring instruments - transcription
+# support, music, prosody, sound events, OCR, segmentation, SFX search
+# and the vision model.
+
+# BUILD THIS ENVIRONMENT ON PYTHON 3.12. It is not a preference: on 3.14
+# there is no set of these packages in which transcription works, and the
+# failure is silent. Measured 2026-08-17, on project 001's real footage.
+#
+# The chain, so nobody re-derives it (whisperx era, kept because the
+# failure mode is what the preflight's version-floor check exists for):
+#   - 3.14 has no wheel for the ctranslate2 whisperx 3.2.0 pins, so an env
+#     built there installs faster-whisper 1.2.1 instead of the 1.0.0
+#     whisperx 3.2.0 requires. 1.2.x added `multilingual` and `hotwords`
+#     to TranscriptionOptions, so every transcribe call raised
+#       TypeError: TranscriptionOptions.__init__() missing 2 required
+#       positional arguments: 'multilingual' and 'hotwords'
+#   - step_1_04 catches that per clip and carries on. All 17 clips of 001
+#     reported "0 regions, 0.0s speech, 0 words" and the run continued.
+#     No transcript means no speech selection, no spine and no subtitles,
+#     which is the entire edit - reported as success.
+#   - Going forward on 3.14 does not help either: newer whisperx needs
+#     torchaudio >= 2.9 via torch, and pyannote.audio still calls
+#     `torchaudio.list_audio_backends()` and imports `AudioMetaData`, both
+#     removed by then. Shimming one surfaces the next.
+#
+# whisperx is GONE since 2026-09-24, and that is a second chain worth
+# writing down so nobody re-adds the pin. Ingest transcribes through Voz
+# (`da voz`) and aligns through MFA since PR 1374, and whisperx 3.8.6 -
+# the latest release - pins `huggingface-hub<1.0.0` while every mlx-vlm
+# new enough to load gemma4 needs transformers>=5.1 (Hub>=1.5). The
+# solve is disjoint, so whisperx left the venv and the file together
+# with its fallback arms in `library/tools/timeline_transcript.py`.
+# What left with it: the full-WhisperX transcription fallback, the
+# wav2vec2 aligner behind MFA, and faster-whisper (nothing else
+# imported it). Non-English material and MFA outages now refuse loudly
+# instead of falling back - that tradeoff is the PR body, not this pin.
+librosa>=0.10
+# Beat and downbeat detection (step 2.06 via music_pipeline, surfaced per
+# candidate at choice time in 2.04). beat_this (CPJKU, MIT code AND MIT
+# weights - "the code and the published model weights are released under
+# the MIT license", github.com/CPJKU/beat_this README) detects beats AND
+# bar starts from the audio; without it the pipeline falls back to
+# librosa, whose downbeats are an every-4th-beat estimate labelled
+# "estimated" wherever they travel. There is deliberately no madmom
+# fallback: its RNN processors load CC-BY-NC-SA weights (CPJKU/madmom
+# README, PyPI "License: BSD, CC BY-NC-SA"). Measured on the captain's
+# machine (M4, CPU): ~3 s for a 200 s track after the first-run
+# checkpoint download (~17 s), 283 beats at 88.2 BPM on Sickick -
+# Infected (Instrumental), deterministic across runs.
+beat-this==1.1.0
+# Section grid with functional labels (step 2.06 via music_pipeline,
+# read by mesh_spine and the cut planners through view:sectiongrid and
+# anchor {section}). all-in-one-infer (openmirlab, MIT) is the PyPI-only
+# vehicle for All-In-One (mir-aidj, MIT code, MIT weights at
+# huggingface.co/taejunkim/allinone): stock allin1 needs a git-built
+# madmom plus NATTEN compilation, this fork swaps in madmom-infer (a
+# from-scratch reimplementation loading no madmom weights) and a
+# pure-PyTorch attention with no NATTEN. Stems come from demucs-infer
+# (Demucs, MIT code and models per its README). Measured on the
+# captain's machine (M4, CPU): ~85 s and ~4 GB peak for a 200 s track
+# (demucs separation dominates), cached per track afterwards; sections
+# and labels stable across runs, beats re-validated with one retry.
+all-in-one-infer==3.1.0
+demucs-infer==4.2.2
+madmom-infer==0.2.0
+# Step 2.04 searches for music and fetches what it finds. It has shelled
+# out to yt-dlp since it was written and this file never carried it, so
+# `search_youtube.py` had no caller and no dependency and could never have
+# run. The floor is measured, not guessed: on 2026-08-28 the 2026.03.17
+# on this machine answered every download with `HTTP Error 403: Forbidden`
+# and warned that YouTube extraction without a JS runtime is deprecated,
+# while 2026.08.19 downloaded with no runtime and no flags. A stale
+# extractor fails in a way that reads like a network fault, so
+# `library/tools/music_search.py` reports the version it ran.
+yt-dlp>=2026.08.19
+# Step 1.05's only measuring instrument. Its manifest has listed it as a
+# precondition since the step was written and this file never carried it,
+# so every run of every project produced one "parselmouth not installed"
+# record per clip and reported success. Build the pipeline env on 3.12, as
+# the note above says; CI filters this out with the heavy ML deps.
+#
+# A cp314 wheel now exists - praat_parselmouth 0.4.7 installs on 3.14 and
+# measures 001's footage (measured 2026-08-28, see
+# docs/RULE_EVIDENCE.md#hollow-prosody-files-cached). Installing it does
+# not on its own make step 1.05 work: it is handed the raw .MOV and Praat
+# cannot read one.
+praat-parselmouth>=0.4.3
+# torch and torchaudio must match each other - hand-pinning one without
+# the other is how the 3.14 environment ended up with torch 2.13 beside
+# torchaudio 2.11 and a pyannote that worked with neither. Keep the two
+# floors together and let the resolver match the pair.
+torch>=2.8
+torchaudio>=2.8
+# Timed non-speech sound events (step 1.04 via sound_event_pipeline,
+# read by the cut planners through view:soundevents and anchor
+# {event}). panns-inference (MIT) + torchlibrosa (MIT) are pure Python
+# on the torch already here and resolved cleanly against numpy 2.5.3 /
+# torch 2.8 with nothing else moving. The 327 MB Cnn14_DecisionLevelMax
+# weights are CC-BY-4.0 (Zenodo record 3987831, md5 verified at
+# install) and live once per machine under vep_home()/models/panns/
+# via scripts/install_panns.sh - they are data, not a pin. Measured on
+# the captain's machine (M4, CPU): 100-210x realtime at 100 frames/s,
+# ~2.9 GB peak RSS, speech spans covering 97.5% of transcript
+# word-time, a cough/sneeze burst agreeing to ~1 s with an independent
+# CED-tiny pass. (CED-tiny stays a measurement: its upstream is
+# GPL-3.0 and its model tarball ships no licence.)
+panns-inference==0.1.1
+torchlibrosa==0.1.0
+easyocr>=1.7
+sam2>=1.0.0
+
+# SFX search index (library/tools/analysis/sfx_pipeline.py, sfx_query.py).
+faiss-cpu>=1.7
+
+# Vision (step 1.03 via vision_pipeline_v3, Apple Silicon only).
+# 0.7.2 is the floor, not a preference: 0.3.9 cannot load
+# mlx-community/gemma-4-12b-it-4bit (`ValueError: Model type
+# gemma4_unified not supported`), so vision is broken on every real
+# project below it. Verified 2026-09-24 by loading the cached weights
+# and answering on the captain's footage, not by importing the module.
+# mlx and mlx-lm ride along as mlx-vlm's own floors - stated here so a
+# resolver run that drifts them below what vision was verified against
+# fails loudly at the preflight instead of inside the step.
+mlx>=0.32.2; sys_platform == 'darwin'
+mlx-lm>=0.31.3; sys_platform == 'darwin'
+mlx_vlm>=0.7.2; sys_platform == 'darwin'

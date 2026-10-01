@@ -47,9 +47,8 @@ def profile_defect(profile):
 
 def test_requirements_carries_parselmouth():
     """The declared requirement and the requirements file must agree."""
-    text = (REPO / "requirements.txt").read_text(encoding="utf-8")
-    lines = [l.strip() for l in text.splitlines()
-             if l.strip() and not l.strip().startswith("#")]
+    from library.tools.dependency_groups import declared_requirements
+    lines = declared_requirements(REPO / "requirements.txt")
     assert any(l.startswith("praat-parselmouth") for l in lines), (
         "step 1.05 declares env.parselmouth as a requirement; "
         f"requirements.txt must install it. Got: {lines}")

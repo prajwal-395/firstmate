@@ -9,7 +9,7 @@ name: CI
 #   run is the real regression gate (layer 1 below).  What a GitHub runner
 #   uniquely provides is a CLEAN ROOM: a fresh Linux checkout with nothing
 #   preinstalled, which installs this project from its DECLARED manifests
-#   (`requirements.txt`) and nothing else.
+#   (`requirements.txt` and the group files it includes) and nothing else.
 #
 #   It therefore exists to catch exactly the class of defect no local
 #   machine can see, because a local machine already has the thing:
@@ -125,7 +125,8 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pytest ruff httpx2
-        grep -vE 'torch|sam2|whisperx|parselmouth' requirements.txt > ci_requirements.txt
+        # requirements.txt only `-r`-includes the group files; filter the groups.
+        cat requirements/*.txt | grep -vE 'torch|sam2|whisperx|parselmouth' > ci_requirements.txt
         pip install -r ci_requirements.txt
 
     - name: Install ffmpeg

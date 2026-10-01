@@ -44,28 +44,47 @@ does not allow:
 Python **3.12**, not `python3`. On the build machine `python3` is 3.14, and building with it
 reproduces the broken environment exactly.
 
-`uv` resolves this stack in seconds and can fetch 3.12 itself:
+Install from the **lock**, `requirements/lock/macos-arm64-py312.txt`: the exact stack Ren
+was measured on (macOS 14+ arm64, CPython 3.12, with hashes). `uv` can fetch 3.12 itself:
 
 ```sh
 uv venv --python 3.12 ~/.local/share/vep/venv-py312
-uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 \
-    -r requirements.txt
-uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 \
-    pytest httpx2
+uv pip sync --python ~/.local/share/vep/venv-py312/bin/python3 \
+    requirements/lock/macos-arm64-py312.txt
 ```
 
-Without `uv`, any real 3.12 interpreter works:
+`sync` makes the venv EXACTLY the lock, removing anything undeclared - right for a new venv.
+On an existing one that carries tools nothing declares (the build machine's does), use
+`uv pip install -r` with the same file, which only adds and moves.
+
+The lock already carries the test gate (`pytest`, `pytest-xdist`). Off Apple Silicon, or
+without `uv`, install the policy instead - any real 3.12 interpreter works, and you get
+whatever its floors resolve to today, not the measured stack:
 
 ```sh
 python3.12 -m venv <path>
-source <path>/bin/activate
-pip install -r requirements.txt
-pip install pytest httpx2
+<path>/bin/pip install -r requirements.txt
 ```
 
-`requirements.txt` is the only source of versions. **Do not pin anything here or on the
-command line**: the manifest already declares the constraints, a second copy drifts from it,
-and a local pin is by definition the one thing CI never sees.
+### Policy, groups and the lock
+
+`requirements.txt` is the **policy**: it `-r`-includes one file per dependency group under
+`requirements/` (`core`, `graphics`, `analysis`, `identity`, `dev`), and each floor or
+ceiling is stated once, with its measurement, in its group file. `pyproject.toml` exposes the
+same groups as extras (`pip install -e '.[analysis]'`; `resolve`, `all` and `dev` compose
+them). The map is `library/tools/dependency_groups.py`.
+
+The lock is **generated, never edited**. After changing the venv on purpose (a floor raised,
+a package added), regenerate it from that venv and commit it with the policy change:
+
+```sh
+scripts/lock_python_env.sh            # pins from the shared venv
+```
+
+It resolves `requirements.txt` for macOS arm64 / 3.12 with the venv's installed versions as
+constraints, so every locked version is the measured one, and a venv that violates the policy
+fails the resolve instead of being locked. Do not pin anything on the command line: a local
+pin outside the policy and the lock is the one thing nobody else sees.
 
 ### Where to put it
 

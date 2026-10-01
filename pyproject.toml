@@ -20,9 +20,15 @@ markers = [
 # ─── Ren, the installed front door (README "Quickstart") ─────────────
 #
 # Installed EDITABLE into the shared 3.12 venv (docs/SHARED_ENVIRONMENT.md):
-#     ~/.local/share/vep/venv-py312/bin/pip install -e .
+#     uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 -e .
 # Only the small `ren` package is installed; it finds the engine - this
 # checkout - beside itself, so `library/` is never shadowed in site-packages.
+#
+# Dependencies come in groups, one flat file each under requirements/
+# (library/tools/dependency_groups.py). A bare install takes `core`; name
+# the capabilities you want: `pip install -e '.[analysis,identity]'`, or
+# `.[all]` for every runtime group. `.[dev]` is the test gate.
+# `pip install -r requirements.txt` still installs everything.
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
@@ -33,7 +39,7 @@ version = "0.1.0"
 description = "Ren: an agent-driven video editor on DaVinci Resolve Studio"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dynamic = ["dependencies"]
+dynamic = ["dependencies", "optional-dependencies"]
 
 [project.scripts]
 ren = "ren.cli:main"
@@ -44,4 +50,16 @@ ren-setup-hooks = "ren.setup_hooks:main"
 packages = ["ren", "ren.hooks"]
 
 [tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
+dependencies = { file = ["requirements/core.txt"] }
+
+# Each package is declared in ONE group file; an extra that needs another
+# group lists that file too, so no floor is stated twice. Resolve's own
+# scripting module ships with Resolve Studio - what a reel build needs from
+# pip is graphics (the Haar punch-in, frame tools).
+[tool.setuptools.dynamic.optional-dependencies]
+graphics = { file = ["requirements/graphics.txt"] }
+resolve = { file = ["requirements/graphics.txt"] }
+analysis = { file = ["requirements/analysis.txt", "requirements/graphics.txt"] }
+identity = { file = ["requirements/identity.txt", "requirements/graphics.txt"] }
+all = { file = ["requirements/graphics.txt", "requirements/analysis.txt", "requirements/identity.txt"] }
+dev = { file = ["requirements/dev.txt"] }

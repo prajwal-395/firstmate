@@ -127,18 +127,17 @@ def _declared_specifiers(repo_root: Path) -> dict:
     from packaging.requirements import Requirement
     from packaging.utils import canonicalize_name
 
+    from library.tools.dependency_groups import declared_requirements
+
     wanted = {canonicalize_name(ML_DISTRIBUTION_NAMES.get(p, p))
               for p in ML_REQUIRED_PACKAGES}
     found = {}
     path = repo_root / "requirements.txt"
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = declared_requirements(path)
     except OSError:
         return found
-    for raw in lines:
-        line = raw.split("#", 1)[0].strip()
-        if not line or line.startswith("-"):
-            continue
+    for line in lines:
         try:
             req = Requirement(line)
         except Exception:

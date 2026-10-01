@@ -1,0 +1,19 @@
+# Graphics: picture measurement and drawing - subtitles, overlays, frame
+# QA, the reel look and its Haar punch-in. A reel build (the `resolve`
+# extra) needs this group; Resolve's own scripting module ships with
+# Resolve Studio and is not a pip package.
+
+# Pinned below 5: OpenCV 5 dropped Haar cascades entirely (no
+# cv2.CascadeClassifier, no XML in cv2.data.haarcascades), and the
+# face-presence and subject-position signals in step_1_04 need them.
+opencv-python>=4.8,<5
+# The headless build has to be held below 5 as well, and this is not
+# belt-and-braces. easyocr/sam2 pull `opencv-python-headless`, which
+# provides the SAME `cv2` module: installing it alongside a correct
+# opencv-python 4.x gave `import cv2` -> 5.0.0 with
+# `hasattr(cv2, "CascadeClassifier")` False, while the 17 cascade XMLs
+# sat there in cv2.data.haarcascades looking fine. The <5 pin above
+# constrains the package nobody imports and the shadow wins. Measured
+# 2026-08-17 while rebuilding this environment.
+opencv-python-headless>=4.8,<5
+Pillow>=9.0

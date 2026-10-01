@@ -183,10 +183,8 @@ try:
     from packaging.requirements import Requirement
 except ImportError:
     Requirement = None
-for raw in open(sys.argv[2], encoding="utf-8"):
-    line = raw.split("#", 1)[0].strip()
-    if not line:
-        continue
+from library.tools.dependency_groups import declared_requirements
+for line in declared_requirements(sys.argv[2]):
     if Requirement is None:
         out["unchecked"].append(line)
         continue

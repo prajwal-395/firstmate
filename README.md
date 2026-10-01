@@ -21,13 +21,14 @@ live outside it, in the projects root.
 ## Quickstart
 
 **1. Install.** Build the shared Python environment once per machine
-([docs/ML_ENVIRONMENT.md](docs/ML_ENVIRONMENT.md) has the details), then
+from the lock - the exact stack Ren was measured on
+([docs/ML_ENVIRONMENT.md](docs/ML_ENVIRONMENT.md) has the details) - then
 install `ren` into it from this checkout:
 
 ```sh
 uv venv --python 3.12 ~/.local/share/vep/venv-py312
-uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 -r requirements.txt
-~/.local/share/vep/venv-py312/bin/python3 -m pip install -e .
+uv pip sync --python ~/.local/share/vep/venv-py312/bin/python3 requirements/lock/macos-arm64-py312.txt
+uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 -e .
 ln -s ~/.local/share/vep/venv-py312/bin/ren /opt/homebrew/bin/ren   # or add the venv's bin/ to PATH
 scripts/install_node_deps.sh    # the subtitle renderer's Node dependencies
 ```
