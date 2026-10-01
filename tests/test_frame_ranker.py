@@ -127,6 +127,31 @@ def test_ranked_thumbnail_falls_back_when_nothing_is_sharp(
     assert calls[-1] == 1.0
 
 
+# ── The transformers 5.x boundary ────────────────────────────────────
+
+
+def test_feature_normalisation_handles_pooler_output():
+    """`get_image_features` returns BaseModelOutputWithPooling from
+    transformers 5.x up, and calling `.norm` on that raises AttributeError
+    (measured 2026-09-30 against 5.15.0) - which is what `score_files` did
+    until this helper unwrapped it."""
+
+    class _Tensor:
+        def norm(self, p=2, dim=-1, keepdim=True):
+            return self
+
+        def __truediv__(self, other):
+            return "NORMALIZED"
+
+    class _FiveX:
+        """5.x shape: no .norm, carries pooler_output."""
+
+    five = _FiveX()
+    five.pooler_output = _Tensor()
+    assert frame_ranker._normalized_clip_features(five) == "NORMALIZED"
+    assert frame_ranker._normalized_clip_features(_Tensor()) == "NORMALIZED"
+
+
 # ── Bound 2: the ranker is not reachable from the hold-point path ─────
 
 def test_ranker_is_not_reachable_from_the_hold_point_path():

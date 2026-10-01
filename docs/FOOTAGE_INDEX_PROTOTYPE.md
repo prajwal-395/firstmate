@@ -480,3 +480,18 @@ In the order the measurements argue for:
 4. **Cross-project scope**, which is the version of the question that
    retrieval is unambiguously the right answer to.
 5. Only then a decision about whether any step should call it.
+
+## Frame index (CLIP) companion, 2026-10-01
+
+`library/tools/analysis/footage_frames.py` sits beside this text index:
+CLIP ViT-L/14 over frames sampled at 1/10 s, reached through the same two
+verbs (`ren search-index --frames` builds it, `ren search --visual` ranks
+time ranges per clip).  Same prototype constraint, same guard.
+
+Design follows its own eval (firstmate `data/vep-clip-frame-search/eval/`,
+1092 frames over ~181 min of real footage, 11 pre-registered queries):
+objects/people/scenes only (P@5 5/5, 5/5, 3/5); action and gesture queries
+refused to the pose/hand lane (mouth-cover 1/5, drinking 0/5 - measured at
+chance); every answer ranked top-k with scores, every hit unverified, and
+no abstention floor - none separates present from absent (absent max 0.191
+inside the present band; an all-miss query topped everything at 0.232).

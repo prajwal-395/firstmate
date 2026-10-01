@@ -1078,6 +1078,26 @@ def _print_report(report):
         _print_hits(report["weak"])
 
 
+def _print_frame_report(report):
+    """A frame search report as a person reads it: ranges, never absence."""
+    print(f"query: {report['query']!r}  scope={report['scope']}  "
+          f"{report['frame_count']} frames indexed")
+    if report.get("embed_backend"):
+        print(f"backend: {report['embed_backend']}")
+    if report.get("error"):
+        print(report["error"])
+        return
+    print(f"NOTICE: {report['notice']}")
+    if not report["ranges"]:
+        print("\nNo ranges - the frame index holds nothing to rank.")
+        return
+    for i, span in enumerate(report["ranges"]):
+        print(f"\n{i + 1}. {span['clip_id']} ({span['filename']}) "
+              f"{span['timecode']}  ({span['duration']:.1f}s)")
+        print(f"   best {span['best_score']:.3f} across {span['n_frames']} frame(s)"
+              f"  [UNVERIFIED]")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="footage_query",
@@ -1089,11 +1109,22 @@ def main(argv=None):
     p_build.add_argument("project")
     p_build.add_argument("--index-dir", help="Where to write (default: <project>/pipeline_output/scratch/footage_index)")
     p_build.add_argument("--kinds", nargs="+", choices=list(SEGMENT_KINDS), default=list(SEGMENT_KINDS))
+    p_build.add_argument("--frames", action="store_true",
+                         help="Also sample the clips to stills and embed them with CLIP "
+                              "(objects/people/scenes; writes beside the text index)")
 
     p_search = sub.add_parser("search", help="Semantic + keyword search")
     p_search.add_argument("project")
     p_search.add_argument("query")
     p_search.add_argument("-k", "--top-k", type=int, default=5)
+    p_search.add_argument("--visual", action="store_true",
+                          help="Search the sampled FRAMES with CLIP instead of the text "
+                               "index: top time ranges per clip, every hit unverified, "
+                               "absence never concluded")
+    p_search.add_argument("--include-actions", action="store_true",
+                          help="Rank even an action/gesture query against the frames "
+                               "(the frame index refuses those by default: it cannot "
+                               "resolve them)")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
     p_search.add_argument("--floor", type=float, default=None,
                           help=f"minimum dense cosine to count as evidence "
@@ -1158,12 +1189,36 @@ def main(argv=None):
         return 0
 
     if args.command == "tools":
-        print(json.dumps(FootageIndex.get_tool_definitions(), indent=2))
+        from library.tools.analysis import footage_frames
+        print(json.dumps(FootageIndex.get_tool_definitions()
+                         + footage_frames.FrameIndex.get_tool_definitions(),
+                         indent=2))
         return 0
 
     if args.command == "build":
         stats = build_index(args.project, index_dir=args.index_dir, kinds=tuple(args.kinds))
         print(json.dumps(stats, indent=2))
+        if args.frames:
+            from library.tools.analysis import footage_frames
+            frame_stats = footage_frames.build_frame_index(
+                args.project, index_dir=args.index_dir)
+            print(json.dumps(frame_stats, indent=2))
+        return 0
+
+    if args.command == "search" and args.visual:
+        from library.tools.analysis import footage_frames
+        started = time.perf_counter()
+        vidx = footage_frames.FrameIndex(args.project, index_dir=args.index_dir)
+        report = vidx.search_ranges(args.query, top_ranges=args.top_k,
+                                    include_actions=args.include_actions)
+        elapsed = time.perf_counter() - started
+        if report["refused"] is not None:
+            raise RenRefusal(
+                f"frame search refused {report['query']!r}",
+                report["refused"]["reason"],
+                report["refused"]["hint"])
+        _print_frame_report(report)
+        print(f"\n{elapsed * 1000:.1f} ms")
         return 0
 
     idx = FootageIndex(args.project, index_dir=args.index_dir)

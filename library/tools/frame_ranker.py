@@ -236,6 +236,19 @@ def choose(candidates: list, sharpness_floor: float = None) -> tuple:
     }
 
 
+def _normalized_clip_features(feats):
+    """L2-normalised CLIP features across the transformers 5.x boundary.
+
+    `get_image_features` / `get_text_features` return
+    `BaseModelOutputWithPooling` from transformers 5.x up - calling `.norm`
+    on that raises AttributeError (measured 2026-09-30 against 5.15.0) -
+    and a bare tensor before.  `pooler_output` IS the feature vector in
+    both shapes, so read that and normalise it.
+    """
+    tensor = getattr(feats, "pooler_output", feats)
+    return tensor / tensor.norm(p=2, dim=-1, keepdim=True)
+
+
 def download_head(dest_dir: str) -> str:
     """Fetch the 4 KB LAION head.  Network only; the CLIP weights come from
     the shared HF cache at load time, nothing is vendored."""
@@ -296,8 +309,8 @@ class LaionAestheticScorer:
             for path in paths:
                 arr = _decode_rgb(path)
                 inputs = self._processor(images=arr, return_tensors="pt")
-                feats = self._model.get_image_features(**inputs)
-                feats = feats / feats.norm(p=2, dim=-1, keepdim=True)
+                feats = _normalized_clip_features(
+                    self._model.get_image_features(**inputs))
                 scores.append(float(self._head(feats).squeeze().item()))
         return scores
 

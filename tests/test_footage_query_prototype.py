@@ -31,7 +31,7 @@ from library.tools.analysis.footage_segments import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROTOTYPE_MODULES = ("footage_query", "footage_segments")
+PROTOTYPE_MODULES = ("footage_query", "footage_segments", "footage_frames")
 
 
 # ─── A project on disk, built from nothing ────────────────────────
