@@ -80,3 +80,17 @@ def test_a_capability_without_a_legacy_node_refuses_node_keyed_questions():
     nodeless = replace(_scan(), owning_node="")
     with pytest.raises(dag_adapter.NoLegacyNode, match="footage.scan"):
         nodeless.requires                                     # noqa: B018
+
+
+def test_an_uncited_heavy_lock_site_is_named(monkeypatch):
+    """Without the citation the capability would read LIGHT by omission."""
+    monkeypatch.delitem(capabilities.HEAVY_LOCK_SITES, "reel.build")
+    assert any("reel_build:rebuild_reels_in_project is cited by no"
+               in p for p in capabilities.problems())
+
+
+def test_a_cited_site_that_takes_no_lock_is_named(monkeypatch):
+    monkeypatch.setitem(capabilities.HEAVY_LOCK_SITES, "reel.build",
+                        ("library.tools.reel_build:build_reels_typo",))
+    assert any("build_reels_typo does not take" in p
+               for p in capabilities.problems())

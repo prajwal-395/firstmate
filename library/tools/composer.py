@@ -112,7 +112,6 @@ import argparse
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Optional
 
 COMPLETED = "completed"
 REFUSED = "refused"
@@ -266,12 +265,42 @@ def representative(node_id: str) -> str:
             f"composer plans capabilities, not bare nodes")
     from library.tools.scope import PROJECT
 
-    def rank(op) -> tuple:
-        return (PROJECT not in op.scopes,
-                op.body == POST_BRIDGE,
-                ops_mod.names().index(op.name))
+    # `owned` is in registry order, so its index IS registry order.
+    def rank(indexed) -> tuple:
+        index, op = indexed
+        return (PROJECT not in op.scopes, op.body == POST_BRIDGE, index)
 
-    return min(owned, key=rank).name
+    return min(enumerate(owned), key=rank)[1].name
+
+
+def _plan_maps():
+    """The three maps `_closure` searches, keyed by CAPABILITY id.
+
+    `all_producers` stays node-keyed on purpose: it is the DAG remedy a
+    refusal names ("produced by X - run the step in the DAG"), the one
+    place a plan still speaks nodes.  `capable` names one capability per
+    producing node - its `representative` - so siblings sharing an
+    effect never tie inside the search; `select_operation` chooses among
+    them afterwards.
+    """
+    from library.tools import dag_adapter
+    from library.tools import operations as ops_mod
+    from library.tools import requirements as req_mod
+
+    by_name = {r.name: r for r in req_mod.all_requirements()}
+    reps = {node: representative(node)
+            for node in dag_adapter.nodes_with_capabilities()}
+    all_producers = {n: tuple(sorted(set(r.produced_by)))
+                     for n, r in by_name.items()}
+    capable = {n: tuple(reps[node] for node in sorted(set(r.produced_by)
+                                                      & set(reps)))
+               for n, r in by_name.items()}
+    # The live registry, not the cached `capabilities.all()`: an
+    # operation's name IS its capability id, and its `requires` is the
+    # same derivation the spec carries.
+    needs = {op.name: tuple(r.name for r in op.requires)
+             for op in ops_mod.all()}
+    return by_name, all_producers, capable, needs
 
 
 def _closure(goal: str,
@@ -280,17 +309,18 @@ def _closure(goal: str,
              needs: Mapping[str, tuple[str, ...]],
              ) -> tuple[tuple[str, ...] | None, str, tuple[str, ...],
                         tuple[str, ...]]:
-    """Shortest producer-first node list closing `goal`, or the strand.
+    """Shortest producer-first capability list closing `goal`, or the strand.
 
     Pure over the three maps, so tests can drive it without the real
-    registry:
+    registry (`_plan_maps` builds the real ones):
 
-    * `all_producers`: requirement name to every DAG node producing it.
-    * `capable`: requirement name to the producing nodes that own a
-      registered operation - the only producers a plan may select.
-    * `needs`: owning node to the requirement names its operation asks.
+    * `all_producers`: requirement name to every DAG node producing it -
+      the legacy remedy a strand names.
+    * `capable`: requirement name to the capabilities producing it, in
+      the order ties break - the only producers a plan may select.
+    * `needs`: capability id to the requirement names it asks.
 
-    Returns `(nodes, blocker, producers, chain)` - `nodes` is None when
+    Returns `(planned, blocker, producers, chain)` - `planned` is None when
     nothing closes the goal, and then `blocker` is the requirement
     nothing reaches that the depth-first traversal met first,
     `producers` the nodes producing it (empty when no node does), and
@@ -325,15 +355,15 @@ def _closure(goal: str,
             # A leaf: nothing writes it, so nothing in any plan needs to
             # - the caller reports it as an assumption instead.
             return ((), "", (), ())
-        options = sorted(set(producers) & set(capable.get(name, ())))
+        options = capable.get(name, ())
         if not options:
             return (None, name, tuple(sorted(set(producers))), (name,))
         winner: tuple[tuple[str, ...], str, tuple[str, ...],
                       tuple[str, ...]] | None = None
         strand: tuple[tuple[str, ...] | None, str, tuple[str, ...],
                       tuple[str, ...]] | None = None
-        for node in options:
-            sub = close_node(node, stack + (name,))
+        for capability in options:
+            sub = close_capability(capability, stack + (name,))
             if sub[0] is not None and (
                     winner is None or len(sub[0]) < len(winner[0])):
                 winner = (sub[0], "", (), ())
@@ -346,19 +376,19 @@ def _closure(goal: str,
         _, blocker, owners, tail = strand
         return (None, blocker, owners, (name,) + tail)
 
-    def close_node(
-            node: str, stack: tuple[str, ...]
+    def close_capability(
+            capability: str, stack: tuple[str, ...]
     ) -> tuple[tuple[str, ...] | None, str, tuple[str, ...],
                tuple[str, ...]]:
         ordered: list[str] = []
-        for req in needs.get(node, ()):
+        for req in needs.get(capability, ()):
             sub, blocker, producers, tail = close_requirement(req, stack)
             if sub is None:
                 return (None, blocker, producers, tail)
             for have in sub:
                 if have not in ordered:
                     ordered.append(have)
-        ordered.append(node)
+        ordered.append(capability)
         return (tuple(ordered), "", (), ())
 
     return close_requirement(goal, ())
@@ -371,8 +401,6 @@ def compose(goal: str) -> Composition:
     for an unreachable goal, because the refusal is the deliverable.
     Blank goals raise: that is a caller error, not an unreachable goal.
     """
-    from library.tools import dag_adapter
-    from library.tools import operations as ops_mod
     from library.tools import requirements as req_mod
 
     name = (goal or "").strip()
@@ -381,14 +409,7 @@ def compose(goal: str) -> Composition:
             "a goal has to name a requirement, e.g. "
             "state.verify_reels.reel_build")
 
-    by_name = {r.name: r for r in req_mod.all_requirements()}
-    op_nodes = dag_adapter.nodes_with_capabilities()
-    all_producers = {n: tuple(sorted(set(r.produced_by)))
-                     for n, r in by_name.items()}
-    capable = {n: tuple(sorted(set(r.produced_by) & op_nodes))
-               for n, r in by_name.items()}
-    needs = {dag_adapter.node_of(op): tuple(r.name for r in op.requires)
-             for op in ops_mod.all()}
+    by_name, all_producers, capable, needs = _plan_maps()
 
     req = by_name.get(name)
     if req is None or not all_producers.get(name):
@@ -399,9 +420,9 @@ def compose(goal: str) -> Composition:
             == req_mod.KIND_ENVIRONMENT,
             detail="" if req is None else req.describe)
 
-    nodes, blocker, producers, chain = _closure(name, all_producers,
-                                                   capable, needs)
-    if nodes is None:
+    planned, blocker, producers, chain = _closure(name, all_producers,
+                                                  capable, needs)
+    if planned is None:
         by_blocker = by_name.get(blocker)
         return Composition(
             goal=name, status=REFUSED, blocker=blocker,
@@ -411,12 +432,12 @@ def compose(goal: str) -> Composition:
             chain=() if len(chain) < 2 else chain,
             detail="" if by_blocker is None else by_blocker.describe)
 
-    ordered_ops = tuple(representative(n) for n in nodes)
+    ordered_ops = tuple(planned)
     kinds = {n: r.kind for n, r in by_name.items()}
     machine: list[str] = []
     outside: list[str] = []
-    for node in nodes:
-        for req_name in needs.get(node, ()):
+    for capability in planned:
+        for req_name in needs.get(capability, ()):
             if all_producers.get(req_name):
                 continue
             target = (machine if kinds.get(req_name)
@@ -431,8 +452,8 @@ def compose(goal: str) -> Composition:
 
 # ── Post-composition selection between equivalent routes ──────────
 #
-# `_closure` plans over NODES and `representative` attaches one
-# operation per node by a static tie-break, so the search itself can
+# `_closure` plans over capabilities, one `representative` per legacy
+# node by a static tie-break, so the search itself can
 # never prefer the cheap route: two siblings with identical `requires`
 # and `effect` are indistinguishable at that layer, correctly.  The
 # selector below runs AFTER composition, where runtime context exists:
@@ -472,7 +493,7 @@ class RouteSelection:
     reason: str = ""
     alternatives: tuple[str, ...] = ()
     measured_basis_cited: bool = False
-    style: Optional[dict] = None
+    style: dict | None = None
 
     def as_record(self) -> dict:
         """The flat form for a log line or a hook payload."""
@@ -784,9 +805,9 @@ def compose_with_change(goal: str, change_spec=None,
                          tracks=None, style=None) -> Composition:
     """Resolve `goal` as `compose` does, then select the route.
 
-    `_closure` still plans over nodes (shortest capability set, same
-    refusals by name) and a refusal returns unchanged - there is no
-    route to choose.  On a completed plan each node goes through
+    `_closure` plans the same representatives (shortest capability set,
+    same refusals by name) and a refusal returns unchanged - there is no
+    route to choose.  On a completed plan each legacy node goes through
     `select_operation`: with a change spec and a track read the gate
     may prefer a cheap sibling; without either the representative
     stands, so `compose_with_change(goal)` with no change plans
@@ -800,8 +821,6 @@ def compose_with_change(goal: str, change_spec=None,
     `timeline_oracle.snapshot_live_rows` projects (the gate reads
     the tracks, not the projection).  Neither is measured here.
     """
-    from library.tools import dag_adapter
-    from library.tools import operations as ops_mod
     from library.tools import requirements as req_mod
 
     name = (goal or "").strip()
@@ -810,14 +829,7 @@ def compose_with_change(goal: str, change_spec=None,
             "a goal has to name a requirement, e.g. "
             "state.verify_reels.reel_build")
 
-    by_name = {r.name: r for r in req_mod.all_requirements()}
-    op_nodes = dag_adapter.nodes_with_capabilities()
-    all_producers = {n: tuple(sorted(set(r.produced_by)))
-                     for n, r in by_name.items()}
-    capable = {n: tuple(sorted(set(r.produced_by) & op_nodes))
-               for n, r in by_name.items()}
-    needs = {dag_adapter.node_of(op): tuple(r.name for r in op.requires)
-             for op in ops_mod.all()}
+    by_name, all_producers, capable, needs = _plan_maps()
 
     req = by_name.get(name)
     if req is None or not all_producers.get(name):
@@ -828,9 +840,9 @@ def compose_with_change(goal: str, change_spec=None,
             == req_mod.KIND_ENVIRONMENT,
             detail="" if req is None else req.describe)
 
-    nodes, blocker, producers, chain = _closure(name, all_producers,
-                                                capable, needs)
-    if nodes is None:
+    planned, blocker, producers, chain = _closure(name, all_producers,
+                                                  capable, needs)
+    if planned is None:
         by_blocker = by_name.get(blocker)
         return Composition(
             goal=name, status=REFUSED, blocker=blocker,
@@ -840,14 +852,20 @@ def compose_with_change(goal: str, change_spec=None,
             chain=() if len(chain) < 2 else chain,
             detail="" if by_blocker is None else by_blocker.describe)
 
-    selections = tuple(select_operation(n, change_spec, tracks, style)
-                       for n in nodes)
+    # Sibling choice is still per legacy node: the selectors route among
+    # the capabilities one node owns, by the asked change.
+    from library.tools import dag_adapter
+    from library.tools import operations as ops_mod
+    selections = tuple(
+        select_operation(dag_adapter.node_of(ops_mod.get(c)), change_spec,
+                         tracks, style)
+        for c in planned)
     ordered_ops = tuple(s.operation for s in selections)
     kinds = {n: r.kind for n, r in by_name.items()}
     machine: list[str] = []
     outside: list[str] = []
-    for node in nodes:
-        for req_name in needs.get(node, ()):
+    for capability in planned:
+        for req_name in needs.get(capability, ()):
             if all_producers.get(req_name):
                 continue
             target = (machine if kinds.get(req_name)
@@ -867,13 +885,8 @@ def reachable_goals() -> tuple[str, ...]:
     The composer's addressable set: composing one either resolves or
     refuses naming a deeper blocker, but never with "not a requirement".
     """
-    from library.tools import dag_adapter
-    from library.tools import requirements as req_mod
-
-    op_nodes = dag_adapter.nodes_with_capabilities()
-    return tuple(sorted(
-        r.name for r in req_mod.all_requirements()
-        if set(r.produced_by) & op_nodes))
+    from library.tools import operations as ops_mod
+    return tuple(sorted({r.name for op in ops_mod.all() for r in op.effect}))
 
 
 def describe_plan(comp: Composition) -> str:

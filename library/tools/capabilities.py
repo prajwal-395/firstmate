@@ -18,11 +18,29 @@ is no second vocabulary to keep in sync:
     exclusion                       library/tools/concurrency_routing.py
     artifact_areas                  library/tools/project_layout.AREAS
     legacy                          library/tools/processes.py
+    cost_class                      the heavy-work lock sites, below
 
-A field the tree does not declare is recorded as UNDETERMINED with the
-reason, never filled in: `cost_class` is the one such field today
-(`COST_UNDETERMINED`).  Inventing a cost tier from a runtime label would
-be a classification nobody measured.
+The cost rule
+-------------
+`cost_class` is one of three, decided in this order, and `cost_basis`
+names the evidence:
+
+    HEAVY   it holds the machine-wide heavy-work lock
+            (`library/tools/heavy_work_lock.py`) - the repository's own
+            declaration that work competes for local CPU, memory or GPU.
+            One at a time, machine-wide; minutes, not seconds.
+    MODEL   it needs a host model's answer (`needs_model_answer`): the
+            latency and the spend are a model call's.
+    LIGHT   neither: local Python on files and state.
+
+Which capability reaches which lock site cannot be read off the import
+graph - measured, nearly every step reaches `reel_build` transitively
+through pure helpers - so `HEAVY_LOCK_SITES` CITES the site each heavy
+capability reaches, and `problems()` fails when a lock site in
+`library/` is cited by neither a capability nor `UNCAPABLE_LOCK_SITES`,
+so a new heavy path cannot read LIGHT by omission.  The test tiers
+(`heavy`, `heavy_ml` in `pyproject.toml`) measure TESTS, not
+capabilities, and are not evidence here.
 
 The DAG is reached ONLY through `library/tools/dag_adapter.py`.  The
 invariants a registry must hold are `problems()`, pinned by
@@ -46,10 +64,29 @@ STEPS_ROOT = REPO_ROOT / "library" / "steps"
 FUNCTION = "function"
 PROMPT = "prompt"
 
-COST_UNDETERMINED = (
-    "undetermined: no declaration in the tree measures a capability's "
-    "cost or latency, and a tier guessed from its runtime label would be "
-    "a classification nobody measured")
+HEAVY = "heavy"
+MODEL = "model"
+LIGHT = "light"
+COST_CLASSES = (HEAVY, MODEL, LIGHT)
+
+HEAVY_LOCK_SITES: dict = {
+    # capability id -> the `module:function` lock sites it runs through.
+    "semantics.analyse": (
+        "library.tools.analysis.vision_pipeline_v3:run_pipeline",),
+    "render.build": (
+        "library.steps.step_6_01_render.resolve_build_timeline:build_timeline",
+        "library.tools.execution.resolve_render:render_timeline"),
+    "reel.build": ("library.tools.reel_build:rebuild_reels_in_project",),
+}
+
+UNCAPABLE_LOCK_SITES: dict = {
+    "library.tools.footage_analysis:analyze":
+        "`ren analyze` - footage intelligence, a ren verb rather than a "
+        "registered capability",
+    "library.tools.span_verification:verify_spans":
+        "`ren search` span verification - a ren verb rather than a "
+        "registered capability",
+}
 
 _EXCLUSION_STRENGTH = ("free", "declaration", "resolve_read",
                        "resolve_cursor")
@@ -103,8 +140,19 @@ class CapabilitySpec:
     artifact_areas: tuple
     """Project-relative directories the layout declares its node writes."""
     legacy: LegacyNode | None
-    cost_class: str | None = None
-    cost_basis: str = COST_UNDETERMINED
+    cost_class: str = LIGHT
+    """HEAVY | MODEL | LIGHT - the module docstring's cost rule."""
+    cost_basis: str = ""
+    """The evidence `cost_class` was decided from."""
+
+
+def _cost_of(capability_id: str, needs_model_answer: bool) -> tuple:
+    sites = HEAVY_LOCK_SITES.get(capability_id)
+    if sites:
+        return HEAVY, "holds the heavy-work lock at " + ", ".join(sites)
+    if needs_model_answer:
+        return MODEL, "needs a host model's answer"
+    return LIGHT, "holds no heavy-work lock and needs no model answer"
 
 
 def _exclusion_for(owning_dir: str) -> str | None:
@@ -126,6 +174,12 @@ def spec_of(op) -> CapabilitySpec:
 
     node = dag_adapter.node_of(op)
     requires = dag_adapter.requirements_consumed(op)
+    # The registry's own test for what the model owes a body, asked of an
+    # empty dict so it names every declared model output. A
+    # caller-supplied unit is handed its arguments, never the answer.
+    needs_model = op.is_prompt or (
+        not op.caller_supplied and bool(op.missing_model_answer({})))
+    cost_class, cost_basis = _cost_of(op.name, needs_model)
     return CapabilitySpec(
         id=op.name,
         summary=op.summary,
@@ -141,17 +195,15 @@ def spec_of(op) -> CapabilitySpec:
         assumes_outside=tuple(r.name for r in requires
                               if r.kind != req_mod.KIND_ENVIRONMENT
                               and not r.produced_by),
-        # The registry's own test for what the model owes a body, asked of
-        # an empty dict so it names every declared model output. A
-        # caller-supplied unit is handed its arguments, never the answer.
-        needs_model_answer=op.is_prompt or (
-            not op.caller_supplied and bool(op.missing_model_answer({}))),
+        needs_model_answer=needs_model,
         caller_supplied=op.caller_supplied,
         exclusion=_exclusion_for(op.owning_dir),
         artifact_areas=tuple(spec.relpath for spec in AREAS.values()
                              if spec.step == node),
         legacy=LegacyNode(node_id=node,
                           process=processes.process_of(node) or ""),
+        cost_class=cost_class,
+        cost_basis=cost_basis,
     )
 
 
@@ -182,6 +234,42 @@ def _top_level_defs(path: Path) -> frozenset:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     return frozenset(n.name for n in tree.body
                      if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)))
+
+
+_LOCK_NAMES = ("heavy_work_lock", "heavy_work_locked")
+
+
+def _names_the_lock(node) -> bool:
+    func = node.func if isinstance(node, ast.Call) else node
+    return (isinstance(func, ast.Name) and func.id in _LOCK_NAMES) or (
+        isinstance(func, ast.Attribute) and func.attr in _LOCK_NAMES)
+
+
+@lru_cache(maxsize=1)
+def heavy_lock_sites() -> frozenset:
+    """Every `module:function` in library/ that takes the heavy-work lock.
+
+    A site is a top-level function decorated with `heavy_work_locked` or
+    containing a `with heavy_work_lock(...)`.  The lock's own module is
+    not a site.
+    """
+    out = set()
+    for path in (REPO_ROOT / "library").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if "heavy_work_lock" not in text or path.name == "heavy_work_lock.py":
+            continue
+        module = ".".join(path.relative_to(REPO_ROOT).with_suffix("").parts)
+        for fn in ast.parse(text).body:
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            locked = any(_names_the_lock(d) for d in fn.decorator_list) or any(
+                isinstance(w, (ast.With, ast.AsyncWith)) and any(
+                    isinstance(i.context_expr, ast.Call)
+                    and _names_the_lock(i.context_expr) for i in w.items)
+                for w in ast.walk(fn))
+            if locked:
+                out.add(f"{module}:{fn.name}")
+    return frozenset(out)
 
 
 def unregistered_step_dirs() -> tuple:
@@ -215,7 +303,8 @@ def problems(registry=None) -> list:
        and every requirement producer is one;
     4. every artifact has an owner - each step-owned layout area names a
        real node;
-    5. a capability that produces nothing says why (`EMPTY_EFFECT_REASONS`).
+    5. a capability that produces nothing says why (`EMPTY_EFFECT_REASONS`);
+    6. every heavy-work lock site is cited (`HEAVY_LOCK_SITES`).
 
     "Requirements are declared" - a contract derived from
     `requirements.py`, never hand-written - is
@@ -269,6 +358,20 @@ def problems(registry=None) -> list:
             out.append(f"EMPTY_EFFECT_REASONS names {name!r}, which is not "
                        f"a capability")
 
+    cited = {site for sites in HEAVY_LOCK_SITES.values() for site in sites}
+    actual = heavy_lock_sites()
+    for site in sorted(actual - cited - set(UNCAPABLE_LOCK_SITES)):
+        out.append(f"heavy-work lock site {site} is cited by no capability "
+                   f"in HEAVY_LOCK_SITES and not excused in "
+                   f"UNCAPABLE_LOCK_SITES, so what reaches it reads LIGHT")
+    for site in sorted((cited | set(UNCAPABLE_LOCK_SITES)) - actual):
+        out.append(f"cited lock site {site} does not take the heavy-work "
+                   f"lock")
+    for name in HEAVY_LOCK_SITES:
+        if name not in seen:
+            out.append(f"HEAVY_LOCK_SITES names {name!r}, which is not a "
+                       f"capability")
+
     for d in unregistered_step_dirs():
         out.append(f"step directory {d} is reached by no capability and "
                    f"no process node, and STEPS declares no reason")
@@ -292,7 +395,8 @@ def describe() -> str:
         legacy = c.legacy.node_id if c.legacy else "-"
         model = " model" if c.needs_model_answer else ""
         lines.append(f"{c.id:<32} {','.join(c.scopes):<15} "
-                     f"{c.exclusion or '?':<15} legacy={legacy}{model}")
+                     f"{c.exclusion or '?':<15} {c.cost_class:<6} "
+                     f"legacy={legacy}{model}")
     return "\n".join(lines)
 
 
