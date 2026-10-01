@@ -206,11 +206,16 @@ def resolve_broll(
     temporal_indices: list,
     timed_spine: dict,
     target_resolution: tuple,
+    occupied: list = None,
 ) -> dict:
     """Resolve B-roll creative selections to execution data.
 
     The target frame is REQUIRED - the delivery format the caller
     resolved (`resolve_delivery_format`), never a shape literal here.
+
+    `occupied` is V2 already claimed by cutaways this call is NOT
+    resolving - `(timeline_start, timeline_end)` pairs - so a region
+    re-plan places its interjections around the ones it keeps.
     """
     # Entry keys nothing here reads are refused before anything
     # resolves - the refusal travels the post-bridge retry path so the
@@ -409,7 +414,8 @@ def resolve_broll(
     resolved_interjections = []
     # Everything already claiming a stretch of V2. Interjections are placed
     # around it, never over it.
-    occupied = [(a["timeline_start"], a["timeline_end"]) for a in assignments]
+    occupied = list(occupied or []) + [
+        (a["timeline_start"], a["timeline_end"]) for a in assignments]
     for interj in broll_interjections:
         clip_id = interj.get("clip_id")
         if not clip_id:
@@ -531,6 +537,11 @@ def resolve_broll(
             }
         })
 
+    # Timeline order, so a region splice (`splice_region_broll`) - which
+    # merges in timeline order - leaves the entries it keeps in the order
+    # they were stored. The sort is stable.
+    assignments.sort(key=lambda a: a["timeline_start"])
+    resolved_interjections.sort(key=lambda i: i["timeline_start"])
     return {
         "b_roll_assignments": assignments,
         "b_roll_interjections": resolved_interjections,
@@ -590,12 +601,19 @@ def main():
     # naming the block, through the post-bridge retry path back to the
     # model that chose nothing for it. A deliberately declared black
     # beat is covered by its declaration, not by a cutaway.
+    _refuse_uncovered(timed_spine.get("structure", []),
+                      result.get("b_roll_assignments", []))
+
+    json.dump(result, sys.stdout, indent=2)
+
+
+def _refuse_uncovered(blocks: list, assignments: list) -> None:
+    """Refuse a block with nothing on V1 that no cutaway covers."""
     covered = {str(a.get("spine_block_position"))
-               for a in result.get("b_roll_assignments", [])
-               if isinstance(a, dict)}
+               for a in assignments if isinstance(a, dict)}
     uncovered = [
         str(block.get("position"))
-        for block in timed_spine.get("structure", [])
+        for block in blocks
         if isinstance(block, dict)
         and not block_reaches_v1(block)
         and not declares_black_beat(block)
@@ -612,7 +630,110 @@ def main():
             fix=("select a clip covering each block, or declare the "
                  "hole an intentional black beat on the spine block"))
 
-    json.dump(result, sys.stdout, indent=2)
+
+# ── Region-scoped re-plan, and putting it back ──────────────────────
+
+def splice_region_broll(broll_creative: list, clip_catalog: list,
+                        semantic_analysis_documents: list,
+                        timed_spine: dict, stored_selections: dict, scope,
+                        b_roll_interjections: list = None,
+                        temporal_event_indices=None,
+                        project_folder: str = "") -> dict:
+    """Resolve a REGION's fresh cutaways and splice them into
+    `stored_selections` (this step's recorded output).
+
+    `broll_creative` / `b_roll_interjections` are the model's answer FOR
+    THE REGION: assignments on, and interjections over, only blocks the
+    region touches.  Every cutaway keyed to a block outside the region
+    comes back byte-identical, and the report MEASURES that.
+
+    V2 is one track, so the region's interjections are placed AROUND
+    every cutaway it keeps (`resolve_broll(occupied=...)`), and a fresh
+    assignment that would collide with a kept interjection - one placed
+    over a neighbouring block that reached into the region - is refused
+    by name rather than overlapped.
+
+    Refuses: a region touching no block; a fresh cutaway keyed outside
+    the region (`plan_splice`); a V2 collision with a kept cutaway; a
+    region block with nothing on V1 left uncovered (`_refuse_uncovered`).
+
+    Returns `{"b_roll_assignments", "b_roll_interjections",
+    "splice": <report>}`.
+    """
+    from library.tools.plan_splice import (
+        SpliceRefused,
+        outside_region,
+        splice_entries,
+        splice_report,
+    )
+    from library.tools.spine_contract import blocks_overlapping
+
+    span = scope.region_span
+    structure = timed_spine.get(
+        "structure", timed_spine.get("audio_spine", {}).get("structure", []))
+    touched = blocks_overlapping(structure, span.start, span.end)
+    if not touched:
+        raise SpliceRefused(
+            f"region {span} touches no spine block",
+            "there is nothing in it to re-plan",
+            "address a region inside the timeline")
+    positions = [b["position"] for b in touched]
+
+    a_key, i_key = "spine_block_position", "over_spine_block_position"
+    stored_a = stored_selections.get("b_roll_assignments") or []
+    stored_i = stored_selections.get("b_roll_interjections") or []
+    kept = ([(a["timeline_start"], a["timeline_end"], f"assignment on "
+              f"block {a[a_key]}")
+             for a in outside_region(stored_a, positions, a_key)]
+            + [(i["timeline_start"], i["timeline_end"], f"interjection "
+                f"over block {i[i_key]}")
+               for i in outside_region(stored_i, positions, i_key)])
+
+    temporal = temporal_event_indices or []
+    if isinstance(temporal, dict):
+        temporal = temporal.get("temporal_event_indices", [])
+    width, height = resolve_delivery_format(project_folder)
+    fresh = resolve_broll(
+        broll_creative or [], b_roll_interjections or [], clip_catalog,
+        semantic_analysis_documents, temporal, timed_spine,
+        target_resolution=(width, height),
+        occupied=[(lo, hi) for lo, hi, _ in kept])
+
+    assignments = splice_entries(stored_a, fresh["b_roll_assignments"],
+                                 positions, a_key, a_key)
+    interjections = splice_entries(stored_i, fresh["b_roll_interjections"],
+                                   positions, i_key, i_key)
+
+    collisions = [
+        f"block {a[a_key]} ({a['timeline_start']}-{a['timeline_end']}s) "
+        f"against the kept {what} ({lo}-{hi}s)"
+        for a in fresh["b_roll_assignments"]
+        for lo, hi, what in kept
+        if a["timeline_start"] < hi - 1e-9 and lo < a["timeline_end"] - 1e-9]
+    if collisions:
+        raise SpliceRefused(
+            "the region's cutaways would overlap ones it keeps on V2",
+            "V2 is one track, and a kept cutaway already plays there:\n"
+            "  - " + "\n  - ".join(collisions),
+            "widen the region to the block the kept cutaway belongs to, "
+            "or re-plan B-roll at project scope")
+
+    _refuse_uncovered(touched, assignments)
+
+    a_report = splice_report(stored_a, assignments, positions, a_key)
+    i_report = splice_report(stored_i, interjections, positions, i_key)
+    return {
+        "b_roll_assignments": assignments,
+        "b_roll_interjections": interjections,
+        "splice": {
+            "region": span.as_address(),
+            "positions": a_report["positions"],
+            "outside_unchanged": (a_report["outside_unchanged"]
+                                  and i_report["outside_unchanged"]),
+            "b_roll_assignments": a_report,
+            "b_roll_interjections": i_report,
+        },
+    }
 
 
 if __name__ == "__main__":

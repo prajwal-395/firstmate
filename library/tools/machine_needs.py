@@ -137,6 +137,7 @@ CAPABILITY_NEEDS: dict = {
     "aroll.assign": CapabilityNeeds(),
     "aroll.splice": CapabilityNeeds(),
     "broll.resolve": CapabilityNeeds(_MODEL),
+    "broll.splice": CapabilityNeeds(_MODEL),
     "reel.candidates": CapabilityNeeds(),
     "reel.select": CapabilityNeeds(_MODEL),
     "reel.build": CapabilityNeeds(_REEL),

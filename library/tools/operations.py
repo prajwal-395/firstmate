@@ -1176,6 +1176,20 @@ _REGISTRY: tuple[Operation, ...] = (
         # and the default: placement is over the whole spine, so a region
         # address would promise a scope the function does not keep.
     ),
+    Operation(
+        name="broll.splice",
+        summary="Resolve a region's re-planned cutaways and put them back into the stored selections",
+        owning_node="select_broll",
+        owning_dir="step_3_02_select_broll", body="post_bridge.py",
+        attr="splice_region_broll",
+        # REGION only, beside `broll.resolve`: the model's answer FOR THE
+        # REGION is supplied as `broll_creative` (and
+        # `b_roll_interjections`), the selections it goes INTO as
+        # `stored_selections`. Cutaways keyed outside the region come back
+        # byte-identical (`plan_splice`); V2 collisions with kept ones
+        # are placed around or refused.
+        scopes=(REGION,),
+    ),
     # ── Reels ────────────────────────────────────────────────────────
     #
     # PROPOSING a reel is `select_reels`' own decision, and both halves

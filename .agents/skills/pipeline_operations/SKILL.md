@@ -36,6 +36,7 @@ run at a declared scope. It owns no logic of its own.
 | `aroll.assign` | `assign_aroll` | project | Map speech blocks and hook to their A-roll source files |
 | `aroll.splice` | `assign_aroll` | region | Re-assign a region's A-roll from the spine and put it back into the stored assignments |
 | `broll.resolve` | `select_broll` | project | Resolve B-roll selections to placed cutaways with source ranges |
+| `broll.splice` | `select_broll` | region | Resolve a region's re-planned cutaways and put them back into the stored selections |
 | `reel.candidates` | `select_reels` | project | Measure every contiguous exchange in the cut, ranked and filtered by nothing |
 | `reel.select` | `select_reels` | project | Check the model's chosen moments against the cut and publish them PROPOSED |
 | `reel.build` | `build_reels` | project | Cut every APPROVED moment onto its own Resolve timeline, bad takes removed |
