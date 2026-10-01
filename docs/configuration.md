@@ -357,7 +357,9 @@ The token is the file's whitespace-trimmed content.
 `auto` replaces that flag with `--permission-mode auto`, Claude Code's classifier-reviewed permission mode, for a captain who refuses to run workers in bypass mode; every other part of the Claude launch, including its environment prefix, inline settings, model, and effort flags, is unchanged.
 Any other value, or an unreadable file, refuses every spawn from that home, whichever harness it would launch, before any endpoint, worktree, or task record exists, and names the accepted values; Firstmate never falls back to a permission posture the captain did not choose.
 `bin/fm-spawn.sh` reads the file on every spawn and relaunch, so a change takes effect at the next launch without a restart.
-The resolved posture is also carried in the worker's `.claude/settings.local.json` (`permissions.defaultMode`) and in the inline `--settings` JSON, so a session restore (`claude --resume` by Herdr or another terminal multiplexer) inherits the configured mode instead of silently reverting to the permission-prompting default.
+Fresh Claude launches carry the resolved posture in their CLI flag and inline `--settings` JSON.
+Claude Code 2.1.257 and later ignore settings-file `permissions.defaultMode` on resume, and a terminal-manager restore that runs bare `claude --resume` does not reapply the launch flag.
+The watcher detects that restore shape and, once the worker is idle, resumes the same Claude session in its existing pane with the configured flag through `bin/fm-control.sh repair-posture`.
 The file is a captain-wide safety preference, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract; a secondmate's own Claude crewmates then launch on the same posture.
 The [Claude adapter reference](../.agents/skills/harness-adapters/references/harness/claude.md) records the verified shape of both launches and which once-per-machine dialog each one can meet.
 

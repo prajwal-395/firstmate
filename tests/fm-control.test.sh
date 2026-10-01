@@ -27,6 +27,8 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
+. "$ROOT/bin/fm-claude-posture-lib.sh"
+# shellcheck source=/dev/null
 . "$ROOT/bin/fm-marker-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
@@ -103,6 +105,12 @@ case "${1:-}" in
       fi
       case "$payload" in
         *'encode launch-brief'*) cat "$D/becomes" > "$D/command" ;;
+        'claude --resume '*--dangerously-skip-permissions|'claude --resume '*--permission-mode=auto)
+          printf 'claude\n' > "$D/command"
+          if [ -n "${FM_CLAUDE_POSTURE_TEST_ARGS_FILE:-}" ]; then
+            printf '%s\n' "$payload" > "$FM_CLAUDE_POSTURE_TEST_ARGS_FILE"
+          fi
+          ;;
       esac
     else
       printf '%s\n' "$payload" >> "$D/keys"
@@ -122,7 +130,7 @@ case "${1:-}" in
   display-message)
     for a in "$@"; do
       case "$a" in
-        *cursor_y*) printf '1\n'; exit 0 ;;
+        *cursor_y*) printf '0\n'; exit 0 ;;
         *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
         *pane_current_path*) cat "$D/cwd"; printf '\n'; exit 0 ;;
       esac
@@ -201,6 +209,7 @@ run_control() {
     FM_FAKE_MUSE_LOG="${FM_FAKE_MUSE_LOG:-}" \
     FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK="${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" \
     FM_FAKE_INTERRUPT_STOPS_AGENT="${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" \
+    FM_CLAUDE_POSTURE_TEST_ARGS_FILE="${FM_CLAUDE_POSTURE_TEST_ARGS_FILE:-}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -612,6 +621,42 @@ test_resume_is_refused_with_its_reason() {
   pass "fm-control: resume is refused with the determinism reason and the alternative"
 }
 
+test_claude_bare_resume_repair_keeps_the_same_session_and_task_record() {
+  local dir out rc args_file meta_before expected
+  dir=$(new_case claude-posture-repair)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  printf '❯\n' > "$dir/fake/pane"
+  args_file="$dir/fake/claude-args"
+  printf 'claude --resume session-123\n' > "$args_file"
+  cp "$dir/home/state/t1.meta" "$dir/meta-before"
+  meta_before=$(cat "$dir/meta-before")
+  out=$(FM_CLAUDE_POSTURE_TEST_ARGS_FILE="$args_file" run_control "$dir" t1 repair-posture)
+  rc=$?
+  expect_code 0 "$rc" "bare Claude resume should repair through fm-control"$'\n'"$out"
+  assert_contains "$out" 'posture-repaired t1 session=session-123 posture=bypass' \
+    "repair should report the restored session and configured posture"
+  expected=$'/exit\nclaude --resume session-123 --dangerously-skip-permissions'
+  [ "$(literals "$dir")" = "$expected" ] \
+    || fail "repair must exit the idle CLI and resume the same transcript with bypass, got: $(literals "$dir")"
+  [ "$(cat "$args_file")" = 'claude --resume session-123 --dangerously-skip-permissions' ] \
+    || fail "repair postcondition did not observe Claude running with the configured flag"
+  [ "$(cat "$dir/home/state/t1.meta")" = "$meta_before" ] \
+    || fail "posture repair must preserve the task record"
+  pass "fm-control repair-posture: same-session bare restores get the configured flag in place"
+}
+
+test_claude_posture_classifier_accepts_spawn_flags_and_requires_bare_resume_shape() {
+  local got
+  got=$(fm_claude_posture_parse_cmdline 'CLAUDE_CODE_SEND_FEEDBACK=0 env -u CURSOR_AGENT claude --dangerously-skip-permissions')
+  [ "$got" = 'clean bypass' ] || fail "a normal spawn with its env prefix should be clean, got '$got'"
+  got=$(fm_claude_posture_parse_cmdline 'claude --resume session-123')
+  [ "$got" = 'drifted session-123' ] || fail "a bare Claude resume should be classified drifted, got '$got'"
+  got=$(fm_claude_posture_parse_cmdline 'claude --resume session-123 --settings {"a":1}')
+  [ "$got" = 'skip extra-args' ] || fail "a custom resumed command must not be auto-repaired, got '$got'"
+  pass "Claude posture classifier accepts launch flags and limits repair to bare session resumes"
+}
+
 test_relaunch_only_flags_are_rejected_on_other_verbs() {
   local dir out rc
   dir=$(new_case flags)
@@ -985,6 +1030,8 @@ test_remote_secondmate_is_refused_by_placement
 test_interrupt_and_exit_lock_before_task_state_resolution
 test_verb_allowlist_is_closed
 test_resume_is_refused_with_its_reason
+test_claude_bare_resume_repair_keeps_the_same_session_and_task_record
+test_claude_posture_classifier_accepts_spawn_flags_and_requires_bare_resume_shape
 test_relaunch_only_flags_are_rejected_on_other_verbs
 test_already_stopped_exit_is_idempotent
 test_missing_endpoint_refuses
