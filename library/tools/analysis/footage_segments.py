@@ -14,7 +14,9 @@ sit side by side in one corpus:
 ======== ======================== ===================== =================
 kind     boundary                 source                typical span
 ======== ======================== ===================== =================
-speech   one WhisperX utterance   1.04 speech_regions   1 - 8 s
+speech   one whole-source         source memory M1 when   1 - 8 s
+         utterance                fresh, else 1.04
+                                  speech_regions
 action   one vision action window 1.03 actions[]        ~10 s
 scene    one scene observation    1.03 scene[]          clip or part
 camera   one camera observation   1.03 camera[]         clip or part
@@ -41,6 +43,11 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+# The per-source memory (`library/tools/source_memory.py`) is a tools
+# module, not a step: importing it here does not wire the prototype
+# into the pipeline any more than importing footage_identity would.
+from library.tools import source_memory
 
 # Every kind this module emits.  A kind not in here does not exist, and
 # asking to filter by one raises rather than quietly matching nothing.
@@ -256,6 +263,51 @@ def _speech_segments(clip, temporal_doc, base_facets) -> list:
             end=round(end, 3),
             text=text,
             facets={**base_facets, "has_speech": True,
+                    "transcript_source": "temporal-index",
+                    **curve_facets(temporal_doc, start, end)},
+            words=words,
+        ))
+    return out
+
+
+def _memory_speech_segments(clip, m1_doc, temporal_doc, base_facets) -> list:
+    """One segment per whole-source memory utterance.
+
+    The same id namespace and region keys as `_speech_segments` - an
+    M1 utterance and a 1.04 region are interchangeable where the
+    search reads them - with `transcript_source` saying which
+    instrument's words these are. Curve facets still come off the
+    1.04 document when one exists: they are measurements of the same
+    clip, not of the transcript.
+    """
+    out = []
+    for i, utterance in enumerate(m1_doc.get("utterances") or []):
+        text = _clean(utterance.get("text"))
+        if not text:
+            continue
+        try:
+            start = float(utterance.get("start", 0.0))
+            end = float(utterance.get("end", start))
+        except (TypeError, ValueError):
+            continue
+        words = [
+            {"word": w.get("word", ""), "start": w.get("start"), "end": w.get("end")}
+            for w in utterance.get("words") or []
+            if isinstance(w, dict)
+        ]
+        if not words:
+            continue
+        out.append(Segment(
+            segment_id=f"{clip['clip_id']}#speech#{i:03d}",
+            clip_id=clip["clip_id"],
+            filename=clip.get("filename", ""),
+            source_file=clip.get("source_file") or clip.get("path", ""),
+            kind="speech",
+            start=round(start, 3),
+            end=round(end, 3),
+            text=text,
+            facets={**base_facets, "has_speech": True,
+                    "transcript_source": "source-memory",
                     **curve_facets(temporal_doc, start, end)},
             words=words,
         ))
@@ -389,6 +441,9 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
     """Every retrievable segment of every clip, in clip then time order.
 
     Reads only.  Nothing under `project_folder` is written or modified.
+    Speech comes from the per-source memory (M1) wherever a fresh
+    transcript exists, and from the 1.04 regions elsewhere - never
+    both for one clip.
     """
     unknown = [k for k in kinds if k not in SEGMENT_KINDS]
     if unknown:
@@ -399,6 +454,7 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
     catalog = load_catalog(project_folder)
     temporal = load_temporal_index(project_folder)
     vision = load_vision_profiles(project_folder, catalog)
+    recorded = source_memory.load_recorded_fingerprints(project_folder)
 
     cutters = {
         "speech": lambda c, v, t, b: _speech_segments(c, t, b),
@@ -417,7 +473,21 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
         vision_doc = vision.get(clip_id) or {}
         base = _vision_facets(vision_doc)
         base["duration_seconds"] = clip.get("duration_seconds")
-        for kind in kinds:
+        # A fresh whole-source transcript supersedes the 1.04 regions
+        # for the same clip: both transcribe the whole file, so
+        # serving both would index every word twice. The memory is
+        # checked first and the 1.04 path stays for clips nothing has
+        # transcribed yet.
+        memory_doc, memory_status = source_memory.read_m1_for_clip(
+            project_folder, clip, recorded)
+        if memory_doc is not None and memory_status == "fresh":
+            if "speech" in kinds:
+                segments.extend(_memory_speech_segments(
+                    clip, memory_doc, temporal_doc, base))
+            kinds_rest = [k for k in kinds if k != "speech"]
+        else:
+            kinds_rest = list(kinds)
+        for kind in kinds_rest:
             if kind == "speech":
                 segments.extend(cutters[kind](clip, None, temporal_doc, base))
             else:
@@ -442,6 +512,20 @@ def coverage_report(project_folder) -> dict:
         if (doc.get("prosody") or {}).get("method"):
             prosody_measured += 1
 
+    # The per-source memory beside the project-side ingest: whole-source
+    # transcripts that `build_segments` serves ahead of the 1.04
+    # regions. Recorded digests resolve without the media present, so
+    # these count what search can actually hear.
+    recorded = source_memory.load_recorded_fingerprints(project_folder)
+    memory_utterances = memory_words = memory_clips = 0
+    for clip in catalog:
+        doc, status = source_memory.read_m1_for_clip(
+            project_folder, clip, recorded)
+        if doc is not None and status == "fresh":
+            memory_clips += 1
+            memory_utterances += doc.get("utterance_count", 0)
+            memory_words += doc.get("word_count", 0)
+
     return {
         "clips_in_catalog": len(catalog),
         "clips_with_temporal_index": len(temporal),
@@ -456,6 +540,9 @@ def coverage_report(project_folder) -> dict:
         "vision_action_windows": sum(len(d.get("actions") or []) for d in vision.values()),
         "vision_scene_observations": sum(len(d.get("scene") or []) for d in vision.values()),
         "vision_object_labels": sum(len(d.get("objects") or []) for d in vision.values()),
+        "memory_transcribed_clips": memory_clips,
+        "memory_utterances": memory_utterances,
+        "memory_words": memory_words,
     }
 
 
@@ -490,6 +577,12 @@ def ingest_fingerprint(project_folder) -> dict:
     documents rather than footage, so the whole file is read; on 001 that
     is 70 files and 15 ms, which is small beside the 4 s build it guards.
 
+    The per-source memory is mixed in as well: `build_segments` serves
+    fresh M1 transcripts ahead of the 1.04 regions, so a transcript
+    landing (or a source changing under one) IS the ingest moving, and
+    an index built before it must report stale. Memory entries resolve
+    off recorded digests, so this stays readable with the media offline.
+
     Returns ``{"digest", "files", "bytes"}``.  A project with no ingest
     at all fingerprints to zero files, which is itself a stable answer.
     """
@@ -520,4 +613,13 @@ def ingest_fingerprint(project_folder) -> dict:
             digest.update(blob)
             count += 1
             total += len(blob)
+
+    memory = source_memory.memory_fingerprint(str(project_folder))
+    memory_blob = json.dumps(
+        {"digest": memory["digest"], "entries": memory["entries"]},
+        sort_keys=True).encode("utf-8")
+    digest.update(b"source-memory-v1")
+    digest.update(memory_blob)
+    count += memory["sources"]
+    total += len(memory_blob)
     return {"digest": digest.hexdigest(), "files": count, "bytes": total}
