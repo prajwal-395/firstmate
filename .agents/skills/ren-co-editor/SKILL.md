@@ -52,7 +52,8 @@ chat, and the module wins when they disagree:
 ## 1. Start: new project from footage
 
 ```sh
-ren doctor                        # must PASS; changes nothing
+ren doctor                        # no required FAIL; lists what each capability can do
+ren doctor --for <capability>     # what ONE operation needs (e.g. footage.search, render.build)
 ren new <slug> --name "..."       # create the project, then copy footage into raw/
 ren check <project>               # readiness: footage found, layout ok
 ```

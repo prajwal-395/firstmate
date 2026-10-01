@@ -46,11 +46,15 @@ An exported variable beats that file, and that file beats a checkout's `.env`
 (still read, see `.env.example`).
 
 **3. Check.** `ren doctor` checks the Mac, Resolve (Studio, running, scripting
-on), the Python environment, ffmpeg, Node, the local models, your paths and
-the chat harness. Each line is PASS or FAIL with the fix. It changes nothing.
+on), the Python dependency groups, ffmpeg, Node, the local models, your paths
+and the chat harness. Each line is PASS, FAIL (every capability needs it) or
+MISS (it limits some capabilities), with the fix, and the report ends with
+which capabilities this Mac can run, run degraded, or cannot run. It changes
+nothing. `--for <capability>` checks only what one operation needs.
 
 ```sh
 ren doctor
+ren doctor --for footage.search
 ```
 
 **4. First project.**

@@ -1,15 +1,21 @@
 """`ren doctor` refuses what Ren cannot run on, and never crashes doing it.
 
-Two defects named here:
+Defects named here:
 
-* A FREE Resolve must FAIL the doctor, by edition name - Studio only
-  (captain, Q10). A doctor that only asked "is Resolve installed" would
-  pass a machine on which no timeline can ever be built.
+* A FREE Resolve must FAIL every capability that drives Resolve, by
+  edition name - Studio only (captain, Q10). A doctor that only asked
+  "is Resolve installed" would pass a machine on which no timeline can
+  ever be built.
 * Resolve NOT RUNNING, or a probe that dies, must be a FAIL line and a
-  non-zero exit - not a traceback, which is what a bare `scriptapp` call
-  inside the doctor would give.
+  non-zero exit for those capabilities - not a traceback, which is what
+  a bare `scriptapp` call inside the doctor would give.
+* "Can this Mac run Ren?" was binary (punch list 22): a machine with no
+  Resolve failed the doctor though it could search, analyse and plan.
+  A missing need now fails only the capabilities that require it, and
+  only a need every capability requires fails the doctor.
 """
 
+from library.tools import machine_needs
 from ren import doctor
 
 
@@ -21,19 +27,21 @@ def test_resolve_probe_takes_lease_before_connecting():
 
 
 def _all_else_passes(monkeypatch):
-    passing = doctor.Check("stub", True, "stubbed")
-    for name in ("macos_check", "python_checks", "ffmpeg_check", "node_checks",
-                 "model_checks", "transcription_checks", "deepfilternet_check", "config_checks",
-                 "harness_check"):
-        monkeypatch.setattr(doctor, name, lambda: [passing])
+    """Every group but Resolve passes, one line per need it checks."""
+    for name, attr, covers in doctor.GROUPS:
+        if attr != "resolve_checks":
+            monkeypatch.setattr(doctor, attr, lambda name=name, covers=covers: [
+                doctor.Check(name, True, "stubbed", need=need) for need in covers])
 
 
-def test_free_edition_fails_by_name_and_exits_nonzero(monkeypatch, capsys):
+_FREE = {"running": True, "module": True, "connected": True,
+         "product": "DaVinci Resolve", "version": "21.1.0.14"}
+
+
+def test_free_edition_fails_render_by_name_and_exits_nonzero(monkeypatch, capsys):
     _all_else_passes(monkeypatch)
-    free = {"running": True, "module": True, "connected": True,
-            "product": "DaVinci Resolve", "version": "21.1.0.14"}
 
-    code = doctor.main([], probe=lambda: free)
+    code = doctor.main(["--for", "render.build"], probe=lambda: _FREE)
 
     out = capsys.readouterr().out
     edition = next(line for line in out.splitlines() if "Resolve edition" in line)
@@ -41,6 +49,53 @@ def test_free_edition_fails_by_name_and_exits_nonzero(monkeypatch, capsys):
     assert edition.startswith("FAIL")
     assert "DaVinci Resolve 21.1.0.14 is the FREE edition" in edition
     assert "Studio" in edition
+    assert "render.build: unavailable - missing resolve.studio" in out
+
+
+def test_free_edition_limits_capabilities_without_failing_the_machine(
+        monkeypatch, capsys):
+    _all_else_passes(monkeypatch)
+
+    code = doctor.main([], probe=lambda: _FREE)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert any(line.startswith("MISS  Resolve edition") for line in out.splitlines())
+    unavailable = [line.split()[1] for line in out.splitlines()
+                   if line.strip().startswith("unavailable")]
+    assert "render.build" in unavailable and "reel.touchup" in unavailable
+    assert "footage.search" not in unavailable
+
+
+def test_a_missing_baseline_need_fails_the_doctor(monkeypatch, capsys):
+    _all_else_passes(monkeypatch)
+    monkeypatch.setattr(doctor, "python_checks", lambda: [doctor.Check(
+        "Python core", False, "1 not satisfied: pyyaml", need="python.core")])
+
+    code = doctor.main([], probe=lambda: _FREE)
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "FAIL  Python core" in out
+    assert "available    " not in out
+
+
+def test_for_a_capability_that_needs_no_resolve_never_probes_it(monkeypatch, capsys):
+    _all_else_passes(monkeypatch)
+
+    def probe():
+        raise AssertionError("footage search does not need Resolve")
+
+    code = doctor.main(["--for", "footage.search"], probe=probe)
+
+    assert code == 0
+    assert "footage.search: available" in capsys.readouterr().out
+
+
+def test_every_need_is_checked_by_some_doctor_line():
+    checked = {need for _name, _fn, covers in doctor.GROUPS for need in covers}
+    assert set(machine_needs.NEEDS) - checked == set(), (
+        "a need no doctor line checks would always read as available")
 
 
 def test_resolve_not_running_is_a_fail_line_not_a_crash(monkeypatch):
@@ -59,7 +114,7 @@ def test_a_probe_that_raises_is_a_fail_line(monkeypatch, capsys):
     def dies():
         raise RuntimeError("fusionscript segfaulted")
 
-    code = doctor.main([], probe=dies)
+    code = doctor.main(["--for", "reel.touchup"], probe=dies)
 
     out = capsys.readouterr().out
     assert code == 1
@@ -89,11 +144,14 @@ def test_deepfilter_reports_presence_without_failing(monkeypatch):
     assert check.ok and "deep_filter 0.5.6" in check.detail
 
 
-def test_deepfilter_absence_is_reported_never_a_fail(monkeypatch):
+def test_deepfilter_absence_degrades_and_never_fails_the_doctor(monkeypatch):
     _stub_deepfilter(monkeypatch, False)
     check = doctor.deepfilternet_check()
-    assert check.ok and "not installed" in check.detail
+    assert not check.ok and "not installed" in check.detail
     assert "scripts/install_deepfilternet.sh" in check.fix
+    assert doctor.required_failures([check]) == []
+    verdict, _missing, degraded = doctor.capability_report([check])["audio_mix.resolve"]
+    assert verdict == machine_needs.DEGRADED and "deepfilter" in degraded
 
 
 def test_deepfilter_that_would_not_run_is_a_fail_line(monkeypatch):

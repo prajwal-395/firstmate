@@ -161,9 +161,12 @@ def test_doctor_names_the_fetch_when_the_checkpoint_is_missing(monkeypatch):
     found = _beat_this_check(monkeypatch, present=False)
     assert len(found) == 1
     check = found[0]
-    assert check.ok, (
+    from ren import doctor
+    assert not check.ok and doctor.required_failures([check]) == [], (
         "a missing checkpoint must not FAIL the doctor - the run still "
-        "completes on the labelled estimate (MFA precedent)")
+        "completes on the labelled estimate - it only degrades music.analyse")
+    assert "model.beat_this" in doctor.capability_report(
+        [check])["music.analyse"][2]
     assert "estimate" in check.detail
     assert "load_model" in check.fix and "final0" in check.fix, (
         "the fix must say how to fetch the checkpoint, not just that it "

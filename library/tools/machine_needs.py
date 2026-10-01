@@ -39,6 +39,8 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 
+from library.tools.dependency_groups import RUNTIME_GROUPS
+
 
 @dataclass(frozen=True)
 class Need:
@@ -66,10 +68,12 @@ NEEDS: dict = {n.id: n for n in (
     Need("model.vision", "the local vision model (gemma-4-12b-it-4bit)"),
     Need("model.search_embedding", "the footage-search embedding model "
          "(all-MiniLM-L6-v2)"),
+    Need("transcriber.voz", "the on-device Voz transcriber (`da` on PATH)"),
     Need("model.mfa", "the Montreal Forced Aligner"),
     Need("model.beat_this", "the beat_this downbeat checkpoint"),
     Need("model.panns", "the PANNs sound-event checkpoint"),
     Need("deepfilter", "the DeepFilterNet binary"),
+    Need("config.projects_root", "PIPELINE_PROJECTS_ROOT exists"),
     Need("config.sfx_library", "PIPELINE_SFX_LIBRARY names a library"),
     Need("config.music_library", "PIPELINE_MUSIC_LIBRARY names a library"),
     Need("chat_harness", "a chat harness signed in with a subscription, "
@@ -104,7 +108,7 @@ _RESOLVE = ("resolve.scripting", "resolve.studio")
 _REEL = _RESOLVE + ("python.graphics",)
 _REMOTION = ("node", "remotion")
 _TRANSCRIBE = CapabilityNeeds(
-    ("ffmpeg", "python.analysis", "model.mfa"),
+    ("ffmpeg", "python.analysis", "transcriber.voz", "model.mfa"),
     {"python.identity": "no speaker identity: voices are not told apart",
      "model.panns": "sound events recorded as unmeasured; an event anchor "
                     "refuses by name"})
@@ -169,10 +173,11 @@ CAPABILITY_NEEDS: dict = {
     "footage.search_index": _SEARCH,
     "footage.analyse": CapabilityNeeds(
         ("ffmpeg", "python.analysis", "python.graphics", "model.vision",
-         "model.mfa"),
+         "transcriber.voz", "model.mfa"),
         {"python.identity": "no identity lane: faces and voices are not "
                             "resolved to people"}),
     "project.inspect": CapabilityNeeds(),
+    "project.create": CapabilityNeeds(("config.projects_root",)),
 }
 
 FRONT_DOOR = {
@@ -180,6 +185,7 @@ FRONT_DOOR = {
     "footage.search_index": "ren search-index",
     "footage.analyse": "ren analyze",
     "project.inspect": "ren status / ren info / ren check",
+    "project.create": "ren new",
 }
 """Capabilities a `ren` verb serves outside the operation registry."""
 
@@ -234,6 +240,9 @@ def problems() -> list:
     for need in BASELINE + tuple(ENV_REQUIREMENT_NEED.values()):
         if need not in NEEDS:
             out.append(f"need {need!r} is used but not declared")
+    for group in RUNTIME_GROUPS:
+        if f"python.{group}" not in NEEDS:
+            out.append(f"dependency group {group!r} has no python.{group} need")
     for name in FRONT_DOOR:
         if name not in CAPABILITY_NEEDS:
             out.append(f"FRONT_DOOR names {name!r}, which has no needs row")

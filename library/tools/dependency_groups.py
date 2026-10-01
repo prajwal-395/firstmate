@@ -30,6 +30,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+REQUIREMENTS_DIR = Path(__file__).resolve().parents[2] / "requirements"
+
+RUNTIME_GROUPS = ("core", "graphics", "analysis", "identity")
+"""The groups a capability can need (`machine_needs`); `dev` is the
+test gate's alone, so no capability needs it."""
+
+
+def group_file(group: str) -> Path:
+    """The flat requirements file one group declares."""
+    return REQUIREMENTS_DIR / f"{group}.txt"
+
 
 def declared_requirements(path: Path) -> list:
     """Every requirement line `path` declares, `-r` includes followed.

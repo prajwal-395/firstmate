@@ -294,5 +294,6 @@ def test_doctor_panns_absence_is_reported_never_a_fail(monkeypatch,
     doctor = _stub_doctor_models(monkeypatch, tmp_path, False)
     check = next(c for c in doctor.model_checks()
                  if c.name == "model PANNs Cnn14-DLM")
-    assert check.ok and "not downloaded" in check.detail
+    assert not check.ok and "not downloaded" in check.detail
+    assert doctor.required_failures([check]) == []
     assert "scripts/install_panns.sh" in check.fix

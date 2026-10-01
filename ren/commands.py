@@ -39,7 +39,7 @@ class Verb:
 _FOOTAGE_QUERY = "library.tools.analysis.footage_query"
 
 VERBS = (
-    Verb("doctor", "Setup", "Check this Mac can run Ren; changes nothing",
+    Verb("doctor", "Setup", "Check what this Mac can do with Ren (--for <capability>); changes nothing",
          builtin="doctor"),
     Verb("config", "Setup", "Show where each setting comes from; --init writes a starter file",
          builtin="config"),

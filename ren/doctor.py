@@ -1,4 +1,4 @@
-"""`ren doctor`: can this Mac run Ren? One line per check, PASS or FAIL, and the fix.
+"""`ren doctor`: what can this Mac do with Ren? One line per check, and the fix.
 
 READ-ONLY. Doctor installs nothing, writes nothing, starts nothing. The
 two things it has to ASK rather than look at are asked in child processes
@@ -10,15 +10,24 @@ hung or crashed doctor:
   disk says nothing about whether the running app accepts scripts. Only
   getters are called: `GetProductName`, `GetVersionString`.
 * The pipeline interpreter - resolved through `shared_environment`'s
-  ladder, the same one `bin/vep` uses, and asked which of
-  `requirements.txt` it satisfies. A package's presence is read from its
-  installed metadata; nothing heavy is imported.
+  ladder, the same one `bin/vep` uses, and asked which of each runtime
+  dependency group (`dependency_groups.RUNTIME_GROUPS`) it satisfies. A
+  package's presence is read from its installed metadata; nothing heavy
+  is imported.
 
 Studio only (captain, Q10): the free edition does not accept external
 scripting, and every Ren operation that places, reads or renders a
 timeline is an external script. Doctor names the edition it found.
 
-Exit status is 1 when any check FAILs, 0 otherwise.
+Capability-aware (punch list 22): each check is the check of one NEED
+in `library/tools/machine_needs.py`, and a missing need is judged by the
+capabilities it limits. A need every capability requires (`BASELINE`),
+or a check that names no need, FAILs; any other missing need is MISS,
+and the report says which capabilities it makes unavailable or degraded.
+`--for <capability>` runs only that capability's checks.
+
+Exit status is 1 when a required check FAILs - or, with `--for`, when
+that capability is unavailable - and 0 otherwise.
 """
 
 from __future__ import annotations
@@ -30,6 +39,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import textwrap
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -50,9 +60,9 @@ FREE_EDITION_WHY = (
     "operation that builds, reads or renders a timeline is an external script")
 
 MODELS = (
-    # (label, what reads it, HuggingFace model id)
+    # (label, what reads it, HuggingFace model id, machine_needs id)
     ("gemma-4-12b-it-4bit", "vision pass (step 1.03)",
-     "mlx-community/gemma-4-12b-it-4bit"),
+     "mlx-community/gemma-4-12b-it-4bit", "model.vision"),
 )
 
 _WEIGHT_SUFFIXES = (".safetensors", ".bin", ".npz", ".pt", ".pth", ".gguf")
@@ -64,6 +74,8 @@ class Check:
     ok: bool
     detail: str
     fix: str = ""
+    need: str = ""
+    """The `machine_needs.NEEDS` id this line checks; "" for none."""
 
 
 # ── Resolve ──────────────────────────────────────────────────────────
@@ -115,6 +127,7 @@ def probe_resolve(python: str = sys.executable, timeout: float = PROBE_TIMEOUT_S
             capture_output=True, encoding="utf-8", timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
         result["error"] = f"the scripting connection did not answer in {timeout:.0f}s"
+        result["timed_out"] = True
         return result
     except OSError as exc:
         result["error"] = f"could not start the probe: {exc}"
@@ -135,6 +148,10 @@ def resolve_checks(probe: dict) -> list:
     if probe.get("connected"):
         connection = Check("Resolve scripting", True,
                            "connected to the running app (External scripting is on)")
+    elif probe.get("timed_out"):
+        connection = Check("Resolve scripting", False, probe["error"],
+                           "Resolve is busy, or another Ren process holds the "
+                           "Resolve lease; run `ren doctor` again when it is idle")
     elif not probe.get("running"):
         connection = Check("Resolve scripting", False, "DaVinci Resolve is not running",
                            "open DaVinci Resolve Studio, then run `ren doctor` again")
@@ -163,6 +180,7 @@ def resolve_checks(probe: dict) -> list:
                         f"edition never connects: {FREE_EDITION_WHY}",
                         "fix the Resolve scripting line; if this is the free "
                         "edition, install DaVinci Resolve Studio")
+    connection.need, edition.need = "resolve.scripting", "resolve.studio"
     return [connection, edition]
 
 
@@ -172,26 +190,28 @@ _PACKAGES_PROBE = r"""
 import json, sys
 from importlib import metadata
 sys.path.insert(0, sys.argv[1])
-out = {"version": list(sys.version_info[:3]), "missing": [], "wrong": [], "unchecked": []}
+out = {"version": list(sys.version_info[:3]), "groups": {}}
 try:
     from packaging.requirements import Requirement
 except ImportError:
     Requirement = None
-from library.tools.dependency_groups import declared_requirements
-for line in declared_requirements(sys.argv[2]):
-    if Requirement is None:
-        out["unchecked"].append(line)
-        continue
-    req = Requirement(line)
-    if req.marker is not None and not req.marker.evaluate():
-        continue
-    try:
-        have = metadata.version(req.name)
-    except metadata.PackageNotFoundError:
-        out["missing"].append(str(req))
-        continue
-    if req.specifier and not req.specifier.contains(have, prereleases=True):
-        out["wrong"].append(f"{req.name} {have} (needs {req.specifier})")
+from library.tools.dependency_groups import declared_requirements, group_file
+for group in sys.argv[2:]:
+    found = out["groups"][group] = {"missing": [], "wrong": [], "unchecked": []}
+    for line in declared_requirements(group_file(group)):
+        if Requirement is None:
+            found["unchecked"].append(line)
+            continue
+        req = Requirement(line)
+        if req.marker is not None and not req.marker.evaluate():
+            continue
+        try:
+            have = metadata.version(req.name)
+        except metadata.PackageNotFoundError:
+            found["missing"].append(str(req))
+            continue
+        if req.specifier and not req.specifier.contains(have, prereleases=True):
+            found["wrong"].append(f"{req.name} {have} (needs {req.specifier})")
 try:
     from library.tools import shared_environment as se
     ok, why = se.face_detector_available()
@@ -202,6 +222,9 @@ except Exception as exc:
 print(json.dumps(out))
 """
 
+FACE_DETECTOR_GROUP = "graphics"
+"""The group that carries cv2, whose Haar cascade the face detector loads."""
+
 
 def resolve_interpreter() -> tuple:
     from library.tools import shared_environment
@@ -209,43 +232,51 @@ def resolve_interpreter() -> tuple:
 
 
 def python_checks() -> list:
+    """The interpreter, then one line per runtime dependency group."""
+    from library.tools.dependency_groups import RUNTIME_GROUPS
     interpreter, why_not = resolve_interpreter()
     ml_doc = "docs/ML_ENVIRONMENT.md"
     if not interpreter:
         return [Check("Python 3.12 venv", False, why_not.splitlines()[0],
-                      f"build the venv once per machine: {ml_doc}")]
+                      f"build the venv once per machine: {ml_doc}",
+                      need="python.venv")]
     try:
         done = subprocess.run(
-            [interpreter, "-c", _PACKAGES_PROBE, str(REPO_ROOT),
-             str(REPO_ROOT / "requirements.txt")],
+            [interpreter, "-c", _PACKAGES_PROBE, str(REPO_ROOT), *RUNTIME_GROUPS],
             capture_output=True, encoding="utf-8", timeout=120, check=False)
         report = json.loads(done.stdout.strip().splitlines()[-1])
     except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
         return [Check("Python 3.12 venv", False,
                       f"{interpreter} could not be asked about itself ({exc})",
-                      f"rebuild the venv: {ml_doc}")]
+                      f"rebuild the venv: {ml_doc}", need="python.venv")]
     version = tuple(report["version"])
     shown = ".".join(str(part) for part in version)
     checks = [Check(
         "Python 3.12 venv", version[:2] == REQUIRED_PYTHON,
         f"{interpreter} is Python {shown}",
         "" if version[:2] == REQUIRED_PYTHON
-        else f"rebuild the venv on Python 3.12 (requirements.txt says why): {ml_doc}")]
+        else f"rebuild the venv on Python 3.12 (requirements.txt says why): {ml_doc}",
+        need="python.venv")]
 
-    problems = report["missing"] + report["wrong"]
-    if report.get("face_detector"):
-        problems.append(f"cv2 face detector: {report['face_detector']}")
-    if report["unchecked"]:
-        checks.append(Check("Python packages", False,
-                            "cannot compare versions: `packaging` is not installed",
-                            f"{interpreter} -m pip install packaging"))
-    elif problems:
-        checks.append(Check("Python packages", False,
-                            f"{len(problems)} not satisfied: " + "; ".join(problems),
-                            f"{interpreter} -m pip install -r requirements.txt"))
-    else:
-        checks.append(Check("Python packages", True,
-                            "requirements.txt satisfied; cv2 face detector usable"))
+    for group in RUNTIME_GROUPS:
+        found = report["groups"][group]
+        name, need = f"Python {group}", f"python.{group}"
+        source = f"requirements/{group}.txt"
+        problems = found["missing"] + found["wrong"]
+        if group == FACE_DETECTOR_GROUP and report.get("face_detector"):
+            problems.append(f"cv2 face detector: {report['face_detector']}")
+        if found["unchecked"]:
+            checks.append(Check(name, False,
+                                "cannot compare versions: `packaging` is not installed",
+                                f"{interpreter} -m pip install packaging", need=need))
+        elif problems:
+            checks.append(Check(name, False,
+                                f"{len(problems)} not satisfied: " + "; ".join(problems),
+                                f"{interpreter} -m pip install -r {source}", need=need))
+        else:
+            usable = ("; cv2 face detector usable"
+                      if group == FACE_DETECTOR_GROUP else "")
+            checks.append(Check(name, True, f"{source} satisfied{usable}", need=need))
     return checks
 
 
@@ -256,15 +287,18 @@ def ffmpeg_check() -> Check:
     absent = [tool for tool, where in found.items() if not where]
     if absent:
         return Check("ffmpeg", False, f"not on PATH: {', '.join(absent)}",
-                     "brew install ffmpeg")
-    return Check("ffmpeg", True, f"{found['ffmpeg']}, {found['ffprobe']}")
+                     "brew install ffmpeg", need="ffmpeg")
+    return Check("ffmpeg", True, f"{found['ffmpeg']}, {found['ffprobe']}",
+                 need="ffmpeg")
 
 
 def node_checks() -> list:
     node = shutil.which("node")
     if not node:
-        return [Check("Node.js", False, "node is not on PATH", "brew install node"),
-                Check("Remotion deps", False, "needs Node.js first", "brew install node")]
+        return [Check("Node.js", False, "node is not on PATH", "brew install node",
+                      need="node"),
+                Check("Remotion deps", False, "needs Node.js first", "brew install node",
+                      need="remotion")]
     try:
         version = subprocess.run([node, "--version"], capture_output=True,
                                  encoding="utf-8", timeout=10, check=False).stdout.strip()
@@ -273,17 +307,20 @@ def node_checks() -> list:
         version, major = "unreadable", 0
     checks = [Check("Node.js", major >= MIN_NODE_MAJOR, f"{node} {version}",
                     "" if major >= MIN_NODE_MAJOR
-                    else f"install Node {MIN_NODE_MAJOR}+: brew install node")]
+                    else f"install Node {MIN_NODE_MAJOR}+: brew install node",
+                    need="node")]
 
     from library.tools import shared_environment
     remotion = shared_environment.remotion_dir(REPO_ROOT)
     if shared_environment.dependencies_present(remotion):
         checks.append(Check("Remotion deps", True,
-                            f"{shared_environment.node_modules(remotion)}"))
+                            f"{shared_environment.node_modules(remotion)}",
+                            need="remotion"))
     else:
         checks.append(Check("Remotion deps", False,
                             f"no node_modules bound at {remotion}",
-                            f"bash {shared_environment.INSTALL_SCRIPT}"))
+                            f"bash {shared_environment.INSTALL_SCRIPT}",
+                            need="remotion"))
     return checks
 
 
@@ -306,14 +343,14 @@ def graphics_engine_checks() -> list:
         from library.tools import shared_environment
         remotion_ok = shared_environment.dependencies_present(
             shared_environment.remotion_dir(REPO_ROOT))
-    except Exception:
+    except Exception:  # noqa: BLE001 - doctor must finish
         remotion_ok = False
     checks.append(Check(
         "graphics Remotion", remotion_ok,
         "the default engine (selected when nothing else is)"
         if remotion_ok else "the default engine is not installed",
         "" if remotion_ok else
-        f"bash {shared_environment.INSTALL_SCRIPT}"))
+        f"bash {shared_environment.INSTALL_SCRIPT}", need="remotion"))
     try:
         usable, detail = hf.hyperframes_available()
     except Exception as exc:  # noqa: BLE001 - doctor must finish
@@ -389,22 +426,27 @@ def model_checks() -> list:
 
     checks = []
     cache = hf_hub_cache()
-    for label, reader, ident in MODELS:
+    for label, reader, ident, need in MODELS:
         complete, size, why = hf_model_state(ident, cache)
         fix = (f"{sys.executable} -c \"from huggingface_hub import "
                f"snapshot_download; snapshot_download('{ident}')\"")
         detail = f"{reader}: {_gb(size)}" if complete else f"{reader}: {why}"
-        checks.append(Check(f"model {label}", complete, detail, "" if complete else fix))
+        checks.append(Check(f"model {label}", complete, detail,
+                            "" if complete else fix, need=need))
 
     # Optional by design: ren search uses lexical-only search when neither
     # embedding backend can load (library/tools/analysis/footage_query.py).
-    complete, size, why = hf_model_state(
-        "sentence-transformers/all-MiniLM-L6-v2", cache)
+    ident = "sentence-transformers/all-MiniLM-L6-v2"
+    complete, size, why = hf_model_state(ident, cache)
     checks.append(Check(
-        "model all-MiniLM-L6-v2", True,
+        "model all-MiniLM-L6-v2", complete,
         f"footage search embedder: {_gb(size)}" if complete else
         f"not cached - optional; lexical-only search remains available "
-        f"when no embedder can load ({why})"))
+        f"when no embedder can load ({why})",
+        "" if complete else
+        (f"{sys.executable} -c \"from huggingface_hub import "
+         f"snapshot_download; snapshot_download('{ident}')\""),
+        need="model.search_embedding"))
 
     # beat_this weights (detected downbeats, step 2.06). Optional by
     # design like the search embedder above: without the checkpoint the tracker cannot
@@ -420,12 +462,13 @@ def model_checks() -> list:
         else "from beat_this.inference import load_model; "
              "load_model('final0', device='cpu')")
     checks.append(Check(
-        "model beat_this final0", True,
+        "model beat_this final0", bt_complete,
         f"detected downbeats (step 2.06): {_gb(bt_path.stat().st_size)}"
         if bt_complete else
         "not downloaded - downbeats fall back to the librosa "
         "every-4th-beat estimate (labelled estimated)",
-        "" if bt_complete else f"fetch it (~81 MB): {bt_fetch}"))
+        "" if bt_complete else f"fetch it (~81 MB): {bt_fetch}",
+        need="model.beat_this"))
 
     # PANNs weights (timed sound events, step 1.04). Optional by
     # design like the halves above: without the checkpoint a clip
@@ -435,7 +478,7 @@ def model_checks() -> list:
     panns_ok, _ = shared_environment.panns_available()
     panns_path = shared_environment.panns_checkpoint()
     checks.append(Check(
-        "model PANNs Cnn14-DLM", True,
+        "model PANNs Cnn14-DLM", panns_ok,
         f"timed sound events (step 1.04): "
         f"{_gb(panns_path.stat().st_size)}"
         if panns_ok else
@@ -444,7 +487,8 @@ def model_checks() -> list:
         f"(bash {shared_environment.PANNS_INSTALL_SCRIPT} adds it, "
         f"~327 MB)",
         "" if panns_ok else
-        f"bash {shared_environment.PANNS_INSTALL_SCRIPT}"))
+        f"bash {shared_environment.PANNS_INSTALL_SCRIPT}",
+        need="model.panns"))
     return checks
 
 
@@ -455,12 +499,14 @@ def transcription_checks() -> list:
     da_ok, da_detail = heard_speech.available()
     checks = [Check(
         "transcriber Voz (da)", da_ok, da_detail,
-        "install the `da` CLI and ensure it is on PATH" if not da_ok else "")]
+        "install the `da` CLI and ensure it is on PATH" if not da_ok else "",
+        need="transcriber.voz")]
 
     mfa_ok, mfa_detail = shared_environment.mfa_available()
     checks.append(Check(
         "MFA aligner", mfa_ok, mfa_detail,
-        f"bash {shared_environment.MFA_INSTALL_SCRIPT}" if not mfa_ok else ""))
+        f"bash {shared_environment.MFA_INSTALL_SCRIPT}" if not mfa_ok else "",
+        need="model.mfa"))
     return checks
 
 
@@ -469,21 +515,22 @@ def transcription_checks() -> list:
 def deepfilternet_check() -> Check:
     """Can a deepfilternet request stage a stem on this machine?
 
-    Optional by design like MFA above: without the binary the request
-    refuses by name and the model re-plans with voice_isolation
-    (library/tools/dialogue_cleanup.py), so absence is reported, never
-    a FAIL. A binary that is present but would not run IS a FAIL - the
-    plan context would claim the tool and the build would refuse it.
+    Optional by design: without the binary the request refuses by name
+    and the model re-plans with voice_isolation
+    (library/tools/dialogue_cleanup.py), so absence only degrades the
+    capabilities `machine_needs` says it does. A binary that is present
+    but would not run is missing too - the plan context would claim the
+    tool and the build would refuse it.
     """
     from library.tools import shared_environment
     usable, _ = shared_environment.deepfilter_available()
     script = shared_environment.DEEPFILTER_INSTALL_SCRIPT
     if not usable:
         return Check(
-            "dialogue cleanup DeepFilter", True,
+            "dialogue cleanup DeepFilter", False,
             "not installed - a deepfilternet request refuses by name and "
             "the model re-plans with voice_isolation",
-            f"bash {script} adds it")
+            f"bash {script} adds it", need="deepfilter")
     binary = str(shared_environment.deepfilter_binary())
     try:
         done = subprocess.run([binary, "--version"], capture_output=True,
@@ -496,9 +543,9 @@ def deepfilternet_check() -> Check:
     if not version:
         return Check("dialogue cleanup DeepFilter", False,
                      f"{binary} is installed but would not run",
-                     f"re-run bash {script}")
+                     f"re-run bash {script}", need="deepfilter")
     return Check("dialogue cleanup DeepFilter", True,
-                 f"{version} at {binary}")
+                 f"{version} at {binary}", need="deepfilter")
 
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -509,18 +556,20 @@ def config_checks() -> list:
     fix = f"set it in {source} (`ren config --init` writes a starter)"
     rows = (
         ("projects root", "PIPELINE_PROJECTS_ROOT", paths.PROJECTS_ROOT,
-         "`ren init` creates it, or " + fix),
-        ("SFX library", "PIPELINE_SFX_LIBRARY", paths.SFX_LIBRARY, fix),
-        ("music library", "PIPELINE_MUSIC_LIBRARY", paths.MUSIC_LIBRARY, fix),
+         "`ren init` creates it, or " + fix, "config.projects_root"),
+        ("SFX library", "PIPELINE_SFX_LIBRARY", paths.SFX_LIBRARY, fix,
+         "config.sfx_library"),
+        ("music library", "PIPELINE_MUSIC_LIBRARY", paths.MUSIC_LIBRARY, fix,
+         "config.music_library"),
     )
     checks = []
-    for label, key, path, remedy in rows:
+    for label, key, path, remedy, need in rows:
         origin = ("environment" if key not in paths.CONFIG_SOURCES and key in os.environ
                   else paths.CONFIG_SOURCES.get(key, "default"))
         exists = Path(path).is_dir()
         checks.append(Check(label, exists,
                             f"{path} (from {origin})" + ("" if exists else " does not exist"),
-                            "" if exists else f"{key}: {remedy}"))
+                            "" if exists else f"{key}: {remedy}", need=need))
     return checks
 
 
@@ -586,13 +635,14 @@ def harness_check() -> Check:
 
     others = f"; not counted: {', '.join(found)}" if found else ""
     if oauth:
-        return Check("chat harness", True, ", ".join(oauth) + others)
+        return Check("chat harness", True, ", ".join(oauth) + others,
+                     need="chat_harness")
     return Check("chat harness", False,
                  ("no harness signed in with a subscription" + others)
                  if (found or claude or opencode or codex)
                  else "no chat harness installed (Claude Code, OpenCode or Codex)",
                  "install Claude Code and run `claude` to sign in with your Claude account "
-                 "(an API key does not count)")
+                 "(an API key does not count)", need="chat_harness")
 
 
 # ── Running it ───────────────────────────────────────────────────────
@@ -600,57 +650,186 @@ def harness_check() -> Check:
 def macos_check() -> Check:
     if platform.system() != "Darwin":
         return Check("macOS", False, f"this is {platform.system()}; Ren runs on macOS only",
-                     "run Ren on a Mac")
-    return Check("macOS", True, f"macOS {platform.mac_ver()[0]} ({platform.machine()})")
+                     "run Ren on a Mac", need="macos")
+    return Check("macOS", True, f"macOS {platform.mac_ver()[0]} ({platform.machine()})",
+                 need="macos")
 
 
-def _guarded(name: str, fn):
-    """A check that raises is a FAIL line naming the exception, never a traceback."""
+GROUPS = (
+    # (name, the function that checks it, the needs its lines check)
+    ("macOS", "macos_check", ("macos",)),
+    ("Resolve scripting", "resolve_checks", ("resolve.scripting", "resolve.studio")),
+    ("Python 3.12 venv", "python_checks",
+     ("python.venv", "python.core", "python.graphics", "python.analysis",
+      "python.identity")),
+    ("ffmpeg", "ffmpeg_check", ("ffmpeg",)),
+    ("Node.js", "node_checks", ("node", "remotion")),
+    ("graphics engines", "graphics_engine_checks", ("remotion",)),
+    ("models", "model_checks",
+     ("model.vision", "model.search_embedding", "model.beat_this", "model.panns")),
+    ("transcription", "transcription_checks", ("transcriber.voz", "model.mfa")),
+    ("dialogue cleanup DeepFilter", "deepfilternet_check", ("deepfilter",)),
+    ("configuration", "config_checks",
+     ("config.projects_root", "config.sfx_library", "config.music_library")),
+    ("chat harness", "harness_check", ("chat_harness",)),
+)
+"""Every check, in the order a new machine should fix them. A function is
+looked up by name when it runs, so a test can stand one in."""
+
+
+def _guarded(name: str, fn, needs: tuple):
+    """A check that raises is a line per need naming the exception, never a traceback."""
     try:
         result = fn()
     except Exception as exc:  # noqa: BLE001 - doctor must finish
         return [Check(name, False, f"the check itself failed: {type(exc).__name__}: {exc}",
-                      "report this; the rest of the checks still ran")]
+                      "report this; the rest of the checks still ran", need=need)
+                for need in needs or ("",)]
     return result if isinstance(result, list) else [result]
 
 
-def run_checks(probe=None) -> list:
-    """Every check, in the order a new machine should fix them."""
+def run_checks(probe=None, needs=None) -> list:
+    """Every check - or, given `needs`, only the lines checking one of them."""
     probe = probe or probe_resolve
     checks = []
-    checks += _guarded("macOS", macos_check)
-    checks += _guarded("Resolve scripting", lambda: resolve_checks(probe()))
-    checks += _guarded("Python 3.12 venv", python_checks)
-    checks += _guarded("ffmpeg", ffmpeg_check)
-    checks += _guarded("Node.js", node_checks)
-    checks += _guarded("graphics engines", graphics_engine_checks)
-    checks += _guarded("models", model_checks)
-    checks += _guarded("transcription", transcription_checks)
-    checks += _guarded("dialogue cleanup DeepFilter", deepfilternet_check)
-    checks += _guarded("configuration", config_checks)
-    checks += _guarded("chat harness", harness_check)
+    for name, attr, covers in GROUPS:
+        if needs is not None and not set(covers) & set(needs):
+            continue
+        fn = globals()[attr]
+        if attr == "resolve_checks":
+            fn = (lambda check=fn: check(probe()))
+        lines = _guarded(name, fn, covers)
+        if needs is not None:
+            lines = [line for line in lines if line.need in needs]
+        checks += lines
     return checks
 
 
+def required_failures(checks: list) -> list:
+    """Failing lines every capability needs, or that name no need at all -
+    a failure doctor cannot attribute is never quietly optional."""
+    from library.tools.machine_needs import BASELINE
+    return [check for check in checks
+            if not check.ok and (check.need in BASELINE or not check.need)]
+
+
+def capability_report(checks: list) -> dict:
+    """`{capability: (verdict, missing, degraded)}` from the failing needs."""
+    from library.tools import machine_needs
+    failing = {check.need for check in checks if not check.ok and check.need}
+    return {capability: machine_needs.availability(capability, failing)
+            for capability in sorted(machine_needs.CAPABILITY_NEEDS)}
+
+
+def _line(check: Check, width: int) -> list:
+    from library.tools.machine_needs import BASELINE
+    if check.ok:
+        mark = "PASS"
+    else:
+        mark = "FAIL" if (check.need in BASELINE or not check.need) else "MISS"
+    lines = [f"{mark}  {check.name.ljust(width)}  {check.detail}"]
+    if not check.ok and check.fix:
+        lines.append(f"      {' ' * width}  fix: {check.fix}")
+    return lines
+
+
 def render(checks: list) -> str:
+    from library.tools import machine_needs
     width = max(len(check.name) for check in checks)
-    lines = ["ren doctor - can this Mac run Ren? (read-only: changes nothing)", ""]
+    lines = ["ren doctor - what can this Mac do with Ren? (read-only: changes nothing)",
+             "FAIL: every capability needs it.  MISS: limits the capabilities below.",
+             ""]
     for check in checks:
-        lines.append(f"{'PASS' if check.ok else 'FAIL'}  {check.name.ljust(width)}  {check.detail}")
+        lines += _line(check, width)
+
+    report = capability_report(checks)
+    by_verdict = {verdict: [c for c, (v, _, _) in report.items() if v == verdict]
+                  for verdict in (machine_needs.UNAVAILABLE, machine_needs.DEGRADED,
+                                  machine_needs.AVAILABLE)}
+    cap_width = max(len(c) for c in report)
+    lines += ["", "Capabilities:"]
+    for capability in by_verdict[machine_needs.UNAVAILABLE]:
+        missing = report[capability][1]
+        lines.append(f"  unavailable  {capability.ljust(cap_width)}  "
+                     f"missing {', '.join(missing)}")
+    for capability in by_verdict[machine_needs.DEGRADED]:
+        degraded = report[capability][2]
+        lines.append(f"  degraded     {capability.ljust(cap_width)}  "
+                     + "; ".join(f"without {n}: {why}" for n, why in degraded.items()))
+    if by_verdict[machine_needs.AVAILABLE]:
+        lines += textwrap.wrap(", ".join(by_verdict[machine_needs.AVAILABLE]), 96,
+                               initial_indent="  available    ",
+                               subsequent_indent=" " * 15)
+
+    failed = required_failures(checks)
+    missing = sum(not check.ok for check in checks) - len(failed)
+    lines += ["",
+              (f"{sum(check.ok for check in checks)} passed, {len(failed)} required "
+               f"failed, {missing} missing. Capabilities: "
+               f"{len(by_verdict[machine_needs.AVAILABLE])} available, "
+               f"{len(by_verdict[machine_needs.DEGRADED])} degraded, "
+               f"{len(by_verdict[machine_needs.UNAVAILABLE])} unavailable."),
+              "`ren doctor --for <capability>` checks one capability's needs."]
+    return "\n".join(lines)
+
+
+def render_for(capability: str, checks: list) -> str:
+    from library.tools import machine_needs
+    verdict, missing, degraded = machine_needs.availability(
+        capability, {check.need for check in checks if not check.ok})
+    needs = machine_needs.needs_of(capability)
+    lines = [f"ren doctor --for {capability} (read-only: changes nothing)", ""]
+    width = max((len(check.name) for check in checks), default=0)
+    for check in checks:
+        mark = "PASS" if check.ok else (
+            "FAIL" if check.need in needs.requires else "MISS")
+        lines.append(f"{mark}  {check.name.ljust(width)}  {check.detail}")
         if not check.ok and check.fix:
             lines.append(f"      {' ' * width}  fix: {check.fix}")
-    failed = sum(not check.ok for check in checks)
-    lines += ["", f"{len(checks) - failed} passed, {failed} failed."]
+    lines.append("")
+    if missing:
+        lines.append(f"{capability}: {verdict} - missing {', '.join(missing)}")
+    else:
+        lines.append(f"{capability}: {verdict}")
+    lines += [f"  without {need}: {why}" for need, why in degraded.items()]
     return "\n".join(lines)
 
 
 def main(argv=None, probe=None) -> int:
+    from library.tools import machine_needs
     parser = argparse.ArgumentParser(prog="ren doctor", description=__doc__.splitlines()[0])
     parser.add_argument("--json", action="store_true", help="Print the checks as JSON")
+    parser.add_argument(
+        "--for", dest="capability", metavar="CAPABILITY",
+        help="check only what one capability needs, and exit 1 if it is "
+             "unavailable (`python3 -m library.tools.machine_needs` lists them)")
     args = parser.parse_args(argv)
+
+    if args.capability:
+        try:
+            needs = machine_needs.needs_of(args.capability)
+        except machine_needs.UnknownCapability as exc:
+            parser.error(exc.args[0])
+        checks = run_checks(probe, needs=set(needs.requires) | set(needs.degrades))
+        verdict, missing, degraded = machine_needs.availability(
+            args.capability, {check.need for check in checks if not check.ok})
+        if args.json:
+            print(json.dumps({"capability": args.capability, "verdict": verdict,
+                              "missing": list(missing), "degraded": degraded,
+                              "checks": [asdict(check) for check in checks]}, indent=1))
+        else:
+            print(render_for(args.capability, checks))
+        return 1 if verdict == machine_needs.UNAVAILABLE else 0
+
     checks = run_checks(probe)
+    failed = required_failures(checks)
     if args.json:
-        print(json.dumps([asdict(check) for check in checks], indent=1))
+        print(json.dumps({
+            "checks": [asdict(check) for check in checks],
+            "required_failures": [check.name for check in failed],
+            "capabilities": {c: {"verdict": v, "missing": list(m), "degraded": d}
+                             for c, (v, m, d) in capability_report(checks).items()},
+        }, indent=1))
     else:
         print(render(checks))
-    return 1 if any(not check.ok for check in checks) else 0
+    return 1 if failed else 0
