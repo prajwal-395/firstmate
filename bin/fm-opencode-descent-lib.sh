@@ -588,7 +588,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     fi
     note="$note); the capped session is parked with no forward progress. Relaunched onto $target_harness rung $target_model. Continue the task from this note plus the brief and committed work."
     relaunch_args=("$id" relaunch --harness "$target_harness" --model "$target_model" --note "$note")
-    [ "$target_harness" != codex ] || relaunch_args+=(--effort max)
+    [ "$target_harness" != codex ] || relaunch_args+=(--effort "$(fm_opencode_ladder_plus_effort)")
     ctl_out=$(FM_HOME="${FM_HOME:-}" FM_STATE_OVERRIDE="$state_dir" \
       "$(fm_opencode_descent_control)" "${relaunch_args[@]}" 2>&1) && rc=0 || rc=$?
     if [ "$rc" -ne 0 ]; then

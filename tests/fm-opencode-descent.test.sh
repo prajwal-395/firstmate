@@ -256,6 +256,10 @@ test_recorded_refusal_relaunches_to_go() {
     *) fail "the move must be a relaunch onto Codex Plus, called: $(stub_calls)" ;;
   esac
   case "$(stub_calls)" in
+    *'--effort xhigh'*) : ;;
+    *) fail "the Codex Plus fallback must use xhigh effort, called: $(stub_calls)" ;;
+  esac
+  case "$(stub_calls)" in
     *'--note'*) : ;;
     *) fail "the replacement must inherit a handoff note, called: $(stub_calls)" ;;
   esac
@@ -264,6 +268,29 @@ test_recorded_refusal_relaunches_to_go() {
   [ ! -f "$state/lane1.opencode-retry" ] \
     || fail "the dead session's sidecar must be cleared after the move"
   pass "the recorded free refusal relaunches the lane onto Codex Plus"
+}
+
+test_descent_uses_configured_codex_plus_effort() {
+  local state out config_dir
+  state=$(fresh_state configured-effort)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  config_dir="$TMP_ROOT/config-configured-effort"
+  mkdir -p "$config_dir"
+  printf '{"default":[{"harness":"opencode","model":"%s"},{"harness":"codex","model":"%s","effort":"high"},{"harness":"opencode-go","model":"%s"}]}\n' \
+    "$FREE" "$PLUS" "$GO" > "$config_dir/crew-dispatch.json"
+  out=$(FM_CONFIG_OVERRIDE="$config_dir" run_tick "$state") || fail "tick must never fail past the cap"
+  case "$out" in
+    relaunched' '*) : ;;
+    *) fail "a proven free cap must relaunch with configured effort, said: ${out:-<silent>}" ;;
+  esac
+  case "$(stub_calls)" in
+    *'--effort high'*) : ;;
+    *) fail "the Codex Plus relaunch must use its configured effort, called: $(stub_calls)" ;;
+  esac
+  pass "cross-harness descent uses the configured Codex Plus effort"
 }
 
 fm_meta_model() {  # <state-dir> <id> -> recorded model (test reader only)
@@ -596,6 +623,7 @@ test_transient_retry_stays
 test_expired_cap_stays
 test_stale_sidecar_needs_latch
 test_recorded_refusal_relaunches_to_go
+test_descent_uses_configured_codex_plus_effort
 test_capped_plus_lane_descends_to_go
 test_plugin_vocabulary_free_cap_binds_free
 test_plugin_vocabulary_bare_free_lane_descends

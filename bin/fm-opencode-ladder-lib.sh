@@ -5,7 +5,8 @@
 # constants below.
 #
 # THE POLICY. The standing rule for opencode dispatch is a fixed three-rung
-# ladder: free, Codex Plus (gpt-6-luna at max effort), then paid Go. Work runs
+# ladder: free, Codex Plus (gpt-6-luna at the configured Codex profile effort,
+# falling back to xhigh), then paid Go. Work runs
 # on free first; new spawns fall through only when the preceding rung is
 # exhausted. The rungs are stated once, here, as constants - there is
 # no config order to derive, because the order is fixed by economics rather
@@ -54,6 +55,33 @@
 FM_OPENCODE_LADDER_FREE='opencode/muse-spark-1.3-contributor-free'
 FM_OPENCODE_LADDER_GO='opencode-go/muse-spark-1.3-contributor'
 FM_OPENCODE_LADDER_PLUS_MODEL='gpt-6-luna'
+
+# fm_opencode_ladder_plus_effort [<config-dir>]
+# Use the first Codex Plus profile's declared effort from the default array.
+# The normal config validator owns malformed files; an absent, unreadable, or
+# unrecognized value keeps this rung usable at xhigh.
+fm_opencode_ladder_plus_effort() {
+  local config_dir=${1:-${FM_CONFIG_OVERRIDE:-}} config_file effort
+  if [ -z "$config_dir" ] && [ -n "${FM_HOME:-}" ]; then
+    config_dir="$FM_HOME/config"
+  fi
+  effort=
+  if [ -n "$config_dir" ] && [ -f "$config_dir/crew-dispatch.json" ] && command -v jq >/dev/null 2>&1; then
+    config_file="$config_dir/crew-dispatch.json"
+    effort=$(jq -r --arg model "$FM_OPENCODE_LADDER_PLUS_MODEL" '
+      [
+        .default
+        | if type == "array" then .[] else . end
+        | select(type == "object" and .harness == "codex" and .model == $model)
+      ]
+      | .[0].effort // empty
+    ' "$config_file" 2>/dev/null) || effort=
+  fi
+  case "$effort" in
+    low|medium|high|xhigh|max) printf '%s\n' "$effort" ;;
+    *) printf '%s\n' xhigh ;;
+  esac
+}
 
 # The rung keys. `free`, `go`, and `plus` are the names rung-scoped record
 # files are keyed on (state/.opencode-cap-<rung>).
@@ -412,12 +440,14 @@ fm_opencode_ladder_model() {  # <requested> <state-dir>
   fi
   if [ "$plus_capped" -eq 0 ]; then
     printf '%s\n' "$FM_OPENCODE_LADDER_PLUS_MODEL"
+    local plus_effort
+    plus_effort=$(fm_opencode_ladder_plus_effort)
     if [ "$bound" = unbound ]; then
-      printf 'notice: opencode ladder: free may be capped with no model binding; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
+      printf 'notice: opencode ladder: free may be capped with no model binding; dispatching on Codex Plus (%s, %s effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" "$plus_effort" >&2
     elif [ "$horizon" = unknown ]; then
-      printf 'notice: opencode ladder: free cap is showing in a lane pane with no retry horizon on record; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
+      printf 'notice: opencode ladder: free cap is showing in a lane pane with no retry horizon on record; dispatching on Codex Plus (%s, %s effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" "$plus_effort" >&2
     else
-      printf 'notice: opencode ladder: free is capped; dispatching on Codex Plus (%s, max effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" >&2
+      printf 'notice: opencode ladder: free is capped; dispatching on Codex Plus (%s, %s effort)\n' "$FM_OPENCODE_LADDER_PLUS_MODEL" "$plus_effort" >&2
     fi
     return 0
   fi

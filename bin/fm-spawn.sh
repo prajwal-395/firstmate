@@ -1924,7 +1924,7 @@ case "$HARNESS" in
       [ -n "$_FM_OPENCODE_LADDER_MODEL" ] || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
       MODEL=$_FM_OPENCODE_LADDER_MODEL
       if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
-        EFFORT=max
+        EFFORT=$(fm_opencode_ladder_plus_effort "$CONFIG")
         HARNESS=codex
         LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
           echo "error: Codex Plus launch template is unavailable" >&2
@@ -1959,7 +1959,7 @@ case "$HARNESS" in
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
       MODEL=$_FM_OPENCODE_LADDER_MODEL
       if [ "$MODEL" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ]; then
-        EFFORT=max
+        EFFORT=$(fm_opencode_ladder_plus_effort "$CONFIG")
         HARNESS=codex
       else
         HARNESS=opencode

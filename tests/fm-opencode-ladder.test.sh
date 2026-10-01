@@ -2,7 +2,7 @@
 # Behavior tests for bin/fm-opencode-ladder-lib.sh - the free-then-Codex-then-Go ladder.
 #
 # The dispatch rule: spend the FREE tier first, then Codex Plus
-# (gpt-6-luna at max effort), then paid Go.
+# (gpt-6-luna at the configured Codex profile effort, or xhigh by default), then paid Go.
 # New spawns climb back when the preceding tier becomes available again.
 #
 # OpenCode free exhaustion is reactive because quota-axi has no free row.
@@ -453,10 +453,11 @@ SH
   printf '%s\n' "$fakebin"
 }
 
-# spawn_opencode <dir> <id> [model]: a REAL bin/fm-spawn.sh opencode launch.
-# Prints "<launch-log> <herdr-call-log> <home>". Model empty means no --model flag at all.
-spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder]
-  local dir=$1 id=$2 model=${3:-} harness=${4:-opencode} ladder=${5:-} home proj wt fakebin
+# spawn_opencode <dir> <id> [model] [harness] [dispatch-ladder] [configured-plus-effort]
+# Run a REAL bin/fm-spawn.sh launch and print "<launch-log> <herdr-call-log> <home>".
+# Model empty means no --model flag at all.
+spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder] [configured-plus-effort]
+  local dir=$1 id=$2 model=${3:-} harness=${4:-opencode} ladder=${5:-} plus_effort=${6:-} home proj wt fakebin
   local -a ladder_args
   ladder_args=()
   [ -z "$ladder" ] || ladder_args=(--dispatch-ladder "$ladder")
@@ -464,6 +465,10 @@ spawn_opencode() {  # <dir> <id> [model] [harness] [dispatch-ladder]
   proj="$dir/proj"
   wt="$dir/wt"
   mkdir -p "$home/data/$id" "$home/state" "$home/config" "$home/projects"
+  if [ -n "$plus_effort" ]; then
+    printf '{"default":[{"harness":"opencode","model":"%s"},{"harness":"codex","model":"gpt-6-luna","effort":"%s"},{"harness":"opencode-go","model":"%s"}]}\n' \
+      "$FREE" "$plus_effort" "$GO" > "$home/config/crew-dispatch.json"
+  fi
   fakebin=$(spawn_fakebin "$dir/fake")
   fm_git_worktree "$proj" "$wt" "wt-$id"
   # This base kept upstream's brief scaffold (batch 2 was dropped), which
@@ -504,10 +509,40 @@ test_spawn_falls_through_on_proven_cap() {
   [ -f "$log" ] || fail "spawn wrote no launch command"
   launch=$(cat "$log")
   assert_contains "$launch" "codex --model 'gpt-6-luna'" "a proven free cap routes the real launch to Codex Plus"
-  assert_contains "$launch" "model_reasoning_effort=\"max\"" "Codex Plus keeps PR 182's max effort"
+  assert_contains "$launch" "model_reasoning_effort=\"xhigh\"" "Codex Plus defaults to xhigh effort"
+  assert_not_contains "$launch" 'model_reasoning_effort="max"' "Codex Plus must not use max without that config declaration"
   assert_not_contains "$launch" "$FREE" "a proven free cap leaves no free model flag on the launch"
   assert_contains "$(cat "$home/state/task-go.meta")" "model=gpt-6-luna" "the durable record names the Plus model"
   pass "a proven free cap routes a real spawn to Codex Plus"
+}
+
+test_spawn_uses_configured_codex_plus_effort() {
+  local dir log launch log_home
+  dir="$TMP_ROOT/spawn-plus-configured-effort"
+  mkdir -p "$dir/home/state"
+  record_cap "$dir/home/state" free-cap 78840 "$FREE" || fail "record refused free cap"
+  log_home=$(spawn_opencode "$dir" task-plus-configured "$FREE" opencode '' high)
+  log=${log_home%% *}
+  [ -f "$log" ] || fail "configured-effort spawn wrote no launch command"
+  launch=$(cat "$log")
+  assert_contains "$launch" "codex --model 'gpt-6-luna'" "a proven free cap routes to Codex Plus"
+  assert_contains "$launch" 'model_reasoning_effort="high"' "Codex Plus uses the configured Codex profile effort"
+  assert_not_contains "$launch" 'model_reasoning_effort="max"' "configured high effort must not be replaced with max"
+  pass "a configured Codex Plus effort reaches the real spawn launch"
+}
+
+test_codex_dispatch_branch_uses_configured_max_effort() {
+  local dir log launch log_home
+  dir="$TMP_ROOT/spawn-codex-plus-configured-max"
+  mkdir -p "$dir/home/state"
+  record_cap "$dir/home/state" free-cap 78840 "$FREE" || fail "record refused free cap"
+  log_home=$(spawn_opencode "$dir" task-codex-plus "$FM_OPENCODE_LADDER_PLUS_MODEL" codex opencode max)
+  log=${log_home%% *}
+  [ -f "$log" ] || fail "configured-max spawn wrote no launch command"
+  launch=$(cat "$log")
+  assert_contains "$launch" "codex --model 'gpt-6-luna'" "the Codex dispatch branch routes the capped free rung to Plus"
+  assert_contains "$launch" 'model_reasoning_effort="max"' "Codex Plus accepts max when the default profile declares it"
+  pass "the Codex dispatch branch preserves a configured max effort"
 }
 
 test_spawn_switches_to_codex_when_go_is_exhausted() {
@@ -672,6 +707,8 @@ test_unbound_cap_falls_through
 test_idle_lane_falls_through_to_go
 test_idle_healthy_lane_stays_free
 test_spawn_falls_through_on_proven_cap
+test_spawn_uses_configured_codex_plus_effort
+test_codex_dispatch_branch_uses_configured_max_effort
 test_spawn_switches_to_codex_when_go_is_exhausted
 test_spawn_defaults_to_free
 test_default_resolver_codex_profile_still_enters_ladder_gate
