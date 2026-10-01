@@ -96,6 +96,12 @@
         "description": "Bridge output: the transcript's measured picture holes, carried beside the candidates so a span is never drawn over seconds with no picture. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
       },
       {
+        "name": "reel_diagnostics_reference",
+        "type": "string",
+        "required": false,
+        "description": "Bridge output, only when a candidate carries repeated-take evidence: that evidence (each candidate's repetition_inside, retake_candidates and possible_retellings) as a REFERENCE - written to this step's own directory as reel_candidate_diagnostics.md, with a map naming each candidate by its own start-end, what it carries and the line range that holds it. The three fields were 19,850 of this step's 49,777 tokens on the geo podcast, carried for every candidate though a takes_dropped verdict is drawn only for a stretch the model chooses. They stay on reel_candidates for every reader but the prompt (the - paths in context_fields). The mechanism is library/tools/brief_reference.py; the shape is library/tools/reel_diagnostics_reference.diagnostics_document. Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
         "name": "lead_speaker",
         "type": "string",
         "description": "Bridge output: which speaker asks - the inferred lead of the exchange. Inferred, not declared; the handoff invites correction. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
@@ -150,6 +156,10 @@
     "timeline_transcript.measurement",
     "view:spoken_lines",
     "reel_candidates",
+    "-reel_candidates.*.repetition_inside",
+    "-reel_candidates.*.retake_candidates",
+    "-reel_candidates.*.possible_retellings",
+    "reel_diagnostics_reference",
     "creative_brief",
     "creative_direction",
     "brand_constraints",

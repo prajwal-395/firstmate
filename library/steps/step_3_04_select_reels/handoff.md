@@ -96,6 +96,7 @@ reels, and say where each one starts and ends.
 | `spoken_lines` | The whole conversation, in order, one row per line of speech: who says it, the exact second it starts, the exact second it ends, and what it says. **These are the seconds a reel may start and stop at** - a boundary you name is moved out to the nearest of these edges, so a line here is a cut you can actually make. `not_a_boundary` names the stretches of speech that could not be bound to one clip: they are not rows and no boundary is placed on one. `transcription_confidence` says what the transcriber recorded about its own reading, and `script_mismatch` names any line written in letters the rest of the conversation is not written in |
 | `turns` | The same conversation grouped into speaker turns: who spoke and between which two seconds. A turn is one speaker's uninterrupted run of the lines above; this is the coarse structure `reel_candidates` counts, not a second copy of the words |
 | `reel_candidates` | Every contiguous stretch the measurements found, with what was measured about it |
+| `reel_diagnostics_reference` | Present when any candidate carries repeated-take evidence: a MAP of it, one heading per such candidate titled with that candidate's own `start-end`, saying what it carries and the line range that holds it in full. The evidence itself - `repetition_inside`, `retake_candidates`, `possible_retellings` - is at the file it names, not in the table. **Read the section of every candidate you choose or list in `considered` before you write its verdict**; a candidate with no heading carries none |
 | `declared_speakers` | The project's declared speaker roster (`source.speakers`), present only where the project declares one: who speaks in this footage and, where given, their roles. It scopes rule 4 below - a one-speaker roster means monologue, an empty one means there is no conversation to judge. Undeclared means the series default: two |
 
 Every candidate carries:
@@ -110,7 +111,7 @@ Every candidate carries:
 | `within_length_guidance` | Whether it falls inside the series' length guidance |
 | `concerns` | Observations a reader should look at — never verdicts |
 | `retake_of`, `retake_band` | When this stretch is the same conversation recorded again |
-| `repetition_inside` | When this stretch contains a repeated run of its OWN, and whether a build removes it |
+| `repetition_inside`, `retake_candidates`, `possible_retellings` | Not in the table: each candidate's repeated-take evidence, at the section of `reel_diagnostics_reference` titled with its `start-end` |
 
 **These are measurements, not scores, and nothing has been ranked or
 filtered for you.** Every stretch found is in the table, including ones
@@ -271,7 +272,9 @@ and both are reported with the timecodes of each take. Which take plays,
 and whether a conversation recorded twice is worth one short or two, is
 an editorial question rather than a measurement.
 
-A whole stretch recorded twice is `retake_of`. A stretch that repeats
+A whole stretch recorded twice is `retake_of`. The other three
+fields below live in `reel_diagnostics_reference`, one section per
+candidate. A stretch that repeats
 inside ITSELF is `repetition_inside`, and it carries the one thing you
 cannot work out from the turns: **whether the build will remove it.**
 

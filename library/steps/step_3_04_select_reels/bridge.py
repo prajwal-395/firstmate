@@ -468,6 +468,7 @@ def build_context(data: dict) -> dict:
         from library.tools.display_respell import apply_post_pass
         apply_post_pass(out, (data or {}).get("project_folder") or "",
                         "select_reels bridge (reel_candidates)")
+        _attach_diagnostics_reference(out, data)
         return out
 
     windows = exchange_windows(turns, lead, answerer)
@@ -529,7 +530,50 @@ def build_context(data: dict) -> dict:
     from library.tools.display_respell import apply_post_pass
     apply_post_pass(out, (data or {}).get("project_folder") or "",
                     "select_reels bridge (reel_candidates)")
+    _attach_diagnostics_reference(out, data)
     return out
+
+
+def _attach_diagnostics_reference(out: dict, data: dict) -> None:
+    """Write the candidates' repeated-take evidence out, and map it.
+
+    The three fields stay on `reel_candidates` - every post-bridge and
+    `step.py` reads the unprojected rows - and leave the PROMPT through
+    the `-` paths in this step's `context_fields`; this is where the
+    model reaches them instead. Written after the respell post-pass, so
+    the document quotes the corrected spelling the rows carry. The path
+    is ABSOLUTE for the same reason the brief's is: the model runs from
+    wherever the harness put it. See
+    library/tools/reel_diagnostics_reference.py.
+    """
+    from library.tools.brief_reference import build_reference
+    from library.tools.project_layout import Area, layout_for
+    from library.tools.reel_diagnostics_reference import (
+        DOCUMENT_NAME,
+        REFERENCE_DOCUMENT_NAME,
+        REFERENCE_WHY,
+        carries_diagnostics,
+        diagnostics_document,
+    )
+
+    candidates = out.get("reel_candidates") or []
+    if not carries_diagnostics(candidates):
+        return
+    project_folder = (data or {}).get("project_folder") or ""
+    if not project_folder:
+        raise ValueError(
+            "select_reels: candidates carry repeated-take evidence but no "
+            "project_folder was routed, so there is nowhere to write the "
+            "document the prompt points at - and the prompt drops it")
+    path = layout_for(project_folder).write_path(
+        Area.REEL_CANDIDATE_DIAGNOSTICS, DOCUMENT_NAME, step="select_reels")
+    document = diagnostics_document(candidates)
+    path.write_text(document, encoding="utf-8")
+    out["reel_diagnostics_reference"] = build_reference(
+        str(path.resolve()), document,
+        document_name=REFERENCE_DOCUMENT_NAME,
+        why_referenced=REFERENCE_WHY,
+    )
 
 
 def main():

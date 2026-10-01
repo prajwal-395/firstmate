@@ -260,3 +260,55 @@ directory at all, though both ran.
   is sufficient.
 - **Whether the run count itself can drop** - fewer calls rather than
   smaller ones.
+
+---
+
+## 7. `select_reels`, re-measured and narrowed (2026-10-01)
+
+Snapshot `reel-endtoend-before`, `o200k_base`, tree `579d5954`.
+
+**The transcript is no longer the large item.** `spoken_lines` is 482
+bound-segment rows and 16,967 tokens, not the 929 lines and 33,006 of
+section 4. It stays inline: the handoff asks the model to read the whole
+conversation for closers, so a reference would move the same tokens
+from the prompt into the answering agent's own reads.
+
+**The repeated-take evidence was.** Three per-candidate fields of
+`reel_candidates` - `retake_candidates` 11,649, `repetition_inside`
+4,306, `possible_retellings` 3,895 - were 19,850 tokens, carried for all
+37 candidates, though a `takes_dropped` verdict is drawn only for a
+stretch the model chooses. They now travel by reference
+(`library/tools/reel_diagnostics_reference.py`, the brief's mechanism):
+
+| | prompt | context | total |
+|---|---:|---:|---:|
+| before | 6,392 | 43,385 | 49,777 |
+| after | 6,555 | 24,661 | 31,216 (-37.3%) |
+
+All 39 removed items are verbatim at their own candidate's line range
+(`tests/test_reel_diagnostics_by_reference.py` follows the reference the
+same way). Answered: arm A (before) twice and arm B (after) once, each
+by a fresh agent, compared on timeline coverage and on the seconds
+struck in `takes_dropped`:
+
+| pair | spans matched (IoU >= 0.8) | timeline Jaccard | strike-second Jaccard |
+|---|---:|---:|---:|
+| A1 vs A2 (run-to-run) | 27/30 | 0.861 | 0.427 |
+| A1 vs B1 | 27/30 | 0.878 | 0.361 |
+| A2 vs B1 | 29/32 | 0.935 | 0.616 |
+
+B is inside A's own variance, and B struck takes in 15 moments (197 s)
+against A's 13 and 13 (120 s, 160 s), so the evidence was read, not
+skipped. The B agent loaded the document with a script; about 3k tokens
+of it reached its context.
+
+**The plan path, re-measured on `round3-20260829`:** 213,735 tokens
+(61,253 prompt, 152,482 context - 71% routed). No step carries one
+large searchable document any more: the brief, the per-clip footage
+analysis and the SFX catalogue already travel by reference, and what is
+left is 1-4k-token sections spread across twelve steps.
+
+**The bench writes into a live project.** A snapshot's `pipeline_output`
+is a symlink to the source project's, so a bridge that writes a
+referenced document (3.02, 3.04, 4.04) writes it there during a replay.
+Not fixed here.

@@ -344,6 +344,7 @@ class Area(str, Enum):
     ROUGHCUT_FRAMES = "roughcut_frames"
     SFX_CATALOGUE = "sfx_catalogue"
     FOOTAGE_ANALYSIS = "footage_analysis"
+    REEL_CANDIDATE_DIAGNOSTICS = "reel_candidate_diagnostics"
     SUBTITLE_SEGMENTS = "subtitle_segments"
     MOTION_GRAPHICS_SEGMENTS = "motion_graphics_segments"
     TIMED_TEXT_SEGMENTS = "timed_text_segments"
@@ -528,6 +529,13 @@ AREAS: dict[Area, AreaSpec] = {
         "cut it was routed, not prose about it. "
         "See library/tools/window_frames.build_review_block.",
         step="review_rough_cut"),
+    Area.REEL_CANDIDATE_DIAGNOSTICS: AreaSpec(
+        _step_path("select_reels"), Kind.OUTPUT,
+        "Each reel candidate's repeated-take evidence written out as one "
+        "document per run, so the prompt can point at it instead of "
+        "carrying ~19,850 tokens of it for every candidate. See "
+        "library/tools/reel_diagnostics_reference.diagnostics_document.",
+        step="select_reels"),
     Area.SFX_CATALOGUE: AreaSpec(
         _step_path("plan_sfx"), Kind.OUTPUT,
         "The SFX library written out as one document per run, so the "

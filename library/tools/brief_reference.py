@@ -77,6 +77,12 @@ walks when clause 5 has to put one back inline:
     rather than forking it - one `##` section per sound, titled with the
     exact `sfx_id` an answer has to name, opening with the sound's
     measured facts so that line becomes the map's lede.
+  * `reel_diagnostics_reference` - step 3.04's per-candidate
+    repeated-take evidence (`repetition_inside`, `retake_candidates`,
+    `possible_retellings`), 19,850 of that step's 49,777 tokens on the
+    geo podcast. Step 3.04's `bridge.py` writes it; the shape is
+    `reel_diagnostics_reference.diagnostics_document`, one `##` section
+    per candidate titled with its own `start-end`.
 
 **A second document costs a row here and nothing else.**  The rule, the
 map, the line ranges and the harness clause are all the same; only the
@@ -105,7 +111,7 @@ A path that cannot be read or is empty RAISES. **A run that attaches none INTERV
 - **The map carries a LINE RANGE per heading**, so following it is one `sed -n 'a,bp'` and not a search.
 - **The rule is per SECTION, not per step**, so every step sees the same document: the preamble inline, a section under `INLINE_WHEN_UNDER_BYTES` inline, everything else a heading, a size, a range and a lede. Nothing is filtered or summarised away - the whole document is at the path.
 - **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
-- **The mechanism carries THREE documents, and a fourth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, and step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`). Do not build a second by-reference mechanism.
+- **The mechanism carries FOUR documents, and a fifth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`) and step 3.04's per-candidate repeated-take evidence (`library/tools/reel_diagnostics_reference.py`). Do not build a second by-reference mechanism.
 - **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agent` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
 - `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 """
@@ -500,7 +506,8 @@ def series_membership_line(series_identity: str) -> str:
 # ── Clause 5, applied ───────────────────────────────────────────────
 
 REFERENCED_INPUTS = ("creative_brief", "sfx_catalog_reference",
-                     "footage_analysis_reference")
+                     "footage_analysis_reference",
+                     "reel_diagnostics_reference")
 """Every step input that travels as a reference built here.
 
 `present_llm_step` walks this to put a document back inline for a
