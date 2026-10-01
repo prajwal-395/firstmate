@@ -559,6 +559,171 @@ class SubjectPoint:
     that way can put the actual speaker outside the frame. The caller
     refuses the punch-in rather than aiming at a guess.
     """
+    aim_basis: str = "face"
+    """What decided `center_x`: ``"body_pose"`` or ``"face"``.
+
+    See :func:`measure_subject_in_window` for the rule. Carried through
+    so a caller or a report can say which aim a shot got without
+    re-deriving it, and so an older cached record (face-only, no
+    `aim_basis` key) reads back as ``"face"`` rather than guessing.
+    """
+
+
+# ── Body-pose aim ────
+#
+# Captain's ruling, 2026-10-01 (`vep-the-captain-composes-left-of-centre`):
+# "i want both subjects to be framed in the center of the video", answering
+# a choice between a per-speaker default and this one. The hand-edit taste
+# scout (`data/vep-hand-edit-taste-scout/report.md` 2.3) measured why
+# face-centring left Akshita off-centre on every one of the 22 shots he
+# held: she turns toward Craig, so a face-centred crop pushes her body
+# (both elbows, the chair) toward the frame edge. A pose centroid - the
+# mean x of her shoulder and forearm joints - sat within 0.008 of source
+# width of where he put the crop, against 0.024 for her face. The same
+# test on Craig's 61 engine-framed, never-touched shots found his body is
+# offset from his face by about as much as hers (he types at a laptop on
+# his right) - so "centre the body" is not a per-speaker fact, it is a
+# general one the captain had simply never been asked to confirm for a
+# speaker he already liked face-centred.  The rule below is the same for
+# both speakers: no `speaker` argument, no per-speaker table.
+#
+# Apple Vision's body-pose joint keys (`vision_helper.swift`, confirmed by
+# running the compiled helper: `neck_1_joint`, `left_shoulder_1_joint`,
+# `right_shoulder_1_joint`, `left_forearm_joint`, `right_forearm_joint`,
+# among others) are matched by substring, the same way the scout's
+# `bodyan.py` read them, because Vision's raw names carry numbered/typed
+# suffixes that differ by joint and are not worth pinning exactly.
+
+BODY_NECK_SUBSTRING = "neck"
+"""Which body in a multi-body frame is the subject: nearest neck to the
+face x already measured for that frame."""
+
+BODY_CENTROID_JOINTS: Tuple[str, ...] = (
+    "left_shoulder", "right_shoulder", "left_forearm", "right_forearm")
+"""The upper-body joints averaged into the pose centroid.  Matches the
+scout's measured method (`report.md` 2.3, `bodyan.py`): shoulders and
+forearms read as "the figure", not the hands or hips."""
+
+BODY_JOINT_MIN_CONFIDENCE = 0.3
+"""A joint below this confidence is treated as not detected.  Same floor
+the scout's `bodyan.py` used."""
+
+BODY_JOINT_MIN_LANDMARKS = 3
+"""A frame's body centroid needs at least this many of the four
+`BODY_CENTROID_JOINTS` above the confidence floor.  Below it one stray
+joint (an arm out of frame) would swing the average; the scout's
+`bodyan.py` used the same floor (`len(xs) >= 3`)."""
+
+
+def _nearest_body_joints(bodies: Sequence[dict],
+                          near_x: float) -> Optional[dict]:
+    """The `joints` dict of whichever body's neck sits nearest `near_x`.
+
+    `near_x` is that frame's own measured face centre: in a two-person
+    frame the nearest neck to the detected (largest) face is the same
+    person, which is what lets the centroid follow the speaker rather
+    than whoever else is in shot.
+    """
+    best_joints: Optional[dict] = None
+    best_distance: Optional[float] = None
+    for body in bodies:
+        joints = body.get("joints") if isinstance(body, dict) else None
+        if not joints:
+            continue
+        neck_x = None
+        for name, triple in joints.items():
+            if BODY_NECK_SUBSTRING in name:
+                try:
+                    neck_x = float(triple[0])
+                except (TypeError, IndexError, ValueError):
+                    neck_x = None
+                break
+        if neck_x is None:
+            continue
+        distance = abs(neck_x - near_x)
+        if best_distance is None or distance < best_distance:
+            best_distance, best_joints = distance, joints
+    return best_joints
+
+
+def _body_centroid_x(joints: dict) -> Optional[float]:
+    """Mean x of the detected `BODY_CENTROID_JOINTS`, or None.
+
+    None when fewer than `BODY_JOINT_MIN_LANDMARKS` clear the confidence
+    floor - the same "too thin to trust" answer the face reading gives
+    below `MIN_SAMPLES`.
+    """
+    found: List[float] = []
+    for substring in BODY_CENTROID_JOINTS:
+        for name, triple in joints.items():
+            if substring not in name:
+                continue
+            try:
+                x, _y, confidence = triple
+            except (TypeError, ValueError):
+                continue
+            if confidence is not None and confidence > BODY_JOINT_MIN_CONFIDENCE:
+                found.append(float(x))
+            break
+    if len(found) < BODY_JOINT_MIN_LANDMARKS:
+        return None
+    return sum(found) / len(found)
+
+
+def _probe_body_centroids(frame_paths: Sequence[str],
+                           face_xs: Sequence[float]) -> Optional[List[Optional[float]]]:
+    """Per-frame body-pose centroid x, aligned to `frame_paths`/`face_xs`.
+
+    Returns None when Vision itself is unavailable on this machine or
+    this interpreter (no helper, compile failure, run failure) - that is
+    the same "no measurement" silence `measure_subject_in_window` already
+    gives for a face it cannot detect, not an error. Returns a list the
+    same length as `frame_paths` otherwise, with None where that frame's
+    body could not be read.
+    """
+    from library.steps.step_1_04_temporal_index.vision_measure import (
+        VisionUnavailable, ensure_helper, measure_frames)
+
+    if not frame_paths:
+        return None
+    helper, _reason = ensure_helper()
+    if helper is None:
+        return None
+    try:
+        docs = measure_frames(list(frame_paths), helper)
+    except VisionUnavailable:
+        return None
+
+    out: List[Optional[float]] = []
+    for doc, face_x in zip(docs, face_xs):
+        bodies = doc.get("bodies") or []
+        joints = _nearest_body_joints(bodies, face_x)
+        out.append(_body_centroid_x(joints) if joints else None)
+    return out
+
+
+def _aim_center_x(face_cx: float, face_width: Optional[float],
+                   body_cx: Optional[float]) -> Tuple[float, str]:
+    """The aim, and which rule decided it: body pose, bounded by the face.
+
+    Centres on the body-pose centroid when one is measured, but never
+    past `SUBJECT_HEADROOM` of the face's own measured width from the
+    face centre - the same breathing room the engine already budgets
+    around a face box (`SUBJECT_HEADROOM`'s docstring above). That bound
+    is what keeps the captain's "face still in frame" requirement true
+    without knowing the crop's eventual zoom at measurement time: even
+    spent in full, the aim cannot move further from the face than the
+    margin the engine already treats as safe clearance around it.
+
+    Falls back to the face centre, unchanged from before this rule
+    existed, when no body was measured or the face width is unknown -
+    the same shrug `subject_center_x` gives for "could not be measured".
+    """
+    if body_cx is None or not face_width:
+        return face_cx, "face"
+    bound = SUBJECT_HEADROOM * face_width
+    delta = max(-bound, min(bound, body_cx - face_cx))
+    return face_cx + delta, "body_pose"
 
 
 def measure_subject_in_window(video_path: str, source_in: float,
@@ -620,6 +785,7 @@ def measure_subject_in_window(video_path: str, source_in: float,
     centers_x: List[float] = []
     centers_y: List[float] = []
     widths: List[float] = []
+    face_frame_paths: List[str] = []
     multi = 0
     with tempfile.TemporaryDirectory(prefix="subject_probe_") as tmp:
         for index, at in enumerate(points):
@@ -656,23 +822,42 @@ def measure_subject_in_window(video_path: str, source_in: float,
             centers_x.append(cx)
             centers_y.append(cy)
             widths.append(w / float(width))
+            face_frame_paths.append(frame_path)
 
-    if len(centers_x) < MIN_SAMPLES:
-        return None
-    if len(centers_x) / float(samples) < MIN_DETECTION_RATIO:
-        return None
-    # A single frame with two detections is a false positive on a bright
-    # rectangle; a shot that shows two people shows them throughout. The
-    # same ratio that decides whether ONE face was seen often enough
-    # decides whether a SECOND was.
-    others = 1 if (multi / float(samples)) >= MIN_DETECTION_RATIO else 0
+        if len(centers_x) < MIN_SAMPLES:
+            return None
+        if len(centers_x) / float(samples) < MIN_DETECTION_RATIO:
+            return None
+        # A single frame with two detections is a false positive on a
+        # bright rectangle; a shot that shows two people shows them
+        # throughout. The same ratio that decides whether ONE face was
+        # seen often enough decides whether a SECOND was.
+        others = 1 if (multi / float(samples)) >= MIN_DETECTION_RATIO else 0
+
+        # Body pose is read from the SAME frames, while they still exist
+        # on disk - aiming at a second decode would risk disagreeing
+        # with the face reading above about which instant was sampled.
+        body_xs = _probe_body_centroids(face_frame_paths, centers_x)
+
+    body_cx = None
+    if body_xs is not None:
+        measured = [x for x in body_xs if x is not None]
+        if (len(measured) >= MIN_SAMPLES
+                and len(measured) / float(len(body_xs)) >= MIN_DETECTION_RATIO):
+            body_cx = _median(measured)
+
+    face_cx = _median(centers_x)
+    face_width = _median(widths)
+    aim_cx, aim_basis = _aim_center_x(face_cx, face_width, body_cx)
+
     return SubjectPoint(
-        center_x=round(_median(centers_x), 4),
+        center_x=round(aim_cx, 4),
         center_y=round(_median(centers_y), 4),
-        width=round(_median(widths), 4),
+        width=round(face_width, 4),
         samples=samples,
         detected=len(centers_x),
-        others=others)
+        others=others,
+        aim_basis=aim_basis)
 
 
 # ── The aim, recorded ────
@@ -762,7 +947,8 @@ def _subject_to_record(point: Optional["SubjectPoint"]) -> Optional[dict]:
         return None
     return {"center_x": point.center_x, "center_y": point.center_y,
             "width": point.width, "samples": point.samples,
-            "detected": point.detected, "others": point.others}
+            "detected": point.detected, "others": point.others,
+            "aim_basis": point.aim_basis}
 
 
 def _record_to_subject(record) -> Optional["SubjectPoint"]:
@@ -775,7 +961,8 @@ def _record_to_subject(record) -> Optional["SubjectPoint"]:
             width=float(record["width"]),
             samples=int(record["samples"]),
             detected=int(record["detected"]),
-            others=int(record.get("others", 0)))
+            others=int(record.get("others", 0)),
+            aim_basis=str(record.get("aim_basis") or "face"))
     except (KeyError, TypeError, ValueError):
         return None
 

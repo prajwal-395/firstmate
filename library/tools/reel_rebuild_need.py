@@ -144,6 +144,7 @@ ENGINE_CODE_TREES = (
     "library/steps/step_4_05_render_subtitles",
     "library/steps/step_4_06_render_motion_graphics",
     "library/steps/step_1_02_catalog_footage",
+    "library/steps/step_1_04_temporal_index",
 )
 """Source trees whose content decides what a reel build places.
 
@@ -156,10 +157,12 @@ The step directories are NOT over-coverage - each is reached: 7.01 and
 7.02 are the build's own nodes, 4.01 and 4.05 are the caption path
 `reel_subtitle_segments` drives through the operation registry, 4.06 is
 the motion-graphics renderer, and 1.02 is where `timeline_ingest` gets
-`extract_metadata`. `test_reel_rebuild_need.py` walks the build's real
-import closure and FAILS on a module no tree here contains, so the day
-this path reaches a new one the list is corrected rather than quietly
-under-covering.
+`extract_metadata`, and 1.04 is where the reel punch-in's body-pose aim
+reads Apple Vision (`subject_framing.measure_subject_in_window` imports
+`step_1_04_temporal_index.vision_measure`). `test_reel_rebuild_need.py`
+walks the build's real import closure and FAILS on a module no tree
+here contains, so the day this path reaches a new one the list is
+corrected rather than quietly under-covering.
 """
 
 CODE_SUFFIXES = (".py",)

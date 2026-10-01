@@ -6345,7 +6345,8 @@ def aim_picture_row(name: str, look: dict, screen_window,
               f"{_look.window_zoom_for(look, source_size, frame_width, frame_height):.4f}) "
               f"aimed at "
               f"subject x={subject.center_x} y={subject.center_y} "
-              f"({subject.detected}/{subject.samples} frames)"
+              f"({subject.detected}/{subject.samples} frames, "
+              f"aim {getattr(subject, 'aim_basis', 'face')})"
               f"{f' [{basis}]' if basis else ''} on "
               f"{os.path.basename(source_file)} -> Pan "
               f"{properties['Pan']}, Tilt {properties['Tilt']}",
