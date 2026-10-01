@@ -205,6 +205,20 @@ TARGETS: Dict[str, Target] = {
             "the render QA that judges a finished master, is left out."
         ),
     ),
+    # The analysis-only run (`ren analyze`, library/tools/footage_analysis.py):
+    # the separable-product report's boundary - scan, catalog, vision,
+    # temporal and prosody - and nothing that plans an edit. OCR stays
+    # opt-in (`--with ocr_extraction`) and object segmentation stays on
+    # the edit side: its trigger is a later plan, not the footage.
+    "footage_analysis": Target(
+        name="footage_analysis",
+        goals=("semantic_analysis", "temporal_index", "prosody_analysis"),
+        description=(
+            "Analyse the footage and stop: catalog, vision, temporal index "
+            "and prosody, with no edit planned. `ren analyze` runs this, "
+            "then fills the per-source memory."
+        ),
+    ),
 }
 
 

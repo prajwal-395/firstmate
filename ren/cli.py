@@ -104,6 +104,12 @@ VERBS = (
          module_argv=(_FOOTAGE_QUERY, "search")),
     Verb("search-index", "Footage", "Build the footage search index (writes into the project's scratch)",
          module_argv=(_FOOTAGE_QUERY, "build")),
+    Verb("analyze", "Footage", "Analyse a folder of footage without editing: steps, per-source memory, indexes",
+         module_argv=("library.tools.footage_analysis",)),
+    Verb("export-memory", "Footage", "Write the versioned, path-portable export of a project's footage memory",
+         module_argv=("library.tools.memory_export",)),
+    Verb("eval-search", "Footage", "Score footage search against a pre-registered, hand-marked query set",
+         module_argv=("library.tools.retrieval_eval",)),
 
     Verb("eval", "Eval", "Run the standing request-following eval (report only; gates nothing)",
          module_argv=("library.tools.eval_harness",)),

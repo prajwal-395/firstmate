@@ -1,0 +1,11240 @@
+{
+ "name": "geo-podcast-retrieval-v1",
+ "schema_version": 1,
+ "registered": "2026-10-01",
+ "registered_before": "any retrieval over this set was run; the queries, the spans and the scoring rules are fixed by this file's first commit",
+ "corpus": {
+  "description": "GEO vs SEO podcast, two speakers (Craig, Akshita), two fixed cameras, 7 MXF sources, 3.02 h",
+  "assets": {
+   "LC4930": "sha256:9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+   "LC4931": "sha256:c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+   "LC4932": "sha256:dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+   "LCATL0011": "sha256:d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+   "LCATL0012": "sha256:4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+   "LCATL0013": "sha256:157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+   "LCATL0014": "sha256:f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1"
+  },
+  "durations": {
+   "LCATL0012": 288.955,
+   "LC4930": 225.225,
+   "LCATL0014": 838.004,
+   "LCATL0013": 4099.596,
+   "LC4932": 4941.103,
+   "LCATL0011": 214.548,
+   "LC4931": 287.621
+  }
+ },
+ "ground_truth_mapping": {
+  "multicam_offsets_to_reference": {
+   "LC4930": 0.0,
+   "LCATL0011": 11.31,
+   "LCATL0012": 0.0,
+   "LC4931": -0.3,
+   "LC4932": 0.0,
+   "LCATL0013": 3.8,
+   "LCATL0014": 4103.39
+  },
+  "groups": {
+   "LC4930": "A",
+   "LCATL0011": "A",
+   "LC4931": "B",
+   "LCATL0012": "B",
+   "LC4932": "C",
+   "LCATL0013": "C",
+   "LCATL0014": "C"
+  },
+  "basis": "M6 conversation-clock offsets, cross-checked against the captain's Resolve timeline to 0.075 s (docs/SOURCE_MEMORY.md M6); used ONLY to copy a hand-marked moment onto the other angles of the same recording"
+ },
+ "held_out": "no query here was used to tune any threshold: the text floor was calibrated on project 001, the CLIP list on the vep-clip-frame-search queries, the hand candidate generator and the VLM arm on Craig's 'covers his mouth' labels. VP01 asks about a different person and a different statement.",
+ "scoring": {
+  "speech": {
+   "top_k": 5,
+   "overlap_tolerance_seconds": 1.0,
+   "hit": "a returned range on an asset overlapping any instance of a relevant moment, each padded by the tolerance",
+   "recall": "relevant moments with at least one instance hit / relevant moments",
+   "precision": "returned ranges that hit / returned ranges",
+   "abstention": "a query with no relevant moment is correct when nothing is retained above the floor"
+  },
+  "visual": {
+   "top_k": 5,
+   "frame_pad_seconds": 5.0,
+   "spans": "each positive grid frame becomes [t-5, t+5]; adjacent ones merge; ambiguous frames neither count for nor against",
+   "precision": "returned ranges whose best frame lies in a positive span / returned ranges that do not lie wholly in an ambiguous span",
+   "recall": "positive spans touched by a returned range / positive spans",
+   "abstention": "an absent query is correct only if nothing is returned; a refused query is correct when expect=refused"
+  },
+  "person": {
+   "tolerance_seconds": 0.5,
+   "recall": "seconds of ground truth covered by returned spans (padded by the tolerance) / seconds of ground truth",
+   "precision": "seconds of returned spans covered by ground truth (padded) / seconds of returned spans, inside the scored window",
+   "window_on_screen": "every source of the corpus",
+   "window_speaking": "the union of both speakers' turns, each padded by 1.0 s, per asset"
+  },
+  "verified_predicate": {
+   "event_pad_seconds": 1.0,
+   "recall": "events overlapped by a YES span / events",
+   "precision_strict": "YES spans overlapping an event / YES spans inside the window",
+   "precision_lenient": "YES spans overlapping an event or an ambiguous event / YES spans inside the window"
+  }
+ },
+ "queries": [
+  {
+   "id": "S01",
+   "family": "speech",
+   "query": "running a customer's question through google and chatgpt side by side",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 205.7,
+       "end": 224.6
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 201.9,
+       "end": 220.8
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 267.0,
+       "end": 289.9
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 263.2,
+       "end": 286.1
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S02",
+   "family": "speech",
+   "query": "google is a search engine but chatgpt is a decision engine",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 285.3,
+       "end": 291.4
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 281.5,
+       "end": 287.6
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S03",
+   "family": "speech",
+   "query": "a ten person agency recommended over a company fifty times its size",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 832.4,
+       "end": 841.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 828.6,
+       "end": 837.7
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 856.9,
+       "end": 885.4
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 853.1,
+       "end": 881.6
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S04",
+   "family": "speech",
+   "query": "people who spent fifty to a hundred grand redesigning their website",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 1425.3,
+       "end": 1447.2
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 1421.5,
+       "end": 1443.4
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S05",
+   "family": "speech",
+   "query": "an audit where the website said enterprise software but linkedin said startup consulting",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 1597.9,
+       "end": 1639.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 1594.1,
+       "end": 1635.7
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S06",
+   "family": "speech",
+   "query": "a nail salon that specializes in 3d nail art",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2752.5,
+       "end": 2765.1
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2748.7,
+       "end": 2761.3
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2776.8,
+       "end": 2779.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2773.0,
+       "end": 2775.7
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2800.2,
+       "end": 2813.2
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2796.4,
+       "end": 2809.4
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S07",
+   "family": "speech",
+   "query": "being featured in the atlanta journal constitution builds trust",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3016.6,
+       "end": 3047.6
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3012.8,
+       "end": 3043.8
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S08",
+   "family": "speech",
+   "query": "the visibility system's seven modules",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3135.6,
+       "end": 3165.2
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3131.8,
+       "end": 3161.4
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3216.1,
+       "end": 3222.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3212.3,
+       "end": 3218.7
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S09",
+   "family": "speech",
+   "query": "competitors getting mentioned nine times more often",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3409.5,
+       "end": 3431.9
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3405.7,
+       "end": 3428.1
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3458.5,
+       "end": 3506.0
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3454.7,
+       "end": 3502.2
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S10",
+   "family": "speech",
+   "query": "a beautiful website is only twenty percent of what ai looks at",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3562.1,
+       "end": 3610.9
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3558.3,
+       "end": 3607.1
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S11",
+   "family": "speech",
+   "query": "why ai treats youtube as a trustworthy source",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 4015.5,
+       "end": 4045.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 4011.7,
+       "end": 4041.7
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S12",
+   "family": "speech",
+   "query": "chatgpt shows a map of nail salons with their google reviews",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 4566.5,
+       "end": 4580.6
+      },
+      {
+       "asset": "LCATL0014",
+       "start": 463.11,
+       "end": 477.21
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S13",
+   "family": "speech",
+   "query": "asking chatgpt for the best crm for a ten person law firm",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 36.7,
+       "end": 47.0
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 32.9,
+       "end": 43.2
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 60.5,
+       "end": 70.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 56.7,
+       "end": 66.7
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 160.0,
+       "end": 177.7
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 156.2,
+       "end": 173.9
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S14",
+   "family": "speech",
+   "query": "a client's seo team stuffed keywords into the h1 tags",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 158.4,
+       "end": 166.1
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 158.1,
+       "end": 165.8
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 190.2,
+       "end": 196.3
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 189.9,
+       "end": 196.0
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "S15",
+   "family": "speech",
+   "query": "marketing directors dismissing geo as seo two point oh",
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 66.0,
+       "end": 72.7
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 54.69,
+       "end": 61.39
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 110.0,
+       "end": 119.7
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 98.69,
+       "end": 108.39
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 16.3,
+       "end": 24.6
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 16.0,
+       "end": 24.3
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 47.3,
+       "end": 58.0
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 47.0,
+       "end": 57.7
+      }
+     ]
+    }
+   ],
+   "note": ""
+  },
+  {
+   "id": "X01",
+   "family": "speech",
+   "query": "how to train a puppy to sit",
+   "moments": [],
+   "note": "absent: expect abstention"
+  },
+  {
+   "id": "X02",
+   "family": "speech",
+   "query": "booking flights for a vacation in japan",
+   "moments": [],
+   "note": "absent: expect abstention"
+  },
+  {
+   "id": "X03",
+   "family": "speech",
+   "query": "a recipe for chocolate chip cookies",
+   "moments": [],
+   "note": "absent: expect abstention"
+  },
+  {
+   "id": "X04",
+   "family": "speech",
+   "query": "who won the basketball game last night",
+   "moments": [],
+   "note": "absent: expect abstention"
+  },
+  {
+   "id": "P01",
+   "family": "person",
+   "person": {
+    "name": "Akshita",
+    "identified_by_asset": "LC4932"
+   },
+   "predicate": "on_screen",
+   "spans": [
+    {
+     "asset": "LC4930",
+     "start": 0.0,
+     "end": 225.225
+    },
+    {
+     "asset": "LC4931",
+     "start": 0.0,
+     "end": 287.621
+    },
+    {
+     "asset": "LC4932",
+     "start": 0.0,
+     "end": 4941.103
+    }
+   ],
+   "note": "her own camera frames her for every take; on Craig's camera only her hands intrude"
+  },
+  {
+   "id": "P02",
+   "family": "person",
+   "person": {
+    "name": "Craig",
+    "identified_by_asset": "LCATL0013"
+   },
+   "predicate": "on_screen",
+   "spans": [
+    {
+     "asset": "LCATL0011",
+     "start": 0.0,
+     "end": 214.548
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 0.0,
+     "end": 288.955
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 0.0,
+     "end": 4099.596
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 0.0,
+     "end": 838.004
+    }
+   ],
+   "note": "his own camera frames him for every take"
+  },
+  {
+   "id": "P03",
+   "family": "person",
+   "person": {
+    "name": "Akshita",
+    "identified_by_asset": "LC4932"
+   },
+   "predicate": "speaking",
+   "turns": [
+    {
+     "asset": "LC4930",
+     "start": 131.86,
+     "end": 134.13
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 120.55,
+     "end": 122.82
+    },
+    {
+     "asset": "LC4930",
+     "start": 134.4,
+     "end": 137.91
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 123.09,
+     "end": 126.6
+    },
+    {
+     "asset": "LC4930",
+     "start": 138.25,
+     "end": 141.5
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 126.94,
+     "end": 130.19
+    },
+    {
+     "asset": "LC4930",
+     "start": 141.81,
+     "end": 151.51
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 130.5,
+     "end": 140.2
+    },
+    {
+     "asset": "LC4930",
+     "start": 207.39,
+     "end": 209.06
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 196.08,
+     "end": 197.75
+    },
+    {
+     "asset": "LC4930",
+     "start": 209.06,
+     "end": 212.77
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 197.75,
+     "end": 201.46
+    },
+    {
+     "asset": "LC4931",
+     "start": 65.52,
+     "end": 65.93
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 65.22,
+     "end": 65.63
+    },
+    {
+     "asset": "LC4931",
+     "start": 65.93,
+     "end": 67.62
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 65.63,
+     "end": 67.32
+    },
+    {
+     "asset": "LC4931",
+     "start": 67.87,
+     "end": 75.19
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 67.57,
+     "end": 74.89
+    },
+    {
+     "asset": "LC4931",
+     "start": 81.79,
+     "end": 82.18
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 81.49,
+     "end": 81.88
+    },
+    {
+     "asset": "LC4931",
+     "start": 82.48,
+     "end": 86.53
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 82.18,
+     "end": 86.23
+    },
+    {
+     "asset": "LC4931",
+     "start": 86.75,
+     "end": 91.69
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 86.45,
+     "end": 91.39
+    },
+    {
+     "asset": "LC4931",
+     "start": 91.87,
+     "end": 94.73
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 91.57,
+     "end": 94.43
+    },
+    {
+     "asset": "LC4931",
+     "start": 94.97,
+     "end": 102.33
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 94.67,
+     "end": 102.03
+    },
+    {
+     "asset": "LC4931",
+     "start": 158.38,
+     "end": 166.08
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 158.08,
+     "end": 165.78
+    },
+    {
+     "asset": "LC4931",
+     "start": 190.17,
+     "end": 196.26
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 189.87,
+     "end": 195.96
+    },
+    {
+     "asset": "LC4931",
+     "start": 196.5,
+     "end": 199.09
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 196.2,
+     "end": 198.79
+    },
+    {
+     "asset": "LC4931",
+     "start": 199.29,
+     "end": 202.02
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 198.99,
+     "end": 201.72
+    },
+    {
+     "asset": "LC4931",
+     "start": 202.1,
+     "end": 205.55
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 201.8,
+     "end": 205.25
+    },
+    {
+     "asset": "LC4931",
+     "start": 205.76,
+     "end": 211.93
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 205.46,
+     "end": 211.63
+    },
+    {
+     "asset": "LC4931",
+     "start": 223.94,
+     "end": 228.8
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 223.64,
+     "end": 228.5
+    },
+    {
+     "asset": "LC4931",
+     "start": 229.0,
+     "end": 236.68
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 228.7,
+     "end": 236.38
+    },
+    {
+     "asset": "LC4931",
+     "start": 236.68,
+     "end": 241.87
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 236.38,
+     "end": 241.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 4.95,
+     "end": 7.57
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1.15,
+     "end": 3.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 142.49,
+     "end": 144.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 138.69,
+     "end": 141.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 145.04,
+     "end": 147.23
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 141.24,
+     "end": 143.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 159.98,
+     "end": 162.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 156.18,
+     "end": 158.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 162.1,
+     "end": 173.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 158.3,
+     "end": 169.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 173.75,
+     "end": 177.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 169.95,
+     "end": 173.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 207.12,
+     "end": 213.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 203.32,
+     "end": 210.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 214.08,
+     "end": 217.66
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 210.28,
+     "end": 213.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 222.23,
+     "end": 224.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 218.43,
+     "end": 220.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 224.76,
+     "end": 225.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 220.96,
+     "end": 221.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 271.44,
+     "end": 277.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 267.64,
+     "end": 273.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 277.79,
+     "end": 285.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 273.99,
+     "end": 281.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 285.29,
+     "end": 289.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 281.49,
+     "end": 286.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 299.65,
+     "end": 300.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 295.85,
+     "end": 296.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 309.3,
+     "end": 314.69
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 305.5,
+     "end": 310.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 460.38,
+     "end": 465.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 456.58,
+     "end": 461.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 500.71,
+     "end": 505.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 496.91,
+     "end": 501.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 505.86,
+     "end": 509.29
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 502.06,
+     "end": 505.49
+    },
+    {
+     "asset": "LC4932",
+     "start": 509.38,
+     "end": 512.64
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 505.58,
+     "end": 508.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 512.71,
+     "end": 513.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 508.91,
+     "end": 509.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 673.91,
+     "end": 678.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 670.11,
+     "end": 674.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 678.97,
+     "end": 681.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 675.17,
+     "end": 677.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 681.41,
+     "end": 688.13
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 677.61,
+     "end": 684.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 688.35,
+     "end": 698.99
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 684.55,
+     "end": 695.19
+    },
+    {
+     "asset": "LC4932",
+     "start": 761.44,
+     "end": 766.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 757.64,
+     "end": 762.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 766.23,
+     "end": 774.89
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 762.43,
+     "end": 771.09
+    },
+    {
+     "asset": "LC4932",
+     "start": 775.18,
+     "end": 786.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 771.38,
+     "end": 782.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 835.03,
+     "end": 835.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 831.23,
+     "end": 831.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 835.67,
+     "end": 841.52
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 831.87,
+     "end": 837.72
+    },
+    {
+     "asset": "LC4932",
+     "start": 856.93,
+     "end": 857.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 853.13,
+     "end": 853.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 857.09,
+     "end": 864.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 853.29,
+     "end": 860.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 864.74,
+     "end": 870.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 860.94,
+     "end": 866.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 870.39,
+     "end": 878.96
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 866.59,
+     "end": 875.16
+    },
+    {
+     "asset": "LC4932",
+     "start": 879.12,
+     "end": 885.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 875.32,
+     "end": 881.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 927.26,
+     "end": 931.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 923.46,
+     "end": 928.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 1066.1,
+     "end": 1068.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1062.3,
+     "end": 1064.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 1068.66,
+     "end": 1070.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1064.86,
+     "end": 1066.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 1070.35,
+     "end": 1074.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1066.55,
+     "end": 1070.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 1074.23,
+     "end": 1081.77
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1070.43,
+     "end": 1077.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 1081.94,
+     "end": 1083.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1078.14,
+     "end": 1079.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1083.2,
+     "end": 1087.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1079.4,
+     "end": 1083.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1087.2,
+     "end": 1087.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1083.4,
+     "end": 1084.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 1087.97,
+     "end": 1088.91
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1084.17,
+     "end": 1085.11
+    },
+    {
+     "asset": "LC4932",
+     "start": 1089.16,
+     "end": 1096.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1085.36,
+     "end": 1092.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 1096.64,
+     "end": 1098.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1092.84,
+     "end": 1094.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 1098.38,
+     "end": 1111.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1094.58,
+     "end": 1107.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 1176.92,
+     "end": 1181.37
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1173.12,
+     "end": 1177.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 1181.55,
+     "end": 1189.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1177.75,
+     "end": 1185.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 1223.14,
+     "end": 1228.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1219.34,
+     "end": 1224.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 1259.03,
+     "end": 1268.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1255.23,
+     "end": 1264.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 1268.29,
+     "end": 1275.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1264.49,
+     "end": 1271.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 1275.41,
+     "end": 1277.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1271.61,
+     "end": 1273.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 1285.06,
+     "end": 1285.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1281.26,
+     "end": 1281.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 1293.69,
+     "end": 1295.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1289.89,
+     "end": 1291.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 1297.02,
+     "end": 1298.63
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1293.22,
+     "end": 1294.83
+    },
+    {
+     "asset": "LC4932",
+     "start": 1298.79,
+     "end": 1302.99
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1294.99,
+     "end": 1299.19
+    },
+    {
+     "asset": "LC4932",
+     "start": 1331.06,
+     "end": 1339.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1327.26,
+     "end": 1335.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 1431.05,
+     "end": 1443.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1427.25,
+     "end": 1440.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 1443.93,
+     "end": 1447.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1440.13,
+     "end": 1443.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 1489.85,
+     "end": 1490.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1486.05,
+     "end": 1487.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 1490.94,
+     "end": 1493.72
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1487.14,
+     "end": 1489.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 1493.95,
+     "end": 1503.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1490.15,
+     "end": 1499.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 1503.92,
+     "end": 1511.34
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1500.12,
+     "end": 1507.54
+    },
+    {
+     "asset": "LC4932",
+     "start": 1511.64,
+     "end": 1522.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1507.84,
+     "end": 1519.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 1601.5,
+     "end": 1618.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1597.7,
+     "end": 1614.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 1618.95,
+     "end": 1622.11
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1615.15,
+     "end": 1618.31
+    },
+    {
+     "asset": "LC4932",
+     "start": 1622.17,
+     "end": 1627.07
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1618.37,
+     "end": 1623.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 1627.35,
+     "end": 1635.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1623.55,
+     "end": 1631.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 1644.86,
+     "end": 1648.39
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1641.06,
+     "end": 1644.59
+    },
+    {
+     "asset": "LC4932",
+     "start": 1648.44,
+     "end": 1649.3
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1644.64,
+     "end": 1645.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 1671.77,
+     "end": 1672.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1667.97,
+     "end": 1668.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 1672.24,
+     "end": 1680.08
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1668.44,
+     "end": 1676.28
+    },
+    {
+     "asset": "LC4932",
+     "start": 1684.57,
+     "end": 1691.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1680.77,
+     "end": 1687.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 1691.73,
+     "end": 1694.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1687.93,
+     "end": 1690.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 1748.45,
+     "end": 1751.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1744.65,
+     "end": 1747.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 1761.17,
+     "end": 1765.84
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1757.37,
+     "end": 1762.04
+    },
+    {
+     "asset": "LC4932",
+     "start": 1820.42,
+     "end": 1823.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1816.62,
+     "end": 1819.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 1823.25,
+     "end": 1827.95
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1819.45,
+     "end": 1824.15
+    },
+    {
+     "asset": "LC4932",
+     "start": 1828.27,
+     "end": 1843.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1824.47,
+     "end": 1839.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 1843.91,
+     "end": 1857.27
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1840.11,
+     "end": 1853.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 1860.68,
+     "end": 1862.85
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1856.88,
+     "end": 1859.05
+    },
+    {
+     "asset": "LC4932",
+     "start": 1945.8,
+     "end": 1958.37
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1942.0,
+     "end": 1954.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 1958.55,
+     "end": 1971.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1954.75,
+     "end": 1967.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 1971.67,
+     "end": 1977.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1967.87,
+     "end": 1973.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 1983.98,
+     "end": 1985.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1980.18,
+     "end": 1981.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 1985.79,
+     "end": 1991.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1981.99,
+     "end": 1987.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 1991.04,
+     "end": 2002.98
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1987.24,
+     "end": 1999.18
+    },
+    {
+     "asset": "LC4932",
+     "start": 2115.67,
+     "end": 2119.42
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2111.87,
+     "end": 2115.62
+    },
+    {
+     "asset": "LC4932",
+     "start": 2126.89,
+     "end": 2130.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2123.09,
+     "end": 2126.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 2225.78,
+     "end": 2238.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2221.98,
+     "end": 2235.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 2239.16,
+     "end": 2245.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2235.36,
+     "end": 2241.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 2245.99,
+     "end": 2249.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2242.19,
+     "end": 2245.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 2249.81,
+     "end": 2251.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2246.01,
+     "end": 2247.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 2277.49,
+     "end": 2279.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2273.69,
+     "end": 2275.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 2279.4,
+     "end": 2283.23
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2275.6,
+     "end": 2279.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 2283.23,
+     "end": 2286.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2279.43,
+     "end": 2282.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 2286.48,
+     "end": 2292.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2282.68,
+     "end": 2288.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 2292.24,
+     "end": 2293.29
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2288.44,
+     "end": 2289.49
+    },
+    {
+     "asset": "LC4932",
+     "start": 2298.52,
+     "end": 2298.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2294.72,
+     "end": 2294.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 2337.02,
+     "end": 2337.65
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2333.22,
+     "end": 2333.85
+    },
+    {
+     "asset": "LC4932",
+     "start": 2337.65,
+     "end": 2348.81
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2333.85,
+     "end": 2345.01
+    },
+    {
+     "asset": "LC4932",
+     "start": 2348.81,
+     "end": 2350.57
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2345.01,
+     "end": 2346.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 2350.88,
+     "end": 2352.43
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2347.08,
+     "end": 2348.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 2352.54,
+     "end": 2355.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2348.74,
+     "end": 2352.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 2356.29,
+     "end": 2365.13
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2352.49,
+     "end": 2361.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 2365.32,
+     "end": 2371.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2361.52,
+     "end": 2367.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 2371.34,
+     "end": 2381.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2367.54,
+     "end": 2377.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 2386.13,
+     "end": 2387.33
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2382.33,
+     "end": 2383.53
+    },
+    {
+     "asset": "LC4932",
+     "start": 2409.41,
+     "end": 2410.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2405.61,
+     "end": 2406.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 2410.41,
+     "end": 2419.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2406.61,
+     "end": 2415.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 2419.41,
+     "end": 2423.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2415.61,
+     "end": 2419.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 2478.01,
+     "end": 2483.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2474.21,
+     "end": 2480.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 2483.97,
+     "end": 2487.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2480.17,
+     "end": 2483.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 2533.61,
+     "end": 2539.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2529.81,
+     "end": 2535.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 2539.58,
+     "end": 2543.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2535.78,
+     "end": 2539.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 2634.4,
+     "end": 2636.81
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2630.6,
+     "end": 2633.01
+    },
+    {
+     "asset": "LC4932",
+     "start": 2642.63,
+     "end": 2647.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2638.83,
+     "end": 2643.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 2719.89,
+     "end": 2722.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2716.09,
+     "end": 2718.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 2722.35,
+     "end": 2731.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2718.55,
+     "end": 2728.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 2737.94,
+     "end": 2739.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2734.14,
+     "end": 2735.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 2739.79,
+     "end": 2742.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2735.99,
+     "end": 2738.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 2743.27,
+     "end": 2744.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2739.47,
+     "end": 2740.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 2752.47,
+     "end": 2765.08
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2748.67,
+     "end": 2761.28
+    },
+    {
+     "asset": "LC4932",
+     "start": 2776.86,
+     "end": 2779.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2773.06,
+     "end": 2775.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2800.21,
+     "end": 2804.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2796.41,
+     "end": 2800.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 2805.01,
+     "end": 2813.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2801.21,
+     "end": 2809.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 2813.38,
+     "end": 2816.63
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2809.58,
+     "end": 2812.83
+    },
+    {
+     "asset": "LC4932",
+     "start": 2955.0,
+     "end": 2956.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2951.2,
+     "end": 2953.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 2956.94,
+     "end": 2958.87
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2953.14,
+     "end": 2955.07
+    },
+    {
+     "asset": "LC4932",
+     "start": 2959.2,
+     "end": 2978.32
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2955.4,
+     "end": 2974.52
+    },
+    {
+     "asset": "LC4932",
+     "start": 2978.32,
+     "end": 2979.66
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2974.52,
+     "end": 2975.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 2979.99,
+     "end": 2997.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2976.19,
+     "end": 2993.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 2997.55,
+     "end": 3000.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2993.75,
+     "end": 2996.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 3000.57,
+     "end": 3015.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2996.77,
+     "end": 3011.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 3048.0,
+     "end": 3052.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3044.2,
+     "end": 3048.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3052.25,
+     "end": 3070.08
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3048.45,
+     "end": 3066.28
+    },
+    {
+     "asset": "LC4932",
+     "start": 3070.08,
+     "end": 3076.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3066.28,
+     "end": 3072.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 3076.55,
+     "end": 3092.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3072.75,
+     "end": 3088.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 3092.48,
+     "end": 3093.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3088.68,
+     "end": 3089.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 3135.63,
+     "end": 3141.18
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3131.83,
+     "end": 3137.38
+    },
+    {
+     "asset": "LC4932",
+     "start": 3141.18,
+     "end": 3146.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3137.38,
+     "end": 3142.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 3147.08,
+     "end": 3158.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3143.28,
+     "end": 3154.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 3158.87,
+     "end": 3159.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3155.07,
+     "end": 3156.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 3160.16,
+     "end": 3161.49
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3156.36,
+     "end": 3157.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 3161.78,
+     "end": 3165.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3157.98,
+     "end": 3161.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 3165.17,
+     "end": 3166.43
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3161.37,
+     "end": 3162.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 3184.49,
+     "end": 3191.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3180.69,
+     "end": 3187.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 3216.13,
+     "end": 3222.49
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3212.33,
+     "end": 3218.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 3222.83,
+     "end": 3232.0
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3219.03,
+     "end": 3228.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 3232.0,
+     "end": 3235.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3228.2,
+     "end": 3232.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 3235.88,
+     "end": 3237.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3232.08,
+     "end": 3234.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 3238.11,
+     "end": 3245.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3234.31,
+     "end": 3241.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 3245.27,
+     "end": 3262.3
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3241.47,
+     "end": 3258.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 3262.3,
+     "end": 3274.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3258.5,
+     "end": 3271.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 3294.46,
+     "end": 3312.0
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3290.66,
+     "end": 3308.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 3311.81,
+     "end": 3314.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3308.01,
+     "end": 3311.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 3315.03,
+     "end": 3323.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3311.23,
+     "end": 3319.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 3323.54,
+     "end": 3339.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3319.74,
+     "end": 3336.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 3339.83,
+     "end": 3340.77
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3336.03,
+     "end": 3336.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 3341.19,
+     "end": 3346.11
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3337.39,
+     "end": 3342.31
+    },
+    {
+     "asset": "LC4932",
+     "start": 3358.42,
+     "end": 3361.07
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3354.62,
+     "end": 3357.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 3361.07,
+     "end": 3365.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3357.27,
+     "end": 3361.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 3365.16,
+     "end": 3367.73
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3361.36,
+     "end": 3363.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 3368.11,
+     "end": 3371.69
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3364.31,
+     "end": 3367.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 3372.0,
+     "end": 3386.92
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3368.2,
+     "end": 3383.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 3411.36,
+     "end": 3431.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3407.56,
+     "end": 3427.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 3431.6,
+     "end": 3434.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3427.8,
+     "end": 3431.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 3434.88,
+     "end": 3435.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3431.08,
+     "end": 3431.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 3458.51,
+     "end": 3468.58
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3454.71,
+     "end": 3464.78
+    },
+    {
+     "asset": "LC4932",
+     "start": 3468.79,
+     "end": 3476.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3464.99,
+     "end": 3472.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 3476.16,
+     "end": 3492.65
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3472.36,
+     "end": 3488.85
+    },
+    {
+     "asset": "LC4932",
+     "start": 3492.65,
+     "end": 3506.03
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3488.85,
+     "end": 3502.23
+    },
+    {
+     "asset": "LC4932",
+     "start": 3545.23,
+     "end": 3550.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3541.43,
+     "end": 3546.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3568.66,
+     "end": 3581.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3564.86,
+     "end": 3577.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 3581.64,
+     "end": 3588.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3577.84,
+     "end": 3584.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 3588.65,
+     "end": 3593.49
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3584.85,
+     "end": 3589.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 3593.81,
+     "end": 3595.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3590.01,
+     "end": 3591.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 3595.21,
+     "end": 3606.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3591.41,
+     "end": 3603.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 3607.39,
+     "end": 3609.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3603.59,
+     "end": 3605.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 3609.48,
+     "end": 3610.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3605.68,
+     "end": 3607.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 3611.17,
+     "end": 3616.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3607.37,
+     "end": 3612.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 3618.31,
+     "end": 3622.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3614.51,
+     "end": 3618.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 3622.45,
+     "end": 3632.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3618.65,
+     "end": 3628.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 3644.32,
+     "end": 3654.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3640.52,
+     "end": 3650.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 3654.74,
+     "end": 3658.73
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3650.94,
+     "end": 3654.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 3658.97,
+     "end": 3661.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3655.17,
+     "end": 3657.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 3661.41,
+     "end": 3671.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3657.61,
+     "end": 3667.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3671.83,
+     "end": 3673.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3668.03,
+     "end": 3669.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 3673.45,
+     "end": 3674.73
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3669.65,
+     "end": 3670.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 3674.96,
+     "end": 3683.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3671.16,
+     "end": 3679.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 3786.76,
+     "end": 3798.18
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3782.96,
+     "end": 3794.38
+    },
+    {
+     "asset": "LC4932",
+     "start": 3798.45,
+     "end": 3808.39
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3794.65,
+     "end": 3804.59
+    },
+    {
+     "asset": "LC4932",
+     "start": 3808.62,
+     "end": 3813.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3804.82,
+     "end": 3809.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 3873.82,
+     "end": 3875.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3870.02,
+     "end": 3871.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 3875.01,
+     "end": 3880.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3871.21,
+     "end": 3876.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 3880.53,
+     "end": 3887.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3876.73,
+     "end": 3884.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 3888.4,
+     "end": 3895.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3884.6,
+     "end": 3891.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 3896.42,
+     "end": 3900.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3892.62,
+     "end": 3896.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 3900.77,
+     "end": 3902.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3896.97,
+     "end": 3898.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 3902.19,
+     "end": 3909.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3898.39,
+     "end": 3905.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 3909.68,
+     "end": 3927.27
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3905.88,
+     "end": 3923.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 3927.27,
+     "end": 3929.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3923.47,
+     "end": 3925.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 3929.85,
+     "end": 3931.74
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3926.05,
+     "end": 3927.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 3931.74,
+     "end": 3937.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3927.94,
+     "end": 3933.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 3937.24,
+     "end": 3938.91
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3933.44,
+     "end": 3935.11
+    },
+    {
+     "asset": "LC4932",
+     "start": 3939.2,
+     "end": 3941.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3935.4,
+     "end": 3937.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 4015.31,
+     "end": 4026.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4011.51,
+     "end": 4022.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 4026.68,
+     "end": 4045.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4022.88,
+     "end": 4041.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 4045.74,
+     "end": 4052.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4041.94,
+     "end": 4048.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 4058.69,
+     "end": 4062.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4054.89,
+     "end": 4058.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 4062.21,
+     "end": 4067.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4058.41,
+     "end": 4063.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 4067.45,
+     "end": 4085.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4063.65,
+     "end": 4081.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 4085.2,
+     "end": 4086.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4081.4,
+     "end": 4082.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 4166.05,
+     "end": 4182.15
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 62.66,
+     "end": 78.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 4182.62,
+     "end": 4185.86
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 79.23,
+     "end": 82.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 4185.86,
+     "end": 4187.15
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 82.47,
+     "end": 83.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 4187.4,
+     "end": 4195.86
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 84.01,
+     "end": 92.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 4195.86,
+     "end": 4203.79
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 92.47,
+     "end": 100.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 4270.76,
+     "end": 4274.38
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 167.37,
+     "end": 170.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 4274.6,
+     "end": 4284.9
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 171.21,
+     "end": 181.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 4285.08,
+     "end": 4297.44
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 181.69,
+     "end": 194.05
+    },
+    {
+     "asset": "LC4932",
+     "start": 4297.26,
+     "end": 4298.61
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 193.87,
+     "end": 195.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 4310.89,
+     "end": 4317.13
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 207.5,
+     "end": 213.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 4317.37,
+     "end": 4324.9
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 213.98,
+     "end": 221.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 4324.9,
+     "end": 4329.99
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 221.51,
+     "end": 226.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 4330.43,
+     "end": 4332.05
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 227.04,
+     "end": 228.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 4332.23,
+     "end": 4335.72
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 228.84,
+     "end": 232.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 4335.72,
+     "end": 4349.75
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 232.33,
+     "end": 246.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 4361.37,
+     "end": 4367.23
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 257.98,
+     "end": 263.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 4367.45,
+     "end": 4371.78
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 264.06,
+     "end": 268.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 4371.78,
+     "end": 4377.89
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 268.39,
+     "end": 274.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 4377.89,
+     "end": 4380.39
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 274.5,
+     "end": 277.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 4380.42,
+     "end": 4382.73
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 277.03,
+     "end": 279.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 4383.0,
+     "end": 4388.97
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 279.61,
+     "end": 285.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 4389.17,
+     "end": 4398.51
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 285.78,
+     "end": 295.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 4398.71,
+     "end": 4417.64
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 295.32,
+     "end": 314.25
+    },
+    {
+     "asset": "LC4932",
+     "start": 4417.64,
+     "end": 4420.23
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 314.25,
+     "end": 316.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 4517.59,
+     "end": 4531.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 414.2,
+     "end": 428.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4531.66,
+     "end": 4534.18
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 428.27,
+     "end": 430.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 4534.4,
+     "end": 4543.6
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 431.01,
+     "end": 440.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 4543.44,
+     "end": 4547.32
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 440.05,
+     "end": 443.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 4547.52,
+     "end": 4556.14
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 444.13,
+     "end": 452.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 4556.35,
+     "end": 4561.05
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 452.96,
+     "end": 457.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 4561.37,
+     "end": 4563.64
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 457.98,
+     "end": 460.25
+    },
+    {
+     "asset": "LC4932",
+     "start": 4564.86,
+     "end": 4566.14
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 461.47,
+     "end": 462.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 4593.14,
+     "end": 4596.95
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 489.75,
+     "end": 493.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 4596.95,
+     "end": 4599.75
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 493.56,
+     "end": 496.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 4600.01,
+     "end": 4605.34
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 496.62,
+     "end": 501.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 4605.58,
+     "end": 4621.81
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 502.19,
+     "end": 518.42
+    },
+    {
+     "asset": "LC4932",
+     "start": 4622.02,
+     "end": 4624.56
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 518.63,
+     "end": 521.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 4624.72,
+     "end": 4641.36
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 521.33,
+     "end": 537.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 4641.57,
+     "end": 4645.1
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 538.18,
+     "end": 541.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 4690.38,
+     "end": 4693.16
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 586.99,
+     "end": 589.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 4693.16,
+     "end": 4699.01
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 589.77,
+     "end": 595.62
+    },
+    {
+     "asset": "LC4932",
+     "start": 4703.2,
+     "end": 4704.71
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 599.81,
+     "end": 601.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 4704.71,
+     "end": 4706.37
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 601.32,
+     "end": 602.98
+    },
+    {
+     "asset": "LC4932",
+     "start": 4706.18,
+     "end": 4710.25
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 602.79,
+     "end": 606.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 4710.83,
+     "end": 4717.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 607.44,
+     "end": 614.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4717.85,
+     "end": 4722.1
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 614.46,
+     "end": 618.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 4722.31,
+     "end": 4724.9
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 618.92,
+     "end": 621.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 4724.9,
+     "end": 4730.85
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 621.51,
+     "end": 627.46
+    },
+    {
+     "asset": "LC4932",
+     "start": 4731.17,
+     "end": 4745.31
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 627.78,
+     "end": 641.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 4745.31,
+     "end": 4747.38
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 641.92,
+     "end": 643.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 4765.41,
+     "end": 4771.03
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 662.02,
+     "end": 667.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 4771.63,
+     "end": 4772.99
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 668.24,
+     "end": 669.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 4772.99,
+     "end": 4777.07
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 669.6,
+     "end": 673.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 4777.32,
+     "end": 4781.89
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 673.93,
+     "end": 678.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 4782.21,
+     "end": 4783.48
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 678.82,
+     "end": 680.09
+    },
+    {
+     "asset": "LC4932",
+     "start": 4783.68,
+     "end": 4802.84
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 680.29,
+     "end": 699.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 4802.93,
+     "end": 4808.01
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 699.54,
+     "end": 704.62
+    },
+    {
+     "asset": "LC4932",
+     "start": 4808.49,
+     "end": 4825.16
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 705.1,
+     "end": 721.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 4825.47,
+     "end": 4827.26
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 722.08,
+     "end": 723.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 4827.26,
+     "end": 4831.68
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 723.87,
+     "end": 728.29
+    }
+   ],
+   "other_turns": [
+    {
+     "asset": "LC4930",
+     "start": 106.75,
+     "end": 106.97
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 95.44,
+     "end": 95.66
+    },
+    {
+     "asset": "LC4930",
+     "start": 107.69,
+     "end": 110.06
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 96.38,
+     "end": 98.75
+    },
+    {
+     "asset": "LC4930",
+     "start": 110.06,
+     "end": 119.5
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 98.75,
+     "end": 108.19
+    },
+    {
+     "asset": "LC4930",
+     "start": 119.5,
+     "end": 120.16
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 108.19,
+     "end": 108.85
+    },
+    {
+     "asset": "LC4930",
+     "start": 120.45,
+     "end": 123.18
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 109.14,
+     "end": 111.87
+    },
+    {
+     "asset": "LC4930",
+     "start": 123.43,
+     "end": 124.69
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 112.12,
+     "end": 113.38
+    },
+    {
+     "asset": "LC4930",
+     "start": 124.69,
+     "end": 128.05
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 113.38,
+     "end": 116.74
+    },
+    {
+     "asset": "LC4930",
+     "start": 128.05,
+     "end": 130.89
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 116.74,
+     "end": 119.58
+    },
+    {
+     "asset": "LC4930",
+     "start": 151.91,
+     "end": 154.05
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 140.6,
+     "end": 142.74
+    },
+    {
+     "asset": "LC4931",
+     "start": 40.76,
+     "end": 45.9
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 40.46,
+     "end": 45.6
+    },
+    {
+     "asset": "LC4931",
+     "start": 45.91,
+     "end": 47.24
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 45.61,
+     "end": 46.94
+    },
+    {
+     "asset": "LC4931",
+     "start": 47.24,
+     "end": 51.97
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 46.94,
+     "end": 51.67
+    },
+    {
+     "asset": "LC4931",
+     "start": 52.13,
+     "end": 57.96
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 51.83,
+     "end": 57.66
+    },
+    {
+     "asset": "LC4931",
+     "start": 58.48,
+     "end": 65.27
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 58.18,
+     "end": 64.97
+    },
+    {
+     "asset": "LC4931",
+     "start": 79.14,
+     "end": 81.22
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 78.84,
+     "end": 80.92
+    },
+    {
+     "asset": "LC4931",
+     "start": 102.58,
+     "end": 104.37
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 102.28,
+     "end": 104.07
+    },
+    {
+     "asset": "LC4931",
+     "start": 155.53,
+     "end": 157.97
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 155.23,
+     "end": 157.67
+    },
+    {
+     "asset": "LC4931",
+     "start": 188.26,
+     "end": 189.91
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 187.96,
+     "end": 189.61
+    },
+    {
+     "asset": "LC4931",
+     "start": 212.71,
+     "end": 217.15
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 212.41,
+     "end": 216.85
+    },
+    {
+     "asset": "LC4931",
+     "start": 217.15,
+     "end": 219.87
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 216.85,
+     "end": 219.57
+    },
+    {
+     "asset": "LC4931",
+     "start": 219.87,
+     "end": 223.17
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 219.57,
+     "end": 222.87
+    },
+    {
+     "asset": "LC4931",
+     "start": 242.17,
+     "end": 248.73
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 241.87,
+     "end": 248.43
+    },
+    {
+     "asset": "LC4931",
+     "start": 248.77,
+     "end": 254.69
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 248.47,
+     "end": 254.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 7.95,
+     "end": 17.92
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4.15,
+     "end": 14.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 17.92,
+     "end": 21.12
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 14.12,
+     "end": 17.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 21.12,
+     "end": 21.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 17.32,
+     "end": 18.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 128.47,
+     "end": 129.82
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 124.67,
+     "end": 126.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 129.82,
+     "end": 135.18
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 126.02,
+     "end": 131.38
+    },
+    {
+     "asset": "LC4932",
+     "start": 135.98,
+     "end": 139.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 132.18,
+     "end": 135.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 139.3,
+     "end": 140.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 135.5,
+     "end": 137.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 140.86,
+     "end": 142.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 137.06,
+     "end": 138.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 178.24,
+     "end": 181.43
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 174.44,
+     "end": 177.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 181.43,
+     "end": 182.27
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 177.63,
+     "end": 178.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 267.0,
+     "end": 271.23
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 263.2,
+     "end": 267.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 290.17,
+     "end": 291.03
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 286.37,
+     "end": 287.23
+    },
+    {
+     "asset": "LC4932",
+     "start": 291.36,
+     "end": 292.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 287.56,
+     "end": 288.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 292.16,
+     "end": 299.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 288.36,
+     "end": 295.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 478.37,
+     "end": 480.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 474.57,
+     "end": 476.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 480.35,
+     "end": 482.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 476.55,
+     "end": 478.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 482.01,
+     "end": 484.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 478.21,
+     "end": 480.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 485.06,
+     "end": 489.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 481.26,
+     "end": 485.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 489.84,
+     "end": 492.96
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 486.04,
+     "end": 489.16
+    },
+    {
+     "asset": "LC4932",
+     "start": 492.96,
+     "end": 494.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 489.16,
+     "end": 490.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 629.15,
+     "end": 636.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 625.35,
+     "end": 632.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 637.12,
+     "end": 645.8
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 633.32,
+     "end": 642.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 646.02,
+     "end": 648.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 642.22,
+     "end": 644.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 648.24,
+     "end": 649.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 644.44,
+     "end": 645.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 786.55,
+     "end": 795.07
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 782.75,
+     "end": 791.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 831.84,
+     "end": 834.64
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 828.04,
+     "end": 830.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 885.79,
+     "end": 886.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 881.99,
+     "end": 882.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 886.58,
+     "end": 891.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 882.78,
+     "end": 887.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 891.6,
+     "end": 895.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 887.8,
+     "end": 891.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 895.64,
+     "end": 896.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 891.84,
+     "end": 892.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 932.36,
+     "end": 944.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 928.56,
+     "end": 940.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 945.18,
+     "end": 950.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 941.38,
+     "end": 946.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 1057.8,
+     "end": 1061.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1054.0,
+     "end": 1057.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 1111.63,
+     "end": 1115.33
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1107.83,
+     "end": 1111.53
+    },
+    {
+     "asset": "LC4932",
+     "start": 1115.33,
+     "end": 1116.69
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1111.53,
+     "end": 1112.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 1169.4,
+     "end": 1175.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1165.6,
+     "end": 1171.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 1214.86,
+     "end": 1222.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1211.06,
+     "end": 1218.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 1256.66,
+     "end": 1258.57
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1252.86,
+     "end": 1254.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 1278.06,
+     "end": 1281.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1274.26,
+     "end": 1277.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1281.61,
+     "end": 1284.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1277.81,
+     "end": 1281.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 1293.7,
+     "end": 1295.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1289.9,
+     "end": 1291.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 1425.28,
+     "end": 1430.58
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1421.48,
+     "end": 1426.78
+    },
+    {
+     "asset": "LC4932",
+     "start": 1447.68,
+     "end": 1451.3
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1443.88,
+     "end": 1447.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 1486.72,
+     "end": 1489.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1482.92,
+     "end": 1485.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 1523.52,
+     "end": 1534.96
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1519.72,
+     "end": 1531.16
+    },
+    {
+     "asset": "LC4932",
+     "start": 1564.76,
+     "end": 1571.82
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1560.96,
+     "end": 1568.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 1571.91,
+     "end": 1577.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1568.11,
+     "end": 1573.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1587.15,
+     "end": 1591.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1583.35,
+     "end": 1587.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 1591.62,
+     "end": 1594.74
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1587.82,
+     "end": 1590.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 1594.74,
+     "end": 1601.37
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1590.94,
+     "end": 1597.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 1635.17,
+     "end": 1639.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1631.37,
+     "end": 1635.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 1664.65,
+     "end": 1665.28
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1660.85,
+     "end": 1661.48
+    },
+    {
+     "asset": "LC4932",
+     "start": 1666.17,
+     "end": 1671.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1662.37,
+     "end": 1667.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 1694.65,
+     "end": 1697.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1690.85,
+     "end": 1693.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1697.2,
+     "end": 1700.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1693.4,
+     "end": 1696.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 1700.4,
+     "end": 1702.72
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1696.6,
+     "end": 1698.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 1702.72,
+     "end": 1707.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1698.92,
+     "end": 1703.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 1707.72,
+     "end": 1708.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1703.92,
+     "end": 1704.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1708.64,
+     "end": 1711.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1704.84,
+     "end": 1707.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1711.61,
+     "end": 1713.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1707.81,
+     "end": 1709.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 1766.71,
+     "end": 1771.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1762.91,
+     "end": 1767.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 1771.58,
+     "end": 1776.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1767.78,
+     "end": 1772.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 1776.76,
+     "end": 1778.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1772.96,
+     "end": 1774.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 1778.14,
+     "end": 1784.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1774.34,
+     "end": 1780.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 1784.57,
+     "end": 1790.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1780.77,
+     "end": 1786.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 1857.49,
+     "end": 1860.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1853.69,
+     "end": 1856.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1902.32,
+     "end": 1906.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1898.52,
+     "end": 1902.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 1977.99,
+     "end": 1981.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1974.19,
+     "end": 1977.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1981.61,
+     "end": 1983.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1977.81,
+     "end": 1979.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 2003.13,
+     "end": 2017.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1999.33,
+     "end": 2013.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2017.53,
+     "end": 2028.8
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2013.73,
+     "end": 2025.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 2036.78,
+     "end": 2045.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2032.98,
+     "end": 2041.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 2045.14,
+     "end": 2050.0
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2041.34,
+     "end": 2046.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 2050.31,
+     "end": 2055.92
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2046.51,
+     "end": 2052.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 2071.67,
+     "end": 2075.85
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2067.87,
+     "end": 2072.05
+    },
+    {
+     "asset": "LC4932",
+     "start": 2075.99,
+     "end": 2078.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2072.19,
+     "end": 2074.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2078.88,
+     "end": 2081.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2075.08,
+     "end": 2077.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 2081.42,
+     "end": 2082.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2077.62,
+     "end": 2078.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 2082.65,
+     "end": 2086.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2078.85,
+     "end": 2082.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 2130.75,
+     "end": 2140.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2126.95,
+     "end": 2136.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 2223.01,
+     "end": 2225.34
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2219.21,
+     "end": 2221.54
+    },
+    {
+     "asset": "LC4932",
+     "start": 2293.59,
+     "end": 2298.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2289.79,
+     "end": 2294.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 2332.55,
+     "end": 2336.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2328.75,
+     "end": 2332.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 2382.14,
+     "end": 2386.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2378.34,
+     "end": 2382.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 2403.8,
+     "end": 2408.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2400.0,
+     "end": 2405.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 2634.41,
+     "end": 2636.8
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2630.61,
+     "end": 2633.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 2652.01,
+     "end": 2662.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2648.21,
+     "end": 2658.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 2663.23,
+     "end": 2665.34
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2659.43,
+     "end": 2661.54
+    },
+    {
+     "asset": "LC4932",
+     "start": 2719.88,
+     "end": 2722.22
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2716.08,
+     "end": 2718.42
+    },
+    {
+     "asset": "LC4932",
+     "start": 2722.36,
+     "end": 2731.82
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2718.56,
+     "end": 2728.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 2816.91,
+     "end": 2819.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2813.11,
+     "end": 2815.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2947.92,
+     "end": 2951.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2944.12,
+     "end": 2947.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 2951.19,
+     "end": 2954.5
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2947.39,
+     "end": 2950.7
+    },
+    {
+     "asset": "LC4932",
+     "start": 3016.64,
+     "end": 3025.74
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3012.84,
+     "end": 3021.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 3026.49,
+     "end": 3045.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3022.69,
+     "end": 3041.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 3046.16,
+     "end": 3047.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3042.36,
+     "end": 3043.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 3116.82,
+     "end": 3119.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3113.02,
+     "end": 3115.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3119.32,
+     "end": 3123.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3115.52,
+     "end": 3119.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 3123.76,
+     "end": 3131.22
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3119.96,
+     "end": 3127.42
+    },
+    {
+     "asset": "LC4932",
+     "start": 3131.22,
+     "end": 3132.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3127.42,
+     "end": 3128.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 3132.19,
+     "end": 3135.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3128.39,
+     "end": 3131.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 3167.29,
+     "end": 3173.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3163.49,
+     "end": 3169.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 3275.74,
+     "end": 3281.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3271.94,
+     "end": 3277.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 3281.56,
+     "end": 3282.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3277.76,
+     "end": 3278.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 3282.98,
+     "end": 3289.72
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3279.18,
+     "end": 3285.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 3290.26,
+     "end": 3293.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3286.46,
+     "end": 3289.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 3293.28,
+     "end": 3294.26
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3289.48,
+     "end": 3290.46
+    },
+    {
+     "asset": "LC4932",
+     "start": 3347.48,
+     "end": 3353.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3343.68,
+     "end": 3349.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3354.19,
+     "end": 3356.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3350.39,
+     "end": 3352.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 3356.38,
+     "end": 3358.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3352.58,
+     "end": 3354.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 3387.33,
+     "end": 3393.94
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3383.53,
+     "end": 3390.14
+    },
+    {
+     "asset": "LC4932",
+     "start": 3411.39,
+     "end": 3431.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3407.59,
+     "end": 3427.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 3431.56,
+     "end": 3434.87
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3427.76,
+     "end": 3431.07
+    },
+    {
+     "asset": "LC4932",
+     "start": 3434.87,
+     "end": 3435.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3431.07,
+     "end": 3431.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 3443.8,
+     "end": 3458.13
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3440.0,
+     "end": 3454.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 3545.22,
+     "end": 3550.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3541.42,
+     "end": 3546.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3551.97,
+     "end": 3558.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3548.17,
+     "end": 3554.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 3559.13,
+     "end": 3562.11
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3555.33,
+     "end": 3558.31
+    },
+    {
+     "asset": "LC4932",
+     "start": 3562.11,
+     "end": 3566.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3558.31,
+     "end": 3563.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 3566.83,
+     "end": 3568.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3563.03,
+     "end": 3564.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 3633.65,
+     "end": 3638.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3629.85,
+     "end": 3634.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 3639.63,
+     "end": 3644.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3635.83,
+     "end": 3640.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 3742.19,
+     "end": 3749.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3738.39,
+     "end": 3745.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 3749.17,
+     "end": 3752.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3745.37,
+     "end": 3748.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 3763.69,
+     "end": 3769.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3759.89,
+     "end": 3765.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3770.64,
+     "end": 3782.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3766.84,
+     "end": 3778.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 3782.93,
+     "end": 3786.12
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3779.13,
+     "end": 3782.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 3858.6,
+     "end": 3864.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3854.8,
+     "end": 3860.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 3864.14,
+     "end": 3869.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3860.34,
+     "end": 3865.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 3869.47,
+     "end": 3872.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3865.67,
+     "end": 3868.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 3872.59,
+     "end": 3873.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3868.79,
+     "end": 3869.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3947.17,
+     "end": 3950.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3943.37,
+     "end": 3946.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 4007.42,
+     "end": 4014.77
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4003.62,
+     "end": 4010.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 4146.82,
+     "end": 4148.2
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 43.43,
+     "end": 44.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 4148.2,
+     "end": 4149.71
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 44.81,
+     "end": 46.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 4152.53,
+     "end": 4153.02
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 49.14,
+     "end": 49.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 4153.17,
+     "end": 4153.64
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 49.78,
+     "end": 50.25
+    },
+    {
+     "asset": "LC4932",
+     "start": 4160.57,
+     "end": 4165.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 57.18,
+     "end": 62.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4265.56,
+     "end": 4270.56
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 162.17,
+     "end": 167.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 4304.29,
+     "end": 4310.39
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 200.9,
+     "end": 207.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 4350.63,
+     "end": 4360.91
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 247.24,
+     "end": 257.52
+    },
+    {
+     "asset": "LC4932",
+     "start": 4421.17,
+     "end": 4422.3
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 317.78,
+     "end": 318.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 4422.41,
+     "end": 4424.15
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 319.02,
+     "end": 320.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 4424.15,
+     "end": 4432.95
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 320.76,
+     "end": 329.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 4433.76,
+     "end": 4437.34
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 330.37,
+     "end": 333.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 4438.04,
+     "end": 4445.08
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 334.65,
+     "end": 341.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 4445.08,
+     "end": 4448.14
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 341.69,
+     "end": 344.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 4490.54,
+     "end": 4492.74
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 387.15,
+     "end": 389.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 4493.7,
+     "end": 4505.11
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 390.31,
+     "end": 401.72
+    },
+    {
+     "asset": "LC4932",
+     "start": 4505.53,
+     "end": 4512.28
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 402.14,
+     "end": 408.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 4512.57,
+     "end": 4515.04
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 409.18,
+     "end": 411.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 4515.04,
+     "end": 4517.25
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 411.65,
+     "end": 413.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 4566.45,
+     "end": 4576.6
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 463.06,
+     "end": 473.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 4576.6,
+     "end": 4578.84
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 473.21,
+     "end": 475.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 4578.84,
+     "end": 4580.41
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 475.45,
+     "end": 477.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 4580.92,
+     "end": 4592.83
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 477.53,
+     "end": 489.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 4669.72,
+     "end": 4674.06
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 566.33,
+     "end": 570.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 4674.45,
+     "end": 4679.57
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 571.06,
+     "end": 576.18
+    },
+    {
+     "asset": "LC4932",
+     "start": 4679.61,
+     "end": 4683.34
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 576.22,
+     "end": 579.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 4683.74,
+     "end": 4687.2
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 580.35,
+     "end": 583.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 4687.59,
+     "end": 4689.82
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 584.2,
+     "end": 586.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 4747.89,
+     "end": 4755.33
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 644.5,
+     "end": 651.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 4756.28,
+     "end": 4761.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 652.89,
+     "end": 658.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4761.9,
+     "end": 4764.87
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 658.51,
+     "end": 661.48
+    }
+   ],
+   "note": "turns from the captain's synced timeline 'GEO Podcast - Synced' (44 min), each transcribed from that speaker's own ISO microphone track; mapped onto every angle by the measured multicam offsets. Scored only inside the window the timeline covers."
+  },
+  {
+   "id": "P04",
+   "family": "person",
+   "person": {
+    "name": "Craig",
+    "identified_by_asset": "LCATL0013"
+   },
+   "predicate": "speaking",
+   "turns": [
+    {
+     "asset": "LC4930",
+     "start": 106.75,
+     "end": 106.97
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 95.44,
+     "end": 95.66
+    },
+    {
+     "asset": "LC4930",
+     "start": 107.69,
+     "end": 110.06
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 96.38,
+     "end": 98.75
+    },
+    {
+     "asset": "LC4930",
+     "start": 110.06,
+     "end": 119.5
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 98.75,
+     "end": 108.19
+    },
+    {
+     "asset": "LC4930",
+     "start": 119.5,
+     "end": 120.16
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 108.19,
+     "end": 108.85
+    },
+    {
+     "asset": "LC4930",
+     "start": 120.45,
+     "end": 123.18
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 109.14,
+     "end": 111.87
+    },
+    {
+     "asset": "LC4930",
+     "start": 123.43,
+     "end": 124.69
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 112.12,
+     "end": 113.38
+    },
+    {
+     "asset": "LC4930",
+     "start": 124.69,
+     "end": 128.05
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 113.38,
+     "end": 116.74
+    },
+    {
+     "asset": "LC4930",
+     "start": 128.05,
+     "end": 130.89
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 116.74,
+     "end": 119.58
+    },
+    {
+     "asset": "LC4930",
+     "start": 151.91,
+     "end": 154.05
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 140.6,
+     "end": 142.74
+    },
+    {
+     "asset": "LC4931",
+     "start": 40.76,
+     "end": 45.9
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 40.46,
+     "end": 45.6
+    },
+    {
+     "asset": "LC4931",
+     "start": 45.91,
+     "end": 47.24
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 45.61,
+     "end": 46.94
+    },
+    {
+     "asset": "LC4931",
+     "start": 47.24,
+     "end": 51.97
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 46.94,
+     "end": 51.67
+    },
+    {
+     "asset": "LC4931",
+     "start": 52.13,
+     "end": 57.96
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 51.83,
+     "end": 57.66
+    },
+    {
+     "asset": "LC4931",
+     "start": 58.48,
+     "end": 65.27
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 58.18,
+     "end": 64.97
+    },
+    {
+     "asset": "LC4931",
+     "start": 79.14,
+     "end": 81.22
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 78.84,
+     "end": 80.92
+    },
+    {
+     "asset": "LC4931",
+     "start": 102.58,
+     "end": 104.37
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 102.28,
+     "end": 104.07
+    },
+    {
+     "asset": "LC4931",
+     "start": 155.53,
+     "end": 157.97
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 155.23,
+     "end": 157.67
+    },
+    {
+     "asset": "LC4931",
+     "start": 188.26,
+     "end": 189.91
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 187.96,
+     "end": 189.61
+    },
+    {
+     "asset": "LC4931",
+     "start": 212.71,
+     "end": 217.15
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 212.41,
+     "end": 216.85
+    },
+    {
+     "asset": "LC4931",
+     "start": 217.15,
+     "end": 219.87
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 216.85,
+     "end": 219.57
+    },
+    {
+     "asset": "LC4931",
+     "start": 219.87,
+     "end": 223.17
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 219.57,
+     "end": 222.87
+    },
+    {
+     "asset": "LC4931",
+     "start": 242.17,
+     "end": 248.73
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 241.87,
+     "end": 248.43
+    },
+    {
+     "asset": "LC4931",
+     "start": 248.77,
+     "end": 254.69
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 248.47,
+     "end": 254.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 7.95,
+     "end": 17.92
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4.15,
+     "end": 14.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 17.92,
+     "end": 21.12
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 14.12,
+     "end": 17.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 21.12,
+     "end": 21.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 17.32,
+     "end": 18.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 128.47,
+     "end": 129.82
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 124.67,
+     "end": 126.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 129.82,
+     "end": 135.18
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 126.02,
+     "end": 131.38
+    },
+    {
+     "asset": "LC4932",
+     "start": 135.98,
+     "end": 139.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 132.18,
+     "end": 135.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 139.3,
+     "end": 140.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 135.5,
+     "end": 137.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 140.86,
+     "end": 142.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 137.06,
+     "end": 138.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 178.24,
+     "end": 181.43
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 174.44,
+     "end": 177.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 181.43,
+     "end": 182.27
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 177.63,
+     "end": 178.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 267.0,
+     "end": 271.23
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 263.2,
+     "end": 267.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 290.17,
+     "end": 291.03
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 286.37,
+     "end": 287.23
+    },
+    {
+     "asset": "LC4932",
+     "start": 291.36,
+     "end": 292.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 287.56,
+     "end": 288.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 292.16,
+     "end": 299.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 288.36,
+     "end": 295.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 478.37,
+     "end": 480.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 474.57,
+     "end": 476.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 480.35,
+     "end": 482.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 476.55,
+     "end": 478.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 482.01,
+     "end": 484.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 478.21,
+     "end": 480.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 485.06,
+     "end": 489.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 481.26,
+     "end": 485.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 489.84,
+     "end": 492.96
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 486.04,
+     "end": 489.16
+    },
+    {
+     "asset": "LC4932",
+     "start": 492.96,
+     "end": 494.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 489.16,
+     "end": 490.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 629.15,
+     "end": 636.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 625.35,
+     "end": 632.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 637.12,
+     "end": 645.8
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 633.32,
+     "end": 642.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 646.02,
+     "end": 648.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 642.22,
+     "end": 644.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 648.24,
+     "end": 649.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 644.44,
+     "end": 645.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 786.55,
+     "end": 795.07
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 782.75,
+     "end": 791.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 831.84,
+     "end": 834.64
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 828.04,
+     "end": 830.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 885.79,
+     "end": 886.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 881.99,
+     "end": 882.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 886.58,
+     "end": 891.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 882.78,
+     "end": 887.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 891.6,
+     "end": 895.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 887.8,
+     "end": 891.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 895.64,
+     "end": 896.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 891.84,
+     "end": 892.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 932.36,
+     "end": 944.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 928.56,
+     "end": 940.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 945.18,
+     "end": 950.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 941.38,
+     "end": 946.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 1057.8,
+     "end": 1061.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1054.0,
+     "end": 1057.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 1111.63,
+     "end": 1115.33
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1107.83,
+     "end": 1111.53
+    },
+    {
+     "asset": "LC4932",
+     "start": 1115.33,
+     "end": 1116.69
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1111.53,
+     "end": 1112.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 1169.4,
+     "end": 1175.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1165.6,
+     "end": 1171.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 1214.86,
+     "end": 1222.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1211.06,
+     "end": 1218.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 1256.66,
+     "end": 1258.57
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1252.86,
+     "end": 1254.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 1278.06,
+     "end": 1281.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1274.26,
+     "end": 1277.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1281.61,
+     "end": 1284.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1277.81,
+     "end": 1281.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 1293.7,
+     "end": 1295.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1289.9,
+     "end": 1291.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 1425.28,
+     "end": 1430.58
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1421.48,
+     "end": 1426.78
+    },
+    {
+     "asset": "LC4932",
+     "start": 1447.68,
+     "end": 1451.3
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1443.88,
+     "end": 1447.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 1486.72,
+     "end": 1489.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1482.92,
+     "end": 1485.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 1523.52,
+     "end": 1534.96
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1519.72,
+     "end": 1531.16
+    },
+    {
+     "asset": "LC4932",
+     "start": 1564.76,
+     "end": 1571.82
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1560.96,
+     "end": 1568.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 1571.91,
+     "end": 1577.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1568.11,
+     "end": 1573.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1587.15,
+     "end": 1591.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1583.35,
+     "end": 1587.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 1591.62,
+     "end": 1594.74
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1587.82,
+     "end": 1590.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 1594.74,
+     "end": 1601.37
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1590.94,
+     "end": 1597.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 1635.17,
+     "end": 1639.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1631.37,
+     "end": 1635.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 1664.65,
+     "end": 1665.28
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1660.85,
+     "end": 1661.48
+    },
+    {
+     "asset": "LC4932",
+     "start": 1666.17,
+     "end": 1671.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1662.37,
+     "end": 1667.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 1694.65,
+     "end": 1697.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1690.85,
+     "end": 1693.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1697.2,
+     "end": 1700.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1693.4,
+     "end": 1696.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 1700.4,
+     "end": 1702.72
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1696.6,
+     "end": 1698.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 1702.72,
+     "end": 1707.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1698.92,
+     "end": 1703.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 1707.72,
+     "end": 1708.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1703.92,
+     "end": 1704.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1708.64,
+     "end": 1711.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1704.84,
+     "end": 1707.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1711.61,
+     "end": 1713.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1707.81,
+     "end": 1709.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 1766.71,
+     "end": 1771.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1762.91,
+     "end": 1767.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 1771.58,
+     "end": 1776.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1767.78,
+     "end": 1772.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 1776.76,
+     "end": 1778.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1772.96,
+     "end": 1774.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 1778.14,
+     "end": 1784.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1774.34,
+     "end": 1780.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 1784.57,
+     "end": 1790.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1780.77,
+     "end": 1786.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 1857.49,
+     "end": 1860.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1853.69,
+     "end": 1856.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1902.32,
+     "end": 1906.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1898.52,
+     "end": 1902.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 1977.99,
+     "end": 1981.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1974.19,
+     "end": 1977.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 1981.61,
+     "end": 1983.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1977.81,
+     "end": 1979.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 2003.13,
+     "end": 2017.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1999.33,
+     "end": 2013.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2017.53,
+     "end": 2028.8
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2013.73,
+     "end": 2025.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 2036.78,
+     "end": 2045.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2032.98,
+     "end": 2041.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 2045.14,
+     "end": 2050.0
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2041.34,
+     "end": 2046.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 2050.31,
+     "end": 2055.92
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2046.51,
+     "end": 2052.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 2071.67,
+     "end": 2075.85
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2067.87,
+     "end": 2072.05
+    },
+    {
+     "asset": "LC4932",
+     "start": 2075.99,
+     "end": 2078.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2072.19,
+     "end": 2074.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2078.88,
+     "end": 2081.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2075.08,
+     "end": 2077.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 2081.42,
+     "end": 2082.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2077.62,
+     "end": 2078.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 2082.65,
+     "end": 2086.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2078.85,
+     "end": 2082.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 2130.75,
+     "end": 2140.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2126.95,
+     "end": 2136.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 2223.01,
+     "end": 2225.34
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2219.21,
+     "end": 2221.54
+    },
+    {
+     "asset": "LC4932",
+     "start": 2293.59,
+     "end": 2298.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2289.79,
+     "end": 2294.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 2332.55,
+     "end": 2336.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2328.75,
+     "end": 2332.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 2382.14,
+     "end": 2386.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2378.34,
+     "end": 2382.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 2403.8,
+     "end": 2408.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2400.0,
+     "end": 2405.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 2634.41,
+     "end": 2636.8
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2630.61,
+     "end": 2633.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 2652.01,
+     "end": 2662.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2648.21,
+     "end": 2658.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 2663.23,
+     "end": 2665.34
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2659.43,
+     "end": 2661.54
+    },
+    {
+     "asset": "LC4932",
+     "start": 2719.88,
+     "end": 2722.22
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2716.08,
+     "end": 2718.42
+    },
+    {
+     "asset": "LC4932",
+     "start": 2722.36,
+     "end": 2731.82
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2718.56,
+     "end": 2728.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 2816.91,
+     "end": 2819.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2813.11,
+     "end": 2815.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2947.92,
+     "end": 2951.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2944.12,
+     "end": 2947.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 2951.19,
+     "end": 2954.5
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2947.39,
+     "end": 2950.7
+    },
+    {
+     "asset": "LC4932",
+     "start": 3016.64,
+     "end": 3025.74
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3012.84,
+     "end": 3021.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 3026.49,
+     "end": 3045.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3022.69,
+     "end": 3041.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 3046.16,
+     "end": 3047.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3042.36,
+     "end": 3043.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 3116.82,
+     "end": 3119.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3113.02,
+     "end": 3115.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3119.32,
+     "end": 3123.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3115.52,
+     "end": 3119.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 3123.76,
+     "end": 3131.22
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3119.96,
+     "end": 3127.42
+    },
+    {
+     "asset": "LC4932",
+     "start": 3131.22,
+     "end": 3132.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3127.42,
+     "end": 3128.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 3132.19,
+     "end": 3135.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3128.39,
+     "end": 3131.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 3167.29,
+     "end": 3173.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3163.49,
+     "end": 3169.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 3275.74,
+     "end": 3281.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3271.94,
+     "end": 3277.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 3281.56,
+     "end": 3282.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3277.76,
+     "end": 3278.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 3282.98,
+     "end": 3289.72
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3279.18,
+     "end": 3285.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 3290.26,
+     "end": 3293.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3286.46,
+     "end": 3289.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 3293.28,
+     "end": 3294.26
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3289.48,
+     "end": 3290.46
+    },
+    {
+     "asset": "LC4932",
+     "start": 3347.48,
+     "end": 3353.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3343.68,
+     "end": 3349.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3354.19,
+     "end": 3356.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3350.39,
+     "end": 3352.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 3356.38,
+     "end": 3358.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3352.58,
+     "end": 3354.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 3387.33,
+     "end": 3393.94
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3383.53,
+     "end": 3390.14
+    },
+    {
+     "asset": "LC4932",
+     "start": 3411.39,
+     "end": 3431.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3407.59,
+     "end": 3427.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 3431.56,
+     "end": 3434.87
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3427.76,
+     "end": 3431.07
+    },
+    {
+     "asset": "LC4932",
+     "start": 3434.87,
+     "end": 3435.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3431.07,
+     "end": 3431.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 3443.8,
+     "end": 3458.13
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3440.0,
+     "end": 3454.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 3545.22,
+     "end": 3550.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3541.42,
+     "end": 3546.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3551.97,
+     "end": 3558.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3548.17,
+     "end": 3554.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 3559.13,
+     "end": 3562.11
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3555.33,
+     "end": 3558.31
+    },
+    {
+     "asset": "LC4932",
+     "start": 3562.11,
+     "end": 3566.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3558.31,
+     "end": 3563.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 3566.83,
+     "end": 3568.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3563.03,
+     "end": 3564.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 3633.65,
+     "end": 3638.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3629.85,
+     "end": 3634.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 3639.63,
+     "end": 3644.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3635.83,
+     "end": 3640.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 3742.19,
+     "end": 3749.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3738.39,
+     "end": 3745.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 3749.17,
+     "end": 3752.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3745.37,
+     "end": 3748.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 3763.69,
+     "end": 3769.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3759.89,
+     "end": 3765.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3770.64,
+     "end": 3782.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3766.84,
+     "end": 3778.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 3782.93,
+     "end": 3786.12
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3779.13,
+     "end": 3782.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 3858.6,
+     "end": 3864.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3854.8,
+     "end": 3860.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 3864.14,
+     "end": 3869.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3860.34,
+     "end": 3865.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 3869.47,
+     "end": 3872.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3865.67,
+     "end": 3868.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 3872.59,
+     "end": 3873.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3868.79,
+     "end": 3869.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3947.17,
+     "end": 3950.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3943.37,
+     "end": 3946.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 4007.42,
+     "end": 4014.77
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4003.62,
+     "end": 4010.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 4146.82,
+     "end": 4148.2
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 43.43,
+     "end": 44.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 4148.2,
+     "end": 4149.71
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 44.81,
+     "end": 46.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 4152.53,
+     "end": 4153.02
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 49.14,
+     "end": 49.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 4153.17,
+     "end": 4153.64
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 49.78,
+     "end": 50.25
+    },
+    {
+     "asset": "LC4932",
+     "start": 4160.57,
+     "end": 4165.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 57.18,
+     "end": 62.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4265.56,
+     "end": 4270.56
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 162.17,
+     "end": 167.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 4304.29,
+     "end": 4310.39
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 200.9,
+     "end": 207.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 4350.63,
+     "end": 4360.91
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 247.24,
+     "end": 257.52
+    },
+    {
+     "asset": "LC4932",
+     "start": 4421.17,
+     "end": 4422.3
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 317.78,
+     "end": 318.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 4422.41,
+     "end": 4424.15
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 319.02,
+     "end": 320.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 4424.15,
+     "end": 4432.95
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 320.76,
+     "end": 329.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 4433.76,
+     "end": 4437.34
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 330.37,
+     "end": 333.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 4438.04,
+     "end": 4445.08
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 334.65,
+     "end": 341.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 4445.08,
+     "end": 4448.14
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 341.69,
+     "end": 344.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 4490.54,
+     "end": 4492.74
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 387.15,
+     "end": 389.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 4493.7,
+     "end": 4505.11
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 390.31,
+     "end": 401.72
+    },
+    {
+     "asset": "LC4932",
+     "start": 4505.53,
+     "end": 4512.28
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 402.14,
+     "end": 408.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 4512.57,
+     "end": 4515.04
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 409.18,
+     "end": 411.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 4515.04,
+     "end": 4517.25
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 411.65,
+     "end": 413.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 4566.45,
+     "end": 4576.6
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 463.06,
+     "end": 473.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 4576.6,
+     "end": 4578.84
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 473.21,
+     "end": 475.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 4578.84,
+     "end": 4580.41
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 475.45,
+     "end": 477.02
+    },
+    {
+     "asset": "LC4932",
+     "start": 4580.92,
+     "end": 4592.83
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 477.53,
+     "end": 489.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 4669.72,
+     "end": 4674.06
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 566.33,
+     "end": 570.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 4674.45,
+     "end": 4679.57
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 571.06,
+     "end": 576.18
+    },
+    {
+     "asset": "LC4932",
+     "start": 4679.61,
+     "end": 4683.34
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 576.22,
+     "end": 579.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 4683.74,
+     "end": 4687.2
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 580.35,
+     "end": 583.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 4687.59,
+     "end": 4689.82
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 584.2,
+     "end": 586.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 4747.89,
+     "end": 4755.33
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 644.5,
+     "end": 651.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 4756.28,
+     "end": 4761.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 652.89,
+     "end": 658.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4761.9,
+     "end": 4764.87
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 658.51,
+     "end": 661.48
+    }
+   ],
+   "other_turns": [
+    {
+     "asset": "LC4930",
+     "start": 131.86,
+     "end": 134.13
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 120.55,
+     "end": 122.82
+    },
+    {
+     "asset": "LC4930",
+     "start": 134.4,
+     "end": 137.91
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 123.09,
+     "end": 126.6
+    },
+    {
+     "asset": "LC4930",
+     "start": 138.25,
+     "end": 141.5
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 126.94,
+     "end": 130.19
+    },
+    {
+     "asset": "LC4930",
+     "start": 141.81,
+     "end": 151.51
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 130.5,
+     "end": 140.2
+    },
+    {
+     "asset": "LC4930",
+     "start": 207.39,
+     "end": 209.06
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 196.08,
+     "end": 197.75
+    },
+    {
+     "asset": "LC4930",
+     "start": 209.06,
+     "end": 212.77
+    },
+    {
+     "asset": "LCATL0011",
+     "start": 197.75,
+     "end": 201.46
+    },
+    {
+     "asset": "LC4931",
+     "start": 65.52,
+     "end": 65.93
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 65.22,
+     "end": 65.63
+    },
+    {
+     "asset": "LC4931",
+     "start": 65.93,
+     "end": 67.62
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 65.63,
+     "end": 67.32
+    },
+    {
+     "asset": "LC4931",
+     "start": 67.87,
+     "end": 75.19
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 67.57,
+     "end": 74.89
+    },
+    {
+     "asset": "LC4931",
+     "start": 81.79,
+     "end": 82.18
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 81.49,
+     "end": 81.88
+    },
+    {
+     "asset": "LC4931",
+     "start": 82.48,
+     "end": 86.53
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 82.18,
+     "end": 86.23
+    },
+    {
+     "asset": "LC4931",
+     "start": 86.75,
+     "end": 91.69
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 86.45,
+     "end": 91.39
+    },
+    {
+     "asset": "LC4931",
+     "start": 91.87,
+     "end": 94.73
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 91.57,
+     "end": 94.43
+    },
+    {
+     "asset": "LC4931",
+     "start": 94.97,
+     "end": 102.33
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 94.67,
+     "end": 102.03
+    },
+    {
+     "asset": "LC4931",
+     "start": 158.38,
+     "end": 166.08
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 158.08,
+     "end": 165.78
+    },
+    {
+     "asset": "LC4931",
+     "start": 190.17,
+     "end": 196.26
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 189.87,
+     "end": 195.96
+    },
+    {
+     "asset": "LC4931",
+     "start": 196.5,
+     "end": 199.09
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 196.2,
+     "end": 198.79
+    },
+    {
+     "asset": "LC4931",
+     "start": 199.29,
+     "end": 202.02
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 198.99,
+     "end": 201.72
+    },
+    {
+     "asset": "LC4931",
+     "start": 202.1,
+     "end": 205.55
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 201.8,
+     "end": 205.25
+    },
+    {
+     "asset": "LC4931",
+     "start": 205.76,
+     "end": 211.93
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 205.46,
+     "end": 211.63
+    },
+    {
+     "asset": "LC4931",
+     "start": 223.94,
+     "end": 228.8
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 223.64,
+     "end": 228.5
+    },
+    {
+     "asset": "LC4931",
+     "start": 229.0,
+     "end": 236.68
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 228.7,
+     "end": 236.38
+    },
+    {
+     "asset": "LC4931",
+     "start": 236.68,
+     "end": 241.87
+    },
+    {
+     "asset": "LCATL0012",
+     "start": 236.38,
+     "end": 241.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 4.95,
+     "end": 7.57
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1.15,
+     "end": 3.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 142.49,
+     "end": 144.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 138.69,
+     "end": 141.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 145.04,
+     "end": 147.23
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 141.24,
+     "end": 143.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 159.98,
+     "end": 162.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 156.18,
+     "end": 158.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 162.1,
+     "end": 173.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 158.3,
+     "end": 169.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 173.75,
+     "end": 177.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 169.95,
+     "end": 173.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 207.12,
+     "end": 213.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 203.32,
+     "end": 210.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 214.08,
+     "end": 217.66
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 210.28,
+     "end": 213.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 222.23,
+     "end": 224.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 218.43,
+     "end": 220.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 224.76,
+     "end": 225.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 220.96,
+     "end": 221.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 271.44,
+     "end": 277.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 267.64,
+     "end": 273.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 277.79,
+     "end": 285.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 273.99,
+     "end": 281.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 285.29,
+     "end": 289.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 281.49,
+     "end": 286.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 299.65,
+     "end": 300.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 295.85,
+     "end": 296.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 309.3,
+     "end": 314.69
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 305.5,
+     "end": 310.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 460.38,
+     "end": 465.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 456.58,
+     "end": 461.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 500.71,
+     "end": 505.61
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 496.91,
+     "end": 501.81
+    },
+    {
+     "asset": "LC4932",
+     "start": 505.86,
+     "end": 509.29
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 502.06,
+     "end": 505.49
+    },
+    {
+     "asset": "LC4932",
+     "start": 509.38,
+     "end": 512.64
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 505.58,
+     "end": 508.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 512.71,
+     "end": 513.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 508.91,
+     "end": 509.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 673.91,
+     "end": 678.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 670.11,
+     "end": 674.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 678.97,
+     "end": 681.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 675.17,
+     "end": 677.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 681.41,
+     "end": 688.13
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 677.61,
+     "end": 684.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 688.35,
+     "end": 698.99
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 684.55,
+     "end": 695.19
+    },
+    {
+     "asset": "LC4932",
+     "start": 761.44,
+     "end": 766.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 757.64,
+     "end": 762.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 766.23,
+     "end": 774.89
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 762.43,
+     "end": 771.09
+    },
+    {
+     "asset": "LC4932",
+     "start": 775.18,
+     "end": 786.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 771.38,
+     "end": 782.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 835.03,
+     "end": 835.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 831.23,
+     "end": 831.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 835.67,
+     "end": 841.52
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 831.87,
+     "end": 837.72
+    },
+    {
+     "asset": "LC4932",
+     "start": 856.93,
+     "end": 857.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 853.13,
+     "end": 853.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 857.09,
+     "end": 864.56
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 853.29,
+     "end": 860.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 864.74,
+     "end": 870.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 860.94,
+     "end": 866.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 870.39,
+     "end": 878.96
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 866.59,
+     "end": 875.16
+    },
+    {
+     "asset": "LC4932",
+     "start": 879.12,
+     "end": 885.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 875.32,
+     "end": 881.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 927.26,
+     "end": 931.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 923.46,
+     "end": 928.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 1066.1,
+     "end": 1068.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1062.3,
+     "end": 1064.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 1068.66,
+     "end": 1070.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1064.86,
+     "end": 1066.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 1070.35,
+     "end": 1074.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1066.55,
+     "end": 1070.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 1074.23,
+     "end": 1081.77
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1070.43,
+     "end": 1077.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 1081.94,
+     "end": 1083.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1078.14,
+     "end": 1079.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1083.2,
+     "end": 1087.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1079.4,
+     "end": 1083.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 1087.2,
+     "end": 1087.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1083.4,
+     "end": 1084.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 1087.97,
+     "end": 1088.91
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1084.17,
+     "end": 1085.11
+    },
+    {
+     "asset": "LC4932",
+     "start": 1089.16,
+     "end": 1096.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1085.36,
+     "end": 1092.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 1096.64,
+     "end": 1098.38
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1092.84,
+     "end": 1094.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 1098.38,
+     "end": 1111.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1094.58,
+     "end": 1107.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 1176.92,
+     "end": 1181.37
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1173.12,
+     "end": 1177.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 1181.55,
+     "end": 1189.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1177.75,
+     "end": 1185.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 1223.14,
+     "end": 1228.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1219.34,
+     "end": 1224.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 1259.03,
+     "end": 1268.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1255.23,
+     "end": 1264.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 1268.29,
+     "end": 1275.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1264.49,
+     "end": 1271.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 1275.41,
+     "end": 1277.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1271.61,
+     "end": 1273.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 1285.06,
+     "end": 1285.44
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1281.26,
+     "end": 1281.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 1293.69,
+     "end": 1295.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1289.89,
+     "end": 1291.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 1297.02,
+     "end": 1298.63
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1293.22,
+     "end": 1294.83
+    },
+    {
+     "asset": "LC4932",
+     "start": 1298.79,
+     "end": 1302.99
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1294.99,
+     "end": 1299.19
+    },
+    {
+     "asset": "LC4932",
+     "start": 1331.06,
+     "end": 1339.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1327.26,
+     "end": 1335.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 1431.05,
+     "end": 1443.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1427.25,
+     "end": 1440.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 1443.93,
+     "end": 1447.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1440.13,
+     "end": 1443.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 1489.85,
+     "end": 1490.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1486.05,
+     "end": 1487.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 1490.94,
+     "end": 1493.72
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1487.14,
+     "end": 1489.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 1493.95,
+     "end": 1503.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1490.15,
+     "end": 1499.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 1503.92,
+     "end": 1511.34
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1500.12,
+     "end": 1507.54
+    },
+    {
+     "asset": "LC4932",
+     "start": 1511.64,
+     "end": 1522.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1507.84,
+     "end": 1519.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 1601.5,
+     "end": 1618.68
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1597.7,
+     "end": 1614.88
+    },
+    {
+     "asset": "LC4932",
+     "start": 1618.95,
+     "end": 1622.11
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1615.15,
+     "end": 1618.31
+    },
+    {
+     "asset": "LC4932",
+     "start": 1622.17,
+     "end": 1627.07
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1618.37,
+     "end": 1623.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 1627.35,
+     "end": 1635.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1623.55,
+     "end": 1631.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 1644.86,
+     "end": 1648.39
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1641.06,
+     "end": 1644.59
+    },
+    {
+     "asset": "LC4932",
+     "start": 1648.44,
+     "end": 1649.3
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1644.64,
+     "end": 1645.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 1671.77,
+     "end": 1672.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1667.97,
+     "end": 1668.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 1672.24,
+     "end": 1680.08
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1668.44,
+     "end": 1676.28
+    },
+    {
+     "asset": "LC4932",
+     "start": 1684.57,
+     "end": 1691.59
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1680.77,
+     "end": 1687.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 1691.73,
+     "end": 1694.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1687.93,
+     "end": 1690.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 1748.45,
+     "end": 1751.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1744.65,
+     "end": 1747.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 1761.17,
+     "end": 1765.84
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1757.37,
+     "end": 1762.04
+    },
+    {
+     "asset": "LC4932",
+     "start": 1820.42,
+     "end": 1823.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1816.62,
+     "end": 1819.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 1823.25,
+     "end": 1827.95
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1819.45,
+     "end": 1824.15
+    },
+    {
+     "asset": "LC4932",
+     "start": 1828.27,
+     "end": 1843.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1824.47,
+     "end": 1839.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 1843.91,
+     "end": 1857.27
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1840.11,
+     "end": 1853.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 1860.68,
+     "end": 1862.85
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1856.88,
+     "end": 1859.05
+    },
+    {
+     "asset": "LC4932",
+     "start": 1945.8,
+     "end": 1958.37
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1942.0,
+     "end": 1954.57
+    },
+    {
+     "asset": "LC4932",
+     "start": 1958.55,
+     "end": 1971.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1954.75,
+     "end": 1967.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 1971.67,
+     "end": 1977.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1967.87,
+     "end": 1973.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 1983.98,
+     "end": 1985.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1980.18,
+     "end": 1981.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 1985.79,
+     "end": 1991.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1981.99,
+     "end": 1987.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 1991.04,
+     "end": 2002.98
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 1987.24,
+     "end": 1999.18
+    },
+    {
+     "asset": "LC4932",
+     "start": 2115.67,
+     "end": 2119.42
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2111.87,
+     "end": 2115.62
+    },
+    {
+     "asset": "LC4932",
+     "start": 2126.89,
+     "end": 2130.09
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2123.09,
+     "end": 2126.29
+    },
+    {
+     "asset": "LC4932",
+     "start": 2225.78,
+     "end": 2238.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2221.98,
+     "end": 2235.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 2239.16,
+     "end": 2245.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2235.36,
+     "end": 2241.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 2245.99,
+     "end": 2249.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2242.19,
+     "end": 2245.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 2249.81,
+     "end": 2251.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2246.01,
+     "end": 2247.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 2277.49,
+     "end": 2279.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2273.69,
+     "end": 2275.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 2279.4,
+     "end": 2283.23
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2275.6,
+     "end": 2279.43
+    },
+    {
+     "asset": "LC4932",
+     "start": 2283.23,
+     "end": 2286.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2279.43,
+     "end": 2282.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 2286.48,
+     "end": 2292.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2282.68,
+     "end": 2288.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 2292.24,
+     "end": 2293.29
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2288.44,
+     "end": 2289.49
+    },
+    {
+     "asset": "LC4932",
+     "start": 2298.52,
+     "end": 2298.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2294.72,
+     "end": 2294.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 2337.02,
+     "end": 2337.65
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2333.22,
+     "end": 2333.85
+    },
+    {
+     "asset": "LC4932",
+     "start": 2337.65,
+     "end": 2348.81
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2333.85,
+     "end": 2345.01
+    },
+    {
+     "asset": "LC4932",
+     "start": 2348.81,
+     "end": 2350.57
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2345.01,
+     "end": 2346.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 2350.88,
+     "end": 2352.43
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2347.08,
+     "end": 2348.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 2352.54,
+     "end": 2355.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2348.74,
+     "end": 2352.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 2356.29,
+     "end": 2365.13
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2352.49,
+     "end": 2361.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 2365.32,
+     "end": 2371.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2361.52,
+     "end": 2367.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 2371.34,
+     "end": 2381.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2367.54,
+     "end": 2377.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 2386.13,
+     "end": 2387.33
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2382.33,
+     "end": 2383.53
+    },
+    {
+     "asset": "LC4932",
+     "start": 2409.41,
+     "end": 2410.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2405.61,
+     "end": 2406.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 2410.41,
+     "end": 2419.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2406.61,
+     "end": 2415.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 2419.41,
+     "end": 2423.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2415.61,
+     "end": 2419.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 2478.01,
+     "end": 2483.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2474.21,
+     "end": 2480.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 2483.97,
+     "end": 2487.76
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2480.17,
+     "end": 2483.96
+    },
+    {
+     "asset": "LC4932",
+     "start": 2533.61,
+     "end": 2539.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2529.81,
+     "end": 2535.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 2539.58,
+     "end": 2543.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2535.78,
+     "end": 2539.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 2634.4,
+     "end": 2636.81
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2630.6,
+     "end": 2633.01
+    },
+    {
+     "asset": "LC4932",
+     "start": 2642.63,
+     "end": 2647.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2638.83,
+     "end": 2643.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 2719.89,
+     "end": 2722.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2716.09,
+     "end": 2718.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 2722.35,
+     "end": 2731.86
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2718.55,
+     "end": 2728.06
+    },
+    {
+     "asset": "LC4932",
+     "start": 2737.94,
+     "end": 2739.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2734.14,
+     "end": 2735.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 2739.79,
+     "end": 2742.62
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2735.99,
+     "end": 2738.82
+    },
+    {
+     "asset": "LC4932",
+     "start": 2743.27,
+     "end": 2744.02
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2739.47,
+     "end": 2740.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 2752.47,
+     "end": 2765.08
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2748.67,
+     "end": 2761.28
+    },
+    {
+     "asset": "LC4932",
+     "start": 2776.86,
+     "end": 2779.53
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2773.06,
+     "end": 2775.73
+    },
+    {
+     "asset": "LC4932",
+     "start": 2800.21,
+     "end": 2804.71
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2796.41,
+     "end": 2800.91
+    },
+    {
+     "asset": "LC4932",
+     "start": 2805.01,
+     "end": 2813.17
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2801.21,
+     "end": 2809.37
+    },
+    {
+     "asset": "LC4932",
+     "start": 2813.38,
+     "end": 2816.63
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2809.58,
+     "end": 2812.83
+    },
+    {
+     "asset": "LC4932",
+     "start": 2955.0,
+     "end": 2956.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2951.2,
+     "end": 2953.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 2956.94,
+     "end": 2958.87
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2953.14,
+     "end": 2955.07
+    },
+    {
+     "asset": "LC4932",
+     "start": 2959.2,
+     "end": 2978.32
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2955.4,
+     "end": 2974.52
+    },
+    {
+     "asset": "LC4932",
+     "start": 2978.32,
+     "end": 2979.66
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2974.52,
+     "end": 2975.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 2979.99,
+     "end": 2997.55
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2976.19,
+     "end": 2993.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 2997.55,
+     "end": 3000.35
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2993.75,
+     "end": 2996.55
+    },
+    {
+     "asset": "LC4932",
+     "start": 3000.57,
+     "end": 3015.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 2996.77,
+     "end": 3011.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 3048.0,
+     "end": 3052.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3044.2,
+     "end": 3048.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3052.25,
+     "end": 3070.08
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3048.45,
+     "end": 3066.28
+    },
+    {
+     "asset": "LC4932",
+     "start": 3070.08,
+     "end": 3076.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3066.28,
+     "end": 3072.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 3076.55,
+     "end": 3092.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3072.75,
+     "end": 3088.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 3092.48,
+     "end": 3093.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3088.68,
+     "end": 3089.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 3135.63,
+     "end": 3141.18
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3131.83,
+     "end": 3137.38
+    },
+    {
+     "asset": "LC4932",
+     "start": 3141.18,
+     "end": 3146.75
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3137.38,
+     "end": 3142.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 3147.08,
+     "end": 3158.67
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3143.28,
+     "end": 3154.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 3158.87,
+     "end": 3159.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3155.07,
+     "end": 3156.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 3160.16,
+     "end": 3161.49
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3156.36,
+     "end": 3157.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 3161.78,
+     "end": 3165.15
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3157.98,
+     "end": 3161.35
+    },
+    {
+     "asset": "LC4932",
+     "start": 3165.17,
+     "end": 3166.43
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3161.37,
+     "end": 3162.63
+    },
+    {
+     "asset": "LC4932",
+     "start": 3184.49,
+     "end": 3191.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3180.69,
+     "end": 3187.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 3216.13,
+     "end": 3222.49
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3212.33,
+     "end": 3218.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 3222.83,
+     "end": 3232.0
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3219.03,
+     "end": 3228.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 3232.0,
+     "end": 3235.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3228.2,
+     "end": 3232.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 3235.88,
+     "end": 3237.93
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3232.08,
+     "end": 3234.13
+    },
+    {
+     "asset": "LC4932",
+     "start": 3238.11,
+     "end": 3245.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3234.31,
+     "end": 3241.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 3245.27,
+     "end": 3262.3
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3241.47,
+     "end": 3258.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 3262.3,
+     "end": 3274.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3258.5,
+     "end": 3271.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 3294.46,
+     "end": 3312.0
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3290.66,
+     "end": 3308.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 3311.81,
+     "end": 3314.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3308.01,
+     "end": 3311.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 3315.03,
+     "end": 3323.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3311.23,
+     "end": 3319.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 3323.54,
+     "end": 3339.83
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3319.74,
+     "end": 3336.03
+    },
+    {
+     "asset": "LC4932",
+     "start": 3339.83,
+     "end": 3340.77
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3336.03,
+     "end": 3336.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 3341.19,
+     "end": 3346.11
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3337.39,
+     "end": 3342.31
+    },
+    {
+     "asset": "LC4932",
+     "start": 3358.42,
+     "end": 3361.07
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3354.62,
+     "end": 3357.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 3361.07,
+     "end": 3365.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3357.27,
+     "end": 3361.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 3365.16,
+     "end": 3367.73
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3361.36,
+     "end": 3363.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 3368.11,
+     "end": 3371.69
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3364.31,
+     "end": 3367.89
+    },
+    {
+     "asset": "LC4932",
+     "start": 3372.0,
+     "end": 3386.92
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3368.2,
+     "end": 3383.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 3411.36,
+     "end": 3431.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3407.56,
+     "end": 3427.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 3431.6,
+     "end": 3434.88
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3427.8,
+     "end": 3431.08
+    },
+    {
+     "asset": "LC4932",
+     "start": 3434.88,
+     "end": 3435.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3431.08,
+     "end": 3431.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 3458.51,
+     "end": 3468.58
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3454.71,
+     "end": 3464.78
+    },
+    {
+     "asset": "LC4932",
+     "start": 3468.79,
+     "end": 3476.16
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3464.99,
+     "end": 3472.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 3476.16,
+     "end": 3492.65
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3472.36,
+     "end": 3488.85
+    },
+    {
+     "asset": "LC4932",
+     "start": 3492.65,
+     "end": 3506.03
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3488.85,
+     "end": 3502.23
+    },
+    {
+     "asset": "LC4932",
+     "start": 3545.23,
+     "end": 3550.25
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3541.43,
+     "end": 3546.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 3568.66,
+     "end": 3581.36
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3564.86,
+     "end": 3577.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 3581.64,
+     "end": 3588.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3577.84,
+     "end": 3584.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 3588.65,
+     "end": 3593.49
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3584.85,
+     "end": 3589.69
+    },
+    {
+     "asset": "LC4932",
+     "start": 3593.81,
+     "end": 3595.21
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3590.01,
+     "end": 3591.41
+    },
+    {
+     "asset": "LC4932",
+     "start": 3595.21,
+     "end": 3606.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3591.41,
+     "end": 3603.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 3607.39,
+     "end": 3609.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3603.59,
+     "end": 3605.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 3609.48,
+     "end": 3610.9
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3605.68,
+     "end": 3607.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 3611.17,
+     "end": 3616.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3607.37,
+     "end": 3612.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 3618.31,
+     "end": 3622.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3614.51,
+     "end": 3618.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 3622.45,
+     "end": 3632.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3618.65,
+     "end": 3628.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 3644.32,
+     "end": 3654.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3640.52,
+     "end": 3650.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 3654.74,
+     "end": 3658.73
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3650.94,
+     "end": 3654.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 3658.97,
+     "end": 3661.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3655.17,
+     "end": 3657.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 3661.41,
+     "end": 3671.51
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3657.61,
+     "end": 3667.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 3671.83,
+     "end": 3673.45
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3668.03,
+     "end": 3669.65
+    },
+    {
+     "asset": "LC4932",
+     "start": 3673.45,
+     "end": 3674.73
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3669.65,
+     "end": 3670.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 3674.96,
+     "end": 3683.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3671.16,
+     "end": 3679.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 3786.76,
+     "end": 3798.18
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3782.96,
+     "end": 3794.38
+    },
+    {
+     "asset": "LC4932",
+     "start": 3798.45,
+     "end": 3808.39
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3794.65,
+     "end": 3804.59
+    },
+    {
+     "asset": "LC4932",
+     "start": 3808.62,
+     "end": 3813.48
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3804.82,
+     "end": 3809.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 3873.82,
+     "end": 3875.01
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3870.02,
+     "end": 3871.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 3875.01,
+     "end": 3880.31
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3871.21,
+     "end": 3876.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 3880.53,
+     "end": 3887.97
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3876.73,
+     "end": 3884.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 3888.4,
+     "end": 3895.7
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3884.6,
+     "end": 3891.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 3896.42,
+     "end": 3900.47
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3892.62,
+     "end": 3896.67
+    },
+    {
+     "asset": "LC4932",
+     "start": 3900.77,
+     "end": 3902.19
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3896.97,
+     "end": 3898.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 3902.19,
+     "end": 3909.4
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3898.39,
+     "end": 3905.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 3909.68,
+     "end": 3927.27
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3905.88,
+     "end": 3923.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 3927.27,
+     "end": 3929.6
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3923.47,
+     "end": 3925.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 3929.85,
+     "end": 3931.74
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3926.05,
+     "end": 3927.94
+    },
+    {
+     "asset": "LC4932",
+     "start": 3931.74,
+     "end": 3937.06
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3927.94,
+     "end": 3933.26
+    },
+    {
+     "asset": "LC4932",
+     "start": 3937.24,
+     "end": 3938.91
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3933.44,
+     "end": 3935.11
+    },
+    {
+     "asset": "LC4932",
+     "start": 3939.2,
+     "end": 3941.1
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 3935.4,
+     "end": 3937.3
+    },
+    {
+     "asset": "LC4932",
+     "start": 4015.31,
+     "end": 4026.41
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4011.51,
+     "end": 4022.61
+    },
+    {
+     "asset": "LC4932",
+     "start": 4026.68,
+     "end": 4045.54
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4022.88,
+     "end": 4041.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 4045.74,
+     "end": 4052.46
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4041.94,
+     "end": 4048.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 4058.69,
+     "end": 4062.14
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4054.89,
+     "end": 4058.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 4062.21,
+     "end": 4067.24
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4058.41,
+     "end": 4063.44
+    },
+    {
+     "asset": "LC4932",
+     "start": 4067.45,
+     "end": 4085.2
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4063.65,
+     "end": 4081.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 4085.2,
+     "end": 4086.79
+    },
+    {
+     "asset": "LCATL0013",
+     "start": 4081.4,
+     "end": 4082.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 4166.05,
+     "end": 4182.15
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 62.66,
+     "end": 78.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 4182.62,
+     "end": 4185.86
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 79.23,
+     "end": 82.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 4185.86,
+     "end": 4187.15
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 82.47,
+     "end": 83.76
+    },
+    {
+     "asset": "LC4932",
+     "start": 4187.4,
+     "end": 4195.86
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 84.01,
+     "end": 92.47
+    },
+    {
+     "asset": "LC4932",
+     "start": 4195.86,
+     "end": 4203.79
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 92.47,
+     "end": 100.4
+    },
+    {
+     "asset": "LC4932",
+     "start": 4270.76,
+     "end": 4274.38
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 167.37,
+     "end": 170.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 4274.6,
+     "end": 4284.9
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 171.21,
+     "end": 181.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 4285.08,
+     "end": 4297.44
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 181.69,
+     "end": 194.05
+    },
+    {
+     "asset": "LC4932",
+     "start": 4297.26,
+     "end": 4298.61
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 193.87,
+     "end": 195.22
+    },
+    {
+     "asset": "LC4932",
+     "start": 4310.89,
+     "end": 4317.13
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 207.5,
+     "end": 213.74
+    },
+    {
+     "asset": "LC4932",
+     "start": 4317.37,
+     "end": 4324.9
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 213.98,
+     "end": 221.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 4324.9,
+     "end": 4329.99
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 221.51,
+     "end": 226.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 4330.43,
+     "end": 4332.05
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 227.04,
+     "end": 228.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 4332.23,
+     "end": 4335.72
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 228.84,
+     "end": 232.33
+    },
+    {
+     "asset": "LC4932",
+     "start": 4335.72,
+     "end": 4349.75
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 232.33,
+     "end": 246.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 4361.37,
+     "end": 4367.23
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 257.98,
+     "end": 263.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 4367.45,
+     "end": 4371.78
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 264.06,
+     "end": 268.39
+    },
+    {
+     "asset": "LC4932",
+     "start": 4371.78,
+     "end": 4377.89
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 268.39,
+     "end": 274.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 4377.89,
+     "end": 4380.39
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 274.5,
+     "end": 277.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 4380.42,
+     "end": 4382.73
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 277.03,
+     "end": 279.34
+    },
+    {
+     "asset": "LC4932",
+     "start": 4383.0,
+     "end": 4388.97
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 279.61,
+     "end": 285.58
+    },
+    {
+     "asset": "LC4932",
+     "start": 4389.17,
+     "end": 4398.51
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 285.78,
+     "end": 295.12
+    },
+    {
+     "asset": "LC4932",
+     "start": 4398.71,
+     "end": 4417.64
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 295.32,
+     "end": 314.25
+    },
+    {
+     "asset": "LC4932",
+     "start": 4417.64,
+     "end": 4420.23
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 314.25,
+     "end": 316.84
+    },
+    {
+     "asset": "LC4932",
+     "start": 4517.59,
+     "end": 4531.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 414.2,
+     "end": 428.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4531.66,
+     "end": 4534.18
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 428.27,
+     "end": 430.79
+    },
+    {
+     "asset": "LC4932",
+     "start": 4534.4,
+     "end": 4543.6
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 431.01,
+     "end": 440.21
+    },
+    {
+     "asset": "LC4932",
+     "start": 4543.44,
+     "end": 4547.32
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 440.05,
+     "end": 443.93
+    },
+    {
+     "asset": "LC4932",
+     "start": 4547.52,
+     "end": 4556.14
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 444.13,
+     "end": 452.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 4556.35,
+     "end": 4561.05
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 452.96,
+     "end": 457.66
+    },
+    {
+     "asset": "LC4932",
+     "start": 4561.37,
+     "end": 4563.64
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 457.98,
+     "end": 460.25
+    },
+    {
+     "asset": "LC4932",
+     "start": 4564.86,
+     "end": 4566.14
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 461.47,
+     "end": 462.75
+    },
+    {
+     "asset": "LC4932",
+     "start": 4593.14,
+     "end": 4596.95
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 489.75,
+     "end": 493.56
+    },
+    {
+     "asset": "LC4932",
+     "start": 4596.95,
+     "end": 4599.75
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 493.56,
+     "end": 496.36
+    },
+    {
+     "asset": "LC4932",
+     "start": 4600.01,
+     "end": 4605.34
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 496.62,
+     "end": 501.95
+    },
+    {
+     "asset": "LC4932",
+     "start": 4605.58,
+     "end": 4621.81
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 502.19,
+     "end": 518.42
+    },
+    {
+     "asset": "LC4932",
+     "start": 4622.02,
+     "end": 4624.56
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 518.63,
+     "end": 521.17
+    },
+    {
+     "asset": "LC4932",
+     "start": 4624.72,
+     "end": 4641.36
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 521.33,
+     "end": 537.97
+    },
+    {
+     "asset": "LC4932",
+     "start": 4641.57,
+     "end": 4645.1
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 538.18,
+     "end": 541.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 4690.38,
+     "end": 4693.16
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 586.99,
+     "end": 589.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 4693.16,
+     "end": 4699.01
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 589.77,
+     "end": 595.62
+    },
+    {
+     "asset": "LC4932",
+     "start": 4703.2,
+     "end": 4704.71
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 599.81,
+     "end": 601.32
+    },
+    {
+     "asset": "LC4932",
+     "start": 4704.71,
+     "end": 4706.37
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 601.32,
+     "end": 602.98
+    },
+    {
+     "asset": "LC4932",
+     "start": 4706.18,
+     "end": 4710.25
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 602.79,
+     "end": 606.86
+    },
+    {
+     "asset": "LC4932",
+     "start": 4710.83,
+     "end": 4717.66
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 607.44,
+     "end": 614.27
+    },
+    {
+     "asset": "LC4932",
+     "start": 4717.85,
+     "end": 4722.1
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 614.46,
+     "end": 618.71
+    },
+    {
+     "asset": "LC4932",
+     "start": 4722.31,
+     "end": 4724.9
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 618.92,
+     "end": 621.51
+    },
+    {
+     "asset": "LC4932",
+     "start": 4724.9,
+     "end": 4730.85
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 621.51,
+     "end": 627.46
+    },
+    {
+     "asset": "LC4932",
+     "start": 4731.17,
+     "end": 4745.31
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 627.78,
+     "end": 641.92
+    },
+    {
+     "asset": "LC4932",
+     "start": 4745.31,
+     "end": 4747.38
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 641.92,
+     "end": 643.99
+    },
+    {
+     "asset": "LC4932",
+     "start": 4765.41,
+     "end": 4771.03
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 662.02,
+     "end": 667.64
+    },
+    {
+     "asset": "LC4932",
+     "start": 4771.63,
+     "end": 4772.99
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 668.24,
+     "end": 669.6
+    },
+    {
+     "asset": "LC4932",
+     "start": 4772.99,
+     "end": 4777.07
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 669.6,
+     "end": 673.68
+    },
+    {
+     "asset": "LC4932",
+     "start": 4777.32,
+     "end": 4781.89
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 673.93,
+     "end": 678.5
+    },
+    {
+     "asset": "LC4932",
+     "start": 4782.21,
+     "end": 4783.48
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 678.82,
+     "end": 680.09
+    },
+    {
+     "asset": "LC4932",
+     "start": 4783.68,
+     "end": 4802.84
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 680.29,
+     "end": 699.45
+    },
+    {
+     "asset": "LC4932",
+     "start": 4802.93,
+     "end": 4808.01
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 699.54,
+     "end": 704.62
+    },
+    {
+     "asset": "LC4932",
+     "start": 4808.49,
+     "end": 4825.16
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 705.1,
+     "end": 721.77
+    },
+    {
+     "asset": "LC4932",
+     "start": 4825.47,
+     "end": 4827.26
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 722.08,
+     "end": 723.87
+    },
+    {
+     "asset": "LC4932",
+     "start": 4827.26,
+     "end": 4831.68
+    },
+    {
+     "asset": "LCATL0014",
+     "start": 723.87,
+     "end": 728.29
+    }
+   ],
+   "note": "turns from the captain's synced timeline 'GEO Podcast - Synced' (44 min), each transcribed from that speaker's own ISO microphone track; mapped onto every angle by the measured multicam offsets. Scored only inside the window the timeline covers."
+  },
+  {
+   "id": "V01",
+   "family": "visual",
+   "query": "a closed silver laptop lying flat on a table",
+   "positive_frames": {
+    "LCATL0013": [
+     2889.97,
+     2899.98,
+     2909.99,
+     2950.03,
+     2960.04,
+     2970.05,
+     2980.06,
+     2990.07,
+     3000.08,
+     3010.09,
+     3020.1,
+     3030.11,
+     3040.12,
+     3050.13,
+     3060.14,
+     3070.15,
+     3080.16,
+     3090.17,
+     3100.18,
+     3110.19,
+     3120.2,
+     3130.21,
+     3140.22,
+     3150.23,
+     3160.24,
+     3170.25,
+     3179.76,
+     3189.77,
+     3199.78,
+     3209.79,
+     3219.8,
+     3229.81,
+     3239.82,
+     3249.83,
+     3259.84,
+     3269.85,
+     3279.86,
+     3289.87,
+     3299.88,
+     3309.89,
+     3319.9,
+     3329.91,
+     3339.92,
+     3349.93,
+     3359.94,
+     3369.95,
+     3379.96,
+     3389.97,
+     3399.98,
+     3409.99,
+     3420.0,
+     3430.01,
+     3440.02,
+     3450.03,
+     3460.04,
+     3470.05,
+     3480.06,
+     3490.07,
+     3500.08,
+     3530.11,
+     3540.12,
+     3550.13,
+     3560.14,
+     3570.15,
+     3580.16,
+     3590.17,
+     3600.18,
+     3610.19,
+     3620.2,
+     3630.21,
+     3640.22,
+     3650.23,
+     3660.24,
+     3670.25,
+     3679.759,
+     3689.769,
+     3699.779,
+     3729.809,
+     3739.819,
+     3749.829,
+     3759.839,
+     3769.849,
+     3779.859,
+     3789.869,
+     3799.879,
+     3809.889,
+     3819.899,
+     3829.909,
+     3839.919,
+     3849.929,
+     3859.939,
+     3869.949,
+     3879.959,
+     3889.969,
+     3899.979,
+     3909.989,
+     3919.999,
+     3930.009,
+     3940.019,
+     3950.029,
+     3960.039,
+     3970.049,
+     3980.059,
+     3990.069,
+     4000.079,
+     4010.089,
+     4020.099,
+     4030.109,
+     4040.119,
+     4050.129,
+     4060.139,
+     4070.149,
+     4080.159
+    ],
+    "LCATL0014": [
+     20.103,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793,
+     219.803,
+     229.813,
+     239.823,
+     249.833,
+     259.843,
+     269.853,
+     279.863,
+     289.873,
+     299.883,
+     309.893,
+     319.903,
+     329.913,
+     339.923,
+     349.933,
+     359.943,
+     369.953,
+     379.963,
+     389.973,
+     399.983,
+     409.993,
+     420.003,
+     430.013,
+     440.023,
+     450.033,
+     460.043,
+     470.053,
+     480.063,
+     490.073,
+     500.083,
+     510.093,
+     520.103,
+     530.113,
+     540.123,
+     560.143,
+     570.153,
+     580.163,
+     590.173,
+     600.183,
+     610.193,
+     620.203,
+     630.213,
+     640.223,
+     650.233,
+     660.243,
+     669.752,
+     679.762,
+     689.772,
+     699.782,
+     709.792,
+     719.802,
+     729.812,
+     739.822,
+     749.832,
+     759.842,
+     769.852,
+     779.862,
+     789.872,
+     799.882,
+     809.892,
+     819.902,
+     829.912
+    ]
+   },
+   "ambiguous_frames": {
+    "LCATL0013": [
+     2920.0,
+     2930.01
+    ],
+    "LCATL0014": [
+     30.113
+    ]
+   },
+   "note": ""
+  },
+  {
+   "id": "V02",
+   "family": "visual",
+   "query": "an open laptop with its lid raised",
+   "positive_frames": {
+    "LCATL0011": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793
+    ],
+    "LCATL0012": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793,
+     219.803,
+     229.813,
+     239.823,
+     249.833,
+     259.843,
+     269.853,
+     279.863
+    ],
+    "LCATL0013": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793,
+     219.803,
+     229.813,
+     239.823,
+     249.833,
+     259.843,
+     269.853,
+     279.863,
+     289.873,
+     299.883,
+     309.893,
+     319.903,
+     329.913,
+     339.923,
+     349.933,
+     359.943,
+     369.953,
+     379.963,
+     389.973,
+     399.983,
+     409.993,
+     420.003,
+     430.013,
+     440.023,
+     450.033,
+     460.043,
+     470.053,
+     480.063,
+     490.073,
+     500.083,
+     510.093,
+     520.103,
+     530.113,
+     540.123,
+     550.133,
+     560.143,
+     570.153,
+     580.163,
+     590.173,
+     600.183,
+     610.193,
+     620.203,
+     630.213,
+     640.223,
+     650.233,
+     660.243,
+     669.752,
+     679.762,
+     689.772,
+     699.782,
+     709.792,
+     719.802,
+     729.812,
+     739.822,
+     749.832,
+     759.842,
+     769.852,
+     779.862,
+     789.872,
+     799.882,
+     809.892,
+     819.902,
+     829.912,
+     839.922,
+     849.932,
+     859.942,
+     869.952,
+     879.962,
+     889.972,
+     899.982,
+     909.992,
+     920.002,
+     930.012,
+     940.022,
+     950.032,
+     960.042,
+     970.052,
+     980.062,
+     990.072,
+     1000.082,
+     1010.092,
+     1020.102,
+     1030.112,
+     1040.122,
+     1050.132,
+     1060.142,
+     1070.152,
+     1080.162,
+     1090.172,
+     1100.182,
+     1110.192,
+     1120.202,
+     1130.212,
+     1140.222,
+     1150.232,
+     1160.242,
+     1169.752,
+     1179.762,
+     1189.772,
+     1199.782,
+     1209.792,
+     1219.802,
+     1229.812,
+     1239.822,
+     1249.832,
+     1259.842,
+     1269.852,
+     1279.862,
+     1289.872,
+     1299.882,
+     1309.892,
+     1319.902,
+     1329.912,
+     1339.922,
+     1349.932,
+     1359.942,
+     1369.952,
+     1379.962,
+     1389.972,
+     1399.982,
+     1409.992,
+     1420.002,
+     1430.012,
+     1440.022,
+     1450.032,
+     1460.042,
+     1470.052,
+     1480.062,
+     1490.072,
+     1500.082,
+     1510.092,
+     1520.102,
+     1530.112,
+     1540.122,
+     1550.132,
+     1560.142,
+     1570.152,
+     1580.162,
+     1590.172,
+     1600.182,
+     1610.192,
+     1620.202,
+     1630.212,
+     1640.222,
+     1650.232,
+     1660.242,
+     1669.751,
+     1679.761,
+     1689.771,
+     1699.781,
+     1709.791,
+     1719.801,
+     1729.811,
+     1739.821,
+     1749.831,
+     1759.841,
+     1769.851,
+     1779.861,
+     1789.871,
+     1799.881,
+     1809.891,
+     1819.901,
+     1829.911,
+     1839.921,
+     1849.931,
+     1859.941,
+     1869.951,
+     1879.961,
+     1889.971,
+     1899.981,
+     1909.991,
+     1920.001,
+     1930.011,
+     1940.021,
+     1950.031,
+     1960.041,
+     1970.051,
+     1980.061,
+     1990.071,
+     2000.081,
+     2010.091,
+     2020.101,
+     2030.111,
+     2040.121,
+     2050.131,
+     2060.141,
+     2070.151,
+     2080.161,
+     2090.171,
+     2100.181,
+     2110.191,
+     2120.201,
+     2130.211,
+     2140.221,
+     2150.231,
+     2160.241,
+     2169.751,
+     2179.761,
+     2189.771,
+     2199.781,
+     2209.791,
+     2219.801,
+     2229.811,
+     2239.821,
+     2249.831,
+     2259.841,
+     2269.851,
+     2279.861,
+     2289.871,
+     2299.881,
+     2309.891,
+     2319.901,
+     2329.911,
+     2339.921,
+     2349.931,
+     2359.941,
+     2369.951,
+     2379.961,
+     2389.971,
+     2399.981,
+     2409.991,
+     2420.001,
+     2430.011,
+     2440.021,
+     2450.031,
+     2460.041,
+     2470.051,
+     2480.061,
+     2490.071,
+     2500.081,
+     2510.091,
+     2520.101,
+     2530.111,
+     2540.121,
+     2550.131,
+     2560.141,
+     2570.151,
+     2580.161,
+     2590.171,
+     2600.181,
+     2610.191,
+     2620.201,
+     2630.211,
+     2640.221,
+     2650.231,
+     2660.241,
+     2669.75,
+     2679.76,
+     2689.77,
+     2699.78,
+     2709.79,
+     2719.8,
+     2729.81,
+     2739.82,
+     2749.83,
+     2759.84,
+     2769.85,
+     2779.86,
+     2789.87,
+     2799.88,
+     2809.89,
+     2819.9,
+     2829.91,
+     2839.92,
+     2849.93,
+     2859.94,
+     2869.95,
+     2879.96,
+     2940.02,
+     3510.09,
+     3520.1,
+     3709.789,
+     3719.799,
+     4090.169
+    ],
+    "LCATL0014": [
+     0.083,
+     10.093,
+     550.133
+    ]
+   },
+   "ambiguous_frames": {
+    "LCATL0013": [
+     2920.0,
+     2930.01
+    ],
+    "LCATL0014": [
+     30.113
+    ]
+   },
+   "note": ""
+  },
+  {
+   "id": "V03",
+   "family": "visual",
+   "query": "a blue laptop screen at the edge of the frame",
+   "positive_frames": {
+    "LC4930": [
+     0.083,
+     10.093,
+     20.103,
+     30.113,
+     40.123,
+     50.133,
+     60.143,
+     70.153,
+     80.163,
+     90.173,
+     100.183,
+     110.193,
+     120.203,
+     130.213,
+     140.223,
+     150.233,
+     160.243,
+     169.753,
+     179.763,
+     189.773,
+     199.783,
+     209.793,
+     219.803
+    ],
+    "LC4932": [
+     1389.972,
+     1399.982,
+     1409.992,
+     1420.002,
+     1430.012,
+     1440.022,
+     1450.032,
+     1460.042,
+     1470.052,
+     1480.062,
+     1500.082,
+     1510.092,
+     1520.102,
+     1530.112,
+     1540.122,
+     1550.132,
+     1560.142,
+     1570.152,
+     1580.162,
+     1590.172,
+     1600.182,
+     1610.192,
+     1620.202,
+     1630.212,
+     1640.222,
+     1650.232,
+     2889.97,
+     3510.09,
+     3520.1,
+     3530.11,
+     3719.799,
+     3729.809,
+     4090.169,
+     4100.179,
+     4110.189,
+     4130.209,
+     4650.229,
+     4660.239
+    ]
+   },
+   "ambiguous_frames": {
+    "LC4932": [
+     1490.072,
+     4120.199,
+     4140.219,
+     4259.839
+    ]
+   },
+   "note": "the screen of Craig's open laptop seen from Akshita's camera"
+  },
+  {
+   "id": "V04",
+   "family": "visual",
+   "query": "a man resting his chin on his hand",
+   "positive_frames": {
+    "LCATL0013": [
+     540.123,
+     550.133,
+     560.143,
+     1729.811,
+     2249.831,
+     2259.841,
+     2600.181
+    ]
+   },
+   "ambiguous_frames": {
+    "LCATL0013": [
+     1920.001,
+     2610.191,
+     2620.201
+    ],
+    "LCATL0014": [
+     480.063,
+     799.882
+    ]
+   },
+   "note": "an action the frame index's refusal list does not name: it ranks"
+  },
+  {
+   "id": "V05",
+   "family": "visual",
+   "query": "a person gesturing with both hands",
+   "expect": "refused",
+   "note": "an action query the frame index refuses by design (footage_frames.ACTION_PATTERNS): a refusal is the correct abstention"
+  },
+  {
+   "id": "VX1",
+   "family": "visual",
+   "query": "a dog lying on the floor",
+   "positive_frames": {},
+   "ambiguous_frames": {},
+   "note": "absent: no frame of any source shows it"
+  },
+  {
+   "id": "VX2",
+   "family": "visual",
+   "query": "a busy city street full of cars",
+   "positive_frames": {},
+   "ambiguous_frames": {},
+   "note": "absent: no frame of any source shows it"
+  },
+  {
+   "id": "VX3",
+   "family": "visual",
+   "query": "a whiteboard covered in handwriting",
+   "positive_frames": {},
+   "ambiguous_frames": {},
+   "note": "absent: no frame of any source shows it"
+  },
+  {
+   "id": "VP01",
+   "family": "verified_predicate",
+   "person": {
+    "name": "Akshita",
+    "identified_by_asset": "LC4932"
+   },
+   "predicate": "hand_near_mouth",
+   "statement": "touches her face or hair with her hand",
+   "window": [
+    {
+     "asset": "LC4930",
+     "start": 0.0,
+     "end": 225.225
+    },
+    {
+     "asset": "LC4931",
+     "start": 0.0,
+     "end": 287.621
+    },
+    {
+     "asset": "LC4932",
+     "start": 0.0,
+     "end": 1200.0
+    }
+   ],
+   "events": [
+    {
+     "asset": "LC4930",
+     "start": 0.1,
+     "end": 0.1
+    },
+    {
+     "asset": "LC4930",
+     "start": 64.1,
+     "end": 64.1
+    },
+    {
+     "asset": "LC4931",
+     "start": 114.2,
+     "end": 114.2
+    },
+    {
+     "asset": "LC4931",
+     "start": 175.8,
+     "end": 175.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 239.8,
+     "end": 239.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 335.9,
+     "end": 335.9
+    },
+    {
+     "asset": "LC4932",
+     "start": 376.0,
+     "end": 378.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 420.0,
+     "end": 420.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 554.1,
+     "end": 556.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 608.2,
+     "end": 608.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 992.1,
+     "end": 992.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 1010.1,
+     "end": 1010.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 1048.1,
+     "end": 1048.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 1128.2,
+     "end": 1128.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 1191.8,
+     "end": 1193.8
+    }
+   ],
+   "ambiguous_events": [
+    {
+     "asset": "LC4930",
+     "start": 177.8,
+     "end": 177.8
+    },
+    {
+     "asset": "LC4931",
+     "start": 116.2,
+     "end": 116.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 374.0,
+     "end": 374.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 436.0,
+     "end": 436.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 536.1,
+     "end": 536.1
+    },
+    {
+     "asset": "LC4932",
+     "start": 610.2,
+     "end": 610.2
+    },
+    {
+     "asset": "LC4932",
+     "start": 721.8,
+     "end": 721.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 739.8,
+     "end": 739.8
+    },
+    {
+     "asset": "LC4932",
+     "start": 912.0,
+     "end": 912.0
+    },
+    {
+     "asset": "LC4932",
+     "start": 1140.2,
+     "end": 1140.2
+    }
+   ],
+   "note": "labelled by eye on every 2 s frame of the window (person crop of the shared M2 sample)"
+  }
+ ]
+}

@@ -10,8 +10,10 @@ from library.tools.project_layout import Area, ProjectLayout
 class PipelineLogger:
     def __init__(self, project_dir: str):
         self.project_dir = Path(project_dir)
-        self.log_file = ProjectLayout(project_dir).write_path(
-            Area.LOGS, "pipeline_log.jsonl")
+        # Resolved on the first write, not here: a run that REFUSES before
+        # its first step must leave the project untouched, and creating
+        # the logger is the first thing a run does.
+        self.log_file = None
         
     def log(self, step_id: str, event_type: str, duration_ms: float = None, token_count: dict = None, error: str = None, gate_decision: str = None, backend: str = None, latency: float = None, detail: dict = None):
         entry = {
@@ -44,6 +46,9 @@ class PipelineLogger:
         
         # Write to file
         try:
+            if self.log_file is None:
+                self.log_file = ProjectLayout(self.project_dir).write_path(
+                    Area.LOGS, "pipeline_log.jsonl")
             with open(self.log_file, "a") as f:
                 f.write(json_line + "\n")
         except Exception as e:

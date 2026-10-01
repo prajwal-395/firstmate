@@ -250,7 +250,11 @@ DASHBOARD = "dashboard"
 ORGANIZE = "organize"
 MARKER_PULL = "marker_feedback"
 MARKER_CAPTURE = "marker_capture"
-NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE, MARKER_PULL, MARKER_CAPTURE)
+FOOTAGE_ANALYSIS_RUN = "footage_analysis"
+"""`ren analyze` (library/tools/footage_analysis.py) - not a step: it
+orchestrates steps and the per-source memory lanes."""
+NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE, MARKER_PULL, MARKER_CAPTURE,
+                      FOOTAGE_ANALYSIS_RUN)
 
 _OUT = "pipeline_output"
 _STEPS_DIRNAME = "steps"
@@ -364,6 +368,7 @@ class Area(str, Enum):
     RUN_ARCHIVES = "run_archives"
     LOGS = "logs"
     PROVENANCE = "provenance"
+    FOOTAGE_MEMORY = "footage_memory"
     MIGRATIONS = "migrations"
     EXPORTS = "exports"
     RUN_STATE = "run_state"
@@ -644,6 +649,15 @@ AREAS: dict[Area, AreaSpec] = {
         "source. Append-only: a later run overwriting a file does not unmake "
         "the record of the earlier one.",
         produced_by=(RUNNER,)),
+    Area.FOOTAGE_MEMORY: AreaSpec(
+        f"{_OUT}/footage_memory", Kind.OUTPUT,
+        "The analysis-only run's account of itself (analysis_run.json: per "
+        "lane, per source, built / reused / failed and why) and the "
+        "versioned, path-portable export of the per-source memory "
+        "(footage_memory.v1.json, plus the local-only path map beside it). "
+        "The memory itself lives per machine, outside the project - see "
+        "docs/SOURCE_MEMORY.md.",
+        produced_by=(FOOTAGE_ANALYSIS_RUN,)),
     Area.MIGRATIONS: AreaSpec(
         f"{_OUT}/migrations", Kind.OUTPUT,
         "One record per time this folder was reorganised onto the layout: "

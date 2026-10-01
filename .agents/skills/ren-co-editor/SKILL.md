@@ -139,6 +139,13 @@ planning step that declares `creative_brief`.
   asked; it writes into the project's scratch). `ren search
   <project> "..."` finds where in the footage something happens. A
   ranking cannot say "not here": below the dense floor is not-in-footage.
+- `ren analyze <folder-or-project>` analyses footage with NO edit: the
+  analysis steps, the per-source memory lanes and both search indexes,
+  reusing every fresh record (heavy - it takes the heavy-work lock). A
+  bare folder becomes a collection project that `ren edit` can continue.
+  `ren export-memory <project>` writes the path-portable export;
+  `ren eval-search <project>` scores search on the pre-registered set
+  (docs/SOURCE_MEMORY.md, "The analysis-only run").
 - Every Resolve read or write goes through `resolve-axi`
   (`library/tools/resolve_axi.py`): timelines, pool, markers, renders.
   Address a Resolve project by its EXACT listed name, never a prefix.

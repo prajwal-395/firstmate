@@ -425,3 +425,42 @@ memory, not a second producer of it.
 same way, restricting results to that person's measured face or voice
 spans. `ren search <project> --person <name> --predicate <p>` is the
 structured query over M7 (above): no text, no index, no model.
+
+## The analysis-only run, its export and its eval
+
+Owners: `library/tools/footage_analysis.py` (`ren analyze`),
+`library/tools/memory_export.py` (`ren export-memory`),
+`library/tools/retrieval_eval.py` (`ren eval-search`). Basis: the
+separable-product report's recommendation (`data/vep-phase1-separable-product/report.md`
+in firstmate's home); measured numbers in
+`data/vep-footage-intelligence-proof-build/eval.md` there.
+
+```sh
+# Heavy. A bare folder becomes a collection project over it (footage read in place).
+ren analyze <folder-of-footage | project> [--into DIR] [--memory-only] [-- <run_scope flags>]
+ren analyze <project> --status            # light: per-source lane freshness
+ren export-memory <project>               # reads only
+ren eval-search <project> --out-json F    # the pre-registered set by default
+```
+
+- **Two halves.** The steps run through the ordinary runner under the
+  `footage_analysis` target (`run_scope.TARGETS`: scan, catalog, 1.03, 1.04,
+  1.05 - never object segmentation, OCR only with `-- --with ocr_extraction`);
+  then the lanes in `footage_analysis.LANES` fill M0-M3b, M6, M7 and build the
+  text and frame indexes. `--memory-only` runs scan and catalog alone.
+- **A fresh record is reused, never rebuilt**: a per-source lane runs only
+  for sources whose slot is missing, names another digest, or is older than
+  a slot it reads (an M3 measured off an M2 that was since re-sampled).
+- **`analysis_run.json`** (`pipeline_output/footage_memory/`) records, per
+  lane and per source, `built` / `reused` / `skipped` (why) / `failed` (the
+  error), with seconds per built video minute.
+- **The export** (`footage_memory.v1.json`, schema `ren.footage-memory`) keys
+  every asset by `sha256:<content digest>` and carries each slot's fields,
+  time ranges, provenance (writer module, instrument, model, built time),
+  coverage, and per-asset `complete` / `partial` / `failed` with the run's
+  reason. Absolute paths go ONLY to `footage_memory.local.json`;
+  `assert_portable` refuses to write an export any string of which carries
+  a local path. Embeddings are withheld unless `--include-embeddings`.
+- **The eval set** (`library/tools/retrieval_eval_set.json`) was committed
+  before any of its queries were scored; changing a query or a span is a new
+  set, not an edit.
