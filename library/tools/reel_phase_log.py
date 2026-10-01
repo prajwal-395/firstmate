@@ -734,6 +734,7 @@ def assemble_summary(
         captions: Optional[Dict[str, Any]] = None,
         cards: Any = None,
         suppressed_overlays: Any = None,
+        mic_bleed_audio_suppressions: Any = None,
         overlay_sweep: Optional[Dict[str, Any]] = None,
         transition_placements: Any = None,
         has_freeze_tail: Any = None,
@@ -797,6 +798,23 @@ def assemble_summary(
         },
         "cards": _card_rows(cards),
         "suppressed_overlays": [str(s) for s in (suppressed_overlays or ())],
+        "mic_bleed_audio_suppressions": [
+            {
+                "speaker": str(row["speaker"]),
+                "speaking_speakers": [
+                    str(speaker) for speaker in row["speaking_speakers"]],
+                "source_file": str(row["source_file"]),
+                "passage": str(row["passage"]),
+                "master_start": _float_or_none(row["master_start"]),
+                "master_end": _float_or_none(row["master_end"]),
+                "record_start_frame": _int_or_none(
+                    row["record_start_frame"]),
+                "record_end_frame": _int_or_none(
+                    row["record_end_frame"]),
+            }
+            for row in (mic_bleed_audio_suppressions or ())
+            if isinstance(row, dict)
+        ],
         "overlay_sweep": {
             "passed": sweep.get("passed"),
             "checked": _int_or_none(sweep.get("checked")),

@@ -3781,6 +3781,123 @@ def placements(ranges: Sequence[Tuple[float, float]],
     return out
 
 
+def suppress_mic_bleed_audio(placements_list: Sequence[dict],
+                             transcript: dict, fps: float
+                             ) -> tuple[list[dict], list[dict]]:
+    """Mute a microphone while another speaker owns the dialogue.
+
+    The transcript contains the surviving, speaker-attributed dialogue;
+    cached ISO measurements have already removed the losing copy of
+    detected mic bleed. During a speaker's segment, only microphones for
+    speakers who are also speaking may play. This carries a transcript
+    mic choice through to audio, instead of dropping the losing words
+    from captions while leaving that mic audible as an echo. Split a
+    placement at each such master-time window so valid audio on either
+    side remains intact. Genuine overlapping turns keep both microphones.
+    """
+    spoken = [
+        (str(segment["speaker"]), float(segment["timeline_start"]),
+         float(segment["timeline_end"]), str(segment["text"]))
+        for segment in (transcript or {}).get("segments", ())
+        if segment["speaker"]
+    ]
+    if not spoken:
+        return list(placements_list), []
+
+    out: list[dict] = []
+    suppressions: list[dict] = []
+    for placement in placements_list:
+        clip = placement["clip"]
+        if getattr(clip, "track_type", "video") != "audio":
+            out.append(placement)
+            continue
+        speaker = placement["speaker"]
+        if not speaker:
+            out.append(placement)
+            continue
+
+        master_start, master_end = map(float, placement["master"])
+        boundaries = {master_start, master_end}
+        for _active_speaker, start, end, _text in spoken:
+            if end > master_start and start < master_end:
+                boundaries.add(max(master_start, start))
+                boundaries.add(min(master_end, end))
+        ordered = sorted(boundaries)
+        cuts = []
+        for start, end in zip(ordered, ordered[1:]):
+            if end <= start:
+                continue
+            midpoint = (start + end) / 2
+            active_segments = [
+                segment for segment in spoken
+                if segment[1] <= midpoint < segment[2]
+            ]
+            active_speakers = sorted({segment[0]
+                                      for segment in active_segments})
+            if active_speakers and str(speaker) not in active_speakers:
+                passage = " / ".join(dict.fromkeys(
+                    segment[3] for segment in active_segments))
+                cuts.append((start, end, {
+                    "speakers": active_speakers,
+                    "passage": passage,
+                }))
+        if not cuts:
+            out.append(placement)
+            continue
+
+        base_record_frame = int(placement["snapped_record"])
+        source_start = float(placement["source_in"])
+        cursor = master_start
+
+        def keep_piece(start: float, end: float) -> None:
+            start_frame = int(round((start - master_start) * fps))
+            end_frame = int(round((end - master_start) * fps))
+            if end_frame <= start_frame:
+                return
+            offset = start_frame / fps
+            duration = (end_frame - start_frame) / fps
+            piece = dict(placement)
+            piece["master"] = (master_start + offset,
+                               master_start + offset + duration)
+            piece["source_in"] = source_start + offset
+            piece["source_out"] = piece["source_in"] + duration
+            piece["snapped_record"] = base_record_frame + start_frame
+            piece["record"] = piece["snapped_record"] / fps
+            out.append(piece)
+
+        for start, end, decision in cuts:
+            start = max(cursor, start)
+            # Expand the mute to cover every frame touched by the
+            # speaker window. A rounded left edge can leave one frame
+            # of the non-speaking mic audible before it; floor/ceil keep
+            # the split on the safe side of both boundaries.
+            cut_start_frame = max(0, int(math.floor(
+                (start - master_start) * fps)))
+            cut_end_frame = min(
+                int(round((master_end - master_start) * fps)),
+                int(math.ceil((end - master_start) * fps)))
+            cut_start = master_start + cut_start_frame / fps
+            cut_end = master_start + cut_end_frame / fps
+            if cut_start > cursor:
+                keep_piece(cursor, cut_start)
+            if cut_end_frame > cut_start_frame:
+                suppressions.append({
+                    "speaker": str(speaker),
+                    "speaking_speakers": decision["speakers"],
+                    "source_file": str(clip.source_file),
+                    "passage": decision["passage"],
+                    "master_start": cut_start,
+                    "master_end": cut_end,
+                    "record_start_frame": base_record_frame + cut_start_frame,
+                    "record_end_frame": base_record_frame + cut_end_frame,
+                })
+                cursor = max(cursor, cut_end)
+        if cursor < master_end:
+            keep_piece(cursor, master_end)
+
+    return out, suppressions
+
+
 def _transcript_source_time_at(transcript: dict, source_file: str,
                                timeline_time: float) -> Optional[float]:
     """Map a timeline edge through the transcript row bound to its words.
@@ -7665,6 +7782,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                       if resolved_angle_plan["declared"] else None)))
     except _angle_plan.AnglePlanError as exc:
         raise ReelBuildError(f"{name}: {exc}") from exc
+    # Speaker attribution must reach the audio placement too: while one
+    # person speaks, only that person's microphone plays unless another
+    # speaker has a distinct overlapping turn. Apply after audio offsets
+    # so every split keeps its actual reel record position, and before
+    # any Resolve placement occurs.
+    placements_list, mic_bleed_suppressions = suppress_mic_bleed_audio(
+        placements_list, transcript, fps)
     if angle_plan_record["declared"]:
         print(f"  {name}: angle plan - "
               + " | ".join(f"{shot['camera']} {shot['start_frame']}-"
@@ -7789,6 +7913,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     build_record: dict = {
         "timeline_name": name,
         "track_plan": track_plan.serializable(),
+        "mic_bleed_audio_suppressions": mic_bleed_suppressions,
         "stream_enforcement": {"checked": 0, "deleted": [],
                                "unverified": []},
         "link_groups": [], "caption_links": [], "link_warnings": [],
@@ -10438,6 +10563,8 @@ def _file_reel_summary(project_folder: str, *, number: int, name: str,
             captions=facts.get("captions"),
             cards=facts.get("cards"),
             suppressed_overlays=facts.get("suppressed_overlays"),
+            mic_bleed_audio_suppressions=facts.get(
+                "mic_bleed_audio_suppressions"),
             overlay_sweep=facts.get("overlay_sweep"),
             transition_placements=facts.get("transition_placements"),
             has_freeze_tail=facts.get("has_freeze_tail"),
@@ -12392,6 +12519,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     },
                     "cards": list(cards or ()),
                     "suppressed_overlays": list(suppressed_here),
+                    "mic_bleed_audio_suppressions": list(
+                        build_result.get(
+                            "mic_bleed_audio_suppressions") or []),
                     "overlay_sweep": (_sweep if isinstance(_sweep, dict)
                                       else None),
                     "transition_placements": (

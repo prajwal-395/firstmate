@@ -181,7 +181,34 @@ def test_build_summary_absent_rather_than_estimated():
     assert payload["drift_end"] is None
     assert payload["retired_to"] is None
     assert payload["cards"] == []
+    assert payload["mic_bleed_audio_suppressions"] == []
     assert payload["answers_owed"] == []
+
+
+def test_build_summary_records_measured_mic_bleed_audio_suppressions():
+    payload = phase_log.assemble_summary(
+        outcome=phase_log.OUTCOME_PROMOTED,
+        mic_bleed_audio_suppressions=[{
+            "speaker": "Craig",
+            "speaking_speakers": ["Akshita"],
+            "source_file": "/Craig.MXF",
+            "passage": "the repeated sentence",
+            "master_start": 103.0,
+            "master_end": 106.0,
+            "record_start_frame": 72,
+            "record_end_frame": 144,
+        }])
+
+    assert payload["mic_bleed_audio_suppressions"] == [{
+        "speaker": "Craig",
+        "speaking_speakers": ["Akshita"],
+        "source_file": "/Craig.MXF",
+        "passage": "the repeated sentence",
+        "master_start": 103.0,
+        "master_end": 106.0,
+        "record_start_frame": 72,
+        "record_end_frame": 144,
+    }]
 
 
 def test_drops_cap_bounds_a_pathological_line():
@@ -474,4 +501,3 @@ def test_the_timed_wrapper_files_nothing_when_there_is_nothing(tmp_path):
     assert reel_build.render_reel_cards_timed(
         project, 5, "Reel 05", [], "/remotion") == []
     assert phase_log.read_events(project) == []
-
