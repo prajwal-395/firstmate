@@ -20,7 +20,6 @@ transcription or a real project - every path builds under `tmp_path`.
 from pathlib import Path
 
 from library.tools import frame_ranker
-from library.tools import thumbnail_extractor
 
 
 # ── Bound 1: a blurred frame cannot win on composition alone ───────────
@@ -73,58 +72,6 @@ def test_unloaded_scorer_raises_instead_of_scoring_silently():
     except frame_ranker.FrameRankerUnavailable:
         return
     raise AssertionError("an unloaded scorer must refuse, not score")
-
-
-# ── Wiring: the ranker reaches thumbnails, the gate travels with it ───
-
-class _RisingScorer:
-    """Prefers later candidates - a stand-in for "the ranker disagrees
-    with the timestamp rule", which is the whole point of the adoption."""
-
-    def score_files(self, paths):
-        return [float(i) for i, _ in enumerate(paths)]
-
-
-def _stub_extraction(monkeypatch, calls):
-    def fake_extract(video_path, output_path, timestamp_s=1.0, width=320):
-        calls.append(round(float(timestamp_s), 3))
-        Path(output_path).write_bytes(
-            f"frame@{round(float(timestamp_s), 3)}".encode("utf-8"))
-        return True
-
-    monkeypatch.setattr(thumbnail_extractor, "extract_thumbnail",
-                        fake_extract)
-
-
-def test_ranked_thumbnail_promotes_the_sharp_winner(tmp_path, monkeypatch):
-    calls = []
-    _stub_extraction(monkeypatch, calls)
-    url = thumbnail_extractor.extract_ranked_clip_thumbnail(
-        str(tmp_path), "clip_1", "/nonexistent/src.mov", 225.0,
-        _RisingScorer(), sharpness_fn=lambda path: 300.0)
-    assert url == "/thumbnails/clip_1.jpg"
-    # The ranker judged a spread, not one timestamp - and judged only:
-    # a winner means no legacy fallback extraction ran.
-    assert len(calls) == frame_ranker.N_THUMBNAIL_CANDIDATES
-    # ... and the canonical file is the LAST candidate's frame: the
-    # rising scorer's winner, sharp throughout.
-    canonical = (tmp_path / "pipeline_output" / "thumbnails" / "clip_1.jpg")
-    assert canonical.read_bytes() == f"frame@{calls[-1]}".encode("utf-8")
-    # Losers are deleted, never served.
-    leftovers = [p.name for p in canonical.parent.iterdir()]
-    assert leftovers == ["clip_1.jpg"]
-
-
-def test_ranked_thumbnail_falls_back_when_nothing_is_sharp(
-        tmp_path, monkeypatch):
-    calls = []
-    _stub_extraction(monkeypatch, calls)
-    url = thumbnail_extractor.extract_ranked_clip_thumbnail(
-        str(tmp_path), "clip_1", "/nonexistent/src.mov", 225.0,
-        _RisingScorer(), sharpness_fn=lambda path: 10.0)
-    assert url == "/thumbnails/clip_1.jpg"
-    # Nine judged extractions, then the legacy fallback at 1.0 s.
-    assert calls[-1] == 1.0
 
 
 # ── The transformers 5.x boundary ────────────────────────────────────

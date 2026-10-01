@@ -122,7 +122,6 @@ select = [
 "library/tools/render_qa.py" = ["PLW1510"]                         # 17
 "library/tools/sfx_library.py" = ["PLW1510"]                       # 1
 "library/tools/speech_loudness.py" = ["PLW1510"]                   # 1
-"library/tools/thumbnail_extractor.py" = ["PLW1510"]               # 1
 "library/tools/window_frames.py" = ["PLW1510"]                     # 1
 "tests/test_brief_reference.py" = ["PLW1510"]                      # 2
 "tests/test_broll_context_share.py" = ["PLW1510"]                  # 2

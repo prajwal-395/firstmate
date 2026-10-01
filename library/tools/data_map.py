@@ -251,8 +251,8 @@ DOCUMENTS: Tuple[Document, ...] = (
         "analysis", "Area.MUSIC_ANALYSIS"),
     Document(
         "footage_index", ("footage_index.json",),
-        "The cross-clip footage search index. A PROTOTYPE in the "
-        "DASHBOARD, out of the pipeline (AGENTS.md 2).",
+        "The cross-clip footage search index. A PROTOTYPE behind "
+        "`ren search`, out of the pipeline (AGENTS.md 2).",
         "library/tools/analysis/footage_query.py", "analysis",
         "Area.SCRATCH"),
     Document(

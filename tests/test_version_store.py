@@ -127,8 +127,8 @@ BINARY_DECOYS = [
 #      renders its own versioned copies under steps/4_05.
 #   raw/, music/, audio/, transcripts/, fonts/ - source media and
 #      derived caches: bulky, or reproducible by re-transcription.
-#   pipeline_output/annotations/, reasoning/, logs/, backups/, scratch/
-#      - dashboard chatter and recomputable output, not declarations.
+#   pipeline_output/reasoning/, logs/, backups/, scratch/
+#      - recomputable output, not declarations.
 #
 # A test that merely restated ALLOW_LIST would pass just as happily
 # with learned_context/ still missing. This one cannot: its input

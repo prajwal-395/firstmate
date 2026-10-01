@@ -8,7 +8,7 @@ data dir, outside this repo) plus ``pairs/``.
 
 What it replaces
 ----------------
-The timestamp rule in ``thumbnail_extractor`` - ``min(1.0, duration * 0.1)``,
+The legacy thumbnail timestamp rule - ``min(1.0, duration * 0.1)``,
 about one second into a clip - which is reliably mid-movement: a person
 settling, glancing away, still gesturing.  Pairs 1 and 3 show the ranker's
 pick square to the lens and settled where the timestamp frame is mid-gesture.
@@ -36,12 +36,11 @@ What it costs (measured on the captain's machine, not re-derived)
 the LAION repo's own LICENSE file.  Plain torch CPU - no ONNX needed, so
 the survey's "ONNX export unverified" caveat does not apply to this pick.
 
-Scope: which "review frames" this reaches
------------------------------------------
-The dashboard's clip browser (``/api/clips``) and its review timeline
-(``/api/timeline``) both serve ``get_thumbnail_url`` - one canonical file
-per clip.  Wiring the ranker into ``thumbnail_extractor`` therefore serves
-both the thumbnail and the review surfaces with no dashboard change.
+Scope: no caller today
+----------------------
+Its one caller was ``thumbnail_extractor``, which served thumbnails to the
+retired dashboard and was removed with it.  The ranker is kept as the
+measured selection for whatever next shows a single representative frame.
 
 Deliberately untouched: the rough-cut review STRIPS (``window_frames``,
 step 3.03).  Those show every placed window - both ends plus middle,
@@ -50,15 +49,10 @@ whatever selects a shortlist becomes the chooser).  There is no
 single-frame selection there to replace, and ranking strips would
 contradict the rule that every candidate window gets one.
 
-Status: wired, not yet exercised on real frames
------------------------------------------------
-The selection, the gate and the wiring below run against injected scorers
-in tests.  The real head has not scored a production frame through this
-path.  Exercising it means: ``aesthetic_spike.py --score`` for the raw
-ranking, then a driver calling
-``thumbnail_extractor.extract_ranked_clip_thumbnail`` with a loaded
-``LaionAestheticScorer`` over real clips, judged blind on pairs like the
-spike's (captain's retest spec, report section 6).
+Status: unwired, not yet exercised on real frames
+-------------------------------------------------
+The selection and the gate run against injected scorers in tests.  The
+real head has not scored a production frame.
 """
 
 from __future__ import annotations

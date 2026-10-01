@@ -145,7 +145,7 @@ and know what each one proves:
   and `visual_qa_router.execute_frame_grab` turns that None into a
   FAILED check with the reason - never a passing measurement.
 * ffmpeg straight off a source or render file (`ask_the_footage`,
-  `verify_treatment`, `thumbnail_extractor`, `window_frames`,
+  `verify_treatment`, `window_frames`,
   step 5.01 `grade._extract_frame`): cheap seeks, no Resolve, but the
   SOURCE frame - ungraded, unconformed, no comps or captions.  Every
   one of these accepts a capture only when the file exists AND is

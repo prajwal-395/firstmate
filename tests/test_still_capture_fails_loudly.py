@@ -167,14 +167,6 @@ def test_verify_treatment_skips_zero_byte_stills(tmp_path):
             str(source), 30.0, [0, 90], str(tmp_path)) == []
 
 
-def test_thumbnail_extractor_rejects_a_zero_byte_thumbnail(tmp_path):
-    from library.tools.thumbnail_extractor import extract_thumbnail
-
-    out = str(tmp_path / "thumb.jpg")
-    with patch("subprocess.run", side_effect=_run_writing_zero_bytes):
-        assert extract_thumbnail(str(tmp_path), out) is False
-
-
 def test_grade_extract_frame_rejects_a_zero_byte_frame(tmp_path):
     from library.steps.step_5_01_color_grade.grade import _extract_frame
 
@@ -205,22 +197,3 @@ def test_vision_frame_cache_skips_a_zero_byte_frame(tmp_path):
         assert extract_frames(clip, 10.0, tmp_path, interval_s=5.0) == []
     leftovers = [p for p in (tmp_path / "clip" / "frames").iterdir()]
     assert leftovers == []
-
-
-def _run_writing_a_frame(cmd, **kwargs):
-    Path(cmd[-1]).write_bytes(b"\x89PNG\r\n\x1a\n" + b"1" * 64)
-    return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-
-
-
-def test_thumbnail_cache_serves_no_zero_byte_file(tmp_path):
-    """A poisoned dashboard cache entry reads as a miss, and is gone."""
-    from library.tools.thumbnail_extractor import _cached_url
-
-    (tmp_path / "a.jpg").write_bytes(b"")
-    assert _cached_url(tmp_path, "a.jpg") == ""
-    assert not (tmp_path / "a.jpg").exists()
-
-    (tmp_path / "b.jpg").write_bytes(b"1" * 64)
-    assert _cached_url(tmp_path, "b.jpg") == "/thumbnails/b.jpg"

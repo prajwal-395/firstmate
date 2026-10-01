@@ -53,7 +53,7 @@ keeps the headline and points here.
 - Directory names use the STEP number, the same spelling `library/steps/` and every "step 1.04" citation uses; `README-LAYOUT.md` renders true run order, which diverges from that sort in two places.
 - Each step directory holds `output.json` and `summary.md` (what `step_exporter` writes) plus whatever files the step produced.
 - **A step writes only inside its own directory.** Pass `step=` to `write_dir`/`write_path` and another step's area raises; `assert_step_owns` is the same guard for a path from outside the layout.
-- **Not everything is a step's product.** `logs/`, `gates/`, `review/`, `llm_*/`, `thumbnails/`, `backups/`, `migrations/`, `provenance/`, `scratch/`, `unsorted/` and `exports/` stay at project level.
+- **Not everything is a step's product.** `logs/`, `gates/`, `review/`, `llm_*/`, `backups/`, `migrations/`, `provenance/`, `scratch/`, `unsorted/` and `exports/` stay at project level.
 - `exports/` is the one area TWO steps legitimately write: 6.01 the render and 6.02 the QA report. `produced_by` names both, and provenance leaves `step_id` None rather than picking one.
 - Every place inside a project folder is a row in `AREAS`, keyed by `Area`. A place that is not a row does not exist, and asking for one raises.
 - **A step never composes a project path.** It names an `Area` and gets a path via `write_dir`/`write_path`/`read_dir`/`read_path`. `write_dir`/`write_path` to write, `read_dir`/`read_path` to read, `resolve_project_relative` for a path recorded in state.
@@ -97,8 +97,8 @@ class Kind(str, Enum):
     """What the run is FOR.  Computed, but the captain keeps it."""
 
     RUN_STATE = "run_state"
-    """The runner's account of itself.  Written by the runner and the
-    dashboard only, through `run_control.py` and the state loader."""
+    """The runner's account of itself.  Written by the runner and its
+    tooling only, through `run_control.py` and the state loader."""
 
     BACKUP = "backup"
     """Bounded, automatic copies of run state.  See RETENTION below."""
@@ -246,14 +246,16 @@ def node_id_for(step_identifier: str) -> str:
 # Writers that are not steps.  Named so an area they own does not have to
 # read as unattributed.
 RUNNER = "runner"
-DASHBOARD = "dashboard"
+REVIEW_CHANNEL = "review_channel"
+"""`library/dashboard/review_channel.py`, the one part of the retired
+dashboard that survives (AGENTS.md 4)."""
 ORGANIZE = "organize"
 MARKER_PULL = "marker_feedback"
 MARKER_CAPTURE = "marker_capture"
 FOOTAGE_ANALYSIS_RUN = "footage_analysis"
 """`ren analyze` (library/tools/footage_analysis.py) - not a step: it
 orchestrates steps and the per-source memory lanes."""
-NON_STEP_PRODUCERS = (RUNNER, DASHBOARD, ORGANIZE, MARKER_PULL, MARKER_CAPTURE,
+NON_STEP_PRODUCERS = (RUNNER, REVIEW_CHANNEL, ORGANIZE, MARKER_PULL, MARKER_CAPTURE,
                       FOOTAGE_ANALYSIS_RUN)
 
 _OUT = "pipeline_output"
@@ -356,10 +358,7 @@ class Area(str, Enum):
 
     # Project-level, and deliberately NOT under steps/: nesting these
     # under a step would be a lie about who wrote them.
-    THUMBNAILS = "thumbnails"
     GATES = "gates"
-    ANNOTATIONS = "annotations"
-    MESSAGES = "messages"
     REVIEW = "review"
     LLM_REQUESTS = "llm_requests"
     LLM_RESPONSES = "llm_responses"
@@ -459,7 +458,7 @@ AREAS: dict[Area, AreaSpec] = {
         _OUT, Kind.OUTPUT,
         "Everything the pipeline computes. Almost all of it is under steps/; "
         "what is not is listed below and belongs to the runner or the "
-        "dashboard rather than to any step.",
+        "tooling rather than to any step.",
         produced_by=(RUNNER,)),
     Area.STEPS_ROOT: AreaSpec(
         _STEPS, Kind.OUTPUT,
@@ -593,26 +592,14 @@ AREAS: dict[Area, AreaSpec] = {
         step="plan_vfx"),
 
     # ── Project-level: not a step's product ─────────────────────────
-    Area.THUMBNAILS: AreaSpec(
-        f"{_OUT}/thumbnails", Kind.OUTPUT,
-        "Footage-library thumbnails for the dashboard.",
-        produced_by=(DASHBOARD,)),
     Area.GATES: AreaSpec(
         f"{_OUT}/gates", Kind.OUTPUT,
         "Review-gate records: what paused, and how the reviewer answered.",
-        produced_by=(RUNNER, DASHBOARD)),
-    Area.ANNOTATIONS: AreaSpec(
-        f"{_OUT}/annotations", Kind.OUTPUT,
-        "Per-step annotations captured on the dashboard.",
-        produced_by=(DASHBOARD,)),
-    Area.MESSAGES: AreaSpec(
-        f"{_OUT}/messages", Kind.OUTPUT,
-        "Dashboard/agent message log.",
-        produced_by=(DASHBOARD,)),
+        produced_by=(RUNNER,)),
     Area.REVIEW: AreaSpec(
         f"{_OUT}/review", Kind.OUTPUT,
         "The anchored review channel - channel.json holds every note and reply.",
-        produced_by=(DASHBOARD,)),
+        produced_by=(REVIEW_CHANNEL,)),
     Area.LLM_REQUESTS: AreaSpec(
         f"{_OUT}/llm_requests", Kind.OUTPUT,
         "The prompt each hybrid/LLM step was handed, as it was sent.",
@@ -640,9 +627,9 @@ AREAS: dict[Area, AreaSpec] = {
         produced_by=(RUNNER,)),
     Area.LOGS: AreaSpec(
         f"{_OUT}/logs", Kind.OUTPUT,
-        "Stdout/stderr of runs the dashboard launched, one file per run, plus "
+        "Stdout/stderr of pipeline runs, one file per run, plus "
         "pipeline_log.jsonl.",
-        produced_by=(RUNNER, DASHBOARD)),
+        produced_by=(RUNNER,)),
     Area.PROVENANCE: AreaSpec(
         f"{_OUT}/provenance", Kind.OUTPUT,
         "Which run wrote each artifact, and what that artifact names as its "
@@ -673,15 +660,15 @@ AREAS: dict[Area, AreaSpec] = {
     Area.RUN_STATE: AreaSpec(
         ".", Kind.RUN_STATE,
         "pipeline_data.json, pipeline_run.json, pipeline.pid and pipeline.hold "
-        "sit at the project root. Only the runner and the dashboard write them.",
-        produced_by=(RUNNER, DASHBOARD)),
+        "sit at the project root. Only the runner and its tooling write them.",
+        produced_by=(RUNNER,)),
     Area.BACKUPS: AreaSpec(
         f"{_OUT}/backups", Kind.BACKUP,
         "Automatic, bounded copies of pipeline_data.json - one per run, a "
         "fixed number kept (MAX_PIPELINE_DATA_BACKUPS). Hand-made backups "
         "from before this policy are in backups/pipeline_data/legacy/ and "
         "are never pruned.",
-        produced_by=(RUNNER, DASHBOARD, ORGANIZE)),
+        produced_by=(RUNNER, ORGANIZE)),
     Area.SCRATCH: AreaSpec(
         f"{_OUT}/scratch", Kind.SCRATCH,
         "Working files with no reader after the step that wrote them. Safe to "
@@ -1122,7 +1109,7 @@ class ProjectLayout:
         Only the two structural containers are pre-created:
         `pipeline_output/` and `pipeline_output/steps/`.  Everything
         else - individual step directories, project-level areas like
-        `gates/` or `annotations/` - appears when something writes to
+        `gates/` or `review/` - appears when something writes to
         it, through `write_dir` or `write_path`.
 
         A directory that exists because the scaffold guessed carries no
@@ -1212,7 +1199,7 @@ class ProjectLayout:
         lines += [
             "## Not a step's product",
             "",
-            "These belong to the runner, the dashboard or the tooling. Nesting them",
+            "These belong to the runner, the review channel or the tooling. Nesting them",
             "under a step would be a lie about who wrote them.",
             "",
         ]
