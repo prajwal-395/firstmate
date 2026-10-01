@@ -22,6 +22,7 @@ from library.tools.native_ops import (
 )
 from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.plan_splice import number_within_block
 from library.tools.post_bridge_retry import ATTEMPT_KEY, MAX_ATTEMPTS
 from library.tools.punch_timing import (
     MAX_PUNCH_RAMP_SECONDS,
@@ -896,29 +897,10 @@ def resolve_vfx(
             resolved[-1]["anchor_method"] = anchor_method
 
     resolved.sort(key=lambda v: v["timeline_start"])
-    _number_within_block(resolved, "vfx_id", "vfx")
+    number_within_block(resolved, "target_block_position", "vfx_id", "vfx")
 
     _assert_vfx_distinct(resolved)
     return resolved
-
-
-def _number_within_block(entries: list, id_key: str, prefix: str) -> None:
-    """Number entries WITHIN their block, in timeline order.
-
-    Block-local for the reason 4.01's caption ids are: a region re-plan
-    resolves only the region's blocks, and under a run-global counter
-    every id after the region would renumber - so a splice that left
-    every out-of-region effect alone would still report them all as
-    changed.  `vfx_7_002` is the second effect on block 7 however many
-    effects any other block carries.
-    """
-    from library.tools.subtitle_segment_id import slug
-
-    counters = {}
-    for entry in entries:
-        token = slug(entry["target_block_position"], "noblock")
-        counters[token] = counters.get(token, 0) + 1
-        entry[id_key] = f"{prefix}_{token}_{counters[token]:03d}"
 
 
 def _assert_vfx_distinct(resolved: list) -> None:
@@ -1012,7 +994,8 @@ def resolve_generator_overlays(
         })
 
     overlays.sort(key=lambda o: o["timeline_start"])
-    _number_within_block(overlays, "overlay_id", "gen")
+    number_within_block(overlays, "target_block_position", "overlay_id",
+                        "gen")
 
     if overlays:
         print(
@@ -1044,8 +1027,8 @@ def splice_region_vfx(vfx_creative: list, timed_spine: dict,
     Resolution is per block - an entry is anchored inside its own block
     against the whole spine, the beat grid and the temporal index - so a
     block resolves identically whether or not its neighbours are in the
-    plan, and with block-local ids (`_number_within_block`) it gets the
-    same ids too.
+    plan, and with block-local ids (`plan_splice.number_within_block`)
+    it gets the same ids too.
 
     Refuses rather than doing something surprising:
 

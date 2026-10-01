@@ -1381,6 +1381,19 @@ _REGISTRY: tuple[Operation, ...] = (
         # keep.
     ),
     Operation(
+        name="sfx.splice",
+        summary="Place a region's re-planned sounds and put them back into the stored plan",
+        owning_node="plan_sfx",
+        owning_dir="step_4_04_plan_sfx", body="post_bridge.py",
+        attr="splice_region_sfx",
+        # REGION only, beside `sfx.resolve` as `vfx.splice` sits beside
+        # `vfx.resolve`: the model's answer FOR THE REGION is supplied as
+        # `sfx_creative` and the plan it goes INTO as `stored_spec`, and
+        # every sound planned from a block outside the region comes back
+        # byte-identical (`plan_splice`).
+        scopes=(REGION,),
+    ),
+    Operation(
         name="transcript.reindex",
         summary="Re-measure the speech in one region, back at the raw footage",
         owning_node="temporal_index",

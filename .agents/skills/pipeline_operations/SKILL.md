@@ -51,6 +51,7 @@ run at a declared scope. It owns no logic of its own.
 | `vfx.resolve` | `plan_vfx` | project | Resolve the model's VFX plan to execution specs |
 | `vfx.splice` | `plan_vfx` | region | Resolve a region's re-planned effects and put them back into the stored plan |
 | `sfx.resolve` | `plan_sfx` | project | Resolve the model's SFX plan to playable placements |
+| `sfx.splice` | `plan_sfx` | region | Place a region's re-planned sounds and put them back into the stored plan |
 | `transcript.reindex` | `temporal_index` | region | Re-measure the speech in one region, back at the raw footage |
 | `transcript.splice` | `temporal_index` | region | Put a re-measured region back into the per-clip speech index |
 | `subtitles.render` | `render_subtitles` | project, region | Render one overlay artefact per captioned spine block |

@@ -35,6 +35,26 @@ class SpliceRefused(RenRefusal):
     """The splice would have changed something outside the region."""
 
 
+def number_within_block(entries: Sequence[dict], key: str, id_key: str,
+                        prefix: str) -> None:
+    """Number entries WITHIN their block, in list order, in place.
+
+    A splice is only provably bounded if ids are block-local: under a
+    run-global counter, re-planning one region renumbers every entry
+    after it, so a splice that left every out-of-region decision alone
+    would still report them all as changed.  `vfx_7_002` is the second
+    effect on block 7 however many any other block carries - the same
+    fix 4.01 made for caption ids.
+    """
+    from library.tools.subtitle_segment_id import slug
+
+    counters = {}
+    for entry in entries:
+        token = slug(entry[key], "noblock")
+        counters[token] = counters.get(token, 0) + 1
+        entry[id_key] = f"{prefix}_{token}_{counters[token]:03d}"
+
+
 def _by_position(entries: Sequence[dict], key: str) -> dict:
     grouped = {}
     for entry in entries:
@@ -46,13 +66,15 @@ def splice_entries(stored_entries: Sequence[dict],
                    fresh_entries: Sequence[dict],
                    positions: Sequence,
                    key: str,
-                   id_key: str) -> List[dict]:
+                   id_key: str,
+                   start_key: str = "timeline_start") -> List[dict]:
     """Replace exactly `positions`' entries with `fresh_entries`.
 
     `key` is the field naming an entry's spine block
     (`spine_block_position` for captions, `target_block_position` for
     effects); `id_key` is the entry's own id, the tie-break when two
-    entries start together.  Positions compare as strings, because a
+    entries start together; `start_key` is where an entry starts on the
+    timeline (`timeline_in` for sounds).  Positions compare as strings, because a
     spine position is an int on one block and `"hook"` on another and the
     planners' entries carry whichever the model wrote.
 
@@ -77,7 +99,7 @@ def splice_entries(stored_entries: Sequence[dict],
 
     kept = [dict(e) for e in stored_entries if str(e[key]) not in targets]
     merged = kept + [dict(e) for e in fresh_entries]
-    merged.sort(key=lambda e: (e["timeline_start"], str(e[id_key])))
+    merged.sort(key=lambda e: (e[start_key], str(e[id_key])))
     return merged
 
 

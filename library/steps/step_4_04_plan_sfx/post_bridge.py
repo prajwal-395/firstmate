@@ -65,6 +65,7 @@ import sys
 from library.tools.fairlight_presets import select_preset_for_content
 from library.tools.pipeline_validation import require_keys, require_type
 from library.tools.plan_keys import UnreadPlanKey, refuse_unknown_keys
+from library.tools.plan_splice import number_within_block
 from library.tools.sfx_duration import (
     SfxDurationRefused,
     declick_fade_seconds,
@@ -873,6 +874,13 @@ def resolve_sfx(
         if lead > 0:
             resolved[-1]["lead_seconds"] = lead
 
+    # Timeline order, numbered within each block: a region re-plan then
+    # reproduces its own labels and leaves every other label alone
+    # (`plan_splice.number_within_block`). The sort is stable, so sounds
+    # layered at one instant keep the plan's order.
+    resolved.sort(key=lambda s: s["timeline_in"])
+    number_within_block(resolved, "spine_block_position", "label", "sfx")
+
     _assert_sfx_distributed(resolved)
 
     # Determine Fairlight preset.
@@ -954,6 +962,79 @@ def _describe_placement(envelope: str) -> str:
     any of it.
     """
     return placement_of(envelope)
+
+
+# ── Region-scoped re-plan, and putting it back ──────────────────────
+
+def splice_region_sfx(sfx_creative: list, timed_spine: dict,
+                      stored_spec: dict, scope,
+                      temporal_event_indices=None,
+                      music_analysis: dict | None = None,
+                      music_selection: dict | None = None,
+                      frame_rate: float = 30.0,
+                      catalog: list | None = None) -> dict:
+    """Resolve a REGION's fresh sound plan and splice it into `stored_spec`.
+
+    `sfx_creative` is the model's answer FOR THE REGION - entries placed
+    only on blocks the region touches - and `stored_spec` is the step's
+    recorded `sfx_spec`.  Every sound placed from a block outside the
+    region comes back byte-identical; the report MEASURES that.
+
+    The unit is the block a sound was PLANNED from
+    (`spine_block_position`), not where it sounds: a J-cut lead may start
+    a sound before its block, and it still belongs to the block that
+    asked for it.  Placement is per block against the whole spine, the
+    temporal index and the downbeat grid, and labels are block-local, so
+    a block re-plans to the same entries whether or not its neighbours
+    are in the plan.
+
+    `fairlight_preset` is a project-wide choice and stays as stored.
+
+    Refuses: a region touching no block; a fresh sound on a block outside
+    the region (`plan_splice`); and everything `resolve_sfx` refuses - an
+    unplayable sound id, an unread key - so a region cannot bypass them.
+
+    Returns `{"sfx_spec": ..., "splice": <report>}`.
+    """
+    from library.tools.plan_splice import (
+        SpliceRefused,
+        splice_entries,
+        splice_report,
+    )
+    from library.tools.spine_contract import blocks_overlapping
+
+    span = scope.region_span
+    structure = timed_spine.get(
+        "structure", timed_spine.get("audio_spine", {}).get("structure", []))
+    touched = blocks_overlapping(structure, span.start, span.end)
+    if not touched:
+        raise SpliceRefused(
+            f"region {span} touches no spine block",
+            "there is nothing in it to re-plan",
+            "address a region inside the timeline")
+    positions = [b["position"] for b in touched]
+
+    creative = [v for v in (sfx_creative or []) if isinstance(v, dict)]
+    temporal = temporal_event_indices or []
+    if isinstance(temporal, dict):
+        temporal = temporal.get("temporal_event_indices", [])
+
+    fresh = resolve_sfx(creative, timed_spine, temporal,
+                        music_analysis or {}, music_selection or {},
+                        frame_rate, catalog=catalog)["sfx_list"]
+
+    stored = stored_spec.get("sfx_list", [])
+    key = "spine_block_position"
+    merged = splice_entries(stored, fresh, positions, key, "label",
+                            start_key="timeline_in")
+    _assert_sfx_distributed(merged)
+
+    spec = dict(stored_spec)
+    spec["sfx_list"] = merged
+    report = splice_report(stored, merged, positions, key)
+    report["region"] = span.as_address()
+    report["region_proposed"] = len(creative)
+    return {"sfx_spec": spec, "splice": report}
 
 
 def main():
