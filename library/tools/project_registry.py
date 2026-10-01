@@ -194,7 +194,7 @@ def get_project(slug: str, root: Path = None) -> ProjectConfig:
         f"    Found there:\n{found}\n"
         f"    A project kept outside that root is addressed by its path "
         f"instead of its slug, for example:\n"
-        f"      python3 manage_project.py dashboard /path/to/{slug}"
+        f"      python3 manage_project.py info /path/to/{slug}"
     )
 
 

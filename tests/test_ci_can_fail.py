@@ -153,6 +153,20 @@ def test_the_suite_prints_why_a_test_skipped():
         )
 
 
+def test_ci_collects_every_configured_test_root():
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(
+        encoding="utf-8"))
+    assert set(config["tool"]["pytest"]["ini_options"]["testpaths"]) == {
+        "tests", "library/tools/fusion/tests"}
+
+    runs = [step["run"] for step in _steps_named("Run Pytest")]
+    assert runs, "no workflow step runs pytest"
+    for run in runs:
+        assert "python -m pytest" in run
+        assert "python -m pytest tests/" not in run, (
+            "an explicit tests/ root omits library/tools/fusion/tests")
+
+
 
 
 

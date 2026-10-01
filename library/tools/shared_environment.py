@@ -437,7 +437,7 @@ def interpreter_report(repo_root: Optional[str | Path] = None) -> dict:
     }
 
 
-# ── the MFA half: the forced aligner ahead of wav2vec2 ──────────────
+# ── the MFA half: the forced aligner for Voz transcription ──────────
 #
 # A third shared dependency, discovered the same way as the two above:
 # one location per MACHINE under `vep_home()`, never one per checkout,
@@ -489,9 +489,9 @@ class MfaEnvironmentMissing(RuntimeError):
 
     Raised rather than left for the align subprocess to report as a
     missing binary several layers down. The message carries the
-    command that fixes it. The aligner treats this as a DECLINE to
-    the wav2vec2 fallback, never a crash - see
-    `library/tools/mfa_align.py`.
+    command that fixes it. `library/tools/mfa_align.py` treats this as a
+    decline. There is no fallback aligner, so transcription cannot
+    continue without MFA.
     """
 
 
@@ -550,8 +550,8 @@ def mfa_missing_message() -> str:
         f"(binary {mfa_binary()}, models {mfa_models_dir()}).",
         f"Install once per machine:\n"
         f"    {MFA_INSTALL_SCRIPT}\n"
-        f"A machine without it still transcribes: the wav2vec2 aligner "
-        f"takes over for that run (see `library/tools/mfa_align.py`).",
+        f"Voz transcription cannot continue without MFA; there is no "
+        f"wav2vec2 fallback (see `library/tools/mfa_align.py`).",
     ]
     return "\n".join(lines)
 

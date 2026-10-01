@@ -27,6 +27,10 @@ def _wait_for_marker(path: Path, process: subprocess.Popen, timeout: float):
     assert path.exists(), f"worker did not create {path.name} within {timeout}s"
 
 
+@pytest.mark.serial(
+    reason="Spawns nested Python workers while exercising lock handoff; "
+           "keep child startup out of xdist saturation."
+)
 @pytest.mark.parametrize(
     ("module_name", "function_name", "stub_name", "call"),
     [

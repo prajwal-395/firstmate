@@ -23,7 +23,7 @@ def test_resolve_probe_takes_lease_before_connecting():
 def _all_else_passes(monkeypatch):
     passing = doctor.Check("stub", True, "stubbed")
     for name in ("macos_check", "python_checks", "ffmpeg_check", "node_checks",
-                 "model_checks", "deepfilternet_check", "config_checks",
+                 "model_checks", "transcription_checks", "deepfilternet_check", "config_checks",
                  "harness_check"):
         monkeypatch.setattr(doctor, name, lambda: [passing])
 
@@ -100,3 +100,57 @@ def test_deepfilter_that_would_not_run_is_a_fail_line(monkeypatch):
     _stub_deepfilter(monkeypatch, True, version=None)
     check = doctor.deepfilternet_check()
     assert not check.ok and "would not run" in check.detail
+
+
+def test_doctor_passes_without_obsolete_or_optional_models(tmp_path, monkeypatch,
+                                                            capsys):
+    from library.tools import heard_speech, shared_environment
+
+    passing = doctor.Check("stub", True, "stubbed")
+    for name in ("macos_check", "python_checks", "ffmpeg_check", "node_checks",
+                 "deepfilternet_check", "config_checks", "harness_check"):
+        monkeypatch.setattr(doctor, name, lambda: [passing])
+    monkeypatch.setattr(doctor, "resolve_checks", lambda _probe: [passing])
+    monkeypatch.setattr(doctor, "hf_hub_cache", lambda: tmp_path)
+    gemma = "mlx-community/gemma-4-12b-it-4bit"
+    monkeypatch.setattr(
+        doctor, "hf_model_state",
+        lambda ident, _cache: (ident == gemma, 100, "not cached"))
+    monkeypatch.setattr(doctor, "torch_checkpoints", lambda: tmp_path / "torch")
+    monkeypatch.setattr(doctor, "resolve_interpreter", lambda: ("python", ""))
+    monkeypatch.setattr(shared_environment, "panns_available",
+                        lambda: (False, "not installed"))
+    monkeypatch.setattr(shared_environment, "panns_checkpoint",
+                        lambda: tmp_path / "panns.ckpt")
+    monkeypatch.setattr(heard_speech, "available", lambda: (True, "/bin/da"))
+    monkeypatch.setattr(shared_environment, "mfa_available",
+                        lambda: (True, "MFA available"))
+
+    code = doctor.main([], probe=lambda: {})
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "model all-MiniLM-L6-v2" in output
+    assert "lexical-only search remains available" in output
+    assert "faster-whisper large-v3" not in output
+    assert "wav2vec2 aligner" not in output
+    assert "transcriber Voz (da)" in output
+    assert "MFA aligner" in output
+
+
+def test_doctor_requires_voz_and_mfa_without_claiming_a_fallback(monkeypatch):
+    from library.tools import heard_speech, shared_environment
+
+    monkeypatch.setattr(heard_speech, "available",
+                        lambda: (False, "da is not on PATH"))
+    monkeypatch.setattr(
+        shared_environment, "mfa_available",
+        lambda: (False, shared_environment.mfa_missing_message()))
+
+    checks = doctor.transcription_checks()
+    by_name = {check.name: check for check in checks}
+
+    assert not by_name["transcriber Voz (da)"].ok
+    assert not by_name["MFA aligner"].ok
+    assert "no wav2vec2 fallback" in by_name["MFA aligner"].detail
+    assert "takes over" not in by_name["MFA aligner"].detail

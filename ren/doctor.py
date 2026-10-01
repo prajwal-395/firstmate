@@ -50,15 +50,9 @@ FREE_EDITION_WHY = (
     "operation that builds, reads or renders a timeline is an external script")
 
 MODELS = (
-    # (label, what reads it, how it is stored, id)
-    ("gemma-4-12b-it-4bit", "vision pass (step 1.03)", "hf",
+    # (label, what reads it, HuggingFace model id)
+    ("gemma-4-12b-it-4bit", "vision pass (step 1.03)",
      "mlx-community/gemma-4-12b-it-4bit"),
-    ("faster-whisper large-v3", "transcription (step 1.04)", "hf",
-     "Systran/faster-whisper-large-v3"),
-    ("wav2vec2 aligner", "word timing (step 1.04)", "torch",
-     "wav2vec2_fairseq_base_ls960_asr_ls960.pth"),
-    ("all-MiniLM-L6-v2", "footage search (`ren search`)", "hf",
-     "sentence-transformers/all-MiniLM-L6-v2"),
 )
 
 _WEIGHT_SUFFIXES = (".safetensors", ".bin", ".npz", ".pt", ".pth", ".gguf")
@@ -391,34 +385,29 @@ def hf_model_state(repo_id: str, cache: Path) -> tuple:
 
 
 def model_checks() -> list:
+    from library.tools import shared_environment
+
     checks = []
     cache = hf_hub_cache()
-    for label, reader, store, ident in MODELS:
-        if store == "hf":
-            complete, size, why = hf_model_state(ident, cache)
-            fix = (f"{sys.executable} -c \"from huggingface_hub import "
-                   f"snapshot_download; snapshot_download('{ident}')\"")
-        else:
-            path = torch_checkpoints() / ident
-            complete = path.is_file()
-            size = path.stat().st_size if complete else 0
-            why = "not downloaded"
-            fix = "downloaded by whisperx on the first transcription"
+    for label, reader, ident in MODELS:
+        complete, size, why = hf_model_state(ident, cache)
+        fix = (f"{sys.executable} -c \"from huggingface_hub import "
+               f"snapshot_download; snapshot_download('{ident}')\"")
         detail = f"{reader}: {_gb(size)}" if complete else f"{reader}: {why}"
         checks.append(Check(f"model {label}", complete, detail, "" if complete else fix))
 
-    from library.tools import shared_environment
-    mfa_ok, _ = shared_environment.mfa_available()
-    # Optional by design: without MFA the wav2vec2 aligner above takes over
-    # (library/tools/mfa_align.py), so its absence does not stop a run.
+    # Optional by design: ren search uses lexical-only search when neither
+    # embedding backend can load (library/tools/analysis/footage_query.py).
+    complete, size, why = hf_model_state(
+        "sentence-transformers/all-MiniLM-L6-v2", cache)
     checks.append(Check(
-        "model MFA aligner", True,
-        "forced aligner (step 1.04)" if mfa_ok else
-        f"not installed - optional, wav2vec2 aligns instead "
-        f"(bash {shared_environment.MFA_INSTALL_SCRIPT} adds it)"))
+        "model all-MiniLM-L6-v2", True,
+        f"footage search embedder: {_gb(size)}" if complete else
+        f"not cached - optional; lexical-only search remains available "
+        f"when no embedder can load ({why})"))
 
     # beat_this weights (detected downbeats, step 2.06). Optional by
-    # design like MFA above: without the checkpoint the tracker cannot
+    # design like the search embedder above: without the checkpoint the tracker cannot
     # load and the grid falls back to librosa's every-4th-beat estimate
     # - labelled "estimated" wherever it travels - so a run still
     # completes, on a bar grid that can sit a beat off.
@@ -456,6 +445,22 @@ def model_checks() -> list:
         f"~327 MB)",
         "" if panns_ok else
         f"bash {shared_environment.PANNS_INSTALL_SCRIPT}"))
+    return checks
+
+
+def transcription_checks() -> list:
+    """Check the required Voz transcriber and MFA aligner."""
+    from library.tools import heard_speech, shared_environment
+
+    da_ok, da_detail = heard_speech.available()
+    checks = [Check(
+        "transcriber Voz (da)", da_ok, da_detail,
+        "install the `da` CLI and ensure it is on PATH" if not da_ok else "")]
+
+    mfa_ok, mfa_detail = shared_environment.mfa_available()
+    checks.append(Check(
+        "MFA aligner", mfa_ok, mfa_detail,
+        f"bash {shared_environment.MFA_INSTALL_SCRIPT}" if not mfa_ok else ""))
     return checks
 
 
@@ -620,6 +625,7 @@ def run_checks(probe=None) -> list:
     checks += _guarded("Node.js", node_checks)
     checks += _guarded("graphics engines", graphics_engine_checks)
     checks += _guarded("models", model_checks)
+    checks += _guarded("transcription", transcription_checks)
     checks += _guarded("dialogue cleanup DeepFilter", deepfilternet_check)
     checks += _guarded("configuration", config_checks)
     checks += _guarded("chat harness", harness_check)

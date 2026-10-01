@@ -3459,6 +3459,13 @@ def _save_review_gate(project_dir, step_id, step_name, output, inputs, state=Non
             save_pipeline_state(project_dir, state)
 
 
+def _parse_full_auto_backend(value: str) -> str:
+    """Accept compatibility spellings without exposing them in help."""
+    if value in {FULL_AUTO_AGENT, FULL_AUTO_DEPRECATED_AGY, "api", "mock"}:
+        return value
+    raise argparse.ArgumentTypeError("expected 'agent'")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Pipeline Runner")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -3487,10 +3494,9 @@ def build_parser() -> argparse.ArgumentParser:
     run_scope.add_scope_arguments(parser)
     run_profile.add_profile_arguments(parser)
     run_breakpoints.add_breakpoint_arguments(parser)
-    parser.add_argument("--full-auto", choices=["agent", "agy", "mock"],
-                        help="Run full pipeline autonomously using specified LLM backend "
-                             "(`agent`: the pipeline writes a request file an agent answers; "
-                             "`agy` is a deprecated alias of `agent`)")
+    parser.add_argument(
+        "--full-auto", type=_parse_full_auto_backend, metavar="BACKEND",
+        help="Run full pipeline autonomously with the agent backend")
     parser.add_argument("--llm-timeout", type=int, default=300,
                        help="Timeout for LLM response in agent backend")
     return parser

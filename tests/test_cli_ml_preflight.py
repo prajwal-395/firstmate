@@ -12,7 +12,8 @@ its fallback arms.)
 These tests hold the halves of the fix that remain:
 
    1. Every command except the ones in ML_DEPENDENT_COMMANDS is served
-      with the whole ML stack unimportable.
+      with the whole ML stack unimportable; both `run` and `build-reels`
+      refuse before entering their ML-dependent work.
    2. The advice names a path that is really on disk.
    3. A project kept outside PROJECTS_ROOT is openable by path, and a
       slug that is not there says which root was searched and what was
@@ -98,16 +99,35 @@ def test_preflight_passes_legitimate_commands_without_refusing(
         "importlib.metadata.version",
         lambda dist: "0.7.2" if dist == "mlx-vlm" else "1.0.0")
     cli.preflight_check("run")  # must not raise
+    cli.preflight_check("build-reels")  # same compliant interpreter
 
 
-def test_run_still_refuses_when_the_stack_is_absent(ml_stack_absent, capsys):
+@pytest.mark.parametrize("command", ["run", "build-reels"])
+def test_ml_dependent_commands_refuse_when_the_stack_is_absent(
+        command, ml_stack_absent, capsys):
     with pytest.raises(SystemExit) as exit_info:
-        cli.preflight_check("run")
+        cli.preflight_check(command)
     assert exit_info.value.code == 1
     out = capsys.readouterr().out
     assert "mlx_vlm" in out
     # It says which commands still work, so a reader is not stuck.
     assert "status" in out
+
+
+def test_management_help_does_not_advertise_retired_full_auto_values():
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "manage_project.py"), "run", "--help"],
+        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", check=False)
+    assert result.returncode == 0
+    assert "--full-auto BACKEND" in result.stdout
+    assert "agy" not in result.stdout
+    assert "api" not in result.stdout
+
+
+def test_management_parser_keeps_hidden_compatibility_values():
+    assert cli._full_auto_backend("agy") == "agy"
+    assert cli._full_auto_backend("api") == "api"
 
 
 # ── 2. The advice names something real ──────────────────────────
@@ -264,5 +284,4 @@ def test_run_refuses_a_wrong_version_and_says_both_numbers(monkeypatch, capsys):
     # It explains the consequence, because "wrong version" reads as
     # cosmetic and this one breaks vision on every real project.
     assert "fails inside the step" in out
-
 

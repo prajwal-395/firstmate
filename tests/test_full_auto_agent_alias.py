@@ -34,6 +34,19 @@ def test_normalize_full_auto_agy_is_a_deprecated_alias(capsys):
     assert "agent" in err
 
 
+def test_runner_help_hides_compatibility_spellings_but_still_parses_them():
+    parser = build_parser()
+    help_text = parser.format_help()
+    assert "agy" not in help_text
+    assert "api" not in help_text
+    assert "--full-auto BACKEND" in help_text
+
+    agy = parser.parse_args(["--project", "/tmp/project", "--full-auto", "agy"])
+    api = parser.parse_args(["--project", "/tmp/project", "--full-auto", "api"])
+    assert agy.full_auto == "agy"
+    assert api.full_auto == "api"
+
+
 def test_harness_enumerations_name_agent_not_agy():
     assert HARNESS_READS_FILES["agent"] is True
     assert HARNESS_SHOWS_FRAMES["agent"] is True

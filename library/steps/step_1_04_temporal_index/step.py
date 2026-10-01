@@ -10,10 +10,9 @@ labels; the other temporal measurements retain their existing methods.
 Produces a per-clip JSON index containing:
   - scene_boundaries: visual cut/change points (ffmpeg scene detection)
   - speech_regions: start/end of speech with ASR transcript + word-level
-    timestamps (the reel path's own transcription seam: the on-device
-    transcriber's words through MFA forced alignment where its
-    environment is present, wav2vec2 where MFA declines, full
-    WhisperX where the hybrid cannot answer at all)
+    timestamps (the reel path's own transcription seam: Voz (`da`)
+    writes the words and MFA places their boundaries; transcription
+    cannot continue when either required component is unavailable)
   - energy_curve: per-second RMS audio energy (librosa, 30Hz frame-aligned)
   - audio_events: classified audio events - measured PANNs
     non-speech labels plus measured energy quiet (the old
@@ -297,12 +296,11 @@ def snap_word_boundaries_to_onsets(
 
 
 def _method_name(arm: str, aligner: str, whisper_model_size: str) -> str:
-    """The region `method` for the instrument that answered.
+    """Return the stored method label, including labels from legacy records.
 
-    The hybrid arm names its aligner (`hybrid-mfa`,
-    `hybrid-wav2vec2`); the full-WhisperX fallback keeps the string
-    every index before this change carried, so a reader can tell
-    which past a region comes from.
+    Current transcription uses Voz (`da`) with MFA. Older indexes can
+    still carry WhisperX/wav2vec2 labels, which remain readable here;
+    neither is a current fallback.
     """
     from library.tools import hybrid_transcription
 
@@ -2708,10 +2706,10 @@ def index_clip(
         print("    [3/12] Onset detection... (batched, reused)",
               file=sys.stderr)
 
-    # 4. Speech regions (the reel path's seam: Voz + MFA, WhisperX fallback)
+    # 4. Speech regions (the reel path's seam: Voz + MFA)
     # Onsets are passed in for word-boundary snapping
     if pretranscribed is None:
-        print("    [4/12] Speech detection (Voz + MFA, WhisperX fallback)...",
+        print("    [4/12] Speech detection (Voz + MFA)...",
               file=sys.stderr)
         speech, transcription = detect_speech_regions(
             audio_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
@@ -3034,7 +3032,7 @@ def index_audio_clip(
         print("    [2/5] Onset detection...", file=sys.stderr)
         onsets = detect_onsets(wav_path)
 
-        print("    [3/5] Speech detection (Voz + MFA, WhisperX fallback)...",
+        print("    [3/5] Speech detection (Voz + MFA)...",
               file=sys.stderr)
         speech, transcription = detect_speech_regions(
             wav_path, str(layout.read_dir(Area.OUTPUT_ROOT)),

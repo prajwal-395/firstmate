@@ -46,8 +46,8 @@ Resume a partial run with `--from <step_id>`, run a single step with
 
 - `pipeline_data.json` at the project root holds all step outputs under `step_outputs`.
 - `pipeline_output/assembly_manifest.json` is the compiled instruction set the render consumes.
-- `python3 manage_project.py dashboard my-video` opens the review dashboard.
-- `python3 manage_project.py status my-video` prints step completion state.
+- `ren status my-video` prints step completion state.
+- `ren info my-video` prints the project configuration and run details.
 
 ## Full documentation
 

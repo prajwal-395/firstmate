@@ -17,7 +17,8 @@ Usage (through the front door; `ren --help` lists every verb):
     ren status "/abs/path/to/a/project"
     ren edit my-show --from creative_direction
 
-Only `run` needs the ML virtual environment; see ML_DEPENDENT_COMMANDS.
+`run` and `build-reels` need the ML virtual environment; see
+ML_DEPENDENT_COMMANDS.
 """
 
 import argparse
@@ -43,17 +44,23 @@ sys.path.insert(0, str(REPO_ROOT))
 # file does - listing projects, reading a project.yaml, regenerating a
 # traceback - reaches none of them.
 #
-# So the check belongs to the commands that need it, and `run` is the
-# whole list: it launches library/processes/edit_video/run_pipeline.py
-# with sys.executable, so the interpreter running THIS process is the
-# one the steps will import from, and checking it here is a real check
-# of the child rather than a guess about it.
+# So the check belongs to the commands that need it. `run` launches
+# library/processes/edit_video/run_pipeline.py with sys.executable, and
+# `build-reels` runs the same ML-dependent transcription path. The
+# interpreter running THIS process is the one the steps import from.
 #
 # It used to run at import time, before argparse had seen the command,
 # and the captain could not open the review dashboard for want of a
 # transcription library a command that needed none of it. (P2 retired
 # the dashboard; the preflight design it forced stays.)
-ML_DEPENDENT_COMMANDS = ("run",)
+ML_DEPENDENT_COMMANDS = ("run", "build-reels")
+
+
+def _full_auto_backend(value: str) -> str:
+    """Validate backend spellings without advertising retired ones."""
+    if value in {"agent", "agy", "api"}:
+        return value
+    raise argparse.ArgumentTypeError("expected 'agent'")
 
 # Every subcommand main() registers, read off the one command registry so
 # the message above can say which ones still work. main() asserts the
@@ -3214,9 +3221,9 @@ def main():
     add_breakpoint_arguments(p_run)
     p_run.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
-    p_run.add_argument("--full-auto", choices=["agent", "agy", "api"],
-                       help="Run full pipeline autonomously using specified LLM backend "
-                            "(`agy` is a deprecated alias of `agent`)")
+    p_run.add_argument(
+        "--full-auto", type=_full_auto_backend, metavar="BACKEND",
+        help="Run full pipeline autonomously with the agent backend")
     p_run.add_argument("--llm-timeout", type=int, default=300,
                        help="Timeout for LLM response in agent backend")
     p_run.set_defaults(func=cmd_run)
