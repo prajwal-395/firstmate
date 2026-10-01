@@ -90,6 +90,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.step_stdout import claim_stdout as _claim_stdout, emit as _emit
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.subject_framing import load_face_cascade
+# Stdlib-only (hashlib/json/shutil/subprocess/tempfile): importing it
+# costs nothing on machines without Vision, unlike the SAM module the
+# face path keeps beside its only use. The compiled helper it shells
+# to is macOS-only; everywhere else it returns the fallback document.
+from library.steps.step_1_04_temporal_index import vision_measure
 from library.tools.word_boundaries import (
     sanitize_word_boundaries as _sanitize_word_boundaries,
 )
@@ -1875,6 +1880,72 @@ def backfill_sound_events(index: dict, video_path: str = None,
     return True
 
 
+def vision_backfill_needed(index: dict) -> bool:
+    """Whether a cached per-clip index predates the Vision measurement.
+
+    True when any owned key is absent, when the method stamp is not the
+    current producer, or when the stamp records an `unavailable` absence
+    and the helper can run now (availability is cheap to ask - no model
+    download - so a cleared reason retries, exactly like the sound-event
+    checkpoint rule above). A measured clip stays cached, and a
+    fallback written while the helper is still unavailable is not
+    rewritten - re-measuring either on every run would burn an
+    inference per clip, or churn the file, for nothing.
+    """
+    for key in vision_measure.VISION_KEYS:
+        if key not in (index or {}):
+            return True
+    method = (index or {}).get("vision_method") or {}
+    if method.get("engine") != vision_measure.VISION_METHOD:
+        if not str(method.get("fallback") or "").startswith("unavailable:"):
+            return True
+        ok, _ = vision_measure.helper_available()
+        return bool(ok)
+    return False
+
+
+def backfill_vision_measurement(index: dict,
+                               video_path: str = None) -> bool:
+    """Measure Vision onto a cached index that predates it.
+
+    Mutates `index` in place, setting the six owned keys from a fresh
+    `measure_clip_vision` pass at the clip's own face-sampling geometry.
+    Returns whether anything changed. The footage is read from
+    `video_path` (or the document's own `source_file`); when neither
+    names a file on disk the document is left alone and False is
+    returned - a stale measurement is served, never an invented one.
+
+    A fallback outcome IS written: like sound events (and unlike
+    motion), it records that Vision was unavailable at a named time,
+    which is what makes the next run's refusal specific. The predicate
+    above retries such a record only once the helper can run, so a
+    written fallback is not churned blindly.
+    """
+    path = video_path or (index or {}).get("source_file")
+    if not path or not os.path.isfile(path):
+        print(
+            f"  WARNING: vision backfill skipped for "
+            f"{(index or {}).get('clip_id', '?')}: no footage file "
+            f"at {path!r}",
+            file=sys.stderr,
+        )
+        return False
+    try:
+        sample_w, sample_h = face_sample_dimensions(str(path))
+        vision = vision_measure.measure_clip_vision(
+            str(path), sample_w, sample_h)
+    except Exception as e:
+        print(
+            f"  WARNING: vision backfill failed for "
+            f"{(index or {}).get('clip_id', '?')}: {e}",
+            file=sys.stderr,
+        )
+        return False
+    for key in vision_measure.VISION_KEYS:
+        index[key] = vision[key]
+    return True
+
+
 # ── 9. Camera motion decomposition (5Hz) ─────────────────────────────
 
 def decompose_camera_motion(
@@ -2709,8 +2780,9 @@ def index_clip(
         file=sys.stderr,
     )
 
-    # 10. Face presence (5Hz)
-    print("    [10/12] Face presence (5Hz)...", file=sys.stderr)
+    # 10. Face presence (5Hz) + Vision measurement (5Hz)
+    print("    [10/12] Face presence + Vision faces (5Hz)...",
+          file=sys.stderr)
     face = compute_face_presence(video_path)
     face_pct = (
         round(len(face['face_present_times']) / len(face['values']) * 100)
@@ -2718,6 +2790,25 @@ def index_clip(
     )
     print(
         f"            {face_pct}% of samples with face detected",
+        file=sys.stderr,
+    )
+    # Apple Vision all-faces + landmarks + pose + hands + segmentation,
+    # on the same samples Haar saw. `measure_clip_vision` never raises -
+    # anything that fails is a fallback document, never a failed clip -
+    # so this guard is only for the geometry read beside it.
+    try:
+        sample_w, sample_h = face_sample_dimensions(video_path)
+        vision = vision_measure.measure_clip_vision(
+            video_path, sample_w, sample_h)
+    except Exception as e:
+        vision = vision_measure.empty_vision_doc(
+            f"unavailable: {e}", vision_measure.VISION_SAMPLE_RATE_HZ)
+    print(
+        f"            vision engine: "
+        f"{vision['vision_method']['engine']}, "
+        f"{vision['vision_method']['samples']} samples, "
+        f"{vision['vision_method']['faces_removed_by_persistence']} "
+        f"phantoms removed",
         file=sys.stderr,
     )
 
@@ -2788,6 +2879,21 @@ def index_clip(
         # face_present_times: timestamps where confidence > 0.5
         # face_absent_times: timestamps where confidence < 0.1 (no face)
         "face_presence": face,
+
+        # Vision measurement (5Hz, same samples Haar saw): all faces
+        # with landmarks after the persistence filter, the unfiltered
+        # candidate boxes, raw body/hand joints, and a person-mask
+        # summary - plus the method account that says which engine
+        # answered. `library/steps/step_1_04_temporal_index/
+        # vision_measure.py`. No hand-over-mouth rule ships: the eval
+        # proved the distance rule unworkable, so hands and landmarks
+        # are stored raw for the later study instead.
+        "vision_faces": vision["vision_faces"],
+        "vision_face_candidates": vision["vision_face_candidates"],
+        "vision_body_pose": vision["vision_body_pose"],
+        "vision_hand_pose": vision["vision_hand_pose"],
+        "vision_person_mask": vision["vision_person_mask"],
+        "vision_method": vision["vision_method"],
 
         # Hue/brightness/temperature per second (1Hz).
         # Useful for detecting color grade, lighting transitions,
@@ -3186,7 +3292,25 @@ def build_temporal_index(
                         print(f"  sound-event backfill yielded nothing; "
                               f"serving cached measurement",
                               file=sys.stderr)
-                if not motion_due and not sound_due:
+                # A cached document predating Vision faces is UPGRADED
+                # the same way: the backfill measures only the picture
+                # for the six owned keys and rewrites the same file, so
+                # old projects gain all-faces boxes, landmarks, pose,
+                # hands and the mask summary for one extra sampling pass
+                # plus one batched helper run - no re-transcription.
+                vision_due = vision_backfill_needed(index)
+                if vision_due:
+                    print(f"  backfilling vision faces for "
+                          f"{os.path.basename(index_path)}",
+                          file=sys.stderr)
+                    if backfill_vision_measurement(index, filepath):
+                        with open(index_path, "w", encoding="utf-8") as f:
+                            json.dump(index, f, indent=2)
+                    else:
+                        print(f"  vision backfill yielded nothing; "
+                              f"serving cached measurement",
+                              file=sys.stderr)
+                if not motion_due and not sound_due and not vision_due:
                     print(f"  reusing {os.path.basename(index_path)}",
                           file=sys.stderr)
             else:

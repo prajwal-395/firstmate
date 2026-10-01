@@ -255,6 +255,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # summary is part of the same semantic-document read path.
         "library/tools/vision_schema_adapter.py",
         "library/tools/segment_coverage.py",
+        # Apple Vision face/pose/hand measurement called from step.py
+        # beside the Haar path: a fix here changes the cached
+        # vision_faces/vision_body_pose/vision_hand_pose/vision_person_mask.
+        "library/steps/step_1_04_temporal_index/vision_measure.py",
     ),
     "step_1_05_prosody_analysis": (
         # The executed measurement.
