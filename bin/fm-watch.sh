@@ -2392,29 +2392,6 @@ while :; do
     exit 1
   }
 
-  # A terminal manager can restore Claude's saved transcript with a bare
-  # `claude --resume`, dropping the CLI permission flag. Recheck every local
-  # Claude worker each poll; fm-control owns the idle gate and same-session
-  # lifecycle transaction. Successful repair stays quiet, while a failed
-  # repair is an actionable wake for the supervisor.
-  posture_out=
-  posture_rc=0
-  posture_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-claude-posture-sweep.sh" 2>&1) || posture_rc=$?
-  if [ -n "$posture_out" ]; then
-    while IFS= read -r posture_line; do
-      case "$posture_line" in
-        POSTURE_REPAIR_FAILED:*) wake "check: Claude permission-posture repair failed: ${posture_line#POSTURE_REPAIR_FAILED: }" ;;
-        *) triage_log "$posture_line" ;;
-      esac
-    done <<EOF
-$posture_out
-EOF
-  fi
-  if [ "$posture_rc" -ne 0 ] && [ -z "$posture_out" ]; then
-    triage_log "Claude permission-posture sweep exited $posture_rc without a diagnostic"
-  fi
-
   # Process-to-event liveness repair. This never discovers a result by polling:
   # each registered source has its own child blocking on that source, and this
   # only republishes results already captured durably and restarts a source

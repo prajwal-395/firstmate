@@ -8,7 +8,6 @@
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
 #        fm-control.sh <task-id> rebind
-#        fm-control.sh <task-id> repair-posture
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -84,20 +83,16 @@
 #              aim every later lifecycle command at a stranger. Postcondition:
 #              the rewritten record passes endpoint-identity validation and
 #              resolves to a positively classified endpoint.
-#   repair-posture Resume an idle Claude session in the same pane with the
-#              configured permission flag after a bare terminal-manager restore.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
 # endpoint, or discarding work stays with bin/fm-teardown.sh, which owns the
 # landed-work test.
 #
-# `resume` is not a general verb: it is not deterministic across the verified
-# adapters (bin/fm-control-lib.sh's header owns that reasoning). The narrow
-# `repair-posture` exception resumes only an already-live Claude session whose
-# bare-resume command line proves that Herdr restored it without its flag.
-# `relaunch` remains the general replacement path because the brief on disk,
-# not a harness-private session, is the durable instruction.
+# `resume` is not a verb: it is not deterministic across the verified adapters
+# (bin/fm-control-lib.sh's header owns that reasoning). `relaunch` covers the
+# same need for every adapter because the brief on disk, not a harness-private
+# session, is the durable instruction.
 #
 # Targeting is EXACT: only a bare task id with a state/<id>.meta record in
 # THIS home is accepted, and the record must pass the shared endpoint-identity
@@ -178,8 +173,6 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
-# shellcheck source=bin/fm-claude-posture-lib.sh
-. "$SCRIPT_DIR/fm-claude-posture-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -229,7 +222,7 @@ shift 2
 if ! fm_control_verb_allowed "$VERB"; then
   {
     if [ "$VERB" = resume ]; then
-      echo "error: 'resume' is not a control verb: resuming an exited agent is not deterministic across the verified adapters (codex and grok need a session id printed at exit, opencode continues the most recent session for the cwd, and the other adapters have no general pane-resume contract). Use 'relaunch', which carries the brief plus a progress note into a fresh agent on any adapter."
+      echo "error: 'resume' is not a control verb: resuming an exited agent is not deterministic across the verified adapters (codex and grok need a session id printed at exit, opencode continues the most recent session for the cwd, and claude, pi, pi-signed, and kimi have no verified pane-resume contract). Use 'relaunch', which carries the brief plus a progress note into a fresh agent on any adapter."
     else
       echo "error: '$VERB' is not a control verb"
     fi
@@ -298,9 +291,6 @@ fi
 if [ "$VERB" != relaunch ]; then
   [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
     || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
-fi
-if [ "$VERB" = repair-posture ]; then
-  [ "$#" -eq 0 ] || die "repair-posture does not accept arguments"
 fi
 if [ "$VERB" != exit ]; then
   [ "$REASON_SET" = 0 ] || die "--reason applies to 'exit' only"
@@ -1080,44 +1070,6 @@ do_rebind() {
 
 # --- verbs ------------------------------------------------------------------
 
-do_repair_posture() {
-  local observed ready session flag expected command send_result state after
-  [ "$HARNESS" = claude ] || die "task $ID is not a Claude worker; permission-posture repair is Claude-only"
-  case "$BACKEND" in
-    tmux|herdr) ;;
-    *) die "task $ID runs on $BACKEND, which has no verified Claude process and same-pane resume contract" ;;
-  esac
-  require_state_verified_backend repair-posture
-  observed=$(fm_claude_posture_drift "$META" "$STATE" "$FM_HOME/config")
-  case "$observed" in
-    'drifted '*) ;;
-    'clean '*) echo "posture-clean $ID $observed"; return 0 ;;
-    *) echo "posture-skipped $ID $observed"; return 0 ;;
-  esac
-  read -r _ session flag <<< "$observed"
-  expected=bypass
-  [ "$flag" = '--permission-mode=auto' ] && expected=auto
-  ready=$(fm_claude_posture_idle_ready "$META" "$STATE" 2>/dev/null || true)
-  [ "$ready" = ready ] || { echo "posture-deferred $ID reason=${ready:-unknown}"; return 0; }
-
-  # The empty composer is the positive idle proof. Exit the CLI without
-  # interrupting a turn, then attach the exact transcript again from its id.
-  command=$(fm_control_exit_command "$HARNESS")
-  send_result=$(fm_backend_send_text_submit "$BACKEND" "$T" "$command" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
-    || die "Claude posture repair could not submit /exit to task $ID"
-  [ "$send_result" != send-failed ] || die "Claude posture repair could not submit /exit to task $ID"
-  state=$(wait_agent_state "$EXIT_WAIT" dead) || die "Claude posture repair requested an idle exit, but task $ID remained $state"
-  command=$(fm_claude_posture_repair_command "$session" "$flag")
-  send_result=$(fm_backend_send_text_submit "$BACKEND" "$T" "$command" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
-    || die "Claude posture repair could not resume session $session in task $ID's pane"
-  [ "$send_result" != send-failed ] || die "Claude posture repair could not resume session $session in task $ID's pane"
-  state=$(wait_agent_state "$LAUNCH_WAIT" alive) || die "Claude posture repair submitted the same-session resume, but task $ID reads $state"
-  after=$(fm_claude_posture_drift "$META" "$STATE" "$FM_HOME/config")
-  [ "$after" = "clean $expected $session" ] \
-    || die "Claude posture repair resumed task $ID, but the live process does not prove configured posture '$expected' (observed: $after)"
-  echo "posture-repaired $ID session=$session posture=$expected backend=$BACKEND endpoint=$T worktree=$WT"
-}
-
 case "$VERB" in
   interrupt)
     state=$(agent_state)
@@ -1167,8 +1119,5 @@ case "$VERB" in
     ;;
   rebind)
     do_rebind
-    ;;
-  repair-posture)
-    do_repair_posture
     ;;
 esac

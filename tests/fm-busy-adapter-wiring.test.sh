@@ -288,11 +288,12 @@ test_claude_hooks_stale_incarnation_harmless() {
   pass "claude hook events from a superseded incarnation are rejected without breaking the hook"
 }
 
-# Claude settings.local.json carries busy-state hooks only. Its permissions
-# setting is inert for bare resume on current Claude Code, which posture repair
-# handles through the live lifecycle plane.
-test_claude_settings_local_keeps_hooks_without_permission_posture() {
-  local rec id=busy-cl-perm-bypass out settings
+# Regression: a Herdr session restore (`claude --resume`) does not re-apply CLI
+# flags, so --dangerously-skip-permissions is lost. The fix carries the resolved
+# posture in .claude/settings.local.json under permissions.defaultMode so the
+# resumed session reads it from the project's local settings file.
+test_claude_settings_local_carries_permission_posture_bypass() {
+  local rec id=busy-cl-perm-bypass out settings mode
   rec=$(make_spawn_case claude-perm-bypass claude "$id")
   read_case_record "$rec"
   # Absent config/claude-permission-mode -> bypass (the default).
@@ -302,15 +303,14 @@ test_claude_settings_local_keeps_hooks_without_permission_posture() {
   settings="$WT_DIR/.claude/settings.local.json"
   assert_present "$settings" "claude spawn did not write settings.local.json"
   jq -e . "$settings" >/dev/null || fail "settings.local.json is not valid JSON"
-  jq -e '.hooks.UserPromptSubmit and .hooks.Stop and .hooks.StopFailure and .hooks.SessionEnd' "$settings" >/dev/null \
-    || fail "settings.local.json lost Claude busy-state hooks"
-  jq -e 'has("permissions") | not' "$settings" >/dev/null \
-    || fail "settings.local.json must not claim to persist permission posture"
-  pass "Claude settings.local.json keeps busy-state hooks and omits inert permission posture"
+  mode=$(jq -r '.permissions.defaultMode' "$settings")
+  [ "$mode" = bypassPermissions ] \
+    || fail "absent config/claude-permission-mode must persist bypassPermissions in settings.local.json, got '$mode'"
+  pass "claude spawn (bypass default) persists permissions.defaultMode=bypassPermissions in settings.local.json"
 }
 
-test_claude_settings_local_auto_mode_does_not_write_permission_posture() {
-  local rec id=busy-cl-perm-auto out settings
+test_claude_settings_local_carries_permission_posture_auto() {
+  local rec id=busy-cl-perm-auto out settings mode
   rec=$(make_spawn_case claude-perm-auto claude "$id")
   read_case_record "$rec"
   printf 'auto\n' > "$HOME_DIR/config/claude-permission-mode"
@@ -319,10 +319,11 @@ test_claude_settings_local_auto_mode_does_not_write_permission_posture() {
   settings="$WT_DIR/.claude/settings.local.json"
   assert_present "$settings" "claude spawn did not write settings.local.json"
   jq -e . "$settings" >/dev/null || fail "settings.local.json is not valid JSON"
-  jq -e 'has("permissions") | not' "$settings" >/dev/null \
-    || fail "settings.local.json must not claim to persist auto permission posture"
+  mode=$(jq -r '.permissions.defaultMode' "$settings")
+  [ "$mode" = auto ] \
+    || fail "config/claude-permission-mode=auto must persist auto in settings.local.json, got '$mode'"
   rm -f "$HOME_DIR/config/claude-permission-mode"
-  pass "Claude auto mode remains a launch flag, not an inert settings.local.json value"
+  pass "claude spawn (auto) persists permissions.defaultMode=auto in settings.local.json"
 }
 
 test_codex_unverified_until_a_semantic_source_exists() {
@@ -491,8 +492,8 @@ test_agy_hook_source_trusted
 test_opencode_plugin_semantic_lifecycle
 test_claude_hooks_semantic_lifecycle
 test_claude_hooks_stale_incarnation_harmless
-test_claude_settings_local_keeps_hooks_without_permission_posture
-test_claude_settings_local_auto_mode_does_not_write_permission_posture
+test_claude_settings_local_carries_permission_posture_bypass
+test_claude_settings_local_carries_permission_posture_auto
 test_gemini_hooks_semantic_lifecycle
 test_gemini_hooks_stale_incarnation_harmless
 test_raw_gemini_launch_has_no_semantic_wiring

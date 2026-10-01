@@ -37,13 +37,10 @@
 # `resume` is deliberately NOT a verb. It is not deterministic across the
 # verified adapters: codex and grok resume only from a session id printed at
 # exit, opencode resumes the most recent session for the cwd with --continue,
-# and pi, pi-signed, omp, and kimi have no verified pane-resume contract at
-# all. `relaunch` covers the same need deterministically for every adapter,
+# and claude, pi, pi-signed, omp, and kimi have no verified pane-resume contract
+# at all. `relaunch` covers the same need deterministically for every adapter,
 # because the brief on disk - not a harness-private session - is the durable
-# instruction. The one exception is Claude's same-session posture repair
-# (bin/fm-claude-posture-lib.sh): `claude --resume <id>` reattaches its
-# session with the conversation intact, which the repair-posture verb below
-# relies on for that adapter only.
+# instruction.
 
 # `rebind` IS a verb, and it is the one that acts on the RECORD rather than on
 # the agent. It exists because a backend whose endpoint identifiers are
@@ -62,13 +59,12 @@ interrupt
 exit
 relaunch
 rebind
-repair-posture
 EOF
 }
 
 fm_control_verb_allowed() {  # <verb>
   case "${1-}" in
-    interrupt|exit|relaunch|rebind|repair-posture) return 0 ;;
+    interrupt|exit|relaunch|rebind) return 0 ;;
   esac
   return 1
 }
