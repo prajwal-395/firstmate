@@ -365,22 +365,86 @@ def test_unreplayable_rows_are_reported_by_name(tmp_path, capsys):
     rows = [_isolate(track=4),
             _lut(node=9),
             _lut(phrase="words nobody ever spoke"),
-            {"op": "retime",
-             "anchor": {"kind": "words", "phrase": "ive quit"},
-             "params": {"percent": 80}, "stated_by": "requester",
-             "reason": "slow the shot"}]
+            _retime("ive quit", 80)]
     report = edit_ledger.replay_on_timeline(
         "Reel 09 - hook", rows, _spans(), _speech(), timeline,
         item_for_span=lambda _i: _Item(),
         reel_name="Reel 09 - hook")
     assert report["applied"] == []
-    assert len(report["unreplayable"]) == 4
+    # The retime is no carrier: it shaped the keep ranges before
+    # placement (`rate_ranges`), so replay neither applies nor loses it.
+    assert len(report["unreplayable"]) == 3
     names = " ".join(r["name"] for r in report["unreplayable"])
     assert "voice_isolation" in names
     assert "clip_lut" in names
-    assert "retime" in names
+    assert "retime" not in names
     out = capsys.readouterr().err
-    assert out.count("UNREPLAYABLE LEDGER ROW") == 4
+    assert out.count("UNREPLAYABLE LEDGER ROW") == 3
+
+
+def _retime(phrase, percent, reel="Reel 09 - hook", **params):
+    return {"op": "retime", "reel": reel,
+            "anchor": {"kind": "words", "phrase": phrase},
+            "params": {"percent": percent, **params},
+            "stated_by": "requester", "reason": "pace the passage"}
+
+
+def test_retime_is_durable_intent_on_the_keep_ranges():
+    """Punch list 10: "make this passage 110% speed" re-derives on every
+    rebuild - the passage, from its first word to its last, plays at
+    its percent on the reel clock, inside its range (no new seam), and
+    the placer lays it down at that rate with contiguous records."""
+    from types import SimpleNamespace
+
+    from library.tools import reel_clock
+    from library.tools.reel_build import placements
+
+    ranges, applied, lost = edit_ledger.rate_ranges(
+        [(10.0, 15.0)], [_retime("quit every single day", 110)],
+        _speech(), "Reel 09 - hook")
+    assert lost == []
+    assert applied[0]["passages"] == [[11.2, 12.7]]
+    assert len(ranges) == 1 and tuple(ranges[0]) == (10.0, 15.0)
+    assert [pytest.approx(piece) for piece in reel_clock.pieces(
+        ranges[0])] == [(10.0, 11.2, 1.0), (11.2, 12.7, 1.1),
+                        (12.7, 15.0, 1.0)]
+    assert reel_clock.played_seconds(ranges[0]) == pytest.approx(
+        1.2 + 1.5 / 1.1 + 2.3)
+
+    clip = SimpleNamespace(timeline_start=0.0, timeline_end=60.0,
+                           source_in=100.0, track_index=1, speaker="A",
+                           track_type="video", source_file="/a.mov")
+    placed = placements(ranges, [clip], 24.0)
+    assert [p.get("rate", 1.0) for p in placed] == [1.0, 1.1, 1.0]
+    middle = placed[1]
+    assert middle["source_in"] == pytest.approx(111.2)
+    assert round((middle["source_out"] - middle["source_in"]) * 24) == 36
+    assert middle["record_frames"] == 33
+    assert placed[2]["snapped_record"] == (middle["snapped_record"]
+                                           + middle["record_frames"])
+    assert (placed[2]["snapped_record"]
+            + round((placed[2]["source_out"] - placed[2]["source_in"])
+                    * 24)) == reel_clock.played_frames(ranges[0], 24.0)
+
+
+def test_retime_reports_what_it_cannot_honour():
+    """A retime the reel cannot play is reported by name and leaves the
+    ranges alone; two retimes over one stretch of speech refuse."""
+    ranges = [(10.0, 15.0)]
+    rows = [_retime("words nobody ever spoke", 120),
+            _retime("there ive", 120),
+            _retime("and back", 90, segments=[{"percent": 90}])]
+    rated, applied, lost = edit_ledger.rate_ranges(
+        ranges, rows, _speech(), "Reel 09 - hook")
+    assert rated == ranges and applied == []
+    reasons = " ".join(record["reason"] for record in lost)
+    assert "does not play those words" in reasons
+    assert "'hello'" in reasons
+    assert "stepped retime" in reasons
+    with pytest.raises(EditLedgerError, match="one stretch of speech"):
+        edit_ledger.rate_ranges(
+            ranges, [_retime("quit every", 110), _retime("every single", 90)],
+            _speech(), "Reel 09 - hook")
 
 
 def test_anchor_typo_fails_at_record_not_next_build(tmp_path):

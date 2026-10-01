@@ -5952,6 +5952,15 @@ def _derive_plan_from_master(
             kr, _ending_record = _ending.apply_ending(
                 kr, compute_placements(kr, master_clips, fps),
                 transcript or {}, ending_declaration, fps)
+    # The ledger's retimes, re-derived with the same code at the same
+    # seam as the build (`reel_build.rate_ranges_from_ledger`): a
+    # retimed passage plays a different number of frames, and checking
+    # it against unrated ranges would report it as plan mismatch.
+    if project_folder:
+        from library.tools.reel_build import (
+            rate_ranges_from_ledger as _rate_ranges)
+        kr = _rate_ranges(list(kr), project_folder, transcript or {},
+                          reel_name)
     # `fps` is REQUIRED: `placements` computes each clip's record frame
     # from it (PR #524), and calling without it raised on every run -
     # `verify_built_reels` caught the TypeError and re-raised it as

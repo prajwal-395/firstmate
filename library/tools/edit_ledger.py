@@ -73,11 +73,14 @@ Hands ops replayed on the new timeline: `voice_isolation` (track-level
 Resolve Voice Isolation), `clip_lut` (a node LUT on the clips speaking
 the anchor) and `grade` (a declared LUT or PowerGrade on the anchored
 picture). `angle_plan` is applied before placement: camera rows and
-switch boundaries come from its reel/word anchors. Plan-level kinds
-replay through the existing appliers via the merged view:
-`transform_override`, `span_retime`, `drop_fragment`, `caption_fix` and
-`redraw_closer`. `retime` remains a carrier until its edit can be
-replayed without breaking the picture/audio link.
+switch boundaries come from its reel/word anchors. `retime` is
+projected onto the keep ranges (`rate_ranges`): the anchored passage
+plays at its percent on the reel clock (`reel_clock`), so captions,
+cards and the verifier follow it, and the build sets the speed on the
+placed picture and its linked dialogue together (`native_ops_apply`).
+Plan-level kinds replay through the existing appliers via the merged
+view: `transform_override`, `span_retime`, `drop_fragment`,
+`caption_fix` and `redraw_closer`.
 
 Replay discipline
 -----------------
@@ -110,8 +113,9 @@ EDIT_LEDGER_FILENAME = "edit_ledger.json"
 #: Ops the build replays onto the live timeline after its own passes.
 REPLAYED_OPS = ("voice_isolation", "clip_lut", "grade")
 
-#: Ops applied while deriving placements and the track plan.
-PLAN_OPS = ("angle_plan",)
+#: Ops applied while deriving placements and the track plan: the
+#: angle plan shapes the picture rows, a retime the keep ranges.
+PLAN_OPS = ("angle_plan", "retime")
 
 #: Plan-level kinds, replayed through the existing `captain_edits`
 #: appliers via the merged view (`project_onto_captain_edits`), never
@@ -119,10 +123,10 @@ PLAN_OPS = ("angle_plan",)
 PROJECTED_OPS = ("transform_override", "span_retime", "drop_fragment",
                  "caption_fix", "redraw_closer")
 
-#: Carriers not yet replayed; each is reported by name. `plan_change`
-#: is delivered to its declared planning node from the linked marker
-#: note instead of being replayed onto the timeline.
-CARRIER_OPS = ("retime", "plan_change")
+#: Carriers not replayed onto the timeline; each is reported by name.
+#: `plan_change` is delivered to its declared planning node from the
+#: linked marker note instead.
+CARRIER_OPS = ("plan_change",)
 
 #: The complete vocabulary.
 OPS = REPLAYED_OPS + PLAN_OPS + PROJECTED_OPS + CARRIER_OPS
@@ -896,6 +900,136 @@ def project_onto_captain_edits(rows: list) -> list:
     return edits
 
 
+# ── Retime: a passage's speed, projected onto the keep ranges ───────
+
+def rate_ranges(ranges: list, rows: list, transcript: dict,
+                reel_name: str = "") -> tuple:
+    """Project this reel's `retime` rows onto its keep ranges.
+
+    A retime is durable INTENT: "the words X play at 110%". It lands
+    on the RANGES - the one shape the placer, the captions, the cards
+    and the verifier all read (`reel_clock`) - so a rebuild re-derives
+    where the passage plays and how long it takes, and nothing has to
+    replay a recorded Resolve operation. The passage runs from the
+    anchor's first word start to its last word end, wherever the reel
+    plays those words; a `reel` anchor is every keep range.
+
+    Returns `(ranges, applied, unreplayable)`. A row the reel cannot
+    honour is REPORTED BY NAME and leaves the ranges as they were:
+
+    - `segments` (a stepped ramp) - one percent per row; record each
+      step as its own row on its own words.
+    - an anchor the reel does not play.
+    - a sync remainder under the readability floor between the passage
+      and its range edge that carries words: the build would refuse
+      the sub-floor item, and stretching the passage over it would
+      retime words nobody named. A WORDLESS remainder joins the
+      passage instead (said in `applied`).
+
+    Two rows retiming overlapping speech raise: one stretch of speech
+    plays at one speed, and which row wins is the requester's call.
+    """
+    from library.tools import captain_edits as _edits
+    from library.tools import reel_clock as _clock
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+
+    ranges = list(ranges or [])
+    retimes = [row for row in rows_for_reel(rows, reel_name)
+               if row.get("op") == "retime"]
+    if not retimes:
+        return ranges, [], []
+    stream = _edits._word_stream(transcript or {})
+
+    def worded(start: float, end: float) -> list:
+        return [token for token, w_start, w_end in stream
+                if w_start < end and w_end > start]
+
+    passages, applied, unreplayable = [], [], []
+    for row in retimes:
+        params = row.get("params") or {}
+        name = _row_name(row)
+        if params.get("segments") is not None:
+            unreplayable.append({
+                "name": name, "scope": "rung",
+                "reason": ("a stepped retime (segments) does not replay: "
+                           "one percent per row - record each step as "
+                           "its own retime on its own words.")})
+            continue
+        rate = float(params["percent"]) / 100.0
+        anchor = row.get("anchor") or {}
+        if anchor.get("kind") == "reel":
+            windows = [(float(r[0]), float(r[1])) for r in ranges]
+        else:
+            phrase = anchor.get("phrase", "")
+            width = len(_edits._tokens(phrase))
+            windows = [(stream[i][1], stream[i + width - 1][2])
+                       for i in _edits._run_starts(stream, phrase)]
+        mine, absorbed, refusal = [], [], ""
+        for w_start, w_end in windows:
+            for r_start, r_end in ((float(r[0]), float(r[1]))
+                                   for r in ranges):
+                a, b = max(w_start, r_start), min(w_end, r_end)
+                if b <= a:
+                    continue
+                for edge, (s_start, s_end) in (("head", (r_start, a)),
+                                               ("tail", (b, r_end))):
+                    if not 0 < s_end - s_start < MIN_CAPTION_DISPLAY_SECONDS:
+                        continue
+                    words = worded(s_start, s_end)
+                    if words:
+                        refusal = (
+                            f"the passage leaves a {s_end - s_start:.3f}s "
+                            f"sync remainder at its range's {edge} "
+                            f"carrying {' '.join(words)!r}, under the "
+                            f"{MIN_CAPTION_DISPLAY_SECONDS:g}s floor - "
+                            f"anchor the retime through those words or "
+                            f"short of them.")
+                        break
+                    absorbed.append(round(s_end - s_start, 3))
+                    if edge == "head":
+                        a = r_start
+                    else:
+                        b = r_end
+                if refusal:
+                    break
+                mine.append((a, b, rate))
+            if refusal:
+                break
+        if refusal:
+            unreplayable.append({"name": name, "scope": "range",
+                                 "reason": refusal})
+            continue
+        if not mine:
+            unreplayable.append({
+                "name": name, "scope": "anchor",
+                "reason": ("LOST - this reel does not play those words; "
+                           "nothing was retimed.")})
+            continue
+        passages.extend((a, b, rate, name) for a, b, rate in mine)
+        record = {"name": name, "op": "retime",
+                  "percent": float(params["percent"]),
+                  "passages": [[round(a, 3), round(b, 3)]
+                               for a, b, _ in mine]}
+        if absorbed:
+            record["absorbed_wordless_seconds"] = absorbed
+        applied.append(record)
+    passages.sort()
+    for before, after in zip(passages, passages[1:]):
+        if after[0] < before[1]:
+            raise EditLedgerError(
+                f"{before[3]} and {after[3]} retime overlapping speech "
+                f"({before[0]:.3f}-{before[1]:.3f}s and {after[0]:.3f}-"
+                f"{after[1]:.3f}s): one stretch of speech plays at one "
+                f"speed - supersede one of them.")
+    rated = []
+    for keep_range in ranges:
+        inside = [(a, b, rate) for a, b, rate, _ in passages
+                  if a < keep_range[1] and b > keep_range[0]]
+        rated.append(_clock.rated_range(keep_range[0], keep_range[1],
+                                        inside) if inside else keep_range)
+    return rated, applied, unreplayable
+
+
 # ── Replay: hands rows onto the live timeline, after the build ──────
 
 def _row_name(row: dict) -> str:
@@ -1128,9 +1262,8 @@ def replay_on_timeline(name: str, rows: list, spans: list,
     read-backs. Returns
     `{"applied": [...], "unreplayable": [...]}` - and every
     unreplayable row is REPORTED BY NAME, never dropped silently.
-    The `angle_plan` was already applied before placement; `retime`
-    remains a named carrier until the reel path can replay it without
-    breaking its linked audio. `plan_change` rows are returned as
+    The `angle_plan` and `retime` rows were already applied before
+    placement (`rate_ranges`). `plan_change` rows are returned as
     `planned`: their linked note delivers typed values to the operation's
     owning planner, which writes the normal step outputs for the build.
     """
@@ -1157,7 +1290,7 @@ def replay_on_timeline(name: str, rows: list, spans: list,
         elif op in ("clip_lut", "grade"):
             continue  # matched below, per picture span
         elif op in PLAN_OPS:
-            continue  # the angle plan already shaped placements
+            continue  # the angle plan and retimes shaped placements
         elif op in PROJECTED_OPS:
             continue  # the existing appliers hold these, never here
         elif op == "plan_change":

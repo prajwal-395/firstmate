@@ -3800,8 +3800,108 @@ def placements(ranges: Sequence[Tuple[float, float]],
                     cursor_frames
                     + int(round((overlap_end_f - range_start_f) / rate))
                     - record_f)
+                # What `placements` laid down, so the build can tell a
+                # retimed piece a later pass reshaped (`_retimed_span`).
+                out[-1]["retime_whole"] = (
+                    source_in, source_out, record_f,
+                    out[-1]["record_frames"])
         cursor_frames += range_frames
     return out
+
+
+def _retimed_span(place: dict, name: str) -> tuple:
+    """`(record_start, record_frames)` of a retimed placement, or raise.
+
+    A retimed placement plays `source_in..source_out` over
+    `record_frames` at `rate`. The passes between `placements` and the
+    append - offset specs, the angle plan's camera splits, the mic-bleed
+    split - cut and move placements on the assumption that a source
+    second is a record second, so a retimed piece one of them reshaped
+    would play the wrong source: refused by name rather than shipped.
+    """
+    whole = place["retime_whole"]
+    now = (place["source_in"], place["source_out"],
+           int(place["snapped_record"]), place["record_frames"])
+    if now != whole:
+        clip = place["clip"]
+        raise ReelBuildError(
+            f"{name}: a ledger retime ({place['rate'] * 100:g}%) covers "
+            f"{os.path.basename(getattr(clip, 'source_file', '?'))} at "
+            f"reel frame {whole[2]}, and a later placement pass (a "
+            f"j-cut, cutaway, angle-plan camera split or mic-bleed "
+            f"split) reshaped that piece. Those passes are not "
+            f"rate-aware, so the build refuses rather than play the "
+            f"wrong source - anchor the retime on words that pass "
+            f"leaves whole, or drop one of the two.")
+    return whole[2], whole[3]
+
+
+def _apply_ledger_retimes(timeline, placements_list, fps: float,
+                          picture_rows, speech_rows, name: str) -> list:
+    """SetSpeed every retimed picture piece and its linked dialogue.
+
+    Each piece was appended over `record_frames` of source; a
+    non-ripple `SetSpeed` keeps that record length and plays `rate`
+    times as much source in it - the passage's own words. Measured on
+    Resolve 21.1, 2026-10-01 (a scratch project, picture and sound
+    appended over source 100-160, 60 record frames): 110% kept 60
+    record frames and read source 100-166, 50% read 100-130, 80% read
+    99-148 - the in-point holds (within the one frame the 80% read
+    reports early), the out-point moves to `record x rate`, and the
+    audio item reads the same span as its picture. Applied by
+    `native_ops_apply.apply_native_speed_ops`, so the dialogue sharing
+    the picture's record span rides the same write and each is judged
+    by its `GetSpeed` re-read. Any failure REFUSES the build: a retime
+    the timeline does not carry is a picture the plan disobeyed.
+    """
+    from library.tools import native_ops_apply as _native
+
+    ops = []
+    for place in placements_list:
+        if "rate" not in place or _is_audio_place(place):
+            continue
+        start, frames = _retimed_span(place, name)
+        ops.append({
+            "op_id": f"ledger-retime@{start}",
+            "effect_type": "speed_ramp",
+            "segments": [{"timeline_start": start / fps,
+                          "timeline_end": (start + frames) / fps,
+                          "percent": place["rate"] * 100.0}]})
+    if not ops:
+        return []
+    report = _native.apply_native_speed_ops(
+        timeline, ops, fps, dialogue_tracks=list(speech_rows),
+        video_tracks=tuple(picture_rows))
+    if report["failed"]:
+        raise ReelBuildError(
+            f"{name}: a ledger retime did not land: "
+            + "; ".join(f"{f['op_id']}: {f['what']} ({f['fix']})"
+                        for f in report["failed"]))
+    # The dialogue rode the picture's write only where its record span
+    # matched the picture's. Every retimed speech piece is read back
+    # here, so one that cut at another edge cannot ship appended at
+    # record length and playing at sync.
+    for place in placements_list:
+        if "rate" not in place or not _is_audio_place(place):
+            continue
+        start, _frames = _retimed_span(place, name)
+        heard = []
+        for row in speech_rows:
+            for item in timeline.GetItemListInTrack("audio", row) or []:
+                if int(item.GetStart()) == start:
+                    heard.append(_native._read_speed_percent(item)[0])
+        want = place["rate"] * 100.0
+        if not heard or any(
+                speed is None
+                or abs(speed - want) > _native.SPEED_TOLERANCE
+                for speed in heard):
+            raise ReelBuildError(
+                f"{name}: the ledger retime's dialogue at reel frame "
+                f"{start} re-reads {heard or 'no item'} where "
+                f"{want:g}% was planned - its picture's write did not "
+                f"carry it, and a talking shot out of sync with its "
+                f"words is refused.")
+    return report["applied"]
 
 
 def suppress_mic_bleed_audio(placements_list: Sequence[dict],
@@ -5009,6 +5109,39 @@ def moment_cuts_and_insistences(moment, transcript: dict,
     return moment_cuts, moment_insisted
 
 
+def rate_ranges_from_ledger(ranges, project_folder: str, transcript: dict,
+                            name: str) -> list:
+    """The reel's keep ranges with its ledger retimes on the reel clock.
+
+    `edit_ledger.rate_ranges` over the project's ledger, at the ranges
+    seam every deriver shares - after the trims and the ending, before
+    cards and captions read the ranges - so the build, a variant and
+    the conformance verifier cannot disagree about how long a retimed
+    passage plays. Applied retimes are SAID; a row the reel cannot
+    honour is reported by name and left out; an unreadable ledger or
+    two rows retiming one stretch of speech REFUSE.
+    """
+    from library.tools import edit_ledger as _ledger
+
+    try:
+        rows = _ledger.load_rows(project_folder)
+        if not any(row.get("op") == "retime" for row in rows):
+            return list(ranges)
+        ranges, applied, unreplayable = _ledger.rate_ranges(
+            ranges, rows, transcript, name)
+    except _ledger.EditLedgerError as exc:
+        raise ReelBuildError(
+            f"  {name}: edit_ledger retime cannot be projected: {exc}"
+        ) from exc
+    for record in applied:
+        print(f"  Ledger retime: {record['name']} plays at "
+              f"{record['percent']:g}% over "
+              + ", ".join(f"{a:.3f}-{b:.3f}s"
+                          for a, b in record["passages"]), flush=True)
+    _ledger.report_unreplayable(unreplayable)
+    return ranges
+
+
 def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
                                  project_folder: str, fps: float, name: str,
                                  moment_cuts, moment_insisted, *,
@@ -5136,6 +5269,12 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
         print(f"  Ending: tail element {fits['element']} needs "
               f"{fits['tail_frames']}f, ending shot plays "
               f"{fits['shot_frames']}f", flush=True)
+
+    # The ledger's retimes, on the ranges seam after the ending: a
+    # retimed passage changes how long the reel plays, so cards and
+    # captions must derive from the rated ranges.
+    ranges = rate_ranges_from_ledger(ranges, project_folder, transcript,
+                                     name)
 
     # Full-frame elements FIRST, because a head card decides where
     # every other thing on this reel starts. PLANNED here; the build
@@ -8173,8 +8312,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
         pool_fps_str = pool_item.GetClipProperty("FPS") or str(fps)
         pool_fps = float(pool_fps_str)
+        appended_out = p["source_out"]
+        if "rate" in p:
+            # A ledger retime: append `record_frames` of source, and the
+            # speed pass below makes those record frames play the
+            # passage (`_apply_ledger_retimes`).
+            appended_out = (p["source_in"]
+                            + _retimed_span(p, name)[1] / fps)
         source_start_frame, source_end_frame = _resolve_source_frame_span(
-            p["source_in"], p["source_out"], pool_fps)
+            p["source_in"], appended_out, pool_fps)
 
         assert_current_timeline(project, timeline)
 
@@ -8216,6 +8362,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 print(f"  ✗ A{dest_row} "
                       f"{os.path.basename(c.source_file)}: nothing of "
                       f"this angle's speech remains here", file=sys.stderr)
+
+    # ── The ledger's retimes: each passage at its declared speed ──
+    # The ranges carried the rate (`rate_ranges_from_ledger`), so the
+    # record spans, captions and cards already assume it; this makes
+    # the placed picture and its dialogue play it.
+    if span_present and any("rate" in p for p in placements_list):
+        raise ReelBuildError(
+            f"{name}: a ledger retime falls on a reel whose picture is a "
+            f"span element, which places no footage to set a speed on - "
+            f"the speech alone would play retimed under a sync picture.")
+    build_record["ledger_retimes"] = _apply_ledger_retimes(
+        timeline, placements_list, fps,
+        sorted(set(video_row_by_angle.values())),
+        sorted(set(speech_row_by_angle.values())), name)
 
     # ── The declared CDL: the look's hue half, on the footage ──
     # Step 6.01 applies this on the master through TimelineItem.SetCDL
@@ -14013,6 +14173,9 @@ def build_reel_variants(project_slug: str, reel_number: int,
             ranges, placements(ranges, master_clips, fps),
             transcript, _ending_decl, fps)
         _reel_ending.report(_end_record)
+    # The ledger's retimes, same seam as the rebuild loop.
+    ranges = rate_ranges_from_ledger(ranges, project_folder, transcript,
+                                     moment.timeline_name)
 
     # Cards are identical for every variant (same moment, same
     # ranges): planned and rendered once, shared by all variants.

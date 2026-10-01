@@ -228,3 +228,48 @@ def test_verb_refuses_an_unreadable_source_beside_candidates():
         timeline, video, _span_of(video))
     assert linked == [] and skipped == []
     assert "ghost" in refused and unchecked == ""
+
+
+def test_ledger_retime_sets_picture_and_dialogue_and_refuses_a_reshape():
+    """Punch list 10: a ledger retime reaches the timeline as a speed on
+    the placed picture AND its dialogue, each re-read; a retimed piece a
+    later placement pass reshaped refuses rather than play the wrong
+    source."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from library.tools.reel_build import (
+        ReelBuildError, _apply_ledger_retimes, placements)
+    from library.tools.reel_clock import rated_range
+
+    ranges = [rated_range(0.0, 10.0, [(2.0, 4.2, 1.1)])]
+    video = SimpleNamespace(timeline_start=0.0, timeline_end=10.0,
+                            source_in=0.0, track_index=1, speaker="A",
+                            track_type="video", source_file="/hook.mov")
+    audio = SimpleNamespace(**{**vars(video), "track_type": "audio"})
+    placed = placements(ranges, [video, audio], FPS)
+    retimed = [p for p in placed if "rate" in p]
+    assert len(retimed) == 2
+    start, frames = retimed[0]["snapped_record"], retimed[0]["record_frames"]
+    assert (start, frames) == (60, 60)  # 66 master frames at 110%
+
+    picture = _FakeItem("pic", start, frames)
+    speech = _FakeItem("speech", start, frames)
+    applied = _apply_ledger_retimes(
+        _FakeTimeline(video=[picture], audio=[speech]), placed, FPS,
+        [1], [1], "Reel 01")
+    assert len(applied) == 1
+    assert picture.GetSpeed()["Percentage"] == pytest.approx(110.0)
+    assert speech.GetSpeed()["Percentage"] == pytest.approx(110.0)
+    assert picture.writes[0]["RippleTimeline"] is False
+
+    reshaped = [dict(p) for p in placed]
+    for p in reshaped:
+        if "rate" in p and p["clip"] is video:
+            p["source_in"] += 0.5
+    with pytest.raises(ReelBuildError, match="reshaped that piece"):
+        _apply_ledger_retimes(
+            _FakeTimeline(video=[_FakeItem("pic", start, frames)],
+                          audio=[_FakeItem("speech", start, frames)]),
+            reshaped, FPS, [1], [1], "Reel 01")

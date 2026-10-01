@@ -204,7 +204,8 @@ def retime_linked_audio(video_item, video_name: str, percent: float,
 
 
 def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0,
-                            dialogue_tracks: list = None) -> dict:
+                            dialogue_tracks: list = None,
+                            video_tracks: tuple = (1, 2)) -> dict:
     """Apply each native speed op; judge each by `GetSpeed`.
 
     Args:
@@ -219,6 +220,9 @@ def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0,
             selected from these rows only, never the bed or SFX rows.
             None reads no audio: the video retime is still judged,
             but no linked-audio claim is made.
+        video_tracks: the picture rows whose items an op may match -
+            V1 and V2 for the manifest's native ops; a reel passes its
+            own a-roll rows (a reel's angles ride per-angle rows).
 
     Returns a report with `applied` (one row per judged write) and
     `failed` (one row per refusal or failed read-back, each naming the
@@ -227,7 +231,7 @@ def apply_native_speed_ops(timeline, ops: list, fps: float = 30.0,
     and the timeline build does not.
     """
     items = []
-    for track_index in (1, 2):
+    for track_index in video_tracks:
         try:
             items.extend(timeline.GetItemListInTrack("video", track_index)
                          or [])

@@ -2224,6 +2224,25 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
         effect["_preset"] = ordered[0]["effect_type"]
         effect["zoom_windows"] = windows
 
+    # A ledger retime (`edit_ledger.rate_ranges`) plays more or less
+    # source than its record span, and a comp's MediaIn window is keyed
+    # to the frames the item plays (`comp_media_window`). Whether a comp
+    # covers a speed-changed item is unmeasured, and an uncovered window
+    # FAILS the render part-way - so a comp on a retimed shot refuses.
+    for index, p in enumerate(picture):
+        if "rate" in p and per_clip.get(clip_label(index)):
+            raise ReelLookRefused(
+                f"picture shot {index} is retimed to "
+                f"{p['rate'] * 100:g}% by the edit ledger and carries "
+                f"Fusion treatment "
+                f"{sorted(per_clip[clip_label(index)])!r}.",
+                "A comp's MediaIn coverage on a speed-changed item is "
+                "unmeasured; an uncovered window fails the render "
+                "part-way rather than drawing black.",
+                "Drop the retime or the shot's treatment (the look's "
+                "grade, a drift, the tail element), then rebuild.",
+            )
+
     return {
         "tracks": tracks,
         "fusion_effects": {"per_clip": per_clip, "transitions": []},
