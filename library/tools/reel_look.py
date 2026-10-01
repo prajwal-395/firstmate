@@ -1209,7 +1209,7 @@ def motion_spine(placements: Sequence[dict], fps: float,
                     })
         block["word_timestamps"].sort(
             key=lambda word: word["source_start"])
-    return {"structure": structure}
+    return {"structure": structure, "frame_rate": fps}
 
 
 MOTION_HANDOFF = """Plan this reel's picture MOTION, shot by shot.
@@ -1239,8 +1239,9 @@ Rules that are not yours to change:
   or other camera treatment. Captions, graphics and their timing stay intact.
 - Every new move belongs wholly inside one `target_block_position`. On a long
   shot, set `anchor` and `anchor_end` to words inside that shot so no move
-  straddles a cut. Use the listed `word_spans` and keep successive spans
-  separate and ordered.
+  straddles a cut. Use only the listed `word_spans` and keep successive spans
+  separate and ordered. A word omitted at a shot boundary is not an anchor
+  in that shot.
 - A move is a slow drift, not `zoom_emphasis` or a punch. Across adjacent
   spans on the same shot, each move starts at the scale where the previous
   move ended. Start the first body move at 1.0. A zoom-out returns to 1.0 or
@@ -1491,6 +1492,8 @@ def write_motion_request(reel_number: int, reel_name: str,
     builds the reel without motion and SAYS so.
     """
     from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.frame_utils import seconds_to_frame, frame_to_seconds
+    frame_rate = spine.get("frame_rate")
 
     rows = []
     for block in spine.get("structure", []):
@@ -1501,14 +1504,29 @@ def write_motion_request(reel_number: int, reel_name: str,
                   and s.get("timeline_end", 0.0) > block["master_start"]]
         word_spans = []
         for word in block["word_timestamps"]:
+            start = (block["timeline_start"]
+                     + word["source_start"] - block["source_start"])
+            end = (block["timeline_start"]
+                   + word["source_end"] - block["source_start"])
+            if frame_rate is not None:
+                start_frame = seconds_to_frame(start, frame_rate)
+                end_frame = seconds_to_frame(end, frame_rate)
+                # A word ending on the shot's final frame is safe to offer
+                # at that boundary. A later-frame edge is not part of this
+                # picture and must not be offered as an anchor. Keep the
+                # source transcript untouched so the shared resolver still
+                # reports genuinely out-of-shot answers correctly.
+                if (start_frame < block["timeline_start_frame"]
+                        or end_frame > block["timeline_end_frame"]):
+                    continue
+                if start_frame == block["timeline_start_frame"]:
+                    start = frame_to_seconds(start_frame, frame_rate)
+                if end_frame == block["timeline_end_frame"]:
+                    end = frame_to_seconds(end_frame, frame_rate)
             word_spans.append({
                 "word": word["word"],
-                "start": round(
-                    block["timeline_start"]
-                    + word["source_start"] - block["source_start"], 3),
-                "end": round(
-                    block["timeline_start"]
-                    + word["source_end"] - block["source_start"], 3),
+                "start": round(start, 3),
+                "end": round(end, 3),
             })
         rows.append({
             "target_block_position": block["position"],

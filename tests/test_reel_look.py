@@ -126,6 +126,74 @@ def test_an_unanswered_motion_ask_is_not_an_empty_plan(tmp_path):
     assert record["basis"] == reel_look.MOTION_PLANNED_NONE
 
 
+def test_motion_request_omits_a_word_ending_beyond_the_picture_shot(
+        tmp_path):
+    """A clipped final word is not offered as a motion anchor.
+
+    Reel 22 ended its last picture at 49.341s while the transcript word
+    "business." ended at 49.471s. The motion spine used to retain the
+    overlapping word at its full duration, so the planner could select its
+    end and the shared VFX resolver refused the build. Preserve the raw
+    transcript for that resolver, but keep the ask from offering the edge.
+    """
+    from library.tools.sub_block_anchor import resolve_anchor
+
+    fps = 24000 / 1001
+    start_frame = round(10.636 * fps)
+    placement = _placement("/m22.mxf", start_frame, 38.705, fps)
+    placement["clip"] = _Clip(
+        "/m22.mxf", timeline_start=0.0, source_in=0.0)
+    transcript = [{
+        "source_file": "/m22.mxf",
+        "timeline_start": 0.0,
+        "timeline_end": 38.835,
+        "source_start": 0.0,
+        "source_end": 38.835,
+        "words": [{
+            "word": "business.",
+            "start": 38.375,
+            "end": 38.835,
+        }],
+    }]
+
+    spine = reel_look.motion_spine([placement], fps, transcript)
+    block = spine["structure"][0]
+    assert block["timeline_end"] == pytest.approx(49.341, abs=0.001)
+    assert block["word_timestamps"] == [{
+        "word": "business.",
+        "source_start": 38.375,
+        "source_end": 38.835,
+    }]
+
+    request_path = reel_look.write_motion_request(
+        22, "Reel 22 - a-score-is-not-a-fix", spine,
+        [{"timeline_start": 0.0, "timeline_end": 38.835,
+          "text": "business."}], os.fspath(tmp_path))
+    with open(request_path, "r", encoding="utf-8") as handle:
+        request = json.load(handle)
+    assert request["context"]["shots"][0]["word_spans"] == []
+
+    with pytest.raises(ValueError, match="outside block 0"):
+        resolve_anchor(
+            {"word": "business.", "edge": "end"}, block=block,
+            frame_rate=fps, step="plan_vfx", plan="vfx_creative",
+            index=1, end="anchor_end")
+
+    # A sub-frame overrun that rounds to the played end frame remains a
+    # usable edge and is shown on that frame, matching the resolver rule.
+    block["word_timestamps"] = [{
+        "word": "edge", "source_start": 38.5, "source_end": 38.715,
+    }]
+    request_path = reel_look.write_motion_request(
+        22, "Reel 22 - a-score-is-not-a-fix", spine,
+        [{"timeline_start": 0.0, "timeline_end": 38.835,
+          "text": "edge"}], os.fspath(tmp_path))
+    with open(request_path, "r", encoding="utf-8") as handle:
+        request = json.load(handle)
+    span = request["context"]["shots"][0]["word_spans"][0]
+    assert span["end"] == block["timeline_end"]
+
+
 def test_a_reasoned_drift_resolves_and_reaches_the_manifest():
     fps = 24.0
     placements = [_placement("/a.mxf", 0, 10.0, fps)]
