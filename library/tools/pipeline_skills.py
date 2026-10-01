@@ -474,6 +474,16 @@ def prompt_block(step_id: str, manifest=None,
     and - branched on the answering harness - how to invoke it.
     """
     names = declared_skills(manifest, step_id) if manifest else None
+    return skills_block(names, full_auto)
+
+
+def skills_block(names, full_auto: Optional[str] = None) -> str:
+    """`prompt_block` for skill names already read off a declaration.
+
+    The model-task service (`library/tools/model_task.py`) is handed
+    names, not a manifest; `prompt_block` reads the manifest and lands
+    here, so there is one rendering.
+    """
     if not names:
         return ""
     lines = ["## Recallable skills: checks you can call, and must",
@@ -512,13 +522,18 @@ def assert_declared_skills_reach_prompt(step_id: str, manifest,
     fail rather than read as a step that declares none.
     """
     names = declared_skills(manifest, step_id) if manifest else None
+    assert_skills_reach_prompt(step_id, names, prompt)
+
+
+def assert_skills_reach_prompt(step_id: str, names, prompt: str) -> None:
+    """`assert_declared_skills_reach_prompt` for names already read."""
     for name in names or []:
         if name not in (prompt or ""):
             raise UnreachedSkill(
                 f"{step_id}: declared skill {name!r} never reaches the "
                 f"prompt. A skill the model is not told about is a "
                 f"catalogue entry nothing can recall - wire the block "
-                f"through present_llm_step or undeclare it.")
+                f"through model_task.run_model_task or undeclare it.")
 
 
 # ── Receipts: the record a check ran ──────────────────────────────

@@ -53,8 +53,8 @@ def test_full_auto_agy_alias_still_writes_request(tmp_path, capsys):
     project_dir.mkdir()
     inputs = {"project_folder": str(project_dir)}
 
-    with patch("library.processes.edit_video.run_pipeline._agent_sleep"), patch(
-        "library.processes.edit_video.run_pipeline._agent_clock", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]
+    with patch("library.tools.model_task._agent_sleep"), patch(
+        "library.tools.model_task._agent_clock", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]
     ):
         with pytest.raises(LLMError, match="Timeout"):
             present_llm_step(

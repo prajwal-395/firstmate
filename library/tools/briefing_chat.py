@@ -186,11 +186,21 @@ def append_to_context(current_context: str, project_folder: str,
     that never asked for a brief is not handed one. No answers, or no
     declaration, leaves the context untouched.
     """
-    answers = answers_for(project_folder or "")
-    if not answers:
-        return current_context
     inputs = (manifest or {}).get("interface", {}).get("inputs", [])
     if not any(i.get("name") == "creative_brief" for i in inputs or []):
+        return current_context
+    return prepend_answers(current_context, project_folder)
+
+
+def prepend_answers(current_context: str, project_folder: str) -> str:
+    """Prepend interview answers, for an invocation that reads the brief.
+
+    No answers leaves the context untouched. Whether the invocation
+    reads the brief is its caller's declaration (`append_to_context`
+    reads a manifest; `model_task.ModelTask.reads_brief` carries it).
+    """
+    answers = answers_for(project_folder or "")
+    if not answers:
         return current_context
     return context_block(answers) + "\n" + (current_context or "")
 

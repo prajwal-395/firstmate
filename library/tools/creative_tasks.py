@@ -22,9 +22,9 @@ roster, direction_contradiction's coverage. A brief that nothing invokes
 is a document, and a document a worker reads and then acts on in-turn is
 EXACTLY the failure diagnosed in findings section 15, with better
 paperwork. So a declared task is invoked through the SAME forcing
-function steps go through - `present_llm_step` itself, not a second
-mechanism - and the three guards reconcile against the declaration
-rather than a step id:
+function steps go through - the model-task service itself
+(`library/tools/model_task.py`), not a second mechanism - and the three
+guards reconcile against the declaration rather than a step id:
 
 * the task's role is PREPENDED to its handoff by the shared renderer
   (`craft_role.render_block` - one shape for who is reading, whether the
@@ -101,9 +101,9 @@ One enumeration, `library/tools/creative_tasks.py`. [why - the captain's
 - **A project declares a named creative task carrying a role and a
   handoff; the pipeline invokes it instead of adding a step.**
   `pipeline.creative_tasks` in `project.yaml` declares them.
-- **The invocation is `present_llm_step` itself, not a second
-  mechanism.** A task key (`task:<name>`) is routed through the same
-  call steps go through, so the recorded prompt, the schema rendering,
+- **The invocation is the model-task service itself
+  (`model_task.run_model_task`), not a second mechanism.** A task key
+  (`task:<name>`) is routed through the same call steps go through, so the recorded prompt, the schema rendering,
   the backends, the QA loop and the collectors apply with nothing
   reimplemented.
 - **The three guards reconcile against declared tasks rather than step
@@ -436,15 +436,19 @@ def build_prompt(task: CreativeTask) -> str:
     return prompt
 
 
-def synthetic_manifest(task: CreativeTask) -> dict:
-    """A manifest shaped like a step's, so the runner needs no second path.
+def model_task(task: CreativeTask):
+    """The task's declaration read as the service's typed question.
 
-    `llm_output_declarations` reads `interface.llm_outputs`,
-    `project_step_context` reads top-level `context_fields` (never under
-    `interface`, where nothing reads it), and `validate_step_output`
-    reads `interface.outputs`. One shape, one set of readers, whether
-    the manifest came off disk or out of a project declaration.
+    No step-shaped manifest: `model_task.ModelTask` carries what the
+    model writes (`llm_outputs`, which is also what the answer is
+    validated against), which inputs the prompt may read
+    (`context_fields`), and the three guards' task halves - the role
+    prepended by the shared renderer, the declared evidence, and the
+    interview a task that reads `creative_brief` is owed when none is
+    attached.
     """
+    from library.tools import model_task as service
+
     outputs = []
     for spec in task.outputs:
         rendered = {"name": spec["name"], "type": spec["type"]}
@@ -454,27 +458,18 @@ def synthetic_manifest(task: CreativeTask) -> dict:
             if optional in spec:
                 rendered[optional] = spec[optional]
         outputs.append(rendered)
-    return {
-        "id": task.key,
-        "name": task.name,
-        "interface": {
-            "inputs": [
-                {"name": key, "required": False,
-                 "description": "Project-declared task input, read from "
-                                "pipeline state where the run has it."}
-                for key in task.inputs
-            ],
-            "outputs": [dict(spec) for spec in outputs],
-            "llm_outputs": [dict(spec) for spec in outputs],
-        },
-        "context_fields": list(task.inputs),
-        "classification": {
-            "stage": "project_task",
-            "determinism": "model",
-            "archetype": "creative_judgement",
-            "idempotent": False,
-        },
-    }
+    reads_brief = "creative_brief" in task.inputs
+    return service.ModelTask(
+        key=task.key,
+        handoff_path=str(task.handoff_path),
+        outputs=tuple(outputs),
+        llm_outputs=tuple(outputs),
+        context_fields=tuple(task.inputs),
+        reads_brief=reads_brief,
+        role=role_block(task),
+        evidence=dict(task.evidence),
+        interviews_without_brief=reads_brief,
+    )
 
 
 def present_creative_task(project_folder, name: str, context: dict,
@@ -483,26 +478,27 @@ def present_creative_task(project_folder, name: str, context: dict,
                           retry_feedback: str = "") -> dict:
     """Invoke a project-declared creative task and return its answer.
 
-    The invocation IS `present_llm_step` - the same recorded prompt, the
-    same schema rendering, the same backends, the same QA loop and the
-    same collectors - so a task reaches a model under exactly the forcing
-    function a step does. `context` carries the state the task reads;
-    only the keys its declaration names reach the prompt. The answer is
-    returned to the caller, which owns it: a task is not DAG-wired, so
-    it writes no state key and no contract maps its outputs onward.
+    The invocation IS the model-task service steps go through
+    (`model_task.run_model_task`) - the same recorded prompt, the same
+    schema rendering, the same backends, the same QA loop and the same
+    collectors - so a task reaches a model under exactly the forcing
+    function a step does, with no runner in between. `context` carries
+    the state the task reads; only the keys its declaration names reach
+    the prompt. The answer is returned to the caller, which owns it: a
+    task is not DAG-wired, so it writes no state key and no contract
+    maps its outputs onward.
     """
+    from library.tools import model_task as service
+
     task = _load_task(project_folder, task_key(name))
     inputs = {"project_folder": str(project_folder)}
     for key in task.inputs:
         if context and key in context:
             inputs[key] = context[key]
 
-    from library.processes.edit_video.run_pipeline import present_llm_step
-    return present_llm_step(
-        task.handoff_path,
+    return service.run_model_task(
+        model_task(task),
         inputs,
-        task.key,
-        synthetic_manifest(task),
         full_auto=full_auto,
         llm_timeout=llm_timeout,
         bridge_supplied=set(bridge_supplied or ()),
@@ -512,7 +508,10 @@ def present_creative_task(project_folder, name: str, context: dict,
 
 # ── The three guards' task halves ─────────────────────────────────────
 #
-# Each returns the step-path value for a step id without touching disk:
+# The service reads these off `model_task(task)`; the replay bench
+# (`library/tools/replay_bench/reconstruct.py`) reads them by key, which
+# is why they take a node id. Each returns the step-path value for a step
+# id without touching disk:
 # a step invocation must never pay for - or fail on - a project file it
 # does not need. Only a `task:` key loads the declaration, and a task
 # key that loads nothing raises rather than running role-less.
@@ -521,7 +520,7 @@ def present_creative_task(project_folder, name: str, context: dict,
 def prepend_task_role(project_folder, node_id: str, prompt: str) -> str:
     """Prepend the declaring project's role, or return `prompt` unchanged.
 
-    Called beside `craft_role.prompt_block`, which answers for steps;
+    Read beside `craft_role.prompt_block`, which answers for steps;
     this answers for tasks, through the same renderer. A task key whose
     declaration cannot load raises: a model reached with no role is the
     generic agent the roles exist to remove.

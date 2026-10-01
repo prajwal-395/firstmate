@@ -177,8 +177,8 @@ def declares(step_id: str) -> bool:
     if step_id in DECLARING_STEPS:
         return True
     # A project-declared creative task reaches a model by construction -
-    # its invocation goes through `present_llm_step`, which is the whole
-    # membership rule - so it declares like every other model-reaching
+    # its invocation goes through `model_task.run_model_task`, which is
+    # the whole membership rule - so it declares like every other model-reaching
     # invocation rather than forming the subset this module refuses to
     # choose. The `task:` namespace is creative_tasks', so a step id can
     # never take this branch. Imported lazily: creative_tasks imports

@@ -43,6 +43,7 @@ from library.tools import creative_tasks  # noqa: E402
 from library.tools import creative_floors  # noqa: E402
 from library.tools import craft_role  # noqa: E402
 from library.tools import undetermined  # noqa: E402
+from library.tools import model_task  # noqa: E402
 
 
 HANDOFF_BODY = "# Pick reels\n\nSENTINEL_TASK_HANDOFF_BODY\n"
@@ -109,14 +110,14 @@ def _run_task(monkeypatch, project, name, context, answer):
     layout = layout_for(str(project))
     layout.ensure()
     responses = layout.write_dir(Area.LLM_RESPONSES)
-    original_sleep = run_pipeline._agent_sleep
+    original_sleep = model_task._agent_sleep
 
     def _sleep(seconds):
         (responses / f"{creative_tasks.task_key(name)}.json").write_text(
             json.dumps(answer))
         return original_sleep(0)
 
-    monkeypatch.setattr(run_pipeline, "_agent_sleep", _sleep)
+    monkeypatch.setattr(model_task, "_agent_sleep", _sleep)
     undetermined.reset()
     return creative_tasks.present_creative_task(
         str(project), name, context, full_auto="agent", llm_timeout=5)

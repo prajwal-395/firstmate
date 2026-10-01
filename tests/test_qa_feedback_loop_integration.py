@@ -61,7 +61,7 @@ def _answerer(req, res, answers, seen):
     return stop_answerer
 
 
-@patch("library.processes.edit_video.run_pipeline.validate_step_output")
+@patch("library.tools.model_task.validate_declared_output")
 @patch("library.tools.template_loader.TemplateLoader")
 def test_failing_qa_triggers_retry(mock_template_loader, mock_validate,
                                    mock_manifest, tmp_path):
@@ -82,7 +82,7 @@ def test_failing_qa_triggers_retry(mock_template_loader, mock_validate,
     prompt_file = tmp_path / "prompt.txt"
     prompt_file.write_text("Test prompt")
 
-    with patch("library.processes.edit_video.run_pipeline._agent_sleep",
+    with patch("library.tools.model_task._agent_sleep",
                side_effect=lambda seconds: time.sleep(0.01)):
         try:
             result = present_llm_step(
@@ -102,7 +102,7 @@ def test_failing_qa_triggers_retry(mock_template_loader, mock_validate,
     assert "Missing required key" in seen[1]["context"]
 
 
-@patch("library.processes.edit_video.run_pipeline.validate_step_output")
+@patch("library.tools.model_task.validate_declared_output")
 @patch("library.tools.template_loader.TemplateLoader")
 def test_retry_budget_respected(mock_template_loader, mock_validate,
                                 mock_manifest, tmp_path):
@@ -121,7 +121,7 @@ def test_retry_budget_respected(mock_template_loader, mock_validate,
     prompt_file = tmp_path / "prompt.txt"
     prompt_file.write_text("Test prompt")
 
-    with patch("library.processes.edit_video.run_pipeline._agent_sleep",
+    with patch("library.tools.model_task._agent_sleep",
                side_effect=lambda seconds: time.sleep(0.01)):
         try:
             result = present_llm_step(

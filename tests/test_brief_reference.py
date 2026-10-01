@@ -24,6 +24,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from library.tools import model_task  # noqa: E402
 from library.tools.brief_reference import (  # noqa: E402
     HARNESS_READS_FILES,
     INLINE_WHEN_UNDER_BYTES,
@@ -190,8 +191,8 @@ def test_the_agent_harness_gets_the_brief_restored_in_the_request(tmp_path):
     prompt = tmp_path / "handoff.md"
     prompt.write_text("Do the work.\n", encoding="utf-8")
 
-    with patch.object(run_pipeline, "_agent_sleep"), patch.object(
-            run_pipeline, "_agent_clock",
+    with patch.object(model_task, "_agent_sleep"), patch.object(
+            model_task, "_agent_clock",
             side_effect=[0, 0, 10, 10, 10, 10]):
         with pytest.raises(run_pipeline.LLMError, match="Timeout"):
             run_pipeline.present_llm_step(
@@ -287,8 +288,8 @@ def test_the_agent_restore_states_the_series_ahead_of_the_document(tmp_path):
     prompt = tmp_path / "handoff.md"
     prompt.write_text("Do the work.\n", encoding="utf-8")
 
-    with patch.object(run_pipeline, "_agent_sleep"), patch.object(
-            run_pipeline, "_agent_clock",
+    with patch.object(model_task, "_agent_sleep"), patch.object(
+            model_task, "_agent_clock",
             side_effect=[0, 0, 10, 10, 10, 10]):
         with pytest.raises(run_pipeline.LLMError, match="Timeout"):
             run_pipeline.present_llm_step(

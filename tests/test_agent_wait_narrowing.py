@@ -6,8 +6,8 @@ and because those stubbed the GLOBAL sleep, every stray sleep rewrote the
 later test's own response file concurrent with its read - surfacing as an
 unreproducible `LLMError` parse failure at suite scale only (12/12 in
 isolation). PR 1154 stopped that one thread; this pins the amplifier shut:
-`present_llm_step` waits through `run_pipeline._agent_sleep` /
-`run_pipeline._agent_clock`, module-level names a test can stub without
+`present_llm_step` waits through `model_task._agent_sleep` /
+`model_task._agent_clock`, module-level names a test can stub without
 touching the `time` module every other thread calls.
 
 Two pins, one behavioral and one structural:
@@ -23,7 +23,7 @@ Note the shape the second test deliberately does NOT bless:
 `monkeypatch.setattr(run_pipeline.time, "sleep", ...)` reads as narrowed
 but is global - `run_pipeline.time` IS the shared `time` module object,
 so setting an attribute on it patches every thread's sleep. The narrow
-target is `run_pipeline._agent_sleep` itself.
+target is `model_task._agent_sleep` itself.
 """
 import ast
 import json
@@ -39,6 +39,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from library.processes.edit_video import run_pipeline
+from library.tools import model_task
 
 
 def test_a_stray_thread_sleeping_does_not_answer_the_agent_wait(tmp_path):
@@ -78,7 +79,7 @@ def test_a_stray_thread_sleeping_does_not_answer_the_agent_wait(tmp_path):
     thread = threading.Thread(target=stray, daemon=True)
     thread.start()
     try:
-        with patch.object(run_pipeline, "_agent_sleep",
+        with patch.object(model_task, "_agent_sleep",
                           side_effect=stubbed_wait):
             output = run_pipeline.present_llm_step(
                 str(prompt_path), {"project_folder": str(project_dir)},
@@ -132,8 +133,8 @@ def test_no_test_patches_the_global_sleep_or_clock():
 
     Fails naming every `file:line` that patches the global
     `time.sleep`/`time.time` (or `run_pipeline.time.sleep`, which is the
-    same object). Stub `run_pipeline._agent_sleep` /
-    `run_pipeline._agent_clock` instead - the wait the module under test
+    same object). Stub `model_task._agent_sleep` /
+    `model_task._agent_clock` instead - the wait the module under test
     performs, and nothing else.
     """
     offenders = []
