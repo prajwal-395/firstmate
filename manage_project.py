@@ -2355,15 +2355,18 @@ def cmd_watch_reel(args):
             return
 
         watch = render_watch.watch_video(
-            video_path, frames_dir, record_path, subject)
+            video_path, frames_dir, record_path, subject,
+            dirty_receipts=args.dirty_receipt)
     except (render_watch.NotDelivered,
-            render_watch.NothingWasWatched) as refused:
+            render_watch.NothingWasWatched,
+            render_watch.NoPictureChanged) as refused:
         print(refused.render(), file=sys.stderr)
         sys.exit(REFUSAL_EXIT_CODE)
 
     record = watch["record"]
     print(f"Watching {subject}")
     print(f"  file:     {video_path}")
+    print(f"  scope:    {record['scope']}")
     print(f"  strips:   {record['strips']} covering "
           f"{record['duration']:.3f}s at "
           f"{record['seconds_unseen_between_samples']:g}s resolution")
@@ -2564,7 +2567,8 @@ def cmd_touch_reel(args):
     from library.tools.dirty_regions import describe as _describe_dirty
     print(f"  dirty: {_describe_dirty(receipt['dirty'])}")
     print(f"  receipt: {receipt['receipt_path']} (re-check only what "
-          f"changed: verify_render --dirty-receipt <it>)")
+          f"changed: --dirty-receipt <it> on verify_render, ren watch "
+          f"and the conformance verifier)")
     if receipt.get("retirement"):
         print(f"  {receipt['retirement']}")
 
@@ -2958,6 +2962,10 @@ def main():
         help="A JSON file holding the answer to the questions this verb "
              "asked. Files it onto the watch record beside the video. "
              "The answer is REPORTED, never gated")
+    watch_reel_parser.add_argument(
+        "--dirty-receipt", action="append", default=None,
+        help="A touch receipt (`ren touch` prints its path); draw only "
+             "the picture it changed. Repeatable")
     watch_reel_parser.set_defaults(func=cmd_watch_reel)
 
     hear_reel_parser = _add_command(sub, "hear-reel")

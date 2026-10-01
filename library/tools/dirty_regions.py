@@ -287,3 +287,36 @@ def describe(dirty: Mapping) -> str:
                       f"{s['end_seconds']:.2f}s" for s in dirty["dirty_spans"])
     return (f"domains {dirty['dirty_domains']}; spans "
             f"[{spans or 'none'}]")
+
+
+def scope_for(video_path: str, receipt_paths) -> dict | None:
+    """The union of the touches' dirty blocks for one render, or None
+    when no receipt is given.
+
+    A render taken BEFORE a touch is read whole: scoping it would
+    re-read the old pixels as the new ones.
+    """
+    if not receipt_paths:
+        return None
+    receipts = load_receipts(receipt_paths)
+    stale = predates(video_path, receipts)
+    if stale:
+        return {"whole_reel": True,
+                "whole_reel_reason": f"the render predates the touch "
+                                     f"({stale})",
+                "dirty_domains": list(DOMAINS[:2]), "dirty_spans": []}
+    return read_dirty(receipts)
+
+
+def reels_touched(receipt_paths) -> list:
+    """The exact timeline names the receipts touched, in order."""
+    names: list = []
+    for receipt in load_receipts(receipt_paths):
+        final = receipt.get("final") if isinstance(receipt, Mapping) \
+            else None
+        if not final:
+            raise ValueError("a touch receipt names no `final` timeline, "
+                             "so the reel it touched is unknown")
+        if final not in names:
+            names.append(str(final))
+    return names

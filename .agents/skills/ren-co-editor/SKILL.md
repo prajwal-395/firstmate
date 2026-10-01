@@ -211,7 +211,9 @@ exited 0 is not a verified edit.
   holds what was planned.
 - `verify_timeline` (a built timeline), `verify_render` (a rendered
   file; after a touch, `--dirty-receipt` re-checks only what changed), `ren hear` / `hear_the_reel` (what a delivered reel SAYS) and
-  `ren watch` (a model watches it); `ask_the_footage` when a judgement
+  `ren watch` (a model watches it; `--dirty-receipt` draws only the
+  picture a touch changed, as the conformance verifier's grades only the
+  reel it touched); `ask_the_footage` when a judgement
   needs eyes on the picture.
 
 ## 7. Timeline notes become work via the marker hook

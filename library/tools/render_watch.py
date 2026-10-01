@@ -65,6 +65,10 @@ class NothingWasWatched(RenRefusal):
     """
 
 
+class NoPictureChanged(RenRefusal):
+    """A scoped watch was asked for and the touch changed no picture."""
+
+
 # ── The sampling rule ─────────────────────────────────────────────────
 #
 # Not a second number.  `window_frames.SECONDS_UNSEEN_BETWEEN_SAMPLES`
@@ -107,6 +111,37 @@ def strip_spans(duration_seconds: float) -> list:
         spans.append((round(start, 3), round(min(duration,
                                                  start + STRIP_SECONDS), 3)))
     return spans
+
+
+def strips_over(ranges, duration_seconds: float) -> list:
+    """The strips of `strip_spans` that overlap any `(start, end)` range.
+
+    What a touch's dirty spans become (`dirty_regions`).  The SAME
+    strips a whole watch draws, so a scoped watch is a subset of the
+    whole one, frame for frame, and never a second sampling grid.  A
+    range is a statement of what CHANGED, not a shortlist of what is
+    interesting: the rest of the file was watched before the touch and
+    has not changed since.
+    """
+    ranges = [(float(start), float(end)) for start, end in ranges]
+    return [(start, end) for start, end in strip_spans(duration_seconds)
+            if any(lo < end and start < hi for lo, hi in ranges)]
+
+
+def file_label(video_path: str) -> str:
+    """The label a file's strips are drawn under: its stem AND its bytes.
+
+    `deliver-reel` writes a reel to the same name every time, and a
+    strip already on disk is reused (`window_frames.draw_strip`). Keyed
+    by the stem alone, a reel re-delivered after a touch was shown the
+    PREVIOUS render's strips. Size and modification time change on
+    every render, so a new file is a new label.
+    """
+    import hashlib
+    stat = os.stat(video_path)
+    digest = hashlib.sha1(
+        f"{stat.st_size}:{stat.st_mtime_ns}".encode()).hexdigest()[:8]
+    return f"{os.path.splitext(os.path.basename(video_path))[0]}__{digest}"
 
 
 def strip_filename(label: str, start: float, times) -> str:
@@ -171,7 +206,8 @@ def probe_fps(video_path: str) -> float:
 
 def draw_watch_strips(video_path: str, directory: str,
                       duration_seconds: float = 0.0,
-                      fps: float = 0.0, label: str = "") -> dict:
+                      fps: float = 0.0, label: str = "",
+                      ranges=None) -> dict:
     """Draw a strip per span of the rendered file.
 
     Returns `{directory, rows, missing, duration, fps}`.  A span that
@@ -180,11 +216,12 @@ def draw_watch_strips(video_path: str, directory: str,
     must know which ones those are.
 
     Drawing uses `window_frames`' own ffmpeg command and its own reuse
-    rule - one extractor, not a second one.
+    rule - one extractor, not a second one.  `ranges`, when given, are
+    the only seconds drawn (`strips_over`); None draws the whole file.
     """
     duration = float(duration_seconds or 0.0) or probe_duration(video_path)
     rate = float(fps or 0.0) or probe_fps(video_path)
-    name = label or os.path.splitext(os.path.basename(video_path))[0]
+    name = label or file_label(video_path)
     os.makedirs(directory, exist_ok=True)
 
     # THE LAST FRAME OF A FILE CANNOT BE FAST-SEEKED TO.
@@ -202,7 +239,8 @@ def draw_watch_strips(video_path: str, directory: str,
     last_sampleable = max(0.0, duration - tail)
 
     rows, missing = [], []
-    spans = strip_spans(duration)
+    spans = (strip_spans(duration) if ranges is None
+             else strips_over(ranges, duration))
     for start, end in spans:
         times = wf.sample_times(start, min(end, last_sampleable), rate)
         filename = strip_filename(name, start, times)
@@ -216,8 +254,8 @@ def draw_watch_strips(video_path: str, directory: str,
             "frames": len(times),
             "file": filename,
         })
-    if duration > 0 and len(spans) == MAX_WATCH_STRIPS and (
-            spans[-1][1] < duration - 1e-6):
+    if ranges is None and duration > 0 and len(spans) == MAX_WATCH_STRIPS \
+            and spans[-1][1] < duration - 1e-6:
         missing.append(
             f"{spans[-1][1]:.3f}-{duration:.3f}s (past the "
             f"{MAX_WATCH_STRIPS}-strip bound)")
@@ -361,7 +399,7 @@ _HEADERS = ("span_start", "span_end", "frames", "file")
 
 def build_watch_block(directory: str, rows: list, missing=(),
                       subject: str = "this render",
-                      duration: float = 0.0) -> str:
+                      duration: float = 0.0, not_rewatched=()) -> str:
     """The text the watching step receives beside its prose.
 
     Carries the pictures, what each row IS, the sampling resolution, the
@@ -395,7 +433,13 @@ def build_watch_block(directory: str, rows: list, missing=(),
         "report on it.",
         "",
     ]
-    if duration:
+    if duration and not_rewatched:
+        out += [(f"The file is {float(duration):.3f} s long. A touch "
+                 f"changed only the spans the strips below cover;"),
+                ("the rest was watched before the touch, has not changed, "
+                 "and is NOT shown: " + ", ".join(not_rewatched) + "."),
+                "Judge only what is shown.", ""]
+    elif duration:
         out += [f"The file is {float(duration):.3f} s long and the strips "
                 f"below cover it end to end.", ""]
     for column, meaning in WATCH_LEGEND.items():
@@ -580,20 +624,61 @@ def delivered_reel(project_folder: str, reel) -> dict:
     return row
 
 
+def _not_covered(rows: list, duration: float) -> list:
+    """The seconds of the file no strip covers, as `"a-b s"` labels."""
+    out, cursor = [], 0.0
+    for row in sorted(rows, key=lambda r: r["span_start"]):
+        if row["span_start"] > cursor + 1e-3:
+            out.append(f"{cursor:.3f}-{row['span_start']:.3f}s")
+        cursor = max(cursor, row["span_end"])
+    if duration > cursor + 1e-3:
+        out.append(f"{cursor:.3f}-{duration:.3f}s")
+    return out
+
+
 def watch_video(video_path: str, frames_dir: str, record_path: str,
-                subject: str) -> dict:
+                subject: str, dirty_receipts=None) -> dict:
     """Draw the strips for one rendered file and leave the record.
 
     Returns `{record, block}`.  Raises `NothingWasWatched` when the
     instrument produced no picture - a watch that was asked for and saw
     nothing must not read as a watch that found nothing.
+
+    `dirty_receipts` are touch receipts (`dirty_regions`): only the
+    seconds their PICTURE spans cover are drawn, and the rest is named
+    in the record's `not_rewatched`.  A receipt with no dirty block, or
+    a file rendered before the touch, draws the whole file.  A touch
+    that changed no picture REFUSES (`NoPictureChanged`).
     """
-    drawn = draw_watch_strips(video_path, frames_dir)
+    from library.tools import dirty_regions as dr
+
+    dirty = dr.scope_for(video_path, dirty_receipts)
+    ranges, scope = None, "whole file"
+    if dirty is not None and dirty["whole_reel"]:
+        scope = f"whole file: {dirty['whole_reel_reason']}"
+    elif dirty is not None:
+        ranges = [(start, end) for start, end, _, _ in
+                  dr.spans_for(dirty, [dr.PICTURE])]
+        if not ranges:
+            raise NoPictureChanged(
+                f"the touch changed no picture of {subject} "
+                f"({dr.describe(dirty)})",
+                "a watch is of the PICTURE, and every frame is the one "
+                "already watched",
+                "hear the reel instead (`ren hear`) for an audio touch, "
+                "or watch without --dirty-receipt to look again anyway")
+        scope = f"scoped to the touch: {dr.describe(dirty)}"
+    drawn = draw_watch_strips(video_path, frames_dir, ranges=ranges)
     assert_watched(drawn, subject)
+    not_rewatched = ([] if ranges is None
+                     else _not_covered(drawn["rows"], drawn["duration"]))
     block = build_watch_block(drawn["directory"], drawn["rows"],
                               drawn["missing"], subject=subject,
-                              duration=drawn["duration"])
+                              duration=drawn["duration"],
+                              not_rewatched=not_rewatched)
     record = watch_record(video_path, drawn, subject)
+    record["scope"] = scope
+    record["not_rewatched"] = not_rewatched
     record["block_path"] = os.path.join(
         os.path.dirname(record_path),
         os.path.splitext(os.path.basename(record_path))[0] + ".txt")

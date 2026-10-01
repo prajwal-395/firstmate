@@ -7621,10 +7621,12 @@ def main(argv=None) -> int:
             [--plan reel_proposal.json] \\
             [--transcript transcript.json] \\
             [--json output.json] \\
-            [--reel "Reel 03 - slug"]
+            [--reel "Reel 03 - slug"] \\
+            [--dirty-receipt touchup_reel_03_....json]
 
     No `--reel` grades every reel timeline (the explicit sweep); each
-    `--reel` narrows the run to one exact timeline name.
+    `--reel` narrows the run to one exact timeline name, and each
+    `--dirty-receipt` to the reel that touch reached (`dirty_regions`).
     """
     import argparse
 
@@ -7666,7 +7668,20 @@ def main(argv=None) -> int:
              "Default (absent): grade every 'Reel *' timeline, which is "
              "the deliberate whole-project sweep. A build passes the "
              "names it placed so one reel costs one verification.")
+    parser.add_argument(
+        "--dirty-receipt", action="append", default=None, metavar="PATH",
+        help="A touch receipt; grade the reel it touched (its `final` "
+             "timeline), as --reel would. Repeatable, and adds to --reel")
     args = parser.parse_args(argv)
+    if args.dirty_receipt:
+        from library.tools.dirty_regions import reels_touched
+        try:
+            touched = reels_touched(args.dirty_receipt)
+        except (OSError, ValueError) as unreadable:
+            print(f"FATAL: {unreadable}", file=sys.stderr)
+            return 2
+        args.only_reels = list(dict.fromkeys(
+            (args.only_reels or []) + touched))
 
     transcript = None
     if args.transcript:

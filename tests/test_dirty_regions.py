@@ -118,3 +118,62 @@ def test_scoped_findings_equal_the_whole_file_read_over_the_same_frames(
                 metric, got, want)
     assert got["black_frames"] and got["freeze_frames"] \
         and got["silence_under_picture"], json.dumps(got)
+
+
+def _encode(path, colour, seconds):
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+         f"color={colour}:s=64x112:r=30:d={seconds}",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)],
+        check=True, capture_output=True, encoding="utf-8")
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_a_re_delivered_file_is_watched_afresh(tmp_path):
+    """`deliver-reel` writes a reel to the same name every time: keyed by
+    the stem alone, the re-delivered reel was shown the previous render's
+    strips."""
+    from library.tools import render_watch as rw
+    video = tmp_path / "Reel 01.mp4"
+
+    def drawn():
+        rw.watch_video(str(video), str(tmp_path / "f"),
+                       str(tmp_path / "w.json"), "t")
+        record = json.loads((tmp_path / "w.json").read_text("utf-8"))
+        return {(tmp_path / "f" / row["file"]).read_bytes()
+                for row in rw.draw_watch_strips(
+                    str(video), str(tmp_path / "f"))["rows"]} \
+            if record["watched"] else set()
+
+    _encode(video, "red", 3)
+    before = drawn()
+    _encode(video, "blue", 3)
+    assert drawn().isdisjoint(before)
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_a_scoped_watch_is_the_whole_watch_restricted(tmp_path):
+    from library.tools import render_watch as rw
+    video = tmp_path / "reel.mp4"
+    _encode(video, "green", 20)
+    receipt = tmp_path / "touch.json"
+    receipt.write_text(json.dumps({
+        "final": "Reel 01", "started": "2000-01-01T00:00:00+00:00",
+        "dirty": _dirty({"op": "set_properties", "row": "V4", "item": 1})}),
+        "utf-8")
+    whole = rw.watch_video(str(video), str(tmp_path / "f"),
+                           str(tmp_path / "a.json"), "t")["record"]
+    scoped = rw.watch_video(str(video), str(tmp_path / "f"),
+                            str(tmp_path / "b.json"), "t",
+                            dirty_receipts=[str(receipt)])["record"]
+    assert (whole["strips"], scoped["strips"]) == (3, 1)
+    assert scoped["not_rewatched"] == ["0.000-8.000s", "16.000-20.000s"]
+
+    receipt.write_text(json.dumps({
+        "final": "Reel 01", "started": "2000-01-01T00:00:00+00:00",
+        "dirty": _dirty({"op": "set_properties", "row": "A1", "item": 0})}),
+        "utf-8")
+    with pytest.raises(rw.NoPictureChanged):
+        rw.watch_video(str(video), str(tmp_path / "f"),
+                       str(tmp_path / "c.json"), "t",
+                       dirty_receipts=[str(receipt)])

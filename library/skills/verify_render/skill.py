@@ -70,7 +70,8 @@ def run(video_path: str,
     not_rechecked: List[str] = []
     scope = "whole file"
     try:
-        dirty = _dirty_scope(video_path, dirty_receipts)
+        from library.tools.dirty_regions import scope_for
+        dirty = scope_for(video_path, dirty_receipts)
         if dirty is None or dirty["whole_reel"]:
             if dirty is not None:
                 scope = f"whole file: {dirty['whole_reel_reason']}"
@@ -143,25 +144,6 @@ def run(video_path: str,
     verdict["receipt"] = pipeline_skills.write_receipt(
         project_folder, step_id, SKILL_NAME, verdict)
     return verdict
-
-
-def _dirty_scope(video_path: str,
-                 receipt_paths: Optional[List[str]]) -> Optional[dict]:
-    """The union of the touches' dirty blocks, or None when none given.
-
-    A render taken BEFORE a touch is checked whole: scoping it would
-    re-read the old pixels as the new ones.
-    """
-    if not receipt_paths:
-        return None
-    from library.tools import dirty_regions
-    receipts = dirty_regions.load_receipts(receipt_paths)
-    stale = dirty_regions.predates(video_path, receipts)
-    if stale:
-        return {"whole_reel": True,
-                "whole_reel_reason": f"the render predates the touch "
-                                     f"({stale})"}
-    return dirty_regions.read_dirty(receipts)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
