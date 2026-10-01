@@ -2561,6 +2561,10 @@ def cmd_touch_reel(args):
     print(f"  placed {composed.get('placed', {}).get('asked', '?')} "
           f"item(s), verified {composed.get('verified', {}).get('landed', '?')}")
     print(f"  verification read: {json.dumps(receipt.get('verification_read', {}))}")
+    from library.tools.dirty_regions import describe as _describe_dirty
+    print(f"  dirty: {_describe_dirty(receipt['dirty'])}")
+    print(f"  receipt: {receipt['receipt_path']} (re-check only what "
+          f"changed: verify_render --dirty-receipt <it>)")
     if receipt.get("retirement"):
         print(f"  {receipt['retirement']}")
 

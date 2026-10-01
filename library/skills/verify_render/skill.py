@@ -9,6 +9,14 @@ behalf) can invoke it by import or by shell:
         --video /path/to/master.mp4 --project-folder /path/to/project \
         --step-id validate [--expected-duration 63.2]
         [--expected-resolution 1080 1920] [--expected-fps 30]
+        [--dirty-receipt <touch receipt> ...]
+
+`--dirty-receipt` scopes the run to what those touches changed
+(`library/tools/dirty_regions.py`): black, freeze and silence re-read only
+the dirty spans of their domain, loudness runs only when audio is dirty,
+and the stream probes always run. What was not re-checked is NAMED in
+`not_rechecked` - it is not passed. A receipt with no dirty block, or a
+render older than the touch, falls back to the whole file.
 
 Every invocation writes a RECEIPT to
 `<project>/pipeline_output/skill_runs/<step_id>/verify_render.json`
@@ -34,7 +42,8 @@ def run(video_path: str,
         expected_duration: Optional[float] = None,
         expected_resolution: Optional[List[int]] = None,
         expected_fps: Optional[float] = None,
-        declared_black_beats: Optional[List] = None) -> Dict[str, Any]:
+        declared_black_beats: Optional[List] = None,
+        dirty_receipts: Optional[List[str]] = None) -> Dict[str, Any]:
     """Run the deterministic render checks and record the receipt.
 
     Returns a verdict dict with `passed`, per-check `checks`, and the
@@ -58,12 +67,30 @@ def run(video_path: str,
         return verdict
 
     results = []
+    not_rechecked: List[str] = []
+    scope = "whole file"
     try:
-        results.append(render_qa.measure_lufs(video_path))
-        results.append(render_qa.detect_black_frames(
-            video_path, declared_beats=declared_black_beats))
-        results.append(render_qa.detect_freeze_frames(video_path))
-        results.append(render_qa.measure_silence_under_picture(video_path))
+        dirty = _dirty_scope(video_path, dirty_receipts)
+        if dirty is None or dirty["whole_reel"]:
+            if dirty is not None:
+                scope = f"whole file: {dirty['whole_reel_reason']}"
+            results.append(render_qa.measure_lufs(video_path))
+            results.append(render_qa.detect_black_frames(
+                video_path, declared_beats=declared_black_beats))
+            results.append(render_qa.detect_freeze_frames(video_path))
+            results.append(render_qa.measure_silence_under_picture(
+                video_path))
+        else:
+            from library.tools.dirty_regions import AUDIO, describe
+            scope = f"scoped to the touch: {describe(dirty)}"
+            if AUDIO in dirty["dirty_domains"]:
+                results.append(render_qa.measure_lufs(video_path))
+            else:
+                not_rechecked.append("lufs")
+            scoped, skipped = render_qa.run_scoped_render_qa(
+                video_path, dirty, declared_black_beats)
+            results += scoped
+            not_rechecked += skipped
         # The frame the render was built at: stated by the caller, else
         # read off the project's own declaration
         # (`library/tools/delivery_format.py` - project override over
@@ -110,10 +137,31 @@ def run(video_path: str,
         "video_path": video_path,
         "checks": checks,
         "issues": issues,
+        "scope": scope,
+        "not_rechecked": not_rechecked,
     }
     verdict["receipt"] = pipeline_skills.write_receipt(
         project_folder, step_id, SKILL_NAME, verdict)
     return verdict
+
+
+def _dirty_scope(video_path: str,
+                 receipt_paths: Optional[List[str]]) -> Optional[dict]:
+    """The union of the touches' dirty blocks, or None when none given.
+
+    A render taken BEFORE a touch is checked whole: scoping it would
+    re-read the old pixels as the new ones.
+    """
+    if not receipt_paths:
+        return None
+    from library.tools import dirty_regions
+    receipts = dirty_regions.load_receipts(receipt_paths)
+    stale = dirty_regions.predates(video_path, receipts)
+    if stale:
+        return {"whole_reel": True,
+                "whole_reel_reason": f"the render predates the touch "
+                                     f"({stale})"}
+    return dirty_regions.read_dirty(receipts)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -126,12 +174,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--expected-resolution", type=int, nargs=2,
                         default=None, metavar=("W", "H"))
     parser.add_argument("--expected-fps", type=float, default=None)
+    parser.add_argument("--dirty-receipt", action="append", default=None,
+                        help="a touch receipt; re-check only what it "
+                             "changed (repeatable)")
     args = parser.parse_args(argv)
 
     verdict = run(args.video, args.project_folder, args.step_id,
                   expected_duration=args.expected_duration,
                   expected_resolution=args.expected_resolution,
-                  expected_fps=args.expected_fps)
+                  expected_fps=args.expected_fps,
+                  dirty_receipts=args.dirty_receipt)
     print(json.dumps(verdict, indent=2))
     return 0 if verdict["passed"] else 1
 

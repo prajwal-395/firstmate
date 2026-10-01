@@ -188,6 +188,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 
 from library.tools import composed_edit as _ce
+from library.tools import dirty_regions as _dirty_regions
 from library.tools.execution.fusion_tracks import FUSION_COMP_TRACKS
 from library.tools.ren_refusal import RenRefusal
 
@@ -2109,6 +2110,15 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     print(f"  {qualification.cost_statement}", flush=True)
     for note in qualification.notes:
         print(f"  - {note}", flush=True)
+    # What this touch can have changed, for the checks that follow it
+    # (`dirty_regions`): read off the PRE-edit timeline, before staging.
+    try:
+        fps = source.GetSetting("timelineFrameRate")
+    except Exception:  # noqa: BLE001 - judged by dirty_from_spec
+        fps = None
+    receipt["dirty"] = _dirty_regions.dirty_from_spec(
+        spec, tracks, first_frame=_live_prop(source, "GetStartFrame"),
+        end_frame=_live_prop(source, "GetEndFrame"), fps=fps)
 
     # The rederiver, chosen by the gate class - never by a flag.
     manifest = None
@@ -2197,7 +2207,7 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             _journal.fail_entry(project_folder, journal, repr(failed))
         raise
     receipt["seconds"] = round(time.time() - started, 3)
-    _write_receipt(project_folder, final, receipt)
+    receipt["receipt_path"] = _write_receipt(project_folder, final, receipt)
     return receipt
 
 

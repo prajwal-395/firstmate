@@ -270,9 +270,28 @@ def segment_is_declared(segment: dict, declared_beats: Optional[List] = None,
     )
 
 
-def detect_black_frames(video_path: str, min_duration: float = 0.5,
+def _seek(window: Optional[tuple]) -> list:
+    """ffmpeg INPUT options reading only `(start, end)` seconds.
+
+    Input seeking while decoding is frame-accurate: ffmpeg decodes from
+    the keyframe before `start` and discards what precedes it.
+    """
+    if not window:
+        return []
+    start, end = window
+    return ['-ss', f'{start:.6f}', '-t', f'{max(end - start, 0.0):.6f}']
+
+
+#: The shortest black / freeze each detector reports.  Named, because
+#: `dirty_regions` derives its handles from them.
+BLACK_MIN_SECONDS = 0.5
+FREEZE_MIN_SECONDS = 1.0
+
+
+def detect_black_frames(video_path: str, min_duration: float = BLACK_MIN_SECONDS,
                         declared_beats: Optional[List] = None,
-                        max_declared_seconds: float = MAX_DECLARED_BLACK_BEAT_SECONDS) -> RenderQAResult:
+                        max_declared_seconds: float = MAX_DECLARED_BLACK_BEAT_SECONDS,
+                        window: Optional[tuple] = None) -> RenderQAResult:
     """Detect sustained black frames using ffmpeg blackdetect.
 
     Black the plan deliberately declared is not a defect - the captain's
@@ -280,10 +299,13 @@ def detect_black_frames(video_path: str, min_duration: float = 0.5,
     declared beat ranges and each segment is tagged `declared`; only the
     undeclared ones fail the check.  With no ranges passed, every black
     segment fails, which is what an unplanned render deserves.
+
+    `window` is `(start, end)` seconds to read instead of the whole file
+    (`run_scoped_render_qa`); segment times stay on the FILE's clock.
     """
     try:
         cmd = [
-            'ffmpeg', '-i', video_path,
+            'ffmpeg', *_seek(window), '-i', video_path,
             '-vf', f'blackdetect=d={min_duration}:pix_th=0.10',
             '-f', 'null', '-'
         ]
@@ -297,9 +319,10 @@ def detect_black_frames(video_path: str, min_duration: float = 0.5,
                 m_end = re.search(r'black_end:([0-9.]+)', line)
                 m_dur = re.search(r'black_duration:([0-9.]+)', line)
                 if m_start and m_end and m_dur:
+                    offset = window[0] if window else 0.0
                     segment = {
-                        "start": float(m_start.group(1)),
-                        "end": float(m_end.group(1)),
+                        "start": float(m_start.group(1)) + offset,
+                        "end": float(m_end.group(1)) + offset,
                         "duration": float(m_dur.group(1))
                     }
                     segment["declared"] = segment_is_declared(
@@ -331,11 +354,21 @@ def detect_black_frames(video_path: str, min_duration: float = 0.5,
     except Exception as e:
         return RenderQAResult("black_frames", False, str(e), min_duration, "error", f"Error detecting black frames: {e}")
 
-def detect_freeze_frames(video_path: str, min_duration: float = 1.0) -> RenderQAResult:
-    """Detect frozen/stuck frames using ffmpeg freezedetect."""
+def detect_freeze_frames(video_path: str, min_duration: float = FREEZE_MIN_SECONDS,
+                         window: Optional[tuple] = None) -> RenderQAResult:
+    """Detect frozen/stuck frames using ffmpeg freezedetect.
+
+    `window` is `(start, end)` seconds to read instead of the whole file
+    (`run_scoped_render_qa`); segment times stay on the FILE's clock.
+    freezedetect writes no `freeze_end` for a freeze still running when
+    its input ends, so a windowed read reports one with `open: True` and
+    the window's end as its `end` - it runs at least that far.  At the
+    end of the FILE it is dropped, as a whole-file read drops it.
+    """
+    offset = window[0] if window else 0.0
     try:
         cmd = [
-            'ffmpeg', '-i', video_path,
+            'ffmpeg', *_seek(window), '-i', video_path,
             '-vf', f'freezedetect=n=0.003:d={min_duration}',
             '-f', 'null', '-'
         ]
@@ -347,7 +380,7 @@ def detect_freeze_frames(video_path: str, min_duration: float = 1.0) -> RenderQA
             if "lavfi.freezedetect.freeze_start" in line:
                 m = re.search(r'freeze_start: ([0-9.]+)', line)
                 if m:
-                    current_freeze["start"] = float(m.group(1))
+                    current_freeze["start"] = float(m.group(1)) + offset
             elif "lavfi.freezedetect.freeze_duration" in line:
                 m = re.search(r'freeze_duration: ([0-9.]+)', line)
                 if m:
@@ -355,10 +388,15 @@ def detect_freeze_frames(video_path: str, min_duration: float = 1.0) -> RenderQA
             elif "lavfi.freezedetect.freeze_end" in line:
                 m = re.search(r'freeze_end: ([0-9.]+)', line)
                 if m:
-                    current_freeze["end"] = float(m.group(1))
+                    current_freeze["end"] = float(m.group(1)) + offset
                     if "start" in current_freeze and "duration" in current_freeze:
                         freeze_segments.append(dict(current_freeze))
                     current_freeze = {}
+        if window and "start" in current_freeze:
+            freeze_segments.append({
+                "start": current_freeze["start"], "end": window[1],
+                "duration": window[1] - current_freeze["start"],
+                "open": True})
 
         passed = len(freeze_segments) == 0
         detail = f"Found {len(freeze_segments)} frozen frame segments" if not passed else "No freeze frames detected"
@@ -2809,3 +2847,92 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
         results.append(measure_grade_delivery(video_path, grade_spans))
 
     return results
+
+
+# ── Scoped QA: re-check only what a touch changed (`dirty_regions`) ──
+#
+# The three LOCATED detectors - black, freeze, silence under picture -
+# report findings at times, so each can be read over the dirty spans and
+# its findings kept where the touch changed frames.  Black and freeze
+# decode only the spans; silence already decodes only the silent stretches
+# of picture (0.47s on a 46s reel), so it reads the whole file and is
+# filtered.  Program-wide measures (integrated loudness, the stream
+# probes) are the caller's: a span's loudness is not the master's.
+
+
+#: Which domain dirties which located detector.
+SCOPED_DETECTORS = {
+    "black_frames": ("picture",),
+    "freeze_frames": ("picture",),
+    "silence_under_picture": ("picture", "audio"),
+}
+
+
+def _file_seconds(video_path: str) -> float:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+        capture_output=True, encoding="utf-8", check=True, timeout=60)
+    return float(out.stdout.strip())
+
+
+def run_scoped_render_qa(video_path: str, dirty: dict,
+                         declared_black_beats: Optional[List] = None
+                         ) -> tuple:
+    """The located detectors, over the dirty spans only.
+
+    Returns `(results, not_rechecked)`: one `RenderQAResult` per detector
+    a dirty domain routes to, whose findings are those overlapping a
+    span's CORE (the frames the edit touched); and the detectors no dirty
+    domain reaches, by name.  A finding wholly inside a handle is in
+    frames the touch did not change and is not this touch's.
+    """
+    from library.tools.dirty_regions import spans_for
+
+    results, not_rechecked = [], []
+    file_end = _file_seconds(video_path) - 1e-3
+    for metric, domains in SCOPED_DETECTORS.items():
+        spans = spans_for(dirty, domains)
+        if not spans:
+            not_rechecked.append(metric)
+            continue
+        found, errors = [], []
+        if metric == "silence_under_picture":
+            part = measure_silence_under_picture(video_path)
+            parts = [(None, part)]
+        elif metric == "black_frames":
+            parts = [(span, detect_black_frames(
+                video_path, declared_beats=declared_black_beats,
+                window=span[:2])) for span in spans]
+        else:
+            parts = [(span, detect_freeze_frames(
+                video_path, window=span[:2])) for span in spans]
+        for span, part in parts:
+            if part.value is None or isinstance(part.value, str):
+                errors.append(part.detail)
+                continue
+            if metric == "black_frames":
+                rows = [r for r in part.value if not r["declared"]]
+            elif metric == "freeze_frames":
+                rows = [r for r in part.value
+                        if not (r.get("open") and span[1] >= file_end)]
+            else:
+                rows = [r for r in
+                        part.value["by_level"]["digital_zero"]["where"]
+                        if r["seconds_under_picture"]
+                        >= part.value["minimum_run_seconds"]]
+            found += [r for r in rows if any(
+                r["start"] < hi and r["end"] > lo
+                for _, _, lo, hi in ([span] if span else spans))]
+        covered = ", ".join(f"{s[2]:.3f}-{s[3]:.3f}s" for s in spans)
+        passed = not found and not errors
+        detail = (f"over the dirty span(s) {covered}: "
+                  + (f"{len(found)} finding(s)" if found
+                     else "nothing found"))
+        if errors:
+            detail += "; NOT MEASURED - " + "; ".join(errors)
+        results.append(RenderQAResult(
+            metric=metric, passed=passed, value=found,
+            threshold={"spans": [list(s) for s in spans]},
+            severity="info" if passed else "error", detail=detail))
+    return results, not_rechecked

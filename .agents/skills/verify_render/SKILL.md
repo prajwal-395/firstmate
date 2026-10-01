@@ -64,6 +64,15 @@ Optional: `--expected-duration SECONDS`, `--expected-resolution W H`,
 `--expected-fps FPS`. Pass them when you know what was asked for - a
 gate checks what was asked for, not what is usual.
 
+After a `ren touch`, pass its receipt (`--dirty-receipt <path>`,
+repeatable; `ren touch` prints the path) to re-check only what the touch
+changed: black and freeze read only the dirty picture spans, silence is
+kept to the dirty spans, loudness runs only when audio is dirty, and what
+was not re-checked is named in `not_rechecked` - never passed. A receipt
+without a dirty block, or a render older than the touch, is checked whole.
+On a 46s reel a caption swap re-checks in 1.0s instead of 4.9s
+(`library/tools/dirty_regions.py`).
+
 The run writes a receipt to
 `<project>/pipeline_output/skill_runs/<step-id>/verify_render.json`.
 The pipeline reads that receipt back to confirm the check ran: only an

@@ -209,7 +209,7 @@ exited 0 is not a verified edit.
 - `ren drift <project>` and `bin/resolve-axi` reads - the live timeline
   holds what was planned.
 - `verify_timeline` (a built timeline), `verify_render` (a rendered
-  file), `ren hear` / `hear_the_reel` (what a delivered reel SAYS) and
+  file; after a touch, `--dirty-receipt` re-checks only what changed), `ren hear` / `hear_the_reel` (what a delivered reel SAYS) and
   `ren watch` (a model watches it); `ask_the_footage` when a judgement
   needs eyes on the picture.
 
