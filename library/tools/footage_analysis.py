@@ -10,11 +10,12 @@ measures: every number comes from a module that already existed.
 
 Two halves, in order:
 
-1. **The analysis steps**, through the ordinary runner under the
-   `footage_analysis` target (`run_scope.TARGETS`): scan, catalog,
-   semantic analysis, temporal index and prosody. `--memory-only` runs
-   scan and catalog alone. Any run_scope flag passes through after `--`
-   (`-- --with ocr_extraction`, `-- --skip semantic_analysis`).
+1. **The analysis capabilities**, through footage intelligence's own
+   orchestration (`library/tools/footage_intelligence.py`) - never the
+   editing runner: scan, catalog, semantic analysis, temporal index and
+   prosody, composed by what each requires. `--memory-only` runs scan
+   and catalog alone; `--with ocr.extract` / `--skip semantics.analyse`
+   adjust the selection (a legacy node name is accepted too).
 2. **The memory lanes** (`LANES`), per source, into the per-machine memory
    (docs/SOURCE_MEMORY.md): M0+M1 transcript, M2 frame sample, M3 Vision
    faces and hands, M3b person identity, M6 conversation clock, M7 event
@@ -61,10 +62,6 @@ from library.tools.project_layout import Area, ProjectLayout
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MANAGE_PROJECT = REPO_ROOT / "manage_project.py"
-
-TARGET = "footage_analysis"
-"""The run_scope target the step half runs under."""
 
 RUN_RECORD_FILE = "analysis_run.json"
 RUN_RECORD_VERSION = 1
@@ -275,29 +272,17 @@ def ensure_collection(footage_dir: str, into: Optional[str] = None,
     return str(folder), True
 
 
-# ── The step half ───────────────────────────────────────────────────
+# ── The capability half ─────────────────────────────────────────────
 
 
-def step_command(project: str, memory_only: bool,
-                 passthrough: Sequence[str]) -> List[str]:
-    """The runner invocation for the step half, as argv."""
-    scope = ["--only", "catalog"] if memory_only else ["--target", TARGET]
-    return [sys.executable, str(MANAGE_PROJECT), "run", project, *scope,
-            *passthrough]
-
-
-def run_steps(project: str, memory_only: bool,
-              passthrough: Sequence[str]) -> dict:
-    """Run the analysis steps through the ordinary runner; never raises."""
-    command = step_command(project, memory_only, passthrough)
-    started = time.perf_counter()
-    completed = subprocess.run(command, cwd=str(REPO_ROOT), check=False)
-    return {
-        "scope": "scan+catalog" if memory_only else f"--target {TARGET}",
-        "passthrough": list(passthrough),
-        "exit_code": completed.returncode,
-        "seconds": round(time.perf_counter() - started, 1),
-    }
+def run_steps(project: str, memory_only: bool, with_: Sequence[str] = (),
+              skip: Sequence[str] = ()) -> dict:
+    """Execute the analysis capabilities; per-capability outcomes."""
+    from library.tools import footage_intelligence
+    selected = footage_intelligence.select(memory_only, with_, skip)
+    record = footage_intelligence.run(project, selected)
+    record["scope"] = "scan+catalog" if memory_only else "analysis"
+    return record
 
 
 # ── The lane half ───────────────────────────────────────────────────
@@ -485,7 +470,7 @@ def read_run_record(project: str) -> Optional[dict]:
 
 def analyze(project: str, lanes: Sequence[str] = LANE_NAMES,
             memory_only: bool = False, steps: bool = True,
-            passthrough: Sequence[str] = (),
+            with_: Sequence[str] = (), skip: Sequence[str] = (),
             root: Optional[Path] = None, created: bool = False) -> dict:
     """The whole analysis-only run over one project or collection."""
     from library.tools.heavy_work_lock import heavy_work_lock
@@ -505,7 +490,7 @@ def analyze(project: str, lanes: Sequence[str] = LANE_NAMES,
     }
     with heavy_work_lock(LOCK_OWNER):
         if steps:
-            record["steps"] = run_steps(project, memory_only, passthrough)
+            record["steps"] = run_steps(project, memory_only, with_, skip)
         sources = catalog_sources(project)
         record["sources"] = [{k: s[k] for k in ("clip_id", "digest",
                                                 "digest_basis",
@@ -540,7 +525,7 @@ def _write_record(project: str, record: dict, t0: float,
             if outcome["status"] == FAILED})
         steps = record.get("steps")
         record["status"] = ("failed" if record.get("error")
-                            or (steps and steps["exit_code"] != 0)
+                            or (steps and steps["status"] != "complete")
                             or record["failed"] else "complete")
     path = ProjectLayout(project).write_path(Area.FOOTAGE_MEMORY,
                                              RUN_RECORD_FILE)
@@ -577,7 +562,10 @@ def _print_run(record: dict) -> None:
           f"{record.get('video_minutes', 0)} video minutes")
     if record.get("steps"):
         s = record["steps"]
-        print(f"  steps ({s['scope']}): exit {s['exit_code']}, {s['seconds']} s")
+        print(f"  steps ({s['scope']}): {s['status']}, {s['seconds']} s")
+        for row in s["capabilities"]:
+            print(f"    {row['capability']:18s} {row['status']}"
+                  + (f"  {row['seconds']} s" if "seconds" in row else ""))
     for lane in record["lanes"]:
         counts: Dict[str, int] = {}
         for outcome in lane["sources"].values():
@@ -595,16 +583,18 @@ def _print_run(record: dict) -> None:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    passthrough: List[str] = []
     if "--" in argv:
-        cut = argv.index("--")
-        argv, passthrough = argv[:cut], argv[cut + 1:]
+        raise RenRefusal(
+            "`ren analyze` no longer passes flags to the step runner",
+            "analysis runs its own capabilities, not a partial edit run",
+            "select with --with <capability> / --skip <capability>, "
+            "e.g. --with ocr.extract")
     parser = argparse.ArgumentParser(
         prog="ren analyze",
         description=("Analyse a folder of footage (or a project) without "
                      "editing it: the analysis steps, then the per-source "
                      "memory lanes and search indexes. Fresh records are "
-                     "reused. Flags after `--` go to the step runner."))
+                     "reused."))
     parser.add_argument("target", help="a folder of footage, or a project")
     parser.add_argument("--into", help="where a new collection is made "
                         "(default: the projects root)")
@@ -614,7 +604,14 @@ def main(argv=None) -> int:
                         help="run scan and catalog only, then the memory "
                         "lanes (skips vision, temporal index and prosody)")
     parser.add_argument("--no-steps", action="store_true",
-                        help="run no pipeline step at all (catalog must exist)")
+                        help="run no analysis capability at all (catalog "
+                        "must exist)")
+    parser.add_argument("--with", dest="with_", action="append", default=[],
+                        metavar="CAPABILITY",
+                        help="also run an opt-in capability (ocr.extract)")
+    parser.add_argument("--skip", action="append", default=[],
+                        metavar="CAPABILITY",
+                        help="leave an analysis capability out")
     parser.add_argument("--lanes", nargs="+", choices=LANE_NAMES,
                         default=list(LANE_NAMES),
                         help="which memory lanes to run, in table order")
@@ -625,7 +622,7 @@ def main(argv=None) -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.memory_root:
-        # Through the environment, not a parameter: the step runner, the
+        # Through the environment, not a parameter: the capabilities, the
         # search indexes and every reader must agree on ONE root.
         os.environ[source_memory.MEMORY_ROOT_ENV] = str(
             Path(args.memory_root).expanduser().resolve())
@@ -647,7 +644,8 @@ def main(argv=None) -> int:
               file=sys.stderr)
     ordered = [n for n in LANE_NAMES if n in set(args.lanes)]
     record = analyze(project, ordered, memory_only=args.memory_only,
-                     steps=not args.no_steps, passthrough=passthrough,
+                     steps=not args.no_steps, with_=args.with_,
+                     skip=args.skip,
                      root=root, created=created)
     if args.json:
         print(json.dumps(record, indent=2))

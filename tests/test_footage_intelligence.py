@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from library.tools import footage_analysis, footage_identity, memory_export
-from library.tools import run_scope, source_memory
+from library.tools import source_memory
 
 
 @pytest.fixture
@@ -49,17 +49,33 @@ def _transcript(digest: str, media: str, instrument: dict) -> dict:
             "instrument": instrument}
 
 
-def test_the_analysis_target_runs_no_edit_step():
+def test_the_analysis_run_executes_no_edit_capability():
     """Defect: an 'analysis-only' run that plans, renders or segments.
 
     Object segmentation waits for edit plans and OCR has no reader, so
-    both stay out; nothing downstream of preflight may be pulled in.
+    both stay out by default; nothing downstream of preflight may be
+    selected, whatever `--with` names.
     """
-    scope = run_scope.resolve(run_scope.Selection(target="footage_analysis"),
-                              dag=run_scope.load_dag())
-    assert set(scope.steps_to_run) == {
+    from library.tools import capabilities, footage_intelligence
+    default = footage_intelligence.compose(footage_intelligence.select())
+    assert {capabilities.get(c).legacy.node_id for c in default} == {
         "scan", "catalog", "semantic_analysis", "temporal_index",
         "prosody_analysis"}
+    with pytest.raises(footage_intelligence.RenRefusal):
+        footage_intelligence.select(with_=["object_segmentation"])
+
+
+def test_analysis_is_ordered_by_requirements_not_by_a_dag():
+    """Defect: the analysis order read off the edit DAG's topology.
+
+    Composed from the capabilities' derived requires/effects, a selection
+    handed in any order comes out with every producer first.
+    """
+    from library.tools import footage_intelligence
+    shuffled = tuple(reversed(footage_intelligence.ROSTER))
+    assert footage_intelligence.compose(shuffled)[:5] == (
+        "footage.scan", "footage.catalog", "semantics.analyse",
+        "temporal.index", "prosody.analyse")
 
 
 def test_persons_measured_off_a_rebuilt_frame_sample_are_rebuilt(

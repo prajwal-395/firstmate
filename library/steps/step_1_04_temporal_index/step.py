@@ -3506,6 +3506,76 @@ def compress_for_downstream(
 
 # ── CLI ──────────────────────────────────────────────────────────────
 
+def index_project(raw_footage_files: list, semantic_analysis_documents: list,
+                  clip_catalog: list, project_folder: str = "",
+                  audio_catalog: list = None,
+                  whisper_model: str = "large-v3",
+                  output_dir: str = "./pipeline_output") -> dict:
+    """Index every clip of a project, reusing whatever is already on disk.
+
+    The project-wide body `main()` runs, split out so the `temporal.index`
+    capability (library/tools/operations.py) points at the step's own
+    code rather than its stdin wrapper.
+    """
+    # ── Where the index lives ──
+    #
+    # With the project, next to prosody's profiles - NOT in the runner's
+    # current working directory, which is what `--output-dir`'s default of
+    # "./pipeline_output" meant in practice.  Project 001's state recorded
+    # its 17-clip index at
+    #   /Users/.../.treehouse/video_editing_pilot-.../3/video_editing_pilot/pipeline_output/temporal_index
+    # - inside a DISPOSABLE git worktree.  Forty minutes of WhisperX,
+    # banked somewhere the project can never find it again, which is how
+    # it came to be paid for twice.
+    #
+    # There was also a "cache-aware execution" block here that looked for
+    # <project>/raw/analysis/temporal_index/ - a directory this step has
+    # never written to - and required a hit on ALL clips before it would
+    # use any of them.  It could not fire, and it read as coverage for the
+    # reuse that is now in build_temporal_index, per clip.
+    # `--output-dir` names an output directory, so the project that owns
+    # it is its parent.  With `project_folder` supplied - which is every
+    # DAG run - that is what the layout is built from, and the flag is a
+    # debugging convenience only.
+    layout = ProjectLayout(
+        project_folder or str(Path(output_dir).resolve().parent))
+
+    # The language this footage speaks. The project's `source.language`
+    # (library/tools/footage_identity.declared_language); undeclared
+    # reads as English, which is what every project transcribed before
+    # the setting existed.
+    from library.tools.footage_identity import declared_language
+    language = declared_language(
+        project_folder or str(Path(output_dir).resolve().parent))
+
+    # ── Index, reusing whatever is already on disk ──
+    result = build_temporal_index(
+        raw_footage_files, layout, whisper_model,
+        language=language,
+        audio_catalog=audio_catalog,
+        semantic_analysis_documents=semantic_analysis_documents,
+        clip_catalog=clip_catalog,
+    )
+    result["source"] = ("cache" if result["total_reused"]
+                        == len(raw_footage_files) else "fresh")
+
+    # Summary
+    audio_done = len(result.get("audio_indices") or [])
+    print(
+        f"\n{'=' * 50}\n"
+        f"Temporal Event Index Complete ({language})\n"
+        f"  Indexed: {result['total_indexed']} clips\n"
+        f"  Reused:  {result['total_reused']} clips\n"
+        f"  Failed:  {result['total_failed']} clips\n"
+        f"  Audio indexed: {audio_done} file(s)\n"
+        f"  Output:  {result['index_dir']}\n"
+        f"{'=' * 50}",
+        file=sys.stderr,
+    )
+
+    return result
+
+
 def main():
     """
     Read raw_footage_files from stdin (JSON), produce temporal index.
@@ -3577,61 +3647,11 @@ def main():
             print(f"clip_id {args.clip_id} out of range", file=sys.stderr)
             sys.exit(1)
 
-    # ── Where the index lives ──
-    #
-    # With the project, next to prosody's profiles - NOT in the runner's
-    # current working directory, which is what `--output-dir`'s default of
-    # "./pipeline_output" meant in practice.  Project 001's state recorded
-    # its 17-clip index at
-    #   /Users/.../.treehouse/video_editing_pilot-.../3/video_editing_pilot/pipeline_output/temporal_index
-    # - inside a DISPOSABLE git worktree.  Forty minutes of WhisperX,
-    # banked somewhere the project can never find it again, which is how
-    # it came to be paid for twice.
-    #
-    # There was also a "cache-aware execution" block here that looked for
-    # <project>/raw/analysis/temporal_index/ - a directory this step has
-    # never written to - and required a hit on ALL clips before it would
-    # use any of them.  It could not fire, and it read as coverage for the
-    # reuse that is now in build_temporal_index, per clip.
-    # `--output-dir` names an output directory, so the project that owns
-    # it is its parent.  With `project_folder` supplied - which is every
-    # DAG run - that is what the layout is built from, and the flag is a
-    # debugging convenience only.
-    project_folder = input_data.get("project_folder", "")
-    layout = ProjectLayout(
-        project_folder or str(Path(args.output_dir).resolve().parent))
-
-    # The language this footage speaks. The project's `source.language`
-    # (library/tools/footage_identity.declared_language); undeclared
-    # reads as English, which is what every project transcribed before
-    # the setting existed.
-    from library.tools.footage_identity import declared_language
-    language = declared_language(
-        project_folder or str(Path(args.output_dir).resolve().parent))
-
-    # ── Index, reusing whatever is already on disk ──
-    result = build_temporal_index(
-        raw_files, layout, args.whisper_model,
-        language=language,
+    result = index_project(
+        raw_files, semantic_documents, clip_catalog,
+        project_folder=input_data.get("project_folder", ""),
         audio_catalog=input_data.get("audio_catalog"),
-        semantic_analysis_documents=semantic_documents,
-        clip_catalog=clip_catalog,
-    )
-    result["source"] = "cache" if result["total_reused"] == len(raw_files) else "fresh"
-
-    # Summary
-    audio_done = len(result.get("audio_indices") or [])
-    print(
-        f"\n{'=' * 50}\n"
-        f"Temporal Event Index Complete ({language})\n"
-        f"  Indexed: {result['total_indexed']} clips\n"
-        f"  Reused:  {result['total_reused']} clips\n"
-        f"  Failed:  {result['total_failed']} clips\n"
-        f"  Audio indexed: {audio_done} file(s)\n"
-        f"  Output:  {result['index_dir']}\n"
-        f"{'=' * 50}",
-        file=sys.stderr,
-    )
+        whisper_model=args.whisper_model, output_dir=args.output_dir)
 
     # Output directly for DAG compatibility
     _emit(result)

@@ -125,6 +125,8 @@ CAPABILITY_NEEDS: dict = {
     "footage.catalog": CapabilityNeeds(("ffmpeg",)),
     "semantics.analyse": CapabilityNeeds(
         ("ffmpeg", "python.analysis", "python.graphics", "model.vision")),
+    "temporal.index": CapabilityNeeds(
+        _TRANSCRIBE.requires + ("python.graphics",), _TRANSCRIBE.degrades),
     "prosody.analyse": CapabilityNeeds(("python.analysis",)),
     "ocr.extract": CapabilityNeeds(
         ("ffmpeg", "python.analysis", "python.graphics")),

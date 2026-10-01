@@ -26,6 +26,7 @@ run at a declared scope. It owns no logic of its own.
 | `footage.scan` | `scan` | project | Scan the project folder for raw video files |
 | `footage.catalog` | `catalog` | project | Extract per-file metadata into the ordered clip catalog |
 | `semantics.analyse` | `semantic_analysis` | project | Run the v3 vision pass over clips without a profile |
+| `temporal.index` | `temporal_index` | project | Index each clip's speech, sound and motion over time |
 | `prosody.analyse` | `prosody_analysis` | project | Measure pitch, pace, voice quality and intensity per clip |
 | `ocr.extract` | `ocr_extraction` | project | Extract on-screen text from the footage |
 | `creative.direct` | `creative_direction` | project | Decide the video's creative direction from the preflight reads |

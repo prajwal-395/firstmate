@@ -180,6 +180,7 @@ def select(changed):
     for dotted, _abs in library_modules:
         dotted_by_stem.setdefault(dotted.split(".")[-1], set()).add(dotted)
 
+    test_files = set(os.listdir(TESTS))
     selected = set()
     for path in changed:
         abs_path = (path if os.path.isabs(path)
@@ -207,9 +208,14 @@ def select(changed):
         for used in uses:
             if used in CONTRACT_SETS:
                 resolvers.add(used)
-            same = os.path.join(TESTS, "test_" + used + ".py")
-            if os.path.isfile(same):
-                selected.add(os.path.relpath(same, REPO_ROOT))
+            # Matched against the LISTING, not `isfile`: on a
+            # case-insensitive filesystem `from scope import REGION`
+            # found `test_REGION.py` as `test_region.py`, and pytest
+            # refused the whole selection over a path it cannot collect.
+            same = "test_" + used + ".py"
+            if same in test_files:
+                selected.add(os.path.relpath(os.path.join(TESTS, same),
+                                             REPO_ROOT))
 
         # FORWARD: what uses the changed module - the tests importing
         # it directly are the contract tests (producers resolving

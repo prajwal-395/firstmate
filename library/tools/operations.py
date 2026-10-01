@@ -82,7 +82,7 @@ operation's `owning_node`.  Same vocabulary, same derivation discipline -
 an effect in a different language could never be matched against a
 precondition, so nothing composes.
 
-Thirty-seven of the 39 operations have a non-empty effect.  Two are
+Forty of the 42 operations have a non-empty effect.  Two are
 empty, and the emptiness is TRUE, not a gap:
 `run_scope.prerequisites` derives one condition per REQUIRED input, so
 a node that no consumer requires anything from produces no requirement.
@@ -1071,6 +1071,13 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="semantic_analysis",
         owning_dir="step_1_03_semantic_analysis", body="step.py",
         attr="analyse_semantics",
+    ),
+    Operation(
+        name="temporal.index",
+        summary="Index each clip's speech, sound and motion over time",
+        owning_node="temporal_index",
+        owning_dir="step_1_04_temporal_index", body="step.py",
+        attr="index_project",
     ),
     Operation(
         name="prosody.analyse",

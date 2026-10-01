@@ -437,17 +437,21 @@ in firstmate's home); measured numbers in
 
 ```sh
 # Heavy. A bare folder becomes a collection project over it (footage read in place).
-ren analyze <folder-of-footage | project> [--into DIR] [--memory-only] [-- <run_scope flags>]
+ren analyze <folder-of-footage | project> [--into DIR] [--memory-only] [--with CAP] [--skip CAP]
 ren analyze <project> --status            # light: per-source lane freshness
 ren export-memory <project>               # reads only
 ren eval-search <project> --out-json F    # the pre-registered set by default
 ```
 
-- **Two halves.** The steps run through the ordinary runner under the
-  `footage_analysis` target (`run_scope.TARGETS`: scan, catalog, 1.03, 1.04,
-  1.05 - never object segmentation, OCR only with `-- --with ocr_extraction`);
-  then the lanes in `footage_analysis.LANES` fill M0-M3b, M6, M7 and build the
-  text and frame indexes. `--memory-only` runs scan and catalog alone.
+- **Two halves.** The analysis capabilities run through footage
+  intelligence's own orchestration (`library/tools/footage_intelligence.py`),
+  never the editing runner: `footage.scan`, `footage.catalog`,
+  `semantics.analyse`, `temporal.index`, `prosody.analyse`, composed by what
+  each requires - never object segmentation, OCR only with `--with
+  ocr.extract`. Results land in `step_outputs` and the preflight ledger, so
+  `ren edit` continues with preflight done. Then the lanes in
+  `footage_analysis.LANES` fill M0-M3b, M6, M7 and build the text and frame
+  indexes. `--memory-only` runs scan and catalog alone.
 - **A fresh record is reused, never rebuilt**: a per-source lane runs only
   for sources whose slot is missing, names another digest, or is older than
   a slot it reads (an M3 measured off an M2 that was since re-sampled).
