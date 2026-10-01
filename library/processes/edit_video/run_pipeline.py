@@ -61,7 +61,7 @@ from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import (brief_attachment, briefing_interview,
                            briefing_chat,
                            decided_value,
-                           direction_contradiction,
+                           direction_contradiction, nothing_to_decide,
                            operations, post_bridge_retry, run_restart,
                            second_pass, undetermined)
 from library.tools import run_control
@@ -1756,9 +1756,16 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     
     compressed = dict(inputs)
     pre_output = {}
+    stand_down = None
     if pre_bridge.exists():
         try:
             pre_output = run_subprocess(pre_bridge, inputs)
+            # A pre-bridge whose evidence leaves the model nothing to
+            # decide says so, and the call is not made: the post-bridge
+            # runs on an empty answer and is told why. Split out BEFORE
+            # the merge so the declaration never reaches a prompt or
+            # the step's output. See library/tools/nothing_to_decide.py.
+            stand_down = nothing_to_decide.take(pre_output)
             compressed.update(pre_output)
             if "project_folder" not in compressed or not compressed["project_folder"]:
                 compressed["project_folder"] = inputs.get("project_folder", "")
@@ -1778,69 +1785,79 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     # cargo; the bound is its own. See library/tools/second_pass.py.
     retry_feedback = ""
     passes_made = 1
+    if stand_down:
+        print(f"  [llm] {node_id}: nothing to decide - {stand_down}; "
+              f"skipping the call", file=sys.stderr)
+        _logger = get_logger()
+        if _logger:
+            _logger.log(step_id=node_id, event_type=nothing_to_decide.EVENT,
+                        detail={"reason": stand_down})
     for attempt in range(1, post_bridge_retry.MAX_ATTEMPTS + 1):
-        # The pipeline-runs-it route for recallable skills: a declared
-        # gating skill no receipt covers yet is run HERE when the
-        # answering harness has no shell to invoke it with, and its
-        # verdict seeds the same retry context a contract rejection
-        # travels on. A harness with a shell invokes the skill itself -
-        # its prompt says so - so nothing runs for it. Skipped under
-        # mock: a replayed answer has no model to correct. See
-        # library/tools/pipeline_skills.py.
-        from library.tools import pipeline_skills as _skills_rt
-        retry_feedback += _skills_rt.ensure_gating_receipts(
-            node_id, manifest, compressed, full_auto)
-        # LLM creative decision on compressed context
-        try:
-            llm_output = present_llm_step(
-                prompt_path, compressed, node_id, manifest, full_auto,
-                llm_timeout, bridge_supplied=set(pre_output),
-                retry_feedback=retry_feedback,
-            )
-        except RenRefusal:
-            # A refusal already carries its fix - rewording it here
-            # would strip the shape the boundary renders.
-            raise
-        except Exception as e:
-            raise LLMError(
-                f"LLM generation failed: {e}",
-                "the answering backend raised outside the refusal shape",
-                "read the wrapped error above - it names the cause - fix "
-                "that, then re-run")
-
-        if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
-            return llm_output
-
-        # The must-check rule: a declared gating skill RAN, read back
-        # from its receipt on disk - never from the answer's claim that
-        # it checked. The answer itself scopes the rule: a gate scoped
-        # to what its skill knows needs no receipt where the answer
-        # names nothing verifiable (finding 5 - an empty 4.03 plan).
-        # A missing receipt travels the post-bridge retry
-        # path like any other contract violation: bounded retries
-        # carrying the reason, and at the bound the step FAILS with it
-        # named rather than proceeding on an unchecked answer.
-        if normalize_full_auto(full_auto) != "mock":
+        if stand_down:
+            llm_output = {}
+        else:
+            # The pipeline-runs-it route for recallable skills: a declared
+            # gating skill no receipt covers yet is run HERE when the
+            # answering harness has no shell to invoke it with, and its
+            # verdict seeds the same retry context a contract rejection
+            # travels on. A harness with a shell invokes the skill itself -
+            # its prompt says so - so nothing runs for it. Skipped under
+            # mock: a replayed answer has no model to correct. See
+            # library/tools/pipeline_skills.py.
+            from library.tools import pipeline_skills as _skills_rt
+            retry_feedback += _skills_rt.ensure_gating_receipts(
+                node_id, manifest, compressed, full_auto)
+            # LLM creative decision on compressed context
             try:
-                _skills_rt.assert_gating_skills_ran(
-                    node_id, manifest,
-                    compressed.get("project_folder", ""),
-                    llm_output=llm_output)
-            except _skills_rt.GatingSkillSkipped as e:
-                violation = str(e)
-                if attempt >= post_bridge_retry.MAX_ATTEMPTS:
-                    raise PostBridgeError(
-                        f"Post-bridge failed after "
-                        f"{post_bridge_retry.MAX_ATTEMPTS} attempts "
-                        f"(a declared gating skill never ran): "
-                        f"{violation}")
-                print(f"  Gating skill unrun on attempt {attempt} "
-                      f"for {node_id}, carrying the violation back to "
-                      f"the model: {violation.splitlines()[0][:200]}",
-                      file=sys.stderr)
-                retry_feedback += post_bridge_retry.feedback_block(
-                    violation, attempt)
-                continue
+                llm_output = present_llm_step(
+                    prompt_path, compressed, node_id, manifest, full_auto,
+                    llm_timeout, bridge_supplied=set(pre_output),
+                    retry_feedback=retry_feedback,
+                )
+            except RenRefusal:
+                # A refusal already carries its fix - rewording it here
+                # would strip the shape the boundary renders.
+                raise
+            except Exception as e:
+                raise LLMError(
+                    f"LLM generation failed: {e}",
+                    "the answering backend raised outside the refusal shape",
+                    "read the wrapped error above - it names the cause - fix "
+                    "that, then re-run")
+
+            if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
+                return llm_output
+
+            # The must-check rule: a declared gating skill RAN, read back
+            # from its receipt on disk - never from the answer's claim that
+            # it checked. The answer itself scopes the rule: a gate scoped
+            # to what its skill knows needs no receipt where the answer
+            # names nothing verifiable (finding 5 - an empty 4.03 plan).
+            # A missing receipt travels the post-bridge retry
+            # path like any other contract violation: bounded retries
+            # carrying the reason, and at the bound the step FAILS with it
+            # named rather than proceeding on an unchecked answer.
+            if normalize_full_auto(full_auto) != "mock":
+                try:
+                    _skills_rt.assert_gating_skills_ran(
+                        node_id, manifest,
+                        compressed.get("project_folder", ""),
+                        llm_output=llm_output)
+                except _skills_rt.GatingSkillSkipped as e:
+                    violation = str(e)
+                    if attempt >= post_bridge_retry.MAX_ATTEMPTS:
+                        raise PostBridgeError(
+                            f"Post-bridge failed after "
+                            f"{post_bridge_retry.MAX_ATTEMPTS} attempts "
+                            f"(a declared gating skill never ran): "
+                            f"{violation}")
+                    print(f"  Gating skill unrun on attempt {attempt} "
+                          f"for {node_id}, carrying the violation back to "
+                          f"the model: {violation.splitlines()[0][:200]}",
+                          file=sys.stderr)
+                    retry_feedback += post_bridge_retry.feedback_block(
+                        violation, attempt)
+                    continue
 
         if not post_bridge.exists():
             result = dict(pre_output)
@@ -1850,6 +1867,8 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
 
         merge_data = dict(inputs)
         merge_data.update(pre_output)
+        if stand_down:
+            merge_data[nothing_to_decide.KEY] = stand_down
         # Which pass this is. A post-bridge that asks for another pass
         # needs to know when it is already answering one, or it asks
         # forever and re-measures on every attempt. See

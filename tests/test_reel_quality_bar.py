@@ -736,3 +736,33 @@ def test_a_reel_that_keeps_talking_past_its_closer_still_reports_it():
     findings = [f for f in qb.exact_findings(past_it, transcript, closers)
                 if f.code == qb.QB_CTA_NOT_LAST]
     assert len(findings) == 1 and findings[0].severity == qb.WARNING
+
+
+# ── No reel to read, no model asked ──────────────────────────────────
+
+def test_no_readable_reel_makes_no_model_call(tmp_path, monkeypatch):
+    """Measured 2026-10-01: with no reel's words to read, the step filed
+    three handshakes, because the one honest answer - no readings -
+    fails QA as empty. The bridge now stands the call down and the
+    judgement says why (library/tools/nothing_to_decide.py)."""
+    from library.processes.edit_video import run_pipeline
+
+    def no_call(*_a, **_k):
+        raise AssertionError("a model was asked to read no reel")
+
+    monkeypatch.setattr(run_pipeline, "present_llm_step", no_call)
+    monkeypatch.setenv("PYTHONPATH", str(REPO))
+    silent = _moment(start=900.0, end=910.0)
+    out = run_pipeline.run_hybrid_step(
+        STEP, {"project_folder": str(tmp_path),
+               "timeline_transcript": _transcript(SEGMENTS),
+               "reel_selection": {"moments": [silent.as_dict()]}},
+        node_id="judge_reels",
+        manifest=json.loads((STEP / "manifest.json").read_text()),
+        full_auto="agent", llm_timeout=1)
+
+    judgement = out["reel_judgement"]
+    assert judgement["readings"] == []
+    assert judgement["not_read"] == [1]
+    assert "1 unreadable" in judgement["not_asked"]
+    assert "nothing_to_decide" not in out

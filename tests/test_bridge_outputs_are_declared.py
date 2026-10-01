@@ -31,7 +31,7 @@ sys.path.insert(0, str(REPO))
 from library.processes.edit_video.run_pipeline import (
     validate_step_output,
 )
-from library.tools import processes
+from library.tools import nothing_to_decide, processes
 
 STEPS_ROOT = REPO / "library" / "steps"
 
@@ -230,8 +230,12 @@ def test_every_bridge_key_is_declared(tmp_path):
             # construction - so it is neither declared nor declarable,
             # and this test's rationale (validation would flag it) does
             # not apply. Other private keys still fail this contract.
+            # `nothing_to_decide` is split out by `run_hybrid_step`
+            # before anything stores or validates the output, on the
+            # same reasoning (library/tools/nothing_to_decide.py).
             unknown = sorted(k for k in set(emitted) - declared
-                             if k != "__prompt_additions")
+                             if k not in ("__prompt_additions",
+                                          nothing_to_decide.KEY))
             if unknown:
                 problems.append(f"{step_dir}: {unknown}")
     assert not problems, (
@@ -258,7 +262,9 @@ def test_no_bridge_key_is_an_unexpected_extra_field(tmp_path):
                   for o in interface.get("outputs", [])
                   if o.get("name")}
         for inputs, env in _cases(step_dir, tmp_path):
-            output.update(_run_bridge(step_dir, inputs, env))
+            emitted = _run_bridge(step_dir, inputs, env)
+            nothing_to_decide.take(emitted)
+            output.update(emitted)
         issues = validate_step_output(_node_id(step_dir), output, manifest)
         extra = [i for i in issues if "unexpected extra fields" in i]
         if extra:

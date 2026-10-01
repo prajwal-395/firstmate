@@ -166,29 +166,34 @@ def resolve(llm_output: dict, data: dict) -> dict:
            ((data or {}).get("reels_not_readable") or [])
            if x.get("reel") is not None})
 
-    return {
-        "reel_judgement": {
-            "format": "reel_judgement/1",
-            "readings": readings,
-            "refused": refused,
-            "ordering": ordering,
-            "not_read": not_read,
-            "not_readable": list((data or {}).get("reels_not_readable") or []),
-            "contract": {
-                "checked_against": (
-                    "every quote was looked for, word for word, in what "
-                    "that reel says. A reading whose quotes are not in it "
-                    "is in `refused` and no verdict is derived from it."),
-                "derived_not_asked": [
-                    {"quality": q.name, "from": list(q.held_by)}
-                    for q in QUALITIES if q.kind == "judgement"],
-                "ordering": (
-                    "an ORDERING and no score. Compare ranks near the top "
-                    "only; a reel with rank null is UNPLACED, which is not "
-                    "last (library/tools/passage_engagement.py)."),
-            },
-        }
+    judgement = {
+        "format": "reel_judgement/1",
+        "readings": readings,
+        "refused": refused,
+        "ordering": ordering,
+        "not_read": not_read,
+        "not_readable": list((data or {}).get("reels_not_readable") or []),
+        "contract": {
+            "checked_against": (
+                "every quote was looked for, word for word, in what "
+                "that reel says. A reading whose quotes are not in it "
+                "is in `refused` and no verdict is derived from it."),
+            "derived_not_asked": [
+                {"quality": q.name, "from": list(q.held_by)}
+                for q in QUALITIES if q.kind == "judgement"],
+            "ordering": (
+                "an ORDERING and no score. Compare ranks near the top "
+                "only; a reel with rank null is UNPLACED, which is not "
+                "last (library/tools/passage_engagement.py)."),
+        },
     }
+    # The bridge found no reel to read, so no model was asked; the
+    # judgement says so rather than reading as one nobody answered.
+    # See library/tools/nothing_to_decide.py.
+    from library.tools import nothing_to_decide
+    if (data or {}).get(nothing_to_decide.KEY):
+        judgement["not_asked"] = data[nothing_to_decide.KEY]
+    return {"reel_judgement": judgement}
 
 
 def main():

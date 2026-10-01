@@ -136,6 +136,18 @@ def build_context(data: dict) -> dict:
         })
 
     out = {"reels_to_read": rows}
+    if not rows:
+        # No reel's words to read, so no reading can stand: the
+        # post-bridge checks every quote against the reel it names, and
+        # the reader was shown none. Asking anyway filed three
+        # handshakes, because the one honest answer - no readings - fails
+        # QA as empty. See library/tools/nothing_to_decide.py.
+        from library.tools import nothing_to_decide
+        out.update(nothing_to_decide.declare(
+            f"no reel's words reached the reader "
+            f"({len(selection.get('moments') or [])} selected, "
+            f"{len(unreadable)} unreadable), so no reading could be "
+            f"checked against one"))
     if unreadable:
         # Not projected into the prompt - it is about reels the reader is
         # not being shown - but carried so the post-bridge can say who
