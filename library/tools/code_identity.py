@@ -171,6 +171,21 @@ STEP_IMPLEMENTATION_DEPS = {
         # Imported by llm_handshake: shapes the refusal a malformed
         # host answer fails with.
         "library/tools/ren_refusal.py",
+        # Imported by vision_pipeline_v3: the per-layer measurement
+        # cache. Its keys decide which stored layers a compose reuses,
+        # so a fix here must recompose; a recompose re-measures only
+        # the layers whose own keys moved, so this costs little.
+        "library/tools/analysis/measurement_layers.py",
+        # Imported by measurement_layers: the source digest every layer
+        # key starts from.
+        "library/tools/footage_identity.py",
+        # Imported by footage_identity: its declaration parsing (same
+        # chain as the scan row above).
+        "library/schemas/project_config.py",
+        "library/tools/overlay_mode.py",
+        "library/tools/graphics_renderer.py",
+        "library/tools/safe_zone_policy.py",
+        "library/tools/platform_safe_zones.py",
     ),
     "step_1_04_temporal_index": (
         # The project's declared transcription language: a fix here

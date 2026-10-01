@@ -58,7 +58,7 @@ from model_lifecycle import managed_model
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 from library.tools.heavy_work_lock import heavy_work_locked
-from library.tools.analysis import picture_quality
+from library.tools.analysis import measurement_layers, picture_quality
 from library.tools.camera_stability import read_camera_stability
 from library.tools.segment_coverage import (
     coverage_summary,
@@ -71,6 +71,21 @@ from library.tools.segment_coverage import (
 # ═══════════════════════════════════════════════════════════════════════
 
 MODEL_ID = "mlx-community/gemma-4-12b-it-4bit"
+
+# The cached measurement layers of a profile and the entry points whose
+# reached code is each one's method identity
+# (`library/tools/analysis/measurement_layers.py`). `VisionAnalyzer` is
+# named because the passes reach it through a parameter, which no name
+# walk can follow. Everything `analyze_clip` derives from these is
+# recomputed on every compose.
+MEASUREMENT_LAYERS = {
+    "windows": ("analyze_windows", "extract_video_clips",
+                "VisionAnalyzer", "MODEL_ID"),
+    "objects": ("extract_frames", "analyze_objects_coarse",
+                "find_detail_ranges", "analyze_objects_detail",
+                "VisionAnalyzer", "MODEL_ID"),
+    "picture": ("picture_quality",),
+}
 CACHE_DIR = Path(".vision_cache")
 OUTPUT_DIR = Path("pipeline_output")
 
@@ -2673,7 +2688,7 @@ def _finish_assessment(deterministic, content_type, primary_subject_visible,
 # ═══════════════════════════════════════════════════════════════════════
 
 def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
-                 temporal_index, cache_dir):
+                 temporal_index, cache_dir, layer_cache=None):
     """Orchestrate all dimension passes for a single clip.
 
     Execution order:
@@ -2684,15 +2699,24 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
 
     Every native-video (`video=`) pass runs on the 10 s windows, so each
     call sees 20 frames at 2 fps - no pass samples below that floor.
+
+    `layer_cache` (a `measurement_layers.LayerCache`) supplies each
+    measured layer it already holds and stores the ones measured here;
+    `frames` / `video_clips` are not read for a layer it supplies. None
+    measures everything, as before.
     """
+    cached = {layer: layer_cache.get(layer)
+              for layer in MEASUREMENT_LAYERS} if layer_cache else {}
     clip_id = clip_meta["clip_id"]
     duration = clip_meta["duration_s"]
     video_path = clip_meta["file_path"]
     clip_path = Path(clip_meta["file_path"])
     fps = clip_meta.get("fps") or 30.0
 
-    n_window_calls = len(video_clips)
-    n_obj_coarse_calls = max(1, int(math.ceil(len(frames) / COARSE_BATCH_SIZE)))
+    n_window_calls = (len(cached["windows"]["windows"])
+                      if cached.get("windows") else len(video_clips))
+    n_obj_coarse_calls = max(1, int(math.ceil(
+        len(frames or []) / COARSE_BATCH_SIZE)))
     n_estimated = (n_window_calls + n_obj_coarse_calls
                    + 1)  # +detail is variable
 
@@ -2709,11 +2733,25 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     # ── Group A: Independent passes ──────────────────────────────────
 
     # 1. Folded windows: actions + scene + camera + assessment sections
-    print(f"  [Windows] {n_window_calls} windows × {ACTION_WINDOW_S}s (video+audio clips)...")
-    _inference_t0 = time.time()
-    windows = analyze_windows(analyzer, video_clips, duration, temporal_index,
-                              transcript, fps=fps)
-    window_inference_wall_s = round(time.time() - _inference_t0, 2)
+    if cached.get("windows"):
+        print(f"  [Windows] {n_window_calls} windows reused "
+              f"(measurement layer cache)")
+        windows = cached["windows"]["windows"]
+        window_inference_wall_s = cached["windows"]["inference_wall_s"]
+        n_video_clips = cached["windows"]["video_clips_extracted"]
+    else:
+        print(f"  [Windows] {n_window_calls} windows × {ACTION_WINDOW_S}s (video+audio clips)...")
+        _inference_t0 = time.time()
+        windows = analyze_windows(analyzer, video_clips, duration,
+                                  temporal_index, transcript, fps=fps)
+        window_inference_wall_s = round(time.time() - _inference_t0, 2)
+        n_video_clips = len(video_clips)
+        if layer_cache:
+            layer_cache.put("windows", {
+                "windows": windows,
+                "inference_wall_s": window_inference_wall_s,
+                "video_clips_extracted": n_video_clips,
+            })
     n_window_calls = len(windows)
     window_time = sum(a.get("analysis_time_s", 0) for a in windows)
     total_action_count = sum(len(a.get("actions", [])) for a in windows)
@@ -2776,31 +2814,51 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
         for a in windows
     ]
 
-    # 2. Objects — coarse sweep
-    print(f"  [Objects] Coarse sweep ({len(frames)} frames, {n_obj_coarse_calls} batch(es))...",
-          end=" ", flush=True)
-    coarse_objects, t = analyze_objects_coarse(analyzer, frames, duration)
-    total_time += t
-    total_calls += n_obj_coarse_calls
-    print(f"({t:.1f}s) → {len(coarse_objects)} entities")
-
-    # ── Group B: Dependent passes ────────────────────────────────────
-
-    # 3. Objects — detail pass
-    detail_ranges = find_detail_ranges(coarse_objects, duration)
-    if detail_ranges:
-        n_detail_ranges = len(detail_ranges)
-        print(f"  [Objects] Detail pass ({n_detail_ranges} range(s))...", end=" ", flush=True)
-        objects, t = analyze_objects_detail(
-            analyzer, clip_path, cache_dir, coarse_objects, duration
-        )
-        total_time += t
-        detail_calls = max(1, n_detail_ranges)  # Approximate
-        total_calls += detail_calls
-        print(f"({t:.1f}s) → {len(objects)} entities (refined)")
+    if cached.get("objects"):
+        objects = cached["objects"]["objects"]
+        n_frames = cached["objects"]["frames_extracted"]
+        total_time += cached["objects"]["analysis_time_s"]
+        total_calls += cached["objects"]["model_calls"]
+        print(f"  [Objects] {len(objects)} entities reused "
+              f"(measurement layer cache)")
     else:
-        objects = coarse_objects
-        print(f"  [Objects] Detail pass skipped (no transient entities)")
+        objects_time = 0
+        objects_calls = 0
+        n_frames = len(frames)
+        # 2. Objects — coarse sweep
+        print(f"  [Objects] Coarse sweep ({len(frames)} frames, {n_obj_coarse_calls} batch(es))...",
+              end=" ", flush=True)
+        coarse_objects, t = analyze_objects_coarse(analyzer, frames, duration)
+        objects_time += t
+        objects_calls += n_obj_coarse_calls
+        print(f"({t:.1f}s) → {len(coarse_objects)} entities")
+
+        # ── Group B: Dependent passes ────────────────────────────────
+
+        # 3. Objects — detail pass
+        detail_ranges = find_detail_ranges(coarse_objects, duration)
+        if detail_ranges:
+            n_detail_ranges = len(detail_ranges)
+            print(f"  [Objects] Detail pass ({n_detail_ranges} range(s))...", end=" ", flush=True)
+            objects, t = analyze_objects_detail(
+                analyzer, clip_path, cache_dir, coarse_objects, duration
+            )
+            objects_time += t
+            detail_calls = max(1, n_detail_ranges)  # Approximate
+            objects_calls += detail_calls
+            print(f"({t:.1f}s) → {len(objects)} entities (refined)")
+        else:
+            objects = coarse_objects
+            print(f"  [Objects] Detail pass skipped (no transient entities)")
+        total_time += objects_time
+        total_calls += objects_calls
+        if layer_cache:
+            layer_cache.put("objects", {
+                "objects": objects,
+                "frames_extracted": n_frames,
+                "analysis_time_s": objects_time,
+                "model_calls": objects_calls,
+            })
 
     # ── Group C: Final synthesis ─────────────────────────────────────
 
@@ -2812,7 +2870,15 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
     print(f"  [Picture] Sharpness at "
           f"{picture_quality.SAMPLE_RATE_HZ:g}Hz...", end=" ", flush=True)
     t_pic = time.time()
-    soft_ranges = picture_quality.measure_soft_picture(video_path, duration)
+    if cached.get("picture"):
+        soft_ranges = cached["picture"]["soft_ranges"]
+    else:
+        soft_ranges = picture_quality.measure_soft_picture(
+            video_path, duration)
+        # An unmeasured picture is not stored: the next compose tries
+        # again rather than carrying the absence forward.
+        if layer_cache and soft_ranges is not None:
+            layer_cache.put("picture", {"soft_ranges": soft_ranges})
     t_pic = time.time() - t_pic
     if soft_ranges is None:
         print(f"({t_pic:.1f}s) → unmeasured")
@@ -2865,8 +2931,8 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
             # runner prints per clip. A sum of per-window model times
             # is not a wall (retries and gaps hide in it); this is.
             "window_inference_wall_s": window_inference_wall_s,
-            "frames_extracted": len(frames),
-            "video_clips_extracted": len(video_clips),
+            "frames_extracted": n_frames,
+            "video_clips_extracted": n_video_clips,
             # What each native-video (`video=`) call actually saw.
             # Every such call is capped at 32 frames (mlx-vlm 0.7.2
             # gemma4 path: decode at 2 fps, processor keeps at most
@@ -2887,6 +2953,13 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
             },
         },
     }
+
+    if layer_cache:
+        # Which layers this compose reused and which it measured, each
+        # under the key that names its source, method and parameters.
+        # The timings above are the MEASUREMENT's, whichever run paid.
+        profile["analysis_metadata"]["measurement_layers"] = (
+            layer_cache.record())
 
     # ── Summary ──────────────────────────────────────────────────────
 
@@ -2911,6 +2984,37 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
 # ═══════════════════════════════════════════════════════════════════════
 #  Pipeline Runner
 # ═══════════════════════════════════════════════════════════════════════
+
+class _LazyAnalyzer:
+    """A `VisionAnalyzer` whose model loads on first use, and unloads on exit.
+
+    The managed-model lifetime `run_pipeline` always had, entered only
+    when a pass actually runs: a compose from cached layers never loads
+    gemma.
+    """
+
+    def __init__(self, harness, project_folder):
+        self._args = (harness, project_folder)
+        self._analyzer = None
+        self._context = None
+
+    def __getattr__(self, name):
+        if self._analyzer is None:
+            self._context = managed_model("gemma-4", lambda: load(MODEL_ID))
+            model, proc = self._context.__enter__()
+            harness, project_folder = self._args
+            self._analyzer = VisionAnalyzer(model, proc, harness=harness,
+                                            project_folder=project_folder)
+        return getattr(self._analyzer, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        if self._context is not None:
+            return self._context.__exit__(*exc)
+        return False
+
 
 @heavy_work_locked("Gemma video analysis")
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
@@ -2947,11 +3051,18 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
     total_start = time.time()
     skipped = 0
 
-    with managed_model("gemma-4", lambda: load(MODEL_ID)) as (model, proc):
-        # Load model once
-        analyzer = VisionAnalyzer(model, proc, harness=harness,
-                                  project_folder=project_folder)
+    # One method identity per layer for the whole run; each clip adds
+    # its own source digest and parameters.
+    layer_methods = {
+        layer: measurement_layers.method_digest(__file__, entry_points)
+        for layer, entry_points in MEASUREMENT_LAYERS.items()
+    }
+    from library.tools.still_vision import resolve_harness
+    still_viewer = resolve_harness(harness)
 
+    # The model loads on the first pass that needs it: a clip whose
+    # windows are all cached never pays for it.
+    with _LazyAnalyzer(harness, project_folder) as analyzer:
         for i, clip_path in enumerate(clips, 1):
             clip_path = Path(clip_path)
             if not clip_path.exists():
@@ -3002,25 +3113,48 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             else:
                 print(f"  Transcript: (none)")
 
+            layer_cache = measurement_layers.LayerCache.for_source(
+                clip_path, layer_methods, {
+                    "windows": {
+                        "duration_s": duration, "fps": meta.get("fps"),
+                        "temporal_index": measurement_layers.canonical_digest(
+                            temporal_idx),
+                        "transcript": transcript or "",
+                    },
+                    "objects": {"duration_s": duration,
+                                "still_viewer": still_viewer},
+                    "picture": {"duration_s": duration},
+                }, force=force)
+            cached_layers = {
+                layer for layer in MEASUREMENT_LAYERS
+                if layer_cache and layer_cache.get(layer) is not None}
+            if cached_layers:
+                print(f"  Measurement layers cached: "
+                      f"{', '.join(sorted(cached_layers))}")
+
             # Extract frames (for objects — 1 per 5s)
-            frames = extract_frames(clip_path, duration, cache_dir)
-            print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
+            frames = None
+            if "objects" not in cached_layers:
+                frames = extract_frames(clip_path, duration, cache_dir)
+                print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
 
             # Start the bounded window producer before inference. It
             # keeps one cut ahead while `analyze_windows` consumes clips
             # in order; extraction timing and probe count are read back
             # once the producer has joined.
             reset_ffprobe_spawn_count()
-            video_clips = extract_video_clips(
-                clip_path, duration, cache_dir, prefetch=True)
-            print(f"  Video window cuts queued: {len(video_clips)} × "
-                  f"{ACTION_WINDOW_S}s; extraction overlaps inference")
+            video_clips = []
+            if "windows" not in cached_layers:
+                video_clips = extract_video_clips(
+                    clip_path, duration, cache_dir, prefetch=True)
+                print(f"  Video window cuts queued: {len(video_clips)} × "
+                      f"{ACTION_WINDOW_S}s; extraction overlaps inference")
 
             # Run analysis
             try:
                 profile = analyze_clip(
                     analyzer, meta, frames, video_clips, transcript,
-                    temporal_idx, cache_dir,
+                    temporal_idx, cache_dir, layer_cache=layer_cache,
                 )
             finally:
                 if isinstance(video_clips, _WindowClipPrefetch):

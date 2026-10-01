@@ -241,9 +241,14 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
     # execution-frontier report 2026-09-24). The stamp beside the
     # profiles names the code that wrote them (`code_identity`); a
     # mismatch means the profiles describe what an older method saw, and
-    # they are removed so the analyser below re-measures every clip.
+    # they are removed so the analyser below recomposes every clip.
     # No stamp reads as unknown code, never as a match: a cache from
     # before stamps existed is re-analyzed once, then stamped.
+    #
+    # Removing a profile no longer re-measures it whole: the analyser
+    # composes each profile from measurement layers cached per source
+    # (`library/tools/analysis/measurement_layers.py`), and only a
+    # layer whose own method or inputs changed is measured again.
     step_code_hash = code_identity.current_code_hash(
         os.path.dirname(os.path.abspath(__file__)))
     # A None hash means there was nothing to hash: it matches nothing,
@@ -258,7 +263,8 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
         if stale:
             print(f"Semantic Analysis: step code changed since "
                   f"{len(stale)} cached profile(s) were written - "
-                  f"removing them and re-analyzing every clip",
+                  f"removing them and recomposing every clip "
+                  f"(unchanged measurement layers are reused)",
                   file=sys.stderr)
             for path in stale:
                 try:
