@@ -18,7 +18,7 @@ read the same memory for free. Projects REFERENCE it and never copy
 it. Nothing here goes into `pipeline_data.json` (rewritten after every
 step; the memory is per source, not per run).
 
-**The slots.** M0, M1, M2, M3b and M6 are written now; every later lane
+**The slots.** M0, M1, M2, M3, M3b, M6 and M7 are written now; every later lane
 writes into its named slot without inventing its own shape:
 
 ======== ============================ ============================= ==========
@@ -34,7 +34,8 @@ M1b      `speakers.json`              diarized turns + voice        diarization
                                       embeddings                    lane
 M2       `frames/` +                  I-frame thumbnails, 384 px,   this module
                                       `frames.index.json`           at ~2 Hz
-M3       `persons.json`               faces, hands, pose at 2 Hz    Vision lane
+M3       `persons.json`               faces, lips, hands at the M2  `library/tools/
+                                      cadence (Apple Vision)        person_measurements.py`
 M3b      `identity.json`              face/voice identity tracks,   `library/tools/
                                       speech-face links (face-only  person_entity.py`
                                       cross-source identity - see
@@ -42,7 +43,8 @@ M3b      `identity.json`              face/voice identity tracks,   `library/too
 M4       `scenes.json`                scene embeddings              CLIP lane
 M5       `sound.json`                 sound-event labels            SoundAnalysis
 M6       `clock.json`                 per-source multicam offset    conversation_clock.py
-M7       `events.json`                DERIVED predicate spans       predicate lane
+M7       `events.json`                DERIVED per-person spans      `library/tools/
+                                      (speaking, on_screen)         event_spans.py`
 ======== ============================ ============================= ==========
 
 A slot a lane has not written yet is ABSENT, never a default: an
@@ -134,20 +136,22 @@ SLOT_TRANSCRIPT = "transcript.words.json"      # M1
 SLOT_SPEAKERS = "speakers.json"                # M1b (diarization lane)
 SLOT_FRAMES_DIR = "frames"                     # M2
 SLOT_FRAMES_INDEX = "frames.index.json"        # M2
-SLOT_PERSONS = "persons.json"                  # M3 (Vision lane)
+SLOT_PERSONS = "persons.json"                  # M3 - written by person_measurements.py
 SLOT_IDENTITY = "identity.json"                # M3b - written by person_entity.py
 SLOT_SCENES = "scenes.json"                    # M4 (CLIP lane)
 SLOT_SOUND = "sound.json"                      # M5 (SoundAnalysis lane)
 SLOT_CLOCK = "clock.json"                      # M6 - written by conversation_clock.py
-SLOT_EVENTS = "events.json"                    # M7 (predicate lane)
+SLOT_EVENTS = "events.json"                    # M7 - written by event_spans.py
 
 RESERVED_SLOTS = (
-    SLOT_SPEAKERS, SLOT_PERSONS, SLOT_SCENES, SLOT_SOUND, SLOT_EVENTS,
+    SLOT_SPEAKERS, SLOT_SCENES, SLOT_SOUND,
 )
 # SLOT_CLOCK (M6) is no longer reserved: `library/tools/conversation_clock.py`
 # writes it. SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX (M2) are no longer reserved:
 # `extract_iframes`/`build_frames` below write them. SLOT_IDENTITY (M3b)
 # is no longer reserved: `library/tools/person_entity.py` writes it.
+# SLOT_PERSONS (M3) and SLOT_EVENTS (M7) are no longer reserved:
+# `person_measurements.py` and `event_spans.py` write them.
 
 SILENCE_DB = -60.0
 """Below this a track is room tone off, not a candidate for anything.

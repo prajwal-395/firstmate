@@ -81,6 +81,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -947,12 +948,28 @@ def _insightface_pack_dir(explicit: Optional[str | Path] = None) -> Path:
 
 
 def insightface_available(explicit: Optional[str | Path] = None) -> tuple:
-    """`(usable, detail)` - whether this machine can embed a face."""
+    """`(usable, detail)` - whether this machine can embed a face.
+
+    Both halves: the weights on disk AND the `insightface` package in
+    THIS interpreter. Weights alone answered True on a venv without the
+    package, and every clip of a geo-podcast build then failed on a
+    bare `ModuleNotFoundError` instead of this refusal.
+    """
     directory = _insightface_pack_dir(explicit)
     missing = [name for name in INSIGHTFACE_REQUIRED_FILES
                if not (directory / name).is_file()]
     if missing:
         return False, insightface_missing_message(explicit)
+    import importlib.util
+    for package in ("insightface", "onnxruntime"):
+        if importlib.util.find_spec(package) is None:
+            return False, (
+                f"The insightface {INSIGHTFACE_PACK_NAME} weights are at "
+                f"{directory}, but this interpreter ({sys.executable}) "
+                f"cannot import `{package}`.\n"
+                f"Install the declared requirement into it:\n"
+                f"    uv pip install --python {sys.executable} "
+                f"-r requirements.txt")
     return True, f"insightface {INSIGHTFACE_PACK_NAME} via {directory}"
 
 

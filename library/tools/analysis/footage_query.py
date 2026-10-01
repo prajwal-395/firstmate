@@ -1149,6 +1149,27 @@ def _print_frame_report(report):
               f"  [UNVERIFIED]")
 
 
+def _print_structured(answer):
+    naming = answer["naming"]
+    named = (f" = {naming['name']} ({naming['by']}, agreement "
+             f"{naming['agreement']})" if naming.get("name")
+             else f" ({naming['by']})")
+    print(f"{answer['person']}{named} x {answer['predicate']}: "
+          f"{answer['spans']} source spans, {answer['source_seconds']} s; "
+          f"{answer['spans_placed']} placed on the timeline")
+    for stage, signal in answer["signals"].items():
+        print(f"  {stage:9s} {signal}")
+    if not answer["timeline_transcript"]:
+        print("  (no saved timeline transcript: nothing can be placed)")
+    for hit in answer["hits"]:
+        name = os.path.basename(hit["source_file"])
+        print(f"  {name} {hit['start']:9.2f}-{hit['end']:9.2f}")
+        for p in hit["placements"]:
+            print(f"      timeline {p['timeline_start']:8.2f}-{p['timeline_end']:8.2f}"
+                  f"  item {p['resolve_item_id'][:8]} ({p['track_speaker']} track, "
+                  f"{os.path.basename(p['source_file'])}, {p['via']})")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="footage_query",
@@ -1166,7 +1187,8 @@ def main(argv=None):
 
     p_search = sub.add_parser("search", help="Semantic + keyword search")
     p_search.add_argument("project")
-    p_search.add_argument("query")
+    p_search.add_argument("query", nargs="?",
+                          help="what to look for (omit with --predicate)")
     p_search.add_argument("-k", "--top-k", type=int, default=5)
     p_search.add_argument("--visual", action="store_true",
                           help="Search the sampled FRAMES with CLIP instead of the text "
@@ -1184,6 +1206,14 @@ def main(argv=None):
                           help="restrict to one person's measured face/voice "
                               "spans (person_id or declared name, e.g. "
                               "'Craig') - the entity store (M3b)")
+    p_search.add_argument("--predicate",
+                          help="STRUCTURED query instead of text: what the "
+                               "--person is doing (speaking, on_screen), "
+                               "answered from the per-source event spans "
+                               "(M7), joined across angles on the M6 clock "
+                               "and placed on the timeline")
+    p_search.add_argument("--json", action="store_true",
+                          help="with --predicate: print the whole answer as JSON")
     p_search.add_argument("--index-dir")
 
     p_filter = sub.add_parser("filter", help="Select by measurable properties")
@@ -1265,6 +1295,31 @@ def main(argv=None):
                 args.project, index_dir=args.index_dir)
             print(json.dumps(frame_stats, indent=2))
         return 0
+
+    if args.command == "search" and args.predicate:
+        if not args.person or args.query:
+            raise RenRefusal(
+                "--predicate needs --person and no text query",
+                "a structured query asks what one person is doing; it has "
+                "no text to rank",
+                f"ren search {args.project} --person <name> --predicate "
+                f"{args.predicate}")
+        from library.tools import event_spans
+        started = time.perf_counter()
+        answer = event_spans.query(args.project, args.person, args.predicate)
+        elapsed = time.perf_counter() - started
+        if args.json:
+            print(json.dumps(answer, indent=2))
+        else:
+            _print_structured(answer)
+            print(f"\n{elapsed * 1000:.1f} ms")
+        return 0
+
+    if args.command == "search" and not args.query:
+        raise RenRefusal("search needs a query",
+                         "nothing to look for was given",
+                         f"ren search {args.project} \"<what>\", or "
+                         f"--person <name> --predicate <what they do>")
 
     if args.command == "search" and args.visual:
         from library.tools.analysis import footage_frames

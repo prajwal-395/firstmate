@@ -19,12 +19,12 @@ copy it; nothing goes into `pipeline_data.json`.
   transcript.words.json          # M1 - written
   speakers.json                  # M1b - diarization lane (RESERVED)
   frames/ + frames.index.json    # M2  - written
-  persons.json                   # M3  - Vision lane (RESERVED)
+  persons.json                   # M3  - written (library/tools/person_measurements.py)
   identity.json                  # M3b - entity lane (library/tools/person_entity.py)
   scenes.json                    # M4  - CLIP lane (RESERVED)
   sound.json                     # M5  - SoundAnalysis lane (RESERVED)
   clock.json                     # M6  - written
-  events.json                    # M7  - predicate lane (RESERVED)
+  events.json                    # M7  - written (library/tools/event_spans.py)
 ```
 
 A slot no lane has written is ABSENT, never a default. An absent M1
@@ -170,6 +170,42 @@ python3 -m library.tools.conversation_clock build <project>
 python3 -m library.tools.conversation_clock status <project>
 ```
 
+## M3 `persons.json` (written)
+
+Owner: `library/tools/person_measurements.py`. Apple Vision faces (box,
+inner/outer lips) and hands (21 joints) on every M2 frame, through step
+1.04's own helper (`vision_measure.measure_frames`, persistence filter
+unchanged) - step 1.04 itself is untouched. Measured 22-27 ms/frame on
+geo-podcast: 21,771 frames in 9 min for the whole 3.03 h project.
+
+```json
+{
+  "content_digest": "sha256 hex", "size_bytes": 0,
+  "source_file": "<absolute path>", "status": "measured",
+  "coordinates": "image-normalised, top-left origin",
+  "frames": [{"t": 0.521,
+              "faces": [{"box": [x1, y1, x2, y2], "confidence": 0.8,
+                         "outer_lips": [[x, y]], "inner_lips": [[x, y]]}],
+              "hands": [{"chirality": "right", "confidence": 1.0,
+                         "joints": {"VNHLKTTIP": [x, y, confidence]}}]}],
+  "instrument": {"method": "vision-helper-v1 over M2", "m2_width": 384,
+                 "frame_pixels": [384, 216], "ms_per_frame": 22.6,
+                 "faces_removed_by_persistence": 0, "persistence_iou": 0.3}
+}
+```
+
+**Lips are in IMAGE space, mapped out of their landmark box at write
+time.** Vision reports landmark points relative to the face box and hand
+joints relative to the image; comparing the two raw is what put the
+Vision lane's hand-over-mouth false positives at 99/265 (23/265 mapped).
+A pixel distance multiplies x by `frame_pixels[0]` and y by
+`frame_pixels[1]` first.
+
+```sh
+bin/vep -m library.tools.heavy_work_lock run \
+  --owner <lane> -- python3 -m library.tools.person_measurements build <project>
+```
+
 ## M3b `identity.json` (written)
 
 Owner: `library/tools/person_entity.py`. Measured, not guessed: the
@@ -220,6 +256,60 @@ to. `ren search --person <name-or-id>` and `filter --person` read this
 resolution; a project may declare `source.person_names: {person_001:
 "Craig"}` to give a measured cluster a human name (a label, never a
 substitute for the embedding match that assigned the id).
+
+## M7 `events.json` (written)
+
+Owner: `library/tools/event_spans.py`. Light: built from M3 + M3b, no
+decode, no model, no lock.
+
+```json
+{
+  "content_digest": "sha256 hex", "source_file": "<absolute path>",
+  "status": "built", "faces_assigned": 8149, "faces_unassigned": 43,
+  "predicates": {
+    "on_screen": {"basis": "...",
+                  "spans": [{"face_track": "face_001", "start": 0.0, "end": 12.5,
+                             "frames": 25}]},
+    "speaking":  {"basis": "...",
+                  "voice_face_links": [{"voice_track": "voice_001",
+                                        "face_track": "face_001",
+                                        "evidence": [{"face_track": "face_001",
+                                                      "motion_ratio": 2.1}]}],
+                  "voice_unavailable_reason": null,
+                  "spans": [{"voice_track": "voice_001", "face_track": "face_001",
+                             "start": 25.27, "end": 27.36}]}
+  }
+}
+```
+
+- `on_screen`: M3 faces assigned to an M3b ArcFace track by position
+  (the time-adjacent M3b observation whose face sits where this one
+  does); a face nothing vouches for is unassigned, never guessed.
+- `speaking`: an M3b voice turn belongs to the face whose LIPS move
+  during that voice's turns and not outside them. M3b's own
+  `speech_face_links` (co-occurrence) attach every voice to the only face
+  on a one-person angle - the listener is on screen too. `face_track:
+  null` is a voice no face on this angle speaks with (off-screen here).
+- `hand_near_mouth` is NOT here: measured on all 10,873 Craig-angle
+  frames and not shipped (recall 11/17 events against a 0.80 bar -
+  `data/vep-structured-footage-query/eval/results.md` in firstmate's
+  home). Asked for by name it REFUSES; it never answers empty.
+
+```sh
+python3 -m library.tools.event_spans build <project>
+python3 -m library.tools.event_spans names <project>   # derived names + evidence
+ren search <project> --person Craig --predicate speaking [--json]
+```
+
+The query: person (person_id, declared `source.person_names`, or a name
+DERIVED from the timeline transcript's per-speaker tracks that the
+person's attributed speech overlaps, agreement recorded) -> that
+person's M7 spans on every source -> the same moments on every other
+angle of the multicam group (M6) -> the `timeline_transcript` items that
+play them (constant source-to-timeline offset, inside the item's
+RECORDED source extent). A span outside every recorded extent is
+`unplaced` - the transcript records speech, and an item can run past
+its last word.
 
 ## Staleness
 
@@ -280,4 +370,5 @@ memory, not a second producer of it.
 `ren search --person <name-or-id>` / `ren search filter --person
 <name-or-id>` read M3b through `person_entity.resolve_person_tracks` the
 same way, restricting results to that person's measured face or voice
-spans.
+spans. `ren search <project> --person <name> --predicate <p>` is the
+structured query over M7 (above): no text, no index, no model.

@@ -307,25 +307,29 @@ def cluster_face_observations(observations: List[FaceObservation],
 
 
 def measure_voice_tracks(wav_path: str,
-                         num_speakers: Optional[int] = None) -> List[dict]:
-    """Per-cluster voice tracks for one source's program-track audio.
+                         num_speakers: Optional[int] = None
+                         ) -> Tuple[List[dict], Optional[str]]:
+    """Per-cluster voice tracks for one source's program-track audio,
+    and why there are none when there are none.
 
     Reuses `single_track_diarization.diarize_track` outright - the DER
     proof (0.017, PR #1482) is not re-measured here, only consumed.
-    Returns `[]` when the ECAPA weights are unreachable or the VAD gate
-    keeps nothing to cluster (silence); callers report the reason, they
-    never treat an empty list as "one silent track".
+    Returns `([], reason)` when the ECAPA weights are unreachable or the
+    VAD gate keeps nothing to cluster (silence). The reason is recorded
+    as `instrument.voice_unavailable_reason`: every geo-podcast source
+    once built with `voices: []` and nothing saying speechbrain was
+    missing, which reads exactly like "nobody spoke".
     """
     try:
         result = diarization.diarize_track(wav_path, num_speakers=num_speakers)
-    except diarization.DiarizationUnavailable:
-        return []
+    except diarization.DiarizationUnavailable as refused:
+        return [], str(refused)
     out = []
     for i, cluster in enumerate(result.clusters):
         out.append({"track_id": f"voice_{i + 1:03d}",
                    "embedding": list(cluster.centroid),
                    "spans": [list(turn) for turn in cluster.turns]})
-    return out
+    return out, None
 
 
 # ── speech-face linking ───────────────────────────────────────────────
@@ -415,6 +419,7 @@ def build_source_identity(source_file: str,
         audio_channels = [s["channel"] for s in probe.get("streams", [])
                           if s.get("codec_type") == "audio" and s.get("channel")]
         voice_tracks: List[dict] = []
+        voice_unavailable_reason: Optional[str] = "no-audio-streams"
         if audio_channels:
             # One ffmpeg pass for every audio stream (source_memory's own
             # measured reasoning: a pass per stream pays the full-file
@@ -423,10 +428,12 @@ def build_source_identity(source_file: str,
                 source_file, audio_channels, scratch)
             levels = {ch: source_memory.track_level_db(wavs[ch])
                      for ch in audio_channels}
-            channel, _selection = source_memory.select_program_track(levels)
+            channel, selection = source_memory.select_program_track(levels)
             if channel is not None:
-                voice_tracks = measure_voice_tracks(
+                voice_tracks, voice_unavailable_reason = measure_voice_tracks(
                     wavs[channel], declared_speaker_count)
+            else:
+                voice_unavailable_reason = selection.get("basis") or "no-live-track"
 
     links = link_speech_to_face(face_tracks, voice_tracks)
 
@@ -452,6 +459,7 @@ def build_source_identity(source_file: str,
             "voice": ("speechbrain ECAPA (192-d) via "
                       "single_track_diarization.diarize_track"
                       if voice_tracks else None),
+            "voice_unavailable_reason": voice_unavailable_reason,
             "frame_source": frame_source if face_unavailable_reason is None else None,
             "sample_count": sample_count,
             "sample_interval_s": interval_s,
@@ -583,13 +591,18 @@ def resolve_person_tracks(project_folder: str,
             person = persons[best_idx]
         else:
             person = {"_centroid": emb, "_members": [], "face_spans": [],
-                      "voice_spans": [], "speech_face_links": []}
+                      "face_tracks": [], "voice_spans": [],
+                      "speech_face_links": []}
             persons.append(person)
         person["_members"].append(emb)
         import numpy as np
         mean = np.mean(np.asarray(person["_members"]), axis=0)
         person["_centroid"] = tuple(
             round(float(v), 6) for v in mean / np.linalg.norm(mean))
+        person["face_tracks"].append({
+            "clip_id": node["clip_id"],
+            "content_digest": node["content_digest"],
+            "track_id": node["face_track"]["track_id"]})
         for span in node["face_track"]["spans"]:
             person["face_spans"].append({
                 "clip_id": node["clip_id"],
@@ -615,6 +628,7 @@ def resolve_person_tracks(project_folder: str,
             "name": names.get(person_id),
             "face_embedding": list(person["_centroid"]),
             "face_spans": person["face_spans"],
+            "face_tracks": person["face_tracks"],
             "voice_spans": person["voice_spans"],
             "speech_face_links": person["speech_face_links"],
         })
