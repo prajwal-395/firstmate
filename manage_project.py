@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 """
-manage_project.py - Top-level CLI for managing video projects.
+manage_project.py - the engine CLI underneath `ren`.
 
-This is the user-facing entry point for project management. It wraps
-the project_registry module and provides commands for creating, listing,
-running, and archiving video projects.
+`ren` is the one front door; a person types `ren <verb>`, never this file.
+Every subcommand here is a row of the one command registry
+(`ren/commands.py`), which also supplies its help, and `ren` execs this
+file with that subcommand. Invoking it directly still works, for scripts
+and lanes that already do.
 
 The repo is the engine. Projects (assets, footage, pipeline output) live
 in PIPELINE_PROJECTS_ROOT (set in ~/.config/ren/config.env; see `ren config`).
 
-Usage:
-    python3 manage_project.py list
-    python3 manage_project.py list --client personal --status in_progress
-    python3 manage_project.py new my-vlog --name "Beltline Vlog"
-    python3 manage_project.py new my-show --name "My Show" --client personal
-    python3 manage_project.py status my-show
-    python3 manage_project.py status "/abs/path/to/a/project"
-    python3 manage_project.py run my-show
-    python3 manage_project.py run my-show --from creative_direction
-    python3 manage_project.py archive my-show
-    python3 manage_project.py init-root
+Usage (through the front door; `ren --help` lists every verb):
+    ren projects --client personal --status in_progress
+    ren new my-show --name "My Show" --client personal
+    ren status "/abs/path/to/a/project"
+    ren edit my-show --from creative_direction
 
 Only `run` needs the ML virtual environment; see ML_DEPENDENT_COMMANDS.
 """
@@ -32,6 +28,7 @@ from pathlib import Path
 
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 from library.tools.resolve_lock import under_lease
+from ren.commands import for_subcommand, manage_project_subcommands
 
 # Add repo root to path
 REPO_ROOT = Path(__file__).resolve().parent
@@ -58,24 +55,11 @@ sys.path.insert(0, str(REPO_ROOT))
 # the dashboard; the preflight design it forced stays.)
 ML_DEPENDENT_COMMANDS = ("run",)
 
-# Every subcommand main() registers, so the message above can say which
-# ones still work. main() asserts this against the parser it built, so
-# adding a subcommand without listing it here fails loudly rather than
-# leaving the advice quietly wrong.
-ALL_COMMANDS = (
-    "init-root", "list", "new", "propose-reels", "build-reels", "drift",
-    "post-header", "shift-rows", "scale-rows", "fit-picture",
-    "caption-width",
-    "safe-zones",
-    "deliver-reel",
-    "watch-reel", "hear-reel", "touch-reel", "undo", "ren-dry-run",
-    "status",
-    "info", "trace", "organize", "resolve-organize", "resolve-prune",
-    "resolve-mark-master",
-    "check", "run", "archive", "notes", "take-pick-preview",
-    "round-diff", "pr-body", "sign-off", "purge", "discharge-uncarried", "variant",
-    "relink", "reindex", "setup-hooks",
-)
+# Every subcommand main() registers, read off the one command registry so
+# the message above can say which ones still work. main() asserts the
+# parser it built against this, so a registry row with no parser, or a
+# parser with no row, fails loudly.
+ALL_COMMANDS = manage_project_subcommands()
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "easyocr", "torch")
 
@@ -263,7 +247,7 @@ def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
         return
     missing = _missing_ml_packages()
     if missing:
-        print(f"ERROR: '{command}' needs ML dependencies this interpreter "
+        print(f"ERROR: `{_verb(command)}` needs ML dependencies this interpreter "
               f"cannot import: {', '.join(missing)}")
         _print_ml_advice(command, repo_root)
         sys.exit(1)
@@ -272,7 +256,7 @@ def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
     # above `_declared_specifiers`.
     wrong = _noncompliant_ml_packages(repo_root)
     if wrong:
-        print(f"ERROR: '{command}' has ML dependencies this interpreter can "
+        print(f"ERROR: `{_verb(command)}` has ML dependencies this interpreter can "
               f"import but requirements.txt does not allow:")
         for pkg, installed, specifier in wrong:
             print(f"  {pkg}: installed {installed}, requires {specifier}")
@@ -288,6 +272,11 @@ def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
         sys.exit(1)
 
 
+def _verb(subcommand: str) -> str:
+    """How a person types `subcommand`: its `ren` verb."""
+    return f"ren {for_subcommand(subcommand).name}"
+
+
 def _print_ml_advice(command: str, repo_root: Path) -> None:
     """The shared tail of both ML preflight refusals."""
     print(f"  Interpreter: {sys.executable}")
@@ -295,8 +284,10 @@ def _print_ml_advice(command: str, repo_root: Path) -> None:
     for line in _venv_advice(repo_root):
         print(line)
     print("")
-    others = ", ".join(c for c in ALL_COMMANDS if c not in ML_DEPENDENT_COMMANDS)
-    print(f"Only {', '.join(ML_DEPENDENT_COMMANDS)} needs them. These still "
+    others = ", ".join(for_subcommand(c).name for c in ALL_COMMANDS
+                       if c not in ML_DEPENDENT_COMMANDS)
+    needing = ", ".join(_verb(c) for c in ML_DEPENDENT_COMMANDS)
+    print(f"Only {needing} needs them. These `ren` verbs still "
           f"work from this interpreter:")
     print(f"    {others}")
 
@@ -350,7 +341,7 @@ def cmd_init_root(args):
         )
 
     print(f"\n  Projects root: {root}")
-    print(f"  Create projects with: python3 manage_project.py new <slug> --name '<name>'")
+    print(f"  Create projects with: ren new <slug> --name '<name>'")
 
 
 def cmd_list(args):
@@ -543,7 +534,7 @@ def cmd_new(args):
               f"style.yaml, video.yaml")
         print(f"\n  Next steps:")
         print(f"    1. Copy raw footage to: {config.raw_dir}")
-        print(f"    2. Fill brief.md, then run pipeline: python3 manage_project.py run {config.slug}")
+        print(f"    2. Fill brief.md, then run the pipeline: ren edit {config.slug}")
 
     except FileExistsError as e:
         raise RenRefusal(
@@ -934,7 +925,7 @@ def cmd_variant(args):
                   f"external/<store>.json ON THIS BRANCH, commit, then "
                   f"`variant build`. A declaring variant is built from "
                   f"its own branch and nowhere else.")
-        print(f"  Build it with: manage_project.py variant build "
+        print(f"  Build it with: ren variant build "
               f"{args.project} {args.reel}")
         return
 
@@ -944,7 +935,7 @@ def cmd_variant(args):
         alive = variants.read_builds(project_folder).get("builds") or {}
         if not declared and not alive:
             print("No variant is declared in this project.")
-            print("  Declare one with: manage_project.py variant new "
+            print("  Declare one with: ren variant new "
                   f"{args.project} <reel> --suffix ' (name)' ...")
             return
         print(f"── variants on branch "
@@ -995,9 +986,9 @@ def cmd_variant(args):
             print(f"  {name}: conformance-clean"
                   + (f" - watch: {record['watch']}"
                      if record.get("watch") else ""))
-        print(f"  Compare them: manage_project.py variant diff "
+        print(f"  Compare them: ren variant diff "
               f"{args.project} {args.reel} <suffix-a> <suffix-b>")
-        print(f"  Choose one:   manage_project.py variant choose "
+        print(f"  Choose one:   ren variant choose "
               f"{args.project} {args.reel} <suffix> --why '...'")
         return
 
@@ -1764,8 +1755,8 @@ def cmd_relink(args):
             "could not import resolve_relinker",
             "relinking runs through Resolve scripting, which this "
             "interpreter cannot load",
-            "run under the pipeline interpreter (`bin/vep "
-            "manage_project.py relink ...`), then re-run") from None
+            "run `ren relink ...`, which runs under the pipeline "
+            "interpreter") from None
 
     result = relink_project(args.slug, dry_run=args.scan)
 
@@ -2379,7 +2370,7 @@ def cmd_watch_reel(args):
     print(watch["block"])
     print("Open the strips, answer the questions above, and file the "
           "answer with:")
-    print(f"  manage_project.py watch-reel {args.project} "
+    print(f"  ren watch {args.project} "
           f"{args.reel if args.reel is not None else ''} "
           f"--record <answers.json>".replace("  ", " "))
 
@@ -2679,25 +2670,33 @@ def _reel_project_folder(project: str) -> str:
             "absolute path instead of the slug") from unknown
 
 
+def _add_command(sub, name):
+    """Register subcommand `name` as its registry row: help, and `ren <verb>` usage."""
+    verb = for_subcommand(name)
+    return sub.add_parser(name, prog=f"ren {verb.name}",
+                          help=verb.help, description=verb.help)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Manage video editing projects",
+        description="The engine CLI underneath `ren`; `ren --help` is "
+                    "the front door and lists every verb.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", help="Command to run")
 
     # init-root
-    p_init = sub.add_parser("init-root", help="Initialize the projects root directory")
+    p_init = _add_command(sub, "init-root")
     p_init.set_defaults(func=cmd_init_root)
 
     # list
-    p_list = sub.add_parser("list", help="List all projects")
+    p_list = _add_command(sub, "list")
     p_list.add_argument("--status", choices=[s.value for s in ProjectStatus])
     p_list.add_argument("--client", help="Filter by client")
     p_list.set_defaults(func=cmd_list)
 
     # new
-    p_new = sub.add_parser("new", help="Create a new project")
+    p_new = _add_command(sub, "new")
     p_new.add_argument("slug", help="Project slug (filesystem-safe identifier)")
     p_new.add_argument("--name", help="Human-readable project name")
     p_new.add_argument("--client", help="Client grouping (creates client/slug/ structure)")
@@ -2722,9 +2721,7 @@ def main():
     p_new.set_defaults(func=cmd_new)
 
     # status
-    propose_reels_parser = sub.add_parser(
-        "propose-reels",
-        help="Publish step 3.4's chosen moments as the reel review file")
+    propose_reels_parser = _add_command(sub, "propose-reels")
     propose_reels_parser.add_argument(
         "project", help="The project to publish reel proposals for")
     propose_reels_parser.add_argument(
@@ -2732,23 +2729,18 @@ def main():
         help="Overwrite a proposal file the captain has already ruled on")
     propose_reels_parser.set_defaults(func=cmd_propose_reels)
 
-    build_reels_parser = sub.add_parser(
-        "build-reels", help="Rebuild approved reels in Resolve")
+    build_reels_parser = _add_command(sub, "build-reels")
     from library.processes.reels import run_reels
     run_reels.add_arguments(build_reels_parser)
     build_reels_parser.set_defaults(func=cmd_build_reels)
 
-    drift_parser = sub.add_parser(
-        "drift", help="Compare each reel's build snapshot against its "
-                      "live timeline and report the per-reel factor")
+    drift_parser = _add_command(sub, "drift")
     drift_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
     drift_parser.set_defaults(func=cmd_drift)
 
-    post_header_parser = sub.add_parser(
-        "post-header", help="Put each reel's social-post header on its "
-                            "existing final timeline, as a journaled touch")
+    post_header_parser = _add_command(sub, "post-header")
     post_header_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2771,9 +2763,7 @@ def main():
         help="Read the reels and print each change; write nothing")
     post_header_parser.set_defaults(func=cmd_post_header)
 
-    shift_rows_parser = sub.add_parser(
-        "shift-rows", help="Move named rows of each built reel up or down "
-                           "by delivery pixels, as a journaled touch")
+    shift_rows_parser = _add_command(sub, "shift-rows")
     shift_rows_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2801,9 +2791,7 @@ def main():
         help="Read the reels and print each change; write nothing")
     shift_rows_parser.set_defaults(func=cmd_shift_rows)
 
-    scale_rows_parser = sub.add_parser(
-        "scale-rows", help="Shrink or grow named rows of each built reel "
-                           "about a point, as a journaled touch")
+    scale_rows_parser = _add_command(sub, "scale-rows")
     scale_rows_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2843,9 +2831,7 @@ def main():
         help="Read the reels and print each change; write nothing")
     scale_rows_parser.set_defaults(func=cmd_scale_rows)
 
-    fit_picture_parser = sub.add_parser(
-        "fit-picture", help="Put each built reel's TV picture at a scale "
-                            "no phone crops, as a journaled touch")
+    fit_picture_parser = _add_command(sub, "fit-picture")
     fit_picture_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2876,10 +2862,7 @@ def main():
         help="Read the reels and print each change; write nothing")
     fit_picture_parser.set_defaults(func=cmd_fit_picture)
 
-    caption_width_parser = sub.add_parser(
-        "caption-width", help="Narrow each built reel's captions to the "
-                              "width the platforms leave clear, as a "
-                              "journaled touch")
+    caption_width_parser = _add_command(sub, "caption-width")
     caption_width_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2903,9 +2886,7 @@ def main():
              "timeline")
     caption_width_parser.set_defaults(func=cmd_caption_width)
 
-    safe_zones_parser = sub.add_parser(
-        "safe-zones", help="Place a platform safe-zone guide on reel "
-                           "timelines, switched off so it never renders")
+    safe_zones_parser = _add_command(sub, "safe-zones")
     safe_zones_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2929,8 +2910,7 @@ def main():
         help="Take the guide row away instead of placing one")
     safe_zones_parser.set_defaults(func=cmd_safe_zones)
 
-    deliver_reel_parser = sub.add_parser(
-        "deliver-reel", help="Render ONE chosen reel timeline to a file")
+    deliver_reel_parser = _add_command(sub, "deliver-reel")
     deliver_reel_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2951,10 +2931,7 @@ def main():
         help="Seconds to wait for Resolve to finish (default: 1800)")
     deliver_reel_parser.set_defaults(func=cmd_deliver_reel)
 
-    watch_reel_parser = sub.add_parser(
-        "watch-reel",
-        help="Show a model the PICTURE of a delivered reel and ask what "
-             "it sees. Renders nothing")
+    watch_reel_parser = _add_command(sub, "watch-reel")
     watch_reel_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -2973,10 +2950,7 @@ def main():
              "The answer is REPORTED, never gated")
     watch_reel_parser.set_defaults(func=cmd_watch_reel)
 
-    hear_reel_parser = sub.add_parser(
-        "hear-reel",
-        help="Hear a delivered reel against its plan and report what "
-             "diverged. Renders nothing, gates nothing")
+    hear_reel_parser = _add_command(sub, "hear-reel")
     hear_reel_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -3012,10 +2986,7 @@ def main():
     _hear_skill.add_dial_arguments(hear_reel_parser)
     hear_reel_parser.set_defaults(func=cmd_hear_reel)
 
-    touch_reel_parser = sub.add_parser(
-        "touch-reel",
-        help="Apply a structured change to a built reel's existing "
-             "timeline through composed_edit, staged and verified")
+    touch_reel_parser = _add_command(sub, "touch-reel")
     touch_reel_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -3064,10 +3035,7 @@ def main():
              "(default: search every video row)")
     touch_reel_parser.set_defaults(func=cmd_touch_reel)
 
-    undo_parser = sub.add_parser(
-        "undo",
-        help="Reverse the newest Ren act: a touch-up in place from its "
-             "journal, a rebuild by rolling back to the version before it")
+    undo_parser = _add_command(sub, "undo")
     undo_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -3089,10 +3057,7 @@ def main():
              "whose sign-off the rebuild may replace. Repeatable")
     undo_parser.set_defaults(func=cmd_undo)
 
-    ren_dry_run_parser = sub.add_parser(
-        "ren-dry-run",
-        help="Dry-run the composed edit path (plan, read live, print, "
-             "stop - never executes)")
+    ren_dry_run_parser = _add_command(sub, "ren-dry-run")
     ren_dry_run_parser.add_argument(
         "project", help="Project slug, or an absolute path "
                         "to the project directory")
@@ -3137,26 +3102,22 @@ def main():
              "<REEL>.json for an --all-reels run without Resolve")
     ren_dry_run_parser.set_defaults(func=cmd_ren_dry_run)
 
-    p_status = sub.add_parser("status", help="Show project status")
+    p_status = _add_command(sub, "status")
     p_status.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_status.set_defaults(func=cmd_status)
 
     # info
-    p_info = sub.add_parser("info", help="Show project configuration as JSON")
+    p_info = _add_command(sub, "info")
     p_info.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_info.set_defaults(func=cmd_info)
 
     # trace
-    p_trace = sub.add_parser(
-        "trace",
-        help="Regenerate the run traceback and the artifact index for a project")
+    p_trace = _add_command(sub, "trace")
     p_trace.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_trace.set_defaults(func=cmd_trace)
 
     # organize
-    p_org = sub.add_parser(
-        "organize",
-        help="Bring an existing project folder onto the standard layout")
+    p_org = _add_command(sub, "organize")
     p_org.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_org.add_argument("--apply", action="store_true",
                        help="Perform the reorganisation (default: plan only)")
@@ -3165,10 +3126,7 @@ def main():
     p_org.set_defaults(func=cmd_organize)
 
     # resolve-organize
-    p_rorg = sub.add_parser(
-        "resolve-organize",
-        help="File a Resolve project's media pool: reels by plan state, "
-             "assets under the reel that uses them")
+    p_rorg = _add_command(sub, "resolve-organize")
     p_rorg.add_argument("project", help="Project slug, or an absolute path "
                                         "to the project directory")
     p_rorg.add_argument("--apply", action="store_true",
@@ -3199,10 +3157,7 @@ def main():
     p_rorg.set_defaults(func=cmd_resolve_organize)
 
     # resolve-prune
-    p_prune = sub.add_parser(
-        "resolve-prune",
-        help="Remove media-pool items no timeline plays, and delete their "
-             "files. IRREVERSIBLE; plans by default")
+    p_prune = _add_command(sub, "resolve-prune")
     p_prune.add_argument("project", help="Project slug, or an absolute path "
                                          "to the project directory")
     p_prune.add_argument("--apply", action="store_true",
@@ -3217,10 +3172,7 @@ def main():
     p_prune.set_defaults(func=cmd_resolve_prune)
 
     # resolve-mark-master
-    p_mark = sub.add_parser(
-        "resolve-mark-master",
-        help="Mark the master timeline with where each reel was taken "
-             "from. Markers only, and reversible")
+    p_mark = _add_command(sub, "resolve-mark-master")
     p_mark.add_argument("project", help="Project slug, or an absolute path "
                                         "to the project directory")
     p_mark.add_argument("--apply", action="store_true",
@@ -3231,12 +3183,12 @@ def main():
     p_mark.set_defaults(func=cmd_resolve_mark_master)
 
     # check
-    p_check = sub.add_parser("check", help="Run the readiness check for a project")
+    p_check = _add_command(sub, "check")
     p_check.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_check.set_defaults(func=cmd_check)
 
     # run
-    p_run = sub.add_parser("run", help="Run the pipeline for a project")
+    p_run = _add_command(sub, "run")
     p_run.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_run.add_argument("--from", "--start-from", dest="from_step", help="Start from this step")
     p_run.add_argument("--step", help="Run only this step")
@@ -3271,15 +3223,13 @@ def main():
     p_run.set_defaults(func=cmd_run)
 
     # archive
-    p_archive = sub.add_parser("archive", help="Archive a completed project")
+    p_archive = _add_command(sub, "archive")
     p_archive.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
     p_archive.set_defaults(func=cmd_archive)
 
     # relink
     # notes
-    p_notes = sub.add_parser(
-        "notes",
-        help="Show which timeline note the captain typed went to which step")
+    p_notes = _add_command(sub, "notes")
     p_notes.add_argument("slug", metavar="PROJECT",
                          help="Project slug, or an absolute path")
     p_notes.add_argument(
@@ -3288,10 +3238,7 @@ def main():
              "the project's marker_feedback/ folder")
     p_notes.set_defaults(func=cmd_notes)
 
-    p_take_pick = sub.add_parser(
-        "take-pick-preview",
-        help="Print one reel's candidate takes, trim freshness, "
-             "snap deltas and boundary words in a single read")
+    p_take_pick = _add_command(sub, "take-pick-preview")
     p_take_pick.add_argument("slug", metavar="PROJECT",
                              help="Project slug, or an absolute path")
     p_take_pick.add_argument("--reel", required=True, metavar="REEL",
@@ -3306,9 +3253,7 @@ def main():
                                   "text")
     p_take_pick.set_defaults(func=cmd_take_pick_preview)
 
-    p_round = sub.add_parser(
-        "round-diff",
-        help="What changed between two rounds of the captain's feedback")
+    p_round = _add_command(sub, "round-diff")
     p_round.add_argument("slug", metavar="PROJECT",
                          help="Project slug, or an absolute path")
     p_round.add_argument("--from", dest="earlier", type=int, default=None,
@@ -3325,10 +3270,7 @@ def main():
                          help="list the rounds instead of diffing")
     p_round.set_defaults(func=cmd_round_diff)
 
-    p_pr_body = sub.add_parser(
-        "pr-body",
-        help="Generate the PR-body enumeration for a ledger change "
-             "(read only)")
+    p_pr_body = _add_command(sub, "pr-body")
     p_pr_body.add_argument("slug", metavar="PROJECT",
                            help="Project slug, or an absolute path")
     p_pr_body.add_argument("--reel", action="append", default=[],
@@ -3338,10 +3280,7 @@ def main():
                                 "everywhere). Repeatable")
     p_pr_body.set_defaults(func=cmd_pr_body)
 
-    p_signoff = sub.add_parser(
-        "sign-off",
-        help="Sign off a BUILT reel, so promotion must declare before "
-             "replacing it")
+    p_signoff = _add_command(sub, "sign-off")
     p_signoff.add_argument("slug", metavar="PROJECT",
                            help="Project slug, or an absolute path")
     p_signoff.add_argument("reel", nargs="?", default="", metavar="REEL",
@@ -3356,10 +3295,7 @@ def main():
                                 "withdrawal is recorded, never erased")
     p_signoff.set_defaults(func=cmd_sign_off)
 
-    p_purge = sub.add_parser(
-        "purge",
-        help="Plan (default) or apply the lean-retention purge of "
-             "superseded renders, quarantine, scratch and stale journals")
+    p_purge = _add_command(sub, "purge")
     p_purge.add_argument("slug", metavar="PROJECT",
                          help="Project slug or absolute path")
     p_purge.add_argument("--apply", default="", metavar="MANIFEST",
@@ -3369,10 +3305,7 @@ def main():
                               "through a copy. Default: the running Resolve's")
     p_purge.set_defaults(func=cmd_purge)
 
-    p_discharge = sub.add_parser(
-        "discharge-uncarried",
-        help="Discharge a dropped captain's note a promotion filed, "
-             "so its reel can be signed off")
+    p_discharge = _add_command(sub, "discharge-uncarried")
     p_discharge.add_argument("slug", metavar="PROJECT",
                              help="Project slug, or an absolute path")
     p_discharge.add_argument("reel", nargs="?", default="", metavar="REEL",
@@ -3389,9 +3322,7 @@ def main():
     p_discharge.add_argument("--by", default="captain")
     p_discharge.set_defaults(func=cmd_discharge_uncarried)
 
-    p_variant = sub.add_parser(
-        "variant",
-        help="Two versions of one reel, alive at once, compared, chosen")
+    p_variant = _add_command(sub, "variant")
     p_variant.add_argument("project",
                            help="Project slug, or an absolute path")
     v_sub = p_variant.add_subparsers(dest="variant_command", required=True)
@@ -3468,15 +3399,12 @@ def main():
 
     p_variant.set_defaults(func=cmd_variant)
 
-    p_relink = sub.add_parser("relink", help="Relink offline media in Resolve after migration")
+    p_relink = _add_command(sub, "relink")
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
     p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")
     p_relink.set_defaults(func=cmd_relink)
 
-    p_reindex = sub.add_parser(
-        "reindex",
-        help="Move a project's words onto Voz plus MFA: invalidate "
-             "legacy temporal indexes, then re-transcribe them")
+    p_reindex = _add_command(sub, "reindex")
     p_reindex.add_argument(
         "slug", metavar="PROJECT",
         help="Project slug, or an absolute/relative path to the "
@@ -3484,9 +3412,7 @@ def main():
              "that live outside PIPELINE_PROJECTS_ROOT")
     p_reindex.set_defaults(func=cmd_reindex)
 
-    p_setup_hooks = sub.add_parser(
-        "setup-hooks",
-        help="Install the marker-feedback hook for a host (plan by default)")
+    p_setup_hooks = _add_command(sub, "setup-hooks")
     p_setup_hooks.add_argument("--app", default="",
                                help="claude-code|opencode|codex (--list shows targets)")
     p_setup_hooks.add_argument("--write", action="store_true",
@@ -3496,7 +3422,7 @@ def main():
     p_setup_hooks.set_defaults(func=cmd_setup_hooks)
 
     registered = tuple(sub.choices)
-    if registered != ALL_COMMANDS:
+    if set(registered) != set(ALL_COMMANDS):
         raise AssertionError(
             f"ALL_COMMANDS is out of step with the parser: "
             f"registered={registered} listed={ALL_COMMANDS}")

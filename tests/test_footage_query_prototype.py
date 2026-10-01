@@ -355,7 +355,7 @@ def test_footage_index_stays_unwired():
     `library/processes/` and `manage_project.py` are still scanned, which
     is every route by which the index could reach a run: a step module, a
     step's bridge, a `dag.json`, a `manifest.json`, or the CLI that drives
-    them. `ren/cli.py` reaches the prototype through `-m
+    them. `ren/commands.py` reaches the prototype through `-m
     library.tools.analysis.footage_query` and never needs to name it from
     `manage_project.py`, so the CLI stays in the scan.
 
@@ -400,14 +400,14 @@ def test_the_guard_still_fires_when_a_step_imports_the_index(tmp_path):
 def test_ren_search_is_the_one_caller_that_is_carved_out():
     """The carve-out is real and it is exactly one verb table.
 
-    `ren search` / `ren search-index` (`ren/cli.py`) are where a person
+    `ren search` / `ren search-index` (`ren/commands.py`) are where a person
     reaches the prototype from a chat - the captain's Q11 (2026-09-23),
     "Keep the search modules as a chat-callable ren verb, no UI". That is
     the person-using-a-tool half, and no step is involved. The dashboard
     half P2 retired is gone: nothing under `library/dashboard/` may name
     the prototype any more.
     """
-    from ren.cli import VERBS
+    from ren.commands import VERBS
 
     by_name = {verb.name: verb for verb in VERBS}
     for name in ("search", "search-index"):

@@ -1,152 +1,30 @@
 """`ren`: one verb per thing a person says, each mapped onto what already runs.
 
-The verbs are DATA (`VERBS`): a verb names the existing operation it
-calls, and the call is an `exec` of `bin/vep` - so a verb runs under the
-pipeline's own interpreter and Resolve variables, exactly as a lane runs
-`bin/vep manage_project.py <subcommand>` today. Arguments after the verb
+The verbs are DATA, in the one registry `ren.commands.VERBS`: a verb
+names the existing operation it calls, and the call is an `exec` of
+`bin/vep` - so a verb runs under the pipeline's own interpreter and
+Resolve variables, exactly as `bin/vep manage_project.py <subcommand>`
+does. Arguments after the verb
 pass through untouched, so `ren build <project> --only-reel 21` IS
 `manage_project.py build-reels <project> --only-reel 21`, and
 `ren build --help` prints that subcommand's own help.
 
 Nothing is renamed underneath: `manage_project.py` keeps every
-subcommand, and a subcommand with no verb here fails `ren` loudly
-(`_assert_every_subcommand_has_a_verb`) rather than quietly becoming
-unreachable from the front door.
+subcommand, and builds its parser from the same registry, so a
+subcommand cannot exist there without a verb here.
 """
 
 from __future__ import annotations
 
-import ast
 import os
 import sys
-from dataclasses import dataclass
 
 from ren import REPO_ROOT
+from ren.commands import VERBS
 
 MANAGE_PROJECT = REPO_ROOT / "manage_project.py"
 VEP = REPO_ROOT / "bin" / "vep"
-
-
-@dataclass(frozen=True)
-class Verb:
-    name: str
-    group: str
-    summary: str
-    subcommand: str = ""
-    """The `manage_project.py` subcommand this verb execs, or ""."""
-    module_argv: tuple = ()
-    """Or: `-m <module> <args...>` this verb execs, arguments appended."""
-    builtin: str = ""
-    """Or: a command implemented in this package (`doctor`, `config`)."""
-
-    def calls(self) -> str:
-        if self.subcommand:
-            return f"manage_project.py {self.subcommand}"
-        if self.module_argv:
-            return "python -m " + " ".join(self.module_argv)
-        return f"ren.{self.builtin}"
-
-
-_FOOTAGE_QUERY = "library.tools.analysis.footage_query"
-
-VERBS = (
-    Verb("doctor", "Setup", "Check this Mac can run Ren; changes nothing",
-         builtin="doctor"),
-    Verb("config", "Setup", "Show where each setting comes from; --init writes a starter file",
-         builtin="config"),
-    Verb("taste", "Setup", "Record an explicit creative preference shared across projects",
-         module_argv=("library.tools.taste_profile",)),
-    Verb("init", "Setup", "Create the projects root folder", subcommand="init-root"),
-    Verb("setup-hooks", "Setup", "Install the marker-feedback hook for a host (plan by default)",
-         subcommand="setup-hooks"),
-
-    Verb("new", "Projects", "Create a project", subcommand="new"),
-    Verb("projects", "Projects", "List projects", subcommand="list"),
-    Verb("status", "Projects", "Show a project's pipeline status", subcommand="status"),
-    Verb("info", "Projects", "Show a project's configuration as JSON", subcommand="info"),
-    Verb("check", "Projects", "Run a project's readiness check", subcommand="check"),
-    Verb("edit", "Projects", "Run the editing pipeline on a project", subcommand="run"),
-    Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),
-    Verb("organize", "Projects", "Bring a project folder onto the standard layout", subcommand="organize"),
-    Verb("archive", "Projects", "Archive a finished project", subcommand="archive"),
-    Verb("reindex", "Projects", "Move a project's words onto Voz plus MFA (re-transcribe legacy indexes)", subcommand="reindex"),
-
-    Verb("propose", "Reels", "Publish the chosen moments as the reel review file", subcommand="propose-reels"),
-    Verb("build", "Reels", "Build approved reels in Resolve", subcommand="build-reels"),
-    Verb("touch", "Reels", "Apply a small change to a built reel (a touch-up, not a rebuild)", subcommand="touch-reel"),
-    Verb("undo", "Reels", "Undo the newest touch-up (in place) or rebuild (by version)", subcommand="undo"),
-    Verb("dry-run", "Reels", "Plan a touch-up against the live timeline and stop", subcommand="ren-dry-run"),
-    Verb("deliver", "Reels", "Render one approved reel to a file", subcommand="deliver-reel"),
-    Verb("watch", "Reels", "Have a model watch a delivered reel", subcommand="watch-reel"),
-    Verb("hear", "Reels", "Hear a delivered reel against its plan", subcommand="hear-reel"),
-    Verb("drift", "Reels", "Compare each reel's build snapshot with the live timeline", subcommand="drift"),
-    Verb("post-header", "Reels", "Put each reel's social-post header on its final, as a journaled touch", subcommand="post-header"),
-    Verb("shift-rows", "Reels", "Move named rows of each reel up or down by pixels, as a journaled touch", subcommand="shift-rows"),
-    Verb("scale-rows", "Reels", "Shrink or grow named rows of each reel about a point, as a journaled touch", subcommand="scale-rows"),
-    Verb("fit-picture", "Reels", "Put each reel's TV picture at a scale no phone crops, as a journaled touch", subcommand="fit-picture"),
-    Verb("caption-width", "Reels", "Narrow each reel's captions to the width the platforms leave clear, as a journaled touch", subcommand="caption-width"),
-    Verb("safe-zones", "Reels", "Put a platform safe-zone guide on reel timelines, switched off so it never renders", subcommand="safe-zones"),
-    Verb("sign-off", "Reels", "Record the captain's sign-off on a built reel", subcommand="sign-off"),
-    Verb("purge", "Reels", "Plan (default) or --apply the lean-retention purge", subcommand="purge"),
-    Verb("discharge", "Reels", "Discharge a dropped note a promotion filed", subcommand="discharge-uncarried"),
-    Verb("variant", "Reels", "Two versions of one reel: new, build, list, diff, choose, merge", subcommand="variant"),
-    Verb("rounds", "Reels", "What changed between two feedback rounds", subcommand="round-diff"),
-    Verb("pr-body", "Reels", "Generate the PR-body enumeration for a ledger change (read only)", subcommand="pr-body"),
-    Verb("notes", "Reels", "Show which timeline note went to which step", subcommand="notes"),
-    Verb("take-pick", "Reels", "Print one reel's takes, freshness, snap deltas and boundary words in one read", subcommand="take-pick-preview"),
-
-    Verb("pool-organize", "Resolve", "File a Resolve project's media pool", subcommand="resolve-organize"),
-    Verb("pool-prune", "Resolve", "Remove media-pool items no timeline plays", subcommand="resolve-prune"),
-    Verb("mark-master", "Resolve", "Mark the master timeline where each reel was taken", subcommand="resolve-mark-master"),
-    Verb("relink", "Resolve", "Relink offline media after a move", subcommand="relink"),
-
-    Verb("search", "Footage", "Find where in a project's footage something happens",
-         module_argv=(_FOOTAGE_QUERY, "search")),
-    Verb("search-index", "Footage", "Build the footage search index (writes into the project's scratch)",
-         module_argv=(_FOOTAGE_QUERY, "build")),
-    Verb("analyze", "Footage", "Analyse a folder of footage without editing: steps, per-source memory, indexes",
-         module_argv=("library.tools.footage_analysis",)),
-    Verb("export-memory", "Footage", "Write the versioned, path-portable export of a project's footage memory",
-         module_argv=("library.tools.memory_export",)),
-    Verb("eval-search", "Footage", "Score footage search against a pre-registered, hand-marked query set",
-         module_argv=("library.tools.retrieval_eval",)),
-
-    Verb("eval", "Eval", "Run the standing request-following eval (report only; gates nothing)",
-         module_argv=("library.tools.eval_harness",)),
-    Verb("spec", "Projects", "Translate, clarify and record a natural-language edit spec",
-         module_argv=("library.tools.edit_spec",)),
-)
-
 _BY_NAME = {verb.name: verb for verb in VERBS}
-
-
-def _manage_project_commands() -> tuple:
-    """`manage_project.ALL_COMMANDS`, read off the source rather than imported.
-
-    Importing manage_project pulls in the registry and the schemas; the
-    help screen should not pay for that, and must work before the ML
-    environment exists.
-    """
-    tree = ast.parse(MANAGE_PROJECT.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-                isinstance(t, ast.Name) and t.id == "ALL_COMMANDS"
-                for t in node.targets):
-            return tuple(ast.literal_eval(node.value))
-    raise RuntimeError(f"no ALL_COMMANDS in {MANAGE_PROJECT}")
-
-
-def _assert_every_subcommand_has_a_verb() -> None:
-    mapped = {verb.subcommand for verb in VERBS if verb.subcommand}
-    listed = set(_manage_project_commands())
-    unmapped = sorted(listed - mapped)
-    unknown = sorted(mapped - listed)
-    if unmapped or unknown:
-        raise SystemExit(
-            "ren: the verb table is out of step with manage_project.py.\n"
-            f"  subcommands with no verb: {unmapped or 'none'}\n"
-            f"  verbs naming no subcommand: {unknown or 'none'}\n"
-            "Add or fix the row in ren/cli.py VERBS.")
 
 
 def usage() -> str:
@@ -184,7 +62,6 @@ def main(argv=None) -> int:
               "`pip install -e <checkout>` (README, Quickstart).",
               file=sys.stderr)
         return 3
-    _assert_every_subcommand_has_a_verb()
 
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(usage())

@@ -28,7 +28,7 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
 - `tests/`: unit and integration tests for the engine.
-- `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. It execs `manage_project.py`, which stays underneath. Machine paths: `~/.config/ren/config.env` (`library/tools/paths.py`). `ren undo`: touch in place, rebuild by version (`library/tools/undo_journal.py`).
+- `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. One registry, `ren/commands.py`, feeds `manage_project.py`. Machine paths: `~/.config/ren/config.env` (`library/tools/paths.py`). `ren undo`: touch in place, rebuild by version (`library/tools/undo_journal.py`).
 - `requirements.txt`: Python dependencies.
 
 **One thing in `library/tools/` is a prototype: it is a `ren search` verb and stays out of the PIPELINE.**
@@ -297,7 +297,7 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 
 ## 8. Project management
 
-- Create with `python3 manage_project.py new <slug> --name "Project Name"`.
+- Create with `ren new <slug> --name "Project Name"`.
 - Project configuration is `project.yaml` inside each project directory; the `ProjectConfig` schema defines source settings, pipeline options and Resolve bindings.
 - The project registry scans the root directory to list and manage available projects.
 - A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its absolute path in place of the slug to `run`, `status` and `info`. 

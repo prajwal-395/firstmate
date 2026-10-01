@@ -106,7 +106,7 @@ def test_profile_cli_records_the_person_and_reason_in_user_config_dir(
 
 
 def test_ren_has_a_front_door_for_recording_a_preference():
-    from ren.cli import VERBS
+    from ren.commands import VERBS
 
     taste = next(verb for verb in VERBS if verb.name == "taste")
     assert taste.module_argv == ("library.tools.taste_profile",)
