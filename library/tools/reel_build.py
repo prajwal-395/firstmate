@@ -137,6 +137,7 @@ from library.tools.frame_utils import span_frames
 from library.tools.heavy_work_lock import heavy_work_lock
 from library.tools.resolve_transform import (
     FALLBACK_DRAW_GAIN, LEGACY_OVERRIDE_DRAW_GAIN, rebase_draw_gain)
+from library.tools import reel_clock as _reel_clock
 from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_lock import (
     assert_current_timeline, resolve_lease, under_lease)
@@ -3590,8 +3591,7 @@ def closer_seam(moment, ranges: Sequence[Tuple[float, float]]
     """
     if cta_range(moment) is None:
         return None
-    return sum(range_end - range_start
-               for range_start, range_end in ranges[:-1])
+    return _reel_clock.total_played_seconds(ranges[:-1])
 
 
 def _closer_seam_frame(moment, ranges: Sequence[Tuple[float, float]],
@@ -3607,10 +3607,7 @@ def _closer_seam_frame(moment, ranges: Sequence[Tuple[float, float]],
     """
     if closer_seam(moment, ranges) is None:
         return None
-    total = 0
-    for range_start, range_end in ranges[:-1]:
-        total += int(round(range_end * fps)) - int(round(range_start * fps))
-    return total
+    return _reel_clock.total_played_frames(ranges[:-1], fps)
 
 
 REEL_EDGE_EPSILON_SECONDS = 1e-6
@@ -3660,7 +3657,8 @@ def reel_time(master_time: float,
     open the talking.
     """
     cursor = 0.0
-    for range_start, range_end in ranges:
+    for keep_range in ranges:
+        range_start, range_end = keep_range
         at_range_start = (
             not at_end
             and math.isclose(float(master_time), float(range_start),
@@ -3678,8 +3676,9 @@ def reel_time(master_time: float,
         )
         if inside:
             mapped_time = (range_start if at_range_start else master_time)
-            return lead_seconds + cursor + (mapped_time - range_start)
-        cursor += range_end - range_start
+            return (lead_seconds + cursor
+                    + _reel_clock.reel_offset(keep_range, mapped_time))
+        cursor += _reel_clock.played_seconds(keep_range)
     return None
 
 
@@ -3707,12 +3706,20 @@ def placements(ranges: Sequence[Tuple[float, float]],
     """
     out: List[dict] = []
     cursor_frames = int(lead_frames)
-    for range_start, range_end in ranges:
-        range_start = float(range_start)
-        range_end = float(range_end)
+    # A retimed range (`reel_clock`) is placed piece by piece: each
+    # passage at its own rate, so a clip boundary falls at a passage
+    # edge the way it falls at a master cut. An unretimed range is one
+    # piece - the range itself.
+    for piece_start, piece_end, rate in (
+            piece for keep_range in ranges
+            for piece in _reel_clock.pieces(keep_range)):
+        range_start = float(piece_start)
+        range_end = float(piece_end)
         range_start_f = int(round(range_start * fps))
         range_end_f = int(round(range_end * fps))
         range_frames = range_end_f - range_start_f
+        if rate != 1.0:
+            range_frames = int(round(range_frames / rate))
         
         for clip in clips:
             clip_start_f = int(round(clip.timeline_start * fps))
@@ -3760,7 +3767,11 @@ def placements(ranges: Sequence[Tuple[float, float]],
                             float(clip.timeline_start)
                             + source_in - float(clip.source_in))
             master_end = master_start + source_duration
-            record_f = cursor_frames + (overlap_start_f - range_start_f)
+            if rate == 1.0:
+                record_f = cursor_frames + (overlap_start_f - range_start_f)
+            else:
+                record_f = cursor_frames + int(round(
+                    (overlap_start_f - range_start_f) / rate))
             
             out.append({
                 "clip": clip,
@@ -3777,6 +3788,18 @@ def placements(ranges: Sequence[Tuple[float, float]],
                 # transform overrides across a rebuild or re-cut.
                 "master": (master_start, master_end),
             })
+            if rate != 1.0:
+                # A retimed range (`reel_clock`): the source span above
+                # is what PLAYS, `record_frames` how long it takes on
+                # the reel, and `rate` the constant speed the build
+                # sets so the one fills the other.
+                out[-1]["rate"] = rate
+                # Edge offsets rounded, then differenced: two clips in
+                # one passage abut rather than drift a frame apart.
+                out[-1]["record_frames"] = (
+                    cursor_frames
+                    + int(round((overlap_end_f - range_start_f) / rate))
+                    - record_f)
         cursor_frames += range_frames
     return out
 
@@ -4857,8 +4880,7 @@ def plan_cards(moment, transcript: dict, ranges, project_folder: str,
     # In FRAMES, and by the SAME arithmetic `placements` uses per range
     # edge, so a tail card starts on the frame after the last clip ends
     # rather than a rounding away from it.
-    body_frames = sum(int(round(end * fps)) - int(round(start * fps))
-                      for start, end in ranges)
+    body_frames = _reel_clock.total_played_frames(ranges, fps)
     if ending is not None:
         from library.tools import reel_ending as _reel_ending
         body_frames += _reel_ending.ending_tail_frames(ending, look)
@@ -5663,7 +5685,8 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
     lines = [{"at": line["reel_start"], "speaker": line["speaker"],
               "says": line["text"], "words": line.get("words") or []}
              for line in played_speech(moment, transcript, with_words=True)]
-    reel_seconds = sum(max(0.0, end - start) for start, end in (ranges or []))
+    reel_seconds = sum(max(0.0, _reel_clock.played_seconds(r))
+                       for r in (ranges or []))
 
     bands = _explainer_bands(project_folder, width, height,
                              draw_gain=draw_gain,
@@ -5838,7 +5861,8 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
               "text": line["text"]}
              for line in played_speech(moment, transcript,
                                        extra_cuts=extra_cuts)]
-    reel_seconds = (sum(max(0.0, end - start) for start, end in (ranges or []))
+    reel_seconds = (sum(max(0.0, _reel_clock.played_seconds(r))
+                        for r in (ranges or []))
                     + float(lead_seconds))
 
     plan = si.plan_for_reel(

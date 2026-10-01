@@ -52,6 +52,8 @@ import sys
 from dataclasses import field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from library.tools import reel_clock as _reel_clock
+
 SEMANTIC_TRACK = 6
 """The reel video track semantic-visual segments are placed on - in
 the FULL layout. Rows pack, so the plan's semantic row is what the
@@ -414,7 +416,8 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
                                  "reason": "no_word_timings_to_anchor_against",
                                  "detail": str(why)}],
                     "segments": []}
-    reel_seconds = sum(max(0.0, end - start) for start, end in (ranges or []))
+    reel_seconds = sum(max(0.0, _reel_clock.played_seconds(r))
+                       for r in (ranges or []))
     brand_style, brand_effect = _brand_slots(project_folder)
     from library.tools import reel_cta_treatment as cta_rx
     # The captain's declared CTA treatment (external/reel_cta.json),
@@ -823,9 +826,9 @@ def span_segment_words(ranges, transcript: dict) -> List[List[dict]]:
     ranges = list(ranges or [])
     starts: List[float] = []
     cursor = 0.0
-    for start, end in ranges:
+    for keep_range in ranges:
         starts.append(cursor)
-        cursor += max(0.0, float(end) - float(start))
+        cursor += max(0.0, _reel_clock.played_seconds(keep_range))
     per: List[List[dict]] = [[] for _ in ranges]
     for segment in ((transcript or {}).get("segments") or []):
         for word in (segment.get("words") or []):
@@ -846,9 +849,9 @@ def span_segment_words(ranges, transcript: dict) -> List[List[dict]]:
                 continue
             if end_at is None:
                 continue
-            for index, (start, end) in enumerate(ranges):
+            for index, keep_range in enumerate(ranges):
                 low, high = starts[index], starts[index] + max(
-                    0.0, float(end) - float(start))
+                    0.0, _reel_clock.played_seconds(keep_range))
                 if low - 1e-9 <= at < high - 1e-9:
                     per[index].append({
                         "word": text, "start": at, "end": end_at})
@@ -929,10 +932,10 @@ def write_span_request(moment, transcript: dict, ranges, project_folder: str,
     bridge = _step_4_06_bridge()
     rows = []
     cursor = 0.0
-    for position, ((start, end), segment_words) in enumerate(
+    for position, (keep_range, segment_words) in enumerate(
             zip(list(ranges or []), words), start=1):
         reel_start = cursor
-        cursor += max(0.0, float(end) - float(start))
+        cursor += max(0.0, _reel_clock.played_seconds(keep_range))
         says = " ".join(
             f"{w['word']}[{w['start']:.3f}-{w['end']:.3f}]"
             for w in segment_words)
@@ -1118,9 +1121,9 @@ def resolve_span_plan(plan: Any, *, segment_words: Sequence[Sequence[dict]],
     resolved.proposed = len(plan)
     bounds: List[Tuple[float, float]] = []
     cursor = 0.0
-    for start, end in list(ranges or []):
+    for keep_range in list(ranges or []):
         low = cursor
-        cursor += max(0.0, float(end) - float(start))
+        cursor += max(0.0, _reel_clock.played_seconds(keep_range))
         bounds.append((low, cursor))
 
     def drop(entry, key, reason, detail=""):

@@ -78,6 +78,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from library.tools import reel_clock as _reel_clock
 from library.tools.resolve_lock import under_lease
 
 # The caption readability floor, shared with the manifest's own P6 check
@@ -1120,9 +1121,8 @@ def check_plan_describes_timeline(reel_name: str,
     # `round()` on a float returns an int, so this IS
     # `reel_build.placements`' own `int(round(x * fps))` per range edge -
     # the builder's arithmetic, not an approximation of it.
-    planned_frames = sum(
-        round(end * fps) - round(start * fps)
-        for start, end in keep_ranges) + int(card_frames) + int(held_frames)
+    planned_frames = (_reel_clock.total_played_frames(keep_ranges, fps)
+                      + int(card_frames) + int(held_frames))
     if planned_frames == total_frames:
         return []
     delta = total_frames - planned_frames
@@ -6066,7 +6066,7 @@ def _derive_plan_from_master(
     freeze_seconds = (freeze_plan.duration_frames / fps
                       if freeze_plan is not None else 0.0)
     plan_seconds = (card_seconds if span_present
-                    else sum(b - a for a, b in kr) + card_seconds
+                    else _reel_clock.total_played_seconds(kr) + card_seconds
                     ) + freeze_seconds
     plan_frames = plan_seconds * fps
     lead_seconds = lead_frames / fps if fps else 0.0

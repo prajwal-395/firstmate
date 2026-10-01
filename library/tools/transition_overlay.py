@@ -179,6 +179,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from library.tools import reel_clock as _reel_clock
 from library.tools.project_asset import (
     ProjectAssetNotFoundError,
     resolve_project_asset,
@@ -976,7 +977,7 @@ def reel_seams(ranges: Sequence[tuple], fps: float,
     cursor = 0
     for i in range(len(ranges)):
         start, end = float(ranges[i][0]), float(ranges[i][1])
-        cursor += int(round(end * fps)) - int(round(start * fps))
+        cursor += _reel_clock.played_frames(ranges[i], fps)
         if i == len(ranges) - 1:
             seams.append(Seam(
                 index=len(seams), reel_frame=cursor, kind=SEAM_REEL_TAIL,
@@ -1245,10 +1246,7 @@ def reel_frame_count(ranges: Sequence[tuple], fps: float) -> int:
     `reel_build.placements`' arithmetic, so the fit check and the
     placement agree about where the reel ends.
     """
-    total = 0
-    for start, end in ranges:
-        total += int(round(float(end) * fps)) - int(round(float(start) * fps))
-    return total
+    return _reel_clock.total_played_frames(ranges, fps)
 
 
 def plan_reel_overlays(effect: dict[str, Any] | None,

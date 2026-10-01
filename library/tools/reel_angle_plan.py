@@ -12,6 +12,8 @@ from __future__ import annotations
 import math
 from itertools import pairwise
 
+from library.tools import reel_clock as _reel_clock
+
 
 class AnglePlanError(ValueError):
     """A declared camera plan cannot be honoured by this reel."""
@@ -63,9 +65,7 @@ def resolve(rows: list, angles: list, ranges: list, transcript: dict,
         raise AnglePlanError(f"{reel_name}: frame rate {fps!r} is invalid.")
 
     total_frames = int(lead_in_frames)
-    for start, end in ranges:
-        total_frames += int(round(float(end) * fps)) - int(
-            round(float(start) * fps))
+    total_frames += _reel_clock.total_played_frames(ranges, fps)
     if total_frames <= lead_in_frames:
         raise AnglePlanError(
             f"{reel_name}: angle plan has no placeable reel picture.")

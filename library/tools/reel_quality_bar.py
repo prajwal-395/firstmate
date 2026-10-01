@@ -83,6 +83,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 # `DURATION_GATE_REMOVED`): a guidance spelled here as well as in
 # `reel_exchange` would be the second enumeration AGENTS.md 10.1 is
 # about, and there is no band left to spell.
+from library.tools import reel_clock as _reel_clock
 from library.tools.reel_exchange import ABSURD_SECONDS
 
 __all__ = [
@@ -577,9 +578,10 @@ def played_speech(moment, transcript: dict,
                       key=lambda s: float(s.get("timeline_start") or 0.0))
     out: List[dict] = []
     offset = 0.0
-    for index, (range_start, range_end) in enumerate(
+    for index, keep_range in enumerate(
             playable_ranges(moment, transcript,
                             extra_cuts=extra_cuts)[0]):
+        range_start, range_end = keep_range
         for segment in segments:
             start = float(segment.get("timeline_start") or 0.0)
             end = float(segment.get("timeline_end") or 0.0)
@@ -590,10 +592,10 @@ def played_speech(moment, transcript: dict,
                 continue
             line = {
                 "speaker": segment.get("speaker"),
-                "reel_start": round(offset + max(start, range_start)
-                                    - range_start, 2),
-                "reel_end": round(offset + min(end, range_end)
-                                  - range_start, 2),
+                "reel_start": round(_reel_clock.reel_position(
+                    offset, keep_range, max(start, range_start)), 2),
+                "reel_end": round(_reel_clock.reel_position(
+                    offset, keep_range, min(end, range_end)), 2),
                 "text": text,
                 "bound": bool(segment.get("resolve_item_id")),
                 "range": index,
@@ -606,14 +608,15 @@ def played_speech(moment, transcript: dict,
                 # measurement's clothes.
                 line["words"] = [
                     {"word": word.get("word") or "",
-                     "at": round(offset + float(word.get("start") or 0.0)
-                                 - range_start, 3)}
+                     "at": round(_reel_clock.reel_position(
+                         offset, keep_range,
+                         float(word.get("start") or 0.0)), 3)}
                     for word in (segment.get("words") or [])
                     if word.get("timed")
                     and range_start <= float(word.get("start") or 0.0) < range_end
                 ]
             out.append(line)
-        offset += range_end - range_start
+        offset += _reel_clock.played_seconds(keep_range)
     return out
 
 
@@ -831,7 +834,10 @@ def duration_reading(moment, transcript: dict,
             measured_moment = replace(moment, call_to_action=None)
 
     ranges, refusal = playable_ranges(measured_moment, transcript)
-    body = sum(end - start for start, end in ranges)
+    body = _reel_clock.total_played_seconds(ranges)
+    # The master seconds the ranges keep - what the cuts did not remove.
+    # Equal to `body` unless a range is retimed (`reel_clock`).
+    kept = sum(end - start for start, end in ranges)
     ending = ending_seconds(measured_moment, transcript, project_folder)
     if refusal:
         # A reel nothing can lay out has no length to hold against
@@ -861,7 +867,7 @@ def duration_reading(moment, transcript: dict,
             (measured_moment.timeline_end - measured_moment.timeline_start)
             + (measured_moment.call_to_action.duration
                if measured_moment.call_to_action else 0.0)
-            - body, 1),
+            - kept, 1),
         "ending_seconds": round(ending["total"], 1),
         "ending_resolved": ending["resolved"],
         "ending": ending,

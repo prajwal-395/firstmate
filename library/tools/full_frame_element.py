@@ -142,6 +142,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Sequence
 
 from library.tools import brand_library as _brandlib
+from library.tools import reel_clock as _reel_clock
 from library.tools import motion_graphics_vocabulary as _mg
 from library.tools.remotion_batch import (
     RemotionBatchError,
@@ -1852,7 +1853,8 @@ def _word_cues(label: str, position: int, window: tuple[float, float],
     seg_label = f"{label}.segments[{position}]"
     ws, we = window
     rs, _ = ranges[owner]
-    lo = sum(r[1] - r[0] for r in ranges[:owner]) + (ws - rs)
+    lo = (_reel_clock.total_played_seconds(ranges[:owner])
+          + _reel_clock.reel_offset(ranges[owner], ws))
     spoken: list[tuple[str, float, float]] = []
     for segment in ((transcript or {}).get("segments") or []):
         for word in (segment.get("words") or []):
@@ -2056,17 +2058,18 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
     # old count check accumulated - same numbers, no special case.
     body_offsets: list[int] = []
     cursor = 0
-    for range_start, range_end in ranges:
+    for keep_range in ranges:
         body_offsets.append(cursor)
-        cursor += int(round(range_end * fps)) - int(round(range_start * fps))
+        cursor += _reel_clock.played_frames(keep_range, fps)
     planned: list[PlannedCard] = []
     for position, (segment, (ws, we), owner) in enumerate(
             zip(segments, windows, owners), start=1):
-        range_start, _ = ranges[owner]
         reel_start_frame = (body_offsets[owner]
-                            + int(round(ws * fps))
-                            - int(round(range_start * fps)))
-        duration_frames = int(round(we * fps)) - int(round(ws * fps))
+                            + _reel_clock.reel_frame_offset(
+                                ranges[owner], ws, fps))
+        duration_frames = (
+            _reel_clock.reel_frame_offset(ranges[owner], we, fps)
+            - _reel_clock.reel_frame_offset(ranges[owner], ws, fps))
         if duration_frames <= 0:
             raise FullFrameDeclarationError(
                 f"{label}.segments[{position}] declares window "

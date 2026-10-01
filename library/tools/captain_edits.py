@@ -167,6 +167,7 @@ import sys
 from pathlib import Path
 
 from library.tools.resolve_lock import under_lease
+from library.tools import reel_clock as _reel_clock
 
 CAPTAIN_EDITS_KEY = "captain_edits"
 """The state key, and the file name: `<project>/external/captain_edits.json`."""
@@ -1806,9 +1807,9 @@ def anchor_reel_time(ranges: list, transcript: dict, anchor: str,
         master_end = stream[occurrence + len(needle) - 1][2]
         for order, (range_start, range_end) in enumerate(ranges):
             if range_start - 1e-6 <= master < range_end - 1e-6:
-                reel = (lead_seconds + sum(
-                    end - start for start, end in ranges[:order])
-                    + (master - range_start))
+                reel = (lead_seconds
+                        + _reel_clock.total_played_seconds(ranges[:order])
+                        + _reel_clock.reel_offset(ranges[order], master))
                 candidates.append((reel, master, master_end, order))
     if not candidates:
         raise CaptainEditError(
