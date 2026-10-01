@@ -20,7 +20,7 @@ It proves the key is absent from the child environment, never appears on `curl` 
 It proves the request uses the fixed endpoint and model, carries the whole intake file as the task state, and asks only the `kind` Choice with exactly the two fixed criteria and no other payload.
 It proves the explicit-knowledge-request gate forces scout over a 0.95 ship answer, the diagnostic-evidence gate escalates a ship answer that only cites a report while an authorized change still clears, the existing-evidence gate keeps a clear scout with its absorb advisory, and the asymmetric floor keeps an uncertain scout decided while returning an uncertain ship to the manual checks.
 It proves missing-curl and quota-independent transport failures, HTTP 500, malformed usage, zero-mass or malformed probabilities, out-of-range confidence, and unknown kind choices are error outcomes with exit 0, while a missing, unreadable, or empty intake file, an unknown flag, and `--help` behave as the contract states, with configuration errors exiting 2 before any network call.
-It proves the gateway-first ladder answers on the free rung with one call, keeps typesafe-only behavior, and descends exactly once on a 429 refusal with the descended rung named.
+It proves the typesafe-first ladder answers on the typesafe rung with one call, keeps gateway-only behavior, and descends exactly once on a 429 refusal with the descended rung named.
 It proves intake newlines cannot inject a second `kind:` line.
 
 ```console

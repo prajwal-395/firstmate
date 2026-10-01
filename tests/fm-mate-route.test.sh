@@ -51,21 +51,42 @@ JSON
 
 cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
-# Fake curl: records the stdin body, then answers with FAKE_CURL_RESPONSE.
+# Fake curl: records argv (minus the -o target), the stdin body, and the header
+# read from fd 3, then answers with FAKE_CURL_RESPONSE and FAKE_CURL_HTTP.
+# FAKE_CURL_HTTP2/FAKE_CURL_RESPONSE2 answer the second call onward for ladder
+# tests; per-call bodies and headers land in body-N/header-N while body/header
+# keep the latest call for the single-call assertions.
 set -u
+count_file="${FAKE_CURL_LOG:?}/curl-count"
+count=0
+[ -f "$count_file" ] && count=$(cat "$count_file")
+count=$((count + 1))
+printf '%s' "$count" > "$count_file"
+printf -- '--- curl call %s ---\n' "$count" >> "${FAKE_CURL_LOG:?}/argv"
 out=''
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift 2 ;;
-    *) shift ;;
+    *) printf '%s\n' "$1" >> "${FAKE_CURL_LOG:?}/argv"; shift ;;
   esac
 done
 cat > "$FAKE_CURL_LOG/body"
+cat > "$FAKE_CURL_LOG/header" < /dev/fd/3 2>/dev/null || printf 'fd3 unreadable\n' > "$FAKE_CURL_LOG/header"
+cp "$FAKE_CURL_LOG/body" "$FAKE_CURL_LOG/body-$count"
+cp "$FAKE_CURL_LOG/header" "$FAKE_CURL_LOG/header-$count"
 if [ "${FAKE_CURL_FAIL:-0}" = 1 ]; then
   exit 7
 fi
-cp "${FAKE_CURL_RESPONSE:?}" "$out"
-printf '%s' "${FAKE_CURL_HTTP:-200}"
+http="${FAKE_CURL_HTTP:-200}"
+response="${FAKE_CURL_RESPONSE:?}"
+if [ "$count" -ge 2 ] && [ -n "${FAKE_CURL_HTTP2:-}" ]; then
+  http="$FAKE_CURL_HTTP2"
+fi
+if [ "$count" -ge 2 ] && [ -n "${FAKE_CURL_RESPONSE2:-}" ]; then
+  response="$FAKE_CURL_RESPONSE2"
+fi
+cp "$response" "$out"
+printf '%s' "$http"
 SH
 chmod +x "$FAKEBIN/curl"
 
@@ -220,3 +241,48 @@ printf '%s\n' "- vep - Video work end to end. (home: /tmp/fm-mate-route-test/vep
 write_response "$RESPONSE" vep 0.92
 run code out err "$INTAKE" --redirect nosuchmate
 expect_code 2 "$code" "unknown redirect exits 2"
+
+# --- Jev typesafe-first ladder: captain's key first, gateway on refusal ------
+# No earlier case in this suite pinned a rung order; these cases prove the
+# primary rung is tried first through the public interface with the fake curl.
+# run() always sets TYPESAFE_API_KEY, so the ladder calls the tool directly.
+cat > "$REGISTRY" <<'TXT'
+# Secondmates
+- vep - Video work end to end. (home: /tmp/fm-mate-route-test/vep; scope: All video work end to end: ingest, timeline construction, captions, overlays, grading and delivery; projects: teaser-pipeline, video-editing-pilot; added 2026-09-14)
+- lucie - Client code work. (home: /tmp/fm-mate-route-test/lucie; scope: All Lucie Content client code work: lead generation, GEO systems and client marketing sites; projects: business-finder-lucie; added 2026-08-18)
+TXT
+TSKEY="$KEY"
+GWKEY='test-gateway-key-4b7e1a9c-never-on-argv'
+GW_URL='https://ai-gateway.vercel.sh/typesafe/v1/systemone'
+TS_URL='https://api.typesafe.ai/v1/systemone'
+
+# --- both keys, typesafe healthy: the primary rung answers with one call -----
+reset_log
+write_response "$RESPONSE" vep 0.92
+out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$TSKEY" AI_GATEWAY_API_KEY="$GWKEY" "$TOOL" "$INTAKE" --project video-editing-pilot 2> "$TMP_ROOT/stderr"); code=$?; err=$(cat "$TMP_ROOT/stderr")
+expect_code 0 "$code" "both-keys healthy exits 0"
+assert_contains "$out" '  status: clear' "both-keys healthy resolves"
+assert_contains "$out" '  rung: typesafe' "both-keys healthy stays on the typesafe rung"
+assert_contains "$out" '  mate: vep' "both-keys healthy routes vep"
+argv=$(cat "$LOG/argv")
+assert_contains "$argv" "$TS_URL" "both-keys healthy posts to the typesafe endpoint"
+assert_not_contains "$argv" "$GW_URL" "both-keys healthy never spends the gateway key"
+assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body")" "typesafe rung asks for jev-latest"
+assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header")" "typesafe key reaches curl on the fd header"
+assert_equals '1' "$(cat "$LOG/curl-count")" "both-keys healthy makes one call"
+pass "both keys with a healthy typesafe stay on the primary rung"
+
+# --- typesafe 429 descends to the gateway once ---------------------------------
+reset_log
+write_response "$RESPONSE" vep 0.92
+out=$(PATH="$FAKEBIN:$BASE_PATH" FM_HOME="$HOME_DIR" TYPESAFE_API_KEY="$TSKEY" AI_GATEWAY_API_KEY="$GWKEY" FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=200 "$TOOL" "$INTAKE" --project video-editing-pilot 2> "$TMP_ROOT/stderr"); code=$?; err=$(cat "$TMP_ROOT/stderr")
+expect_code 0 "$code" "ladder fallback exits 0"
+assert_contains "$out" '  status: clear' "ladder fallback resolves"
+assert_contains "$out" '  rung: gateway' "ladder fallback names the serving rung"
+assert_contains "$out" '  mate: vep' "ladder fallback still routes vep"
+assert_equals '2' "$(cat "$LOG/curl-count")" "ladder fallback makes exactly two calls"
+assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-1")" "the first call tries the typesafe model"
+assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-2")" "the second call descends to the gateway model"
+assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header-1")" "the first call carries the typesafe key"
+assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header")" "the second call carries the gateway key"
+pass "typesafe 429 descends the ladder once in the same call"

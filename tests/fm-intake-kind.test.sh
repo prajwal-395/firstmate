@@ -324,7 +324,7 @@ assert_contains "$out" 'Usage:' "--help prints usage"
 assert_absent "$LOG/argv" "configuration errors never reach the network"
 pass "configuration errors exit 2 before any network call"
 
-# --- Jev gateway ladder: free first, captain's key on refusal -------------------
+# --- Jev typesafe-first ladder: captain's key first, gateway on refusal ---
 GWKEY='test-gateway-key-4b7e1a9c-never-on-argv'
 TSKEY="$KEY"
 GW_URL='https://ai-gateway.vercel.sh/typesafe/v1/systemone'
@@ -358,7 +358,7 @@ assert_contains "$out" '  rung: typesafe' "typesafe-only names its rung"
 assert_equals '1' "$(curl_calls)" "typesafe-only makes one call"
 pass "typesafe-only key answers on the typesafe rung"
 
-# --- gateway refusal descends the ladder once ------------------------------------
+# --- typesafe refusal descends the ladder once ------------------------------------
 reset_log
 write_response "$RESPONSE" ship 0.9
 cat > "$TMP_ROOT/gateway-ok.json" <<'JSON'
@@ -371,13 +371,16 @@ printf '%s\n' 'Tighten the pager loop.' > "$TMP_ROOT/tighten-intake.txt"
 TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 FAKE_CURL_HTTP2=200 \
   FAKE_CURL_RESPONSE2="$TMP_ROOT/gateway-ok.json" run code out err "$TMP_ROOT/tighten-intake.txt"
 expect_code 0 "$code" "ladder descent exits 0"
-assert_equals '2' "$(curl_calls)" "gateway refusal makes exactly two calls"
-assert_contains "$(cat "$LOG/argv")" "$GW_URL" "the first call tries the free rung"
-assert_contains "$(cat "$LOG/argv")" "$TS_URL" "the second call descends to the captain's key"
-assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header")" "the descended call bears the typesafe key"
-assert_contains "$out" '  rung: typesafe' "the descended rung is named"
+assert_equals '2' "$(curl_calls)" "typesafe refusal makes exactly two calls"
+assert_equals 'jev-latest' "$(jq -r .model < "$LOG/body-1")" "the first call tries the typesafe rung"
+assert_equals 'typesafe-ai/jev' "$(jq -r .model < "$LOG/body-2")" "the second call descends to the gateway"
+assert_contains "$(cat "$LOG/argv")" "$TS_URL" "the first call tries the typesafe endpoint"
+assert_contains "$(cat "$LOG/argv")" "$GW_URL" "the second call descends to the gateway"
+assert_equals "Authorization: Bearer $TSKEY" "$(cat "$LOG/header-1")" "the first call bears the typesafe key"
+assert_equals "Authorization: Bearer $GWKEY" "$(cat "$LOG/header")" "the descended call bears the gateway key"
+assert_contains "$out" '  rung: gateway' "the descended rung is named"
 assert_contains "$out" '  kind: scout' "the descended answer decides the kind"
-pass "gateway refusal descends the ladder once per request"
+pass "typesafe refusal descends the ladder once per request"
 
 # --- hand-labeled agreement: gates, floor, and kind on 18 intakes --------------
 # Each fixture row is pipe-separated and carries the scripted model answer

@@ -510,7 +510,7 @@ The resolver and bootstrap copy an environment-provided key into a non-exported 
 Each key also flows from the primary home's `.env` into every LOCAL secondmate home's `.env` through the primary-authoritative inheritance contract, so mates resolve with Jev too.
 Remote homes never receive keys, a research-charter home stays keyless, and a changed or removed primary value converges on the next push or sync; the [`secondmate-provisioning` skill](../.agents/skills/secondmate-provisioning/SKILL.md) owns that contract and `bin/fm-config-inherit-lib.sh` owns its mechanics.
 The resolver sends the active rung's key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes either key.
-With both keys present the tool tries the free Vercel AI Gateway rung first (`typesafe-ai/jev` at `https://ai-gateway.vercel.sh/typesafe/v1/systemone`) and falls back to the captain's typesafe.ai key (`jev-latest` at `https://api.typesafe.ai/v1/systemone`) once in the same call when the gateway answers 429 or 401/403; the fallback is per request with no persisted rung record, and the `rung:` output line names whichever rung answered.
+With both keys present the tool tries the captain's typesafe.ai key first (`jev-latest` at `https://api.typesafe.ai/v1/systemone`) and falls back to the free Vercel AI Gateway rung (`typesafe-ai/jev` at `https://ai-gateway.vercel.sh/typesafe/v1/systemone`) once in the same call when typesafe.ai answers 429 or 401/403; the fallback is per request with no persisted rung record, and the `rung:` output line names whichever rung answered.
 With one key present the tool uses that rung only.
 The resolver fixes the confidence floor at 0.6 and the request timeout at 5 seconds; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
@@ -530,13 +530,13 @@ When on, the tool sends the candidate finding text as state and asks one Choice 
 Everything after the answer runs in code: the fixed 0.6 confidence floor, then the secondmate read-only reroute (`--secondmate-home` plus a `captain-shared-md` answer writes `route-to-primary`), the project-memory gate (a `project-agents-md` answer writes `via-delivery-path`, never a direct edit), while tier defaults and the session-evidence rule apply after routing exactly as today.
 The result is one of `clear` (an `owner:` line plus its `write:` path), `ambiguous` (confidence below the floor), or `error` (API, network, or response failure), and every one of them exits 0; only a usage or configuration error exits 2.
 Every non-clear result routes manually as today.
-The key handling, gateway-first ladder, fixed floor, and 5-second timeout match the typed dispatch resolver above; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
+The key handling, typesafe-first ladder, fixed floor, and 5-second timeout match the typed dispatch resolver above; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
 The live owner-match evidence is recorded in [`verification/stow-owner-resolve.md`](verification/stow-owner-resolve.md).
 
 ## Typed intake classification (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
 
 `bin/fm-intake-kind.sh` classifies one intake as ship or scout with typesafe.ai's System One model (Jev), so the deliverable-kind call that fires on every intake stops spending supervisor context.
-It shares the dispatch resolver's opt-in gate, gateway-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `intake-kind: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate classifies exactly as today.
+It shares the dispatch resolver's opt-in gate, typesafe-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `intake-kind: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate classifies exactly as today.
 This section is the single owner of the tool's operator contract; the script header owns its exact flags, output lines, and code-gate word lists, and `AGENTS.md` section 7 owns the ship/scout definitions the question quotes.
 When on, the tool sends the whole intake file (the captain request text plus any report, decision, or PR text the caller concatenated into it) as state and asks one Choice question `kind` with exactly two options, ship (the default: a project change through the selected delivery mode) and scout (knowledge, never a PR).
 Everything after the answer runs in code: an explicit-knowledge-request string gate forces scout regardless of the answer, a diagnostic-evidence gate holds a ship answer whose only basis is a report or finding for authorization, and an existing-evidence advisory flags an informational scout whose answer may already be on disk.
@@ -550,7 +550,7 @@ The offline gate evidence is recorded in [`verification/intake-kind.md`](verific
 ## Typed secondmate routing (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
 
 `bin/fm-mate-route.sh` routes one intake to at most one secondmate with typesafe.ai's System One model (Jev), so the scope-text match that firstmate otherwise reads by hand on every intake becomes one short tool turn.
-It shares the dispatch resolver's opt-in gate, gateway-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `mate-route: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate routes exactly as today.
+It shares the dispatch resolver's opt-in gate, typesafe-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `mate-route: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate routes exactly as today.
 This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, "Secondmate routes" above owns the registry format, and `AGENTS.md` section 7 owns the routing rules the gates enforce.
 When on, the tool sends the intake text plus the resolved project as state and asks one Choice question `mate` with one option per registry entry plus the fixed default `No listed scope applies; the main home keeps the work.`; each option carries only that entry's `scope:` text, so the model never sees the non-exclusive `projects:` list and cannot learn the wrong key.
 Everything after the answer runs in code, in order: the local-only gate (a local-only resolved project stays with the main home, and no scope text overrides that), the captain-redirect gate (an explicit redirect wins over the answer, while a redirect to a blocked or unreachable mate escalates instead of routing main), the liveness gate (a blocked or unreachable answer target falls through to the main home), and the 0.6 confidence floor.
@@ -1143,8 +1143,8 @@ FMX_RELAY_URL=https://myfirstmate.io   # optional Relay endpoint override, mainl
 FMX_ENV_FILE=           # optional alternate .env file for direct Relay client invocations; bootstrap still checks $FM_HOME/.env
 FMX_DRY_RUN=            # truthy previews Relay replies and dismissals to state/x-outbox/ without posting or requiring a token
 FMX_X_REPLY_MAX_CHARS=280   # X reply per-message split budget; values below 50 clamp to 50
-TYPESAFE_API_KEY=       # typed dispatch resolution opt-in, from the environment or .env; with AI_GATEWAY_API_KEY absent the tool uses the typesafe rung only (docs/configuration.md "Typed dispatch resolution")
-AI_GATEWAY_API_KEY=   # free-first Jev rung through Vercel AI Gateway, from the environment or .env; with TYPESAFE_API_KEY present the tool falls back to it on gateway 429/401/403
+TYPESAFE_API_KEY=       # typed dispatch resolution primary rung, from the environment or .env; with AI_GATEWAY_API_KEY absent the tool uses the typesafe rung only (docs/configuration.md "Typed dispatch resolution")
+AI_GATEWAY_API_KEY=   # fallback Jev rung through Vercel AI Gateway, from the environment or .env; with TYPESAFE_API_KEY absent the tool uses this rung only, otherwise it answers once per call when typesafe.ai refuses with 429/401/403
 FMX_DISCORD_REPLY_MAX_CHARS=1900   # Discord reply per-message split budget; values below 50 clamp to 50, values above 2000 reset to 1900
 FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting Relay completion follow-ups (7 days)

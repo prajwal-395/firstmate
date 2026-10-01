@@ -38,7 +38,7 @@ It proves the absent key (environment and `.env`) prints one stderr line, nothin
 It proves a `.env` key turns the tool on and the environment wins over it.
 It proves the request uses the fixed endpoint, model, and five-second timeout, carries one Choice question per queued row with exactly the `suppress` and `wake` options, keeps the key off argv and out of child environments, and carries each row's closing-marker evidence in its own instructions.
 It proves closed rows can suppress while open rows wake, below-floor rows wake as today with the batch marked ambiguous, and error outcomes (HTTP 500, malformed answers, unasked answers) exit 0 with every row counted actionable.
-It proves heartbeat rows always wake in code without a model call, overflow past the row cap wakes unasked in code, the gateway-first ladder falls back once on refusal, and usage or configuration errors exit 2 before any network call.
+It proves heartbeat rows always wake in code without a model call, overflow past the row cap wakes unasked in code, the typesafe-first ladder falls back once on refusal, and usage or configuration errors exit 2 before any network call.
 
 ```console
 $ bash tests/fm-drain-triage.test.sh | tail -1
