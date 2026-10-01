@@ -831,7 +831,8 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
                 and isinstance(moment.get("slug"), str)):
             reel_names.append(reel_timeline_name(
                 moment["number"], moment["slug"]))
-    build_record = ((outputs.get("build_reels") or {})
+    from library.tools import capability_outputs
+    build_record = (capability_outputs.read(state, "reel.build")
                     .get("reel_build") or {})
     reel_names.extend(name for name in
                       (build_record.get("timelines_built") or [])

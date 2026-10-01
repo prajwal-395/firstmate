@@ -28,6 +28,7 @@ edit_video runner's own writer because it owns the backup rule
 
 from __future__ import annotations
 
+import copy
 import json
 import sys
 from pathlib import Path
@@ -151,7 +152,8 @@ def run(project_folder: str, args) -> int:
                          if Path(path).is_file() else {})
                 _merge_project_output(
                     state, project_folder, node_id, result.payload,
-                    only_reels=args.only_reel or None)
+                    only_reels=args.only_reel or None,
+                    capability_id=op.name)
                 _edit_video_runner().save_pipeline_state(project_folder, state)
             print(f"{op.name}: {result.status}", file=sys.stderr)
             report_rebuild_need(result.payload)
@@ -179,7 +181,7 @@ def run(project_folder: str, args) -> int:
 
 
 def record_project_output(project_folder: str, node_id: str, payload,
-                          only_reels=None) -> None:
+                          only_reels=None, capability_id=None) -> None:
     """Record one operation while preserving concurrent reel-lane writes."""
     from library.tools.project_file_lock import lock_project_file
     from library.tools.project_layout import ProjectLayout
@@ -189,15 +191,29 @@ def record_project_output(project_folder: str, node_id: str, payload,
         state = (json.loads(Path(path).read_text(encoding="utf-8"))
                  if Path(path).is_file() else {})
         _merge_project_output(
-            state, project_folder, node_id, payload, only_reels=only_reels)
+            state, project_folder, node_id, payload, only_reels=only_reels,
+            capability_id=capability_id)
         _edit_video_runner().save_pipeline_state(project_folder, state)
 
 
 def _merge_project_output(state: dict, project_folder: str, node_id: str,
-                          payload, only_reels=None) -> None:
+                          payload, only_reels=None,
+                          capability_id=None) -> None:
+    """Record under the capability id AND the legacy node slot.
+
+    The capability record is authoritative (`capability_outputs.read`);
+    the node slot keeps being written until nothing reads it.
+    """
+    from library.tools import capability_outputs
     state["project_folder"] = project_folder
     slot = state.setdefault("step_outputs", {})
     record_node_output(slot, node_id, payload, only_reels=only_reels)
+    if capability_id:
+        # A COPY: on a first write the node slot holds `payload` itself,
+        # and a later sibling's merge mutates it in place.
+        record_node_output(state.setdefault(capability_outputs.KEY, {}),
+                           capability_id, copy.deepcopy(payload),
+                           only_reels=only_reels)
 
 
 def record_node_output(slot: dict, node_id: str, payload,

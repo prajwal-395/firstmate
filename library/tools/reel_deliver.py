@@ -306,9 +306,9 @@ def _built_names_for(project_folder: str, number: int,
         state = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    record = ((state.get("step_outputs") or {}).get("build_reels")
-              or {})
-    build = record.get("reel_build") or {}
+    from library.tools import capability_outputs
+    build = capability_outputs.read(state, "reel.build").get(
+        "reel_build") or {}
     head = f"Reel {int(number):02d} -"
     return [name for name in (build.get("timelines_built") or [])
             if isinstance(name, str) and name.startswith(head)]

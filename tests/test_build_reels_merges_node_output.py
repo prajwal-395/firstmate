@@ -37,3 +37,25 @@ def test_nodes_do_not_share_a_record():
     assert slot["verify_reels"] == {"reel_verification": {}}
 
 
+
+
+def test_capability_record_is_read_first_and_old_projects_still_load():
+    """The capability slot is authoritative, written beside the legacy
+    node slot; state recorded before the key existed reads the node."""
+    from library.tools import capability_outputs
+
+    old = {"step_outputs": {"build_reels": {"reel_build": {"v": "old"}}}}
+    assert capability_outputs.read(old, "reel.build") == {
+        "reel_build": {"v": "old"}}
+
+    state = {}
+    run_reels._merge_project_output(state, "/p", "build_reels",
+                                    {"reel_build": {"v": 1}},
+                                    capability_id="reel.build")
+    run_reels._merge_project_output(state, "/p", "build_reels",
+                                    {"reel_ask": {}},
+                                    capability_id="reel.ask")
+    assert state["step_outputs"]["build_reels"] == {
+        "reel_build": {"v": 1}, "reel_ask": {}}
+    assert capability_outputs.read(state, "reel.build") == {
+        "reel_build": {"v": 1}}

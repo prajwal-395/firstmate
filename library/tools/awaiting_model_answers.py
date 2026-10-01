@@ -67,9 +67,9 @@ def collect(project_folder: str,
     motion = motion_records
     if motion is None and isinstance(state, dict):
         try:
-            motion = (((state.get("step_outputs") or {})
-                       .get("build_reels") or {}).get("reel_build") or {}
-                      ).get("picture_motion")
+            from library.tools import capability_outputs
+            motion = (capability_outputs.read(state, "reel.build")
+                      .get("reel_build") or {}).get("picture_motion")
         except AttributeError:
             motion = None
     try:
