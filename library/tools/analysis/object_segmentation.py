@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass, asdict
-from typing import List, Dict, Tuple, Optional, Any
+from typing import TYPE_CHECKING, List, Dict, Tuple, Optional, Any
 from pathlib import Path
 import numpy as np
 import tempfile
@@ -11,16 +11,13 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from model_lifecycle import managed_model
 
-try:
+if TYPE_CHECKING:
     import torch
-    from sam2.build_sam import build_sam2_hf, build_sam2_video_predictor_hf
-    from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-except ImportError:
-    # Allow import when running tests without sam2 installed
-    torch = None
-    build_sam2_hf = None
-    build_sam2_video_predictor_hf = None
-    SAM2AutomaticMaskGenerator = None
+
+# torch and sam2 are imported where SAM 2 is LOADED, never at module import:
+# `subject_grade` reads this module's RLE codec and labels, so a top-level
+# import charged step 5.04 compile_manifest - a deterministic step that loads
+# no model - 1.7s of torch and torchvision on every launch.
 
 
 SAM2_MODEL_ID = "facebook/sam2.1-hiera-small"
@@ -225,6 +222,7 @@ def _resolve_device(name: str) -> "torch.device":
 
     Only MPS can be absent, and falling back is the safe direction: the CPU is
     where the generator is trusted anyway."""
+    import torch
     if name == "mps" and not torch.backends.mps.is_available():
         return torch.device("cpu")
     return torch.device(name)
@@ -366,8 +364,13 @@ class ObjectSegmenter:
             normalized_box = None
         
         def _load_sam2():
-            if build_sam2_video_predictor_hf is None:
-                raise ImportError("sam2 is not installed.")
+            try:
+                from sam2.build_sam import (build_sam2_hf,
+                                            build_sam2_video_predictor_hf)
+                from sam2.automatic_mask_generator import (
+                    SAM2AutomaticMaskGenerator)
+            except ImportError as exc:
+                raise ImportError("sam2 is not installed.") from exc
             print(f"Loading {SAM2_MODEL_ID}...", file=sys.stderr)
             predictor = build_sam2_video_predictor_hf(
                 SAM2_MODEL_ID, device=_resolve_device(PROPAGATION_DEVICE))

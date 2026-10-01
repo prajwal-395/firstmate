@@ -2,18 +2,23 @@ import contextlib
 import gc
 import sys
 
-# Optional torch import for memory management
-try:
-    import torch
-except ImportError:
-    torch = None
-
-
 _loaded_models = {}
+
+
+def _torch():
+    """torch, if a model loader has already imported it; else None.
+
+    Never imported here: the runner and deterministic steps import this
+    module, and a top-level `import torch` charged each of them 0.9s for
+    memory management that only applies once a loader brought torch in. A
+    process that never imported torch holds no torch memory to free.
+    """
+    return sys.modules.get("torch")
 
 
 def _empty_gpu_cache():
     """Empty GPU cache gracefully depending on the available backend."""
+    torch = _torch()
     if torch is None:
         return
         
@@ -45,7 +50,7 @@ def unload_model(name: str):
         model = _loaded_models.pop(name)
         
         # Try to explicitly move PyTorch models to CPU if possible
-        if torch is not None and hasattr(model, 'to'):
+        if _torch() is not None and hasattr(model, 'to'):
             try:
                 model.to('cpu')
             except Exception:
@@ -54,7 +59,7 @@ def unload_model(name: str):
         # If it's a tuple (like whisperx returns multiple models), process each
         if isinstance(model, tuple):
             for m in model:
-                if torch is not None and hasattr(m, 'to'):
+                if _torch() is not None and hasattr(m, 'to'):
                     try:
                         m.to('cpu')
                     except Exception:
@@ -77,7 +82,7 @@ def unload_all():
     for name in names:
         model = _loaded_models.pop(name)
         
-        if torch is not None and hasattr(model, 'to'):
+        if _torch() is not None and hasattr(model, 'to'):
             try:
                 model.to('cpu')
             except Exception:
@@ -85,7 +90,7 @@ def unload_all():
                 
         if isinstance(model, tuple):
             for m in model:
-                if torch is not None and hasattr(m, 'to'):
+                if _torch() is not None and hasattr(m, 'to'):
                     try:
                         m.to('cpu')
                     except Exception:
