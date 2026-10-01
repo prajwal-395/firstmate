@@ -17,6 +17,7 @@ Every project here is built under `tmp_path`; nothing reads
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from library.tools.replay_bench import bench, diffing, tokens, trees
+from library.tools.replay_bench import bench, tokens, trees
 from library.tools.replay_bench import snapshot as snapshot_mod
 
 # ── A project small enough to build, real enough to reconstruct ──────
@@ -122,6 +123,90 @@ def test_a_snapshot_is_immutable_unless_replacement_is_asked_for(project, store)
     snapshot_mod.capture(str(project), snapshot_id="fx", store=store, force=True)
 
 
+# ── 1b. A replay never writes the live project ──────────────────────
+
+def _source_files(project: Path) -> dict:
+    return {str(p.relative_to(project)): p.stat().st_mtime_ns
+            for p in project.rglob("*")}
+
+
+def _with_live_output(project: Path) -> Path:
+    """A project whose state names an absolute path into its own output."""
+    out = project / "pipeline_output" / "steps" / "3_04_select_reels"
+    out.mkdir(parents=True)
+    (out / "reel_candidate_diagnostics.md").write_text("from the real run\n",
+                                                       encoding="utf-8")
+    # A link the project itself carries, pointing back into the project.
+    os.symlink(project / "raw", project / "pipeline_output" / "raw_link")
+    state = json.loads((project / "pipeline_data.json").read_text("utf-8"))
+    state["step_outputs"]["select_reels"] = {
+        "diagnostics_path": str(out / "reel_candidate_diagnostics.md")}
+    (project / "pipeline_data.json").write_text(json.dumps(state),
+                                                encoding="utf-8")
+    return project
+
+
+def test_no_path_in_a_replay_workspace_resolves_inside_the_source_project(
+        project, store):
+    """The snapshot REFERENCES `pipeline_output/` by symlink, so a replay
+    that ran against the snapshot directory wrote straight into the live
+    project: 3.04's diagnostics, 3.02's footage analysis and frames, 4.04's
+    catalogue. Measured 2026-10-01 on 001 - 395 files written into a
+    project whose last run was 2026-08-30. A replay gets a clone instead,
+    and every path in it - including one the state names absolutely -
+    resolves outside the source."""
+    _with_live_output(project)
+    snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
+    roots = [os.path.realpath(project)]
+
+    with snapshot_mod.isolated_project(snap) as ws:
+        for p in [ws, *ws.rglob("*")]:
+            assert not os.path.realpath(p).startswith(roots[0] + os.sep), p
+        assert snapshot_mod.escaping_paths(ws, roots) == []
+        assert (ws / "pipeline_output" / "steps" / "3_04_select_reels"
+                / "reel_candidate_diagnostics.md").read_text("utf-8") \
+            == "from the real run\n", "reads still see the project's output"
+        state = json.loads((ws / "pipeline_data.json").read_text("utf-8"))
+        named = Path(state["step_outputs"]["select_reels"]["diagnostics_path"])
+        assert named.is_relative_to(ws), named
+        assert state["project_folder"] == str(ws)
+    assert not ws.exists(), "the clone is thrown away"
+
+
+def test_a_replay_that_writes_leaves_the_source_project_untouched(
+        project, store, tmp_path, monkeypatch):
+    """End to end through `_run_worker`: a worker that writes the way the
+    bridges do - into its project folder's layout, and to an absolute path
+    it read from state - must change nothing in the source project."""
+    _with_live_output(project)
+    snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
+    before = _source_files(project)
+
+    worker = tmp_path / "writing_worker.py"
+    worker.write_text(
+        "import json, sys, pathlib\n"
+        "a = sys.argv[1:]; arg = lambda k: a[a.index(k) + 1]\n"
+        "proj = pathlib.Path(arg('--project-dir'))\n"
+        "state = json.loads(pathlib.Path(arg('--state')).read_text())\n"
+        "doc = proj / 'pipeline_output/steps/3_02_select_broll/footage.md'\n"
+        "doc.parent.mkdir(parents=True, exist_ok=True)\n"
+        "doc.write_text('written by a replay')\n"
+        "pathlib.Path(state['step_outputs']['select_reels']"
+        "['diagnostics_path']).write_text('overwritten by a replay')\n"
+        "pathlib.Path(arg('--out')).write_text(json.dumps({'ok': True}))\n",
+        encoding="utf-8")
+    monkeypatch.setattr(bench, "WORKER", worker)
+
+    snap = snapshot_mod.load("fx", store)
+    assert bench._run_worker(REPO_ROOT, snap, "select_reels") == {"ok": True}
+
+    assert _source_files(project) == before
+    assert (project / "pipeline_output" / "steps" / "3_04_select_reels"
+            / "reel_candidate_diagnostics.md").read_text("utf-8") \
+        == "from the real run\n"
+    assert snap.verify()["references_drifted"] == []
+
+
 # ── 2. The reconstruction is the runner's own assembly ──────────────
 
 def test_replay_rebuilds_a_real_step_off_frozen_state(project, store):
@@ -177,6 +262,7 @@ def test_the_context_carries_the_project_folder_the_run_recorded(project, store)
     snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     result = bench.replay("fx", "creative_direction", store=store)
     assert str(snap.project_dir) not in result["context"]
+    assert snapshot_mod.WORKSPACES_DIR not in result["context"]
     assert result["project_folder_substitutions"] >= 1
 
 

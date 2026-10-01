@@ -32,6 +32,23 @@ areas a pre-bridge reads and never writes - `raw/`, `music/` and `assets/`
 are `Kind.INPUT`, which `project_layout` structurally refuses to write to.
 Each reference carries a listing digest (name, size, mtime), so a
 reference that has moved is reported rather than silently used.
+
+## A replay never runs against the snapshot directory itself
+
+**A replay runs in a throwaway CLONE of the snapshot project, and nothing in
+it resolves into the source project.**  The references above are symlinks,
+and a pre-bridge that writes - 3.02's footage analysis and window frames,
+3.04's repeated-take diagnostics, 4.03's and 5.01's stills, 4.04's SFX
+catalogue - wrote straight through them into the captain's live
+`pipeline_output/` (measured 2026-10-01: 001 gained 395 files in those
+areas after its last run).  `isolated_project` clones every area
+copy-on-write (APFS `clonefile`, or a reflink elsewhere), so a 28 GB
+project costs seconds and no disk, and
+re-roots every absolute source-project path in the state at the clone, so a
+bridge that writes to a path it READ from state lands in the clone too.  A
+filesystem that cannot clone falls back to a real copy only below
+`COPY_FALLBACK_LIMIT_BYTES`, and refuses above it: a slow replay is
+recoverable, a write into the live project is not.
 """
 
 from __future__ import annotations
@@ -40,8 +57,12 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Files whose bytes ARE the snapshot.  These move under a running
@@ -64,6 +85,19 @@ DEFAULT_STORE = Path(
 )
 
 MANIFEST_NAME = "snapshot.json"
+
+# Where a replay's throwaway clone lives: beside the snapshots, so on the
+# store's volume, and never inside the source project.
+WORKSPACES_DIR = "_workspaces"
+
+# A filesystem that cannot clone gets a real copy only up to this size.
+# Mechanical, not taste: above it a per-replay copy is a backup, not a
+# replay, and the bench refuses rather than writing into the live project.
+COPY_FALLBACK_LIMIT_BYTES = 2 * 1024 ** 3
+
+
+class IsolationError(RuntimeError):
+    """A replay could not be given a project that is not the live one."""
 
 
 def _sha256(path: Path) -> str:
@@ -245,7 +279,9 @@ def _declared_brief_name(project: Path):
     """
     try:
         from library.tools.brief_attachment import (
-            BriefAttachmentError, read_declaration)
+            BriefAttachmentError,
+            read_declaration,
+        )
     except ImportError:
         return None
     try:
@@ -283,7 +319,7 @@ def capture(project_folder: str, snapshot_id: str | None = None, store: Path | N
         raise FileNotFoundError(f"{project} has no pipeline_data.json")
 
     store = store or DEFAULT_STORE
-    captured_at = datetime.now(timezone.utc)
+    captured_at = datetime.now(UTC)
     snapshot_id = snapshot_id or (
         f"{project.name}-{captured_at.strftime('%Y%m%dT%H%M%SZ')}")
     root = store / snapshot_id
@@ -394,3 +430,155 @@ def capture(project_folder: str, snapshot_id: str | None = None, store: Path | N
     with open(root / MANIFEST_NAME, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, indent=2, sort_keys=True)
     return Snapshot(root=root, manifest=manifest)
+
+
+def _tree_bytes(root: Path) -> int:
+    if root.is_file():
+        return root.stat().st_size
+    total = 0
+    for dirpath, _dirs, files in os.walk(root, followlinks=False):
+        for name in files:
+            try:
+                total += (Path(dirpath) / name).lstat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _clone(src: Path, dst: Path) -> str:
+    """Copy `src` to `dst` copy-on-write; a real copy only when small.
+
+    Returns how it was copied.  Symlinks inside `src` are copied as links,
+    and `isolated_project` re-points any that lead back into the source.
+    """
+    flag = "-c" if sys.platform == "darwin" else "--reflink=always"
+    proc = subprocess.run(["cp", flag, "-R", str(src), str(dst)],
+                          capture_output=True, text=True, encoding="utf-8",
+                          check=False)
+    if proc.returncode == 0:
+        return "clone"
+    if dst.exists() or dst.is_symlink():
+        if dst.is_dir() and not dst.is_symlink():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+    size = _tree_bytes(src)
+    if size > COPY_FALLBACK_LIMIT_BYTES:
+        raise IsolationError(
+            f"cannot clone {src} copy-on-write ({proc.stderr.strip()}) and it "
+            f"is {size:,} B, over the {COPY_FALLBACK_LIMIT_BYTES:,} B a replay "
+            f"may copy. Put the snapshot store on the project's volume "
+            f"(PIPELINE_REPLAY_SNAPSHOTS or --store); the bench will not run "
+            f"a replay against the live project instead.")
+    if src.is_dir():
+        shutil.copytree(src, dst, symlinks=True)
+    else:
+        shutil.copy2(src, dst, follow_symlinks=False)
+    return "copy"
+
+
+def _inside(path: str, roots) -> str | None:
+    for root in roots:
+        if path == root or path.startswith(root.rstrip(os.sep) + os.sep):
+            return root
+    return None
+
+
+def _reroot(obj, roots, new_root: str, counter: list):
+    """Rewrite every string rooted at a source path to the same place in the clone."""
+    if isinstance(obj, str):
+        root = _inside(obj, roots)
+        if root is None:
+            return obj
+        counter[0] += 1
+        return new_root + obj[len(root.rstrip(os.sep)):]
+    if isinstance(obj, list):
+        return [_reroot(v, roots, new_root, counter) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _reroot(v, roots, new_root, counter) for k, v in obj.items()}
+    return obj
+
+
+def source_roots(snap: Snapshot) -> list:
+    """The live project folders the snapshot was taken from, longest first.
+
+    The source and the folder its run recorded, as written and as resolved.
+    Every referenced area is `<source>/<area>`, so it is inside these.
+    """
+    roots = {snap.manifest["source_project"], snap.declared_project_folder}
+    roots |= {os.path.realpath(r) for r in roots if r}
+    return sorted((r for r in roots if r), key=len, reverse=True)
+
+
+def escaping_paths(workspace: Path, roots) -> list:
+    """Every path under `workspace` that resolves inside one of `roots`.
+
+    Only the workspace itself and the symlinks under it are resolved: with
+    the walk not following links, anything else is a real entry of a
+    folder that has already been checked.
+    """
+    out = []
+    if _inside(os.path.realpath(workspace), roots):
+        out.append(str(workspace))
+    for dirpath, dirnames, filenames in os.walk(workspace, followlinks=False):
+        for name in dirnames + filenames:
+            p = Path(dirpath) / name
+            if p.is_symlink() and _inside(os.path.realpath(p), roots):
+                out.append(str(p))
+    return out
+
+
+@contextmanager
+def isolated_project(snap: Snapshot, parent: Path | None = None):
+    """Yield a throwaway project folder a replay may write to freely.
+
+    Everything in the snapshot's project folder is cloned, referenced areas
+    from their live targets, so reads see what a symlink would have shown
+    and writes land here.  The state's absolute source-project paths are
+    re-rooted at the clone.  Before yielding, the clone is walked and a
+    path that still resolves into the source REFUSES the replay.  Removed
+    on exit.
+    """
+    parent = Path(parent or (snap.root.parent / WORKSPACES_DIR))
+    parent.mkdir(parents=True, exist_ok=True)
+    holder = Path(tempfile.mkdtemp(prefix=f"{snap.snapshot_id}-", dir=parent))
+    try:
+        workspace = (holder / "project").resolve(strict=False)
+        workspace.mkdir()
+        roots = source_roots(snap)
+        for entry in sorted(snap.project_dir.iterdir()):
+            src = Path(os.path.realpath(entry)) if entry.is_symlink() else entry
+            if not src.exists():
+                continue
+            _clone(src, workspace / entry.name)
+
+        # A link the source itself carries, pointing back into the source,
+        # is re-pointed at the same place in the clone.
+        for dirpath, dirnames, filenames in os.walk(workspace,
+                                                    followlinks=False):
+            for name in dirnames + filenames:
+                p = Path(dirpath) / name
+                if not p.is_symlink():
+                    continue
+                target = os.path.realpath(p)
+                root = _inside(target, roots)
+                if root is None:
+                    continue
+                p.unlink()
+                os.symlink(str(workspace) + target[len(root.rstrip(os.sep)):], p)
+
+        escaped = escaping_paths(workspace, roots)
+        if escaped:
+            raise IsolationError(
+                f"{len(escaped)} path(s) in the replay workspace still "
+                f"resolve into the source project, e.g. {escaped[0]}")
+
+        state_file = workspace / "pipeline_data.json"
+        with open(state_file, encoding="utf-8") as fh:
+            state = json.load(fh)
+        state = _reroot(state, roots, str(workspace), [0])
+        with open(state_file, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        yield workspace
+    finally:
+        shutil.rmtree(holder, ignore_errors=True)

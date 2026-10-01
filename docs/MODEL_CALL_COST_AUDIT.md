@@ -311,4 +311,5 @@ left is 1-4k-token sections spread across twelve steps.
 **The bench writes into a live project.** A snapshot's `pipeline_output`
 is a symlink to the source project's, so a bridge that writes a
 referenced document (3.02, 3.04, 4.04) writes it there during a replay.
-Not fixed here.
+Not fixed here. Fixed 2026-10-01: a replay runs in a throwaway clone
+(`replay_bench.snapshot.isolated_project`, docs/STEP_REPLAY_BENCH.md).

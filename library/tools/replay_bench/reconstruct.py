@@ -227,7 +227,8 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
     # honoured it - which is to say not at all. Raising here would make
     # the bench refuse to show the very context the defect produced.
     from library.tools.context_projector import (
-        MisplacedContextFields, declared_context_fields,
+        MisplacedContextFields,
+        declared_context_fields,
     )
     try:
         projected_paths = declared_context_fields(manifest, node_id)

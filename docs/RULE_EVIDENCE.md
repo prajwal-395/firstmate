@@ -4298,7 +4298,10 @@ knowing.**  A replay-bench snapshot symlinks `pipeline_output` at the live
 project, so a bridge that WRITES - this one, and 4.04's whenever
 `PIPELINE_SFX_LIBRARY` is set - reaches the real tree despite the bench's "no
 project write".  Both write only into their own step's `Kind.OUTPUT` area, which
-a re-run reproduces, but the bench's claim is narrower than it reads.
+a re-run reproduces, but the bench's claim is narrower than it reads.  Closed
+2026-10-01: a replay now runs in a throwaway clone of the snapshot project
+(`replay_bench.snapshot.isolated_project`), and nothing in it resolves into
+the source.
 
 **Two things the collapse broke, found by the test that guarded the OLD route.**
 `tests/test_vision_schema_adapter.py::test_framing_and_usable_ranges_reach_the_broll_prompt`

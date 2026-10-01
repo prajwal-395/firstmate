@@ -87,8 +87,20 @@ without either shipping 7 MB of somebody's footage analysis.
 running pipeline. `raw/`, `music/`, `assets/`, `brand_assets/`,
 `compositions/` and `pipeline_output/` are REFERENCED by symlink: 001's
 music library is 3 GB and its output tree is 2 GB, and copying either per
-snapshot is a backup, not a snapshot. They are also the areas a pre-bridge
-reads and never writes.
+snapshot is a backup, not a snapshot.
+
+**A replay never runs against the snapshot directory**, because those
+references are the live project. Pre-bridges DO write - 3.02's footage
+analysis and window frames, 3.04's repeated-take diagnostics, 4.03's and
+5.01's stills, 4.04's SFX catalogue - and until 2026-10-01 they wrote
+through the symlinks into the captain's `pipeline_output/` (001 gained 395
+files after its last run). Each reconstruction now runs in a throwaway
+copy-on-write clone of the snapshot project under `<store>/_workspaces/`
+(`snapshot.isolated_project`): APFS `clonefile` or a reflink, so seconds
+and no disk for a 28 GB project; the state's absolute source paths are
+re-rooted at the clone; and a clone in which any path still resolves into
+the source REFUSES. A filesystem that cannot clone gets a real copy only
+below `COPY_FALLBACK_LIMIT_BYTES`. `tests/test_replay_bench.py` pins it.
 
 Default store: `~/.video_editing_pilot/replay_snapshots`, overridable with
 `PIPELINE_REPLAY_SNAPSHOTS` or `--store`.

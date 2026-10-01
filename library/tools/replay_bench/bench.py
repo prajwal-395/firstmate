@@ -61,15 +61,19 @@ def _run_worker(tree: Path, snap: snapshot_mod.Snapshot, step: str,
     imported once stays imported.  One process per reconstruction is what
     makes "the same step at two revisions" mean two trees rather than the
     first one twice.
+
+    And always in a throwaway clone of the snapshot project, never the
+    snapshot directory, whose referenced areas are the live project's.
     """
-    with tempfile.TemporaryDirectory(prefix="replay-bench-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="replay-bench-") as tmp, \
+            snapshot_mod.isolated_project(snap) as project_dir:
         out = Path(tmp) / "result.json"
         cmd = [
             sys.executable, str(WORKER),
             "--tree", str(tree),
-            "--state", str(snap.project_dir / "pipeline_data.json"),
+            "--state", str(project_dir / "pipeline_data.json"),
             "--step", step,
-            "--project-dir", str(snap.project_dir),
+            "--project-dir", str(project_dir),
             "--declared-project-folder", snap.declared_project_folder,
             "--out", str(out),
         ]
@@ -189,10 +193,9 @@ def _llm_authored_from_archive(request: dict) -> list:
     # held.  `value_decisions` is the one that is nonetheless LOAD-BEARING -
     # a post-bridge acts on it - but what the state records is the
     # DECISION, on the step's own output, not the answer.
-    from library.tools.undetermined import FIELD as _UNDETERMINED_FIELD
-    from library.tools.direction_contradiction import (
-        FIELD as _CONTRADICTION_FIELD)
     from library.tools.decided_value import FIELD as _DECIDED_VALUE_FIELD
+    from library.tools.direction_contradiction import FIELD as _CONTRADICTION_FIELD
+    from library.tools.undetermined import FIELD as _UNDETERMINED_FIELD
     _split_out = {_UNDETERMINED_FIELD, _CONTRADICTION_FIELD,
                   _DECIDED_VALUE_FIELD}
     try:
