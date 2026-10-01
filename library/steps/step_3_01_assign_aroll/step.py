@@ -283,6 +283,102 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
     }
 
 
+# ── Region-scoped re-assignment, and putting it back ────────────────
+
+def splice_region_aroll(audio_spine: dict, clip_catalog: list,
+                        stored_assignments: dict, scope,
+                        project_folder: str = "",
+                        project_fps: float = 30.0,
+                        audio_catalog: list = None) -> dict:
+    """Re-assign the blocks a region touches and splice them into
+    `stored_assignments` (this step's recorded output).
+
+    For a spine whose region was re-anchored - a re-indexed passage, a
+    corrected source range - so the region's footage changes and every
+    other block's assignment, `link_group_id` included, stays exactly as
+    it was.  The report MEASURES that.
+
+    Refuses rather than doing something surprising:
+
+    - a region touching no block;
+    - a block whose TIMELINE span moved: an assignment is placed at its
+      block's `timeline_start`/`timeline_end`, and a moved block moves
+      every block after it - that is a re-plan from `mesh_spine`, not a
+      splice of A-roll;
+    - everything `assign_a_roll` refuses for the region's blocks.
+
+    Returns `{"a_roll_assignments", "hook_assignment",
+    "voiceover_assignments", "splice": <report>}`.
+    """
+    from library.tools.plan_splice import (
+        SpliceRefused,
+        splice_entries,
+        splice_report,
+    )
+    from library.tools.spine_contract import blocks_overlapping
+
+    span = scope.region_span
+    touched = blocks_overlapping(audio_spine.get("structure", []),
+                                 span.start, span.end)
+    if not touched:
+        raise SpliceRefused(
+            f"region {span} touches no spine block",
+            "there is nothing in it to re-assign",
+            "address a region inside the timeline")
+    positions = [b["position"] for b in touched]
+
+    width, height = resolve_delivery_format(project_folder)
+    fresh = assign_a_roll(dict(audio_spine, structure=touched),
+                          clip_catalog, width, height, project_fps,
+                          audio_catalog=audio_catalog)
+
+    key = "spine_block_position"
+    stored = {k: stored_assignments.get(k) or []
+              for k in ("a_roll_assignments", "voiceover_assignments")}
+    moved = []
+    for name, entries in stored.items():
+        was = {str(e[key]): e for e in entries}
+        for entry in fresh[name]:
+            old = was.get(str(entry[key]))
+            if old is not None and (
+                    old["timeline_start"], old["timeline_end"]) != (
+                    entry["timeline_start"], entry["timeline_end"]):
+                moved.append(
+                    f"block {entry[key]}: {old['timeline_start']}-"
+                    f"{old['timeline_end']}s -> {entry['timeline_start']}-"
+                    f"{entry['timeline_end']}s")
+    if moved:
+        raise SpliceRefused(
+            "this splice would move blocks on the timeline",
+            "an A-roll assignment sits at its block's timeline span, and "
+            "a block that moved moves every block after it:\n  - "
+            + "\n  - ".join(moved),
+            "a re-timed spine is a re-plan: re-run assign_aroll at "
+            "project scope, then the steps downstream of it")
+
+    out = {}
+    report = {}
+    for name, entries in stored.items():
+        out[name] = splice_entries(entries, fresh[name], positions, key,
+                                   key)
+        report[name] = splice_report(entries, out[name], positions, key)
+
+    hook = stored_assignments.get("hook_assignment")
+    targets = {str(p) for p in positions}
+    if hook is None or str(hook[key]) in targets:
+        hook = fresh["hook_assignment"]
+    out["hook_assignment"] = hook
+
+    out["splice"] = {
+        "region": span.as_address(),
+        "positions": report["a_roll_assignments"]["positions"],
+        "outside_unchanged": all(r["outside_unchanged"]
+                                 for r in report.values()),
+        **report,
+    }
+    return out
+
+
 def main():
     input_data = json.loads(sys.stdin.read())
     audio_spine = input_data["audio_spine"]

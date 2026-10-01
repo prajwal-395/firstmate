@@ -1150,6 +1150,20 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="assign_a_roll",
     ),
     Operation(
+        name="aroll.splice",
+        summary="Re-assign a region's A-roll from the spine and put it back into the stored assignments",
+        owning_node="assign_aroll",
+        owning_dir="step_3_01_assign_aroll", body="step.py",
+        attr="splice_region_aroll",
+        # REGION only, beside `aroll.assign`: the region's blocks are
+        # re-assigned from the (re-anchored) spine and spliced into the
+        # recorded output, supplied as `stored_assignments`. Every other
+        # block's assignment comes back byte-identical (`plan_splice`),
+        # and a region whose blocks MOVED on the timeline is refused as
+        # the re-plan it is.
+        scopes=(REGION,),
+    ),
+    Operation(
         name="broll.resolve",
         summary="Resolve B-roll selections to placed cutaways with source ranges",
         owning_node="select_broll",
