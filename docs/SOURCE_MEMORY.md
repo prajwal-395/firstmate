@@ -15,7 +15,8 @@ copy it; nothing goes into `pipeline_data.json`.
 
 ```
 <root>/<content_digest>/          # footage_identity.fingerprint
-  source.json                    # M0 - written
+  source.json                    # M0 - written (library/tools/source_primitives.py)
+  program.16k.wav                # M0 - the program track, 16 kHz mono s16le
   transcript.words.json          # M1 - written
   speakers.json                  # M1b - diarization lane (RESERVED)
   frames/ + frames.index.json    # M2  - written
@@ -48,14 +49,28 @@ silence or refusal and is served as the answer.
   "measured_levels_db": {"CH1": -20.1},
   "program_track": {"channel": 1, "basis": "declared|single|loudest-live",
                     "measured_levels_db": {"CH1": -20.1}},
-  "gop_frames": null
+  "gop_frames": null,
+  "undecodable_audio_streams": [{"channel": 2, "codec": "apple_apac"}],
+  "program_declaration": null,
+  "program_audio": {"file": "program.16k.wav", "channel": 1,
+                    "rate_hz": 16000, "size_bytes": 0,
+                    "pcm_sha256": "sha256 hex"}
 }
 ```
 
+M0 and `program.16k.wav` are the source PRIMITIVES
+(`library/tools/source_primitives.py`): probed, demuxed, level-measured
+and decided once per content digest, then read by M1, M3b and step
+1.04 (for a source whose only audio stream is the program) instead of
+each decoding the file again. A stream this machine's ffmpeg cannot
+decode is listed in `undecodable_audio_streams` and left out rather
+than failing the file. A program decision made under a different
+`source.program_stream` declaration is rebuilt, not served.
+
 `channel` is the 1-based audio ordinal (`-map 0:a:<channel-1>`).
 `program_track.channel` is null with basis `no-audio-streams`,
-`no-live-track` or `declaration-refused` when nothing is
-transcribable. `gop_frames` is null until M2 samples the source, then
+`no-decodable-audio-streams`, `no-live-track` or `declaration-refused`
+when nothing is transcribable (`program_audio.file` is then null). `gop_frames` is null until M2 samples the source, then
 filled in from the measured keyframe spacing.
 
 ## M1 `transcript.words.json` (written)

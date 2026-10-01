@@ -72,6 +72,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -134,6 +135,41 @@ def extract_audio_16k(video_path: str, output_dir: str, clip_id: str = None) -> 
     if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
         raise RuntimeError(f"Empty audio file for {video_path}")
 
+    return audio_path
+
+
+def clip_audio_16k(video_path: str, output_dir: str,
+                   clip_id: str = None) -> str:
+    """The clip's 16 kHz mono WAV in the audio cache, decoded once.
+
+    Same file, same place as `extract_audio_16k` (step 1.05 reads it
+    there). When the source's only audio stream is its program track,
+    the samples are the source primitive's canonical WAV
+    (`library/tools/source_primitives.py`) - byte-identical PCM to what
+    the extraction would decode - so it is linked (or copied) in rather
+    than decoded again, and the transcript and identity lanes read the
+    same primitive. Anything else extracts exactly as before.
+    """
+    basename = clip_id if clip_id else Path(video_path).stem
+    audio_path = os.path.join(output_dir, f"{basename}.wav")
+    if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+        return audio_path
+    try:
+        from library.tools import source_primitives
+        primitive = source_primitives.sole_program_wav(video_path)
+    except Exception as e:
+        print(f"  source primitives unavailable for {basename} ({e}); "
+              f"extracting", file=sys.stderr)
+        primitive = None
+    if primitive is None:
+        return extract_audio_16k(video_path, output_dir, clip_id=clip_id)
+    os.makedirs(output_dir, exist_ok=True)
+    staged = os.path.join(output_dir, f".{basename}.{os.getpid()}.wav")
+    try:
+        os.link(primitive, staged)
+    except OSError:
+        shutil.copyfile(primitive, staged)
+    os.replace(staged, audio_path)
     return audio_path
 
 
@@ -2641,8 +2677,8 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
     prepared = []
     for key, source_path in needs:
         try:
-            audio_path = extract_audio_16k(source_path, audio_dir,
-                                           clip_id=key)
+            audio_path = clip_audio_16k(source_path, audio_dir,
+                                        clip_id=key)
             onsets = detect_onsets(audio_path)
         except Exception as e:
             # One clip's extraction or onset pass must not fail the
@@ -2713,7 +2749,7 @@ def index_clip(
     if pretranscribed is not None:
         audio_path, onsets, speech, transcription = pretranscribed
     else:
-        audio_path = extract_audio_16k(video_path, audio_dir, clip_id=clip_id)
+        audio_path = clip_audio_16k(video_path, audio_dir, clip_id=clip_id)
 
     # 1. Scene detection
     print("    [1/12] Scene detection...", file=sys.stderr)

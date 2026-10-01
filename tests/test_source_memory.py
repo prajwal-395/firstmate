@@ -444,3 +444,74 @@ def test_memory_reaches_no_step_or_process():
         source = (Path(source_memory.__file__).parent
                   / f"{module}.py").read_text(encoding="utf-8")
         assert not forbidden.search(source), f"{module}.py reaches the pipeline"
+
+
+# ── Source primitives: measured once, read by every lane ───────────
+
+
+def _tone_wav(path: str, seconds: float = 1.0, amplitude: int = 8000):
+    import wave
+    with wave.open(path, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        frames = int(16000 * seconds)
+        wav.writeframes(b"".join(
+            (amplitude if i % 2 else -amplitude).to_bytes(2, "little",
+                                                         signed=True)
+            for i in range(frames)))
+
+
+def _iphone_probe(_path):
+    """An iPhone MOV: stereo AAC plus 4-channel spatial audio (APAC)."""
+    return {"duration_seconds": 1.0, "streams": [
+        {"index": 0, "codec_type": "video", "codec": "hevc",
+         "width": 1920, "height": 1080, "avg_frame_rate": "30/1"},
+        {"index": 1, "codec_type": "audio", "codec": "aac",
+         "channel": 1, "channels": 2, "sample_rate": 48000},
+        {"index": 2, "codec_type": "audio", "codec": "apple_apac",
+         "channel": 2, "channels": 4, "sample_rate": 48000}]}
+
+
+def test_an_undecodable_stream_is_recorded_not_fatal(tmp_path, memory_root,
+                                                     monkeypatch):
+    """Measured on IMG_1759.MOV: ffmpeg here has no `apple_apac`
+    decoder, so demuxing every audio stream in one pass failed the
+    WHOLE file and iPhone footage never got a transcript. The stream
+    no decoder reads is now recorded and left out of the demux."""
+    from library.tools import source_primitives
+
+    media = _media(tmp_path, "IMG_1759.MOV", b"iphone")
+    demuxed = []
+
+    def _demux(source, channels, out_dir):
+        demuxed.append(list(channels))
+        paths = {}
+        for ch in channels:
+            paths[ch] = str(Path(out_dir) / f"track_CH{ch}.wav")
+            _tone_wav(paths[ch])
+        return paths
+
+    monkeypatch.setattr(source_memory, "probe_streams", _iphone_probe)
+    monkeypatch.setattr(source_memory, "demux_audio_tracks", _demux)
+    monkeypatch.setattr(source_primitives, "available_decoders",
+                        lambda: frozenset({"aac", "hevc"}))
+
+    first = source_primitives.ensure(str(media))
+    assert demuxed == [[1]]
+    m0 = first["m0"]
+    assert m0["undecodable_audio_streams"] == [
+        {"channel": 2, "codec": "apple_apac"}]
+    assert m0["program_track"]["channel"] == 1
+    assert Path(first["program_wav"]).is_file()
+
+    # Every later consumer reads it: no second probe or demux.
+    monkeypatch.setattr(source_memory, "probe_streams",
+                        lambda _p: pytest.fail("probed twice"))
+    monkeypatch.setattr(source_memory, "demux_audio_tracks",
+                        lambda *a: pytest.fail("demuxed twice"))
+    again = source_primitives.ensure(str(media))
+    assert again["reused"] is True
+    assert again["program_wav"] == first["program_wav"]
+    # ...unless the program decision is asked under another declaration.
+    assert source_primitives.read(str(media), 2) is None

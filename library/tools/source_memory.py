@@ -24,9 +24,10 @@ writes into its named slot without inventing its own shape:
 ======== ============================ ============================= ==========
 slot     file                         what                          producer
 ======== ============================ ============================= ==========
-M0       `source.json`                digest, size, streams, live    this module
-                                      audio tracks, program-track
-                                      selection, GOP (nullable)
+M0       `source.json` +              digest, size, streams, live    `library/tools/
+         `program.16k.wav`            audio tracks, program-track    source_primitives.py`
+                                      selection and its WAV, GOP
+                                      (nullable)
 M1       `transcript.words.json`      whole-SOURCE word-timed       this module
                                       transcript (voz text through  (voz + MFA)
                                       MFA, the reel path's seam)
@@ -104,7 +105,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import wave
 from pathlib import Path
@@ -725,8 +725,7 @@ def build_source(source_file: str, declaration: Optional[int] = None,
     """
     started = time.perf_counter()
     timings: Dict[str, float] = {}
-    fp = footage_identity.fingerprint(source_file)
-    digest, size = fp["content_digest"], fp["size_bytes"]
+    digest = footage_identity.fingerprint(source_file)["content_digest"]
     target = source_dir(digest, root)
 
     existing, status = read_m1(digest, root)
@@ -741,111 +740,66 @@ def build_source(source_file: str, declaration: Optional[int] = None,
             "timings": {"total": round(time.perf_counter() - started, 1)},
         }
 
-    probe = probe_streams(source_file)
-    audio_channels = [s["channel"] for s in probe.get("streams", [])
-                      if s.get("codec_type") == "audio" and s.get("channel")]
-    if not audio_channels:
-        m0 = build_source_record(source_file, digest, size, probe, {},
-                                 {"channel": None,
-                                  "basis": "no-audio-streams",
-                                  "measured_levels_db": {}})
-        write_json(target / SLOT_SOURCE, m0)
+    # The probe, the per-track levels, the program decision and the
+    # program track as 16 kHz PCM are source primitives: measured once
+    # per content digest and shared with step 1.04 and the identity
+    # lane (`library/tools/source_primitives.py`).
+    from library.tools import hybrid_transcription, source_primitives
+
+    primitives = source_primitives.ensure(source_file, declaration, root,
+                                          scratch_parent)
+    timings.update(primitives["timings"])
+    timings.pop("total", None)
+    selection = primitives["m0"]["program_track"]
+
+    def untranscribed(status: str, detail: str) -> dict:
         write_json(target / SLOT_TRANSCRIPT, build_untranscribed_document(
-            digest, source_file, m0["program_track"],
-            "untranscribed-no-audio",
-            "ffprobe reports no audio stream on this file"))
+            digest, source_file, selection, status, detail))
+        timings["total"] = round(time.perf_counter() - started, 1)
         return {"source_file": os.path.abspath(source_file),
                 "content_digest": digest, "reused": False,
-                "m1_status": "untranscribed-no-audio", "utterances": 0,
-                "words": 0,
-                "timings": {"total": round(time.perf_counter() - started, 1)}}
+                "m1_status": status, "utterances": 0, "words": 0,
+                "timings": timings}
 
-    with tempfile.TemporaryDirectory(prefix="source-memory-",
-                                     dir=scratch_parent) as scratch:
-        t0 = time.perf_counter()
-        wavs = demux_audio_tracks(source_file, audio_channels, scratch)
-        timings["demux"] = round(time.perf_counter() - t0, 1)
+    if primitives["program_wav"] is None:
+        basis = selection.get("basis")
+        if basis == source_primitives.NO_AUDIO:
+            return untranscribed("untranscribed-no-audio",
+                                 "ffprobe reports no audio stream on this file")
+        if basis == source_primitives.NO_DECODABLE_AUDIO:
+            codecs = ", ".join(
+                f"CH{s['channel']} {s['codec']}" for s in
+                primitives["m0"].get("undecodable_audio_streams") or [])
+            return untranscribed("untranscribed-no-decodable-audio",
+                                 f"ffmpeg here has no decoder for {codecs}")
+        if basis == source_primitives.DECLARATION_REFUSED:
+            return untranscribed("untranscribed-declaration-refused",
+                                 selection.get("refusal", ""))
+        return untranscribed("untranscribed-silent",
+                             "every audio track measures below "
+                             f"{SILENCE_DB} dB")
 
-        t0 = time.perf_counter()
-        levels = {ch: track_level_db(wavs[ch]) for ch in audio_channels}
-        timings["levels"] = round(time.perf_counter() - t0, 1)
-
-        try:
-            channel, selection = select_program_track(levels, declaration)
-        except ValueError as refused:
-            m0 = build_source_record(source_file, digest, size, probe,
-                                     levels,
-                                     {"channel": None,
-                                      "basis": "declaration-refused",
-                                      "measured_levels_db": {
-                                          f"CH{ch}": round(lv, 1)
-                                          for ch, lv in sorted(levels.items())}})
-            write_json(target / SLOT_SOURCE, m0)
-            write_json(target / SLOT_TRANSCRIPT,
-                       build_untranscribed_document(
-                           digest, source_file, m0["program_track"],
-                           "untranscribed-declaration-refused", str(refused)))
-            return {"source_file": os.path.abspath(source_file),
-                    "content_digest": digest, "reused": False,
-                    "m1_status": "untranscribed-declaration-refused",
-                    "utterances": 0, "words": 0,
-                    "timings": {"total": round(time.perf_counter() - started, 1)}}
-
-        m0 = build_source_record(source_file, digest, size, probe,
-                                 levels, selection)
-        # M0 lands before the transcription: a killed alignment still
-        # leaves the probe and the program decision on disk.
-        write_json(target / SLOT_SOURCE, m0)
-
-        if channel is None:
-            write_json(target / SLOT_TRANSCRIPT,
-                       build_untranscribed_document(
-                           digest, source_file, selection,
-                           "untranscribed-silent",
-                           "every audio track measures below "
-                           f"{SILENCE_DB} dB"))
-            return {"source_file": os.path.abspath(source_file),
-                    "content_digest": digest, "reused": False,
-                    "m1_status": "untranscribed-silent", "utterances": 0,
-                    "words": 0,
-                    "timings": {"total": round(time.perf_counter() - started, 1)}}
-
-        from library.tools import hybrid_transcription
-
-        t0 = time.perf_counter()
-        try:
-            aligned, record = transcribe_track(
-                wavs[channel],
-                label=(f"{os.path.basename(source_file)}:CH{channel}"),
-                root=root)
-        except hybrid_transcription.FallbackRequired as fell_back:
-            reason = fell_back.reason
-            if reason in (hybrid_transcription.TRANSCRIBER_REFUSED,
-                          hybrid_transcription.HEARD_NOTHING):
-                write_json(target / SLOT_TRANSCRIPT,
-                           build_untranscribed_document(
-                               digest, source_file, selection,
-                               "untranscribed-silent", fell_back.detail))
-                status = "untranscribed-silent"
-            else:
-                write_json(target / SLOT_TRANSCRIPT,
-                           build_untranscribed_document(
-                               digest, source_file, selection,
-                               f"untranscribed-{reason}", fell_back.detail))
-                status = f"untranscribed-{reason}"
-            timings["transcribe"] = round(time.perf_counter() - t0, 1)
-            timings["total"] = round(time.perf_counter() - started, 1)
-            return {"source_file": os.path.abspath(source_file),
-                    "content_digest": digest, "reused": False,
-                    "m1_status": status, "utterances": 0, "words": 0,
-                    "timings": timings}
+    channel = selection["channel"]
+    t0 = time.perf_counter()
+    try:
+        aligned, record = transcribe_track(
+            primitives["program_wav"],
+            label=(f"{os.path.basename(source_file)}:CH{channel}"),
+            root=root)
+    except hybrid_transcription.FallbackRequired as fell_back:
         timings["transcribe"] = round(time.perf_counter() - t0, 1)
+        reason = fell_back.reason
+        if reason in (hybrid_transcription.TRANSCRIBER_REFUSED,
+                      hybrid_transcription.HEARD_NOTHING):
+            return untranscribed("untranscribed-silent", fell_back.detail)
+        return untranscribed(f"untranscribed-{reason}", fell_back.detail)
+    timings["transcribe"] = round(time.perf_counter() - t0, 1)
 
-        method = f"hybrid-{(record or {}).get('aligner', 'mfa')}"
-        utterances = utterances_from_aligned(aligned, method)
-        m1 = build_transcript_document(utterances, record, digest,
-                                       source_file, selection)
-        write_json(target / SLOT_TRANSCRIPT, m1)
+    method = f"hybrid-{(record or {}).get('aligner', 'mfa')}"
+    utterances = utterances_from_aligned(aligned, method)
+    m1 = build_transcript_document(utterances, record, digest,
+                                   source_file, selection)
+    write_json(target / SLOT_TRANSCRIPT, m1)
 
     timings["total"] = round(time.perf_counter() - started, 1)
     return {"source_file": os.path.abspath(source_file),
@@ -873,7 +827,6 @@ def build_project(project_folder: str,
     except Exception:
         declaration = None
     catalog = load_catalog(project_folder)
-    recorded = load_recorded_fingerprints(project_folder)
     results, failed = [], []
     for clip in catalog:
         clip_id = clip.get("clip_id")

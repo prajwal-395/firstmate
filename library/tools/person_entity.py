@@ -370,20 +370,26 @@ def build_source_identity(source_file: str,
                           declared_speaker_count: Optional[int] = None,
                           scratch_parent: Optional[str] = None,
                           interval_s: float = FRAME_SAMPLE_INTERVAL_S,
-                          max_samples: int = MAX_FRAME_SAMPLES) -> dict:
+                          max_samples: int = MAX_FRAME_SAMPLES,
+                          program_declaration: Optional[int] = None) -> dict:
     """M3b for one source file. Returns the per-file account.
 
     Heavy: sparse frame extraction + face embedding + voice diarization.
     Callers run this under the heavy-work lock; media is read-only.
+    The probe and the program track are the source's primitives
+    (`library/tools/source_primitives.py`) - the same track M1
+    transcribed, decided under the same declaration - so the voices
+    are diarized off the WAV already on disk, not a fresh demux.
     """
-    fp = footage_identity.fingerprint(source_file)
-    digest = fp["content_digest"]
-    target = source_memory.source_dir(digest, root)
+    from library.tools import source_primitives
 
-    probe = source_memory.probe_streams(source_file)
-    video_streams = [s for s in probe.get("streams", [])
-                     if s.get("codec_type") == "video"]
-    duration = probe.get("duration_seconds") or 0.0
+    primitives = source_primitives.ensure(
+        source_file, program_declaration, root, scratch_parent)
+    digest = primitives["content_digest"]
+    target = source_memory.source_dir(digest, root)
+    m0 = primitives["m0"]
+    video_streams = m0.get("video_streams") or []
+    duration = m0.get("duration_seconds") or 0.0
 
     if not video_streams:
         record = {"content_digest": digest,
@@ -416,24 +422,13 @@ def build_source_identity(source_file: str,
         else:
             face_tracks = []
 
-        audio_channels = [s["channel"] for s in probe.get("streams", [])
-                          if s.get("codec_type") == "audio" and s.get("channel")]
         voice_tracks: List[dict] = []
-        voice_unavailable_reason: Optional[str] = "no-audio-streams"
-        if audio_channels:
-            # One ffmpeg pass for every audio stream (source_memory's own
-            # measured reasoning: a pass per stream pays the full-file
-            # decode per stream).
-            wavs = source_memory.demux_audio_tracks(
-                source_file, audio_channels, scratch)
-            levels = {ch: source_memory.track_level_db(wavs[ch])
-                     for ch in audio_channels}
-            channel, selection = source_memory.select_program_track(levels)
-            if channel is not None:
-                voice_tracks, voice_unavailable_reason = measure_voice_tracks(
-                    wavs[channel], declared_speaker_count)
-            else:
-                voice_unavailable_reason = selection.get("basis") or "no-live-track"
+        if primitives["program_wav"] is not None:
+            voice_tracks, voice_unavailable_reason = measure_voice_tracks(
+                primitives["program_wav"], declared_speaker_count)
+        else:
+            voice_unavailable_reason = (m0["program_track"].get("basis")
+                                        or "no-live-track")
 
     links = link_speech_to_face(face_tracks, voice_tracks)
 
@@ -483,6 +478,11 @@ def build_project_identity(project_folder: str,
     """
     declared = footage_identity.declared_speakers(project_folder)
     speaker_count = len(declared) if declared else None
+    try:
+        program_declaration = footage_identity.declared_program_stream(
+            project_folder)
+    except Exception:
+        program_declaration = None
     catalog = source_memory.load_catalog(project_folder)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
     seen_digests: set = set()
@@ -504,7 +504,8 @@ def build_project_identity(project_folder: str,
             continue
         try:
             account = build_source_identity(
-                path, root, declared_speaker_count=speaker_count)
+                path, root, declared_speaker_count=speaker_count,
+                program_declaration=program_declaration)
         except Exception as exc:
             failed.append(clip_id)
             results.append({"clip_id": clip_id, "source_file": path,

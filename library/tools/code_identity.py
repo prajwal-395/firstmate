@@ -247,6 +247,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # stored hearings live under, so a fix here changes which
         # hearings the cached segments are served from.
         "library/tools/source_memory.py",
+        # Imported by step.py: a single-stream source's 16 kHz audio is
+        # the source primitive's canonical WAV, so a fix here changes
+        # the samples every cached measurement was taken from.
+        "library/tools/source_primitives.py",
         # Imported by timeline_transcript beside the hybrid arm: forced
         # alignment where its environment is present, so a fix here
         # moves the cached word timings.
