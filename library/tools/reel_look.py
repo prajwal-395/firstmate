@@ -63,6 +63,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -1306,6 +1307,47 @@ def _read_motion_plan_file(path: str) -> Optional[list]:
     return None
 
 
+_WORD_SPAN = re.compile(r"(.+?)\[(-?\d+\.\d{3})-(-?\d+\.\d{3})\](?: |$)")
+
+
+def render_word_spans(spans: Sequence[dict]):
+    """A shot's word timings as the span ask spells them: `we[1.000-1.200]`.
+
+    The JSON list (`{"word", "start", "end"}` per word) cost 2.3x the
+    tokens of this notation for the same words - measured 2026-10-01 on
+    geo-podcast's 31 motion asks, o200k_base. Returned only where
+    `expand_word_spans` reads it back to the identical list, so the
+    answer fingerprint (`motion_request_basis`) is unchanged; anything
+    that would not survive the round trip keeps the list.
+    """
+    text = " ".join(f"{w['word']}[{w['start']:.3f}-{w['end']:.3f}]"
+                    for w in spans)
+    try:
+        same = (json.dumps(expand_word_spans(text), sort_keys=True)
+                == json.dumps(list(spans), sort_keys=True))
+    except ValueError:
+        same = False
+    return text if same else list(spans)
+
+
+def expand_word_spans(value) -> List[dict]:
+    """The `{"word", "start", "end"}` list behind either spelling."""
+    if not isinstance(value, str):
+        return value
+    spans = []
+    position = 0
+    while position < len(value):
+        match = _WORD_SPAN.match(value, position)
+        if match is None:
+            raise ValueError(f"unreadable word span at {position}: "
+                             f"{value[position:position + 40]!r}")
+        spans.append({"word": match.group(1),
+                      "start": float(match.group(2)),
+                      "end": float(match.group(3))})
+        position = match.end()
+    return spans
+
+
 def motion_request_basis(request: dict) -> dict:
     """Fingerprint the prompt inputs that determine anchored motion.
 
@@ -1313,15 +1355,20 @@ def motion_request_basis(request: dict) -> dict:
     ask for continuity, and including it would make a response invalidate
     itself. The shots and locked closing positions are the spine the model
     addresses, including each block's text, timing and word spans.
+    Word spans are fingerprinted in their list form whichever spelling
+    the ask carries, so a compact ask binds the answers a list ask did.
     """
     context = request["context"]
+    shots = [dict(shot, word_spans=expand_word_spans(shot["word_spans"]))
+             if "word_spans" in shot else shot
+             for shot in context["shots"]]
     source = {
         "schema": MOTION_BASIS_SCHEMA,
         "step_id": request["step_id"],
         "reel_number": int(request["reel_number"]),
         "prompt": request["prompt"],
         "expected_schema": request["expected_schema"],
-        "shots": context["shots"],
+        "shots": shots,
         "locked_closing_positions": context["locked_closing_positions"],
     }
     canonical = json.dumps(
@@ -1536,7 +1583,7 @@ def write_motion_request(reel_number: int, reel_name: str,
             "speaker": block.get("speaker", ""),
             "says": " ".join(" ".join(str(s.get("text", "")).split())
                              for s in spoken)[:900],
-            "word_spans": word_spans,
+            "word_spans": render_word_spans(word_spans),
         })
     empty = [r["target_block_position"] for r in rows if not r["says"]]
     if empty:

@@ -171,7 +171,8 @@ def test_motion_request_omits_a_word_ending_beyond_the_picture_shot(
           "text": "business."}], os.fspath(tmp_path))
     with open(request_path, "r", encoding="utf-8") as handle:
         request = json.load(handle)
-    assert request["context"]["shots"][0]["word_spans"] == []
+    assert reel_look.expand_word_spans(
+        request["context"]["shots"][0]["word_spans"]) == []
 
     with pytest.raises(ValueError, match="outside block 0"):
         resolve_anchor(
@@ -190,7 +191,8 @@ def test_motion_request_omits_a_word_ending_beyond_the_picture_shot(
           "text": "edge"}], os.fspath(tmp_path))
     with open(request_path, "r", encoding="utf-8") as handle:
         request = json.load(handle)
-    span = request["context"]["shots"][0]["word_spans"][0]
+    span = reel_look.expand_word_spans(
+        request["context"]["shots"][0]["word_spans"])[0]
     assert span["end"] == block["timeline_end"]
 
 
@@ -268,8 +270,8 @@ def test_no_ken_burns_moves_outside_cta_sections(tmp_path):
 
     assert "one move per roughly 6-8 seconds" in request["prompt"]
     assert "body" in request["prompt"].lower()
-    assert request["context"]["shots"][0]["word_spans"][0] == {
-        "word": "we", "start": 1.0, "end": 1.2}
+    assert request["context"]["shots"][0]["word_spans"].startswith(
+        "we[1.000-1.200] ")
     assert request["context"]["locked_closing_moves"] == [closer]
 
     body_in = {
@@ -447,6 +449,53 @@ def test_changed_motion_spine_invalidates_answer_and_offline_build_resolves(
     assert record["resolved"] == 1
     assert record["dropped"] == []
     assert [item["effect_type"] for item in resolved] == ["slow_zoom_in"]
+
+
+def test_compact_word_spans_keep_an_answer_bound_to_a_list_form_ask(
+        tmp_path):
+    """Asks written before the compact spelling carried word spans as a
+    JSON list, and every answer on disk is fingerprinted against that
+    list. Re-asking in the compact spelling must not read as a changed
+    spine and delete those answers."""
+    from library.tools import reel_build
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project_folder = os.fspath(tmp_path / "project")
+    spine = reel_look.motion_spine(
+        [_placement("/clip.mxf", 0, 8.0)], 24.0,
+        [{"source_file": "/clip.mxf", "timeline_start": 0.0,
+          "timeline_end": 8.0, "source_start": 0.0, "source_end": 8.0,
+          "words": [{"word": "AI sees", "start": 0.2, "end": 0.6},
+                    {"word": "a", "start": 0.6, "end": 0.7},
+                    {"word": "point.", "start": 1.0, "end": 1.4}]}])
+    says = [{"timeline_start": 0.0, "timeline_end": 8.0,
+             "text": "AI sees a point."}]
+    path = reel_look.write_motion_request(
+        7, "Reel 07", spine, says, project_folder)
+    with open(path, "r", encoding="utf-8") as handle:
+        request = json.load(handle)
+    compact = request["context"]["shots"][0]["word_spans"]
+    assert compact == ("AI sees[0.200-0.600] a[0.600-0.700] "
+                       "point.[1.000-1.400]")
+    # The ask as the list-form writer left it, answered under that form.
+    request["context"]["shots"][0]["word_spans"] = (
+        reel_look.expand_word_spans(compact))
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(request, handle)
+    plan = [{"target_block_position": 0, "anchor": {"word": "AI sees"},
+             "anchor_end": {"word": "point.", "edge": "end"},
+             "effect_type": "ken_burns",
+             "params": {"zoom_start": 1.0, "zoom_end": 1.02},
+             "rationale": "the claim lands"}]
+    reel_build.write_visual_answers(project_folder, 7, {
+        "reel_semantic": [], "reel_span": [],
+        "reel_motion": {reel_look.MOTION_PLAN_KEY: plan}})
+
+    reel_look.write_motion_request(7, "Reel 07", spine, says, project_folder)
+
+    assert os.path.isfile(os.path.join(str(ProjectLayout(
+        project_folder).read_dir(Area.LLM_RESPONSES)), "reel_motion_07.json"))
+    assert reel_look.read_motion_answer(project_folder, 7) == plan
 
 
 def test_legacy_motion_answer_older_than_latest_ask_is_invalidated(
