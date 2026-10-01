@@ -261,9 +261,7 @@ structural diff to score them with.
 
 It measures the pipeline; the pipeline must not read it. Nothing under
 `library/steps/`, `library/processes/` or `library/dashboard/` may import
-it, and `tests/test_replay_bench.py` fails if one does - the same
-discipline `tests/test_footage_query_prototype.py` holds for the footage
-index (AGENTS.md §2).
+it, and `tests/test_replay_bench.py` fails if one does.
 
 `reconstruct.py` imports nothing from `library` at module scope, and a
 test enforces that too: it runs as a subprocess with the TARGET tree first

@@ -1,44 +1,59 @@
 ---
 name: ren-co-editor
 description: >
-  Run a Ren video project end to end as the co-editor: start a project
-  from footage, drive the pipeline through every LLM_REQUEST_READY file
-  handshake, conduct the briefing interview in chat, touch up and undo,
-  sign off, search footage, and reach Resolve through resolve-axi. Use
-  when asked to use Ren, edit a video, or start a new project.
+  Work a Ren video project as the co-editor, goal first: inspect the
+  project's state, search its footage and read Resolve, pick the ren
+  capability that does the job, run it, and verify the result. Covers
+  the file handshake, the briefing interview, touch-ups and undo,
+  sign-off, timeline notes and resolve-axi. Use when asked to use Ren,
+  edit a video, change a reel, or start a new project.
 ---
 
 # ren-co-editor - the host's job on a Ren project
 
 You are the co-editor: an LLM with a shell, driving Ren (the `ren`
 front door in this checkout) on behalf of the person beside you in
-chat. Ren never calls an LLM API on this path - /**OAuth harnesses
+chat. Ren never calls an LLM API on this path - **OAuth harnesses
 only** (Claude Code, Codex, opencode); direct API mode is out of
-scope/ - **you** are the model. The pipeline hands you prompts as
-files; you hand back JSON as files. That exchange is the file
-handshake, and it is the only way answers travel.
+scope - **you** are the model. When Ren needs a judgement it hands you
+a prompt as a file and you hand back JSON as a file (section 5).
 
 Run EVERYTHING through `bin/vep`, never a bare `python3` (the venv and
-Resolve variables resolve through the ladder there). `ren` itself is
-the same commands: `ren <verb>` execs `bin/vep manage_project.py
-<subcommand>`, so `ren edit --help` prints the runner's own help.
+Resolve variables resolve through the ladder there). Every verb is a row
+in one registry, `ren/commands.py`; `ren <verb>` execs it under `bin/vep`,
+so `ren <verb> --help` prints that verb's own options. `ren --help` lists
+every verb. Use `ren`, not `manage_project.py`, which is no longer the
+user-facing entry point.
 
-## 0. The three places (read, do not memorise)
+## 0. The loop
 
-- The handshake contract lives in ONE module:
-  `library/tools/llm_handshake.py`. Request/response schema, file
-  locations, resume, and what a malformed response refuses with. What
-  is written below is that contract stated for chat; the module is
-  authoritative when they disagree.
-- The chat interview lives in `library/tools/briefing_chat.py`.
-- The marker hook lives in `ren/hooks/marker_hook.py`, installed by
-  `ren setup-hooks`.
+Work from the person's GOAL, not from the pipeline's step list:
+
+1. **Goal** - what should be different when you are done? Ask in chat
+   when it is ambiguous; never guess a creative choice.
+2. **Inspect state** - what exists already (section 2).
+3. **Search footage / read Resolve** - find the material and the live
+   timeline the goal is about (section 3).
+4. **Choose a capability** - the smallest `ren` verb or scoped run that
+   does the job (section 4).
+5. **Execute** - run it, answering any handshake it raises (section 5).
+6. **Verify** - read back what changed, against the goal (section 6).
+
+A whole-pipeline `ren edit --full-auto agent` run is the compatibility
+path (section 5), not the default: use it for a brand-new edit from raw
+footage, or when the person asks for one.
+
+The contracts live in code; what is written here is them stated for
+chat, and the module wins when they disagree:
+`library/tools/llm_handshake.py` (the file handshake),
+`library/tools/briefing_chat.py` (the chat interview),
+`ren/hooks/marker_hook.py` (the marker hook, installed by `ren setup-hooks`).
 
 ## 1. Start: new project from footage
 
 ```sh
 ren doctor                        # must PASS; changes nothing
-ren new <slug> --name "..."       # create the project
+ren new <slug> --name "..."       # create the project, then copy footage into raw/
 ren check <project>               # readiness: footage found, layout ok
 ```
 
@@ -47,11 +62,68 @@ outside `PIPELINE_PROJECTS_ROOT`. Never touch a real project or a real
 Resolve project unasked: fixtures and temp dirs unless the user named
 one of theirs.
 
-## 2. Run, and answer every handshake
+## 2. Inspect state
 
-```sh
-ren edit <project> --full-auto agent
-```
+- `ren projects` / `ren status <project>` / `ren info <project>` - which
+  projects exist, which pipeline steps have run or failed, the project's
+  configuration.
+- `ren check <project>` - readiness.
+- `ren trace <project>` - regenerate the run traceback and artifact
+  index: which run wrote which file (AGENTS.md §8).
+- `ren drift <project>` / `ren rounds <project>` / `ren notes <project>`
+  - what moved on the live timeline since the build, what changed
+  between feedback rounds, which timeline note went to which step.
+- `ren take-pick <project> --reel <n>` - one reel's takes, freshness and
+  boundary words in one read.
+
+## 3. Search footage; read Resolve
+
+Footage search is a capability of its own, not a pipeline stage - query
+it whenever the goal is about what is IN the footage.
+
+- `ren analyze <folder-or-project>` analyses footage with NO edit: the
+  analysis steps, the per-source memory lanes and both search indexes,
+  reusing every fresh record (heavy - it takes the heavy-work lock). A
+  bare folder becomes a collection project that `ren edit` can continue.
+- `ren search-index <project>` builds the footage index (only when
+  asked; it writes into the project's scratch). `ren search <project>
+  "..."` finds where in the footage something happens; `--person`
+  restricts to one person's spans, `--visual` ranks sampled frames. A
+  ranking cannot say "not here": below the dense floor is not-in-footage.
+- `ren export-memory <project>` writes the path-portable footage memory;
+  `ren eval-search <project>` scores search on the pre-registered set
+  (docs/SOURCE_MEMORY.md, "The analysis-only run").
+- Every Resolve read or write goes through `bin/resolve-axi`
+  (`library/tools/resolve_axi.py`): `timeline list|get`, `items`,
+  `markers`, `captions`, `pool`, `render`. To read a built reel, call
+  `library/tools/reel_read.py`, never a new probe. Address a Resolve
+  project by its EXACT listed name, never a prefix. Judge every Resolve
+  call by what it RETURNS, never by `hasattr`.
+
+## 4. Choose a capability
+
+| Goal | Capability |
+|---|---|
+| Find a moment in the footage | `ren search` (section 3) |
+| Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act |
+| An editor's natural-language request | `ren spec prepare` / `ren spec resolve` (section 7) |
+| Reel candidates for approval | `ren propose <project>` |
+| Cut approved reels onto Resolve | `ren build <project>` (Resolve open on the exact project; never unasked; `reel_build` skill) |
+| Two versions of one reel | `ren variant new` / `build` / `diff` / `choose` |
+| Redo one stage, step or clip | `ren edit <project> --full-auto agent` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |
+| Render a reel to a file | `ren deliver <project> <n>` |
+| Record approval | `ren sign-off <project>` (built reels only; `PROPOSED` fails as `REJECTED` does) |
+| Tidy the Resolve pool | `ren pool-organize`, `ren pool-prune`, `ren relink` |
+
+`pipeline_operations` lists the named operations a scoped run can do and
+the scope each runs at. Pick the narrowest capability that reaches the
+goal; a full run redoes work the goal did not ask for.
+
+## 5. Execute: answer every handshake
+
+`--full-auto agent` selects the file-handshake backend, so a scoped run
+is `ren edit <project> --full-auto agent --only <step>` (or `--rerun`,
+`--step`, `--target`). Any such run may stop for a judgement:
 
 The runner prints `LLM_REQUEST_READY: <path>` on stdout and waits. For
 each request, in order:
@@ -77,7 +149,14 @@ each request, in order:
    deletes stale responses when it writes the request, so a stale
    answer is never mistaken for a fresh one.
 
-## 2b. Still-vision requests: open the pictures, then answer
+The compatibility path is the same command with no scope - the whole
+pipeline, every step in DAG order:
+
+```sh
+ren edit <project> --full-auto agent
+```
+
+### Still-vision requests: open the pictures, then answer
 
 Some requests carry an `images` list: absolute paths of still frames
 you MUST look at with your own vision before answering (step ids end
@@ -96,13 +175,13 @@ gemma is only the fallback when you cannot:
    process video natively, so video understanding stays on gemma and
    only stills come to you.
 
-Answer EVERY request, including review gates (`ren edit --review`
+Answer EVERY request a run raises, including review gates (`--review`
 pauses for a human answer via `python3 -m
 library.tools.review_gate answer` - same files, same shape) and the
-briefing interview below. A run that stops asking has finished or
-failed; `ren status <project>` tells which.
+briefing interview. A run that stops asking has finished or failed;
+`ren status <project>` tells which.
 
-## 3. The briefing interview happens in chat
+### The briefing interview happens in chat
 
 When no creative brief is attached, the run's FIRST request is the
 chat interview (`llm_requests/briefing_interview.json`,
@@ -120,38 +199,21 @@ to `llm_responses/briefing_interview.json`. An empty list is complete
 never a failure, never re-asked on resume. The answers ride with every
 planning step that declares `creative_brief`.
 
-## 4. After the plan: touch, undo, sign-off
+## 6. Verify
 
-- `ren touch <project>` - a small change to a built reel, in place
-  (not a rebuild). `ren undo <project>` reverses the newest act.
-- `ren sign-off <project>` - record the captain's sign-off on a built
-  reel. Only built reels; `PROPOSED` fails the gate as `REJECTED` does.
-- `ren propose <project>` / `ren build <project>` - publish chosen
-  moments, then cut approved moments onto Resolve timelines. Building
-  needs Resolve open on the exact project; never build unasked.
-- `ren drift <project>` / `ren rounds <project>` / `ren notes
-  <project>` - what moved, what changed between feedback rounds, which
-  timeline note went to which step.
+Read back what the capability changed, against the goal - a command that
+exited 0 is not a verified edit.
 
-## 5. Search footage; reach Resolve through resolve-axi
+- `ren status <project>` - the run's own verdict (`SUCCESS` only when
+  the whole DAG is complete and nothing failed).
+- `ren drift <project>` and `bin/resolve-axi` reads - the live timeline
+  holds what was planned.
+- `verify_timeline` (a built timeline), `verify_render` (a rendered
+  file), `ren hear` / `hear_the_reel` (what a delivered reel SAYS) and
+  `ren watch` (a model watches it); `ask_the_footage` when a judgement
+  needs eyes on the picture.
 
-- `ren search-index <project>` builds the footage index (only when
-  asked; it writes into the project's scratch). `ren search
-  <project> "..."` finds where in the footage something happens. A
-  ranking cannot say "not here": below the dense floor is not-in-footage.
-- `ren analyze <folder-or-project>` analyses footage with NO edit: the
-  analysis steps, the per-source memory lanes and both search indexes,
-  reusing every fresh record (heavy - it takes the heavy-work lock). A
-  bare folder becomes a collection project that `ren edit` can continue.
-  `ren export-memory <project>` writes the path-portable export;
-  `ren eval-search <project>` scores search on the pre-registered set
-  (docs/SOURCE_MEMORY.md, "The analysis-only run").
-- Every Resolve read or write goes through `resolve-axi`
-  (`library/tools/resolve_axi.py`): timelines, pool, markers, renders.
-  Address a Resolve project by its EXACT listed name, never a prefix.
-  Judge every Resolve call by what it RETURNS, never by `hasattr`.
-
-## 6. Timeline notes become work via the marker hook
+## 7. Timeline notes become work via the marker hook
 
 Install once per host: `ren setup-hooks --app claude-code|opencode|codex`
 (plans; `--write` installs). The hook is disk-only - at session start
@@ -207,7 +269,7 @@ Inspect both artifact paths named in the intent request. If the result is
 the spec. This check uses the final export; proxy preview remains out of
 scope.
 
-## 7. What you never do
+## 8. What you never do
 
 - No renders, no Resolve writes, unasked. No touching real projects,
   the Resolve project, or any timeline the user did not name.

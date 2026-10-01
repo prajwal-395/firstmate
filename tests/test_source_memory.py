@@ -433,7 +433,7 @@ def test_memory_reaches_no_step_or_process():
 
     `footage_segments` (and the memory it reads) is imported by `ren
     search-index`; a steps/process import here would drag the DAG into
-    that process. The prototype guard pins its own two files - this
+    that process. The search guard pins its own modules - this
     pins the new dependency they gained.
     """
     import re

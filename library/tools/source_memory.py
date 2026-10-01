@@ -201,7 +201,7 @@ def source_dir(content_digest: str, root: Optional[Path] = None) -> Path:
 
 
 # ── Reading the project side (catalog + recorded digests) ──────────
-# The memory must not depend on the search prototype; the dependency
+# The memory must not depend on footage search; the dependency
 # runs the other way. So the two project reads it needs are local and
 # small: the clip catalog and the runner's recorded fingerprints.
 

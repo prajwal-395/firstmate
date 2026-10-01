@@ -1,16 +1,12 @@
-"""The footage index prototype: what it cuts, what it finds, and that it is unwired.
+"""Footage search: what it cuts, what it finds, and that it stands alone.
 
-`test_footage_index_stays_unwired` is the one that matters most. The
-captain's instruction was to prototype a cross-clip footage index and NOT
-wire it in, so "nothing imports it" is a property of the repository, not
-a promise in a PR description. That test fails the moment a step, the
-DAG or a manifest reaches for it. It was NARROWED on 2026-08-26 when the
-captain authorised the dashboard - and only the dashboard - to call it;
-P2 retired the dashboard, and the carve-out moved to `ren search` /
-`ren search-index` (Q11). `test_the_guard_still_fires_when_a_step_imports_the_index`
-shows it still fires.
+Search is a footage-intelligence capability, not an editing-pipeline
+stage (AGENTS.md §2). Agents and people query it through `ren search` /
+`ren search-index`; what keeps it a capability is that it imports nothing
+from the pipeline, so it answers on any analysed project with no run
+behind it. `test_search_does_not_import_the_pipeline` pins that.
 
-Every other test builds its project under `tmp_path`. No test reads a
+Every test builds its project under `tmp_path`. No test reads a
 real project (§8).
 """
 
@@ -31,7 +27,7 @@ from library.tools.analysis.footage_segments import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROTOTYPE_MODULES = ("footage_query", "footage_segments", "footage_frames")
+SEARCH_MODULES = ("footage_query", "footage_segments", "footage_frames")
 
 
 # ─── A project on disk, built from nothing ────────────────────────
@@ -294,119 +290,11 @@ def test_a_downstream_step_writing_state_does_not_make_the_ingest_stale(
     assert idx.staleness()["stale"] is True
 
 
-# ─── The LLM-facing half ──────────────────────────────────────────
+# ─── Where it is reached from, and what it must not reach ─────────
 
 
-# ─── The constraint the captain set ───────────────────────────────
-
-
-def _name_the_prototype(roots) -> list:
-    """Every file under `roots` that names either prototype module.
-
-    Factored out so the guard can be pointed at a fake tree and shown to
-    still fire - a guard nobody has watched fail is a guard nobody knows
-    still works.
-    """
-    offenders = []
-    for root in roots:
-        paths = [root] if root.is_file() else sorted(root.rglob("*"))
-        for path in paths:
-            if not path.is_file() or path.suffix not in (".py", ".json", ".md"):
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            for module in PROTOTYPE_MODULES:
-                if module in text:
-                    offenders.append(f"{path} names {module}")
-    return offenders
-
-
-# The roots the captain's constraint still covers. The dashboard's half
-# (`library/dashboard/footage_search.py`) used to be carved out here and
-# is NOT any more - P2 retired it, and the person half moved to `ren`
-# (see the carve-out test below), which this scan never covered.
-PIPELINE_ROOTS = (
-    REPO_ROOT / "library" / "steps",
-    REPO_ROOT / "library" / "processes",
-    REPO_ROOT / "manage_project.py",
-)
-
-
-def test_footage_index_stays_unwired():
-    """No STEP may reach for the prototype. `ren search` may.
-
-    The captain's ruling was "not actually wiring it in until we are ready
-    for it", and their reason for wanting the index was two-sided: "to
-    speed up both a person's workflow and also help the LLM actually find
-    what it is looking for."
-
-    On 2026-08-26 they authorised the FIRST half and only the first half -
-    "can you wire this index search into the UI we have for this project".
-    P2 retired that UI (D3) and the captain re-authorised the same half as
-    `ren search` / `ren search-index` (Q11, 2026-09-23): "Keep the search
-    modules as a chat-callable ren verb, no UI". A person searching their
-    own rushes from a chat is a person using a tool; a step calling the
-    same module is the pipeline making an editorial decision out of a
-    prototype whose retrieval quality has not been signed off. Those are
-    different acts and only the first one is allowed.
-
-    So this test stays NARROWED, not weakened. `library/steps/`,
-    `library/processes/` and `manage_project.py` are still scanned, which
-    is every route by which the index could reach a run: a step module, a
-    step's bridge, a `dag.json`, a `manifest.json`, or the CLI that drives
-    them. `ren/commands.py` reaches the prototype through `-m
-    library.tools.analysis.footage_query` and never needs to name it from
-    `manage_project.py`, so the CLI stays in the scan.
-
-    Widening it back is the captain's call, in the same direction the
-    narrowing went: state which half is being authorised.
-    """
-    offenders = _name_the_prototype(PIPELINE_ROOTS)
-    assert not offenders, (
-        "The footage index is a prototype and must stay out of the pipeline:\n  "
-        + "\n  ".join(o.replace(str(REPO_ROOT) + "/", "") for o in offenders)
-    )
-
-
-def test_the_guard_still_fires_when_a_step_imports_the_index(tmp_path):
-    """The narrowed guard is still a guard.
-
-    A test that is quietly relaxed the first time it fires is worse than
-    no test, so this drives the same scan over a fake `library/steps/`
-    holding exactly what a wiring-in would look like, and asserts it
-    reports the offender.
-    """
-    steps = tmp_path / "library" / "steps" / "step_3_02_select_broll"
-    steps.mkdir(parents=True)
-    (steps / "step.py").write_text(
-        "from library.tools.analysis.footage_query import FootageIndex\n",
-        encoding="utf-8")
-    (steps / "manifest.json").write_text(
-        json.dumps({"interface": {"tools": ["footage_segments"]}}), encoding="utf-8")
-
-    offenders = _name_the_prototype([tmp_path / "library" / "steps"])
-    assert len(offenders) == 2, offenders
-    assert any("step.py" in o and "footage_query" in o for o in offenders)
-    assert any("manifest.json" in o and "footage_segments" in o for o in offenders)
-
-    # ...and stays quiet over a tree that does not name it.
-    clean = tmp_path / "clean"
-    (clean / "library" / "steps").mkdir(parents=True)
-    (clean / "library" / "steps" / "step.py").write_text("import json\n", encoding="utf-8")
-    assert _name_the_prototype([clean]) == []
-
-
-def test_ren_search_is_the_one_caller_that_is_carved_out():
-    """The carve-out is real and it is exactly one verb table.
-
-    `ren search` / `ren search-index` (`ren/commands.py`) are where a person
-    reaches the prototype from a chat - the captain's Q11 (2026-09-23),
-    "Keep the search modules as a chat-callable ren verb, no UI". That is
-    the person-using-a-tool half, and no step is involved. The dashboard
-    half P2 retired is gone: nothing under `library/dashboard/` may name
-    the prototype any more.
-    """
+def test_ren_search_reaches_the_footage_index():
+    """`ren search` / `ren search-index` are how agents and people query it."""
     from ren.commands import VERBS
 
     by_name = {verb.name: verb for verb in VERBS}
@@ -414,24 +302,18 @@ def test_ren_search_is_the_one_caller_that_is_carved_out():
         assert name in by_name, f"ren lost its {name!r} verb"
         assert "footage_query" in " ".join(by_name[name].module_argv), (
             f"ren {name!r} no longer reaches the footage index")
-    dashboard = REPO_ROOT / "library" / "dashboard"
-    if dashboard.is_dir():
-        offenders = _name_the_prototype([dashboard])
-        assert not offenders, (
-            "the retired dashboard half still reaches the prototype:\n  "
-            + "\n  ".join(offenders))
-    assert "footage_query" not in (REPO_ROOT / "manage_project.py").read_text(encoding="utf-8")
 
 
-def test_the_prototype_does_not_import_the_pipeline_either():
+def test_search_does_not_import_the_pipeline():
     """It reads a project's files; it does not join the run.
 
-    Importing a step, the runner or the state writer would make it part of
-    the pipeline by the back door.
+    Importing a step, the runner or the state writer would make search a
+    pipeline stage by the back door, and `ren search` would drag the DAG
+    into its process.
     """
     forbidden = re.compile(r"from library\.(steps|processes)|import library\.(steps|processes)"
                            r"|save_pipeline_state|run_pipeline")
-    for name in PROTOTYPE_MODULES:
+    for name in SEARCH_MODULES:
         source = (REPO_ROOT / "library" / "tools" / "analysis" / f"{name}.py").read_text(
             encoding="utf-8")
         assert not forbidden.search(source), f"{name}.py reaches into the pipeline"

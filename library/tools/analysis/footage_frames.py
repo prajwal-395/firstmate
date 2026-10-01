@@ -1,10 +1,9 @@
 """Frame-level CLIP search beside the text footage index.
 
-PROTOTYPE.  **Nothing in the DAG imports this, and nothing may.**  The same
-constraint as `footage_query.py`: `tests/test_footage_query_prototype.py`
-fails the moment a step, the DAG or a manifest reaches for it.  `ren
-search-index` / `ren search` may - a person searching their own rushes from
-a chat is a person using a tool, not the pipeline making a decision.
+Part of the footage-search capability, as `footage_query.py` is: not a
+pipeline stage, importing nothing from steps or processes
+(`tests/test_footage_query.py` pins that).  Agents and people reach it
+through `ren search --visual` and `ren search-index`.
 
 Scope (firstmate decision 2026-10-01 on the vep-clip-frame-search eval,
 `data/vep-video-intelligence-entities-and-search/` + `../vep-clip-frame-search/eval/`):

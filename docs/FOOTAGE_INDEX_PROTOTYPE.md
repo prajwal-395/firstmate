@@ -1,40 +1,24 @@
-# Cross-clip footage index - prototype
+# Cross-clip footage index
 
-**Status: PROTOTYPE. A `ren search` verb, out of the PIPELINE** (P2, D3/Q11: the dashboard half is retired).
+**Status: a footage-intelligence capability, not an editing-pipeline stage.** It began as a
+prototype (this file keeps the name and what that prototype measured).
 
-P2 retired the dashboard half and the bridge. The caller is `ren search` / `ren search-index`, which reach
-`footage_query.py` directly; `footage_query_bridge.py` and `library/dashboard/footage_search.py` are deleted.
-The constraint is unchanged - no step may call it - and the sentence that used to carry it is retired with
-the dashboard: **One thing in `library/tools/` is a prototype: it is in the DASHBOARD and stays out of the PIPELINE.**
-
-The captain wanted this index for two reasons, their words: "to speed up
-both a person's workflow and also help the LLM actually find what it is
-looking for." On 2026-08-26 they authorised the first half and only the
-first half - "can you wire this index search into the UI we have for this
-project" - so:
-
-- **A person may call it.** The review dashboard has a Footage Search view.
-- **The pipeline may not.** No step, DAG node, bridge used by a step or
-  process manifest may name either module, and
-  `tests/test_footage_query_prototype.py::test_footage_index_stays_unwired`
-  fails the moment one does. That test was NARROWED to allow the
-  dashboard, not deleted; its docstring carries the reasoning and a
-  companion test drives the same scan over a fake step to show it still
-  fires.
+Agents and people query it through `ren search` / `ren search-index`, which reach `footage_query.py`
+directly; `ren analyze` builds it as part of an analysis-only run. No DAG node runs it, and it imports
+nothing from `library/steps/` or `library/processes/` - `tests/test_footage_query.py::test_search_does_not_import_the_pipeline`
+holds that, so it answers on any analysed project with no run behind it. The 2026-08-26 dashboard view and
+`footage_query_bridge.py` were retired in P2 (D3/Q11); the dashboard section below is kept for the
+decisions it made.
 
     library/tools/analysis/footage_segments.py   what the unit of retrieval is
     library/tools/analysis/footage_query.py      build, search, filter, CLI, tool defs
-    library/tools/footage_query_bridge.py        JSON in / JSON out, for an orchestrator
-    library/dashboard/footage_search.py          the dashboard's half: warm index, build, hits for Resolve
-    library/dashboard/static/components/footage-search.js   the view
-    tests/test_footage_query_prototype.py        including the unwired guard
-    tests/test_dashboard_footage_search.py       the dashboard half
+    library/tools/analysis/footage_frames.py     frame-level CLIP search (`ren search --visual`)
+    tests/test_footage_query.py                  retrieval, staleness, independence from the pipeline
 
-It answers "where in all my footage does X happen" for two callers: the
-captain, from the command line or the dashboard; and an LLM step, through
-an interface that exists and is documented but that nothing calls.
+It answers "where in all my footage does X happen", in the captain's words "to speed up both a person's
+workflow and also help the LLM actually find what it is looking for."
 
-## In the dashboard
+## In the dashboard (retired)
 
     source .venv/bin/activate
     python3 manage_project.py dashboard <slug>            # or an absolute project path
@@ -87,7 +71,7 @@ shot facets, and both raw scores with the half that found it named.
 
 `build` reads the project's ingest and writes into
 `pipeline_output/scratch/footage_index/` - the area §8 defines as "working
-files with no reader", which is what an unwired prototype's output is.
+files with no reader" - no pipeline step reads it.
 `--index-dir` puts it anywhere else. Nothing else under the project is
 written, and a test asserts that byte for byte.
 
@@ -486,7 +470,7 @@ In the order the measurements argue for:
 `library/tools/analysis/footage_frames.py` sits beside this text index:
 CLIP ViT-L/14 over frames sampled at 1/10 s, reached through the same two
 verbs (`ren search-index --frames` builds it, `ren search --visual` ranks
-time ranges per clip).  Same prototype constraint, same guard.
+time ranges per clip).  Same independence from the pipeline, same guard.
 
 Design follows its own eval (firstmate `data/vep-clip-frame-search/eval/`,
 1092 frames over ~181 min of real footage, 11 pre-registered queries):

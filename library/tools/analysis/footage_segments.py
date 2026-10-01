@@ -1,7 +1,7 @@
 """Cut a project's ingest output into the units a footage search retrieves.
 
-PROTOTYPE - nothing in the DAG imports this.  See
-`docs/FOOTAGE_INDEX_PROTOTYPE.md` for what it is for and what it measured.
+Part of the footage-search capability (`footage_query.py`), not a pipeline
+stage.  See `docs/FOOTAGE_INDEX_PROTOTYPE.md` for what it measured.
 
 The central design question a cross-clip footage index has to answer is
 what the UNIT of retrieval is.  This module is that answer, isolated from
@@ -45,8 +45,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 # The per-source memory (`library/tools/source_memory.py`) is a tools
-# module, not a step: importing it here does not wire the prototype
-# into the pipeline any more than importing footage_identity would.
+# module, not a step: importing it here does not make search a pipeline
+# stage any more than importing footage_identity would.
 from library.tools import source_memory
 
 # Every kind this module emits.  A kind not in here does not exist, and

@@ -1,9 +1,11 @@
 """Footage Query Module - cross-clip search over a project's own ingest.
 
-PROTOTYPE.  **Nothing in the DAG imports this, and nothing may.**  It is
-landed so it can be judged; wiring it into a step is the captain's call,
-not this module's.  `docs/FOOTAGE_INDEX_PROTOTYPE.md` carries the design,
-the measurements and the queries it gets wrong.
+A footage-intelligence CAPABILITY, independent of the editing pipeline.
+It is not a pipeline stage: no DAG node runs it, and it imports nothing
+from `library/steps/` or `library/processes/`, so it works on any analysed
+project with no run behind it.  Agents and people query it through `ren
+search` / `ren search-index` (AGENTS.md §2).  `docs/FOOTAGE_INDEX_PROTOTYPE.md`
+carries the design, the measurements and the queries it gets wrong.
 
 Answers "where in all my footage does X happen" for two callers:
 
@@ -57,8 +59,8 @@ Where this deviates from `sfx_query.py`, and why:
 - **The index is per project, not per library.**  SFX profiles are a
   shared library with one index; footage belongs to one project, so the
   index lives with it - in `pipeline_output/scratch/`, the area the
-  layout defines as "working files with no reader", which is exactly what
-  an unwired prototype's output is.
+  layout defines as working files no pipeline step reads, which is what
+  a capability outside the pipeline writes.
 """
 
 from __future__ import annotations

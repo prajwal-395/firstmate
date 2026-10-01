@@ -254,8 +254,7 @@ PIPELINE_TREES = ("library/steps", "library/processes", "library/dashboard")
 def test_no_step_process_or_dashboard_imports_the_bench():
     """The bench reads the pipeline.  The pipeline must not read the bench.
 
-    Same discipline as the footage-query prototype (AGENTS.md §2): a
-    measuring tool that a step depends on stops being a measuring tool.
+    A measuring tool that a step depends on stops being a measuring tool.
     """
     offenders = []
     for tree in PIPELINE_TREES:

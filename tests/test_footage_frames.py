@@ -1,7 +1,7 @@
-"""The frame-level CLIP prototype: ranges, honesty labels, and scope.
+"""Frame-level CLIP search: ranges, honesty labels, and scope.
 
-Companion to `test_footage_query_prototype.py` (which owns the stay-unwired
-guard - `footage_frames` is in its `PROTOTYPE_MODULES`).  Every test here
+Companion to `test_footage_query.py` (which owns the does-not-import-the-
+pipeline guard - `footage_frames` is in its `SEARCH_MODULES`).  Every test here
 names a defect it would catch; no count, existence or snapshot tests.
 
 All CLIP work and the per-source memory's M2 frame sample are stubbed: a

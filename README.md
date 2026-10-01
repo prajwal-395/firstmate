@@ -57,7 +57,31 @@ ren doctor
 ```sh
 ren init                              # create the projects root
 ren new my-vlog --name "My Vlog"      # then copy the footage into its raw/
-ren edit my-vlog                      # run the editing pipeline
+```
+
+## Working with Ren
+
+Open Claude Code in this checkout and say what you want done - "cut a
+60-second reel about the parking lot from my-vlog", "swap the second shot
+of reel 2". The agent works goal first, through the `ren-co-editor`
+skill ([.agents/skills/ren-co-editor/SKILL.md](.agents/skills/ren-co-editor/SKILL.md)):
+
+1. **Inspect state** - `ren status`, `ren check`, `ren drift`.
+2. **Search the footage, read Resolve** - `ren analyze` measures footage
+   without editing it, `ren search my-vlog "..."` finds where something
+   happens, `bin/resolve-axi` reads the live timeline.
+3. **Choose a capability** - the narrowest one that does the job:
+   `ren touch` for a small change to a built reel, `ren spec` for an
+   editor's request, `ren propose` / `ren build` / `ren deliver` for
+   reels, a scoped `ren edit --only <step>` to redo one stage.
+4. **Execute**, answering any judgement Ren hands the agent as a file.
+5. **Verify** - read back the timeline or the render against the goal.
+
+The same verbs work by hand. A whole-pipeline run from raw footage is
+still there as the compatibility path:
+
+```sh
+ren edit my-vlog                      # run every pipeline step
 ren propose my-vlog                   # reel candidates for your approval
 ren build my-vlog                     # build the approved reels in Resolve
 ren deliver my-vlog 1                 # render reel 1 to a file
@@ -68,6 +92,6 @@ kept outside the projects root is addressed by its path instead of its slug.
 
 ## Where to read next
 
-- [AGENTS.md](AGENTS.md) - how the pipeline works and the rules that govern it.
+- [AGENTS.md](AGENTS.md) - how the engine works and the rules that govern it.
 - [docs/](docs/) - design notes and the measurements behind them.
 - `library/processes/edit_video/dag.json` - the pipeline's steps and their order.

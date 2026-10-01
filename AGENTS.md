@@ -11,8 +11,8 @@ Change what is in a section, not its number.
 
 ## 1. Identity and purpose
 
-The engine stores no project data - assets and pipeline outputs live in isolated directories outside the repository.
-Agents and human editors use it to automate the tedious parts of video assembly while retaining creative control.
+The engine stores no project data; projects live outside it.
+An agent: goal -> inspect state -> search footage/read Resolve -> pick a capability -> execute -> verify (`ren-co-editor` skill); a full `ren edit` is the legacy path.
 
 ## 2. Repo layout
 
@@ -31,11 +31,9 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. One registry, `ren/commands.py`, feeds `manage_project.py`. Machine paths: `~/.config/ren/config.env` (`library/tools/paths.py`). `ren undo`: touch in place, rebuild by version (`library/tools/undo_journal.py`).
 - `requirements.txt`: Python dependencies.
 
-**One thing in `library/tools/` is a prototype: it is a `ren search` verb and stays out of the PIPELINE.**
-`footage_query.py` / `footage_segments.py` are a cross-clip footage
-search - "where in all my footage does X happen". Its stdin/stdout bridge
-(`footage_query_bridge.py`) was retired in P2 - `ren search` is the caller now.
-
+**Footage search is a capability, not a pipeline stage: agents query it.**
+`ren search` / `ren search-index` reach `library/tools/analysis/footage_query.py` ("where in all my footage
+does X happen"); it imports nothing from steps or processes (`tests/test_footage_query.py`).
 [`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, the
 measured score floor that lets it answer "not in this footage", and the 66x reduction of
 `temporal_index` that is worth doing without it.
