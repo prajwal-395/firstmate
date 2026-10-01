@@ -503,6 +503,21 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
     aligned = aligner.align(windows, spoken_language.language, audio_path)
     _check_alignment(aligned)
 
+    return HybridTranscription(
+        aligned=aligned,
+        record=hybrid_record(aligned, spoken, spoken_language, windows))
+
+
+def hybrid_record(aligned: dict, spoken: heard_speech.HeardSpeech,
+                  spoken_language: heard_speech.HeardLanguage,
+                  windows: Sequence[dict]) -> Dict[str, Any]:
+    """The account of one hybrid hearing of one audio file.
+
+    One builder, two callers: `transcribe_and_align` (one file, one
+    aligner run) and step 1.04's batched run (many files, one aligner
+    run, split back per file), so a transcript measured either way is
+    recorded in the same shape (`library/tools/transcript_measurement.py`).
+    """
     covered = sum(window["end"] - window["start"] for window in windows)
     fallback_words = 0
     fallback_windows = 0
@@ -515,34 +530,31 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
             and word.get("timing_source") == TRANSCRIBER_TIMING_SOURCE)
         fallback_words += hits
         fallback_windows += 1 if hits else 0
-    return HybridTranscription(
-        aligned=aligned,
-        record={
-            "arm": ARM_HYBRID,
-            # The instrument that placed these boundaries. An aligner
-            # STAMPS its own document (`aligner` beside `segments`);
-            # this copies the stamp onto the record so a run can be
-            # read back. Anything unstamped predates the second
-            # aligner, when wav2vec2 placed every boundary there was.
-            "aligner": aligned.get("aligner", ALIGNER_WAV2VEC2),
-            "transcriber": dict(spoken.engine),
-            "language": spoken_language.as_dict(),
-            "alignment_window": {
-                "silence_split_seconds": SILENCE_SPLIT_SECONDS,
-                "pad_seconds": WINDOW_PAD_SECONDS,
-                "windows": len(windows),
-                "covered_seconds": round(covered, 3),
-                # Words whose timing is voz's own because no MFA pass
-                # could align their window (`timing_source` on the
-                # word). Zero on a clean run; counted, never hidden,
-                # because an MFA-placed boundary and a voz-placed one
-                # are different measurements.
-                "transcriber_timed_windows": fallback_windows,
-                "transcriber_timed_words": fallback_words,
-            },
-            "asr_confidence": ASR_CONFIDENCE_ABSENT,
+    return {
+        "arm": ARM_HYBRID,
+        # The instrument that placed these boundaries. An aligner
+        # STAMPS its own document (`aligner` beside `segments`);
+        # this copies the stamp onto the record so a run can be
+        # read back. Anything unstamped predates the second
+        # aligner, when wav2vec2 placed every boundary there was.
+        "aligner": aligned.get("aligner", ALIGNER_WAV2VEC2),
+        "transcriber": dict(spoken.engine),
+        "language": spoken_language.as_dict(),
+        "alignment_window": {
+            "silence_split_seconds": SILENCE_SPLIT_SECONDS,
+            "pad_seconds": WINDOW_PAD_SECONDS,
+            "windows": len(windows),
+            "covered_seconds": round(covered, 3),
+            # Words whose timing is voz's own because no MFA pass
+            # could align their window (`timing_source` on the
+            # word). Zero on a clean run; counted, never hidden,
+            # because an MFA-placed boundary and a voz-placed one
+            # are different measurements.
+            "transcriber_timed_windows": fallback_windows,
+            "transcriber_timed_words": fallback_words,
         },
-    )
+        "asr_confidence": ASR_CONFIDENCE_ABSENT,
+    }
 
 
 def fallback_record(failure: FallbackRequired,

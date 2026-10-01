@@ -239,6 +239,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # primary arm that hears each clip, so a fix here changes the
         # cached segments.
         "library/tools/hybrid_transcription.py",
+        # Imported by step.py: the canonical transcript measurement
+        # serves samples already heard and stores each batched hearing,
+        # so a fix here changes the cached segments.
+        "library/tools/transcript_measurement.py",
+        # Imported by transcript_measurement: the memory root the
+        # stored hearings live under, so a fix here changes which
+        # hearings the cached segments are served from.
+        "library/tools/source_memory.py",
         # Imported by timeline_transcript beside the hybrid arm: forced
         # alignment where its environment is present, so a fix here
         # moves the cached word timings.

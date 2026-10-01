@@ -480,18 +480,23 @@ def utterances_from_aligned(aligned: dict, method: str) -> list:
     return regions
 
 
-def transcribe_track(wav_path: str, label: str = "") -> tuple:
+def transcribe_track(wav_path: str, label: str = "",
+                     root: Optional[Path] = None) -> tuple:
     """One demuxed track through the reel path's transcription seam.
 
     `timeline_transcript.transcribe_audio`: voz words through MFA -
     the same instruments that time the reels, so memory words and
-    timeline words agree. Imported lazily: readers of a built memory
-    (notably `ren search-index`) must never pay for the transcriber.
+    timeline words agree. Through the canonical measurement
+    (`library/tools/transcript_measurement.py`): samples step 1.04
+    already heard - in its batch, before this lane runs in
+    `ren analyze` - are served, not heard a second time. Imported
+    lazily: readers of a built memory (notably `ren search-index`)
+    must never pay for the transcriber.
     """
-    from library.tools import timeline_transcript
+    from library.tools import transcript_measurement
 
-    return timeline_transcript.transcribe_audio(
-        Path(wav_path), label=label or os.path.basename(wav_path))
+    return transcript_measurement.transcribe(
+        wav_path, label=label or os.path.basename(wav_path), root=root)
 
 
 def build_transcript_document(utterances: list, record: dict,
@@ -811,7 +816,8 @@ def build_source(source_file: str, declaration: Optional[int] = None,
         try:
             aligned, record = transcribe_track(
                 wavs[channel],
-                label=(f"{os.path.basename(source_file)}:CH{channel}"))
+                label=(f"{os.path.basename(source_file)}:CH{channel}"),
+                root=root)
         except hybrid_transcription.FallbackRequired as fell_back:
             reason = fell_back.reason
             if reason in (hybrid_transcription.TRANSCRIBER_REFUSED,

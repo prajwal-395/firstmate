@@ -26,6 +26,7 @@ copy it; nothing goes into `pipeline_data.json`.
   clock.json                     # M6  - written
   events.json                    # M7  - written (library/tools/event_spans.py)
   verdicts.json                  # M8  - written (library/tools/span_verification.py)
+<root>/transcripts/<pcm_sha256>.json   # the canonical transcript measurement
 ```
 
 A slot no lane has written is ABSENT, never a default. An absent M1
@@ -80,6 +81,14 @@ Utterances carry the same keys as step 1.04 speech regions, so the
 search serves either without branching. Text and words are
 lowercased; boundaries are MFA's (no onset snapping).
 `confidence` is 0.0 - no arm publishes one.
+
+M1 is a PROJECTION of the canonical transcript measurement
+(`library/tools/transcript_measurement.py`), not a hearing of its own:
+`<root>/transcripts/<pcm_sha256>.json` holds the aligned document and
+the hearing's record, keyed by the sha256 of the 16 kHz mono samples.
+Step 1.04 writes it from its batched run and the lane serves it, so
+`ren analyze` hears each source once; when the program track and 1.04's
+extraction are different samples, each is heard once under its own key.
 
 ## M2 `frames/` + `frames.index.json` (written)
 

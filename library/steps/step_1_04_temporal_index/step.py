@@ -443,15 +443,15 @@ def detect_speech_regions(
     reel path does, rather than forcing every clip through the
     declared one.
     """
-    from library.tools import timeline_transcript
+    from library.tools import transcript_measurement
 
     regions: list = []
     transcription = _untranscribed(whisper_model_size, language)
 
     try:
-        aligned, record = timeline_transcript.transcribe_audio(
-            Path(audio_path), model_size=whisper_model_size,
-            label=Path(audio_path).name)
+        aligned, record = transcript_measurement.transcribe(
+            audio_path, label=Path(audio_path).name,
+            model_size=whisper_model_size)
     except ImportError as e:
         print(
             f"  WARNING: transcriber not available ({e}), "
@@ -558,14 +558,41 @@ def transcribe_clips_batched(requests: list,
     from library.tools import heard_speech, hybrid_transcription, mfa_align
     from library.tools import timeline_transcript
     from library.tools import shared_environment
+    from library.tools import transcript_measurement
+
+    # Phase 0: samples already heard - by source memory's M1, by an
+    # earlier run, by another project cut from the same file - are
+    # served from the canonical measurement, not heard again
+    # (`library/tools/transcript_measurement.py`).
+    results: dict = {}
+    audio_keys: dict = {}
+    unheard = []
+    for request in requests or []:
+        key = request["key"]
+        audio_keys[key] = transcript_measurement.audio_key(
+            request["audio_path"])
+        stored = (transcript_measurement.load(audio_keys[key])
+                  if audio_keys[key] is not None else None)
+        if stored is None:
+            unheard.append(request)
+            continue
+        aligned, record = stored
+        transcription = _transcription_from_record(
+            record, whisper_model_size, language)
+        results[key] = (
+            _regions_from_segments((aligned or {}).get("segments") or [],
+                                   request.get("onsets"),
+                                   transcription["method"]),
+            transcription)
 
     # Phase 1, still per clip: Voz writes the words first, then `da ear`
     # identifies language from the most continuous window of those words.
     # This prevents a silent or music lead-in from choosing the MFA model.
     # The windows are then offset into the concat.
     heard = []       # (key, audio_path, onsets, detected, windows)
+    spoken_by_key = {}
     fallback_keys = []
-    for request in requests or []:
+    for request in unheard:
         key = request["key"]
         try:
             spoken = heard_speech.transcribe(request["audio_path"])
@@ -581,8 +608,9 @@ def transcribe_clips_batched(requests: list,
             fallback_keys.append(key)
             continue
         try:
-            detected = hybrid_transcription.identify_speech_language(
-                request["audio_path"], windows).language
+            detected_language = hybrid_transcription.identify_speech_language(
+                request["audio_path"], windows)
+            detected = detected_language.language
         except hybrid_transcription.FallbackRequired as declined:
             print(f"  {key}: speech language identification declined "
                   f"({declined.reason}); per-clip fallback",
@@ -591,9 +619,9 @@ def transcribe_clips_batched(requests: list,
             continue
         heard.append((key, request["audio_path"],
                       request.get("onsets"), detected, windows))
+        spoken_by_key[key] = (spoken, detected_language, windows)
 
     # Phase 2: one concat, one aligner run per batched language.
-    results: dict = {}
     if heard:
         mfa_here, _ = shared_environment.mfa_available()
         batchable = [row for row in heard
@@ -681,14 +709,21 @@ def transcribe_clips_batched(requests: list,
                                     if isinstance(w, dict)
                                     and "start" in w and "end" in w]
                                 moved.append(row)
+                            own_aligned = {"segments": moved}
+                            if "aligner" in aligned:
+                                own_aligned["aligner"] = aligned["aligner"]
+                            spoken, heard_language, own_windows = (
+                                spoken_by_key[key])
+                            record = hybrid_transcription.hybrid_record(
+                                own_aligned, spoken, heard_language,
+                                own_windows)
+                            if audio_keys[key] is not None:
+                                transcript_measurement.store(
+                                    audio_keys[key], own_aligned, record,
+                                    transcript_measurement.HEARD_BATCHED,
+                                    label=os.path.basename(path))
                             transcription = _transcription_from_record(
-                                {"arm": hybrid_transcription.ARM_HYBRID,
-                                 "aligner": aligned.get(
-                                     "aligner",
-                                     hybrid_transcription.ALIGNER_WAV2VEC2),
-                                 "language": {"language": group_language,
-                                              "confidence": None}},
-                                whisper_model_size, language)
+                                record, whisper_model_size, language)
                             results[key] = (
                                 _regions_from_segments(
                                     moved, onsets,

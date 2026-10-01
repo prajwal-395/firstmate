@@ -277,3 +277,27 @@ def stub_resolve_script():
             sys.modules.pop("DaVinciResolveScript", None)
         else:
             sys.modules["DaVinciResolveScript"] = previous
+
+
+# ── The per-machine source memory is never a test's ────────────────
+#
+# `library/tools/transcript_measurement.py` stores every hearing under
+# the source-memory root, and step 1.04's transcription path reaches it
+# with no root argument - so a test that stubs the seam would otherwise
+# write its stub's words into the real `~/.local/share/vep/source_memory`
+# and serve them to the next real run of byte-identical audio. Per test,
+# not per session: two tests that hear the same synthetic silence must
+# not answer each other. The directory is never created here; only a
+# store makes it.
+
+
+@pytest.fixture(autouse=True)
+def _source_memory_is_the_tests_own(request, monkeypatch, tmp_path_factory):
+    import hashlib
+
+    from library.tools import source_memory
+    name = hashlib.sha256(request.node.nodeid.encode("utf-8")).hexdigest()
+    monkeypatch.setenv(
+        source_memory.MEMORY_ROOT_ENV,
+        str(tmp_path_factory.getbasetemp() / "source_memory" / name[:16]))
+    yield

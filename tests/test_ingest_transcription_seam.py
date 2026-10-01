@@ -393,3 +393,70 @@ def test_batch_windows_carry_source_spans_on_the_concat_clock(
     assert second_sources[0]["start"] == pytest.approx(
         first_sources[0]["start"] + 1.0)
     assert second_sources[0]["start"] == pytest.approx(0.5 + 1.0)
+
+
+def _silent_wav(path, seconds=1):
+    import wave
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16000)
+        wav.writeframes(b"\x00\x00" * 16000 * seconds)
+    return str(path)
+
+
+def test_samples_heard_once_serve_both_the_index_and_source_memory(
+        monkeypatch, tmp_path):
+    """`ren analyze` heard every source twice: 1.04's batch, then the
+    source-memory lane demuxed the same samples and heard them again,
+    paying MFA's fixed cost per file. Samples the batch heard are now
+    served to M1 from the canonical measurement, and samples M1 heard
+    first are served to the batch - the seam runs zero more times."""
+    from library.tools import heard_speech, source_memory
+
+    monkeypatch.setattr(
+        heard_speech, "identify_language",
+        lambda path, **kw: heard_speech.HeardLanguage("en", 0.98))
+    monkeypatch.setattr(
+        heard_speech, "transcribe",
+        lambda path, **kw: heard_speech.HeardSpeech(
+            words=[heard_speech.HeardWord("Hi.", 0.5, 0.9)],
+            sentences=[heard_speech.HeardSentence("Hi.", 0.5, 0.9)],
+            text="Hi.",
+            engine={"transcriber": "da", "version": "0.1.1"}))
+
+    import library.tools.timeline_transcript as tt
+
+    def _align(segments, language, audio_path):
+        return {"segments": [
+            {"start": s["start"], "end": s["end"], "text": s["text"],
+             "words": [{"word": "Hi.", "start": s["start"] + 0.1,
+                        "end": s["end"] - 0.1}]} for s in segments],
+            "aligner": hybrid_transcription.ALIGNER_MFA}
+
+    monkeypatch.setattr(
+        tt, "_aligner",
+        lambda: hybrid_transcription.Aligner(
+            covers=lambda language: True, align=_align))
+    batch_audio = _silent_wav(tmp_path / "index.wav")
+    batched = temporal_index.transcribe_clips_batched(
+        [{"key": "clip_001", "audio_path": batch_audio}], language="en")
+
+    def _second_hearing(*_a, **_k):
+        raise AssertionError("the same samples were heard twice")
+
+    monkeypatch.setattr(tt, "transcribe_audio", _second_hearing)
+    monkeypatch.setattr(heard_speech, "transcribe", _second_hearing)
+    # The lane's demux is another file holding the same samples.
+    aligned, record = source_memory.transcribe_track(
+        _silent_wav(tmp_path / "track_CH1.wav"))
+    utterances = source_memory.utterances_from_aligned(aligned, "hybrid-mfa")
+    assert [w["word"] for u in utterances for w in u["words"]] == ["hi."]
+    assert record["arm"] == hybrid_transcription.ARM_HYBRID
+    assert record["alignment_window"]["windows"] == 1
+    assert batched["clip_001"][0][0]["words"] == utterances[0]["words"]
+
+    # And the other order: a rerun of the batch over heard samples.
+    again = temporal_index.transcribe_clips_batched(
+        [{"key": "clip_001", "audio_path": batch_audio}], language="en")
+    assert again["clip_001"] == batched["clip_001"]
