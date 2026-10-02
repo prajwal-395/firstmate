@@ -1,39 +1,6 @@
 """An input name Fusion does not have is a SILENT no-op, and it shipped.
 
-Fusion ignores an input it does not know without a word: the tool keeps
-its registry default and the picture is whatever that default draws. A
-`.comp` file is text and its reader is a closed-source application, so
-nothing in this repository could catch it - and four separate defects of
-exactly that shape were live on the captain's own Reel 09 timeline on
-2026-09-10, three of them for months.
-
-Read off the live comp on that timeline, with `tool.GetInput`:
-
-* ``Ellipse1.Invert = 0.0`` while ``Ellipse1.Inverted = 1.0``. Fusion
-  parks an unknown input in the comp as inert data, which is why the
-  wrong one read back as set. The mask stayed solid INSIDE the ellipse,
-  so the black Background it gated drew as a DISC IN THE MIDDLE of every
-  graded clip. The captain found it by eye. AGENTS.md 5 stated the wrong
-  name in prose and `FusionNode._validate` REQUIRED the wrong name, so
-  every guard this repository had agreed with the bug.
-* ``FilmGrain1.MasterStrength = 0.1`` - the registry default - while
-  ``FilmGrain1.Power = 0.35``, the declared value. Every grain this
-  engine has ever declared was ignored, and the node sat at a strength
-  nobody chose (AGENTS.md 10.5) arriving through a NAME rather than a
-  `.get`.
-* ``PowerCrop1`` drove ``CropTop``/``CropBottom``; Fusion's Crop has
-  ``XOffset``/``YOffset``/``XSize``/``YSize``. With those unset the tool
-  took its own frame size at offset (0, 0), and Fusion's origin is
-  BOTTOM-LEFT, so a 3840x2160 source came out cropped to its bottom-left
-  corner on every reel's first and last picture clip. The old-TV switch
-  animation never drew once.
-* ``ChromaticAberration`` is not a registered tool at all, and
-  ``LensDistort`` has no bare ``Distortion``.
-
-`library/tools/fusion/tool_inputs.py` is the gate: a table of what each
-tool really has, dumped from a running Resolve by
-`scripts/probe_fusion_tool_inputs.py`, and `FusionNode._validate` refuses
-an authored node that drives anything else.
+History: docs/evidence/resolve_test_history.md#test_fusion_tool_inputs.
 """
 from __future__ import annotations
 
@@ -52,32 +19,25 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # ── The table itself ─────────────────────────────────────────────────────
 
 
-def test_ellipse_mask_inverts_with_invert_not_inverted():
+def test_the_probed_names_are_resolves_not_the_guessed_ones():
+    """EllipseMask inverts with `Invert`, Crop is offset+size not edges,
+    FilmGrain has no Power or Size."""
     assert "Invert" in tool_inputs.TOOL_INPUTS["EllipseMask"]
     assert "Inverted" not in tool_inputs.TOOL_INPUTS["EllipseMask"]
-
-
-def test_crop_is_offset_and_size_not_edges():
     crop = tool_inputs.TOOL_INPUTS["Crop"]
     assert {"XOffset", "YOffset", "XSize", "YSize"} <= crop
     assert "CropTop" not in crop and "CropBottom" not in crop
-
-
-def test_film_grain_has_no_power_or_size():
     grain = tool_inputs.TOOL_INPUTS["FilmGrain"]
     assert {"MasterStrength", "MasterXSize", "MasterYSize"} <= grain
     assert "Power" not in grain and "Size" not in grain
 
 
-def test_a_tool_the_probe_asked_for_and_did_not_find_is_recorded_absent():
+def test_absent_is_recorded_and_unprobed_is_unchecked():
+    """A tool the probe asked for and did not find is recorded absent.
+    The table is a partial probe: refusing what nobody measured is a
+    verdict invented from ignorance, worse than the silence it replaces."""
     assert tool_inputs.is_absent_tool("ChromaticAberration")
     assert not tool_inputs.is_absent_tool("Transform")
-
-
-def test_an_unprobed_tool_is_unchecked_rather_than_refused():
-    """The table is a partial probe. Refusing what nobody measured is a
-    verdict invented from ignorance, which is worse than the silence it
-    replaces."""
     assert not tool_inputs.is_known_tool("SomeFuseNobodyProbed")
     assert tool_inputs.unknown_inputs("SomeFuseNobodyProbed", ["Whatever"]) == []
 
@@ -85,7 +45,7 @@ def test_an_unprobed_tool_is_unchecked_rather_than_refused():
 # ── The gate can fail (AGENTS.md 10.4) ───────────────────────────────────
 
 
-def test_an_authored_node_driving_an_unknown_input_is_refused():
+def test_an_authored_node_driving_an_unknown_input_or_tool_is_refused():
     comp = FusionComp(duration=30)
     node = FusionNode("Ellipse1", "EllipseMask")
     for key, value in (("MaskWidth", 1080), ("MaskHeight", 1920),
@@ -95,9 +55,6 @@ def test_an_authored_node_driving_an_unknown_input_is_refused():
     comp.add_node(node)
     with pytest.raises(tool_inputs.UnknownFusionInput, match="Inverted"):
         comp.serialize()
-
-
-def test_an_authored_node_naming_an_absent_tool_is_refused():
     comp = FusionComp(duration=30)
     comp.add_node(FusionNode("CA1", "ChromaticAberration"))
     with pytest.raises(tool_inputs.UnknownFusionTool,
@@ -158,9 +115,5 @@ def test_every_tool_type_the_engine_writes_was_probed():
         f"{unprobed} are written into comps and were never probed. Add "
         f"them to scripts/probe_fusion_tool_inputs.py and re-run it "
         f"against a running Resolve.")
-
-
-def test_no_tool_type_the_engine_writes_is_one_resolve_does_not_have():
-    written = _tool_types_the_engine_writes()
     absent = sorted(t for t in written if tool_inputs.is_absent_tool(t))
     assert not absent, f"{absent} do not exist in Fusion"

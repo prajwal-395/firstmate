@@ -1,20 +1,6 @@
 """Uncarried notes get their Blue back, at the seam, byte-identical.
 
-Found 2026-09-20: a promotion cut the picture out from under one of
-the captain's Blue notes, the uncarried report went to stderr, a Green
-reply quoting his words went onto the timeline - and from where he
-sits the note was simply gone, because he scans for BLUE. A green
-marker containing his words reads as us talking.
-
-Proven here on fixtures shaped like Reel 08's hand-verified fix: the
-note sat at frame 640 duration 81 over LC4932.MXF source 31017-31060;
-the rebuild runs 30808-30826 and then jumps to 31097, so the seam is
-timeline frame 639. The promotion must come back with his Blue at
-639 byte-identical and our reply BESIDE it - and a promotion whose
-picture still plays must carry unchanged, exactly as today.
-
-Every assertion below is on note TEXT and colour. A count-only
-assertion has already destroyed a note on this project.
+History: docs/evidence/resolve_test_history.md#test_uncarried_blue_back.
 """
 
 import json

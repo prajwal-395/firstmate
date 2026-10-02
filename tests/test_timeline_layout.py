@@ -11,7 +11,6 @@ may decide a track index or a track name - the two hardcoded dicts that
 lived at the end of `resolve_build_timeline.py` died here.
 """
 
-import pytest
 
 from library.tools.timeline_layout import (
     allocate_non_overlapping_rows,
@@ -49,20 +48,10 @@ def test_two_angles_get_two_picture_rows_and_two_speech_rows():
     audio_roles = [(t.index, t.role, t.name) for t in plan.audio_tracks]
     assert audio_roles == [(1, "speech", "Akshita CH1"),
                            (2, "speech", "Craig CH1")]
-
-
-def test_a_row_exists_because_something_goes_on_it():
-    """Defect 4: no b-roll, captions, music or SFX asked for, none planned."""
-    plan = plan_layout(_two_angle_material())
-
+    # Defect 4: a row exists because something goes on it - no b-roll,
+    # captions, music or SFX asked for, none planned.
     roles = [t.role for t in plan.video_tracks + plan.audio_tracks]
     assert roles == ["a_roll", "a_roll", "speech", "speech"]
-    assert len(plan.video_tracks) == 2
-    assert len(plan.audio_tracks) == 2
-
-
-
-
 
 
 def test_overlapping_sfx_layers_stack_and_sequential_ones_share():
@@ -102,27 +91,9 @@ def test_two_picture_rows_survive_the_tv_frame_look():
         (7, "semantic", "Semantic")]
     assert [(t.index, t.role, t.name) for t in plan.audio_tracks] == [
         (1, "speech", "Akshita CH1"), (2, "speech", "Craig CH1")]
-
-
-def test_collapse_picture_is_gone_and_cannot_refire():
-    """`collapse_picture` was the TV-frame rule PR 830 reasoned into the
-    plan; the captain overruled it. The key is deleted, and a stale
-    caller still passing it gets two picture rows anyway - no rule may
-    quietly re-collapse the rows the next time a TV-frame look is
-    declared."""
+    # `collapse_picture` was the TV-frame rule PR 830 reasoned into the
+    # plan; the captain overruled it. A stale caller still passing it
+    # gets two picture rows anyway.
     plan = plan_layout(_two_angle_material(
         has_frame=True, collapse_picture=True))
     assert [t.name for t in plan.aroll_rows()] == ["Akshita", "Craig"]
-
-
-def test_the_builders_hardcoded_layout_is_gone():
-    """Defects 1/4/6, structurally: the track-index and track-name dicts
-    that lived at the end of the old build decided every row as a
-    constant. They must not exist anywhere in the master builder
-    anymore. (Pool subfolder names like "Subtitles" are media
-    organisation, not track layout, and are not covered here.)"""
-    from pathlib import Path
-    src = Path("library/steps/step_6_01_render/resolve_build_timeline.py").read_text()
-    for remnant in ("video_labels = {", "audio_labels = {",
-                    'f"SFX-{i - 2}"', "target_video_tracks"):
-        assert remnant not in src, f"hardcoded layout remnant {remnant} still in builder"

@@ -1,20 +1,6 @@
 """Edit-step input digests: declared, stamped, and reported - never skipped.
 
-Covers `library/tools/edit_input_digest.py` (the spec reader, the digest,
-the comparison lines) and the `run_control` stamp plumbing it rides on.
-No pipeline run, no model, no Resolve: every digest here is computed over
-synthetic inputs shaped like the real ones, plus the real manifests and
-real step directories for the code half.
-
-What this pins, beyond the functions' own contracts:
-
-* the three most re-run model steps declare exactly the inputs this task
-  evidenced (see each test's docstring for the run_history count), and
-  the declarations stay narrowed to what each step actually reads;
-* a re-run prints identical / changed / unknown and runs the step either
-  way - there is no skip path to test because none was built;
-* `tests/test_step_ledger.py` still passes unchanged (run separately -
-  this file touches neither the preflight ledger nor its gate).
+History: docs/evidence/resolve_test_history.md#test_edit_input_digest.
 """
 
 import copy

@@ -562,3 +562,50 @@ def test_the_composition_is_one_delete_and_one_place(tmp_path):
                            rederiver=_Rederiver(timeline))
     assert timeline.delete_calls == [len(changes)]
     assert pool.append_calls == [len(changes)]
+
+
+# ── A touch is judged on what IT changes ─────────────────────────────
+#
+# Ren refused five of the captain's reels (07, 08, 09, 10, 13) for ANY
+# edit: `assert_every_frame_covered(..., row="V1")` read an interior V1
+# gap in the post-edit plan as the edit's defect, and those reels'
+# approved shape is a V1 hole covered by a V2 cutaway (Reel 07: V1 gap
+# 116..665 with V2 at 116..665).
+
+
+def _span_clip(start: int, duration: int, name: str = "c") -> dict:
+    return {"record_in": start, "record_out": start + duration,
+            "duration": duration, "left_offset": 0, "name": name}
+
+
+def test_only_a_v1_gap_the_edit_opens_refuses():
+    """A V6 logo swap on Reel 07's shape never touches V1, so the
+    pre-existing covered hole does not refuse it; shifting a V1 item so
+    the plan opens a hole the reel did not have still refuses, naming
+    the new gap."""
+    tracks = [
+        {"type": "video", "index": 1,
+         "clips": [_span_clip(0, 116, "v1-head"),
+                   _span_clip(665, 335, "v1-tail")]},
+        {"type": "video", "index": 2,
+         "clips": [_span_clip(116, 549, "v2-cutaway")]},
+        {"type": "video", "index": 6,
+         "clips": [_span_clip(900, 100, "old-logo")]},
+    ]
+    swap = ce.Insertion(track_type="video", track_index=6,
+                        media_pool_item=None, left_offset=0, duration=100,
+                        record_frame=900, name="new-logo", properties={})
+    spans = ce.assert_every_frame_covered(tracks, [], [swap], row="V1")
+    assert spans == [(0, 116), (665, 1000)]
+
+    tracks = [{"type": "video", "index": 1,
+               "clips": [_span_clip(0, 100, "head"),
+                         _span_clip(100, 100, "tail")]}]
+    shifted = ce.ItemChange(
+        track_type="video", track_index=1, item_index=1,
+        record_frame=150, duration=100, left_offset=0,
+        previous_record=100, previous_duration=100, how=ce.SHIFT,
+        name="tail")
+    with pytest.raises(ce.PlacementNotVerified) as refusal:
+        ce.assert_every_frame_covered(tracks, [shifted], [], row="V1")
+    assert "[100, 150]" in str(refusal.value)

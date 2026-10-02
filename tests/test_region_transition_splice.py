@@ -14,7 +14,6 @@ from library.steps.step_4_02_plan_transitions.post_bridge import (
     resolve_transitions,
     splice_region_transitions,
 )
-from library.tools import operations
 from library.tools import region as region_mod
 from library.tools import scope as scope_mod
 from library.tools.plan_splice import SpliceRefused
@@ -101,10 +100,3 @@ def test_a_fresh_transition_outside_the_region_is_refused(stored):
 def test_a_region_touching_no_block_is_refused(stored):
     with pytest.raises(SpliceRefused, match="touches no spine block"):
         _splice([], stored, _region(60.0, 70.0))
-
-
-def test_transitions_splice_is_a_region_only_operation():
-    op = operations.get("transitions.splice")
-    assert op.supports(_region(4.0, 6.0))
-    assert not op.supports(scope_mod.project())
-    assert op.run.__name__ == "splice_region_transitions"

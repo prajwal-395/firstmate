@@ -1,18 +1,6 @@
 """A rough cut that already exists, read off a LIVE Resolve timeline.
 
-`external_inputs.WITHDRAWN` used to rule this out, and its reason -
-"reading it means copying that database and opening it as SQLite ... and
-nothing maps its clips back onto a typed pipeline key" - is true of a
-CLOSED project and false of a live one.  This module is the producer that
-distinction allows, so the tests hold it to the standard the withdrawal
-was protecting: what it emits must PASS the real checks in
-`external_inputs`, not merely look right.
-
-Resolve is faked here rather than driven.  The fakes return what the real
-proxies were measured to return on the GEO Podcast field test
-(2026-09-04), including the one-frame disagreement between
-`GetLeftOffset()` and `GetSourceStartFrame()` that
-`test_source_times_are_used_never_left_offset` exists to pin.
+History: docs/evidence/resolve_test_history.md#test_timeline_ingest.
 """
 
 from __future__ import annotations
@@ -172,29 +160,24 @@ def _two_speaker_timeline(tmp_path, name="GEO Podcast - Synced"):
 # ── Reading ──────────────────────────────────────────────────────────
 
 
-def test_speaker_comes_from_the_track(tmp_path):
+def test_speaker_comes_from_the_track_and_is_never_invented(tmp_path):
     snap = timeline_ingest.snapshot_timeline(
         _two_speaker_timeline(tmp_path), "Podcast (field test)"
     )
     assert snap.speakers() == ["Akshita", "Craig", "Akshita CH1"]  # video first
     assert {c.speaker for c in snap.picture_clips()} == {"Akshita", "Craig"}
-
-
-def test_a_speaker_map_renames_a_track_without_inventing_one(tmp_path):
+    # A speaker map renames a track without inventing one.
     snap = timeline_ingest.snapshot_timeline(
         _two_speaker_timeline(tmp_path), "P", speaker_map={"Akshita CH1": "Akshita"}
     )
     audio = [c for c in snap.clips if c.track_type == "audio"]
     assert audio[0].speaker == "Akshita"
-
-
-def test_an_unnamed_track_yields_no_speaker_rather_than_a_made_up_one(tmp_path):
+    # An unnamed track yields no speaker rather than a made-up one.
     (a,) = _media(tmp_path, "x.mov")
     tl = _timeline(
         "T", {("video", 1): ("", [_item("x.mov", 0, 10, 0, 10, a, "uid-x")])}
     )
-    snap = timeline_ingest.snapshot_timeline(tl, "P")
-    assert snap.clips[0].speaker is None
+    assert timeline_ingest.snapshot_timeline(tl, "P").clips[0].speaker is None
 
 
 def test_source_frames_are_used_never_source_times(tmp_path):
@@ -218,12 +201,8 @@ def test_source_frames_are_used_never_source_times(tmp_path):
     assert first.source_in == pytest.approx(3151 * 1001 / 24000, abs=1e-9)
     # and emphatically NOT the timecode-absolute reading
     assert first.source_in < 1000.0
-
-
-def test_left_offset_is_not_used(tmp_path):
-    """Also file-relative, but disagrees with the frame pair by one frame
-    on about a third of real items."""
-    snap = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
+    # Nor GetLeftOffset(): also file-relative, but one frame out on about
+    # a third of real items.
     second = snap.picture_clips()[1]
     assert second.source_in == pytest.approx(4971 * 1001 / 24000, abs=1e-9)
     assert second.source_in != pytest.approx(4972 * 1001 / 24000, abs=1e-9)
@@ -248,6 +227,10 @@ def test_a_range_outside_its_own_file_is_reported(tmp_path):
     assert all("uid-long" in c for c in complaints)
     assert any("frames in it" in c for c in complaints)
     assert any("2.00s long" in c for c in complaints)
+    # A file ffprobe cannot read is not a verified range.
+    snap = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
+    assert any("cannot measure" in c
+               for c in timeline_ingest.verify_against_media(snap))
 
 
 def test_a_snapshot_with_a_bad_range_is_never_supplied(tmp_path):
@@ -271,14 +254,6 @@ def test_a_snapshot_with_a_bad_range_is_never_supplied(tmp_path):
     assert "false ground truth" in str(excinfo.value)
 
 
-def test_media_that_cannot_be_measured_is_a_complaint_not_a_pass(tmp_path):
-    """A file ffprobe cannot read is not a verified range."""
-    snap = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
-    complaints = timeline_ingest.verify_against_media(snap)
-    assert complaints
-    assert any("cannot measure" in c for c in complaints)
-
-
 def test_a_clip_with_no_media_pool_item_is_skipped_not_invented(tmp_path):
     tl = _timeline(
         "T", {("video", 1): ("V", [_item("Text+", 0, 10, 0, 10, None, "uid-gen")])}
@@ -297,19 +272,15 @@ def test_a_frame_rate_that_is_not_a_number_is_refused(tmp_path):
 # ── The naming trap ──────────────────────────────────────────────────
 
 
-def test_the_exact_project_name_is_required():
+def test_a_project_is_addressed_by_its_exact_name_and_never_opened():
+    """`Podcast` is the captain's untouchable original: a near name is
+    refused with the near miss named, never prefix-matched onto it, and
+    nothing opens a project that is not already open."""
     target = FakeProject("Podcast (field test)")
-    pm = FakeProjectManager(target, project_names=["Podcast", "Podcast (field test)"])
+    names = ["Podcast", "Podcast (field test)"]
+    pm = FakeProjectManager(target, project_names=names)
     assert timeline_ingest.resolve_project_exactly(pm, "Podcast (field test)") is target
 
-
-def test_a_near_name_is_refused_and_the_near_miss_is_named():
-    """`Podcast` is the captain's untouchable original. A prefix match
-    on the field-test name must never land there."""
-    pm = FakeProjectManager(
-        FakeProject("Podcast (field test)"),
-        project_names=["Podcast", "Podcast (field test)"],
-    )
     with pytest.raises(TimelineIngestError) as e:
         timeline_ingest.resolve_project_exactly(pm, "Podcast (Copy)")
     message = str(e.value)
@@ -317,12 +288,7 @@ def test_a_near_name_is_refused_and_the_near_miss_is_named():
     assert "Podcast" in message
     assert "guess" in message.lower()
 
-
-def test_it_refuses_to_open_a_project_that_is_not_already_open():
-    pm = FakeProjectManager(
-        FakeProject("Podcast"),
-        project_names=["Podcast", "Podcast (field test)"],
-    )
+    pm = FakeProjectManager(FakeProject("Podcast"), project_names=names)
     with pytest.raises(TimelineIngestError) as e:
         timeline_ingest.resolve_project_exactly(pm, "Podcast (field test)")
     assert "never opens a project" in str(e.value)
@@ -349,11 +315,8 @@ def test_the_spoken_order_is_the_timeline_order(tmp_path):
     starts = [s["timeline_start"] for s in seq["segments"]]
     assert starts == sorted(starts)
     assert [s["speaker"] for s in seq["segments"]] == ["Craig", "Akshita", "Akshita"]
-
-
-def test_the_chain_links_agree_with_the_order(tmp_path):
-    snap = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
-    segments = timeline_ingest.to_speech_sequence(snap)["segments"]
+    # The chain links agree with the order.
+    segments = seq["segments"]
     assert segments[0]["previous_segment_id"] is None
     assert segments[-1]["next_segment_id"] is None
     for a, b in pairwise(segments):
@@ -376,13 +339,7 @@ def test_written_files_load_and_verify_through_external_inputs(tmp_path):
     assert set(supplied) == {"a_roll_assignments", "speech_sequence"}
     assert "timeline_ingest" in supplied["speech_sequence"].source
     assert "GEO Podcast - Synced" in supplied["speech_sequence"].source
-
-
-def test_it_refuses_to_supply_a_key_it_does_not_build(tmp_path):
-    project = tmp_path / "project"
-    project.mkdir()
-    ProjectLayout(str(project)).ensure()
-    snap = timeline_ingest.snapshot_timeline(_short_timeline(tmp_path), "P")
+    # It refuses to supply a key it does not build.
     with pytest.raises(TimelineIngestError):
         timeline_ingest.write_external(str(project), snap, keys=("assembly_manifest",))
 
@@ -402,10 +359,7 @@ def test_a_copy_with_fresh_item_ids_still_compares_equal(tmp_path):
                 item._uid = "fresh-" + item._uid
     b = timeline_ingest.snapshot_timeline(other, "P")
     assert timeline_ingest.compare_structure(a, b) == []
-
-
-def test_any_difference_is_reported_rather_than_summarised(tmp_path):
-    a = timeline_ingest.snapshot_timeline(_two_speaker_timeline(tmp_path), "P")
+    # Any real difference is reported rather than summarised.
     other = _two_speaker_timeline(tmp_path, name="Different")
     other.GetItemListInTrack("video", 1)[0]._duration = 9999
     b = timeline_ingest.snapshot_timeline(other, "P")
@@ -479,14 +433,9 @@ def test_source_out_is_the_played_end_not_the_reported_one(tmp_path):
     assert clip.source_out_frame == 73
     assert clip.source_length_disagrees is True
 
-
-def test_a_track_telescopes_to_the_timeline_exactly(tmp_path):
-    """spans + gaps must equal the last clip's end, to the sample.
-
-    Before this rule the field-test track came out 41.7ms - exactly one
-    frame - short of its own timeline.
-    """
-    media = _real_media(tmp_path, "take.mp4", 10.0)
+    # So a track telescopes to its timeline exactly: spans + gaps equal
+    # the last clip's end, to the sample. Before this rule the field-test
+    # track came out 41.7ms - exactly one frame - short.
     items = [
         _item("take.mp4", 0, 48, 24, 73, media, "a"),  # +1 frame
         _item("take.mp4", 96, 144, 96, 143, media, "b"),  # -1 frame
@@ -496,7 +445,6 @@ def test_a_track_telescopes_to_the_timeline_exactly(tmp_path):
     clips = sorted(
         timeline_ingest.snapshot_timeline(tl, "P").clips, key=lambda c: c.timeline_start
     )
-
     total, cursor = 0.0, 0.0
     for c in clips:
         gap = c.timeline_start - cursor

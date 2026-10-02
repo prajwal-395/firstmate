@@ -1,27 +1,6 @@
 """A recorded trim whose anchor re-times must be loud before a build proceeds.
 
-Reel 17, 2026-09-21: a recorded `span_retime` head pin ("So for small
-business", edge=head) re-derives against transcript word starts on
-every build (`captain_edits.match_span_retimes`). The wave
-re-transcribed the reel, the anchor word "So" moved 1407.830 ->
-1407.970 (+0.14s, +3.4 frames), and the reel head followed it. Nothing
-reported lost, nothing reported at all: a caption-only change shipped
-a reel seven frames shorter than its baseline, and only a recorded
-frame baseline caught it.
-
-So the enumerable pre-build state needs TWO outcomes, not one:
-
-1. an anchor that no longer RESOLVES (stale - loud today, kept loud
-   and enumerable here), and
-2. an anchor that resolves SILENTLY TO A DIFFERENT PLACE (drifted -
-   silent by construction today, the Reel 17 case).
-
-`match_span_retimes` returning 1407.97 against the re-timed transcript
-is the offline reproduction: deterministic, no Resolve, no build. The
-freshness check built on it is what would have caught the build.
-
-No Resolve, no real project: every fixture is synthetic under
-`tmp_path` (AGENTS.md 8).
+History: docs/evidence/resolve_test_history.md#test_retime_drift.
 """
 
 from __future__ import annotations
@@ -104,7 +83,7 @@ def test_match_follows_retimed_words_to_1407_97():
 
 # ── Outcome 2: resolves to a different place ─────────────────────────
 
-def test_drifted_anchor_is_enumerable_before_a_build():
+def test_freshness_names_drifted_held_and_stale_anchors_before_a_build():
     drifted, stale = captain_edits.check_span_retime_freshness(
         _spans(), _transcript(RETIMED_SO), [_pin()], fps=FPS)
     assert not stale
@@ -117,19 +96,14 @@ def test_drifted_anchor_is_enumerable_before_a_build():
     assert record["frames_moved"] == 4
     assert record["span_index"] == 0
 
-
-def test_fresh_anchor_reports_nothing():
+    # A fresh anchor reports nothing.
     drifted, stale = captain_edits.check_span_retime_freshness(
         _spans(), _transcript(RECORDED_SO), [_pin()], fps=FPS)
     assert drifted == [] and stale == []
 
-
-
-
-def test_drifted_held_pin_is_enumerable_too():
     # A previous build already followed the words: the span edge sits
-    # on them (HELD, nothing to trim), but they are not where the
-    # trim was recorded - still drift, still loud.
+    # on them (HELD, nothing to trim), but they are not where the trim
+    # was recorded - still drift, still loud.
     spans = [{"master": (RETIMED_SO, 1420.0)}]
     drifted, stale = captain_edits.check_span_retime_freshness(
         spans, _transcript(RETIMED_SO), [_pin()], fps=FPS)
@@ -139,12 +113,8 @@ def test_drifted_held_pin_is_enumerable_too():
     assert drifted[0]["resolved_edge"] == pytest.approx(RETIMED_SO)
     assert drifted[0]["frames_moved"] == 4
 
-
-
-
-# ── Outcome 1: no longer resolves ────────────────────────────────────
-
-def test_reworded_anchor_is_stale_through_the_same_check():
+    # Outcome 1, through the same check: a reworded anchor no longer
+    # resolves, and is stale rather than drifted.
     reworded = {"segments": [{
         "text": "well for tiny business owners the first step",
         "timeline_start": 1400.0, "timeline_end": 1420.0,
@@ -160,6 +130,8 @@ def test_reworded_anchor_is_stale_through_the_same_check():
     assert stale[0]["anchor_phrase"] == "So for small business"
 
 
+# ── Outcome 1: no longer resolves ────────────────────────────────────
+
 def test_drifted_is_loud_on_stderr(capsys):
     drifted, _ = captain_edits.check_span_retime_freshness(
         _spans(), _transcript(RETIMED_SO), [_pin()], fps=FPS)
@@ -169,8 +141,6 @@ def test_drifted_is_loud_on_stderr(capsys):
     assert "1407.830" in lines[0] and "1407.970" in lines[0]
     captured = capsys.readouterr()
     assert "DRIFTED EDIT" in captured.err
-
-
 
 
 # ── The write side stamps where the anchor resolved ──────────────────
@@ -188,8 +158,6 @@ def test_record_stamps_the_resolved_edge(tmp_path):
     assert action == "recorded"
     assert edit["recorded_edge"] == pytest.approx(RECORDED_SO)
     assert captain_edits.load_edits(str(project)) == [edit]
-
-
 
 
 def test_record_leaves_an_ambiguous_anchor_unstamped(tmp_path):

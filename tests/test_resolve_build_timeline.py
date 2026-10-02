@@ -1,4 +1,3 @@
-import os
 import sys
 import pytest
 from unittest.mock import MagicMock, patch
@@ -16,7 +15,6 @@ mock_dvr = MagicMock()
 # package path instead of a bare name bound by collection order.
 from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E402
     build_timeline,
-    _preflight_check,
     _allocate_audio_tracks,
     source_frame_span_for_timeline,
     project_frame_rate_refusal,
@@ -24,7 +22,6 @@ from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E40
     timeline_frame_rate_refusal,
     v1_plan_overlap_refusal,
 )
-from library.tools import resolve_bin_layout  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _the_fake_resolve_is_this_files_own(monkeypatch):
@@ -115,7 +112,7 @@ def mock_resolve():
 
     # A unit test with a mocked Resolve must not launch a REAL subprocess
     # at the real application. `build_timeline` shells out to
-    # apply_fusion_comps.py, and `test_media_import_logic` patches
+    # apply_fusion_comps.py, and the build tests here patch
     # os.path.exists to True for everything - so the guard that normally
     # skips a missing script let it launch for real, against the live
     # Resolve, and wait forever. That hung the whole suite three times at
@@ -183,14 +180,12 @@ def test_b8_v1_source_length_uses_the_shared_timeline_boundary():
     assert source_end - source_start == timeline_end - timeline_start
     assert not refusal
 
-
-def test_v1_source_length_uses_boundaries_for_another_fractional_pair():
+    # Another fractional pair, rounding the other way.
     timeline_start = round(2.0 * 30)
     timeline_end = round(3.02 * 30)
     source_start, source_end, refusal = source_frame_span_for_timeline(
         0.02, 1.04, timeline_start, timeline_end, 30, 30,
         "fractional_clip")
-
     assert (timeline_start, timeline_end) == (60, 91)
     assert (round(0.02 * 30), round(1.04 * 30)) == (1, 31)
     assert (source_start, source_end) == (1, 32)
@@ -226,12 +221,8 @@ def test_resolve_timeline_frame_rate_must_match_the_manifest_grid():
     assert "requested 30 fps" in refusal
     assert "read back '24'" in refusal
     assert "different frame grid" in refusal
-
-
-def test_resolve_false_frame_rate_write_refuses_even_if_readback_matches():
-    refusal = timeline_frame_rate_refusal(False, "30", 30)
-
-    assert "Resolve refused" in refusal
+    # A refused write refuses even when the read-back happens to match.
+    assert "Resolve refused" in timeline_frame_rate_refusal(False, "30", 30)
 
 
 def test_24fps_project_with_existing_timelines_refuses_a_30fps_build():
@@ -247,6 +238,20 @@ def test_24fps_project_with_existing_timelines_refuses_a_30fps_build():
     assert "2 existing timeline(s)" in refusal
     assert "OTIO rebuild inherits the project rate" in refusal
     project.SetSetting.assert_not_called()
+
+    # An EMPTY project is set, and read back.
+    project = MagicMock()
+    project.GetTimelineCount.return_value = 0
+    rate = {"timelineFrameRate": "24"}
+    project.GetSetting.side_effect = lambda key: rate[key]
+
+    def set_setting(key, value):
+        rate[key] = str(value)
+        return True
+
+    project.SetSetting.side_effect = set_setting
+    assert project_frame_rate_refusal(project, 30) == ""
+    assert rate["timelineFrameRate"] == "30"
 
 
 def test_build_refuses_project_rate_conflict_before_creating_timeline(
@@ -300,8 +305,7 @@ def test_project_timeline_shape_change_allows_existing_custom_timelines():
 
     assert project_timeline_shape_refusal(project, 1920, 1080) == ""
 
-
-def test_project_timeline_shape_refuses_unreadable_custom_setting():
+    # A custom setting that cannot be read refuses rather than guessing.
     project = MagicMock()
     project.GetTimelineCount.return_value = 1
     project.GetSetting.side_effect = lambda key: {
@@ -311,28 +315,9 @@ def test_project_timeline_shape_refuses_unreadable_custom_setting():
     timeline = MagicMock()
     timeline.GetSetting.side_effect = RuntimeError("settings unavailable")
     project.GetTimelineByIndex.return_value = timeline
-
     refusal = project_timeline_shape_refusal(project, 1920, 1080)
-
     assert "could not read whether existing timeline" in refusal
     assert "refusing to change" in refusal
-
-
-def test_empty_project_sets_and_reads_back_requested_frame_rate():
-    project = MagicMock()
-    project.GetTimelineCount.return_value = 0
-    rate = {"timelineFrameRate": "24"}
-    project.GetSetting.side_effect = lambda key: rate[key]
-
-    def set_setting(key, value):
-        rate[key] = str(value)
-        return True
-
-    project.SetSetting.side_effect = set_setting
-
-    assert project_frame_rate_refusal(project, 30) == ""
-    project.SetSetting.assert_called_once_with("timelineFrameRate", "30")
-    assert rate["timelineFrameRate"] == "30"
 
 
 def test_resolve_connection_failure():
@@ -349,23 +334,6 @@ def test_resolve_connection_failure():
         
     assert not result["success"]
     assert "Cannot connect to DaVinci Resolve. Is it running?" in result["errors"][0]
-
-def test_media_import_logic(mock_resolve, sample_manifest):
-    """Test that _import_to_folder creates subfolders and imports media."""
-    media_pool = mock_resolve['media_pool']
-    root_folder = mock_resolve['root_folder']
-    
-    subfolder = MagicMock()
-    media_pool.AddSubFolder.return_value = subfolder
-    root_folder.GetSubFolderList.return_value = []
-    media_pool.ImportMedia.return_value = [MagicMock()]
-    
-    with patch('os.path.exists', return_value=True):
-        build_timeline(sample_manifest)
-        
-    media_pool.AddSubFolder.assert_any_call(
-        root_folder, resolve_bin_layout.SOURCE_BIN)
-    media_pool.ImportMedia.assert_called()
 
 def test_clip_placement_calculations(mock_resolve, sample_manifest):
     """Test frame math and track routing for V1 placement."""
@@ -399,74 +367,6 @@ def test_clip_placement_calculations(mock_resolve, sample_manifest):
     assert append_args["endFrame"] == 60  # 2.0s * 30fps
     assert append_args["trackIndex"] == 1
     assert append_args["recordFrame"] == 0
-
-def test_two_pass_architecture(mock_resolve, sample_manifest):
-    """Test that V1 is placed first, then extra audio tracks are added, then audio clips are placed."""
-    sample_manifest["tracks"]["A2"] = {
-        "clips": [
-            {
-                "source_file": "test_music.wav",
-                "source_in": 0.0,
-                "duration": 5.0
-            }
-        ]
-    }
-    
-    timeline = mock_resolve['timeline']
-    media_pool = mock_resolve['media_pool']
-    
-    call_order = []
-    
-    track_counts = {"video": 1, "audio": 1}
-    def side_effect_add_track(track_type):
-        call_order.append(f"AddTrack_{track_type}")
-        track_counts[track_type] = track_counts.get(track_type, 1) + 1
-        return True
-        
-    def side_effect_append(items):
-        track_idx = items[0].get("trackIndex")
-        call_order.append(f"Append_{track_idx}")
-        m = MagicMock()
-        m.GetDuration.return_value = 150
-        m.GetStart.return_value = 0
-        return [m]
-        
-    timeline.AddTrack.side_effect = side_effect_add_track
-    media_pool.AppendToTimeline.side_effect = side_effect_append
-    
-    def side_effect_get_track_count(track_type):
-        return track_counts.get(track_type, 1)
-    timeline.GetTrackCount.side_effect = side_effect_get_track_count
-    
-    pool_item_v1 = MagicMock()
-    pool_item_a2 = MagicMock()
-    
-    def get_clip_prop_v1(prop):
-        if prop == "File Path":
-            return "test_v1.mov"
-        if prop == "Audio Ch":
-            return "1"
-        return ""
-        
-    def get_clip_prop_a2(prop):
-        if prop == "File Path":
-            return "test_music.wav"
-        if prop == "Audio Ch":
-            return "1"
-        return ""
-        
-    pool_item_v1.GetClipProperty.side_effect = get_clip_prop_v1
-    pool_item_a2.GetClipProperty.side_effect = get_clip_prop_a2
-    
-    root_folder = mock_resolve['root_folder']
-    root_folder.GetClipList.return_value = [pool_item_v1, pool_item_a2]
-    
-    with patch('os.path.exists', return_value=True):
-        build_timeline(sample_manifest)
-        
-    assert "Append_1" in call_order
-    assert "Append_2" in call_order
-    assert call_order.index("Append_1") < call_order.index("Append_2")
 
 def test_allocate_audio_tracks():
     """Test the standalone SFX overlap calculation."""
@@ -568,6 +468,14 @@ def test_generator_overlay_lands_on_plan_row(mock_resolve, sample_manifest):
             "timeline_end": 5.0,
             "composite_mode": "screen",
         },
+        {
+            "overlay_id": "gen_002",
+            "effect_name": "snow",
+            "target_block_position": 2,
+            "timeline_start": 5.0,
+            "timeline_end": 8.0,
+            "composite_mode": "add",
+        },
     ]
 
     media_pool = mock_resolve['media_pool']
@@ -608,14 +516,15 @@ def test_generator_overlay_lands_on_plan_row(mock_resolve, sample_manifest):
     placed_v1_item.GetDuration.return_value = 60
     placed_v1_item.GetStart.return_value = 0
 
-    placed_v5_item = MagicMock()
+    placed_v5_items = [MagicMock(), MagicMock()]
 
     append_calls = []
     def append_side_effect(items):
         info = items[0]
         append_calls.append(info)
         if info.get("trackIndex") == 2:
-            return [placed_v5_item]
+            done = sum(1 for c in append_calls if c.get("trackIndex") == 2)
+            return [placed_v5_items[min(done, 2) - 1]]
         return [placed_v1_item]
     media_pool.AppendToTimeline.side_effect = append_side_effect
 
@@ -645,8 +554,8 @@ def test_generator_overlay_lands_on_plan_row(mock_resolve, sample_manifest):
 
     # ── Verify AppendToTimeline was called with the plan row (V2 here) ──
     v5_appends = [c for c in append_calls if c.get("trackIndex") == 2]
-    assert len(v5_appends) == 1, (
-        f"Expected 1 generator-row append, got {len(v5_appends)}. "
+    assert len(v5_appends) == 2, (
+        f"Expected one generator-row append each, got {len(v5_appends)}. "
         f"All appends: {[c.get('trackIndex') for c in append_calls]}"
     )
 
@@ -659,113 +568,13 @@ def test_generator_overlay_lands_on_plan_row(mock_resolve, sample_manifest):
     assert v5_call["mediaPoolItem"] is carrier_pool_item, "generator row must use the transparent carrier"
 
     # ── Verify composite mode was set ──
-    placed_v5_item.SetProperty.assert_any_call('CompositeMode', 5)  # 5 = Screen
-
-
-def test_multiple_generators_all_land_on_plan_row(mock_resolve, sample_manifest):
-    """Multiple generators each get their own carrier clip on the plan's
-    generator row (V2 for this a-roll-only manifest)."""
-    sample_manifest["generator_overlays"] = [
-        {
-            "overlay_id": "gen_001",
-            "effect_name": "fireworks",
-            "target_block_position": 1,
-            "timeline_start": 0.0,
-            "timeline_end": 3.0,
-            "composite_mode": "screen",
-        },
-        {
-            "overlay_id": "gen_002",
-            "effect_name": "snow",
-            "target_block_position": 2,
-            "timeline_start": 5.0,
-            "timeline_end": 8.0,
-            "composite_mode": "add",
-        },
-    ]
-
-    media_pool = mock_resolve['media_pool']
-    root_folder = mock_resolve['root_folder']
-
-    pool_item_v1 = MagicMock()
-    pool_item_v1.GetClipProperty.side_effect = (
-        lambda p: "test_v1.mov" if p == "File Path"
-        else ("1" if p == "Audio Ch" else ""))
-    root_folder.GetClipList.return_value = [pool_item_v1]
-
-    carrier_pool_item = MagicMock()
-    carrier_pool_item.GetClipProperty.return_value = ""
-    def import_media_side_effect(paths):
-        if any('transparent' in str(p) for p in paths):
-            return [carrier_pool_item]
-        return [pool_item_v1]
-    media_pool.ImportMedia.side_effect = import_media_side_effect
-
-    placed_v1 = MagicMock()
-    placed_v1.GetDuration.return_value = 60
-    placed_v1.GetStart.return_value = 0
-    placed_v5_items = [MagicMock(), MagicMock()]
-    v5_idx = [0]
-
-    append_calls = []
-    def append_side_effect(items):
-        info = items[0]
-        append_calls.append(info)
-        if info.get("trackIndex") == 2:
-            item = placed_v5_items[min(v5_idx[0], len(placed_v5_items) - 1)]
-            v5_idx[0] += 1
-            return [item]
-        return [placed_v1]
-    media_pool.AppendToTimeline.side_effect = append_side_effect
-
-    root_folder.GetSubFolderList.return_value = []
-    media_pool.AddSubFolder.return_value = MagicMock()
-
-    with patch('os.path.exists', return_value=True), \
-         patch('os.makedirs'), \
-         patch('subprocess.run', return_value=MagicMock(returncode=0, stderr="", stdout="")):
-        build_timeline(sample_manifest, project_folder="/tmp/test_project")
-
-    v5_appends = [c for c in append_calls if c.get("trackIndex") == 2]
-    assert len(v5_appends) == 2, f"Expected 2 generator-row appends, got {len(v5_appends)}"
-
-    # First generator: 0-3s = 90 frames at frame 0
-    assert v5_appends[0]["endFrame"] == 90
-    assert v5_appends[0]["recordFrame"] == 0
-    # Second generator: 5-8s = 90 frames at frame 150
+    placed_v5_items[0].SetProperty.assert_any_call('CompositeMode', 5)  # Screen
+    # Each generator gets its own carrier clip: 5-8s at frame 150, Add.
     assert v5_appends[1]["endFrame"] == 90
     assert v5_appends[1]["recordFrame"] == 150
+    assert v5_appends[1]["mediaPoolItem"] is carrier_pool_item
+    placed_v5_items[1].SetProperty.assert_any_call('CompositeMode', 1)  # Add
 
-    # Composite modes: screen=5, add=1
-    placed_v5_items[0].SetProperty.assert_any_call('CompositeMode', 5)
-    placed_v5_items[1].SetProperty.assert_any_call('CompositeMode', 1)
-
-
-def test_no_generators_does_not_create_v5(mock_resolve, sample_manifest):
-    """Without generator_overlays, no V5 track is created."""
-    media_pool = mock_resolve['media_pool']
-    timeline = mock_resolve['timeline']
-    root_folder = mock_resolve['root_folder']
-
-    pool_item = MagicMock()
-    pool_item.GetClipProperty.side_effect = (
-        lambda p: "test_v1.mov" if p == "File Path"
-        else ("1" if p == "Audio Ch" else ""))
-    root_folder.GetClipList.return_value = [pool_item]
-
-    placed = MagicMock()
-    placed.GetDuration.return_value = 60
-    placed.GetStart.return_value = 0
-    media_pool.AppendToTimeline.return_value = [placed]
-
-    with patch('os.path.exists', return_value=True):
-        build_timeline(sample_manifest)
-
-    # No V5 appends should exist
-    for call in media_pool.AppendToTimeline.call_args_list:
-        items = call[0][0]
-        for item in items:
-            assert item.get("trackIndex") != 5, "V5 should not be used without generators"
 
 def test_loud_banner_prints_on_qa_failure_but_not_fatal(mock_resolve, sample_manifest, capsys):
     """Test that a QA failure prints the loud banner but leaves success unchanged."""

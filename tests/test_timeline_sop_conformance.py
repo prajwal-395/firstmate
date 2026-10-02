@@ -1,17 +1,6 @@
 """The master builder obeys the SOP, and the verifier reads it back.
 
-Defects covered here (fake Resolve, no live connection):
-  2. two cameras mean TWO audio rows, one program stream each,
-  3. a non-program stream is stopped at placement, never leaking on,
-  4. every track created gets occupied (empties are deleted, not kept),
-  5. a-roll picture links to its speech; a caption inside a speech span
-     joins that link group in ONE call (linking is exclusive, not
-     additive - a second pair-call would break the first),
-  6. every row is named from the plan.
-
-`library/tools/timeline_conformance.py` reads a built timeline back and
-reports every SOP violation it finds. It is deterministic and it can
-fail, so it is a real gate.
+History: docs/evidence/resolve_test_history.md#test_timeline_sop_conformance.
 """
 
 import json

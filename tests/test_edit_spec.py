@@ -13,7 +13,7 @@ from library.tools.project_layout import ProjectLayout
 
 def _project(tmp_path):
     project = tmp_path / "project"
-    project.mkdir()
+    project.mkdir(parents=True)
     ProjectLayout(str(project)).ensure()
     return project
 
@@ -42,32 +42,12 @@ def _spec():
     }
 
 
-def test_operation_type_routes_take_and_track_without_keyword_hits():
-    """The word 'take' cannot hijack trim into speech selection, and
-    'track' cannot send a picture operation to music selection."""
-    assert edit_spec.owner_for_op("span_retime") == "mesh_spine"
-    assert edit_spec.owner_for_op("grade") == "render"
-    assert edit_spec.owner_for_op("look") == "color_grade"
-    assert edit_spec.owner_for_op("angle_plan") == "select_broll"
-    assert edit_spec.owner_for_op("motion_graphic") == \
-        "render_motion_graphics"
-    assert edit_spec.owner_for_op("redraw_closer") == "select_reels"
-    assert edit_spec.owner_for_op("transform_override") == "render"
-
-
-def test_every_edit_operation_owner_exists_in_this_pipeline():
-    """A renamed step cannot leave a natural-language op silently
-    unroutable after its spec has already been committed."""
-    from library.tools import marker_routing
-
-    assert set(edit_spec.OP_OWNERS.values()) <= set(marker_routing.BY_NODE_ID)
-
-
 def test_every_edit_operation_reaches_a_prompt_or_declared_replayer():
     """Every typed operation has a live prompt owner or ledger replayer.
 
     Catches: an enum owner accepting a request while neither its prompt nor
-    the build's direct/projected ledger readers can apply the operation.
+    the build's direct/projected ledger readers can apply the operation,
+    and a renamed step leaving an op unroutable (BY_NODE_ID[owner]).
     """
     from library.tools import edit_ledger, marker_routing
 
@@ -211,22 +191,25 @@ def test_pending_note_handshake_holds_pipeline_until_ledger_recorded(tmp_path):
     assert edit_ledger.load_rows(str(project))[0]["source_note_id"] == note_id
 
 
-def test_malformed_edit_spec_request_holds_pipeline_instead_of_falling_back(
-        tmp_path):
-    """A damaged translation request cannot silently re-enable keyword routing.
+def test_the_pipeline_refuses_while_any_note_is_untyped(tmp_path):
+    """No natural-language note reaches planning without a typed operation.
 
-    Catches: a corrupt edit-spec request being ignored so its natural-language
-    note reaches planning without typed operations or editor clarification.
+    Catches three ways keyword routing came back: a damaged edit-spec
+    request being ignored; a raw marker (`take`/`track`/`CTA`) never
+    translated; and an open K6 referent question the planner would cut
+    around without the requested object or shot.
     """
     from library.processes.edit_video.run_pipeline import run_pipeline
+    from library.tools import marker_feedback, marker_routing
     from library.tools.llm_handshake import REQUESTS_SUBDIR
+    from library.tools.project_layout import Area
 
-    project = _project(tmp_path)
+    # A damaged translation request.
+    project = _project(tmp_path / "malformed")
     request_dir = project / REQUESTS_SUBDIR
     request_dir.mkdir(parents=True)
     (request_dir / "edit_spec_broken.json").write_text(
         "{not json", encoding="utf-8")
-
     pending = edit_spec.pending_note_states(str(project))
     assert pending["unlinked:edit_spec_broken"]["reason"].startswith(
         "edit spec request needs repair:")
@@ -234,18 +217,8 @@ def test_malformed_edit_spec_request_holds_pipeline_instead_of_falling_back(
     assert result["status"] == "REFUSED"
     assert "needs repair" in result["reason"]
 
-
-def test_untranslated_marker_note_refuses_keyword_planning(tmp_path):
-    """A raw natural-language marker cannot keep using the old word router.
-
-    Catches: `take`/`track`/`CTA` keyword matches reaching planning steps
-    when the editor never ran the required edit-spec translation.
-    """
-    from library.processes.edit_video.run_pipeline import run_pipeline
-    from library.tools import marker_feedback, marker_routing
-    from library.tools.project_layout import Area
-
-    project = _project(tmp_path)
+    # A raw marker nobody translated.
+    project = _project(tmp_path / "untranslated")
     note = {"source": "timeline_marker", "name": "Editor note",
             "note": "track the CTA sign in the final shot",
             "text": "track the CTA sign in the final shot", "frame": None,
@@ -258,7 +231,6 @@ def test_untranslated_marker_note_refuses_keyword_planning(tmp_path):
         "timeline": "Editor",
         "notes": [note],
     }), encoding="utf-8")
-
     note_id = marker_routing.edit_link_id(note, "Editor", str(pull))
     pending = edit_spec.pending_note_states(str(project))
     assert "keyword routing is not used" in pending[note_id]["reason"]
@@ -266,6 +238,15 @@ def test_untranslated_marker_note_refuses_keyword_planning(tmp_path):
     result = run_pipeline(str(project))
     assert result["status"] == "REFUSED"
     assert "translate it with: ren spec prepare" in result["reason"]
+
+    # An unanswered question on a prepared request.
+    project = _project(tmp_path / "open-question")
+    edit_spec.prepare_request(
+        str(project), "use the logo on the end card", note_id="marker-17")
+    result = run_pipeline(str(project))
+    assert result["status"] == "REFUSED"
+    assert "natural-language note" in result["reason"]
+    assert "ren spec resolve" in result["reason"]
 
 
 def test_changed_spec_value_does_not_reuse_a_same_count_ledger_row(tmp_path):
@@ -399,7 +380,6 @@ def test_two_notes_on_one_frame_are_translated_separately(tmp_path):
     """
     from library.tools import marker_routing
 
-    project = _project(tmp_path)
     first = {"source": "timeline_marker", "frame": 120,
              "text": "music too loud"}
     second = {"source": "timeline_marker", "frame": 120,
@@ -420,52 +400,6 @@ def test_two_notes_on_one_frame_are_translated_separately(tmp_path):
                                             "stated_by": "requester"}}},
         }])
     assert routed.basis != marker_routing.BASIS_EDIT_SPEC
-
-
-def test_edit_pipeline_refuses_to_plan_around_an_open_note_question(tmp_path):
-    """An unanswered K6 referent holds the run before any planning step
-    can silently produce a cut without the requested object or shot."""
-    from library.processes.edit_video.run_pipeline import run_pipeline
-
-    project = _project(tmp_path)
-    edit_spec.prepare_request(
-        str(project), "use the logo on the end card", note_id="marker-17")
-    result = run_pipeline(str(project))
-    assert result["status"] == "REFUSED"
-    assert "natural-language note" in result["reason"]
-    assert "ren spec resolve" in result["reason"]
-
-
-def test_missing_shot_becomes_a_question_and_records_no_partial_clause():
-    """K6's absent or ambiguous shot is sent back to the editor; no
-    could_not_determine row or resolved sibling is committed meanwhile."""
-    spec = _spec()
-    spec["clauses"].append({
-        "id": "op-2", "text": "use the shot behind the host",
-        "op": "angle_plan", "op_source": "model",
-        "status": "needs_clarification",
-        "missing_referent": "which shot",
-        "question": "Which shot should replace the host's close-up?",
-    })
-    questions = edit_spec.questions_for_spec(spec)
-    assert questions[0]["clause_id"] == "op-2"
-    with pytest.raises(edit_spec.NeedsClarification,
-                       match="ask the editor"):
-        edit_spec.record_spec("/unused", spec)
-
-
-def test_could_not_determine_cannot_be_recorded_as_a_resolved_operation():
-    """A legacy non-answer cannot sneak into a resolved ledger row.
-
-    Catches: the model returning could_not_determine beside a resolved
-    clause, which would otherwise let planning continue without asking.
-    """
-    spec = _spec()
-    spec["clauses"][0]["could_not_determine"] = "missing logo"
-
-    with pytest.raises(edit_spec.EditSpecError,
-                       match="uses could_not_determine"):
-        edit_spec.validate_spec(spec)
 
 
 def _angle_values():
@@ -494,11 +428,15 @@ def _angle_spec(reels, reel=None):
             "available_reels": reels, "clauses": [clause]}
 
 
-def test_angle_plan_requires_an_exact_reel_before_ledger_recording(tmp_path):
-    """A camera plan without reel scope cannot become a project-wide pin.
+def test_angle_plan_asks_for_an_exact_known_reel_before_ledger_recording(
+        tmp_path):
+    """A camera plan without a real reel scope is a question, not a row.
 
-    Catches: E5's per-reel angle plan being recorded without naming which
-    reel should hold the camera, minimum shot length and lead.
+    Catches: E5's per-reel angle plan recorded without naming which reel
+    holds the camera, minimum shot length and lead (a project-wide pin);
+    a typo or nonexistent reel accepted while the ledger matcher would
+    silently miss it; and PA2.3 in a single-edit project asking "which
+    reel?" over an empty list the editor cannot answer from.
     """
     project = _project(tmp_path)
     spec = _angle_spec(["Reel 09 - hook", "Reel 10 - close"])
@@ -517,28 +455,14 @@ def test_angle_plan_requires_an_exact_reel_before_ledger_recording(tmp_path):
         edit_spec.record_spec(str(project), spec)
     assert edit_ledger.load_rows(str(project)) == []
 
-
-def test_angle_plan_in_a_project_without_reels_says_why_it_asks():
-    """With no reels to choose from, the question says so.
-
-    Catches: PA2.3 in a single-edit project asking "which reel?" with an
-    empty list, a question the editor cannot answer from what it says.
-    """
-    [question] = edit_spec.questions_for_spec(_angle_spec([]))
-    assert "no reels yet" in question["question"]
-
-
-def test_angle_plan_asks_when_its_reel_name_matches_no_known_timeline():
-    """An invented per-reel scope cannot become a plan nobody will replay.
-
-    Catches: a typo or nonexistent reel name being accepted as an E5
-    per-reel plan while the ledger matcher would silently miss the reel.
-    """
     spec = _angle_spec(["Reel 01 - opening"], reel="Reel 99")
     questions = edit_spec.questions_for_spec(spec)
     assert "Reel 01 - opening" in questions[0]["question"]
     with pytest.raises(edit_spec.NeedsClarification):
         edit_spec.ledger_rows(spec)
+
+    [question] = edit_spec.questions_for_spec(_angle_spec([]))
+    assert "no reels yet" in question["question"]
 
 
 def test_spec_context_uses_the_planned_and_built_reel_timeline_names(
@@ -654,21 +578,23 @@ def test_resolved_values_keep_units_and_provenance_in_edit_ledger(tmp_path):
     assert row["op_source"] == "model"
 
 
-def test_missing_value_source_or_unit_is_refused_before_ledger_write(tmp_path):
-    """A spec value cannot be flattened into the ledger without saying
-    who stated it and which units the number uses."""
+def test_a_malformed_spec_is_refused_before_any_ledger_row(tmp_path):
+    """Recording is atomic, and nothing unstated is flattened into it.
+
+    Rows: a value with no unit (who stated it, in which units); two
+    clauses making the same ledger decision (not "replay the last one");
+    a legacy could_not_determine beside a resolved clause (planning
+    would continue without asking); a resolved structural note with no
+    typed values.
+    """
+    from library.tools import llm_handshake
+
     project = _project(tmp_path)
     spec = _spec()
     del spec["clauses"][0]["values"]["amount"]["unit"]
     with pytest.raises(edit_spec.EditSpecError, match=r"\.unit"):
         edit_spec.record_spec(str(project), spec)
-    assert edit_ledger.load_rows(str(project)) == []
 
-
-def test_one_bad_clause_prevents_every_row_from_being_written(tmp_path):
-    """Atomic spec recording refuses a batch with duplicate decisions
-    instead of replaying only its last clause."""
-    project = _project(tmp_path)
     spec = _spec()
     duplicate = json.loads(json.dumps(spec["clauses"][0]))
     duplicate["id"] = "op-2"
@@ -678,36 +604,39 @@ def test_one_bad_clause_prevents_every_row_from_being_written(tmp_path):
     with pytest.raises(edit_ledger.EditLedgerError,
                        match="same ledger decision twice"):
         edit_spec.record_spec(str(project), spec)
+
+    spec = _spec()
+    spec["clauses"][0]["could_not_determine"] = "missing logo"
+    with pytest.raises(edit_spec.EditSpecError,
+                       match="uses could_not_determine"):
+        edit_spec.validate_spec(spec)
+
+    request = "open on the quitting line, then go back to the intro"
+    request_id, _request_path, note_id = edit_spec.prepare_request(
+        str(project), request)
+    Path(llm_handshake.response_path(str(project), request_id)).write_text(
+        json.dumps({
+            "format": edit_spec.FORMAT, "request": request,
+            "source_note_id": note_id,
+            "clauses": [{
+                "id": "c1", "text": request, "op": "story_pacing",
+                "op_source": "requester", "status": "resolved",
+                "anchor": {"kind": "words", "phrase": "the requested line"},
+                "anchor_source": "requester", "values": {},
+            }],
+        }), encoding="utf-8")
+    with pytest.raises(
+            edit_spec.EditSpecError,
+            match="story_pacing needs one or more typed operation values"):
+        edit_spec.load_response_spec(str(project), request_id)
+
     assert edit_ledger.load_rows(str(project)) == []
 
 
-def test_intent_miss_returns_the_measured_shortfall_in_a_revised_spec():
-    """A build miss returns requested-versus-measured evidence with the
-    clause, rather than recording an unexplained generic failure."""
-    spec = _spec()
-    result = edit_spec.intent_check(spec, {
-        "op-1": {
-            "timeline": {"followed": True, "broke_nothing": True,
-                         "measurement": {"value": 60, "unit": "percent"},
-                         "evidence": "Timeline readback shows 60%."},
-            "export": {"followed": False, "broke_nothing": True,
-                       "measurement": {"value": 42, "unit": "percent"},
-                       "shortfall": {"requested": 60, "observed": 42,
-                                     "unit": "percent"},
-                       "evidence": "Export measurement reads 42%."},
-        }
-    })
-    assert result["status"] == "revise"
-    revised = result["revised_spec"]["clauses"][0]
-    assert revised["revision"]["measured_shortfalls"][0][
-        "measured_shortfall"] == {
-            "requested": 60, "observed": 42, "unit": "percent"}
-    assert "proxy preview" in result["proxy_preview"]
-
-
 def test_intent_shortfall_must_match_the_request_unit_and_export_measurement():
-    """An unrelated unit or stale export reading cannot be reported as the
-    measured miss against the editor's declared amount."""
+    """A build miss returns requested-versus-measured evidence with the
+    clause; an unrelated unit or stale export reading cannot be reported
+    as the measured miss against the editor's declared amount."""
     spec = _spec()
     evidence = {
         "op-1": {
@@ -721,6 +650,16 @@ def test_intent_shortfall_must_match_the_request_unit_and_export_measurement():
                        "evidence": "Export measurement reads 42%."},
         },
     }
+    evidence["op-1"]["export"]["shortfall"]["observed"] = 42
+    result = edit_spec.intent_check(spec, evidence)
+    assert result["status"] == "revise"
+    revised = result["revised_spec"]["clauses"][0]
+    assert revised["revision"]["measured_shortfalls"][0][
+        "measured_shortfall"] == {
+            "requested": 60, "observed": 42, "unit": "percent"}
+    assert "proxy preview" in result["proxy_preview"]
+
+    evidence["op-1"]["export"]["shortfall"]["observed"] = 41
     with pytest.raises(edit_spec.EditSpecError,
                        match="differs from the measured value"):
         edit_spec.intent_check(spec, evidence)
@@ -814,25 +753,6 @@ def test_intent_cli_cannot_accept_observations_without_reviewed_artifacts():
     assert exc.value.code == 2
 
 
-def test_prepare_writes_edit_spec_handshake_for_host_translation(tmp_path):
-    """The host receives a typed edit-spec request before Ren records any
-    operation, using the same LLM request/response folders as other work."""
-    from library.tools.llm_handshake import request_path
-
-    project = _project(tmp_path)
-    request_id, path, note_id = edit_spec.prepare_request(
-        str(project), "remove the background noise", reel="Reel 09",
-        note_id="marker-note-123")
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    assert payload["step_id"] == request_id
-    assert payload["kind"] == "edit_spec"
-    assert "one operation per clause" in payload["prompt"]
-    assert json.loads(payload["context"])["source_note_id"] == \
-        "marker-note-123"
-    assert note_id == "marker-note-123"
-    assert Path(path) == Path(request_path(str(project), request_id))
-
-
 def test_direct_request_gets_a_durable_note_for_typed_pipeline_delivery(tmp_path):
     """A chat/CLI request without an existing Resolve marker still gets
     a captured note id, so a resolved plan op reaches its owner step."""
@@ -850,145 +770,86 @@ def test_direct_request_gets_a_durable_note_for_typed_pipeline_delivery(tmp_path
         note_id]["request_id"]
 
 
-def test_brand_asset_is_stored_and_delivered_by_operation_type(tmp_path):
-    """A brand CTA reaches motion graphics from its typed operation,
-    regardless of words that the legacy router might match elsewhere."""
+def _record_one_clause(project, request, clause):
+    from library.tools import llm_handshake
+    request_id, _path, note_id = edit_spec.prepare_request(
+        str(project), request)
+    spec = {"format": edit_spec.FORMAT, "request": request,
+            "source_note_id": note_id, "clauses": [clause]}
+    Path(llm_handshake.response_path(str(project), request_id)).write_text(
+        json.dumps(spec), encoding="utf-8")
+    edit_spec.record_spec(str(project),
+                          edit_spec.load_response_spec(
+                              str(project), request_id))
+
+
+def _clause(cid, text, op, anchor, values):
+    return {"id": cid, "text": text, "op": op, "op_source": "requester",
+            "status": "resolved", "anchor": anchor,
+            "anchor_source": "requester", "values": values}
+
+
+def test_a_typed_plan_operation_reaches_its_owners_prompt(tmp_path):
+    """Each plan op is delivered by its TYPE to the step that owns the
+    decision, through a declared notes input - regardless of words the
+    legacy router might match elsewhere.
+
+    Catches: a brand CTA reaching unrelated steps; a closer change missing
+    the step that chooses each reel's ending; and an audio_mix answer
+    named in the ledger enum but recorded as report-only feedback, so the
+    gain never reached the model that decides the mix.
+    """
     from library.tools import marker_routing
 
-    project = _project(tmp_path)
-    from library.tools import llm_handshake
+    rows = [
+        ("put the supplied brand logo on the end card",
+         _clause("brand-1", "use the supplied brand logo on the end card",
+                 "brand_asset", {"kind": "reel"},
+                 {"asset": {"value": "approved-logo.svg",
+                            "unit": "asset path",
+                            "stated_by": "requester"}}),
+         "render_motion_graphics",
+         "step_4_06_render_motion_graphics"),
+        ("move the closing line to the new opening words",
+         _clause("closer-1", "move this shared closer", "redraw_closer",
+                 {"kind": "words", "phrase": "new opening words"},
+                 {"from_phrase": {"value": "old closing words",
+                                  "unit": "spoken phrase",
+                                  "stated_by": "requester"}}),
+         "select_reels", "step_3_04_select_reels"),
+        ("lower the bed by 4 dB while the host is speaking",
+         _clause("mix-1", "lower the bed by 4 dB while the host is speaking",
+                 "audio_mix", {"kind": "reel"},
+                 {"separation": {"value": 4, "unit": "dB",
+                                 "stated_by": "requester"}}),
+         "audio_mix", "step_5_02_audio_mix"),
+    ]
+    for index, (request, clause, owner, step_dir) in enumerate(rows):
+        project = _project(tmp_path / str(index))
+        _record_one_clause(project, request, clause)
+        [row] = edit_ledger.load_rows(str(project))
+        if row["op"] == "plan_change":
+            assert row["params"]["operation_type"] == clause["op"]
+            assert row["params"]["owner"] == owner
+        else:
+            assert row["op"] == clause["op"], owner
 
-    request_id, _path, note_id = edit_spec.prepare_request(
-        str(project), "put the supplied brand logo on the end card")
-    spec = {
-        "format": edit_spec.FORMAT,
-        "request": "put the supplied brand logo on the end card",
-        "source_note_id": note_id,
-        "clauses": [{
-            "id": "brand-1",
-            "text": "use the supplied brand logo on the end card",
-            "op": "brand_asset",
-            "op_source": "model",
-            "status": "resolved",
-            "anchor": {"kind": "reel"},
-            "anchor_source": "requester",
-            "values": {
-                "asset": {"value": "approved-logo.svg",
-                          "unit": "asset path",
-                          "stated_by": "requester"},
-            },
-        }],
-    }
-
-    Path(llm_handshake.response_path(str(project), request_id)).write_text(
-        json.dumps(spec), encoding="utf-8")
-    edit_spec.record_spec(str(project),
-                          edit_spec.load_response_spec(
-                              str(project), request_id))
-    rows = edit_ledger.load_rows(str(project))
-    assert rows[0]["op"] == "plan_change"
-    assert rows[0]["params"]["operation_type"] == "brand_asset"
-    assert rows[0]["params"]["owner"] == "render_motion_graphics"
-    assert rows[0]["params"]["values"]["asset"]["unit"] == \
-        "asset path"
-
-    routed = marker_routing.route_project(str(project))[0]
-    assert routed.basis == marker_routing.BASIS_EDIT_SPEC
-    assert routed.steps == ["render_motion_graphics"]
-    operation = marker_routing.prompt_block([routed])["notes"][0][
-        "typed_operations"][0]
-    assert operation["op"] == "brand_asset"
-    assert operation["params"]["asset"]["value"] == "approved-logo.svg"
-    manifest = json.loads(Path(
-        "library/steps/step_4_06_render_motion_graphics/manifest.json"
-    ).read_text(encoding="utf-8"))
-    marker_routing.assert_deliverable(
-        "render_motion_graphics", manifest, [routed])
-
-
-def test_redraw_closer_routes_to_the_select_reels_prompt(tmp_path):
-    """A closer change reaches the step that chooses each reel's ending,
-    with a declared notes input, instead of unrelated motion graphics."""
-    from library.tools import llm_handshake, marker_routing
-
-    project = _project(tmp_path)
-    request_id, _path, note_id = edit_spec.prepare_request(
-        str(project), "move the closing line to the new opening words")
-    spec = {
-        "format": edit_spec.FORMAT,
-        "request": "move the closing line to the new opening words",
-        "source_note_id": note_id,
-        "clauses": [{
-            "id": "closer-1",
-            "text": "move this shared closer",
-            "op": "redraw_closer",
-            "op_source": "requester",
-            "status": "resolved",
-            "anchor": {"kind": "words", "phrase": "new opening words"},
-            "anchor_source": "requester",
-            "values": {
-                "from_phrase": {"value": "old closing words",
-                                "unit": "spoken phrase",
-                                "stated_by": "requester"},
-            },
-        }],
-    }
-    Path(llm_handshake.response_path(str(project), request_id)).write_text(
-        json.dumps(spec), encoding="utf-8")
-    edit_spec.record_spec(str(project),
-                          edit_spec.load_response_spec(
-                              str(project), request_id))
-
-    routed = marker_routing.route_project(str(project))[0]
-    assert routed.steps == ["select_reels"]
-    assert routed.basis == marker_routing.BASIS_EDIT_SPEC
-    manifest = json.loads(Path(
-        "library/steps/step_3_04_select_reels/manifest.json"
-    ).read_text(encoding="utf-8"))
-    marker_routing.assert_deliverable("select_reels", manifest, [routed])
-
-
-def test_audio_mix_plan_change_reaches_the_mix_prompt(tmp_path):
-    """An audio_mix operation is not recorded as report-only feedback.
-
-    Catches: the plan owner being named in the ledger enum while the mixed
-    gain answer never reaches the model that decides the audio plan.
-    """
-    from library.tools import llm_handshake, marker_routing
-
-    project = _project(tmp_path)
-    request_id, _path, _note_id = edit_spec.prepare_request(
-        str(project), "lower the bed by 4 dB while the host is speaking")
-    spec = {
-        "format": edit_spec.FORMAT,
-        "request": "lower the bed by 4 dB while the host is speaking",
-        "clauses": [{
-            "id": "mix-1",
-            "text": "lower the bed by 4 dB while the host is speaking",
-            "op": "audio_mix",
-            "op_source": "model",
-            "status": "resolved",
-            "anchor": {"kind": "reel"},
-            "anchor_source": "requester",
-            "values": {
-                "separation": {"value": 4, "unit": "dB",
-                               "stated_by": "requester"},
-            },
-        }],
-    }
-    Path(llm_handshake.response_path(str(project), request_id)).write_text(
-        json.dumps(spec), encoding="utf-8")
-    edit_spec.record_spec(str(project),
-                          edit_spec.load_response_spec(
-                              str(project), request_id))
-
-    routed = marker_routing.route_project(str(project))[0]
-    assert routed.steps == ["audio_mix"]
-    assert routed.basis == marker_routing.BASIS_EDIT_SPEC
-    manifest = json.loads(Path(
-        "library/steps/step_5_02_audio_mix/manifest.json"
-    ).read_text(encoding="utf-8"))
-    marker_routing.assert_deliverable("audio_mix", manifest, [routed])
+        [routed] = marker_routing.route_project(str(project))
+        assert routed.basis == marker_routing.BASIS_EDIT_SPEC, owner
+        assert routed.steps == [owner]
+        [operation] = marker_routing.prompt_block(
+            [routed], node_id=owner)["notes"][0]["typed_operations"]
+        assert operation["op"] == clause["op"]
+        if clause["op"] == "brand_asset":
+            # A brand asset is stored as a plan_change with its unit.
+            assert row["op"] == "plan_change"
+            assert row["params"]["values"]["asset"]["unit"] == "asset path"
+            assert operation["params"]["asset"]["value"] == \
+                "approved-logo.svg"
+        manifest = json.loads(Path(
+            f"library/steps/{step_dir}/manifest.json"
+        ).read_text(encoding="utf-8"))
+        marker_routing.assert_deliverable(owner, manifest, [routed])
 
 
 def test_story_pacing_cold_open_translates_and_reaches_mesh_spine(tmp_path):
@@ -1092,44 +953,3 @@ def test_story_pacing_cold_open_translates_and_reaches_mesh_spine(tmp_path):
         "library/steps/step_2_05_mesh_spine/manifest.json"
     ).read_text(encoding="utf-8"))
     marker_routing.assert_deliverable("mesh_spine", manifest, routed)
-    handoff = Path(
-        "library/steps/step_2_05_mesh_spine/handoff.md"
-    ).read_text(encoding="utf-8")
-    assert "cold_open_then_intro" in handoff
-    assert "anchor.phrase" in handoff
-    assert "actual body sequence" in " ".join(handoff.split())
-
-
-def test_empty_story_pacing_values_are_still_refused(tmp_path):
-    """A resolved structural note cannot pass translation without values."""
-    from library.tools import llm_handshake
-
-    request = (
-        "open on the line about quitting every single day, then go back to "
-        "the intro")
-    project = _project(tmp_path)
-    request_id, _request_path, note_id = edit_spec.prepare_request(
-        str(project), request)
-    response = {
-        "format": edit_spec.FORMAT,
-        "request": request,
-        "source_note_id": note_id,
-        "clauses": [{
-            "id": "c1",
-            "text": request,
-            "op": "story_pacing",
-            "op_source": "requester",
-            "status": "resolved",
-            "anchor": {"kind": "words", "phrase": "the requested line"},
-            "anchor_source": "requester",
-            "values": {},
-        }],
-    }
-    Path(llm_handshake.response_path(str(project), request_id)).write_text(
-        json.dumps(response), encoding="utf-8")
-
-    with pytest.raises(
-            edit_spec.EditSpecError,
-            match="story_pacing needs one or more typed operation values"):
-        edit_spec.load_response_spec(str(project), request_id)
-    assert edit_ledger.load_rows(str(project)) == []

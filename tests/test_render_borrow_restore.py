@@ -1,29 +1,13 @@
 """H4 - render settings and the render queue are project-global.
 
-Neither renderer used to restore them. A render that changes project-
-global settings and leaves them changed means the NEXT render inherits
-them, and the captain's own manual render inherits them too.
-
-These tests prove:
-- format/codec is saved before mutation and restored in finally
-- only the job this process created is deleted (not DeleteAllRenderJobs)
-- restore happens on the success path
-- restore happens when the body RAISES (the path that is always missing)
-- the page is restored on both paths
-- RenderSettingsError is importable and documents the hazard
-
-All tests use mock objects - no Resolve writes.
+History: docs/evidence/resolve_test_history.md#test_render_borrow_restore.
 """
-import os
-import sys
 
 import pytest
 
 # ── segment_renderer ────────────────────────────────────────────
 from library.tools.segment_renderer import (
-    RenderSettingsError,
     render_segment,
-    SegmentRenderResult,
 )
 
 
@@ -151,132 +135,37 @@ class ExplodingProject(MockProject):
 
 # ── H4 Tests: segment_renderer ─────────────────────────────────
 
-class TestSegmentRendererFormatCodecRestore:
-    """format/codec is saved before mutation and restored on every exit."""
+class TestSegmentRendererRestoresWhatItBorrowed:
+    """format/codec, the page and the render queue are restored on every
+    exit, and only the job this process created is deleted - never
+    everyone's (DeleteAllRenderJobs destroys the captain's queued jobs,
+    H4a)."""
 
-    def test_format_codec_restored_on_success(self, tmp_path):
-        """The format/codec is restored after a successful render."""
-        resolve = MockResolve()
-        project = MockProject(format_codec={"format": "mov", "codec": "ProRes"})
-        timeline = MockTimeline()
-
-        # Create a fake rendered file so the function finds it
-        fake_file = tmp_path / "qa_segment_0_10.mov"
-        fake_file.write_bytes(b"\x00" * 4096)
-
-        render_segment(
-            resolve, project, timeline,
-            mark_in=0, mark_out=10,
-            output_dir=str(tmp_path),
-        )
-
-        assert project.set_format_codec_calls == [("mov", "ProRes")], (
-            "format/codec was not restored after successful render"
-        )
-
-    def test_format_codec_restored_when_body_raises(self, tmp_path):
-        """The format/codec is restored even when the render body raises."""
-        resolve = MockResolve()
-        project = ExplodingProject(
-            format_codec={"format": "mp4", "codec": "H264"},
-        )
-        timeline = MockTimeline()
-
-        with pytest.raises(RuntimeError, match="Simulated render explosion"):
-            render_segment(
-                resolve, project, timeline,
-                mark_in=0, mark_out=10,
-                output_dir=str(tmp_path),
-            )
-
-        assert project.set_format_codec_calls == [("mp4", "H264")], (
-            "format/codec was NOT restored when the body raised - "
-            "this is the bug H4 exists to prevent"
-        )
-
-
-class TestSegmentRendererJobCleanup:
-    """Only the job this process created is deleted, not everyone's."""
-
-    def test_own_job_deleted_on_success(self, tmp_path):
-        """Our render job is cleaned up after success."""
-        resolve = MockResolve()
-        project = MockProject(job_id="my-job-99")
-        timeline = MockTimeline()
-
-        fake_file = tmp_path / "qa_segment_0_10.mov"
-        fake_file.write_bytes(b"\x00" * 4096)
-
-        render_segment(
-            resolve, project, timeline,
-            mark_in=0, mark_out=10,
-            output_dir=str(tmp_path),
-        )
-
+    def test_restored_on_success(self, tmp_path):
+        resolve = MockResolve(page="edit")
+        project = MockProject(format_codec={"format": "mov", "codec": "ProRes"},
+                              job_id="my-job-99")
+        # A fake rendered file so the function finds it.
+        (tmp_path / "qa_segment_0_10.mov").write_bytes(b"\x00" * 4096)
+        render_segment(resolve, project, MockTimeline(),
+                       mark_in=0, mark_out=10, output_dir=str(tmp_path))
+        assert project.set_format_codec_calls == [("mov", "ProRes")]
         assert "my-job-99" in project.deleted_jobs
-        assert not project.deleted_all, (
-            "DeleteAllRenderJobs was called - this destroys the captain's "
-            "queued jobs (H4a)"
-        )
+        assert not project.deleted_all
+        assert resolve.opened_pages[-1] == "edit"
 
-    def test_own_job_deleted_when_body_raises(self, tmp_path):
-        """Our render job is cleaned up even when the body raises."""
-        resolve = MockResolve()
-        project = ExplodingProject(job_id="my-job-77")
-        timeline = MockTimeline()
-
+    def test_restored_when_the_body_raises(self, tmp_path):
+        """The bug H4 exists to prevent."""
+        resolve = MockResolve(page="color")
+        project = ExplodingProject(
+            format_codec={"format": "mp4", "codec": "H264"}, job_id="my-job-77")
         with pytest.raises(RuntimeError, match="Simulated render explosion"):
-            render_segment(
-                resolve, project, timeline,
-                mark_in=0, mark_out=10,
-                output_dir=str(tmp_path),
-            )
-
+            render_segment(resolve, project, MockTimeline(),
+                           mark_in=0, mark_out=10, output_dir=str(tmp_path))
+        assert project.set_format_codec_calls == [("mp4", "H264")]
         assert "my-job-77" in project.deleted_jobs
         assert not project.deleted_all
-
-
-class TestSegmentRendererPageRestore:
-    """The Deliver page is restored on every exit path."""
-
-    def test_page_restored_on_success(self, tmp_path):
-        resolve = MockResolve(page="edit")
-        project = MockProject()
-        timeline = MockTimeline()
-
-        fake_file = tmp_path / "qa_segment_0_10.mov"
-        fake_file.write_bytes(b"\x00" * 4096)
-
-        render_segment(
-            resolve, project, timeline,
-            mark_in=0, mark_out=10,
-            output_dir=str(tmp_path),
-        )
-
-        assert resolve.opened_pages[-1] == "edit", (
-            "Page was not restored after render"
-        )
-
-    def test_page_restored_when_body_raises(self, tmp_path):
-        resolve = MockResolve(page="color")
-        project = ExplodingProject()
-        timeline = MockTimeline()
-
-        with pytest.raises(RuntimeError):
-            render_segment(
-                resolve, project, timeline,
-                mark_in=0, mark_out=10,
-                output_dir=str(tmp_path),
-            )
-
-        assert resolve.opened_pages[-1] == "color", (
-            "Page was not restored when the body raised"
-        )
-
-
-class TestRenderSettingsErrorDocumentation:
-    """The error class documents the hazard."""
-    pass
+        assert resolve.opened_pages[-1] == "color"
 
 
 # ── resolve_render (the full-timeline renderer) ────────────────
@@ -285,7 +174,6 @@ class TestRenderSettingsErrorDocumentation:
 # to inject our mocks.
 
 from library.tools.execution.resolve_render import (
-    RenderError,
     render_timeline,
 )
 
@@ -346,13 +234,12 @@ class ExplodingRenderProject(RenderTimelineMockProject):
 class TestRenderTimelineRestoreOnException:
     """resolve_render.render_timeline restores on the exception path."""
 
-    def test_format_codec_restored_when_body_raises(self, monkeypatch, tmp_path):
-        """format/codec is restored even when SetRenderSettings raises."""
+    def test_format_codec_and_page_restored_when_body_raises(self, monkeypatch, tmp_path):
+        """format/codec and the page are restored even when SetRenderSettings raises."""
         project = ExplodingRenderProject(
             format_codec={"format": "mov", "codec": "ProRes"},
         )
-        timeline = MockTimeline("TestTimeline")
-        resolve = RenderTimelineMockResolve(project, page="edit")
+        resolve = RenderTimelineMockResolve(project, page="color")
 
         monkeypatch.setattr(
             "library.tools.execution.resolve_render._connect",
@@ -373,27 +260,6 @@ class TestRenderTimelineRestoreOnException:
             "format/codec was NOT restored when the body raised - "
             "this is the bug H4 exists to prevent"
         )
-
-    def test_page_restored_when_body_raises(self, monkeypatch, tmp_path):
-        """The page is restored even when the body raises."""
-        project = ExplodingRenderProject(
-            format_codec={"format": "mov", "codec": "ProRes"},
-        )
-        timeline = MockTimeline("TestTimeline")
-        resolve = RenderTimelineMockResolve(project, page="color")
-
-        monkeypatch.setattr(
-            "library.tools.execution.resolve_render._connect",
-            lambda: resolve,
-        )
-
-        with pytest.raises(RuntimeError):
-            render_timeline(
-                timeline_name="TestTimeline",
-                output_dir=str(tmp_path),
-                output_name="test",
-            )
-
         assert resolve.opened_pages[-1] == "color", (
             "Page was not restored when the body raised"
         )
@@ -404,7 +270,6 @@ class TestRenderTimelineRestoreOnException:
             format_codec={"format": "mov", "codec": "ProRes"},
             job_id="render-job-88",
         )
-        timeline = MockTimeline("TestTimeline")
         resolve = RenderTimelineMockResolve(project, page="edit")
 
         # Make StartRendering raise after AddRenderJob succeeds

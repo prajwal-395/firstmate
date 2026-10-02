@@ -1,26 +1,7 @@
 """A pool item whose cached stream metadata disagrees with its file is
 refreshed at the build's safe rebinding point, not reused.
 
-THE INPUT THAT BREAKS THIS: Reel 26, 2026-09-13 - a pool item caching
-`866x480`/ProRes for a file that is `904x480`/qtrle on disk. The
-artefact was rewritten in place under a stable path (a re-render under
-an unchanged drawing digest, then `transcode_in_place`'s ProRes-to-qtrle
-carriage), while Resolve caches dimensions and codec at import where
-the scripting API cannot refresh them. Reusing that item renders a
-ProRes decode of qtrle bytes at the wrong dimensions: media offline on
-exactly the frames the clip covers.
-
-The fix reuses `deliver-reel`'s comparison (`pool_stream_meta`, the one
-its preflight refuses on) at `import_pool_item`'s lookup hit: a
-disagreeing hit is left pooled and a fresh item is imported beside it,
-so the staging timeline binds the fresh item and promotion carries it.
-Deletion is never the repair - the approved timeline still plays the
-stale item, and promotion retires that timeline to Archive rather than
-deleting it (`orphan_removal.assert_removable` refuses placed items for
-exactly this reason).
-
-A test builds its project under `tmp_path`, or it skips. It never falls
-back to a real one. The disk probe is stubbed: no ffmpeg, no Resolve.
+History: docs/evidence/resolve_test_history.md#test_pool_stream_meta_refresh.
 """
 from __future__ import annotations
 
@@ -36,40 +17,42 @@ from library.tools import pool_stream_meta
 
 # ── The comparison ──────────────────────────────────────────────
 
-def test_reel_26_input_fires_the_resolution_leg():
-    """Pool `866x480` against disk `904x480` is stale, whatever else."""
-    pool = {"width": 866, "height": 480, "codec": None}
-    disk = {"width": 904, "height": 480, "codec": "qtrle"}
-    found = pool_stream_meta.stream_disagreement(pool, disk)
-    assert found is not None
+def test_stream_disagreement_fires_each_leg_and_never_on_ignorance():
+    """Reel 26: pool `866x480` against disk `904x480` is stale, whatever
+    else. Same dimensions transcoded underneath (`transcode_in_place`
+    keeps the path and pixels, turns only the codec over) fires the
+    codec leg. A missing file or an unparseable pool Resolution is
+    incomparable, never stale; and a codec name the table has not
+    learned is NOT staleness - flagging it would read every camera
+    format in the pool as stale (AGENTS.md 10.4)."""
+    found = pool_stream_meta.stream_disagreement(
+        {"width": 866, "height": 480, "codec": None},
+        {"width": 904, "height": 480, "codec": "qtrle"})
     assert found["mismatches"] == ["resolution"]
     assert found["pool_resolution"] == "866x480"
     assert found["disk_resolution"] == "904x480"
     assert found["codec_compared"] is False
 
-
-def test_codec_only_rewrite_fires_the_codec_leg():
-    """Same dimensions, transcoded underneath: resolution alone waves it
-    through, so the codec leg must fire. This is the transcode
-    migration with no re-render - `transcode_in_place` keeps the path
-    and the pixels and turns only the codec over."""
-    pool = {"width": 904, "height": 480, "codec": "apple prores 4444"}
-    disk = {"width": 904, "height": 480, "codec": "qtrle"}
-    found = pool_stream_meta.stream_disagreement(pool, disk)
-    assert found is not None
+    found = pool_stream_meta.stream_disagreement(
+        {"width": 904, "height": 480, "codec": "apple prores 4444"},
+        {"width": 904, "height": 480, "codec": "qtrle"})
     assert found["mismatches"] == ["codec"]
     assert found["codec_compared"] is True
 
+    unknown = {"width": None, "height": None, "codec": None}
+    assert pool_stream_meta.stream_disagreement(
+        {"width": 866, "height": 480, "codec": None}, unknown) is None
+    assert pool_stream_meta.stream_disagreement(
+        unknown, {"width": 904, "height": 480, "codec": "qtrle"}) is None
 
-def test_an_unreadable_side_is_skipped_never_flagged():
-    """A missing file is not a stale item, and neither is a pool item
-    with no parseable Resolution. Both read as incomparable."""
-    pool = {"width": 866, "height": 480, "codec": None}
-    assert pool_stream_meta.stream_disagreement(
-        pool, {"width": None, "height": None, "codec": None}) is None
-    assert pool_stream_meta.stream_disagreement(
-        {"width": None, "height": None, "codec": None},
-        {"width": 904, "height": 480, "codec": "qtrle"}) is None
+    assert pool_stream_meta.codecs_agree("xavc high l5.1", "h264") is None
+    pool = {"width": 3840, "height": 2160, "codec": "xavc high l5.1"}
+    disk = {"width": 3840, "height": 2160, "codec": "h264"}
+    assert pool_stream_meta.stream_disagreement(pool, disk) is None
+    found = pool_stream_meta.stream_disagreement(
+        dict(pool, width=1920, height=1080), disk)
+    assert found["mismatches"] == ["resolution"]
+    assert found["codec_compared"] is False
 
 
 def test_pool_codec_is_the_video_one_never_the_first_codec_key():
@@ -92,25 +75,6 @@ def test_pool_codec_is_the_video_one_never_the_first_codec_key():
     stream = pool_stream_meta.pool_stream(_Item())
     assert (stream["width"], stream["height"]) == (904, 480)
     assert stream["codec"] == "apple prores 4444"
-
-
-def test_an_unknown_pool_vocabulary_is_not_compared():
-    """A codec name this table has not learned is NOT staleness.
-
-    `codecs_agree` returns None, the codec leg drops, and the record
-    says `codec_compared: False`. Flagging it instead would fail
-    correct output, which is no more coverage than a gate that cannot
-    fire (AGENTS.md 10.4) - and it would read every camera format in
-    the pool as stale."""
-    assert pool_stream_meta.codecs_agree("xavc high l5.1", "h264") is None
-    pool = {"width": 3840, "height": 2160, "codec": "xavc high l5.1"}
-    disk = {"width": 3840, "height": 2160, "codec": "h264"}
-    found = pool_stream_meta.stream_disagreement(pool, disk)
-    assert found is None
-    pool_stale = dict(pool, width=1920, height=1080)
-    found = pool_stream_meta.stream_disagreement(pool_stale, disk)
-    assert found["mismatches"] == ["resolution"]
-    assert found["codec_compared"] is False
 
 
 def test_disk_stream_reads_a_real_file_by_name_not_by_position(tmp_path):
@@ -233,7 +197,7 @@ def test_stale_hit_imports_fresh_and_never_deletes(tmp_path):
     assert stale in pool.root._clips
 
 
-def test_fresh_hit_reuses_with_no_import(tmp_path):
+def test_a_fresh_hit_reuses_without_importing(tmp_path):
     """Agreement reuses as before: no second item, no probe-driven
     churn. This is the 2026-09-09 duplication lesson, held."""
     from library.tools.reel_build import import_pool_item
@@ -247,14 +211,9 @@ def test_fresh_hit_reuses_with_no_import(tmp_path):
     assert pool.imports == []
     assert pool.deletes == []
 
-
-def test_second_hit_prefers_the_fresh_item_without_importing(tmp_path):
-    """After one refresh the path holds two items. The next build must
-    bind the fresh one WITHOUT importing a third - otherwise every
-    rebuild grows the pool by the whole overlay set again."""
-    from library.tools.reel_build import import_pool_item
-
-    path = _overlay(tmp_path)
+    # After one refresh the path holds two items: the next build binds
+    # the fresh one WITHOUT importing a third - otherwise every rebuild
+    # grows the pool by the whole overlay set again.
     pool = _Pool()
     stale = _Clip(path, resolution="866x480", codec="Apple ProRes 4444")
     fresh = _Clip(path, resolution="904x480", codec="Animation")

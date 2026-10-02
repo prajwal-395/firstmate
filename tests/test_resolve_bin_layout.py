@@ -37,18 +37,13 @@ def test_bins_to_create_is_lookup_first():
     assert ("02 - Music",) in missing
     # Parents come before their children.
     assert missing.index(("05 - Reels", "Archive")) > 0
-
-
-def test_bins_to_create_can_come_back_empty():
+    # And a complete layout creates nothing.
     assert bins_to_create(set(BIN_PATHS)) == []
 
 
 def test_parse_reel_name_reads_a_version():
     assert parse_reel_name("Reel 20 - search-didnt-change-the-question-did v003") == (
         "Reel 20 - search-didnt-change-the-question-did", 3)
-
-
-def test_parse_reel_name_leaves_an_unversioned_name_alone():
     assert parse_reel_name("GEO Podcast - Synced") == ("GEO Podcast - Synced", None)
 
 
@@ -62,9 +57,6 @@ def test_every_banned_suffix_is_detected():
 def test_format_reel_name_zero_pads():
     assert format_reel_name(20, "search-didnt-change-the-question-did", 3) == (
         "Reel 20 - search-didnt-change-the-question-did v003")
-
-
-def test_format_reel_name_refuses_version_zero():
     with pytest.raises(ValueError):
         format_reel_name(20, "slug", 0)
 
@@ -73,7 +65,4 @@ def test_next_version_passes_the_highest_taken():
     names = ["Reel 20 - slug v001", "Reel 20 - slug v003",
              "Reel 20 - other v009"]
     assert next_version("Reel 20 - slug", names) == 4
-
-
-def test_next_version_starts_at_one():
     assert next_version("Reel 20 - slug", ["Reel 20 - slug (harvest)"]) == 1

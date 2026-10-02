@@ -1,20 +1,6 @@
 """The old-TV switch is ONE shape, played in two directions.
 
-The captain's Reel 20 marker invites the interpretation ("you can create
-some animations for this"), and `library/tools/tv_power.py` is the
-proposal: every timing states what it is and why, and all of them are
-changeable through the project's own `tv_frame` declaration.
-
-His Reel 09 marker of 2026-09-11 is what makes the shape single:
-
-    "also the tv on animation should start from fully black just like
-     the reverse of how the tv off animation goes to fully black"
-
-Until then there were two animations - `line/expand/bloom` at 4/6/8 with
-no dot phase and a lit first frame, against `collapse/dot/decay` at
-6/3/9 ending at black.  `test_switch_on_is_the_switch_off_reversed` is
-the gate that keeps them one: it evaluates BOTH comps frame by frame and
-fails the moment either direction is re-timed on its own.
+History: docs/evidence/resolve_test_history.md#test_tv_power.
 """
 import sys
 from pathlib import Path
@@ -28,14 +14,7 @@ from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.tv_power import (
     BLACK_GAIN,
     COLLAPSE_CROP,
-    COLLAPSE_FRAMES,
-    COLLAPSE_MAX,
-    COLLAPSE_MIN,
-    DECAY_FRAMES,
-    DOT_FRAMES,
-    DOT_GAIN,
     DOT_SIZE,
-    LINE_GAIN,
     PICTURE_GAIN,
     switch_off_frames,
     switch_off_total,
@@ -72,7 +51,6 @@ def _curves(comp: str, played: int) -> dict:
 # ── The shape ──────────────────────────────────────────────────────
 
 
-
 def test_both_directions_read_one_declaration():
     """`switch_on_frames` and `switch_off_frames` are the SAME call.
 
@@ -87,59 +65,35 @@ def test_both_directions_read_one_declaration():
             == {**switch_shape(), "collapse_frames": 12})
 
 
-
-
-
-
 # ── The declaration ────────────────────────────────────────────────
 
 
-
-def test_declared_collapse_merges_as_a_float_not_frames():
-    """A project declares the depth the way it declares the lengths -
-    and it must survive as a fraction, never int() to 0."""
+def test_the_power_declaration_validates_or_raises_by_name():
+    """A declared depth survives as a fraction, never int() to 0.
+    `switch_on`/`switch_off` were the shape until 2026-09-11: honouring
+    one would re-time one direction and leave the other behind, so it
+    raises naming the replacement. 0.5 closes the band entirely (the
+    one-frame flash); negative and non-numeric are mistakes, not looks.
+    All raise, none clamp."""
     assert validate_timing({"collapse_crop": 0.3}, "test")[
         "collapse_crop"] == 0.3
-
-
-def test_a_per_half_declaration_is_refused_by_name():
-    """`switch_on` / `switch_off` were this declaration's shape until
-    2026-09-11.  Honouring one would re-time one direction and leave
-    the other behind, which is exactly what the captain's marker
-    closed - so it raises, and the refusal names the replacement."""
+    assert validate_timing(None, "test") == {}
     for half in ("switch_on", "switch_off"):
         with pytest.raises(ValueError) as raised:
             validate_timing({half: {"collapse_frames": 2}}, "test")
         assert "one shape" in str(raised.value).lower()
         assert "collapse_frames" in str(raised.value)
-
-
-def test_collapse_bounds_raise_naming_the_source():
-    """0.5 closes the band entirely (the one-frame flash); negative and
-    non-numeric are mistakes, not looks.  All raise, none clamp."""
     for bad in (0.5, 0.9, -0.1, "shallow", True, None):
         with pytest.raises((ValueError, TypeError)):
             validate_collapse(bad, "test")
     assert validate_collapse(0.0, "test") == 0.0
     assert validate_collapse(0.49, "test") == 0.49
-    with pytest.raises(ValueError):
-        validate_timing({"collapse_crop": 0.5}, "test")
-
-
-def test_unknown_phase_key_raises():
-    with pytest.raises(ValueError):
-        validate_timing({"flicker_frames": 3}, "test")
-
-
-def test_negative_count_raises():
-    with pytest.raises(ValueError):
-        validate_timing({"decay_frames": -1}, "test")
-
-
-def test_non_mapping_raises():
-    with pytest.raises(TypeError):
-        validate_timing([1, 2], "test")
-    assert validate_timing(None, "test") == {}
+    for declaration, error in (({"collapse_crop": 0.5}, ValueError),
+                               ({"flicker_frames": 3}, ValueError),
+                               ({"decay_frames": -1}, ValueError),
+                               ([1, 2], TypeError)):
+        with pytest.raises(error):
+            validate_timing(declaration, "test")
 
 
 # ── What reaches the comp ──────────────────────────────────────────
@@ -166,8 +120,6 @@ def test_both_keys_draw_the_band_the_dot_and_the_gain():
         # Fusion's Crop resizes the image to the crop rectangle, so it
         # cannot blank a band in place whatever you spell its inputs.
         assert "Crop" not in comp
-
-
 
 
 def test_the_switch_on_opens_on_fully_black():

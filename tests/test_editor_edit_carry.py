@@ -1,17 +1,6 @@
 """The editor's timeline edits are carried through a rebuild, or refused.
 
-Reel 7 (2026-09-29): the live cut omitted Craig source 25,263-25,374 and
-Akshita source 60,745-60,979 and held a disabled Semantic graphic; the
-rebuild restored both passages and re-enabled the graphic, and the
-promotion overwrote the edit. Step one made that promotion REFUSE. These
-tests pin step two: the same shape is CARRIED - the staging timeline
-loses the two passages (the first with its gap closed, as the editor
-closed it) and the graphic is switched off, judged on a re-read in
-source ranges - and the promoted timeline matches the edited one on
-those passages. The next rebuild carries the same edits again from the
-ledger with no fresh editor change on record.
-
-Trims and moves are carried in `tests/test_editor_edit_carry_composed.py`.
+History: docs/evidence/resolve_test_history.md#test_editor_edit_carry.
 """
 
 import json

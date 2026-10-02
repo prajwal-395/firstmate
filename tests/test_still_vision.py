@@ -38,68 +38,45 @@ def _still(tmp_path, name="still_00.png"):
 
 # ── The request schema: `images` optional, absolute, on disk ──
 
-def test_request_without_images_has_no_images_key():
+def test_request_images_are_absolute_files_on_disk_or_refused(tmp_path):
+    """No images: no key. Images: absolute paths to files on disk, or a
+    refusal - a relative or missing still strands the host."""
     req = llm_handshake.build_request(
         "creative_direction", "prompt", "", "ctx", "[]",
         "/proj", "2026-09-24T00:00:00+00:00")
     assert "images" not in req
-
-
-def test_request_with_images_carries_absolute_paths(tmp_path):
     still = _still(tmp_path)
     req = llm_handshake.build_request(
         "objects__stills", "look", "", "ctx", "[]",
         str(tmp_path), "2026-09-24T00:00:00+00:00",
         images=[still])
     assert req["images"] == [still]
-
-
-def test_request_with_relative_image_refuses(tmp_path):
-    with pytest.raises(ValueError, match="not an absolute path"):
-        llm_handshake.build_request(
-            "s", "p", "", "c", "[]", str(tmp_path), "t",
-            images=["relative/still.png"])
-
-
-def test_request_with_missing_image_refuses(tmp_path):
-    with pytest.raises(ValueError, match="not a file on disk"):
-        llm_handshake.build_request(
-            "s", "p", "", "c", "[]", str(tmp_path), "t",
-            images=[str(tmp_path / "never_extracted.png")])
-
-
-def test_request_with_empty_images_refuses(tmp_path):
-    with pytest.raises(ValueError, match="non-empty list"):
-        llm_handshake.build_request(
-            "s", "p", "", "c", "[]", str(tmp_path), "t", images=[])
+    for images, match in (
+        (["relative/still.png"], "not an absolute path"),
+        ([str(tmp_path / "never_extracted.png")], "not a file on disk"),
+        ([], "non-empty list"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            llm_handshake.build_request(
+                "s", "p", "", "c", "[]", str(tmp_path), "t", images=images)
 
 
 # ── The response validates exactly as today, plus the text shape ──
 
-def test_validate_response_still_accepts_objects():
+def test_a_host_answer_is_an_object_with_usable_text(tmp_path):
+    """The response validates exactly as before (objects, never arrays),
+    and a still answer must carry a non-blank `text`."""
     assert llm_handshake.validate_response(
         "s", '{"text": "x"}', "/proj") == {"text": "x"}
-
-
-def test_validate_response_still_refuses_arrays():
     with pytest.raises(llm_handshake.HandshakeRefusal):
         llm_handshake.validate_response("s", '["x"]', "/proj")
-
-
-def test_require_text_answer_returns_text(tmp_path):
     assert llm_handshake.require_text_answer(
         {"text": "  the subject is cut off  "}, "s",
         str(tmp_path)) == "  the subject is cut off  "
-
-
-def test_require_text_answer_without_text_refuses(tmp_path):
     with pytest.raises(llm_handshake.HandshakeRefusal,
                        match="no usable `text`"):
         llm_handshake.require_text_answer(
             {"verdict": "pass"}, "objects__stills", str(tmp_path))
-
-
-def test_require_text_answer_with_blank_text_refuses(tmp_path):
     with pytest.raises(llm_handshake.HandshakeRefusal):
         llm_handshake.require_text_answer(
             {"text": "   "}, "objects__stills", str(tmp_path))
@@ -107,38 +84,29 @@ def test_require_text_answer_with_blank_text_refuses(tmp_path):
 
 # ── The host capability is declared, never guessed ──
 
-def test_declared_hosts_see_images():
+def test_the_host_and_its_vision_are_declared_never_guessed(monkeypatch):
     assert host_sees_images("agent") is True
     assert host_sees_images("mock") is True
-
-
-def test_undeclared_harness_raises_not_guesses():
-    with pytest.raises(UnknownHost, match="not in HOST_SEES_IMAGES"):
-        host_sees_images("api")
-    with pytest.raises(UnknownHost, match="not in HOST_SEES_IMAGES"):
-        host_sees_images("codex")
-
-
-def test_resolve_harness_prefers_explicit_over_env(monkeypatch):
+    for undeclared in ("api", "codex"):
+        with pytest.raises(UnknownHost, match="not in HOST_SEES_IMAGES"):
+            host_sees_images(undeclared)
+    # Explicit beats the environment; an empty environment is no host.
     monkeypatch.setenv(still_vision.HARNESS_ENV_VAR, "agent")
     assert resolve_harness("mock") == "mock"
     assert resolve_harness() == "agent"
-
-
-def test_resolve_harness_empty_env_means_no_host(monkeypatch):
-    monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
-    assert resolve_harness() is None
     monkeypatch.setenv(still_vision.HARNESS_ENV_VAR, "  ")
     assert resolve_harness() is None
-
-
-def test_request_step_id_never_shares_the_step_stem():
+    monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
+    assert resolve_harness() is None
+    # The still request never shares the step's own handshake stem.
     assert request_step_id("select_broll") == "select_broll__stills"
 
 
 # ── No host: gemma, single vs multi, same calls as before ──
 
-def test_no_host_answers_single_still_via_gemma(tmp_path, monkeypatch):
+def test_no_host_answers_via_gemma_single_or_multi(tmp_path, monkeypatch):
+    """Same calls as before: one still takes the single path, several
+    the multi path, and an empty list refuses before any model."""
     from library.tools import vision_model
 
     seen = {}
@@ -148,7 +116,8 @@ def test_no_host_answers_single_still_via_gemma(tmp_path, monkeypatch):
         return "single answer"
 
     def fake_multi(self, image_paths, prompt, max_tokens=800):
-        raise AssertionError("single still must not take the multi path")
+        seen["multi"] = list(image_paths)
+        return "multi answer"
 
     monkeypatch.setattr(vision_model.VisionModel, "analyze_image",
                         fake_single)
@@ -158,23 +127,10 @@ def test_no_host_answers_single_still_via_gemma(tmp_path, monkeypatch):
     still = _still(tmp_path)
     assert inspect_stills("Is it sharp?", [still]) == "single answer"
     assert seen["single"][0] == still
-
-
-def test_no_host_answers_multi_still_via_gemma(tmp_path, monkeypatch):
-    from library.tools import vision_model
-
-    def fake_multi(self, image_paths, prompt, max_tokens=800):
-        assert len(image_paths) == 2
-        return "multi answer"
-
-    monkeypatch.setattr(vision_model.VisionModel, "analyze_images",
-                        fake_multi)
-    monkeypatch.delenv(still_vision.HARNESS_ENV_VAR, raising=False)
+    assert "multi" not in seen, "single still must not take the multi path"
     stills = [_still(tmp_path, f"s{i:02d}.png") for i in range(2)]
     assert inspect_stills("Compare.", stills) == "multi answer"
-
-
-def test_empty_still_list_refuses_before_any_model(tmp_path):
+    assert seen["multi"] == stills
     with pytest.raises(ValueError, match="no stills to inspect"):
         inspect_stills("Look.", [])
 

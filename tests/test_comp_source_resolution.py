@@ -1,19 +1,6 @@
 """Fusion Background nodes are built at the SOURCE frame, not the delivery frame.
 
-Every Background node `build_effect_comp` draws - the vignette, the fade,
-both halves of a transition - is a solid image merged over `MediaIn`. It
-therefore has to be the size of the image Fusion sees, which is the
-SOURCE clip's own frame. It defaulted to 1080x1920 while project 001's
-A-roll is 1920x1080, so every graded clip carried a 1080-wide,
-full-height dark rectangle down the centre of the picture, measurable in
-the export as a ~15-level step at source columns 419 and 1499. Nothing
-warned: a Background of the wrong size is a perfectly valid comp.
-
-`CompEngine.from_params` already had a `source_res` for exactly this
-reason, with a comment explaining it - but the renderer calls
-`build_effect_comp`, which did not. A correct mechanism on a path nothing
-executes is the failure mode this pipeline keeps re-finding, so this file
-tests the path the renderer actually takes.
+History: docs/evidence/resolve_test_history.md#test_comp_source_resolution.
 """
 import pathlib
 import re
@@ -55,18 +42,16 @@ def _background_sizes(comp: str):
     return sizes
 
 
-@pytest.mark.parametrize("name", sorted(BACKGROUND_EFFECTS))
-def test_backgrounds_match_the_landscape_source(name):
-    comp = build_effect_comp(dict(BACKGROUND_EFFECTS[name]), CLIP_DUR,
-                             source_res=LANDSCAPE)
-    sizes = _background_sizes(comp)
-    assert sizes, f"{name} drew no Background node"
-    assert all(s == LANDSCAPE for s in sizes), (
-        f"{name} drew {sizes} over a {LANDSCAPE} source - a Background "
-        "smaller than the frame is a hard-edged rectangle in the picture"
-    )
-
-
+def test_backgrounds_match_the_landscape_source():
+    """A Background smaller than the frame is a hard-edged rectangle in
+    the picture."""
+    for name in sorted(BACKGROUND_EFFECTS):
+        comp = build_effect_comp(dict(BACKGROUND_EFFECTS[name]), CLIP_DUR,
+                                 source_res=LANDSCAPE)
+        sizes = _background_sizes(comp)
+        assert sizes, f"{name} drew no Background node"
+        assert all(s == LANDSCAPE for s in sizes), (
+            f"{name} drew {sizes} over a {LANDSCAPE} source")
 
 
 def test_an_unknown_source_refuses_rather_than_guessing():
@@ -133,5 +118,3 @@ def test_the_renderer_reads_the_source_frame_off_the_media_pool_item():
     assert read(Item("unknown")) is None
     assert read(Item("0x0")) is None
     assert read(None) is None
-
-

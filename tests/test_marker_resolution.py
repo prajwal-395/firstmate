@@ -1,20 +1,6 @@
 """The other end of the captain's timeline notes: resolve, verify, clear.
 
-What these tests fake, and what they do not stand in for
---------------------------------------------------------
-The dict-backed `FakeTimeline` / `FakeClipItem` below fake ONLY the
-deletion contract this module judges: `DeleteMarkerAtFrame` returning
-True for a present frame and False for an absent one, and `GetMarkers`
-reading the markers back. That contract is measured against a real
-Resolve in `marker_feedback`'s docstring and in
-`tests/test_marker_feedback_against_resolve.py` - nothing here re-proves
-what Resolve returns. What is proved here is what THIS module does with
-whatever comes back: a True it re-reads as gone is a removal, anything
-else is not, and a decline or an unverifiable note never reaches the
-call at all (the counting fakes fail the test if it is reached).
-
-Everything on disk runs against real files in `tmp_path`. No test here
-reaches a real project (`tests/test_tests_never_reach_real_projects.py`).
+History: docs/evidence/resolve_test_history.md#test_marker_resolution.
 """
 
 from __future__ import annotations
@@ -146,59 +132,38 @@ def test_verified_fix_clears_the_timeline_marker(tmp_path):
     assert on_disk["evidence"]["a_roll_video_rows"] == 2
 
 
-def test_decline_never_clears_even_beside_a_passing_check(tmp_path):
-    note = _timeline_note()
-    timeline = _timeline_with_forbidden_delete(note)
-    result = mr.resolve_note(
-        str(tmp_path),
-        note,
-        action="decline: the single row is deliberate for this reel",
-        rationale="the captain's layout note is about the series template",
-        check=mr.CHECK_A_ROLL_ROWS,
-        measured={"a_roll_video_rows": 2},
-        timeline=timeline,
+def test_only_a_verified_fix_clears_a_marker(tmp_path):
+    """A decline never clears, even beside a passing check; a taste note
+    is unverifiable; a failed check is addressed-unverified. Each keeps
+    its marker - the delete is forbidden on the fake and would raise."""
+    rows = (
+        (_timeline_note(), dict(
+            action="decline: the single row is deliberate for this reel",
+            rationale="the captain's layout note is about the series template",
+            check=mr.CHECK_A_ROLL_ROWS, measured={"a_roll_video_rows": 2}),
+         mr.STATUS_DECLINED, None),
+        (_taste_note(), dict(action="recut the segment tighter",
+                             rationale="removed the choppy passage"),
+         mr.STATUS_UNVERIFIABLE, None),
+        (_timeline_note(), dict(
+            action="split the a-roll onto two rows", rationale="rebuilt",
+            check=mr.CHECK_A_ROLL_ROWS, measured={"a_roll_video_rows": 1}),
+         mr.STATUS_ADDRESSED_UNVERIFIED, 1),
     )
-    record = result["record"]
-    assert record["status"] == mr.STATUS_DECLINED
-    assert result["marker_touched"] is False
-    assert record["marker_removed"] is False
-    assert record["marker_still_present"] is True
-    assert len(timeline.GetMarkers()) == 1
-
-
-def test_taste_note_is_unverifiable_and_keeps_its_marker(tmp_path):
-    note = _taste_note()
-    timeline = _timeline_with_forbidden_delete(note)
-    result = mr.resolve_note(
-        str(tmp_path),
-        note,
-        action="recut the segment tighter",
-        rationale="removed the choppy passage",
-    )
-    record = result["record"]
-    assert record["status"] == mr.STATUS_UNVERIFIABLE
-    assert result["marker_touched"] is False
-    assert record["marker_removed"] is False
-    assert len(timeline.GetMarkers()) == 1
-
-
-def test_failed_check_keeps_its_marker(tmp_path):
-    note = _timeline_note()
-    timeline = _timeline_with_forbidden_delete(note)
-    result = mr.resolve_note(
-        str(tmp_path),
-        note,
-        action="split the a-roll onto two rows",
-        rationale="rebuilt",
-        check=mr.CHECK_A_ROLL_ROWS,
-        measured={"a_roll_video_rows": 1},
-        timeline=timeline,
-    )
-    record = result["record"]
-    assert record["status"] == mr.STATUS_ADDRESSED_UNVERIFIED
-    assert record["evidence"]["a_roll_video_rows"] == 1
-    assert result["marker_touched"] is False
-    assert len(timeline.GetMarkers()) == 1
+    for index, (note, kwargs, status, rows_measured) in enumerate(rows):
+        timeline = _timeline_with_forbidden_delete(note)
+        if "check" in kwargs:
+            kwargs["timeline"] = timeline
+        result = mr.resolve_note(str(tmp_path / str(index)), note, **kwargs)
+        record = result["record"]
+        assert record["status"] == status
+        assert result["marker_touched"] is False
+        assert record["marker_removed"] is False
+        assert len(timeline.GetMarkers()) == 1
+        if rows_measured is not None:
+            assert record["evidence"]["a_roll_video_rows"] == rows_measured
+        if status == mr.STATUS_DECLINED:
+            assert record["marker_still_present"] is True
 
 
 # ── Failure keeps the words ───────────────────────────────────────
@@ -294,7 +259,7 @@ def _survey(tmp_path, **reels):
     )
 
 
-def test_a_declaration_absent_from_one_reel_FAILS(tmp_path):
+def test_a_declaration_absent_from_one_reel_or_never_read_FAILS(tmp_path):
     passed, evidence = mr.verify(
         mr.CHECK_DECLARATION_REACHES,
         {
@@ -306,9 +271,7 @@ def test_a_declaration_absent_from_one_reel_FAILS(tmp_path):
     )
     assert passed is False
     assert "Reel 01" in evidence["reason"]
-
-
-def test_the_check_refuses_a_measurement_that_never_looked(tmp_path):
+    # A measurement that never looked refuses rather than passing.
     for missing in (
         {"declaration": "full_frame_elements"},
         {"divergence": _survey(tmp_path)},

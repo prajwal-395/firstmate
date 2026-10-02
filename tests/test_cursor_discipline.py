@@ -1,32 +1,6 @@
 """The cursor is settable from N places; this test is the discipline.
 
-`SetCurrentTimeline` is the call that killed a Fusion pass: any holder
-can move the instance cursor out from under a sibling lane's build.
-`library/tools/resolve_lock.py` already owns the shared layer for this
-(`assert_current_timeline` inside a lease, `cursor_fence` for a guarded
-section, `cursor_excursion` for a deliberate move-and-return) - and
-since the 2026-09-20 migration every in-pipeline establishment goes
-through it, while reads that never needed the cursor stopped moving
-it at all (`timeline_serializer`'s `timeline=` handle,
-`timeline_sync_qa`, `reel_deliver`'s lookup). No discipline about
-asserting it can be enforced while the setter set grows silently.
-
-So this test registers every `SetCurrentTimeline` site in shipped code
-(`library/`, `bin/`) with its owner and migration state. Adding a new call site
-fails here with instructions: route the establishment through
-`resolve_lock`, or register the site with a reason. Removing one means
-deleting its registry row - a row no longer needed is a lie about what
-is still owed.
-
-This test changes no runtime behaviour; what it stops is silent growth
-of the setter set. The migration order it once tracked lives in
-`docs/RESOLVE_AXI_ROUND5.md`.
-
-`tests/` is out of scope by construction: fakes there RAISE on
-`SetCurrentTimeline` (reads must not move the cursor), and the nine
-live `*_against_resolve` / SOP tests declare their writes against a
-real session. `library/tools/resolve_axi.py` is covered by its own AST
-test and must never appear here.
+History: docs/evidence/resolve_test_history.md#test_cursor_discipline.
 """
 
 import ast

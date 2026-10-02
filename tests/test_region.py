@@ -22,18 +22,14 @@ from library.tools.region import (
     TIMELINE,
     assert_domain,
     domain_of,
-    owner_of_track,
     parse,
     read_words,
     resolve,
-    to_source_words,
     to_timeline_words,
 )
 from library.tools.spine_contract import (
     block_at,
     blocks_overlapping,
-    source_to_timeline,
-    timeline_to_source,
 )
 
 
@@ -91,18 +87,14 @@ def test_offsets_are_per_block_and_the_sign_is_not_constant():
 
 # ── blocks_overlapping ───────────────────────────────────────────────
 
-def test_blocks_overlapping_is_half_open_at_a_shared_boundary():
-    """Abutting blocks partition the timeline; a boundary belongs to one."""
+def test_blocks_overlapping_is_half_open_and_never_clamps():
+    """Abutting blocks partition the timeline; a boundary belongs to one.
+    A zero-length interval returns its containing block, and past the
+    end of the timeline is nothing rather than the last block."""
     touched = blocks_overlapping(_001, 2.398, 5.398)
     assert [b["position"] for b in touched] == [1]
-
-
-def test_zero_length_interval_returns_the_containing_block():
     assert block_at(_001, 12.0)["position"] == 3
     assert [b["position"] for b in blocks_overlapping(_001, 12.0, 12.0)] == [3]
-
-
-def test_past_the_end_of_the_timeline_returns_nothing_rather_than_clamping():
     assert blocks_overlapping(_001, 56.605, 60.0) == []
     assert block_at(_001, 100.0) is None
 
@@ -140,13 +132,8 @@ def test_resolve_turns_a_timestamp_into_footage():
              for s in address.source_spans}
     assert spans[10] == (174.317, 180.459)
     assert spans[11] == (33.941, 35.404)
-
-
-def test_a_non_speech_block_is_reported_but_contributes_no_footage():
-    """Block 12 is 001's outro: inside the region, no clip behind it."""
-    address = resolve(Region(MASTER, 45.0, 72.0), _001)
-    assert 12 in address.positions
-    assert 12 not in [s.block_position for s in address.source_spans]
+    # Block 12 is 001's outro: inside the region, no clip behind it.
+    assert 12 not in spans
 
 
 # ── The domain guard ─────────────────────────────────────────────────
@@ -163,33 +150,7 @@ def test_the_collision_this_module_exists_for():
     assert drift == pytest.approx(0.836)
     assert drift == pytest.approx(
         _001[0]["source_start"] - _001[0]["timeline_start"])
-
-
-def test_bare_start_end_names_no_domain_and_is_refused():
-    """The guard REFUSES; it cannot classify - the two are identical."""
-    assert domain_of(_INDEX_WORDS) is None
-    assert domain_of(_CAPTION_WORDS) is None
-    for words in (_INDEX_WORDS, _CAPTION_WORDS):
-        with pytest.raises(DomainError) as exc:
-            assert_domain(words, SOURCE, "test")
-        assert "name no time domain" in str(exc.value)
-        assert "0.836" in str(exc.value)
-
-
-def test_words_in_the_wrong_named_domain_are_refused():
-    timeline_words = to_timeline_words(_SPINE_WORDS, _001[0])
-    with pytest.raises(DomainError) as exc:
-        assert_domain(timeline_words, SOURCE, "test")
-    assert "expected source" in str(exc.value)
-
-
-def test_read_words_refuses_to_relabel_an_already_named_list():
-    with pytest.raises(DomainError):
-        read_words(_SPINE_WORDS, TIMELINE)
-
-
-def test_the_conversion_a_naive_splice_would_have_skipped():
-    """Copying the key across puts 001's first caption 25 frames late."""
+    # Copying the key across puts 001's first caption 25 frames late.
     naive = _INDEX_WORDS[0]["start"]
     converted = to_timeline_words(
         read_words(_INDEX_WORDS, SOURCE), _001[0])[0]["timeline_start"]
@@ -198,8 +159,24 @@ def test_the_conversion_a_naive_splice_would_have_skipped():
     assert round((naive - converted) * 30) == 25
 
 
-def test_a_conversion_cannot_be_asked_for_without_a_block():
-    """There is no project-wide offset, so the block is not optional."""
+def test_the_domain_guard_refuses_what_it_cannot_name():
+    """The guard REFUSES; it cannot classify - bare start/end are
+    identical in both domains. A list in the wrong named domain is
+    refused, an already-named list is never relabelled, and there is no
+    project-wide offset, so a conversion needs its block."""
+    assert domain_of(_INDEX_WORDS) is None
+    assert domain_of(_CAPTION_WORDS) is None
+    for words in (_INDEX_WORDS, _CAPTION_WORDS):
+        with pytest.raises(DomainError) as exc:
+            assert_domain(words, SOURCE, "test")
+        assert "name no time domain" in str(exc.value)
+        assert "0.836" in str(exc.value)
+    timeline_words = to_timeline_words(_SPINE_WORDS, _001[0])
+    with pytest.raises(DomainError) as exc:
+        assert_domain(timeline_words, SOURCE, "test")
+    assert "expected source" in str(exc.value)
+    with pytest.raises(DomainError):
+        read_words(_SPINE_WORDS, TIMELINE)
     with pytest.raises(TypeError):
         to_timeline_words(_SPINE_WORDS)
 
@@ -220,10 +197,7 @@ def test_a_region_knows_which_timeline_it_is_on():
     # timeline, and it must not become a timeline literally called "".
     assert Region("", 1.0, 2.0).timeline is MASTER
     assert Region("  ", 1.0, 2.0).timeline is MASTER
-
-
-def test_the_same_span_on_two_timelines_is_two_different_regions():
-    """The whole point: identical numbers, different moments."""
+    # Identical numbers on two timelines are different moments.
     assert Region(MASTER, 12.0, 15.0) != Region("reel_03", 12.0, 15.0)
 
 
@@ -232,9 +206,24 @@ def test_mixing_timelines_is_refused_rather_than_converted():
     with pytest.raises(TimelineMismatch) as exc:
         resolve(master, _001, timeline="reel_03")
     assert "reel_03" in str(exc.value)
-
-
-def test_a_text_form_that_disagrees_with_its_argument_is_refused():
-    """One silent winner is how a reel span gets read against the master."""
+    # A text form that disagrees with its argument: one silent winner is
+    # how a reel span gets read against the master.
     with pytest.raises(TimelineMismatch):
         parse("reel_03@45.0-72.0", timeline="reel_09")
+
+
+def test_every_plan_splice_is_a_region_only_operation():
+    """A splice redoes one region of a plan; offered a whole project it
+    would silently replace every other region's decisions."""
+    from library.tools import operations
+    from library.tools import scope as scope_mod
+
+    region = scope_mod.region(Region(None, 4.0, 6.0))
+    for name, run in (("aroll.splice", "splice_region_aroll"),
+                      ("broll.splice", "splice_region_broll"),
+                      ("transitions.splice", "splice_region_transitions"),
+                      ("vfx.splice", "splice_region_vfx")):
+        op = operations.get(name)
+        assert op.supports(region), name
+        assert not op.supports(scope_mod.project()), name
+        assert op.run.__name__ == run

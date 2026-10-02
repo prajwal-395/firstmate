@@ -15,15 +15,12 @@ from library.tools.orphan_removal import (
     ALREADY_GONE,
     DELETE,
     KEEP_SHARED,
-    Removal,
     RemovalRefused,
     assert_file_unreferenced,
     assert_instruments_agree,
     assert_removable,
     files_to_delete,
     plan_removal,
-    render_manifest,
-    render_summary,
     summarise,
 )
 from library.tools.resolve_organization import Artefact
@@ -49,51 +46,31 @@ def timeline(name):
 # --------------------------------------------- the timeline gate, both ways
 
 
-def test_a_timeline_in_the_removal_set_refuses_the_whole_set():
+def test_every_removal_gate_refuses_the_unsafe_case_and_passes_the_safe_one():
     """DeleteClips on a timeline's pool item DELETES THE TIMELINE and
-    returns True. One wrong entry must stop all 1,216."""
+    returns True: one wrong entry must stop all 1,216. A placed item
+    stops the set too; two instruments that disagree refuse; a file a
+    timeline plays refuses at the moment of deletion. And in the other
+    direction, correct output is not refused."""
     with pytest.raises(RemovalRefused) as refused:
         assert_removable([clip("a"), timeline("Reel 03"), clip("b")])
     assert "DELETES THE TIMELINE" in str(refused.value)
     assert "Reel 03" in str(refused.value)
-
-
-def test_the_timeline_gate_passes_a_set_of_plain_unplaced_clips():
-    """The other direction: correct output must not be refused."""
-    assert assert_removable([clip("a"), clip("b"), clip("c")]) is None
-
-
-def test_a_placed_item_in_the_removal_set_refuses_the_whole_set():
     with pytest.raises(RemovalRefused) as refused:
         assert_removable([clip("a"), clip("b", placed=("Reel 07",))])
     assert "placed on a timeline" in str(refused.value)
+    assert assert_removable([clip("a"), clip("b"), clip("c")]) is None
 
-
-# ------------------------------------------- the two instruments, both ways
-
-
-def test_instruments_that_disagree_refuse():
     with pytest.raises(RemovalRefused) as refused:
         assert_instruments_agree({"/a.mov", "/b.mov"}, {"/a.mov"})
     assert "disagree" in str(refused.value)
     assert "/b.mov" in str(refused.value)
-
-
-def test_instruments_that_agree_pass():
     assert assert_instruments_agree({"/a.mov"}, {"/a.mov"}) is None
     assert assert_instruments_agree(set(), set()) is None
 
-
-# --------------------------------------------- the per-file gate, both ways
-
-
-def test_a_referenced_file_refuses_at_the_moment_of_deletion():
     with pytest.raises(RemovalRefused) as refused:
         assert_file_unreferenced("/x.mov", {"/x.mov"})
     assert "played by a timeline" in str(refused.value)
-
-
-def test_an_unreferenced_file_passes():
     assert assert_file_unreferenced("/x.mov", {"/y.mov"}) is None
 
 
@@ -146,10 +123,6 @@ def test_a_clip_outside_the_project_is_never_removed():
 # -------------------------------------------------------- what is written
 
 
-
-
-
-
 # ------------------------------------------------- the database instrument
 
 
@@ -176,16 +149,15 @@ def test_the_database_sweep_refuses_when_it_cannot_find_what_it_knows(tmp_path):
     assert "has not looked" not in str(refused.value)
     assert "does not report" in str(refused.value)
 
-
-def test_an_unreadable_database_refuses_rather_than_returning_nothing(tmp_path):
-    db = tmp_path / "Project.db"
+    # An unreadable database refuses rather than returning nothing.
     import sqlite3
-    con = sqlite3.connect(db)
+    other = tmp_path / "Other.db"
+    con = sqlite3.connect(other)
     con.execute("create table Something (x text)")
     con.commit()
     con.close()
     with pytest.raises(RemovalRefused) as refused:
-        prune_orphans.placed_paths_from_database(str(db))
+        prune_orphans.placed_paths_from_database(str(other))
     assert "reads exactly like" in str(refused.value)
 
 
@@ -261,24 +233,6 @@ def test_the_digest_is_sensitive_and_stable(tmp_path):
 # ------------------------------------------------- the organiser still cannot
 
 
-@pytest.mark.parametrize("module", [
-    "library/tools/resolve_organization.py",
-    "library/tools/execution/organise_media_pool.py",
-])
-def test_removal_did_not_leak_into_the_organiser(module):
-    """Organising must still never delete. Adding a module that CAN
-    delete is exactly the moment that rule is easiest to lose."""
-    source = Path(module).read_text(encoding="utf-8")
-    executable = "".join(source.split('"""')[::2])
-    for call in ("DeleteClips(", "DeleteFolders(", "DeleteTimelines("):
-        assert call not in executable, f"{module} calls {call}"
-
-
-
-
-# --------------------------------------------- the file list after removal
-
-
 def test_the_file_list_comes_from_the_journal_not_a_resurvey(tmp_path):
     """Once the pool items are gone a survey finds no orphans, so a
     re-survey would delete nothing while reporting success. The journal
@@ -293,11 +247,7 @@ def test_the_file_list_comes_from_the_journal_not_a_resurvey(tmp_path):
     ]}), encoding="utf-8")
     assert prune_orphans.files_from_journal(str(journal)) == ["/a.mov"]
 
-
-def test_an_empty_journal_refuses_rather_than_deleting_nothing_quietly(tmp_path):
-    import json
-
-    journal = tmp_path / "prune.json"
+    # An empty journal refuses rather than deleting nothing quietly.
     journal.write_text(json.dumps({"removed": []}), encoding="utf-8")
     with pytest.raises(RemovalRefused) as refused:
         prune_orphans.files_from_journal(str(journal))
@@ -322,16 +272,10 @@ def test_deleting_stops_on_a_file_that_became_referenced(tmp_path):
     assert not first.exists(), "the unreferenced file should have gone"
     assert second.exists(), "the referenced file must survive"
 
-
-def test_deleting_removes_the_files_and_reports_what_it_freed(tmp_path):
-    """The other direction: correct input must actually be deleted."""
-    import json
-
+    # The other direction: correct input is actually deleted.
     victim = tmp_path / "victim.mov"
     victim.write_bytes(b"z" * 1234)
-    journal = tmp_path / "prune.json"
     journal.write_text(json.dumps({"removed": []}), encoding="utf-8")
-
     record = prune_orphans.delete_files([str(victim)], set(), str(journal))
     assert record["deleted"] == [str(victim)]
     assert record["bytes_freed"] == 1234

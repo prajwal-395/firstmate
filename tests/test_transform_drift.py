@@ -39,8 +39,8 @@ def held(*rows):
             for track, start, pan, tilt in rows}
 
 
-def test_the_four_x_reads_as_one_factor_over_every_clip():
-    """The shape actually found on Reels 01, 23, 28, 30 and 31."""
+def test_a_uniform_move_reads_as_one_factor_and_noise_as_none():
+    """The x4 found on Reels 01, 23, 28, 30 and 31 reads as one factor."""
     rows = drift_rows(built_transforms(BUILT),
                       held((1, 590, 5.972, 1.0),
                            (1, 1069, 99.656, 1.0),
@@ -49,9 +49,7 @@ def test_the_four_x_reads_as_one_factor_over_every_clip():
     assert uniform_factor(rows) == pytest.approx(4.0)
     assert "every one by x4" in describe("Reel 01", rows)
 
-
-def test_a_timeline_holding_what_the_build_wrote_reads_as_unmoved():
-    """Reel 26: built last, never moved. The instrument must agree."""
+    # Reel 26: built last, never moved. The instrument must agree.
     rows = drift_rows(built_transforms(BUILT),
                       held((1, 590, 1.493, 0.25),
                            (1, 1069, 24.914, 0.25),
@@ -60,18 +58,18 @@ def test_a_timeline_holding_what_the_build_wrote_reads_as_unmoved():
     assert uniform_factor(rows) is None
     assert "hold exactly what the build wrote" in describe("Reel 26", rows)
 
-
-def test_resolves_read_back_noise_is_not_a_drift():
-    """A built -35.0 reads back -35.000000000000036. That is not a move."""
+    # A built -35.0 reads back -35.000000000000036. That is not a move.
     doc = snapshot((1, 129, -35.0, 0.25, "LC4932.MXF"))
     rows = drift_rows(built_transforms(doc),
                       held((1, 129, -35.000000000000036, 0.25)))
     assert not rows[0]["moved"]
 
 
-def test_two_different_factors_refuse_to_read_as_one():
+def test_a_non_uniform_drift_or_a_lost_placement_is_named_as_such():
     """A non-uniform drift is a DIFFERENT fault and must not borrow this
-    one's name - the measured drift is uniform per timeline."""
+    one's name - the measured drift is uniform per timeline. A clip
+    that went away is a bigger finding than one that moved, so it is a
+    row, never a silent drop."""
     rows = drift_rows(built_transforms(BUILT),
                       held((1, 590, 5.972, 1.0),      # x4
                            (1, 1069, 49.828, 0.5),    # x2
@@ -79,10 +77,6 @@ def test_two_different_factors_refuse_to_read_as_one():
     assert uniform_factor(rows) is None
     assert "by NO single factor" in describe("Reel 01", rows)
 
-
-def test_a_placement_the_timeline_no_longer_has_is_reported():
-    """A clip that went away is a bigger finding than one that moved, so
-    it is a row, never a silent drop."""
     rows = drift_rows(built_transforms(BUILT),
                       held((1, 590, 1.493, 0.25), (2, 0, -29.651, 0.25)))
     gone = [row for row in rows if row["missing"]]

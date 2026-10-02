@@ -1,33 +1,6 @@
 """The condition the captain attached, and every attempt to get round it.
 
-**A clip whose played length changes must have its Fusion comp
-RE-DERIVED through the builder, never restored from the capture.**  A
-per-clip comp is keyed to the window of footage the item plays, so a
-trim invalidates it: restoring the captured comp verbatim across a
-13-frame extension measured **wrong on 489 of 492 frames** (mean
-1.09/255, max 88) on a cross-render floor of exactly 0.0000.  Nothing in
-the timeline's readable state says so.  It looks right.
-
-And the structural half: **a composed edit that changes a played length
-and cannot reach the comp generator must REFUSE, not restore the old
-comp.**  The first composed edit that quietly skips the re-derivation
-produces a reel that is wrong on 99% of a clip's frames and looks right,
-which is worse than the slow path it replaces.
-
-Every test below is an ATTEMPT TO BYPASS the refusal, by the route a
-future caller would plausibly take:
-
-  1. run the edit with no comp generator at all
-  2. hand it a generator that cannot actually be reached
-  3. build the capture by hand with the comp in it
-  4. mutate a legitimate capture to carry the comp
-  5. reach past the accessor for the withheld artefact on disk
-  6. let the generator report success and do nothing
-  7. let the generator run and leave the clip with no comp
-  8. wire the restore to the withheld comp in the source itself
-
-The last one is a source-level assertion, because it is the only one of
-the eight that a test driving the module cannot reach.
+History: docs/evidence/resolve_test_history.md#test_composed_edit_refusal.
 """
 
 from __future__ import annotations

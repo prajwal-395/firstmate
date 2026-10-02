@@ -1,21 +1,6 @@
 """Render 6.01 wires the frames into its own review call.
 
-Captain's ruling on vep-llm-context-audit-decision-render-qa-llm-role:
-"Wire the frames in" - the same route step 6.02 took. Step 6.01's model
-call could ask for visual verdicts with `visual_qa` empty, because the
-grabs run only behind `PIPELINE_PERCEPTUAL_QA` (off by default) while
-the handoff unconditionally instructed the model to use the table.
-
-So the deterministic half now draws render-watch strips off its own
-export behind that same flag and emits them as `render_watch_frames` -
-6.02's key, 6.02's module, 6.02's confess-when-absent handoff language -
-and the `VISUAL_QA_INSTRUCTIONS` marker is always replaced: with the
-table's description when the grabs ran, with the record of their
-absence when they did not.
-
-Nothing here renders, opens Resolve, or needs ffmpeg: the draw is
-stubbed and only the wiring is exercised. A test builds its project
-under `tmp_path`, or it skips. It never falls back to a real one.
+History: docs/evidence/resolve_test_history.md#test_render_watch_in_render.
 """
 
 import json

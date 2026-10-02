@@ -1,35 +1,6 @@
 """Staging scratches cannot sit beside the deliverables (2026-09-11).
 
-Reconstruction of the incident: the captain's project held twelve
-timelines, three of them ours - restore scratches sitting in
-`05 - Reels` one level SHALLOWER than their own Reel 13 in
-`Earlier plans` - and the captain placed feedback on a throwaway:
-"im a little confused why there are 3 timelines for reel 13". Their
-fourth leftover-timelines report wearing a new shape.
-
-The gap is not the sweep: the lane that made these scratches
-deliberately did not run it, correctly, rather than risk the
-captain's hand edits. The gap is that a staging scratch could be
-CREATED in a deliverable bin at all, and that nothing said it was
-still there on the next run. The containment is two mechanical
-properties, each pinned below in both directions (AGENTS.md 10.4):
-
-1. A staging or scratch timeline is created in the dedicated scratch
-   bin (`resolve_bin_layout.SCRATCH_BIN`), outside every bin the
-   captain reviews - and the organiser files one found anywhere else
-   back there. A staging timeline landing in the reels bins fails.
-2. A scratch that outlives its promotion is REPORTED BY NAME on the
-   next run - held ones as pending, unheld ones as outlived - never
-   deleted silently and never swept past a pending promotion.
-
-The three fixture names are the real ones from the captain's pool,
-slugs verified against the repo's own records (Reel 13's final name
-in `test_pending_promotion_hold`, Reel 28's in
-`docs/REEL_REBUILD_RUN_20260908_R2.md`).
-
-No test here reaches Resolve: the pool is fakes, the project is
-`tmp_path`, and the sibling lane owns the live session and the real
-deletions.
+History: docs/evidence/resolve_test_history.md#test_staging_scratch_containment.
 """
 from __future__ import annotations
 
@@ -100,22 +71,16 @@ def test_the_scratch_bin_is_outside_every_bin_the_captain_reviews():
     assert bins.SCRATCH_BIN not in bins.REEL_STATE_BINS.values()
     assert bins.SCRATCH_BIN != bins.REELS_PROOF_BIN
     assert bins.is_canonical((bins.SCRATCH_BIN,))
-
-
-def test_the_three_real_names_are_scratch_and_deliverables_are_not():
-    """The classifier takes the incident's names and nothing the
-    captain reviews: a plain final, a versioned reel, and the pending
-    suffix-build name `(baseline scratch)` - which wears the word
-    scratch without the marker - all stay out."""
+    # The classifier takes the incident's names and nothing the captain
+    # reviews: a plain final, a versioned reel, and the pending
+    # suffix-build name `(baseline scratch)` - which wears the word
+    # scratch without the marker - all stay out.
     for name in REAL_SCRATCHES:
         assert bins.is_scratch_timeline(name), name
     assert not bins.is_scratch_timeline(FINAL_13)
     assert not bins.is_scratch_timeline("Reel 20 - slug v003")
     assert not bins.is_scratch_timeline(
         "SOP Proof_reel13_tail_breath (baseline scratch)")
-
-
-# --------------------------------------- property 1: created apart
 
 
 class _FakeFolder:
@@ -184,19 +149,11 @@ def test_a_staging_timeline_is_created_in_the_scratch_bin():
     create_reel_timeline(pool, SCRATCH_13_A)
     assert pool.timelines == [(bins.SCRATCH_BIN, SCRATCH_13_A)]
     assert pool.GetCurrentFolder() is current
-
-
-def test_a_final_timeline_is_still_created_in_the_reels_bin():
-    """The other direction: the routing must not sweep deliverables
-    into the scratch bin with the throwaways."""
-    from library.tools.reel_build import create_reel_timeline
-
+    # The other direction: deliverables are not swept in with the
+    # throwaways.
     pool = _pool_with_current(bins.SCRATCH_BIN)
     create_reel_timeline(pool, FINAL_13)
     assert pool.timelines == [(bins.REELS_BIN, FINAL_13)]
-
-
-# --------------------------------- property 1: filed back when found
 
 
 def test_scratches_in_the_reels_bin_are_filed_back_to_scratch():
@@ -269,10 +226,11 @@ def test_outlived_scratches_are_reported_by_name(tmp_path):
     assert "outlived" in text
 
 
-def test_a_held_scratch_reports_as_pending_not_outlived(tmp_path):
-    """The distinction the old sweep never had: the held scratch is
-    a pending promotion with its destination and age, and only the
-    other two report as outlived."""
+def test_held_scratches_report_as_pending_in_name_order(tmp_path):
+    """A held scratch is a pending promotion with its destination and
+    age, never outlived. Then the incident's own shape: two held at
+    once. Sorting held entries without a key raises TypeError the
+    moment a second hold lands - `sorted` over dicts has no order."""
     holds.take_hold(str(tmp_path), SCRATCH_13_A, awaiting=FINAL_13,
                     reason="staged rebuild awaiting promotion",
                     taken_by="rebuild_reels_in_project")
@@ -285,16 +243,7 @@ def test_a_held_scratch_reports_as_pending_not_outlived(tmp_path):
     assert SCRATCH_13_A in text and "HELD" in text
     assert SCRATCH_28 in text and "outlived" in text
 
-
-def test_two_held_scratches_report_in_name_order(tmp_path):
-    """The incident's own shape: three scratches at once, two of them
-    held. Sorting held entries without a key raises TypeError the
-    moment a second hold lands - `sorted` over dicts has no order -
-    so this fails on the unkeyed code and passes with the key."""
     holds.take_hold(str(tmp_path), SCRATCH_13_B, awaiting=FINAL_13,
-                    reason="staged rebuild awaiting promotion",
-                    taken_by="rebuild_reels_in_project")
-    holds.take_hold(str(tmp_path), SCRATCH_13_A, awaiting=FINAL_13,
                     reason="staged rebuild awaiting promotion",
                     taken_by="rebuild_reels_in_project")
     report = org.scratch_report(scratched_pool(), str(tmp_path))

@@ -48,18 +48,14 @@ def test_each_op_dirties_its_own_span_and_domain():
     span = dirty["dirty_spans"][1]
     assert span["start_seconds"] == 14.5 - d.HANDLE_SECONDS
     assert span["end_seconds"] == 15.0 + d.HANDLE_SECONDS
-
-
-def test_a_move_dirties_where_it_left_and_where_it_landed():
+    # A move dirties where it left and where it landed.
     dirty = _dirty({"op": "move", "row": "V4", "item": 0,
                     "to_record": F0 + 360})
     assert _cores(dirty) == [("picture", 8.2, 9.0), ("picture", 12.0, 12.8)]
-
-
-def test_a_retime_dirties_from_the_cut_to_the_end_on_both_domains():
+    # A retime dirties from the cut to the end on both domains: 15f
+    # grown to 45f, the reel ends a second later than it did.
     dirty = _dirty({"op": "retime", "row": "V4", "item": 1,
                     "duration": 45})
-    # 15f grown to 45f: the reel ends a second later than it did.
     assert _cores(dirty) == [("audio", 14.5, 21.0), ("picture", 14.5, 21.0)]
 
 

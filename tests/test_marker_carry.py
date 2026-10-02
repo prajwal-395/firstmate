@@ -7,7 +7,6 @@ nothing said so. These fakes stand in for Resolve; the API surface
 they answer is the one `promote_staged_reels` drives.
 """
 
-import pytest
 
 from library.tools import marker_carry
 
@@ -107,6 +106,35 @@ def test_a_marker_carries_to_the_frame_showing_the_same_picture():
         (1680, "Blue", "feedback", "it cuts to craig here at the end", 1,
          "cd")]
 
+    # A reel that plays one source twice has not moved the note to the
+    # other saying of it: source frame 50 plays at reel 50 and at reel
+    # 190, and 190 is nearer the marker's own 150.
+    retiring = _Timeline(
+        [("A", [_Item(100, 200, "/f/a.mov", left=0)])],
+        markers={150: {"color": "Blue", "name": "n", "note": "x",
+                       "duration": 1}})
+    replacement = _Timeline([("A", [
+        _Item(0, 100, "/f/a.mov", left=0),
+        _Item(140, 240, "/f/a.mov", left=0)])])
+    carried, _ = marker_carry.plan_carry(
+        marker_carry.read_markers(retiring, "Reel 13"), replacement)
+    assert carried[0]["to_frame"] == 190
+
+    # Reel 04: the rebuild extended the body and re-rendered every
+    # overlay under fresh content hashes; the footage did not move, so
+    # the verdict anchored to picture stays at 65.
+    replacement = _Timeline(
+        [("Akshita", [_Item(65, 511, "/f/LC4932.MXF", left=6505)]),
+         ("Craig", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
+         ("Frame", [_Item(0, 716, "/f/tv_frame.mov")]),
+         ("Subtitles", [_Item(0, 32, "/f/sub.mov")]),
+         ("Semantic", [_Item(0, 108, "/f/mg_new.mov")]),
+         ("Motion Graphics", [_Item(0, 152, "/f/mg_new2.mov")])])
+    carried, uncarried = marker_carry.plan_carry(
+        marker_carry.read_markers(_reel04(), "Reel 04"), replacement)
+    assert not uncarried and len(carried) == 1
+    assert carried[0]["to_frame"] == 65
+
 
 def test_a_marker_whose_picture_is_gone_is_named_not_dropped(capsys):
     """The whole point. A note on a shot the rebuild removed is
@@ -126,23 +154,6 @@ def test_a_marker_whose_picture_is_gone_is_named_not_dropped(capsys):
     assert "this cut is jarring" in err
 
 
-def test_the_nearest_saying_wins_when_a_shot_repeats():
-    """A reel that plays one source twice has not moved the captain's
-    note to the other saying of it."""
-    retiring = _Timeline(
-        [("A", [_Item(100, 200, "/f/a.mov", left=0)])],
-        markers={150: {"color": "Blue", "name": "n", "note": "x",
-                       "duration": 1}})
-    notes = marker_carry.read_markers(retiring, "Reel 13")
-    replacement = _Timeline([("A", [
-        _Item(0, 100, "/f/a.mov", left=0),
-        _Item(140, 240, "/f/a.mov", left=0)])])
-    carried, _ = marker_carry.plan_carry(notes, replacement)
-    # Source frame 50 plays at reel 50 and at reel 190; 190 is nearer
-    # the marker's own 150.
-    assert carried[0]["to_frame"] == 190
-
-
 def _reel04():
     """Reel 04's shape at the 2026-09-19 rebuild: Akshita body on V1
     from frame 65, a motion-graphics overlay across V5/V6 with
@@ -158,22 +169,6 @@ def _reel04():
         markers={65: {"color": "Pink", "name": "verdict (firstmate)",
                       "note": "FIXABLE", "duration": 444,
                       "customData": "cd"}})
-
-
-def test_a_verdict_anchored_to_picture_survives_rerendered_overlays():
-    notes = marker_carry.read_markers(_reel04(), "Reel 04")
-    # The rebuild extended the body and re-rendered every overlay
-    # under fresh content hashes; the footage did not move.
-    replacement = _Timeline(
-        [("Akshita", [_Item(65, 511, "/f/LC4932.MXF", left=6505)]),
-         ("Craig", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
-         ("Frame", [_Item(0, 716, "/f/tv_frame.mov")]),
-         ("Subtitles", [_Item(0, 32, "/f/sub.mov")]),
-         ("Semantic", [_Item(0, 108, "/f/mg_new.mov")]),
-         ("Motion Graphics", [_Item(0, 152, "/f/mg_new2.mov")])])
-    carried, uncarried = marker_carry.plan_carry(notes, replacement)
-    assert not uncarried and len(carried) == 1
-    assert carried[0]["to_frame"] == 65
 
 
 # ── Replies re-pair with their notes, by identity ───────────────────
@@ -300,28 +295,12 @@ def test_the_anchor_picks_which_same_words_note_is_answered():
     assert green["paired_with"] == 200
     assert green["to_frame"] == 701
 
-
-def test_an_anchor_mismatch_binds_nearest_and_says_so():
-    """Same words, different picture (a relinked file): nearest wins,
-    flagged rather than exact."""
-    retiring = _Timeline(
-        [("V1", [_Item(0, 150, "/f/a.mov", left=0),
-                 _Item(150, 300, "/f/b.mov", left=0)])],
-        markers={
-            100: {"color": "Blue", "name": "feedback", "note": "trim",
-                  "duration": 1, "customData": ""},
-            200: {"color": "Blue", "name": "feedback", "note": "trim",
-                  "duration": 1, "customData": ""},
-            201: {"color": "Green", "name": "reply: done",
-                  "note": "trimmed",
-                  "duration": 1, "customData": _reply_payload(
-                      "Reel X", "feedback", "trim",
-                      ("/f/renamed.mov", 7))}})
-    notes = marker_carry.read_markers(retiring, "Reel X")
-    replacement = _Timeline(
-        [("V1", [_Item(500, 650, "/f/a.mov", left=0),
-                 _Item(650, 800, "/f/b.mov", left=0)])])
-    carried, _ = marker_carry.plan_carry(notes, replacement, "Reel X")
+    # Same words, different picture (a relinked file): nearest wins,
+    # flagged rather than exact.
+    retiring._markers[201]["customData"] = _reply_payload(
+        "Reel X", "feedback", "trim", ("/f/renamed.mov", 7))
+    carried, _ = marker_carry.plan_carry(
+        marker_carry.read_markers(retiring, "Reel X"), replacement, "Reel X")
     green = next(c for c in carried if c["frame"] == 201)
     assert green["paired_with"] == 200
     assert "anchor_mismatch" in green["pairing_flags"]
@@ -346,3 +325,39 @@ def test_the_audit_finds_the_reel14_stranding():
     assert rows[0]["status"] == "paired-drifted"
     assert rows[0]["ask_frame"] == 461
     assert rows[0]["distance"] == 163 - 462
+
+
+# ── A marker the staged duplicate already carries is not lost ───────
+#
+# 2026-09-25: DuplicateTimeline keeps every marker, the carry re-adds
+# each one, Resolve declines a second marker at the same frame, and 34
+# "NOT CARRIED" lines read as the captain's notes being lost while every
+# one was present exactly once (history: docs/evidence/marker_carry.md).
+
+
+class _Occupied:
+    """A target whose AddMarker declines: the frame already carries one."""
+
+    def __init__(self, existing):
+        self._existing = existing
+
+    def GetStartFrame(self):
+        return 0
+
+    def AddMarker(self, *args):
+        return False
+
+    def GetMarkers(self):
+        return self._existing
+
+
+def test_an_identical_marker_already_there_is_not_a_loss_but_another_is():
+    marker = {"to_frame": 523, "to_source_frame": 40, "color": "Blue",
+              "name": "feedback", "note": "fix the fluff here", "duration": 1}
+    there = {523: {"color": "Blue", "name": "feedback",
+                   "note": "fix the fluff here"}}
+    assert marker_carry.place(_Occupied(there), [marker]) == []
+    # A DIFFERENT marker at that frame must still be reported.
+    there = {523: {"color": "Green", "name": "rebuild (firstmate)",
+                   "note": "something else"}}
+    assert marker_carry.place(_Occupied(there), [marker]) == [marker]

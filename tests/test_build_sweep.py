@@ -1,22 +1,6 @@
 """The sweep that runs on every build, and the four things it must not do.
 
-The captain's complaint, verbatim: *"over several iterations there is a
-lot of empty bins and clutter from multiple file references to the same
-things (i thought you said you fixed this?"*. He was told wrong. What
-had shipped was where NEW items get filed; nothing swept what a previous
-iteration left behind, because every mechanism that could - the caption
-mark/sweep, the empty-bin retirement, the pool prune - was reachable
-only by hand.
-
-Measured on geo-podcast before this landed: 308 files / 68 movs / 43
-unique contents in one step directory, two empty `Reel 09 ... (j-cut)`
-bins, 29 pool items filed under `Not placed on any timeline`, and 23
-movs pinned LIVE by ledger entries naming a staging timeline the project
-does not have.
-
-Deleting is the dangerous half, so the gates are proven in BOTH
-directions (AGENTS.md 10.4): a file that must go and a file that must
-STAY on the same shape.
+History: docs/evidence/resolve_test_history.md#test_build_sweep.
 """
 from __future__ import annotations
 

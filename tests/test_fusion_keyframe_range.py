@@ -1,26 +1,6 @@
 """Keyframes land inside the PLAYED window, not across the whole source.
 
-A segment cut from a 5657-frame source that plays only 73 frames must
-have its zoom ramp and its transition keyframes inside those 73 frames,
-not spread across the whole source.
-
-**The window is stated in the COMP's frames, not the source's.**  This
-file used to require the keyframes to sit between ``source_in`` and
-``source_out`` - 25 and 97 - which is a bound on the SOURCE's numbering,
-and it passed on every run while the picture was wrong: a per-clip
-Fusion comp is rendered over the frames the clip plays, numbered from
-zero, so a keyframe at source frame 25 is 25 frames past everything
-Resolve renders for a clip that plays 73.  Two 15-frame ``defocus``
-transitions on project 001 therefore drew none of their 30 planned
-frames and held a full-strength blur across 331 frames instead.
-
-``library/tools/fusion/played_window.py`` carries the measurement and
-``tests/test_transition_ramp_draws.py`` counts the frames a transition
-is drawn on, which is the check this file could not make: a keyframe in
-range is necessary and not sufficient.
-
-A test using source_in=0 would pass against either reading, so every
-parametrized case here uses a non-zero source_in.
+History: docs/evidence/resolve_test_history.md#test_fusion_keyframe_range.
 """
 import re
 
@@ -73,74 +53,35 @@ HOOK_FIRST, HOOK_LAST = played_range(
     HOOK_CLIP_DUR, HOOK_SOURCE_IN, HOOK_SOURCE_OUT)
 
 
-class TestZoomKeyframesInPlayedWindow:
-    """The zoom ramp must land inside the played segment."""
+def test_zoom_and_transition_keyframes_land_inside_the_played_window():
+    """slow_zoom_in 1.0 -> 1.03 on the hook clip, and every tail and
+    head transition: a tail must end at the last played frame, not
+    clip_dur-1 (past it, it fires after the clip is gone and Fusion
+    holds it across everything that plays); a head must start at the
+    first played frame, not frame 0."""
+    from library.tools.fusion.nodes import BezierSpline
 
-    def test_zoom_in_within_played_window(self):
-        """slow_zoom_in 1.0 -> 1.03 on the hook clip."""
-        _reset_counters()
-        block = fx.zoom(
-            HOOK_CLIP_DUR,
-            start=1.0, mid=1.015, end=1.03,
-            source_in=HOOK_SOURCE_IN,
-            source_out=HOOK_SOURCE_OUT,
-        )
-        # Find the spline in the block's nodes
-        from library.tools.fusion.nodes import BezierSpline
+    def frames_of(block, what):
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
-        assert splines, "zoom block has no spline"
-        frames = [kf.frame for kf in splines[0].keyframes]
-        assert min(frames) >= HOOK_FIRST, (
-            f"Zoom keyframe at comp frame {min(frames)} is before the "
-            f"played window ({HOOK_FIRST}..{HOOK_LAST})"
-        )
-        assert max(frames) <= HOOK_LAST, (
-            f"Zoom keyframe at comp frame {max(frames)} is after the "
-            f"played window ({HOOK_FIRST}..{HOOK_LAST})"
-        )
+        assert splines, f"{what} has no spline"
+        return [kf.frame for kf in splines[0].keyframes]
 
-
-class TestTransitionKeyframesInPlayedWindow:
-    """Transitions must fire within the played segment, not at clip_dur."""
-
-    @pytest.mark.parametrize("ttype", ["fade_to_black", "defocus", "flash"])
-    def test_tail_transition_within_played_window(self, ttype):
-        """Tail transitions must end at source_out, not clip_dur-1."""
+    window = dict(source_in=HOOK_SOURCE_IN, source_out=HOOK_SOURCE_OUT)
+    _reset_counters()
+    frames = frames_of(fx.zoom(HOOK_CLIP_DUR, start=1.0, mid=1.015,
+                               end=1.03, **window), "zoom")
+    assert HOOK_FIRST <= min(frames) and max(frames) <= HOOK_LAST, frames
+    for ttype in ("fade_to_black", "defocus", "flash"):
         _reset_counters()
-        block = fx.transition_tail(
-            HOOK_CLIP_DUR, ttype, dur_frames=7,
-            source_in=HOOK_SOURCE_IN,
-            source_out=HOOK_SOURCE_OUT,
-            res=(1080, 1920),
-        )
-        from library.tools.fusion.nodes import BezierSpline
-        splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
-        assert splines, f"{ttype} tail has no spline"
-        frames = [kf.frame for kf in splines[0].keyframes]
-        assert max(frames) <= HOOK_LAST, (
-            f"{ttype} tail keyframe at comp frame {max(frames)} is past the "
-            f"last played frame ({HOOK_LAST}) - it fires after the clip is "
-            f"gone, and Fusion holds it across everything that plays"
-        )
-
-    @pytest.mark.parametrize("ttype", ["fade_to_black", "defocus", "flash"])
-    def test_head_transition_within_played_window(self, ttype):
-        """Head transitions must start at source_in, not frame 0."""
+        tail = frames_of(fx.transition_tail(
+            HOOK_CLIP_DUR, ttype, dur_frames=7, res=(1080, 1920), **window),
+            f"{ttype} tail")
+        assert max(tail) <= HOOK_LAST, (ttype, tail)
         _reset_counters()
-        block = fx.transition_head(
-            HOOK_CLIP_DUR, ttype, dur_frames=7,
-            source_in=HOOK_SOURCE_IN,
-            source_out=HOOK_SOURCE_OUT,
-            res=(1080, 1920),
-        )
-        from library.tools.fusion.nodes import BezierSpline
-        splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
-        assert splines, f"{ttype} head has no spline"
-        frames = [kf.frame for kf in splines[0].keyframes]
-        assert min(frames) >= HOOK_FIRST, (
-            f"{ttype} head keyframe at comp frame {min(frames)} is before "
-            f"the first played frame ({HOOK_FIRST})"
-        )
+        head = frames_of(fx.transition_head(
+            HOOK_CLIP_DUR, ttype, dur_frames=7, res=(1080, 1920), **window),
+            f"{ttype} head")
+        assert min(head) >= HOOK_FIRST, (ttype, head)
 
 
 class TestBuildEffectCompWithSourceWindow:
@@ -221,7 +162,6 @@ class TestVfxLabelAtBoundary:
         Before the fix, _v1_label_at matched speech_2_seg0 because
         8.38 < 8.382000000000001 was True.
         """
-        import importlib
         import library.steps.step_5_04_compile_manifest.step as cm
         _v1_label_at = cm._v1_label_at
 

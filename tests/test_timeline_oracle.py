@@ -1,29 +1,11 @@
 """The timeline is the oracle: a hand edit reads as intent, never drift.
 
-Each test fails if its mechanism is removed:
-
-- a hand edit HE made (a clip trimmed by hand, a cutaway added, a row
-  gone) is detected off the LIVE rows and described in his terms;
-- the description never says drift, correct, fix, or reconcile:
-  detecting and describing is this lane, deciding is his call;
-- identity never joins on `unique_id`: two reads with churned ids but
-  identical names and spans report nothing moved;
-- the live reading moves no cursor: reaching for `SetCurrentTimeline`
-  raises rather than reading;
-- the precondition is evaluable against the LIVE timeline: records
-  claiming no cut while the timeline shows one answer from the screen,
-  not the paperwork;
-- a DECLARED name the plans speak evaluates too: the live-readable one
-  (`state.verify_reels.reel_build`) from the screen, every other
-  requirement name via its own check - and a name in neither the
-  vocabulary nor the legacy one raises rather than answering.
+History: docs/evidence/resolve_test_history.md#test_timeline_oracle.
 """
 
-import json
 
 import pytest
 
-from library.tools import reel_read
 from library.tools import timeline_oracle as oracle
 
 
@@ -100,6 +82,18 @@ def test_an_untouched_timeline_reports_nothing_moved():
     assert evaluation["satisfied_by_live_timeline"] is True
     assert evaluation["records_agree_with_live"] is True
     assert "Nothing moved" in oracle.render_report(evaluation)
+    # 0 of 26 identities survive a rebuild: churned ids are not a rewrite.
+    expected = _rows(_Timeline(_v1(
+        _Item("LC4930.MXF", 0, 684, unique_id="uid-before-1"),
+        _Item("LC4931.MXF", 684, 1200, unique_id="uid-before-2"),
+    )))
+    live = _rows(_Timeline(_v1(
+        _Item("LC4930.MXF", 0, 684, unique_id="uid-after-1"),
+        _Item("LC4931.MXF", 684, 1200, unique_id="uid-after-2"),
+    )))
+    diff = oracle.describe_hand_edits(expected, live)
+    assert diff["unchanged"] is True
+    assert diff["intents"] == []
 
 
 def test_a_hand_trim_and_a_hand_placed_cutaway_read_as_intent():
@@ -128,8 +122,7 @@ def test_a_hand_trim_and_a_hand_placed_cutaway_read_as_intent():
     assert "drift" not in report.lower()
     assert "correct" not in report.lower()
 
-
-def test_a_removed_row_is_an_intent_not_a_loss():
+    # A removed row is an intent, not a loss.
     expected = _rows(_Timeline({
         "video": {
             "V1": [_Item("LC4930.MXF", 0, 684)],
@@ -138,25 +131,9 @@ def test_a_removed_row_is_an_intent_not_a_loss():
     }))
     live = _rows(_Timeline(_v1(_Item("LC4930.MXF", 0, 684))))
     diff = oracle.describe_hand_edits(expected, live)
-    kinds = [intent["kind"] for intent in diff["intents"]]
-    assert "row_removed" in kinds
+    assert "row_removed" in [intent["kind"] for intent in diff["intents"]]
     sentence = " ".join(intent["sentence"] for intent in diff["intents"])
     assert "you removed the video:Semantic row" in sentence
-
-
-def test_churned_unique_ids_do_not_read_as_a_rewrite():
-    """0 of 26 identities survive a rebuild: ids must not be identity."""
-    expected = _rows(_Timeline(_v1(
-        _Item("LC4930.MXF", 0, 684, unique_id="uid-before-1"),
-        _Item("LC4931.MXF", 684, 1200, unique_id="uid-before-2"),
-    )))
-    live = _rows(_Timeline(_v1(
-        _Item("LC4930.MXF", 0, 684, unique_id="uid-after-1"),
-        _Item("LC4931.MXF", 684, 1200, unique_id="uid-after-2"),
-    )))
-    diff = oracle.describe_hand_edits(expected, live)
-    assert diff["unchanged"] is True
-    assert diff["intents"] == []
 
 
 def test_the_live_timeline_overrules_records_claiming_no_cut():
@@ -171,17 +148,8 @@ def test_the_live_timeline_overrules_records_claiming_no_cut():
     assert evaluation["records_agree_with_live"] is False
     assert "the timeline wins" in oracle.render_report(evaluation)
 
-
-def test_an_unknown_precondition_raises_rather_than_answering():
-    live = _rows(_Timeline(_v1(_Item("LC4930.MXF", 0, 684))))
-    with pytest.raises(oracle.TimelineOracleError):
-        oracle.evaluate_precondition_against_live("does_it_slap", {}, live)
-
-
-def test_a_declared_live_name_answers_from_the_screen():
-    """`state.verify_reels.reel_build` is the declared reading of picture."""
-    expected = _rows(_Timeline({"video": {"V1": []}}))
-    live = _rows(_Timeline(_v1(_Item("LC4930.MXF", 0, 684))))
+    # `state.verify_reels.reel_build` is the declared reading of picture:
+    # it answers from the screen, including that an empty one is not.
     evaluation = oracle.evaluate_precondition_against_live(
         "state.verify_reels.reel_build", expected, live)
     assert evaluation["declared"] is True
@@ -189,20 +157,18 @@ def test_a_declared_live_name_answers_from_the_screen():
     assert evaluation["satisfied_by_live_timeline"] is True
     assert evaluation["records_agree_with_live"] is False
     assert "the timeline wins" in oracle.render_report(evaluation)
-
-
-def test_a_declared_live_name_reports_an_empty_timeline():
-    live = _rows(_Timeline({"video": {"V1": []}}))
     evaluation = oracle.evaluate_precondition_against_live(
-        "state.verify_reels.reel_build", {}, live)
+        "state.verify_reels.reel_build", {}, expected)
     assert evaluation["satisfied_by_live_timeline"] is False
     assert "not satisfied" in oracle.render_report(evaluation)
 
 
-
-
-def test_a_delegated_refusal_names_what_is_missing():
-    """No folder, no transcript: UNSATISFIED, reported - never a pass."""
+def test_an_unknown_precondition_raises_rather_than_answering():
+    live = _rows(_Timeline(_v1(_Item("LC4930.MXF", 0, 684))))
+    with pytest.raises(oracle.TimelineOracleError):
+        oracle.evaluate_precondition_against_live("does_it_slap", {}, live)
+    # A delegated refusal (no folder, no transcript) is UNSATISFIED and
+    # reported - never a pass.
     evaluation = oracle.evaluate_precondition_against_live(
         "timeline_transcript.on_file", {}, {})
     assert evaluation["satisfied"] is False
@@ -211,8 +177,6 @@ def test_a_delegated_refusal_names_what_is_missing():
     assert "timeline_transcript.on_file" in report
     assert "does not hold" in report
     assert "Missing: timeline_transcript" in report
-
-
 
 
 def test_exact_names_win_and_prefixes_refuse():
@@ -248,5 +212,3 @@ def test_no_writer_or_cursor_move_lives_in_this_module():
     # Resolve identity - identity is name plus span, in the diff.
     assert '["unique_id"]' not in text
     assert "['unique_id']" not in text
-
-

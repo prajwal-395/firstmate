@@ -1,24 +1,6 @@
 """A reel build leaves its project store CLEAN.
 
-Measured 2026-09-11 on the captain's project: HEAD read `reels build:
-Reel 13 - the-accounting-firm-ai-called-healthcare` and the working
-tree was dirty with exactly one thing - the verify record's
-`reel_verification.organised`, the bin organisation.
-
-The cause is an ORDER, not a missing call.  The per-build commit fires
-inside the promoting capability (`reel_build`, `step_7_02_verify_reels`),
-and the reels runner (`library/processes/reels/run_reels.py`) writes its
-own output to `pipeline_data.json` AFTER it returns.  So the last record
-could never be inside the commit it belongs to, and every build ended
-dirty.
-
-A store that is dirty after every build teaches a reader to ignore its
-dirtiness, and that is how the captain's hand edits went missing three
-times.  The run now closes its own record, in the loop that owns the
-state write.
-
-Read off the source and exercised through `commit_build`; nothing here
-reaches Resolve or a real project.
+History: docs/evidence/resolve_test_history.md#test_build_commits_its_own_tail.
 """
 
 import ast

@@ -20,9 +20,8 @@ from library.tools.master_markers import (
     is_ours,
     locate_on_master,
     marker_for,
-    merge,
 )
-from library.tools.resolve_organization import CURRENT, EARLIER, UNRECORDED
+from library.tools.resolve_organization import CURRENT, EARLIER
 
 CAM = "/footage/LC4930.MXF"
 OTHER = "/footage/LC4931.MXF"
@@ -41,21 +40,12 @@ def test_a_reel_is_located_by_source_overlap_not_by_name():
     master = [master_at(594, 3151, 3637)]
     reel = [SourceWindow(CAM, 3151, 3630, 0)]
     assert locate_on_master(reel, master) == [(594, 1073)]
-
-
-def test_a_cut_outside_the_master_s_source_range_locates_nowhere():
-    """Same file, different part of it: the master never played this."""
-    master = [master_at(594, 3151, 3637)]
+    # Same file, a part the master never played: nowhere.
     assert locate_on_master([SourceWindow(CAM, 9000, 9100, 0)], master) == []
-
-
-def test_a_partial_overlap_is_clipped_to_what_the_master_plays():
+    # A partial overlap is clipped to what the master plays.
     master = [master_at(100, 1000, 1100)]
     assert locate_on_master([SourceWindow(CAM, 1050, 1200, 0)], master) == [
         (150, 200)]
-
-
-# ------------------------------------------------------------- regions
 
 
 def test_reels_sharing_footage_become_ONE_region_naming_both():
@@ -87,15 +77,10 @@ def test_a_marker_carries_the_state_colour_and_names_its_reels():
     assert "Reel A" in marker.note and "Reel B" in marker.note
     assert EARLIER in marker.note, "a colour must not hide the other state"
     assert marker.name == "2 reels use this"
-
-
-def test_a_region_past_the_end_of_the_master_refuses():
+    # A region past the end of the master refuses.
     with pytest.raises(MarkerRefused) as refused:
         marker_for(Region(63000, 70000, (("Reel", CURRENT),)), 63694)
     assert "outside the master" in str(refused.value)
-
-
-# ------------------------------------------------------- ours vs theirs
 
 
 def test_a_marker_the_captain_typed_is_never_ours():
@@ -109,21 +94,14 @@ def test_a_marker_the_captain_typed_is_never_ours():
     assert is_ours(marker_payload.dumps(foreign)) is False
 
 
-def test_writing_onto_the_captains_marker_refuses():
+def test_writing_onto_the_captains_marker_refuses_and_onto_ours_replaces():
     existing = {100: {"customData": "captain's own note"}}
     with pytest.raises(MarkerRefused) as refused:
         assert_no_collision([a_marker(start=100, end=200)], existing)
     assert "already has a marker" in str(refused.value)
-
-
-def test_writing_over_this_pipelines_own_marker_is_allowed():
-    """A second run must be able to REPLACE its own markers, or it can
-    never be re-run."""
+    # A second run must REPLACE its own markers, or it can never re-run.
     existing = {100: {"customData": a_marker().custom_data}}
     assert assert_no_collision([a_marker(start=100, end=200)], existing) is None
-
-
-# ------------------------------------------- the master is read-only else
 
 
 FORBIDDEN = (
@@ -135,26 +113,19 @@ FORBIDDEN = (
 )
 
 
-@pytest.mark.parametrize("module", [
-    "library/tools/master_markers.py",
-    "library/tools/execution/mark_master.py",
-])
-def test_nothing_here_can_change_the_master_except_its_markers(module):
+def test_nothing_here_can_change_the_master_except_its_markers():
     """The captain authorised markers and nothing else. Asserted of the
     SOURCE, because a reviewer cannot see a call that is not there."""
-    source = Path(module).read_text(encoding="utf-8")
-    executable = "".join(source.split('"""')[::2])
-    for call in FORBIDDEN:
-        assert call not in executable, (
-            f"{module} calls {call} - the master is read-only except for "
-            f"markers (the captain's ruling of 2026-09-07)")
-
-
-def test_the_executor_only_ever_calls_the_three_marker_methods():
-    source = Path("library/tools/execution/mark_master.py").read_text(
-        encoding="utf-8")
-    executable = "".join(source.split('"""')[::2])
+    for module in ("library/tools/master_markers.py",
+                   "library/tools/execution/mark_master.py"):
+        source = Path(module).read_text(encoding="utf-8")
+        executable = "".join(source.split('"""')[::2])
+        for call in FORBIDDEN:
+            assert call not in executable, (
+                f"{module} calls {call} - the master is read-only except "
+                f"for markers (the captain's ruling of 2026-09-07)")
+    # The executor adds and removes by frame, never by colour - deleting
+    # by colour would take the captain's own green markers.
     assert "AddMarker(" in executable
     assert "DeleteMarkerAtFrame(" in executable
-    assert "DeleteMarkersByColor(" not in executable, (
-        "deleting by colour would take the captain's own green markers")
+    assert "DeleteMarkersByColor(" not in executable

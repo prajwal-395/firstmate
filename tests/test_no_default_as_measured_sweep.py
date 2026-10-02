@@ -1,28 +1,6 @@
 """The widened default-as-measured sweep (WP1, principle 3).
 
-`tests/test_assessment_reports_no_default_as_measured.py` sweeps exactly
-one producer - `compute_deterministic_assessment`. The defect family it
-names spans the codebase ("assume another exists until the sweep says
-otherwise"), and the 177-site `audit_p3b.py` pass plus its classification
-(`docs/WP1_P3B_CLASSIFICATION.md`) proved it: 16 sites where a swallowed
-item let an unmeasured value publish as measured.
-
-This file is the widened gate. For every tranche-1 fix it pins the
-admitted absence directly against the fixed function, beiden directions
-bound (AGENTS.md 10.4):
-
-- it FAILS on the defect: revert any one fix and the matching test goes
-  red (a gate that cannot fail is worse than no gate);
-- it does NOT fail on legitimate optional swallows: the last two tests
-  pin swallows the classification cleared, so a future "fix" that turns
-  an admitted absence into a refusal - or a gate that flags every
-  `except: continue` - fails here first (a gate that fails correct
-  output is no more coverage than one that cannot fail).
-
-Tranche 2 (`docs/WP1_P3B_CLASSIFICATION.md`, eleven sites in the
-reel/render/captain-edits subsystems) is pinned the same way below:
-one defect-direction test per site, each with the mirror proving the
-measured case still reads measured.
+History: docs/evidence/resolve_test_history.md#test_no_default_as_measured_sweep.
 """
 
 import json
@@ -163,7 +141,7 @@ def _stub_essentia(monkeypatch, seconds, sample_rate=44100):
     monkeypatch.setitem(sys.modules, "essentia.standard", fake_standard)
 
 
-def test_key_consistency_with_no_surviving_windows_is_none(monkeypatch):
+def test_key_and_chords_with_no_surviving_windows_are_none(monkeypatch):
     """Zero windowed estimates is not perfect stability.
 
     Pre-fix this published consistency 1.0 with the extractor's method
@@ -177,13 +155,8 @@ def test_key_consistency_with_no_surviving_windows_is_none(monkeypatch):
     assert result["key_changes"] == []
     assert result["note"] == "no windowed key estimates survived"
 
-
-def test_chord_count_with_no_surviving_windows_is_none(monkeypatch):
-    """Zero windowed estimates is not "no chord changes".
-
-    Pre-fix this published chord_count 0 with the windowed method
-    beside it.
-    """
+    # Zero windowed estimates is not "no chord changes" either: pre-fix
+    # this published chord_count 0 with the windowed method beside it.
     _stub_essentia(monkeypatch, seconds=1)
     result = music_pipeline.analyze_chord_progression("track.wav")
     assert result["chord_count"] is None
@@ -464,7 +437,7 @@ def _deliver_pool(timeline_name, subs=(), clips=()):
     return project
 
 
-def test_unnameable_bin_is_recorded_not_clean():
+def test_unnameable_bin_or_unreadable_item_is_recorded_not_clean():
     """A bin Resolve will not name cannot match - and neither can its
     subtree, so it is unchecked rather than clean.
 
@@ -481,13 +454,8 @@ def test_unnameable_bin_is_recorded_not_clean():
     refusal = reel_deliver._refuse_stale_overlays(found)
     assert "unchecked" in refusal
 
-
-def test_unreadable_pool_item_is_recorded_not_clean():
-    """A pool item whose file path will not read is unchecked, not clean.
-
-    Pre-fix it was skipped with the same "every overlay decodes"
-    claim. Now it is a stale entry naming the clip.
-    """
+    # A pool item whose file path will not read is unchecked, not clean,
+    # and the stale entry names the clip.
     project = _deliver_pool("Reel 03 - hook",
                             clips=[("sub_x.mov", "/exports/sub_x.mov",
                                     True)])
@@ -509,5 +477,3 @@ def test_malformed_timed_word_unproves_the_edge():
         {"timed": True, "word": "actually"},
     ]}]}
     assert captain_edits._opens_on_word_edge(1.0, transcript) is False
-
-

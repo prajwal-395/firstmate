@@ -13,28 +13,20 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_organization import (
     BIN_REELS,
     BIN_SHARED,
-    BIN_SOURCE,
     BIN_SUBTITLES,
-    BIN_UNPLACED,
-    CURRENT,
     EARLIER,
     STATE_BINS,
-    STATE_CLIP_COLOURS,
-    STATES,
     TAG_PREFIX,
     UNRECORDED,
     Artefact,
     OrganizationError,
     assert_organized,
     findings,
-    is_generated,
     plan_organization,
     reel_state,
-    render_plan,
     state_from_keywords,
     unplaced_report,
 )
@@ -115,9 +107,7 @@ def test_the_master_timeline_is_never_moved():
     assert MASTER not in [v.name for v in plan.verdicts]
     assert MASTER in [name for name, _ in plan.left_alone]
     assert MASTER not in [v.name for v in plan.moves]
-
-
-def test_organising_without_a_master_name_refuses():
+    # And organising without a master name refuses rather than guessing.
     with pytest.raises(OrganizationError, match="master"):
         plan_organization(a_project(), PROJECT_ROOT, "", BUILT, ARCHIVED)
 
@@ -186,7 +176,7 @@ def _filed(artefacts, plan):
              for a in artefacts]
 
 
-def test_the_gate_fails_a_misfiled_timeline():
+def test_the_gate_fails_a_misfiled_timeline_or_a_duplicate_bin():
     artefacts = a_project()
     plan = a_plan(artefacts)
     settled = _filed(artefacts, plan)
@@ -199,28 +189,10 @@ def test_the_gate_fails_a_misfiled_timeline():
     assert "Reel 01 - live (harvest)" in found[0]["detail"]
     with pytest.raises(OrganizationError, match="misfiled"):
         assert_organized(found)
-
-
-def test_the_gate_fails_a_duplicate_bin():
-    """`AddSubFolder` makes a second bin of the same name on every call -
-    measured - so half the reels can file into each."""
-    artefacts = a_project()
-    plan = a_plan(artefacts)
-    settled = _filed(artefacts, plan)
+    # `AddSubFolder` makes a second bin of the same name on every call -
+    # measured - so half the reels can file into each.
     found = findings(settled, a_plan(settled), [f"{BIN_REELS}"])
     assert [f["kind"] for f in found] == ["duplicate_bin"]
-
-
-# --------------------------------------- bins the captain owns
-
-# Measured 2026-09-08 on `Podcast (field test)`: the captain tiered 47
-# reels into `Reels/Fully approved`, `Reels/50-50` and
-# `Reels/Didn't make the cut`, and a build with the default organise
-# filed every one back into Current/Earlier/Unrecorded - the same 49
-# items, byte-identical, the captain's folders left empty.  The
-# erasing build's own journal (`resolve_placements_20260908T232439Z`)
-# records all 47 moves, which is what makes the membership below exact
-# rather than reconstructed.
 
 
 def test_a_reel_in_a_bin_the_pipeline_does_not_manage_stays_there():
@@ -261,27 +233,21 @@ DELETE_CALLS = ("DeleteFolders", "DeleteClips", "DeleteTimelines",
                 "DeleteClipMattes")
 
 
-@pytest.mark.parametrize("module", [
-    "library/tools/resolve_organization.py",
-    "library/tools/execution/organise_media_pool.py",
-])
-def test_no_module_here_can_delete_anything(module):
+def test_no_module_here_can_delete_anything():
     """Organising must never delete a timeline. Asserted of the SOURCE,
     because a reviewer reading a docstring cannot see a call that is
     not there and a test can."""
-    source = Path(module).read_text(encoding="utf-8")
-    code = "\n".join(
-        line for line in source.splitlines()
-        if not line.lstrip().startswith("#"))
-    body = code.split('"""')
-    executable = "".join(body[::2])
-    for call in DELETE_CALLS:
-        assert f"{call}(" not in executable, (
-            f"{module} calls {call} - organising must never delete "
-            f"(AGENTS.md 5, the captain's ruling of 2026-09-06)")
-
-
-# ------------------------------------------------- what nothing plays
+    for module in ("library/tools/resolve_organization.py",
+                   "library/tools/execution/organise_media_pool.py"):
+        source = Path(module).read_text(encoding="utf-8")
+        code = "\n".join(
+            line for line in source.splitlines()
+            if not line.lstrip().startswith("#"))
+        executable = "".join(code.split('"""')[::2])
+        for call in DELETE_CALLS:
+            assert f"{call}(" not in executable, (
+                f"{module} calls {call} - organising must never delete "
+                f"(AGENTS.md 5, the captain's ruling of 2026-09-06)")
 
 
 def test_the_unplaced_report_counts_only_what_this_pipeline_generated():
@@ -294,10 +260,17 @@ def test_the_unplaced_report_counts_only_what_this_pipeline_generated():
     # `flare.mov` is unplaced too, and comes from outside the project.
     assert not any("flare" in path for path in report["paths"])
 
+    # `Akshita` on the field test is unplaced with no file path, so
+    # nothing shows a run wrote it: source material, not a leftover.
+    report = unplaced_report(a_project() + [clip("c-nofile", "Akshita", path="")],
+                             PROJECT_ROOT)
+    assert report["count"] == 1
+    assert len(report["paths"]) == report["count"], (
+        "count and paths must be the same population, or a caller sizing "
+        "`paths` under-reports `count` with nothing saying so")
 
-def test_the_unplaced_report_names_a_file_a_placed_item_also_uses():
-    """Removing that pool item is safe; deleting the FILE would take
-    media off a live timeline. The two must not be one number."""
+    # Removing a pool item whose FILE a placed item also uses is safe;
+    # deleting the file is not. The two must not be one number.
     shared = (f"{PROJECT_ROOT}/pipeline_output/steps/"
               f"4_05_render_subtitles/shared.mov")
     artefacts = a_project() + [
@@ -308,15 +281,3 @@ def test_the_unplaced_report_names_a_file_a_placed_item_also_uses():
     report = unplaced_report(artefacts, PROJECT_ROOT)
     assert report["count"] == 2
     assert report["shared_with_placed"] == (shared,)
-
-
-def test_a_clip_with_no_file_path_is_not_claimed_as_this_pipelines():
-    """`Akshita` on the field test is unplaced and has no file path, so
-    nothing can show a run wrote it. It is source material, not a
-    leftover, and counting it would inflate a removal recommendation."""
-    artefacts = a_project() + [clip("c-nofile", "Akshita", path="")]
-    report = unplaced_report(artefacts, PROJECT_ROOT)
-    assert report["count"] == 1
-    assert len(report["paths"]) == report["count"], (
-        "count and paths must be the same population, or a caller sizing "
-        "`paths` under-reports `count` with nothing saying so")

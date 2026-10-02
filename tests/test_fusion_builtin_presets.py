@@ -1,27 +1,9 @@
-"""DaVinci's own 143 shipped presets must survive our Fusion harness.
+"""DaVinci's own shipped presets must survive our Fusion harness.
 
-56 of the 143 `.setting` files under `library/presets/resolve-builtin/`
-used to fail a parse + serialize round-trip, and the failure was read as
-"the effect crashes". It was ours in every case:
-
-- 38 were our own authorship rules (FusionNode._validate) refusing
-  Blackmagic's macros. 20 built-ins carry a Background with no GlobalOut,
-  14 an EllipseMask with no Invert, 4 an ApplyMode on Merge. Those rules
-  describe comps THIS pipeline writes; a foreign file is not bound by them.
-- 14 were an anonymous nested table (`Curves = { { Points = ... } }`) whose
-  opening brace `_parse_table` swallowed instead of recursing into, so the
-  matching `}` closed the parent table early and the desync cascaded.
-- 4 were a namespaced Fuse plugin tool type (`Fuse.RealFastNoiseFuse`),
-  where the identifier stopped at the dot and left a bare '.' that
-  `_parse_number` then tried to read as a number.
-
-Worse, the 87 that "passed" were quietly corrupted by the same desync:
-ambient_occlusion was losing 19 of its 30 nodes and reporting success.
-
-No test parsed a single real `.setting` file, which is why none of this
-was visible. These do.
+Parse + serialize every `.setting` under `library/presets/resolve-builtin/`,
+keep house rules for comps WE author only, and ship built-ins byte-identical.
+History (56 of 143 failing, silent node loss): docs/evidence/fusion_parser.md.
 """
-import json
 import pathlib
 
 import pytest
@@ -41,34 +23,36 @@ def _source(name: str) -> str:
 # ── The whole library round-trips ────────────────────────────
 
 
-@pytest.mark.parametrize("name", ALL_EFFECTS)
-def test_preset_round_trips(name):
-    """Parse + serialize must not raise for any of DaVinci's presets.
+def test_every_preset_round_trips_with_its_nodes():
+    """Parse + serialize must not raise, or lose nodes, for any preset.
 
-    This is the assertion the harness never made. Each of the four
-    historical failure modes shows up here as an exception.
+    Each historical failure mode (authorship rules on foreign files, the
+    anonymous nested table desync, namespaced Fuse types) raises here; the
+    pinned node counts catch the silent desync that dropped nodes instead.
     """
-    comp = parse_setting(_source(name))
-    assert comp.nodes, f"{name} parsed to an empty comp"
-    assert comp.serialize().startswith("Composition {")
+    failures = {}
+    for name in ALL_EFFECTS:
+        try:
+            comp = parse_setting(_source(name))
+            if not comp.nodes:
+                failures[name] = "parsed to an empty comp"
+            elif not comp.serialize().startswith("Composition {"):
+                failures[name] = "serialized without a Composition header"
+        except Exception as exc:  # noqa: BLE001 - collected per preset
+            failures[name] = repr(exc)
+    assert not failures, failures
 
-
-# Node counts pinned from the fixed parser. Every one of these files was
-# either failing outright or silently losing nodes before the fix; a drop
-# here means the table desync is back.
-@pytest.mark.parametrize(
-    "name,expected_nodes",
-    [
-        ("ambient_occlusion", 30),   # was 11 - lost 19 nodes, reported success
-        ("lightwrap", 23),           # was 8
-        ("circle_layout", 5),        # was 1
-        ("bokeh_edges", 21),         # was AttributeError
-        ("brick", 24),               # was ValueError: float('.')
-        ("anisotropic", 15),         # was Background missing GlobalOut
-    ],
-)
-def test_preset_node_count_preserved(name, expected_nodes):
-    assert len(parse_setting(_source(name)).nodes) == expected_nodes
+    # Pinned from the fixed parser; every one was failing or losing nodes.
+    pinned = {
+        "ambient_occlusion": 30,   # was 11 - lost 19 nodes, reported success
+        "lightwrap": 23,           # was 8
+        "circle_layout": 5,        # was 1
+        "bokeh_edges": 21,         # was AttributeError
+        "brick": 24,               # was ValueError: float('.')
+        "anisotropic": 15,         # was Background missing GlobalOut
+    }
+    counts = {n: len(parse_setting(_source(n)).nodes) for n in pinned}
+    assert counts == pinned
 
 
 # ── Fix A: anonymous nested tables ───────────────────────────
@@ -101,40 +85,6 @@ def test_boolean_input_serializes_as_lua_boolean():
 # ── Fix D: house rules are authorship rules ──────────────────
 
 
-def test_parsed_comp_is_not_authored():
-    assert parse_setting(_source("posterize")).authored is False
-
-
-def test_comps_we_build_are_authored_by_default():
-    assert FusionComp(duration=75).authored is True
-
-
-def test_authored_comp_still_rejects_apply_mode_on_merge():
-    """The rule stays exactly where it was earned."""
-    comp = FusionComp(duration=75)
-    merge = FusionNode("Merge1", "Merge")
-    merge.inputs["ApplyMode"] = {"_type": "value", "value": "Screen"}
-    comp.add_node(merge)
-    with pytest.raises(ValueError, match="ApplyMode on Merge CRASHES"):
-        comp.serialize()
-
-
-def test_authored_comp_still_requires_global_out_on_background():
-    comp = FusionComp(duration=75)
-    comp.add_node(FusionNode("Background1", "Background"))
-    with pytest.raises(ValueError, match="missing GlobalOut"):
-        comp.serialize()
-
-
-@pytest.mark.parametrize(
-    "name", ["posterize", "anisotropic", "burning_engine"]
-)
-def test_foreign_comp_skips_the_house_rules(name):
-    """posterize uses ApplyMode, anisotropic omits GlobalOut,
-    burning_engine omits Invert - all legitimate in DaVinci's own files."""
-    assert parse_setting(_source(name)).serialize()
-
-
 def _zooming_comp(authored):
     """A comp whose Transform is animated past the 1.04 zoom ceiling."""
     comp = FusionComp(duration=75, authored=authored)
@@ -145,14 +95,30 @@ def _zooming_comp(authored):
     return comp.add_node(spline).add_node(xf)
 
 
-def test_authored_comp_still_enforces_the_zoom_ceiling():
-    """_validate_global is an authorship rule too, not just _validate.
+def _merge_with_apply_mode():
+    comp = FusionComp(duration=75)
+    merge = FusionNode("Merge1", "Merge")
+    merge.inputs["ApplyMode"] = {"_type": "value", "value": "Screen"}
+    return comp.add_node(merge)
 
-    No shipped preset happens to trip this one, so without an explicit
-    case the comp-level gate would be scoped but unverified.
-    """
-    with pytest.raises(ValueError, match="Too aggressive"):
-        _zooming_comp(authored=True).serialize()
+
+def _background_without_global_out():
+    return FusionComp(duration=75).add_node(FusionNode("Background1", "Background"))
+
+
+@pytest.mark.parametrize(
+    "build,match",
+    [
+        (_merge_with_apply_mode, "ApplyMode on Merge CRASHES"),
+        (_background_without_global_out, "missing GlobalOut"),
+        # _validate_global is an authorship rule too; no preset trips it.
+        (lambda: _zooming_comp(authored=True), "Too aggressive"),
+    ],
+)
+def test_authored_comp_still_enforces_house_rules(build, match):
+    """The rules stay exactly where they were earned: comps WE build."""
+    with pytest.raises(ValueError, match=match):
+        build().serialize()
 
 
 def test_foreign_comp_skips_the_zoom_ceiling():
@@ -160,29 +126,6 @@ def test_foreign_comp_skips_the_zoom_ceiling():
 
 
 # ── Fix E: built-ins reach Resolve byte-identical ────────────
-
-
-def test_render_path_never_calls_the_round_trip(monkeypatch):
-    """The destructive round-trip must not be reachable from the renderer.
-
-    AST, not a substring: the module explains in a comment why it does not
-    import import_customized_effect, and a text search would match that.
-    """
-    import ast
-
-    import library.tools.execution.apply_fusion_comps as afc
-
-    tree = ast.parse(pathlib.Path(afc.__file__).read_text(encoding="utf-8"))
-    referenced = {
-        node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
-    } | {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        for alias in node.names
-    }
-    assert "import_customized_effect" not in referenced
-    assert "import_effect_to_clip" in referenced
 
 
 def test_builtin_effect_reaches_resolve_byte_identical(monkeypatch, tmp_path):

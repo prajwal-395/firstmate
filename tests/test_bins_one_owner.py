@@ -1,17 +1,6 @@
 """One module decides every bin path; everything else asks it.
 
-The captain's pool holds two schemes side by side - the numbered bins
-(`05 - Reels`, `06 - Subtitle renders`, ...) and the unnumbered ones
-(`Reels`, `Reel subtitles`, `Subtitles`) - plus a firstmate proof
-timeline (`SOP Proof_...`) filed among their reels. `resolve_bin_layout`
-is the single owner of every bin path the way `timeline_layout` is the
-single owner of every track name; `resolve_organization` and the build
-half that imports media ask it rather than declaring their own names.
-
-Every case below has a failing side: a legacy bin that must be moved
-rather than stranded, a proof timeline that must file separately, and
-the two MAYBES the brief names as known unknowns - answered here, not
-assumed.
+History: docs/evidence/resolve_test_history.md#test_bins_one_owner.
 """
 from __future__ import annotations
 

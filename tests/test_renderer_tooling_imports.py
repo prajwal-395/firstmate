@@ -1,21 +1,6 @@
 """The renderer's verification layer must load when it is run as a SCRIPT.
 
-`resolve_build_timeline.py` is invoked as a script by the pipeline, so
-`sys.path[0]` is its own directory and the repository root is NOT on the
-path. `visual_qa_router` imports `library.tools.*` absolutely, so it
-raised ModuleNotFoundError there - and because all four import groups
-shared one try/except, that single failure set every timeline QA station,
-both neural-engine wrappers and both Fairlight helpers to None.
-
-The whole verification layer was therefore dead in every scripted run.
-The only signal was one line on stderr reading "Timeline QA script not
-loaded", and `verification_passed: true` was still reported.
-
-These tests run the import the way the pipeline does - a subprocess with
-the repo root deliberately absent from the environment - because that is
-the only way to reproduce it. Importing the module from a test process
-that already has the repo root on sys.path cannot fail, which is why
-nothing caught this.
+History: docs/evidence/resolve_test_history.md#test_renderer_tooling_imports.
 """
 import json
 import os

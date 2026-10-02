@@ -1,33 +1,6 @@
 """The content-keyed render cache: one file per pixels, however many timelines place it.
 
-The measured waste (scout `data/vep-asset-reuse-across-variants`,
-captain's decision `data/vep-content-keyed-render-cache`): overlay
-renders were duplicated across timelines because the artefact was NAMED
-FOR THE TIMELINE it belonged to - 67 caption movs holding 23 unique
-byte-contents, 12 motion-graphics movs holding 4. The captain's ruling
-roots the identity in PROVENANCE instead: source footage for
-subtitles, the project for motion graphics - and no timeline names a
-file.
-
-What is pinned here, end to end behind stub renderers (no Remotion, no
-ffmpeg, no Resolve - the captain's CPU limiter):
-
-- the shared hit: the same words in the same style at the same size,
-  built under three variant timeline labels, render ONCE and pair back
-  twice - with before/after counts, not assertions;
-- placement-only differences (block ordinal, absolute timeline bounds)
-  still hit: the Level-2 splitter (the reuse key hashing placement
-  metadata) is gone with the Level-1 one (the timeline in the filename);
-- genuinely different pixels still render: different words, different
-  durations - and a reel never overwrites the master's caption, which
-  is the old overwrite staying dead after the timeline left the name;
-- motion graphics has a reuse path where it had none: the same graphic
-  under two `vox_<reel>_<index>` placing labels renders once, and the
-  filename is rooted in the project;
-- the GC hazard: a file shared by two placements stays LIVE while ANY
-  placement names it - one placing moving on must not unprotect the
-  other - and a sweep that would remove a file any placement record
-  still names REFUSES LOUDLY rather than deleting quietly.
+History: docs/evidence/resolve_test_history.md#test_content_keyed_render_cache.
 """
 
 import json

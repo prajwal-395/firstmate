@@ -153,27 +153,19 @@ def test_p5_cut_lands_on_the_word_end():
 
 # ── Beat and frame anchors resolve exactly ────────────────────────────
 
-def test_bar_beat_anchor_resolves_on_the_detected_grid():
+def test_beat_and_frame_anchors_resolve_exactly():
     block = _spine()["structure"][0]
-    hit = resolve_anchor({"bar": 2, "beat": 3}, block=block,
-                         music_analysis=_grid(), music_selection=None,
+    music = dict(music_analysis=_grid(), music_selection=None)
+    # Bar 2 opens at 10.37 s; its beats are 10.37/10.87/11.37/11.87.
+    hit = resolve_anchor({"bar": 2, "beat": 3}, block=block, **music,
                          frame_rate=FPS, step="plan_sfx",
                          plan="sfx_creative", index=0)
-    # Bar 2 opens at 10.37 s; its beats are 10.37/10.87/11.37/11.87.
     assert hit["timeline_seconds"] == pytest.approx(11.37, abs=1e-9)
-
-
-def test_downbeat_anchor_resolves_to_the_bar_start():
-    block = _spine()["structure"][0]
-    hit = resolve_anchor({"downbeat": 4}, block=block,
-                         music_analysis=_grid(), music_selection=None,
+    # A downbeat resolves to its bar's start.
+    hit = resolve_anchor({"downbeat": 4}, block=block, **music,
                          frame_rate=FPS, step="plan_sfx",
                          plan="sfx_creative", index=0)
     assert hit["timeline_seconds"] == pytest.approx(14.37, abs=1e-9)
-
-
-def test_frame_anchor_resolves_inside_the_block():
-    block = _spine()["structure"][0]
     hit = resolve_anchor({"frame": QUIT_FRAME}, block=block,
                          frame_rate=FPS, step="plan_vfx",
                          plan="vfx_creative", index=0)
@@ -201,7 +193,7 @@ def test_frame_anchor_uses_shared_frame_boundary_not_rounded_seconds():
 
 # ── Unresolvable anchors refuse, never fall back ──────────────────────
 #
-# One parametrized test, one case per refusal branch: a word the block
+# One table, one row per refusal branch: a word the block
 # does not say, an occurrence past its matches, a word anchor on a
 # wordless block, a frame outside the block, a detected grid demanded
 # of an estimated one, a beat anchor with no grid routed, a bar past
@@ -212,7 +204,8 @@ def _block():
     return _spine()["structure"][0]
 
 
-UNRESOLVABLE = [    pytest.param({"word": "never"}, {},
+UNRESOLVABLE = [
+    pytest.param({"word": "never"}, {},
                  "word 'never' is not spoken",
                  id="word-absent"),
     pytest.param({"word": "quit", "occurrence": 2}, {},
@@ -238,18 +231,25 @@ UNRESOLVABLE = [    pytest.param({"word": "never"}, {},
 ]
 
 
-@pytest.mark.parametrize(("anchor", "tweak", "match"), UNRESOLVABLE)
-def test_unresolvable_anchors_refuse(anchor, tweak, match):
-    block = _block()
-    if tweak.get("wordless"):
-        block = dict(block, word_timestamps=[])
-    music = {} if tweak.get("no_grid") else _grid(
-        tweak.get("source", "detected"))
-    with pytest.raises(AnchorRefused) as excinfo:
-        resolve_anchor(anchor, block=block, music_analysis=music,
-                       music_selection=None, frame_rate=FPS,
-                       step="plan_sfx", plan="sfx_creative", index=0)
-    assert match in str(excinfo.value)
+def test_unresolvable_anchors_refuse():
+    wrong = []
+    for row in UNRESOLVABLE:
+        anchor, tweak, match = row.values
+        block = _block()
+        if tweak.get("wordless"):
+            block = dict(block, word_timestamps=[])
+        music = {} if tweak.get("no_grid") else _grid(
+            tweak.get("source", "detected"))
+        try:
+            resolve_anchor(anchor, block=block, music_analysis=music,
+                           music_selection=None, frame_rate=FPS,
+                           step="plan_sfx", plan="sfx_creative", index=0)
+        except AnchorRefused as exc:
+            if match not in str(exc):
+                wrong.append((row.id, str(exc)))
+        else:
+            wrong.append((row.id, "resolved instead of refusing"))
+    assert not wrong, wrong
 
 
 def test_misplaced_extent_anchors_refuse():
@@ -362,55 +362,30 @@ def test_cut_lands_on_the_action_onset():
     assert abs(seconds_to_frame(cut, FPS) - QUIT_FRAME) <= 1
 
 
-MOTION_UNRESOLVABLE = [
-    pytest.param({"motion_peak": 9}, "occurrence 9",
-                 id="occurrence-overflow"),
-    pytest.param({"action_onset": 1, "edge": "end"}, "a peak is a point",
-                 id="edge-on-a-point"),
-    pytest.param({"motion_peak": 1, "grid": "detected"},
-                 "not motion ones", id="grid-on-motion"),
-]
-
-
-@pytest.mark.parametrize(("anchor", "match"), MOTION_UNRESOLVABLE)
-def test_unresolvable_motion_anchors_refuse(anchor, match):
-    with pytest.raises(AnchorRefused) as excinfo:
-        resolve_anchor(anchor, block=_block(),
-                       temporal_indices=_motion(),
-                       frame_rate=FPS, step="plan_vfx",
-                       plan="vfx_creative", index=0)
-    assert match in str(excinfo.value)
-
-
-def test_motion_anchor_without_measurement_refuses():
-    """No routed summaries, or an unmeasured clip: refuse, never guess."""
-    with pytest.raises(AnchorRefused) as excinfo:
-        resolve_anchor({"motion_peak": 1}, block=_block(),
-                       temporal_indices=[],
-                       frame_rate=FPS, step="plan_vfx",
-                       plan="vfx_creative", index=0)
-    assert "no motion measurement is routed" in str(excinfo.value)
-    rated = [{"clip_id": "clip_001", "motion_method": "unmeasured",
-              "motion_peaks": []}]
-    with pytest.raises(AnchorRefused) as excinfo:
-        resolve_anchor({"motion_peak": 1}, block=_block(),
-                       temporal_indices=rated,
-                       frame_rate=FPS, step="plan_vfx",
-                       plan="vfx_creative", index=0)
-    assert "unmeasured" in str(excinfo.value)
-
-
-def test_motion_anchor_outside_the_block_range_refuses():
-    """Peaks the block's range does not contain are not addressable."""
+def test_unresolvable_motion_anchors_refuse():
+    """An occurrence past the peaks, an edge on a point, a grid on a
+    motion anchor; no routed summaries or an unmeasured clip (refuse,
+    never guess); and peaks the block's range does not contain."""
     far = [{"clip_id": "clip_001", "motion_method": "farneback",
             "motion_peaks": [
                 {"time": 150.0, "kind": "apex", "magnitude": 0.9}]}]
-    with pytest.raises(AnchorRefused) as excinfo:
-        resolve_anchor({"motion_peak": 1}, block=_block(),
-                       temporal_indices=far,
-                       frame_rate=FPS, step="plan_vfx",
-                       plan="vfx_creative", index=0)
-    assert "no measured apex inside block" in str(excinfo.value)
+    unmeasured = [{"clip_id": "clip_001", "motion_method": "unmeasured",
+                   "motion_peaks": []}]
+    rows = (
+        ({"motion_peak": 9}, _motion(), "occurrence 9"),
+        ({"action_onset": 1, "edge": "end"}, _motion(), "a peak is a point"),
+        ({"motion_peak": 1, "grid": "detected"}, _motion(),
+         "not motion ones"),
+        ({"motion_peak": 1}, [], "no motion measurement is routed"),
+        ({"motion_peak": 1}, unmeasured, "unmeasured"),
+        ({"motion_peak": 1}, far, "no measured apex inside block"),
+    )
+    for anchor, indices, match in rows:
+        with pytest.raises(AnchorRefused) as excinfo:
+            resolve_anchor(anchor, block=_block(), temporal_indices=indices,
+                           frame_rate=FPS, step="plan_vfx",
+                           plan="vfx_creative", index=0)
+        assert match in str(excinfo.value), anchor
 
 
 # ── The beat-grid view behind the anchors ─────────────────────────────

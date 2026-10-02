@@ -1,19 +1,6 @@
 """H12 - relink_project rewrites the media pool of whatever project is open.
 
-The function's project_slug argument was used only to build path
-mappings - it was never checked against the open project's name.  Run
-the relinker for project A while project B is open and B's media pool
-is rewritten.
-
-These tests prove:
-- correct project passes verification
-- wrong project is REFUSED (DestinationMismatchError)
-- no project open is refused when expected_project is set
-- backward compatibility: empty expected_project does not refuse
-- re-verification happens immediately before the first mutation
-- DestinationMismatchError documents the hazard
-
-All tests use mock objects - no Resolve writes.
+History: docs/evidence/resolve_test_history.md#test_relinker_destination_guard.
 """
 import os
 import sys

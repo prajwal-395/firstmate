@@ -49,67 +49,37 @@ def block(start, end, block_type="transition_slot", **extra):
     return entry
 
 
+def test_every_uncovered_range_fails_and_is_named():
+    """Including the exact shape of the shipped defect: `select_broll`'s
+    post-bridge shortens a cutaway whose source cannot fill its block -
+    correct over speech, black on a block with no A-roll underneath (a
+    3.567s clip on a 10s block)."""
+    rows = (
+        (manifest_with(v1=[(0.0, 4.308), (10.741, 20.0)], duration=20.0),
+         ["4.308s to 10.741s", "6.433s"]),
+        (manifest_with(v1=[(2.0, 10.0)]), ["0.000s to 2.000s"]),
+        (manifest_with(v1=[(0.0, 0.741), (10.741, 20.0)],
+                       v2=[(0.741, 4.308)], duration=20.0),
+         ["4.308s to 10.741s"]),
+        (manifest_with(v1=[(0.0, 4.308), (10.741, 21.937), (22.678, 30.0)],
+                       duration=30.0),
+         ["2 uncovered range(s)", "4.308s to 10.741s", "21.937s to 22.678s"]),
+    )
+    for manifest, needles in rows:
+        with pytest.raises(ValueError) as excinfo:
+            _assert_timeline_fully_covered(manifest)
+        assert all(n in str(excinfo.value) for n in needles), (
+            needles, str(excinfo.value))
 
 
-def test_gap_between_two_clips_fails_and_names_the_range():
-    manifest = manifest_with(v1=[(0.0, 4.308), (10.741, 20.0)], duration=20.0)
-    with pytest.raises(ValueError) as excinfo:
-        _assert_timeline_fully_covered(manifest)
-    message = str(excinfo.value)
-    assert "4.308s to 10.741s" in message
-    assert "6.433s" in message
-
-
-def test_gap_at_the_head_of_the_timeline_fails():
-    manifest = manifest_with(v1=[(2.0, 10.0)])
-    with pytest.raises(ValueError, match="0.000s to 2.000s"):
-        _assert_timeline_fully_covered(manifest)
-
-
-
-
-def test_broll_on_v2_covers_a_hole_in_v1():
-    """A non-speech block covered only by a cutaway is legitimate."""
+def test_a_covered_timeline_passes():
+    """A non-speech block covered only by a cutaway is legitimate, and
+    float noise where one clip ends and the next begins is not black."""
     manifest = manifest_with(v1=[(0.0, 4.0), (7.0, 10.0)], v2=[(4.0, 7.0)])
     assert _video_coverage_gaps(manifest) == []
     _assert_timeline_fully_covered(manifest)
-
-
-def test_broll_too_short_for_its_block_is_caught():
-    """The exact shape of the shipped defect: a 3.567s clip on a 10s block.
-
-    `select_broll`'s post-bridge shortens the cutaway's timeline_end when
-    its source cannot fill the block - which is correct over speech and
-    leaves black on a block with no A-roll underneath.
-    """
-    manifest = manifest_with(
-        v1=[(0.0, 0.741), (10.741, 20.0)],
-        v2=[(0.741, 4.308)],
-        duration=20.0,
-    )
-    with pytest.raises(ValueError, match=r"4\.308s to 10\.741s"):
-        _assert_timeline_fully_covered(manifest)
-
-
-def test_multiple_gaps_are_all_reported():
-    manifest = manifest_with(
-        v1=[(0.0, 4.308), (10.741, 21.937), (22.678, 30.0)], duration=30.0)
-    with pytest.raises(ValueError) as excinfo:
-        _assert_timeline_fully_covered(manifest)
-    message = str(excinfo.value)
-    assert "2 uncovered range(s)" in message
-    assert "4.308s to 10.741s" in message
-    assert "21.937s to 22.678s" in message
-
-
-def test_sub_frame_seam_between_abutting_clips_is_not_a_gap():
-    """Float noise where one clip ends and the next begins is not black."""
     manifest = manifest_with(v1=[(0.0, 4.9999), (5.0, 10.0)])
     assert _video_coverage_gaps(manifest) == []
-
-
-
-
 
 
 def _beat_manifest(gap_end, spine, gap_start=4.0):
@@ -122,60 +92,34 @@ DECLARED = {"intentional_black_beat": True,
             "black_beat_reason": "hold on black before the turn"}
 
 
-def test_declared_black_beat_within_the_bound_passes():
-    """A hole the plan chose, short and outside speech, is an edit."""
+def test_only_a_declared_short_non_speech_black_beat_is_an_edit():
+    """A hole the plan chose, short and outside speech, is an edit.
+    Everything else is a hole: a beat longer than the bound (0.8s of
+    black is a hole with a note attached); a bare flag with no reason (a
+    rubber stamp); intent inferred from a short hole rather than
+    recorded; black on speech; a gap running past the declared block's
+    edge; and the shipped 6.433s gap however it is labelled."""
     manifest = _beat_manifest(4.4, [block(3.0, 5.0, **DECLARED)])
     assert _video_coverage_gaps(manifest) == [(4.0, 4.4)]
     _assert_timeline_fully_covered(manifest)
-
-
-def test_declared_black_beat_longer_than_the_bound_fails():
-    """A beat is a beat; 0.8s of black is a hole with a note attached."""
-    manifest = _beat_manifest(4.8, [block(3.0, 5.0, **DECLARED)])
-    with pytest.raises(ValueError, match="longer than the 0.5s"):
-        _assert_timeline_fully_covered(manifest)
-
-
-def test_declared_black_beat_without_a_reason_fails():
-    """A bare flag is a rubber stamp - the reason is what makes it a choice."""
-    manifest = _beat_manifest(4.4, [
-        block(3.0, 5.0, intentional_black_beat=True)])
-    with pytest.raises(ValueError, match="no black_beat_reason"):
-        _assert_timeline_fully_covered(manifest)
-
-
-
-
-def test_undeclared_gap_the_size_of_a_legal_beat_still_fails():
-    """Intent is recorded in the plan, never inferred from a short hole."""
-    manifest = _beat_manifest(4.4, [block(3.0, 5.0)])
-    with pytest.raises(ValueError, match="no spine block declares"):
-        _assert_timeline_fully_covered(manifest)
-
-
-def test_black_beat_declared_on_a_speech_block_fails():
-    manifest = _beat_manifest(4.4, [
-        block(3.0, 5.0, block_type="speech", **DECLARED)])
-    with pytest.raises(ValueError, match="speech is never held on black"):
-        _assert_timeline_fully_covered(manifest)
-
-
-
-
-def test_gap_straddling_a_declared_blocks_edge_fails():
-    """The declaration covers the block, not whatever runs past its end."""
-    manifest = _beat_manifest(4.4, [block(3.0, 4.2, **DECLARED)])
-    with pytest.raises(ValueError, match="no spine block declares"):
-        _assert_timeline_fully_covered(manifest)
-
-
-def test_the_shipped_gap_is_not_rescued_by_a_declaration():
-    """6.433s stays a failure however it is labelled."""
-    manifest = manifest_with(
-        v1=[(0.0, 4.308), (10.741, 20.0)], duration=20.0,
-        spine=[block(0.0, 20.0, **DECLARED)])
-    with pytest.raises(ValueError, match="longer than the 0.5s"):
-        _assert_timeline_fully_covered(manifest)
+    rows = (
+        (_beat_manifest(4.8, [block(3.0, 5.0, **DECLARED)]),
+         "longer than the 0.5s"),
+        (_beat_manifest(4.4, [block(3.0, 5.0, intentional_black_beat=True)]),
+         "no black_beat_reason"),
+        (_beat_manifest(4.4, [block(3.0, 5.0)]), "no spine block declares"),
+        (_beat_manifest(4.4, [block(3.0, 5.0, block_type="speech",
+                                    **DECLARED)]),
+         "speech is never held on black"),
+        (_beat_manifest(4.4, [block(3.0, 4.2, **DECLARED)]),
+         "no spine block declares"),
+        (manifest_with(v1=[(0.0, 4.308), (10.741, 20.0)], duration=20.0,
+                       spine=[block(0.0, 20.0, **DECLARED)]),
+         "longer than the 0.5s"),
+    )
+    for manifest, match in rows:
+        with pytest.raises(ValueError, match=match):
+            _assert_timeline_fully_covered(manifest)
 
 
 def test_clips_without_frame_fields_fall_back_to_seconds():

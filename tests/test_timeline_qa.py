@@ -1,12 +1,8 @@
-import pytest
 from library.tools.timeline_qa import (
-    verify_clip_placement,
     verify_transitions,
     verify_color_grades,
-    verify_audio,
     verify_fusion_comps,
-    run_full_timeline_qa,
-    QAReport
+    run_full_timeline_qa
 )
 
 class MockMediaPoolItem:
@@ -46,28 +42,28 @@ class MockTimeline:
         return 2
 
 
-
-def test_gap_detection_logic():
-    # Gap between 30 and 32
-    item1 = MockTimelineItem(start=0, end=30)
-    item2 = MockTimelineItem(start=32, end=60)
-    timeline = MockTimeline([item1, item2])
-    
-    report = run_full_timeline_qa(timeline, None, {"project": {"frame_rate": 30, "duration_seconds": 2.0}})
+def test_full_sweep_fails_a_gap_or_overlap_unless_v2_covers_it():
+    project = {"project": {"frame_rate": 30, "duration_seconds": 2.0}}
+    # Gap between 30 and 32.
+    timeline = MockTimeline([MockTimelineItem(start=0, end=30),
+                             MockTimelineItem(start=32, end=60)])
+    report = run_full_timeline_qa(timeline, None, project)
     assert not report.passed
     assert any("gap_before" in c.name for c in report.checks)
-
-def test_overlap_detection():
-    # Overlap between 25 and 30
-    item1 = MockTimelineItem(start=0, end=30)
-    item2 = MockTimelineItem(start=25, end=60)
-    timeline = MockTimeline([item1, item2])
-    
-    report = run_full_timeline_qa(timeline, None, {"project": {"frame_rate": 30, "duration_seconds": 2.0}})
+    # Overlap between 25 and 30.
+    timeline = MockTimeline([MockTimelineItem(start=0, end=30),
+                             MockTimelineItem(start=25, end=60)])
+    report = run_full_timeline_qa(timeline, None, project)
     assert not report.passed
     assert any("overlap_before" in c.name for c in report.checks)
-
-
+    # The same V1 gap covered by V2 b-roll (25 to 35) is no gap.
+    timeline = MockTimeline(items=[], by_track={
+        1: [MockTimelineItem(start=0, end=30),
+            MockTimelineItem(start=32, end=60)],
+        2: [MockTimelineItem(start=25, end=35)]})
+    report = run_full_timeline_qa(timeline, None, project)
+    assert report.passed, "Gap should be ignored if covered by V2"
+    assert not any("gap_before" in c.name for c in report.checks)
 
 
 def test_verify_color_grades_records_a_readback_that_raises():
@@ -92,66 +88,35 @@ def test_verify_color_grades_records_a_readback_that_raises():
 FUSION_EFFECTS = {"per_clip": {"a_roll_0": {"glow_gain": 2.0}}}
 
 
-def test_verify_fusion_comps_passes_when_the_comp_is_there():
-    item = MockTimelineItem(comps=["Fusion Composition 1"])
-    timeline = MockTimeline([], by_track={1: [item], 2: []})
-    report = verify_fusion_comps(timeline, {1: ["a_roll_0"], 2: []}, FUSION_EFFECTS)
-    assert report.passed
-    assert report.checks == []
+def test_verify_fusion_comps_reads_every_planned_comp():
+    """Passes when the comp is there or no effect was planned; fails a
+    missing comp on V1 (and says the collapse once when nothing carried
+    one) or V2 (a miss, not a collapse); and no labels means it cannot
+    check, which is not a pass."""
+    def check(by_track, labels, effects=FUSION_EFFECTS):
+        timeline = MockTimeline([], by_track=by_track)
+        report = verify_fusion_comps(timeline, labels, effects)
+        return report.passed, {c.name for c in report.checks}
 
-
-def test_verify_fusion_comps_fails_when_the_planned_comp_is_missing():
-    item = MockTimelineItem(comps=[])
-    timeline = MockTimeline([], by_track={1: [item], 2: []})
-    report = verify_fusion_comps(timeline, {1: ["a_roll_0"], 2: []}, FUSION_EFFECTS)
-    assert not report.passed
-    assert any(c.name == "V1_clip_0_fusion_comp" for c in report.checks)
-    # Nothing at all carried a comp: that is the collapse, said once.
-    assert any(c.name == "fusion_comps_all_missing" for c in report.checks)
-
-
-def test_verify_fusion_comps_covers_v2():
-    v1 = MockTimelineItem(comps=["Fusion Composition 1"])
-    v2 = MockTimelineItem(comps=[])
-    timeline = MockTimeline([], by_track={1: [v1], 2: [v2]})
-    effects = {"per_clip": {"a_roll_0": {}, "b_roll_0": {}}}
-    report = verify_fusion_comps(
-        timeline, {1: ["a_roll_0"], 2: ["b_roll_0"]}, effects)
-    assert not report.passed
-    assert any(c.name == "V2_clip_0_fusion_comp" for c in report.checks)
-    # One of two carried a comp, so this is a miss, not a collapse.
-    assert not any(c.name == "fusion_comps_all_missing" for c in report.checks)
-
-
-def test_verify_fusion_comps_is_quiet_when_no_effect_was_planned():
-    timeline = MockTimeline([], by_track={1: [MockTimelineItem(comps=[])]})
-    report = verify_fusion_comps(timeline, {1: ["a_roll_0"]}, {"per_clip": {}})
-    assert report.passed
-
-
-def test_verify_fusion_comps_will_not_pass_without_labels():
-    """No labels means it cannot check, and that is not a pass."""
-    timeline = MockTimeline([], by_track={1: [MockTimelineItem(comps=[])]})
-    report = verify_fusion_comps(timeline, None, FUSION_EFFECTS)
-    assert not report.passed
-    assert any(c.name == "fusion_comps_unverifiable" for c in report.checks)
-
-def test_gap_detection_ignores_covered_gaps():
-    # Gap between 30 and 32 on V1, but covered by V2 B-roll (25 to 35)
-    item1 = MockTimelineItem(start=0, end=30)
-    item2 = MockTimelineItem(start=32, end=60)
-    
-    broll = MockTimelineItem(start=25, end=35)
-    
-    timeline = MockTimeline(items=[], by_track={1: [item1, item2], 2: [broll]})
-    
-    # Needs a mock that handles both tracks properly for GetItemListInTrack
-    # which we configured with by_track
-    report = run_full_timeline_qa(timeline, None, {"project": {"frame_rate": 30, "duration_seconds": 2.0}})
-    
-    # Gap check should not fail now
-    assert report.passed, "Gap should be ignored if covered by V2"
-    assert not any("gap_before" in c.name for c in report.checks)
+    assert check({1: [MockTimelineItem(comps=["Fusion Composition 1"])],
+                  2: []}, {1: ["a_roll_0"], 2: []}) == (True, set())
+    assert check({1: [MockTimelineItem(comps=[])]}, {1: ["a_roll_0"]},
+                 {"per_clip": {}})[0] is True
+    passed, names = check({1: [MockTimelineItem(comps=[])], 2: []},
+                          {1: ["a_roll_0"], 2: []})
+    assert not passed
+    assert {"V1_clip_0_fusion_comp", "fusion_comps_all_missing"} <= names
+    passed, names = check(
+        {1: [MockTimelineItem(comps=["Fusion Composition 1"])],
+         2: [MockTimelineItem(comps=[])]},
+        {1: ["a_roll_0"], 2: ["b_roll_0"]},
+        {"per_clip": {"a_roll_0": {}, "b_roll_0": {}}})
+    assert not passed
+    assert "V2_clip_0_fusion_comp" in names
+    assert "fusion_comps_all_missing" not in names
+    passed, names = check({1: [MockTimelineItem(comps=[])]}, None)
+    assert not passed
+    assert "fusion_comps_unverifiable" in names
 
 
 def test_verify_transitions_end_of_piece_fade_needs_no_head():
@@ -164,9 +129,7 @@ def test_verify_transitions_end_of_piece_fade_needs_no_head():
                  "duration_frames": 30}]
     report = verify_transitions(timeline, None, end_fade)
     assert report.passed, [c.name for c in report.checks]
-
-
-def test_verify_transitions_mid_piece_still_requires_the_head():
+    # Mid-piece, the head is still required.
     first = MockTimelineItem(comps=["Fusion Composition 1"])
     timeline = MockTimeline([], by_track={1: [first, MockTimelineItem()]})
     report = verify_transitions(

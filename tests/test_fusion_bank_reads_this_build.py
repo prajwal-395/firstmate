@@ -1,23 +1,6 @@
 """The Fusion bank must hand back THIS build's comp, never a sibling's.
 
-Measured on the captain's `Reel 09 - your-website-is-only-20-percent
-(final)`, built 2026-09-10 11:45.  Its last picture clip carried the
-repaired old-TV switch-off (`PowerBand1` - a masked black `Background`);
-its FIRST picture clip carried the pre-repair switch-on (`PowerCrop1`, a
-`Crop` driven through `CropTop`/`CropBottom`, names `Crop` does not have,
-so the tool fell to its 1920x1080 registry defaults at offset (0, 0) and
-cut a 3840x2160 source down to its bottom-left quadrant).  One timeline,
-two builders.
-
-Nothing was stale on disk about the manifest, the plan or the checkout.
-The bank was keyed over the INPUTS a comp was built from and not over the
-builder, so the head clip - whose inputs had not moved across the repair -
-hit a comp banked at 22:07 the previous evening and imported it verbatim.
-The tail's `source_in` had shifted by 2.25 s, so the tail alone missed
-the bank and got the repaired recipe.
-
-These tests pin the property that ends it: what reaches the timeline is
-the comp `build_effect_comp` emits on this run, whatever the bank holds.
+History: docs/evidence/resolve_test_history.md#test_fusion_bank_reads_this_build.
 """
 import hashlib
 import json

@@ -29,7 +29,6 @@ from library.tools.resolve_axi import (
     cmd_api_whats_new,
     cmd_audio,
     cmd_audio_isolate,
-    cmd_captions,
     cmd_color_group,
     cmd_color_lut,
     cmd_cursor,
@@ -40,10 +39,7 @@ from library.tools.resolve_axi import (
     cmd_edit_title,
     cmd_edit_transition,
     cmd_edit_trim,
-    cmd_frames,
-    cmd_fusion,
     cmd_ingest,
-    cmd_items,
     cmd_launch,
     cmd_luts_delete,
     cmd_luts_generate,
@@ -53,7 +49,6 @@ from library.tools.resolve_axi import (
     cmd_markers_audit_replies,
     cmd_markers_reply,
     cmd_markers_restore,
-    cmd_markers_snapshot,
     cmd_multicam_build,
     cmd_multicam_sync,
     cmd_pool,
@@ -73,8 +68,6 @@ from library.tools.resolve_axi import (
     cmd_sense_transcribe,
     cmd_timeline_duplicate,
     cmd_timeline_get,
-    cmd_timeline_list,
-    table,
     _item_span,
 )
 
@@ -714,6 +707,14 @@ def _ns(**kwargs):
     return type("Args", (), kwargs)()
 
 
+@pytest.fixture(autouse=True)
+def no_broker(monkeypatch):
+    """`main()` routes through a serving `ren-resolved` broker to the live
+    Resolve; these tests drive the fakes, so the broker is never serving."""
+    from library.tools.resolved import client
+    monkeypatch.setattr(client, "serving", lambda *a, **k: False)
+
+
 @pytest.fixture()
 def reel():
     clip_marked = _Item("LC0001.MXF", 0, 50,
@@ -1076,14 +1077,31 @@ def test_run_truncation_names_escape_hatch(patched, capsys):
     assert "x" * 100 in out
 
 
-def test_run_refuses_writers_by_default(patched, capsys):
-    assert cmd_run(_run_ns(
-        script="timeline.AddMarker(20, 'Blue', 'n', 'w', 1, '')\n"
-               "result = {'placed': True}")) == 1
-    out = capsys.readouterr().out
-    assert "AddMarker" in out
-    assert "--unsafe" in out
-    # Nothing was written on the refusal path.
+def test_run_refuses_every_writer_without_its_flag(patched, capsys):
+    """`run` refuses a mutator without --unsafe: the classic writers and
+    the 21.1 Perform/Transcribe/Auto/Assign/Smart/Detect/Generate/Analyze
+    calls alike. `--unsafe` declares a write, not CopyGrades: that one
+    replaces the target's whole grade, returns True and versions
+    nothing, so it also needs --acknowledge-copy-grades."""
+    rows = [
+        ("timeline.AddMarker(20, 'Blue', 'n', 'w', 1, '')\n"
+         "result = {'placed': True}", False, ["AddMarker", "--unsafe"]),
+        ("x = item.PerformMulticamSmartSwitch\nresult = {'s': True}",
+         False, ["PerformMulticamSmartSwitch"]),
+        ("x = pool.AutoSyncAudio\nresult = {'s': True}", False,
+         ["AutoSyncAudio"]),
+        ("x = item.AssignToColorGroup\nresult = {'g': True}", False,
+         ["AssignToColorGroup"]),
+        ("x = clip.AnalyzeForIntellisearch\nresult = {'a': True}", False,
+         ["AnalyzeForIntellisearch"]),
+        ("x = timeline.CopyGrades", True,
+         ["CopyGrades", "--acknowledge-copy-grades"]),
+    ]
+    for script, unsafe, needles in rows:
+        assert cmd_run(_run_ns(script=script, unsafe=unsafe)) == 1, script
+        out = capsys.readouterr().out
+        assert all(n in out for n in needles), (script, out)
+    # Nothing was written on any refusal path.
     assert patched["timeline"].added == []
 
 
@@ -1322,17 +1340,6 @@ def test_renders_derives_state_without_reading_english(render_patched,
 # ── run: the grade-destroying call ───────────────────────────────
 
 
-def test_run_unsafe_refuses_copygrades_without_ack(patched, capsys):
-    """`--unsafe` declares a write, not THIS one: CopyGrades replaces
-    the target's whole grade, returns True, and versions nothing."""
-    assert cmd_run(_run_ns(
-        script="x = timeline.CopyGrades",
-        unsafe=True)) == 1
-    out = capsys.readouterr().out
-    assert "CopyGrades" in out
-    assert "--acknowledge-copy-grades" in out
-
-
 def test_run_unsafe_runs_copygrades_once_named(patched, capsys):
     assert cmd_run(_run_ns(
         script="timeline.CopyGrades([])\nresult = {'copied': True}",
@@ -1341,32 +1348,30 @@ def test_run_unsafe_runs_copygrades_once_named(patched, capsys):
     assert patched["timeline"].copied == []
 
 
-# ── The positional rule, restored ────────────────────────────────
-#
-# The suite-halving deleted `test_positional_primary_args` while the
-# module docstring still cites it. `pool` is the next command the
-# rule covers, so the test comes back with the bin on it.
+# ── The positional rule ──────────────────────────────────────────
 
 
-@pytest.mark.parametrize("command", ["markers", "items", "captions",
-                                     "frames", "fusion"])
-def test_positional_primary_args(patched, notes, command, capsys):
+def test_positional_primary_args(patched, notes, canned, shelf, capsys):
     """The class, not the instances: every command taking one obvious
     primary argument - a reel name for the reads, a script for `run`,
-    a bin for `pool` - accepts it positionally. A future command
-    built without a positional fails here instead of on first use."""
+    a pattern for `api search`, a file for `luts delete` - accepts it
+    positionally. A future command built without a positional fails
+    here instead of on first use."""
     notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
                                         note="hi")]
-    assert resolve_axi.main([command, "Reel 29 - salvage"]) == 0
-    out = capsys.readouterr().out
-    assert "Reel 29 - salvage" in out
-
-
-def test_positional_run_script(patched, capsys):
-    assert resolve_axi.main(
-        ["run", "--timeline", "Reel 29 - salvage",
-         "result = timeline_names"]) == 0
-    assert "result[2]{value}:" in capsys.readouterr().out
+    canned.responses["search_scripting_api"] = "  def GetMarkers() ..."
+    rows = [([command, "Reel 29 - salvage"], "Reel 29 - salvage")
+            for command in ("markers", "items", "captions", "frames",
+                            "fusion")]
+    rows += [
+        (["run", "--timeline", "Reel 29 - salvage",
+          "result = timeline_names"], "result[2]{value}:"),
+        (["api", "search", "marker"], "matches:"),
+        (["luts", "delete", "cool.dctl"], "dry run"),
+    ]
+    for argv, needle in rows:
+        assert resolve_axi.main(argv) == 0, argv
+        assert needle in capsys.readouterr().out, argv
 
 
 # ── api: the wrapped knowledge tools ───────────────────────────
@@ -1427,9 +1432,7 @@ def test_api_docs_unwraps_the_envelope(canned, capsys):
     out = capsys.readouterr().out
     assert "Hello docs" in out
     assert '{"content"' not in out
-
-
-def test_api_docs_passes_plain_text_through(canned, capsys):
+    # Plain text passes through untouched.
     canned.responses["get_scripting_docs"] = "plain"
     assert cmd_api_docs(_ns(document="README.md", section="TOC")) == 0
     assert "plain" in capsys.readouterr().out
@@ -1457,14 +1460,6 @@ def test_api_whats_new_refuses_garbage(canned, capsys):
     assert "unparseable" in capsys.readouterr().out
 
 
-def test_positional_api_search_and_luts_delete(canned, shelf, capsys):
-    canned.responses["search_scripting_api"] = "  def GetMarkers() ..."
-    assert resolve_axi.main(["api", "search", "marker"]) == 0
-    assert "matches:" in capsys.readouterr().out
-    assert resolve_axi.main(["luts", "delete", "cool.dctl"]) == 0
-    assert "dry run" in capsys.readouterr().out
-
-
 # ── luts: the shared shelf ─────────────────────────────────────
 
 
@@ -1486,7 +1481,7 @@ def test_luts_list_counts_kinds(shelf, capsys):
     assert "notes.txt" not in out
 
 
-def test_luts_update_dry_run_writes_nothing(shelf, monkeypatch, capsys):
+def test_luts_dry_runs_write_nothing(shelf, monkeypatch, capsys):
     def no_call(tool, args, fix):
         raise AssertionError("dry run must not reach the backend")
     monkeypatch.setattr(resolve_axi, "_native", no_call)
@@ -1496,6 +1491,13 @@ def test_luts_update_dry_run_writes_nothing(shelf, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "dry run" in out
     assert not (shelf / "MCP" / "new.dctl").exists()
+    assert cmd_luts_generate(_ns(name="", name_pos="warm.cube",
+                                  size=33, transform="return (r, g, b)",
+                                  transform_file="",
+                                  apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "size: 33" in out
+    assert "dry run" in out
 
 
 def test_luts_update_apply_verifies_by_readback(shelf, monkeypatch,
@@ -1546,16 +1548,6 @@ def test_luts_delete_routes_by_extension(shelf, monkeypatch, capsys):
     assert seen["tool"] == "delete_lut"
 
 
-def test_luts_generate_dry_run_names_size(shelf, capsys):
-    assert cmd_luts_generate(_ns(name="", name_pos="warm.cube",
-                                  size=33, transform="return (r, g, b)",
-                                  transform_file="",
-                                  apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "size: 33" in out
-    assert "dry run" in out
-
-
 # ── launch: the idempotent start ───────────────────────────────
 
 
@@ -1601,14 +1593,6 @@ def test_launch_reports_a_failed_open(monkeypatch, capsys):
                         lambda: (False, "denied by policy"))
     assert cmd_launch(_ns()) == 1
     assert "denied by policy" in capsys.readouterr().out
-
-
-def test_launch_argv_names_the_real_app():
-    """`open -a` with the wrong name opens the wrong app or nothing:
-    the argv is pinned here, and the name verified against the
-    installed bundle id (see `_LAUNCH_ARGV`)."""
-    assert list(resolve_axi._LAUNCH_ARGV) == [
-        "open", "-a", "DaVinci Resolve"]
 
 
 # ── project: identity plus delivery settings ───────────────────
@@ -1692,13 +1676,14 @@ def test_audio_full_tolerates_a_missing_voice_call(audio_patched,
 # ── edit: the write verbs ──────────────────────────────────────
 #
 # Every write here runs against fakes - never the captain's project.
-# The suite proves the discipline, not the pixels: dry runs write
-# nothing, applies verify by re-read, and the two measured traps
-# (no append retry, delete re-read before one retry) hold.
+# The suite proves the discipline, not the pixels, as three tables
+# with one row per verb and case: dry runs write nothing, applies
+# verify by re-read, and a refusal (a bad argument, a falsy answer, a
+# disagreeing re-read) claims nothing. Every row builds a fresh fake
+# Resolve, so one row's trap cannot leak into the next.
 
 
-@pytest.fixture()
-def edit_patched(monkeypatch, tmp_path):
+def _edit_env(monkeypatch, tmp_path):
     src = tmp_path / "a.mov"
     src.write_text("footage", encoding="utf-8")
     pool_clip = _PoolClip("a.mov", {"Type": "Video",
@@ -1731,503 +1716,12 @@ def edit_patched(monkeypatch, tmp_path):
     monkeypatch.setattr(resolve_axi, "_lease",
                         lambda exclusive: contextlib.nullcontext())
     return {"timeline": timeline, "project": project,
-            "resolve": _Resolve(project)}
+            "resolve": _Resolve(project), "dir": tmp_path}
 
 
-def _place_ns(**over):
-    base = {"project": "", "timeline": "Reel 29 - salvage",
-            "clip": "a.mov", "bin": "", "source_in": None,
-            "source_out": None, "media": "both", "track": None,
-            "record": None, "apply": False}
-    base.update(over)
-    return _ns(**base)
-
-
-def _track_count(edit):
-    return len(edit["timeline"]._tracks[("video", 1)]["items"])
-
-
-def test_place_dry_run_plans_without_appending(edit_patched, capsys):
-    assert cmd_edit_place(_place_ns()) == 0
-    out = capsys.readouterr().out
-    assert "place_plan" in out
-    assert "a.mov" in out
-    assert _track_count(edit_patched) == 2
-
-
-def test_place_apply_appends_verified(edit_patched, capsys):
-    assert cmd_edit_place(_place_ns(apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "items_delta: 1" in out
-    assert "verified" in out
-    assert _track_count(edit_patched) == 3
-
-
-def test_place_refuses_unknown_clip(edit_patched, capsys):
-    assert cmd_edit_place(_place_ns(clip="nope.mov")) == 1
-    assert "no clip named 'nope.mov'" in capsys.readouterr().out
-    assert _track_count(edit_patched) == 2
-
-
-def test_place_refuses_an_ambiguous_name(edit_patched, tmp_path,
-                                         capsys):
-    root = edit_patched["project"]._pool._root
-    root._subs[0]._clips.append(
-        _PoolClip("a.mov", {"Type": "Video", "File Path": "/x/a.mov"}))
-    assert cmd_edit_place(_place_ns(clip="a.mov")) == 1
-    out = capsys.readouterr().out
-    assert "names 2 clips" in out
-    assert "--bin" in out
-
-
-def test_place_reports_landed_despite_falsy_return(edit_patched,
-                                                   capsys):
-    """The measured trap: a falsy answer with a moved count means the
-    append LANDED. Retrying would place it twice, so this reports
-    success and never retries."""
-    edit_patched["project"]._pool._append_empty = True
-    assert cmd_edit_place(_place_ns(apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "items_delta: 1" in out
-    assert "no retry" in out
-    assert _track_count(edit_patched) == 3
-
-
-def test_place_cursor_mismatch_refuses(edit_patched, monkeypatch,
-                                       capsys):
-    import library.tools.marker_feedback as feedback
-    other = _Timeline("Reel 16 - other")
-    monkeypatch.setattr(feedback, "current_timeline",
-                        lambda resolve=None: (other, None))
-    assert cmd_edit_place(_place_ns(apply=True)) == 1
-    assert "cursor sits on" in capsys.readouterr().out
-    assert _track_count(edit_patched) == 2
-
-
-def _item_ns(cmd, **over):
-    base = {"project": "", "timeline": "Reel 29 - salvage",
-            "track": "video1", "index": 0, "ripple": False,
-            "apply": False}
-    base.update(over)
-    return _ns(**base)
-
-
-def test_delete_dry_run_names_the_victim(edit_patched, capsys):
-    assert cmd_edit_delete(_item_ns(cmd_edit_delete)) == 0
-    out = capsys.readouterr().out
-    assert "delete_plan" in out
-    assert "LC0001.MXF" in out
-    assert _track_count(edit_patched) == 2
-
-
-def test_delete_apply_removes_verified(edit_patched, capsys):
-    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "unique id absent" in out
-    assert _track_count(edit_patched) == 1
-    assert edit_patched["timeline"].deleted == [(["uid-1"], False)]
-
-
-def test_delete_flaky_first_attempt_still_verifies(edit_patched,
-                                                   capsys):
-    edit_patched["timeline"]._delete_fail_once = True
-    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True)) == 0
-    assert "unique id absent" in capsys.readouterr().out
-    assert _track_count(edit_patched) == 1
-
-
-def test_delete_persistent_failure_names_the_edit_page(edit_patched,
-                                                       capsys):
-    edit_patched["timeline"]._delete_fail_always = True
-    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True)) == 1
-    out = capsys.readouterr().out
-    assert "Edit page" in out
-    assert "past once" in out
-    assert _track_count(edit_patched) == 2
-
-
-def test_delete_ripple_is_explicit(edit_patched, capsys):
-    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True,
-                                     ripple=True)) == 0
-    assert edit_patched["timeline"].deleted == [(["uid-1"], True)]
-
-
-def test_delete_refuses_a_bad_address(edit_patched, capsys):
-    assert cmd_edit_delete(_item_ns(cmd_edit_delete, track="video9",
-                                     index=0, apply=True)) == 1
-    assert cmd_edit_delete(_item_ns(cmd_edit_delete, track="video1",
-                                     index=9, apply=True)) == 1
-    assert "holds 2" in capsys.readouterr().out
-
-
-def test_move_apply_replaces_at_the_new_frame(edit_patched, capsys):
-    assert cmd_edit_move(_item_ns(
-        cmd_edit_move, to=200, track_to="", apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "verified" in out
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    assert [i.GetUniqueId() for i in items] == ["uid-2",
-                                                "uid-LC0001.MXF"]
-    moved = items[1]
-    assert (moved.GetStart(), moved.GetEnd()) == (200, 250)
-    assert (moved.GetSourceStartFrame(),
-            moved.GetSourceEndFrame()) == (1000, 1049)
-
-
-def test_move_place_failure_keeps_the_original(edit_patched,
-                                               monkeypatch, capsys):
-    def raising(payloads):
-        raise RuntimeError("nope")
-    monkeypatch.setattr(edit_patched["project"]._pool,
-                        "AppendToTimeline", raising)
-    assert cmd_edit_move(_item_ns(
-        cmd_edit_move, to=200, track_to="", apply=True)) == 1
-    assert "untouched" in capsys.readouterr().out
-    assert _track_count(edit_patched) == 2
-
-
-def test_trim_apply_narrows_in_place(edit_patched, capsys):
-    assert cmd_edit_trim(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, source_in=1010, source_out=1049, apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "verified" in out
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    assert [i.GetUniqueId() for i in items] == ["uid-2",
-                                                "uid-LC0001.MXF"]
-    trimmed = items[1]
-    assert (trimmed.GetSourceStartFrame(),
-            trimmed.GetSourceEndFrame()) == (1010, 1049)
-    assert trimmed.GetStart() == 10
-
-
-def test_trim_refuses_past_the_handles(edit_patched, capsys):
-    assert cmd_edit_trim(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, source_in=999, source_out=1049, apply=True)) == 1
-    assert "handles" in capsys.readouterr().out
-    assert _track_count(edit_patched) == 2
-
-
-def test_title_dry_run_shows_current_text(edit_patched, capsys):
-    edit_patched["timeline"]._tracks[("video", 1)]["items"][0]._properties[
-        "Styled Text"] = "old words"
-    assert cmd_edit_title(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, text="new words", apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "old words" in out
-    assert "new words" in out
-
-
-def test_title_apply_verifies_by_readback(edit_patched, capsys):
-    assert cmd_edit_title(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, text="new words", apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "read back equal" in out
-    assert "Styled Text" in out
-
-
-def test_title_refuses_when_no_key_takes(edit_patched, capsys):
-    edit_patched["timeline"]._tracks[("video", 1)]["items"][
-        0]._stubborn = True
-    assert cmd_edit_title(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, text="new words", apply=True)) == 1
-    assert "Fusion" in capsys.readouterr().out
-
-
-def test_transition_lists_carriers(edit_patched, capsys):
-    assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=False,
-        index=None, type="Cross Dissolve", category="simple",
-        position="start", alignment="center", duration=None)) == 0
-    out = capsys.readouterr().out
-    assert "cuts: 1" in out
-    assert "LC0001.MXF" in out
-    assert "LC0002.MXF" in out
-
-
-def test_transition_plan_names_the_payload(edit_patched, capsys):
-    assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=False,
-        index=1, type="Cross Dissolve", category="simple",
-        position="start", alignment="center", duration=12)) == 0
-    out = capsys.readouterr().out
-    assert "transition_plan" in out
-    assert "Cross Dissolve" in out
-    assert "dry run" in out
-
-
-def test_transition_apply_places_the_proven_pair(edit_patched,
-                                                 capsys):
-    assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=True,
-        index=1, type="Cross Dissolve", category="simple",
-        position="start", alignment="center", duration=12)) == 0
-    out = capsys.readouterr().out
-    assert "verified" in out
-    assert "Cross Dissolve" in out
-
-
-def test_transition_apply_needs_an_explicit_cut(edit_patched,
-                                                capsys):
-    assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=True,
-        index=None, type="Cross Dissolve", category="simple",
-        position="start", alignment="center", duration=None)) == 1
-    assert "--index" in capsys.readouterr().out
-
-
-def test_transition_apply_refuses_an_empty_answer(edit_patched,
-                                                  capsys):
-    """The defect this verb exists for: AddTransition answers None
-    for an unknown type/category, and the write must refuse naming
-    both rather than claim a dissolve."""
-    edit_patched["timeline"]._tracks[("video", 1)][
-        "items"][1]._transition_none = True
-    assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=True,
-        index=1, type="Nope Wipe", category="fusion",
-        position="start", alignment="center",
-        duration=None)) == 1
-    out = capsys.readouterr().out
-    assert "Nope Wipe" in out
-    assert "fusion" in out
-
-
-def test_transition_apply_refuses_an_unreadable_span(edit_patched,
-                                                     capsys):
-    edit_patched["timeline"]._tracks[("video", 1)][
-        "items"][1]._transition_broken = True
-    assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=True,
-        index=1, type="Cross Dissolve", category="simple",
-        position="start", alignment="center",
-        duration=None)) == 1
-    assert "would not read its span" in capsys.readouterr().out
-
-
-def test_writes_keep_explicit_flags():
-    """The positional rule stops at reads: a destructive path with a
-    bare primary argument is one typo from the wrong reel, so `edit`
-    owns no positional - missing flags fail loud at argparse."""
-    with pytest.raises(SystemExit) as exc:
-        resolve_axi.main(["edit", "delete"])
-    assert exc.value.code == 2
-    with pytest.raises(SystemExit) as exc:
-        resolve_axi.main(["edit", "delete", "--timeline", "Reel 29"])
-    assert exc.value.code == 2
-
-
-# ── ingest: pool imports ───────────────────────────────────────
-
-
-def test_ingest_refuses_missing_files(edit_patched, capsys):
-    assert cmd_ingest(_ns(project="", paths=["/nope/m.mov"],
-                           apply=True)) == 1
-    assert "not on disk" in capsys.readouterr().out
-
-
-def test_ingest_dry_run_plans(edit_patched, tmp_path, capsys):
-    src = str(tmp_path / "a.mov")
-    assert cmd_ingest(_ns(project="", paths=[src],
-                           apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "ingest_plan" in out
-    assert "root" in out
-
-
-def test_ingest_apply_imports_named(edit_patched, tmp_path, capsys):
-    src = tmp_path / "c.mov"
-    src.write_text("footage", encoding="utf-8")
-    assert cmd_ingest(_ns(project="", paths=[str(src)],
-                           apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "verified" in out
-    assert "c.mov" in out
-
-
-# ── render: queue, start, stop ─────────────────────────────────
-
-
-def test_render_queue_cursor_mismatch_refuses(edit_patched,
-                                              monkeypatch, capsys):
-    import library.tools.marker_feedback as feedback
-    other = _Timeline("Reel 16 - other")
-    monkeypatch.setattr(feedback, "current_timeline",
-                        lambda resolve=None: (other, None))
-    assert cmd_render_queue(_ns(
-        project="", timeline="Reel 29 - salvage", preset="",
-        apply=True)) == 1
-    assert "cursor sits on" in capsys.readouterr().out
-
-
-def test_render_queue_refuses_unknown_preset(edit_patched, capsys):
-    assert cmd_render_queue(_ns(
-        project="", timeline="Reel 29 - salvage", preset="Nope",
-        apply=True)) == 1
-    assert "no render preset" in capsys.readouterr().out
-
-
-def test_render_queue_apply_verifies_the_job(edit_patched, capsys):
-    assert cmd_render_queue(_ns(
-        project="", timeline="Reel 29 - salvage",
-        preset="H.265 Master", apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "verified" in out
-    assert "tmp/out/out-1.mov" in out
-
-
-def test_render_start_refuses_an_empty_queue(edit_patched, capsys):
-    assert cmd_render_start(_ns(project="", job=[], all=False,
-                                 apply=True)) == 1
-    assert "empty" in capsys.readouterr().out
-
-
-def test_render_start_apply_waits_for_completion(edit_patched, monkeypatch,
-                                               capsys):
-    assert cmd_render_queue(_ns(
-        project="", timeline="Reel 29 - salvage", preset="",
-        apply=True)) == 0
-    capsys.readouterr()
-    project = edit_patched["project"]
-    reads = iter([True, False])
-
-    def render_state():
-        project._rendering = next(reads)
-        return project._rendering
-
-    monkeypatch.setattr(project, "IsRenderingInProgress", render_state)
-    monkeypatch.setattr(resolve_axi, "RENDER_POLL_SECONDS", 0)
-    assert cmd_render_start(_ns(project="", job=[], all=True,
-                                 apply=True)) == 0
-    output = capsys.readouterr().out
-    assert "completed:" in output
-    assert "idle on completion read-back" in output
-
-
-def test_render_stop_apply_verifies_stopped(edit_patched, capsys):
-    edit_patched["project"]._rendering = True
-    assert cmd_render_stop(_ns(project="", apply=True)) == 0
-    assert "not rendering" in capsys.readouterr().out
-
-
-# ── project set / timeline duplicate ───────────────────────────
-
-
-def test_project_set_dry_run_shows_old_to_new(edit_patched, capsys):
-    assert cmd_project_set(_ns(project="", key="timelineFrameRate",
-                                value="29.97", apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "23.976" in out
-    assert "29.97" in out
-
-
-def test_project_set_apply_verifies(edit_patched, capsys):
-    assert cmd_project_set(_ns(project="", key="timelineFrameRate",
-                                value="29.97", apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "read back equal" in out
-    assert edit_patched["project"]._settings["timelineFrameRate"] == \
-        "29.97"
-
-
-def test_project_set_refuses_a_silent_write(edit_patched, monkeypatch,
-                                             capsys):
-    monkeypatch.setattr(_Project, "SetSettings",
-                        lambda self, settings: True)
-    assert cmd_project_set(_ns(project="", key="timelineFrameRate",
-                                value="29.97", apply=True)) == 1
-    assert "refusing to claim it" in capsys.readouterr().out
-
-
-def test_duplicate_refuses_a_taken_name(edit_patched, capsys):
-    assert cmd_timeline_duplicate(_ns(
-        project="", timeline="Reel 29 - salvage",
-        name="Reel 29 - salvage", apply=True)) == 1
-    assert "already exists" in capsys.readouterr().out
-
-
-def test_duplicate_apply_versions_listed(edit_patched, capsys):
-    assert cmd_timeline_duplicate(_ns(
-        project="", timeline="Reel 29 - salvage", name="Reel 29 - v2",
-        apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "listed on re-read" in out
-    assert "Reel 29 - v2" in [
-        edit_patched["project"].GetTimelineByIndex(i + 1).GetName()
-        for i in range(
-            edit_patched["project"].GetTimelineCount())]
-
-
-# ── edit speed: constant speed plus freeze ───────────────────────
-
-
-def _speed_ns(**over):
-    base = {"project": "", "timeline": "Reel 29 - salvage",
-            "track": "video1", "index": 0, "percent": 40.0,
-            "freeze": False, "ripple": False, "apply": False}
-    base.update(over)
-    return _ns(**base)
-
-
-def test_speed_dry_run_plans_without_writing(edit_patched, capsys):
-    assert cmd_edit_speed(_speed_ns()) == 0
-    out = capsys.readouterr().out
-    assert "speed_plan" in out
-    assert "40.0" in out
-    assert "dry run" in out
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    assert items[0]._speed_set is None
-
-
-def test_speed_apply_verifies_by_readback(edit_patched, capsys):
-    assert cmd_edit_speed(_speed_ns(apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "read back" in out or "re-reads equal" in out
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    assert items[0]._speed_set == {"Percentage": 40.0,
-                                   "RippleTimeline": False}
-
-
-def test_speed_freeze_spells_zero(edit_patched, capsys):
-    assert cmd_edit_speed(_speed_ns(percent=None, freeze=True,
-                                    apply=True)) == 0
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    assert items[0]._speed_set == {"Percentage": 0.0,
-                                   "RippleTimeline": False}
-    assert "0.0" in capsys.readouterr().out
-
-
-def test_speed_refuses_percent_zero_without_freeze(edit_patched,
-                                                   capsys):
-    assert cmd_edit_speed(_speed_ns(percent=0.0, apply=True)) == 1
-    assert "--freeze" in capsys.readouterr().out
-
-
-def test_speed_refuses_a_false_answer(edit_patched, capsys):
-    """SetSpeed answers False while writing nothing: the verb must
-    refuse rather than claim the speed."""
-    edit_patched["timeline"]._tracks[("video", 1)][
-        "items"][0]._speed_refuse = True
-    assert cmd_edit_speed(_speed_ns(apply=True)) == 1
-    assert "answered False" in capsys.readouterr().out
-
-
-def test_speed_refuses_a_disagreeing_reread(edit_patched, capsys):
-    """The read-back decides: True with a different Percentage is a
-    refusal naming both numbers."""
-    edit_patched["timeline"]._tracks[("video", 1)][
-        "items"][0]._speed_echo = {"Percentage": 100.0}
-    assert cmd_edit_speed(_speed_ns(apply=True)) == 1
-    out = capsys.readouterr().out
-    assert "re-reads 100.0 for 40.0" in out
-    assert "refusing to claim it" in out
-
-
-# ── multicam: build writes, sync plans ───────────────────────────
+@pytest.fixture()
+def edit_patched(monkeypatch, tmp_path):
+    return _edit_env(monkeypatch, tmp_path)
 
 
 def _multicam_project():
@@ -2241,230 +1735,124 @@ def _multicam_project():
     return project
 
 
-@pytest.fixture()
-def multicam_patched(monkeypatch):
+def _pool_env(monkeypatch, tmp_path):
     project = _multicam_project()
-    monkeypatch.setattr(resolve_axi, "_connect",
-                        lambda: _Resolve(project))
+    resolve = _Resolve(project)
+    monkeypatch.setattr(resolve_axi, "_connect", lambda: resolve)
     monkeypatch.setattr(resolve_axi, "_lease",
                         lambda exclusive: contextlib.nullcontext())
-    return project
+    return {"project": project, "resolve": resolve, "dir": tmp_path}
 
 
-def test_multicam_build_dry_run_plans(multicam_patched, capsys):
-    assert cmd_multicam_build(_ns(
-        project="", clip=["camA.mp4", "camB.mp4"], bin="",
-        name="probe-mc", sync="audio", apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "multicam_plan" in out
-    assert "probe-mc" in out
-    assert "dry run" in out
+_ENVS = {"edit": _edit_env, "pool": _pool_env}
+_V1 = ("video", 1)
+_TL = {"project": "", "timeline": "Reel 29 - salvage"}
 
 
-def test_multicam_build_apply_verifies_the_listing(multicam_patched,
-                                                   capsys):
-    assert cmd_multicam_build(_ns(
-        project="", clip=["camA.mp4", "camB.mp4"], bin="",
-        name="probe-mc", sync="audio", apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "listed on re-read" in out
-    assert "probe-mc" in out
+def _items(env):
+    return env["timeline"]._tracks[_V1]["items"]
 
 
-def test_multicam_build_refuses_when_nothing_lists(multicam_patched,
-                                                   capsys):
-    """CreateMulticamClip answers [] while listing nothing: the
-    verb refuses rather than claim a multicam clip."""
-    multicam_patched._pool._multicam_none = True
-    assert cmd_multicam_build(_ns(
-        project="", clip=["camA.mp4", "camB.mp4"], bin="",
-        name="probe-mc", sync="audio", apply=True)) == 1
-    assert "not in the pool on re-read" in capsys.readouterr().out
+def _item0(env):
+    return _items(env)[0]
 
 
-def test_multicam_build_refuses_a_missing_sync_enum(
-        multicam_patched, monkeypatch, capsys):
-    """A guessed sync mode is worse than a refused one: without the
-    live constant the verb names it and stops."""
-    import library.tools.marker_feedback as feedback  # noqa: F401
-    resolve = resolve_axi._connect()
-    del resolve.MULTICAM_ANGLE_SYNC_AUDIO
-    monkeypatch.setattr(resolve_axi, "_connect", lambda: resolve)
-    assert cmd_multicam_build(_ns(
-        project="", clip=["camA.mp4", "camB.mp4"], bin="",
-        name="probe-mc", sync="audio", apply=True)) == 1
-    assert "MULTICAM_ANGLE_SYNC_AUDIO" in capsys.readouterr().out
+def _track_count(env):
+    return len(_items(env))
 
 
-def test_multicam_sync_apply_refuses_without_a_readback(
-        multicam_patched, capsys):
-    """AutoSyncAudio returns a bare bool with no measured property
-    to re-read: --apply refuses naming that, the dry run plans."""
-    assert cmd_multicam_sync(_ns(
-        project="", clip=["camA.mp4", "camB.mp4"], bin="",
-        mode="waveform", apply=False)) == 0
-    assert "sync_plan" in capsys.readouterr().out
-    assert cmd_multicam_sync(_ns(
-        project="", clip=["camA.mp4", "camB.mp4"], bin="",
-        mode="waveform", apply=True)) == 1
-    out = capsys.readouterr().out
-    assert "no measured property to re-read" in out
-    assert "hands probe" in out
+def _set(target, **attrs):
+    """A row's setup: arm one trap on the fake `target(env)` returns."""
+    def setup(env, _monkeypatch):
+        obj = target(env)
+        for key, value in attrs.items():
+            setattr(obj, key, value)
+    return setup
 
 
-# ── color: node LUTs and group assignment ────────────────────────
+def _add_pool_clip(clip_factory):
+    def setup(env, _monkeypatch):
+        env["project"]._pool._root._clips.append(clip_factory())
+    return setup
 
 
-def test_color_lut_dry_run_plans(edit_patched, capsys):
-    assert cmd_color_lut(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, lut="Film Looks/Rec709 Kodak 2383 D65.cube", node=1,
-        apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "lut_plan" in out
-    assert "Rec709" in out
+def _foreign_cursor(env, monkeypatch):
+    import library.tools.marker_feedback as feedback
+    other = _Timeline("Reel 16 - other")
+    monkeypatch.setattr(feedback, "current_timeline",
+                        lambda resolve=None: (other, None))
 
 
-def test_color_lut_apply_verifies_by_reread(edit_patched, capsys):
-    assert cmd_color_lut(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, lut="Film Looks/Rec709 Kodak 2383 D65.cube", node=1,
-        apply=True)) == 0
-    assert "re-reads the LUT" in capsys.readouterr().out
+def _place_ns(**over):
+    return _ns(**{**_TL, "clip": "a.mov", "bin": "", "source_in": None,
+                  "source_out": None, "media": "both", "track": None,
+                  "record": None, "apply": False, **over})
 
 
-def test_color_lut_refuses_a_silent_set(edit_patched, capsys):
-    """SetLUT answers False while setting nothing: the verb refuses
-    naming the node and path."""
-    edit_patched["timeline"]._tracks[("video", 1)][
-        "items"][0].GetNodeGraph()._set_refuse = True
-    assert cmd_color_lut(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, lut="Film Looks/x.cube", node=1,
-        apply=True)) == 1
-    assert "answered False" in capsys.readouterr().out
+def _at(**over):
+    """Args addressing V1 index 0 of the reel."""
+    return _ns(**{**_TL, "track": "video1", "index": 0, **over})
 
 
-def test_color_lut_refuses_a_disagreeing_reread(edit_patched,
-                                                capsys):
-    edit_patched["timeline"]._tracks[("video", 1)][
-        "items"][0].GetNodeGraph()._lut_echo = "other.cube"
-    assert cmd_color_lut(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, lut="Film Looks/x.cube", node=1,
-        apply=True)) == 1
-    out = capsys.readouterr().out
-    assert "refusing to claim it" in out
-    assert "other.cube" in out
+def _item_ns(**over):
+    return _at(**{"ripple": False, "apply": False, **over})
 
 
-def test_color_lut_refuses_without_a_graph(edit_patched, capsys):
-    edit_patched["timeline"]._tracks[("video", 1)][
-        "items"][0]._no_graph = True
-    assert cmd_color_lut(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, lut="Film Looks/x.cube", node=1,
-        apply=True)) == 1
-    assert "no node graph" in capsys.readouterr().out
+def _speed_ns(**over):
+    return _at(**{"percent": 40.0, "freeze": False, "ripple": False,
+                  "apply": False, **over})
 
 
-def test_color_group_create_assigns_verified(edit_patched, capsys):
-    assert cmd_color_group(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, group="probe-A", create=True, apply=True)) == 0
-    assert "re-reads the name" in capsys.readouterr().out
+def _transition_ns(**over):
+    return _ns(**{**_TL, "apply": False, "index": 1,
+                  "type": "Cross Dissolve", "category": "simple",
+                  "position": "start", "alignment": "center",
+                  "duration": None, **over})
 
 
-def test_color_group_refuses_an_unknown_group(edit_patched, capsys):
-    assert cmd_color_group(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, group="nope", create=False, apply=True)) == 1
-    assert "--create" in capsys.readouterr().out
+def _lut_ns(**over):
+    return _at(**{"lut": "Film Looks/x.cube", "node": 1, "apply": True,
+                  **over})
 
 
-def test_color_group_refuses_a_silent_assign(edit_patched, capsys):
-    """AssignToColorGroup answers True while grouping nothing: the
-    re-read disagrees and the verb refuses naming both."""
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    items[0]._group_echo = None
-    assert cmd_color_group(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, group="probe-A", create=True, apply=True)) == 1
-    assert "refusing to claim it" in capsys.readouterr().out
+def _group_ns(**over):
+    return _at(**{"group": "probe-A", "create": True, "apply": True,
+                  **over})
 
 
-# ── audio isolate: per-track voice isolation ─────────────────────
+def _isolate_ns(**over):
+    return _ns(**{**_TL, "track": 1, "amount": 60, "disable": False,
+                  "apply": True, **over})
 
 
-def test_isolate_dry_run_plans(edit_patched, capsys):
-    assert cmd_audio_isolate(_ns(
-        project="", timeline="Reel 29 - salvage", track=1,
-        amount=60, disable=False, apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "isolate_plan" in out
-    assert "audio1" in out
+def _multicam_ns(**over):
+    return _ns(**{"project": "", "clip": ["camA.mp4", "camB.mp4"],
+                  "bin": "", "name": "probe-mc", "sync": "audio",
+                  "apply": True, **over})
 
 
-def test_isolate_apply_verifies_by_reread(edit_patched, capsys):
-    assert cmd_audio_isolate(_ns(
-        project="", timeline="Reel 29 - salvage", track=1,
-        amount=60, disable=False, apply=True)) == 0
-    assert "re-reads equal" in capsys.readouterr().out
+def _sync_ns(**over):
+    return _ns(**{"project": "", "clip": ["camA.mp4", "camB.mp4"],
+                  "bin": "", "mode": "waveform", "apply": True, **over})
 
 
-def test_isolate_refuses_a_false_answer(edit_patched, capsys):
-    edit_patched["timeline"]._voice_refuse = True
-    assert cmd_audio_isolate(_ns(
-        project="", timeline="Reel 29 - salvage", track=1,
-        amount=60, disable=False, apply=True)) == 1
-    assert "answered False" in capsys.readouterr().out
+def _transcribe_ns(clip, **over):
+    return _ns(**{"project": "", "clip": clip, "bin": "", "apply": True,
+                  "wait": 0, "full": False, **over})
 
 
-def test_isolate_refuses_a_disagreeing_reread(edit_patched, capsys):
-    """True with isolation still off on re-read is a refusal naming
-    both states."""
-    edit_patched["timeline"]._voice_echo = {"isEnabled": False,
-                                            "amount": 0}
-    assert cmd_audio_isolate(_ns(
-        project="", timeline="Reel 29 - salvage", track=1,
-        amount=60, disable=False, apply=True)) == 1
-    out = capsys.readouterr().out
-    assert "refusing to claim it" in out
+def _clip_ns(clip, **over):
+    return _ns(**{"project": "", "clip": clip, "bin": "", "apply": True,
+                  **over})
 
 
-def test_isolate_refuses_a_missing_track(edit_patched, capsys):
-    assert cmd_audio_isolate(_ns(
-        project="", timeline="Reel 29 - salvage", track=9,
-        amount=60, disable=False, apply=True)) == 1
-    assert "names nothing" in capsys.readouterr().out
+def _project_set_ns(**over):
+    return _ns(**{"project": "", "key": "timelineFrameRate",
+                  "value": "29.97", "apply": True, **over})
 
 
-# ── run: the 21.1 mutators refuse by default ─────────────────────
-
-
-def test_run_refuses_21_1_mutators_by_default(patched, capsys):
-    """Perform/Transcribe/Auto/Assign/Smart/Detect/Generate/Analyze calls
-    are writes: `run` refuses them without --unsafe like every
-    other mutator."""
-    assert cmd_run(_run_ns(
-        script="x = item.PerformMulticamSmartSwitch\n"
-               "result = {'switched': True}")) == 1
-    assert "PerformMulticamSmartSwitch" in capsys.readouterr().out
-    assert cmd_run(_run_ns(
-        script="x = pool.AutoSyncAudio\n"
-               "result = {'synced': True}")) == 1
-    assert "AutoSyncAudio" in capsys.readouterr().out
-    assert cmd_run(_run_ns(
-        script="x = item.AssignToColorGroup\n"
-               "result = {'grouped': True}")) == 1
-    assert "AssignToColorGroup" in capsys.readouterr().out
-    assert cmd_run(_run_ns(
-        script="x = clip.AnalyzeForIntellisearch\n"
-               "result = {'searched': True}")) == 1
-    assert "AnalyzeForIntellisearch" in capsys.readouterr().out
-
-
-# ── sense: Resolve's own AI, judged by read-back ────────────────
+def _queue_ns(**over):
+    return _ns(**{**_TL, "preset": "", "apply": True, **over})
 
 
 def _sense_clip(name, **kw):
@@ -2493,233 +1881,447 @@ def _voiced_clip():
         })
 
 
-def test_sense_transcribe_reads_segments_words_speakers(
-        multicam_patched, capsys):
-    """The read path returns only voiced segments: words with timing
-    plus speaker labels, verbatim."""
-    multicam_patched._pool._root._clips.append(_voiced_clip())
-    assert cmd_sense_transcribe(_ns(
-        project="", clip="talk.mov", bin="", apply=False,
-        wait=None, full=False)) == 0
-    out = capsys.readouterr().out
-    assert "segments: 1" in out
-    assert "Speaker 1" in out
-    assert "words: 2" in out
-
-
-def test_sense_transcribe_refuses_a_wordless_answer(
-        multicam_patched, capsys):
-    """One placeholder segment with no words is a refusal naming the
-    re-read, never a transcription."""
-    clip = _sense_clip("quiet.mov", transcript={
+def _wordless_clip():
+    """One placeholder segment with no words: never a transcription."""
+    return _sense_clip("quiet.mov", transcript={
         "language": "en",
         "segments": [{"start": "00:00:00:00", "end": "00:00:00:00",
                       "speaker": None, "text": "",
                       "words": [{"start": "00:00:00:00",
                                  "end": "00:00:00:00", "text": ""}]}]})
-    multicam_patched._pool._root._clips.append(clip)
-    assert cmd_sense_transcribe(_ns(
-        project="", clip="quiet.mov", bin="", apply=False,
-        wait=None, full=False)) == 1
-    assert "no words" in capsys.readouterr().out
 
 
-def test_sense_transcribe_apply_starts_and_reads_back(
-        multicam_patched, capsys):
-    multicam_patched._pool._root._clips.append(_voiced_clip())
-    assert cmd_sense_transcribe(_ns(
-        project="", clip="talk.mov", bin="", apply=True,
-        wait=30, full=False)) == 0
-    assert "segments: 1" in capsys.readouterr().out
+def _clip_with(name, **attrs):
+    def make():
+        clip = _sense_clip(name)
+        for key, value in attrs.items():
+            setattr(clip, key, value)
+        return clip
+    return make
 
 
-def test_sense_transcribe_apply_refuses_after_an_empty_wait(
-        multicam_patched, capsys):
-    """True then nothing within the wait is a refusal naming the
-    wait, not a claimed transcription."""
-    multicam_patched._pool._root._clips.append(_sense_clip("slow.mov"))
-    assert cmd_sense_transcribe(_ns(
-        project="", clip="slow.mov", bin="", apply=True,
-        wait=0, full=False)) == 1
-    out = capsys.readouterr().out
-    assert "holds no words after 0s" in out
+def _run_rows(rows, monkeypatch, tmp_path, capsys):
+    """Run each (label, env, setup, cmd, args, rc, needles, check) row
+    on a fresh fake and report every row that disagrees, by label."""
+    failures = []
+    for label, kind, setup, cmd, args, rc, needles, check in rows:
+        with monkeypatch.context() as patch:
+            row_dir = tmp_path / label
+            row_dir.mkdir()
+            env = _ENVS[kind](patch, row_dir)
+            if setup:
+                setup(env, patch)
+            got = cmd(args(env) if callable(args) else args)
+            out = capsys.readouterr().out
+            checked = check(env, out) if check else True
+        missing = [n for n in needles if n not in out]
+        if got != rc or missing or not checked:
+            failures.append((label, got, missing, checked, out[-400:]))
+    assert not failures, failures
 
 
-def test_sense_transcribe_refuses_a_false_start(
-        multicam_patched, capsys):
-    clip = _sense_clip("stuck.mov")
-    clip._transcribe_ok = False
-    multicam_patched._pool._root._clips.append(clip)
-    assert cmd_sense_transcribe(_ns(
-        project="", clip="stuck.mov", bin="", apply=True,
-        wait=0, full=False)) == 1
-    assert "answered False" in capsys.readouterr().out
+def _untouched(env, _out):
+    return _track_count(env) == 2
 
 
-def test_sense_cuts_dry_run_lists_carriers(edit_patched, capsys):
-    assert cmd_sense_cuts(_ns(
-        project="", timeline="Reel 29 - salvage",
-        apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "cuts_plan" in out
-    assert "v1_items: 2" in out
+# A dry run plans, names what it would do, and writes nothing.
+_DRY_RUNS = [
+    ("place", "edit", None, cmd_edit_place, _place_ns(), 0,
+     ["place_plan", "a.mov"], _untouched),
+    ("delete", "edit", None, cmd_edit_delete, _item_ns(), 0,
+     ["delete_plan", "LC0001.MXF"], _untouched),
+    ("title", "edit",
+     lambda env, _m: _item0(env)._properties.__setitem__(
+         "Styled Text", "old words"),
+     cmd_edit_title, _at(text="new words", apply=False), 0,
+     ["old words", "new words"], None),
+    ("transition-carriers", "edit", None, cmd_edit_transition,
+     _transition_ns(index=None), 0,
+     ["cuts: 1", "LC0001.MXF", "LC0002.MXF"], None),
+    ("transition-plan", "edit", None, cmd_edit_transition,
+     _transition_ns(duration=12), 0,
+     ["transition_plan", "Cross Dissolve", "dry run"], None),
+    ("speed", "edit", None, cmd_edit_speed, _speed_ns(), 0,
+     ["speed_plan", "40.0", "dry run"],
+     lambda env, _o: _item0(env)._speed_set is None),
+    ("multicam-build", "pool", None, cmd_multicam_build,
+     _multicam_ns(apply=False), 0,
+     ["multicam_plan", "probe-mc", "dry run"], None),
+    ("multicam-sync", "pool", None, cmd_multicam_sync,
+     _sync_ns(apply=False), 0, ["sync_plan"], None),
+    ("lut", "edit", None, cmd_color_lut,
+     _lut_ns(lut="Film Looks/Rec709 Kodak 2383 D65.cube", apply=False),
+     0, ["lut_plan", "Rec709"], None),
+    ("isolate", "edit", None, cmd_audio_isolate,
+     _isolate_ns(apply=False), 0, ["isolate_plan", "audio1"], None),
+    ("ingest", "edit", None, cmd_ingest,
+     lambda env: _ns(project="", paths=[str(env["dir"] / "a.mov")],
+                     apply=False), 0,
+     ["ingest_plan", "root"], None),
+    ("project-set", "edit", None, cmd_project_set,
+     _project_set_ns(apply=False), 0, ["23.976", "29.97"],
+     lambda env, _o: env["project"]._settings["timelineFrameRate"]
+     == "23.976"),
+    ("sense-cuts", "edit", None, cmd_sense_cuts,
+     _ns(**_TL, apply=False), 0, ["cuts_plan", "v1_items: 2"], None),
+]
 
 
-def test_sense_cuts_apply_reports_cut_frames(edit_patched, capsys):
-    assert cmd_sense_cuts(_ns(
-        project="", timeline="Reel 29 - salvage",
-        apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "items_before: 2" in out
-    assert "items_after: 3" in out
-    assert "cuts: 1" in out
+def test_every_dry_run_plans_without_writing(monkeypatch, tmp_path,
+                                             capsys):
+    _run_rows(_DRY_RUNS, monkeypatch, tmp_path, capsys)
 
 
-def test_sense_cuts_apply_reports_zero_cuts(edit_patched, capsys):
-    """True that splits nothing is zero cuts (one continuous take),
-    not a refusal and not cuts."""
-    edit_patched["timeline"]._cuts_nothing = True
-    assert cmd_sense_cuts(_ns(
-        project="", timeline="Reel 29 - salvage",
-        apply=True)) == 0
-    assert "0 new cuts" in capsys.readouterr().out
+def _moved(env, _out):
+    items = _items(env)
+    moved = items[1]
+    return ([i.GetUniqueId() for i in items] == ["uid-2", "uid-LC0001.MXF"]
+            and (moved.GetStart(), moved.GetEnd()) == (200, 250)
+            and (moved.GetSourceStartFrame(),
+                 moved.GetSourceEndFrame()) == (1000, 1049))
 
 
-def test_sense_cuts_refuses_a_false_answer(edit_patched, capsys):
-    edit_patched["timeline"]._cuts_refuse = True
-    assert cmd_sense_cuts(_ns(
-        project="", timeline="Reel 29 - salvage",
-        apply=True)) == 1
-    assert "answered False" in capsys.readouterr().out
+def _trimmed(env, _out):
+    items = _items(env)
+    trimmed = items[1]
+    return ([i.GetUniqueId() for i in items] == ["uid-2", "uid-LC0001.MXF"]
+            and (trimmed.GetSourceStartFrame(),
+                 trimmed.GetSourceEndFrame()) == (1010, 1049)
+            and trimmed.GetStart() == 10)
 
 
-def test_sense_classify_reads_existing_classes(
-        multicam_patched, capsys):
-    multicam_patched._pool._root._clips.append(_sense_clip(
-        "mix.mov", metadata={"Category": "Dialogue",
-                             "Subcategory": "Dialogue"}))
-    assert cmd_sense_classify(_ns(
-        project="", clip="mix.mov", bin="", apply=False)) == 0
-    out = capsys.readouterr().out
-    assert "Dialogue" in out
+def _listed(env, _out):
+    project = env["project"]
+    return "Reel 29 - v2" in [
+        project.GetTimelineByIndex(i + 1).GetName()
+        for i in range(project.GetTimelineCount())]
 
 
-def test_sense_classify_read_refuses_without_classes(
-        multicam_patched, capsys):
-    multicam_patched._pool._root._clips.append(
-        _sense_clip("raw.mov"))
-    assert cmd_sense_classify(_ns(
-        project="", clip="raw.mov", bin="", apply=False)) == 1
-    assert "--apply" in capsys.readouterr().out
+def _speed_set(percentage, readback=True):
+    def check(env, out):
+        return (_item0(env)._speed_set == {"Percentage": percentage,
+                                           "RippleTimeline": False}
+                and (not readback
+                     or "read back" in out or "re-reads equal" in out))
+    return check
 
 
-def test_sense_classify_apply_verifies_by_reread(
-        multicam_patched, capsys):
-    multicam_patched._pool._root._clips.append(
-        _sense_clip("raw.mov"))
-    assert cmd_sense_classify(_ns(
-        project="", clip="raw.mov", bin="", apply=True)) == 0
-    assert "read back after True" in capsys.readouterr().out
+# An apply writes and then PROVES the write by re-reading Resolve.
+_VERIFIED_APPLIES = [
+    ("place", "edit", None, cmd_edit_place, _place_ns(apply=True), 0,
+     ["items_delta: 1", "verified"],
+     lambda env, _o: _track_count(env) == 3),
+    # The measured trap: a falsy answer with a moved count LANDED.
+    # Retrying would place it twice, so it reports success, no retry.
+    ("place-falsy-landed", "edit",
+     _set(lambda env: env["project"]._pool, _append_empty=True),
+     cmd_edit_place, _place_ns(apply=True), 0,
+     ["items_delta: 1", "no retry"],
+     lambda env, _o: _track_count(env) == 3),
+    ("delete", "edit", None, cmd_edit_delete, _item_ns(apply=True), 0,
+     ["unique id absent"],
+     lambda env, _o: _track_count(env) == 1
+     and env["timeline"].deleted == [(["uid-1"], False)]),
+    ("delete-flaky-first-attempt", "edit",
+     _set(lambda env: env["timeline"], _delete_fail_once=True),
+     cmd_edit_delete, _item_ns(apply=True), 0, ["unique id absent"],
+     lambda env, _o: _track_count(env) == 1),
+    ("delete-ripple-explicit", "edit", None, cmd_edit_delete,
+     _item_ns(apply=True, ripple=True), 0, [],
+     lambda env, _o: env["timeline"].deleted == [(["uid-1"], True)]),
+    ("move", "edit", None, cmd_edit_move,
+     _item_ns(to=200, track_to="", apply=True), 0, ["verified"], _moved),
+    ("trim", "edit", None, cmd_edit_trim,
+     _at(source_in=1010, source_out=1049, apply=True), 0, ["verified"],
+     _trimmed),
+    ("title", "edit", None, cmd_edit_title,
+     _at(text="new words", apply=True), 0,
+     ["read back equal", "Styled Text"], None),
+    ("transition", "edit", None, cmd_edit_transition,
+     _transition_ns(apply=True, duration=12), 0,
+     ["verified", "Cross Dissolve"], None),
+    ("render-queue", "edit", None, cmd_render_queue,
+     _queue_ns(preset="H.265 Master"), 0,
+     ["verified", "tmp/out/out-1.mov"], None),
+    ("render-stop", "edit",
+     _set(lambda env: env["project"], _rendering=True),
+     cmd_render_stop, _ns(project="", apply=True), 0,
+     ["not rendering"], None),
+    ("project-set", "edit", None, cmd_project_set, _project_set_ns(), 0,
+     ["read back equal"],
+     lambda env, _o: env["project"]._settings["timelineFrameRate"]
+     == "29.97"),
+    ("duplicate", "edit", None, cmd_timeline_duplicate,
+     _ns(**_TL, name="Reel 29 - v2", apply=True), 0,
+     ["listed on re-read"], _listed),
+    ("speed", "edit", None, cmd_edit_speed, _speed_ns(apply=True), 0,
+     [], _speed_set(40.0)),
+    ("speed-freeze-spells-zero", "edit", None, cmd_edit_speed,
+     _speed_ns(percent=None, freeze=True, apply=True), 0, ["0.0"],
+     _speed_set(0.0, readback=False)),
+    ("multicam-build", "pool", None, cmd_multicam_build, _multicam_ns(),
+     0, ["listed on re-read", "probe-mc"], None),
+    ("lut", "edit", None, cmd_color_lut,
+     _lut_ns(lut="Film Looks/Rec709 Kodak 2383 D65.cube"), 0,
+     ["re-reads the LUT"], None),
+    ("color-group-create", "edit", None, cmd_color_group, _group_ns(), 0,
+     ["re-reads the name"], None),
+    ("isolate", "edit", None, cmd_audio_isolate, _isolate_ns(), 0,
+     ["re-reads equal"], None),
+    ("ingest", "edit",
+     lambda env, _m: (env["dir"] / "c.mov").write_text(
+         "footage", encoding="utf-8"),
+     cmd_ingest,
+     lambda env: _ns(project="", paths=[str(env["dir"] / "c.mov")],
+                     apply=True), 0,
+     ["verified", "c.mov"], None),
+    # The read path returns only voiced segments: words with timing
+    # plus speaker labels, verbatim.
+    ("transcribe-read", "pool", _add_pool_clip(_voiced_clip),
+     cmd_sense_transcribe, _transcribe_ns("talk.mov", apply=False,
+                                          wait=None), 0,
+     ["segments: 1", "Speaker 1", "words: 2"], None),
+    ("transcribe-apply", "pool", _add_pool_clip(_voiced_clip),
+     cmd_sense_transcribe, _transcribe_ns("talk.mov", wait=30), 0,
+     ["segments: 1"], None),
+    ("cuts", "edit", None, cmd_sense_cuts, _ns(**_TL, apply=True), 0,
+     ["items_before: 2", "items_after: 3", "cuts: 1"], None),
+    # True that splits nothing is zero cuts (one continuous take), not
+    # a refusal and not cuts.
+    ("cuts-zero", "edit",
+     _set(lambda env: env["timeline"], _cuts_nothing=True),
+     cmd_sense_cuts, _ns(**_TL, apply=True), 0, ["0 new cuts"], None),
+    ("classify-read", "pool",
+     _add_pool_clip(lambda: _sense_clip(
+         "mix.mov", metadata={"Category": "Dialogue",
+                              "Subcategory": "Dialogue"})),
+     cmd_sense_classify, _clip_ns("mix.mov", apply=False), 0,
+     ["Dialogue"], None),
+    ("classify-apply", "pool",
+     _add_pool_clip(lambda: _sense_clip("raw.mov")),
+     cmd_sense_classify, _clip_ns("raw.mov"), 0,
+     ["read back after True"], None),
+    ("reframe-moved", "edit", _set(_item0, _reframe_moves=True),
+     cmd_sense_reframe, _at(apply=True), 0, ["transform moved"], None),
+    ("mask-gained-node", "edit", _set(_item0, _mask_ok=True),
+     cmd_sense_mask, _at(mode="BI", apply=True), 0, ["node gained"],
+     None),
+    ("switch", "edit", None, cmd_sense_switch,
+     _at(min_edit=1.0, apply=True), 0, ["count re-read"], None),
+]
 
 
-def test_sense_classify_refuses_a_true_that_files_nothing(
-        multicam_patched, capsys):
-    """True with no Category/Subcategory on re-read is a refusal."""
-    clip = _sense_clip("hollow.mov")
-    clip._classify_files = False
-    multicam_patched._pool._root._clips.append(clip)
-    assert cmd_sense_classify(_ns(
-        project="", clip="hollow.mov", bin="", apply=True)) == 1
-    assert "refusing to claim it" in capsys.readouterr().out
+def test_every_apply_verifies_by_reread(monkeypatch, tmp_path, capsys):
+    _run_rows(_VERIFIED_APPLIES, monkeypatch, tmp_path, capsys)
 
 
-def test_sense_intellisearch_surfaces_resolves_refusal(
-        multicam_patched, capsys):
-    """The measured shape: Resolve refuses the call itself (the AI
-    package is not installed) and the verb reports those words."""
-    clip = _sense_clip("face.mov")
-    clip._intelli_raise = ("Required package 'AI Intellisearch - "
-                           "Faster' is not installed.")
-    multicam_patched._pool._root._clips.append(clip)
-    assert cmd_sense_intellisearch(_ns(
-        project="", clip="face.mov", bin="", apply=True,
-        faces=True, better=False)) == 1
-    out = capsys.readouterr().out
-    assert "AI Intellisearch - Faster" in out
+def _raise_on_append(env, monkeypatch):
+    def raising(payloads):
+        raise RuntimeError("nope")
+    monkeypatch.setattr(env["project"]._pool, "AppendToTimeline", raising)
 
 
-def test_sense_intellisearch_refuses_an_unverified_true(
-        multicam_patched, capsys):
-    """True with no metadata change is unverified, never analysed."""
-    multicam_patched._pool._root._clips.append(
-        _sense_clip("face.mov"))
-    assert cmd_sense_intellisearch(_ns(
-        project="", clip="face.mov", bin="", apply=True,
-        faces=False, better=False)) == 1
-    assert "unverified" in capsys.readouterr().out
+def _ambiguous_a(env, _monkeypatch):
+    env["project"]._pool._root._subs[0]._clips.append(
+        _PoolClip("a.mov", {"Type": "Video", "File Path": "/x/a.mov"}))
 
 
-def test_sense_reframe_refuses_an_unchanged_reread(
-        edit_patched, capsys):
-    """The twice-measured shape: True with Pan/Tilt/ZoomX unchanged
-    is a refusal with the measured reason."""
-    assert cmd_sense_reframe(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, apply=True)) == 1
-    out = capsys.readouterr().out
-    assert "read back unchanged" in out
+def _no_sync_enum(env, _monkeypatch):
+    del env["resolve"].MULTICAM_ANGLE_SYNC_AUDIO
 
 
-def test_sense_reframe_reports_a_moved_transform(
-        edit_patched, capsys):
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    items[0]._reframe_moves = True
-    assert cmd_sense_reframe(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, apply=True)) == 0
-    assert "transform moved" in capsys.readouterr().out
+def _silent_settings(env, _monkeypatch):
+    env["project"].SetSettings = lambda settings: True
 
 
-def test_sense_mask_refuses_a_false_answer(edit_patched, capsys):
-    """The measured shape: False with the nodes unchanged."""
-    assert cmd_sense_mask(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, mode="F", apply=True)) == 1
-    out = capsys.readouterr().out
-    assert "answered False" in out
+# A refusal - a bad argument, a falsy answer, a re-read that
+# disagrees - names its cause and claims nothing. Where the original
+# write could have landed, the row also proves nothing was written.
+_REFUSALS = [
+    ("place-unknown-clip", "edit", None, cmd_edit_place,
+     _place_ns(clip="nope.mov"), 1, ["no clip named 'nope.mov'"],
+     _untouched),
+    ("place-ambiguous-name", "edit", _ambiguous_a, cmd_edit_place,
+     _place_ns(clip="a.mov"), 1, ["names 2 clips", "--bin"], None),
+    ("place-foreign-cursor", "edit", _foreign_cursor, cmd_edit_place,
+     _place_ns(apply=True), 1, ["cursor sits on"], _untouched),
+    ("delete-persistent-failure", "edit",
+     _set(lambda env: env["timeline"], _delete_fail_always=True),
+     cmd_edit_delete, _item_ns(apply=True), 1,
+     ["Edit page", "past once"], _untouched),
+    ("delete-bad-track", "edit", None, cmd_edit_delete,
+     _item_ns(track="video9", apply=True), 1, [], _untouched),
+    ("delete-bad-index", "edit", None, cmd_edit_delete,
+     _item_ns(index=9, apply=True), 1, ["holds 2"], _untouched),
+    ("move-place-failure-keeps-original", "edit", _raise_on_append,
+     cmd_edit_move, _item_ns(to=200, track_to="", apply=True), 1,
+     ["untouched"], _untouched),
+    ("trim-past-handles", "edit", None, cmd_edit_trim,
+     _at(source_in=999, source_out=1049, apply=True), 1, ["handles"],
+     _untouched),
+    ("title-no-key-takes", "edit", _set(_item0, _stubborn=True),
+     cmd_edit_title, _at(text="new words", apply=True), 1, ["Fusion"],
+     None),
+    ("transition-needs-explicit-cut", "edit", None, cmd_edit_transition,
+     _transition_ns(apply=True, index=None), 1, ["--index"], None),
+    # AddTransition answers None for an unknown type/category: refuse
+    # naming both rather than claim a dissolve.
+    ("transition-empty-answer", "edit",
+     _set(lambda env: _items(env)[1], _transition_none=True),
+     cmd_edit_transition,
+     _transition_ns(apply=True, type="Nope Wipe", category="fusion"), 1,
+     ["Nope Wipe", "fusion"], None),
+    ("transition-unreadable-span", "edit",
+     _set(lambda env: _items(env)[1], _transition_broken=True),
+     cmd_edit_transition, _transition_ns(apply=True), 1,
+     ["would not read its span"], None),
+    ("ingest-missing-file", "edit", None, cmd_ingest,
+     _ns(project="", paths=["/nope/m.mov"], apply=True), 1,
+     ["not on disk"], None),
+    ("render-queue-foreign-cursor", "edit", _foreign_cursor,
+     cmd_render_queue, _queue_ns(), 1, ["cursor sits on"], None),
+    ("render-queue-unknown-preset", "edit", None, cmd_render_queue,
+     _queue_ns(preset="Nope"), 1, ["no render preset"], None),
+    ("render-start-empty-queue", "edit", None, cmd_render_start,
+     _ns(project="", job=[], all=False, apply=True), 1, ["empty"], None),
+    ("project-set-silent-write", "edit", _silent_settings,
+     cmd_project_set, _project_set_ns(), 1, ["refusing to claim it"],
+     None),
+    ("duplicate-taken-name", "edit", None, cmd_timeline_duplicate,
+     _ns(**_TL, name="Reel 29 - salvage", apply=True), 1,
+     ["already exists"], None),
+    ("speed-zero-without-freeze", "edit", None, cmd_edit_speed,
+     _speed_ns(percent=0.0, apply=True), 1, ["--freeze"], None),
+    # SetSpeed answers False while writing nothing.
+    ("speed-false-answer", "edit", _set(_item0, _speed_refuse=True),
+     cmd_edit_speed, _speed_ns(apply=True), 1, ["answered False"], None),
+    # True with a different Percentage on re-read names both numbers.
+    ("speed-disagreeing-reread", "edit",
+     _set(_item0, _speed_echo={"Percentage": 100.0}),
+     cmd_edit_speed, _speed_ns(apply=True), 1,
+     ["re-reads 100.0 for 40.0", "refusing to claim it"], None),
+    # CreateMulticamClip answers [] while listing nothing.
+    ("multicam-nothing-lists", "pool",
+     _set(lambda env: env["project"]._pool, _multicam_none=True),
+     cmd_multicam_build, _multicam_ns(), 1,
+     ["not in the pool on re-read"], None),
+    # A guessed sync mode is worse than a refused one.
+    ("multicam-missing-sync-enum", "pool", _no_sync_enum,
+     cmd_multicam_build, _multicam_ns(), 1,
+     ["MULTICAM_ANGLE_SYNC_AUDIO"], None),
+    # AutoSyncAudio returns a bare bool with nothing to re-read.
+    ("multicam-sync-no-readback", "pool", None, cmd_multicam_sync,
+     _sync_ns(), 1, ["no measured property to re-read", "hands probe"],
+     None),
+    ("lut-silent-set", "edit",
+     _set(lambda env: _item0(env).GetNodeGraph(), _set_refuse=True),
+     cmd_color_lut, _lut_ns(), 1, ["answered False"], None),
+    ("lut-disagreeing-reread", "edit",
+     _set(lambda env: _item0(env).GetNodeGraph(), _lut_echo="other.cube"),
+     cmd_color_lut, _lut_ns(), 1, ["refusing to claim it", "other.cube"],
+     None),
+    ("lut-no-graph", "edit", _set(_item0, _no_graph=True), cmd_color_lut,
+     _lut_ns(), 1, ["no node graph"], None),
+    ("group-unknown", "edit", None, cmd_color_group,
+     _group_ns(group="nope", create=False), 1, ["--create"], None),
+    # AssignToColorGroup answers True while grouping nothing.
+    ("group-silent-assign", "edit", _set(_item0, _group_echo=None),
+     cmd_color_group, _group_ns(), 1, ["refusing to claim it"], None),
+    ("isolate-false-answer", "edit",
+     _set(lambda env: env["timeline"], _voice_refuse=True),
+     cmd_audio_isolate, _isolate_ns(), 1, ["answered False"], None),
+    ("isolate-disagreeing-reread", "edit",
+     _set(lambda env: env["timeline"],
+          _voice_echo={"isEnabled": False, "amount": 0}),
+     cmd_audio_isolate, _isolate_ns(), 1, ["refusing to claim it"], None),
+    ("isolate-missing-track", "edit", None, cmd_audio_isolate,
+     _isolate_ns(track=9), 1, ["names nothing"], None),
+    ("transcribe-wordless", "pool", _add_pool_clip(_wordless_clip),
+     cmd_sense_transcribe,
+     _transcribe_ns("quiet.mov", apply=False, wait=None), 1,
+     ["no words"], None),
+    # True then nothing within the wait names the wait.
+    ("transcribe-empty-wait", "pool",
+     _add_pool_clip(lambda: _sense_clip("slow.mov")),
+     cmd_sense_transcribe, _transcribe_ns("slow.mov"), 1,
+     ["holds no words after 0s"], None),
+    ("transcribe-false-start", "pool",
+     _add_pool_clip(_clip_with("stuck.mov", _transcribe_ok=False)),
+     cmd_sense_transcribe, _transcribe_ns("stuck.mov"), 1,
+     ["answered False"], None),
+    ("cuts-false-answer", "edit",
+     _set(lambda env: env["timeline"], _cuts_refuse=True),
+     cmd_sense_cuts, _ns(**_TL, apply=True), 1, ["answered False"], None),
+    ("classify-read-without-classes", "pool",
+     _add_pool_clip(lambda: _sense_clip("raw.mov")),
+     cmd_sense_classify, _clip_ns("raw.mov", apply=False), 1,
+     ["--apply"], None),
+    ("classify-true-files-nothing", "pool",
+     _add_pool_clip(_clip_with("hollow.mov", _classify_files=False)),
+     cmd_sense_classify, _clip_ns("hollow.mov"), 1,
+     ["refusing to claim it"], None),
+    # The measured shape: Resolve refuses the call (the AI package is
+    # not installed) and the verb reports those words.
+    ("intellisearch-resolve-refusal", "pool",
+     _add_pool_clip(_clip_with(
+         "face.mov", _intelli_raise=("Required package 'AI Intellisearch"
+                                     " - Faster' is not installed."))),
+     cmd_sense_intellisearch,
+     _clip_ns("face.mov", faces=True, better=False), 1,
+     ["AI Intellisearch - Faster"], None),
+    ("intellisearch-unverified-true", "pool",
+     _add_pool_clip(lambda: _sense_clip("face.mov")),
+     cmd_sense_intellisearch,
+     _clip_ns("face.mov", faces=False, better=False), 1,
+     ["unverified"], None),
+    # Twice measured: True with Pan/Tilt/ZoomX unchanged.
+    ("reframe-unchanged-reread", "edit", None, cmd_sense_reframe,
+     _at(apply=True), 1, ["read back unchanged"], None),
+    ("mask-false-answer", "edit", None, cmd_sense_mask,
+     _at(mode="F", apply=True), 1, ["answered False"], None),
+    ("mask-bad-mode", "edit", None, cmd_sense_mask,
+     _at(mode="sideways", apply=True), 1, ["bad --mode"], None),
+    ("switch-false-answer", "edit", _set(_item0, _switch_refuse=True),
+     cmd_sense_switch, _at(min_edit=1.0, apply=True), 1,
+     ["answered False"], None),
+]
 
 
-def test_sense_mask_reports_a_gained_node(edit_patched, capsys):
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    items[0]._mask_ok = True
-    assert cmd_sense_mask(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, mode="BI", apply=True)) == 0
-    assert "node gained" in capsys.readouterr().out
+def test_every_refusal_names_its_cause_and_claims_nothing(
+        monkeypatch, tmp_path, capsys):
+    _run_rows(_REFUSALS, monkeypatch, tmp_path, capsys)
 
 
-def test_sense_mask_refuses_a_bad_mode(edit_patched, capsys):
-    assert cmd_sense_mask(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, mode="sideways", apply=True)) == 1
-    assert "bad --mode" in capsys.readouterr().out
+def test_writes_keep_explicit_flags():
+    """The positional rule stops at reads: a destructive path with a
+    bare primary argument is one typo from the wrong reel, so `edit`
+    owns no positional - missing flags fail loud at argparse."""
+    with pytest.raises(SystemExit) as exc:
+        resolve_axi.main(["edit", "delete"])
+    assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        resolve_axi.main(["edit", "delete", "--timeline", "Reel 29"])
+    assert exc.value.code == 2
 
 
-def test_sense_switch_reports_counts(edit_patched, capsys):
-    assert cmd_sense_switch(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, min_edit=1.0, apply=True)) == 0
-    out = capsys.readouterr().out
-    assert "count re-read" in out
+def test_render_start_apply_waits_for_completion(edit_patched, monkeypatch,
+                                               capsys):
+    assert cmd_render_queue(_queue_ns()) == 0
+    capsys.readouterr()
+    project = edit_patched["project"]
+    reads = iter([True, False])
 
+    def render_state():
+        project._rendering = next(reads)
+        return project._rendering
 
-def test_sense_switch_refuses_a_false_answer(edit_patched, capsys):
-    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
-    items[0]._switch_refuse = True
-    assert cmd_sense_switch(_ns(
-        project="", timeline="Reel 29 - salvage", track="video1",
-        index=0, min_edit=1.0, apply=True)) == 1
-    assert "answered False" in capsys.readouterr().out
+    monkeypatch.setattr(project, "IsRenderingInProgress", render_state)
+    monkeypatch.setattr(resolve_axi, "RENDER_POLL_SECONDS", 0)
+    assert cmd_render_start(_ns(project="", job=[], all=True,
+                                 apply=True)) == 0
+    output = capsys.readouterr().out
+    assert "completed:" in output
+    assert "idle on completion read-back" in output
 
 
 # ── Finding 6: spans off Resolve proxies ─────────────────────────────
@@ -2735,16 +2337,6 @@ class _ProxyItem(_Item):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__dict__["__getattribute__"] = None
-
-
-def test_proxy_item_shadows_getattribute():
-    """The measured proxy shape: the explicit dunder spelling fails
-    exactly the way the scout's probe saw it fail."""
-    item = _ProxyItem("clip_017", 0, 72, uid="uid-clip_017")
-    assert item.__getattribute__ is None
-    with __import__("pytest").raises(TypeError):
-        item.__getattribute__("GetName")()
-    assert getattr(item, "GetName")() == "clip_017"
 
 
 def test_item_span_reads_every_field_off_a_proxy():

@@ -1,30 +1,6 @@
 """A dropped captain's note is an obligation, not a log line.
 
-The defect this pins
---------------------
-The promotion path reported a note it was about to lose, twice, and
-both copies were discarded before anything could act:
-`marker_carry.report` named it on stderr, and `step_7_02` read two
-sibling keys off `promoted` while dropping `promoted["markers"]` - the
-same losses as structured data. Measured 2026-09-20: a reel's blue was
-correctly identified as unresolvable and named with the captain's
-words, no durable record survived, and the note was gone for roughly
-forty minutes.
-
-Each test fails if its mechanism is removed:
-
-- the durable record - delete the `record` call from the step helper
-  and a dropped note leaves nothing on disk;
-- the CONTENT - the record names the reel and quotes the captain's
-  words verbatim (asserted on content, never on a count);
-- the obligation - remove the gate from `sign_off` and the reel signs
-  off with its note still unaccounted for;
-- the discharge - without it the reel stays unsigned; a reasonless
-  discharge is refused rather than waving the obligation through;
-- the clean path - a promotion that carries everything files nothing
-  and signs off exactly as before;
-- our own words are never filed as his - stranded and independent
-  replies stay reported, never re-filed as Blue notes of his.
+History: docs/evidence/resolve_test_history.md#test_uncarried_notes.
 """
 import pytest
 
@@ -88,27 +64,24 @@ def test_dropped_note_leaves_a_record_naming_reel_and_quoting_words(project):
     assert entry["identity"] == ledger.durable_identity(REEL, entry["text"])
 
 
-def test_record_carries_where_the_blue_went_back(project):
-    """The seam outcome rides along, so the discharger can find it."""
-    ask = _ask(frame=40)
-    replaced = [{**ask, "seam": 88, "ambiguous": False,
-                 "explanation": "the cut removed it; the join is 88",
-                 "reply_frame": 89}]
-    owed.record(str(project), _markers(uncarried=[ask], replaced=replaced))
-    entry = owed.open_for(str(project), REEL)[0]
-    assert entry["seam"]["replaced_at"] == 88
-    assert "the join is 88" in entry["seam"]["explanation"]
-
-
-def test_declined_replacement_says_the_words_survive_only_here(project):
-    """A Blue the seam could not place leaves the record as the words."""
-    ask = _ask(frame=40)
-    declined = [{**ask, "seam": None,
-                 "why": "the replacement plays no picture"}]
-    owed.record(str(project), _markers(uncarried=[ask], declined=declined))
-    entry = owed.open_for(str(project), REEL)[0]
-    assert entry["seam"]["declined"] is True
-    assert "no picture" in entry["seam"]["why"]
+def test_the_record_carries_the_seam_outcome(tmp_path):
+    """Where the Blue went back rides along, so the discharger can find
+    it; a Blue the seam could not place leaves the record as the words."""
+    for name, extra, check in (
+        ("replaced", {"seam": 88, "ambiguous": False,
+                      "explanation": "the cut removed it; the join is 88",
+                      "reply_frame": 89},
+         lambda seam: seam["replaced_at"] == 88
+         and "the join is 88" in seam["explanation"]),
+        ("declined", {"seam": None, "why": "the replacement plays no picture"},
+         lambda seam: seam["declined"] is True and "no picture" in seam["why"]),
+    ):
+        root = tmp_path / name
+        (root / "pipeline_output" / "review").mkdir(parents=True)
+        ask = _ask(frame=40)
+        owed.record(str(root), _markers(uncarried=[ask],
+                                        **{name: [{**ask, **extra}]}))
+        assert check(owed.open_for(str(root), REEL)[0]["seam"]), name
 
 
 # ── The obligation ────────────────────────────────────────────────
@@ -145,41 +118,24 @@ def test_discharge_is_recorded_never_erased(project):
         "pinned to the removed take, correctly dropped"
 
 
-def test_a_reasonless_discharge_is_refused(project):
-    """A discharge with no stated reason is the bypass wearing the uniform."""
+def test_a_discharge_needs_a_reason_and_a_real_identity(project):
+    """A discharge with no stated reason is the bypass wearing the
+    uniform; discharging what is not owed names what was asked."""
     owed.record(str(project), _markers(uncarried=[_ask()]))
     identity = owed.open_for(str(project), REEL)[0]["identity"]
     with pytest.raises(owed.DischargeRefused):
         owed.discharge(str(project), REEL, identity, note="  ")
     assert len(owed.open_for(str(project), REEL)) == 1
-
-
-def test_discharging_what_is_not_owed_names_what_is(project):
-    owed.record(str(project), _markers(uncarried=[_ask()]))
     with pytest.raises(owed.UncarriedNoteUnknown) as unknown:
         owed.discharge(str(project), REEL, "Reel_03:deadbeefdeadbeef",
                        note="mistyped identity")
     assert "deadbeef" in str(unknown.value)
 
 
-def test_a_note_dropped_again_after_discharge_reopens(project):
-    """A discharge answered that instance; a new drop is a new fact."""
-    ask = _ask()
-    owed.record(str(project), _markers(uncarried=[ask]))
-    identity = owed.open_for(str(project), REEL)[0]["identity"]
-    owed.discharge(str(project), REEL, identity, note="answered")
-    report = owed.record(str(project), _markers(uncarried=[ask]))
-    assert report["reopened"] == [identity]
-    assert report["filed"] == []
-    entry = owed.open_for(str(project), REEL)[0]
-    assert entry["occurrences"] == 2
-    assert entry["discharged"] is None
-    assert entry["history"][0]["prior_discharge"]["note"] == "answered"
-    with pytest.raises(signoff.UncarriedNotesOpen):
-        signoff.sign_off(str(project), REEL)
-
-
-def test_rereport_without_discharge_never_duplicates(project):
+def test_a_note_dropped_again_counts_once_and_reopens_after_discharge(
+        project):
+    """Re-reporting without a discharge never duplicates; a discharge
+    answered that instance, so a new drop after it is a new fact."""
     ask = _ask()
     first = owed.record(str(project), _markers(uncarried=[ask]))
     second = owed.record(str(project), _markers(uncarried=[ask]))
@@ -187,6 +143,17 @@ def test_rereport_without_discharge_never_duplicates(project):
     assert second["filed"] == []
     assert len(owed.open_for(str(project), REEL)) == 1
     assert owed.open_for(str(project), REEL)[0]["occurrences"] == 2
+    identity = owed.open_for(str(project), REEL)[0]["identity"]
+    owed.discharge(str(project), REEL, identity, note="answered")
+    report = owed.record(str(project), _markers(uncarried=[ask]))
+    assert report["reopened"] == [identity]
+    assert report["filed"] == []
+    entry = owed.open_for(str(project), REEL)[0]
+    assert entry["occurrences"] == 3
+    assert entry["discharged"] is None
+    assert entry["history"][0]["prior_discharge"]["note"] == "answered"
+    with pytest.raises(signoff.UncarriedNotesOpen):
+        signoff.sign_off(str(project), REEL)
 
 
 # ── The clean path ────────────────────────────────────────────────
@@ -200,8 +167,6 @@ def test_carrying_everything_files_nothing_and_signs_off(project):
     import os
     assert not os.path.exists(owed.notes_path_for(str(project)))
     assert signoff.sign_off(str(project), REEL)["reel"] == REEL
-
-
 
 
 def test_an_unreadable_obligation_file_refuses(project):
@@ -265,8 +230,6 @@ def test_step_helper_files_promoted_markers_and_continues(project):
     entry = owed.open_for(str(project), REEL)[0]
     assert entry["reel"] == REEL
     assert WORDS in entry["text"]
-
-
 
 
 def test_partial_promotion_carries_its_marker_losses(project):

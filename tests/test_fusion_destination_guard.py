@@ -113,119 +113,47 @@ class MockTimelineItem:
 
 # ── verify_destination tests ─────────────────────────────────────
 
-class TestVerifyDestination:
-
-    def test_correct_project_and_timeline(self):
-        """Happy path: both names match."""
-        tl = MockTimeline("Pipeline_Edit_20260901_45s")
-        proj = MockProject("Podcast", timeline=tl)
-        pm = MockProjectManager(project=proj)
-        resolve = MockResolve(pm=pm)
-
-        returned_project, returned_timeline = verify_destination(
-            resolve, "Podcast", "Pipeline_Edit_20260901_45s"
-        )
-        assert returned_project is proj
-        assert returned_timeline is tl
-
-    def test_wrong_project_refuses(self):
-        """Different project name - REFUSE."""
-        tl = MockTimeline("Pipeline_Edit_20260901_45s")
-        proj = MockProject("Some Other Project", timeline=tl)
-        pm = MockProjectManager(project=proj)
-        resolve = MockResolve(pm=pm)
-
-        with pytest.raises(DestinationMismatchError, match="Wrong Resolve project"):
-            verify_destination(
-                resolve, "Podcast", "Pipeline_Edit_20260901_45s"
-            )
-
-    def test_wrong_timeline_refuses(self):
-        """Correct project but wrong timeline - REFUSE."""
-        tl = MockTimeline("Rough Cut v3")
-        proj = MockProject("Podcast", timeline=tl)
-        pm = MockProjectManager(project=proj)
-        resolve = MockResolve(pm=pm)
-
-        with pytest.raises(DestinationMismatchError, match="Wrong timeline"):
-            verify_destination(
-                resolve, "Podcast", "Pipeline_Edit_20260901_45s"
-            )
-
-    def test_no_project_refuses(self):
-        """No project open at all - REFUSE."""
-        pm = MockProjectManager(project=None)
-        resolve = MockResolve(pm=pm)
-
-        with pytest.raises(DestinationMismatchError, match="No Resolve project"):
-            verify_destination(
-                resolve, "Podcast", "Pipeline_Edit_20260901_45s"
-            )
-
-    def test_no_timeline_refuses(self):
-        """Project matches but no timeline is current - REFUSE."""
-        proj = MockProject("Podcast", timeline=None)
-        pm = MockProjectManager(project=proj)
-        resolve = MockResolve(pm=pm)
-
-        with pytest.raises(DestinationMismatchError, match="No timeline is current"):
-            verify_destination(
-                resolve, "Podcast", "Pipeline_Edit_20260901_45s"
-            )
+def test_verify_destination_passes_only_the_named_project_and_timeline():
+    edit = "Pipeline_Edit_20260901_45s"
+    tl = MockTimeline(edit)
+    proj = MockProject("Podcast", timeline=tl)
+    resolve = MockResolve(pm=MockProjectManager(project=proj))
+    assert verify_destination(resolve, "Podcast", edit) == (proj, tl)
+    rows = (
+        (MockProject("Some Other Project", timeline=tl),
+         "Wrong Resolve project"),
+        (MockProject("Podcast", timeline=MockTimeline("Rough Cut v3")),
+         "Wrong timeline"),
+        (None, "No Resolve project"),
+        (MockProject("Podcast", timeline=None), "No timeline is current"),
+    )
+    for project, match in rows:
+        resolve = MockResolve(pm=MockProjectManager(project=project))
+        with pytest.raises(DestinationMismatchError, match=match):
+            verify_destination(resolve, "Podcast", edit)
 
 
-# ── _map_clips_to_items tests ────────────────────────────────────
+def test_clips_map_to_items_by_full_path_only():
+    """Basename-only match is REJECTED - the H2 guard. The basename
+    fallback was the exact defect: the captain's rough cut uses the same
+    footage, so basename matches succeed against the wrong timeline. A
+    matcher that succeeds against wrong material is worse than one that
+    fails. Clips without a source_file are skipped."""
+    def items(*paths):
+        return [MockTimelineItem(MockMediaPoolItem(p)) for p in paths]
 
-class TestMapClipsToItems:
-
-    def test_full_path_match(self):
-        """Matching by full path works."""
-        clips = [
-            {"source_file": "/footage/clip_A.mov"},
-            {"source_file": "/footage/clip_B.mov"},
-        ]
-        items = [
-            MockTimelineItem(MockMediaPoolItem("/footage/clip_A.mov")),
-            MockTimelineItem(MockMediaPoolItem("/footage/clip_B.mov")),
-        ]
-        mapping = _map_clips_to_items(clips, items)
-        assert mapping == {0: 0, 1: 1}
-
-    def test_basename_only_does_NOT_match(self):
-        """Basename-only match is REJECTED - this is the H2 guard.
-
-        The basename fallback was the exact defect: the captain's rough
-        cut uses the same footage, so basename matches succeed against
-        the wrong timeline.  A matcher that succeeds against wrong
-        material is worse than one that fails.
-        """
-        clips = [
-            {"source_file": "/pipeline/output/clip_A.mov"},
-        ]
-        items = [
-            MockTimelineItem(MockMediaPoolItem("/footage/raw/clip_A.mov")),
-        ]
-        mapping = _map_clips_to_items(clips, items)
-        # Must be EMPTY - basename match alone must not produce a mapping
-        assert mapping == {}
-
-    def test_no_source_file_skipped(self):
-        """Clips without source_file are skipped."""
-        clips = [
-            {"label": "intro"},
-            {"source_file": "/footage/clip_A.mov"},
-        ]
-        items = [
-            MockTimelineItem(MockMediaPoolItem("/footage/clip_A.mov")),
-        ]
-        mapping = _map_clips_to_items(clips, items)
-        assert mapping == {1: 0}
-
-    def test_empty_items(self):
-        """No timeline items means no mapping."""
-        clips = [{"source_file": "/footage/clip_A.mov"}]
-        mapping = _map_clips_to_items(clips, [])
-        assert mapping == {}
+    assert _map_clips_to_items(
+        [{"source_file": "/footage/clip_A.mov"},
+         {"source_file": "/footage/clip_B.mov"}],
+        items("/footage/clip_A.mov", "/footage/clip_B.mov")) == {0: 0, 1: 1}
+    assert _map_clips_to_items(
+        [{"source_file": "/pipeline/output/clip_A.mov"}],
+        items("/footage/raw/clip_A.mov")) == {}
+    assert _map_clips_to_items(
+        [{"label": "intro"}, {"source_file": "/footage/clip_A.mov"}],
+        items("/footage/clip_A.mov")) == {1: 0}
+    assert _map_clips_to_items(
+        [{"source_file": "/footage/clip_A.mov"}], []) == {}
 
 
 # ── Subprocess CLI arg parsing ───────────────────────────────────
@@ -270,16 +198,13 @@ class TestAssertDestination:
         assert returned_timeline is staging
         assert proj.GetCurrentTimeline() is staging
         assert proj.set_calls == [staging.GetName()]
-
-    def test_already_current_is_a_no_op_assert(self):
-        """Idempotent: asserting the timeline already current still verifies."""
-        staging = MockTimeline("Reel 06 - size-doesnt-matter (rebuild staging)")
+        # Idempotent: asserting the timeline already current verifies.
         proj, resolve = self._project(staging, staging)
         _, returned_timeline = assert_destination(
             resolve, "Podcast", staging.GetName())
         assert returned_timeline is staging
 
-    def test_missing_staging_refuses_and_leaves_cursor(self):
+    def test_a_missing_staging_or_wrong_project_refuses_without_moving(self):
         """The staging is gone - refuse, and do not move the cursor."""
         sibling = MockTimeline("Reel 05 - ai-cant-form-a-clear-picture-of-you")
         proj, resolve = self._project(sibling, sibling)
@@ -287,9 +212,7 @@ class TestAssertDestination:
             assert_destination(resolve, "Podcast", "Reel 06 - gone staging")
         assert proj.GetCurrentTimeline() is sibling
         assert proj.set_calls == []
-
-    def test_wrong_project_never_moves_cursor(self):
-        """Another project open - refuse before touching anything."""
+        # Another project open: refuse before touching anything.
         tl = MockTimeline("Reel 06 - size-doesnt-matter (rebuild staging)")
         proj = MockProject("Some Other Project", timeline=tl,
                            timelines=[tl])

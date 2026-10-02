@@ -1,23 +1,6 @@
 """Stamping each clip with the decision that produced it.
 
-The producer side of the captain's note loop.  `marker_feedback` reads
-their typed notes, `marker_routing` sends each to the step that owns it,
-and this is the half that lets the marker itself carry the answer instead
-of the routing having to infer one.
-
-THE SHAPES HERE ARE REAL.  `MANIFEST` is 001's own assembly manifest,
-trimmed to the placements the captain's three notes actually sit on, with
-its real labels, frames and source ranges; the three notes are imported
-verbatim from `test_marker_routing`, where they were copied out of the
-pull file `marker_feedback` wrote on 2026-08-28.  A stamping test written
-against invented clips proves the stamp agrees with whoever wrote the
-fixture.
-
-No Resolve.  The one call this module makes into Resolve -
-`UpdateMarkerCustomData` - is driven against a fake that records what it
-was asked to do and REFUSES to add a marker, because never adding one is
-the property that keeps the captain's timeline looking the way they left
-it.  Nothing here reaches a real project: everything is under `tmp_path`.
+History: docs/evidence/resolve_test_history.md#test_timeline_decisions.
 """
 
 from __future__ import annotations
@@ -181,7 +164,7 @@ def _placement(found, label):
 # ── Reading the manifest ────────────────────────────────────────────
 
 
-def test_a_bookend_card_is_not_stamped_and_says_why():
+def test_a_bookend_card_or_unknown_track_is_not_stamped_and_says_why():
     manifest = json.loads(json.dumps(MANIFEST))
     manifest["tracks"]["V1"]["clips"].append(
         {
@@ -202,9 +185,7 @@ def test_a_bookend_card_is_not_stamped_and_says_why():
     assert card.unstamped_reason == td.UNSTAMPED_PLACEMENTS["bookend_card"]
     assert card.decision_id == ""
 
-
-def test_an_unknown_track_is_reported_not_guessed():
-    manifest = json.loads(json.dumps(MANIFEST))
+    # An unknown track is reported, not guessed.
     manifest["tracks"]["V9"] = {
         "label": "?",
         "clips": [
@@ -297,16 +278,9 @@ def test_a_hand_written_note_survives_stamping_byte_for_byte(tmp_path):
     assert after["customData"] != ""
 
 
-def test_stamping_twice_replaces_rather_than_accumulates(tmp_path):
-    timeline, _ = _stamped(tmp_path, {744: dict(CAPTAIN_MARKER)})
-    first = marker_payload.parse(timeline.markers[744]["customData"])
-    td.stamp_timeline(timeline, td.read_ledger(tmp_path))
-    second = marker_payload.parse(timeline.markers[744]["customData"])
-    assert len(second["records"]) == len(first["records"])
-    assert [r["id"] for r in second["records"]] == [r["id"] for r in first["records"]]
-
-
-def test_another_writer_s_record_is_left_alone(tmp_path):
+def test_stamping_leaves_what_it_does_not_own_exactly_as_it_was(tmp_path):
+    """Another writer's record survives the stamp, and a marker over
+    nothing this build placed is not touched at all."""
     envelope = marker_payload.new_envelope()
     still = {
         "kind": marker_payload.KIND_STILL,
@@ -318,17 +292,25 @@ def test_another_writer_s_record_is_left_alone(tmp_path):
     }
     marker_payload.merge_record(envelope, still)
     marker = dict(CAPTAIN_MARKER, customData=marker_payload.dumps(envelope))
-    timeline, _ = _stamped(tmp_path, {744: marker})
+    timeline, _ = _stamped(tmp_path / "foreign", {744: marker})
     after = marker_payload.parse(timeline.markers[744]["customData"])
     assert marker_payload.records_of(after, marker_payload.KIND_STILL) == [still]
 
-
-def test_a_marker_over_nothing_is_left_exactly_as_it_was(tmp_path):
-    timeline, report = _stamped(tmp_path, {9000: dict(CAPTAIN_MARKER)})
+    timeline, report = _stamped(tmp_path / "nothing",
+                                {9000: dict(CAPTAIN_MARKER)})
     assert timeline.markers[9000] == CAPTAIN_MARKER
     assert report.markers_stamped == 0
     assert report.skipped[0]["frame"] == 9000
     assert "no placement" in report.skipped[0]["reason"]
+
+
+def test_stamping_twice_replaces_rather_than_accumulates(tmp_path):
+    timeline, _ = _stamped(tmp_path, {744: dict(CAPTAIN_MARKER)})
+    first = marker_payload.parse(timeline.markers[744]["customData"])
+    td.stamp_timeline(timeline, td.read_ledger(tmp_path))
+    second = marker_payload.parse(timeline.markers[744]["customData"])
+    assert len(second["records"]) == len(first["records"])
+    assert [r["id"] for r in second["records"]] == [r["id"] for r in first["records"]]
 
 
 def test_resolve_refusing_the_write_is_reported_not_swallowed(tmp_path):

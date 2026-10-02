@@ -1,17 +1,6 @@
 """Marker writes hold the Resolve instance; reads were already leased.
 
-`library/tools/marker_feedback.py` carried exactly one lease construct
-and it was on the read (`pull`). Every function that MUTATES a marker -
-reply placement, clip-marker removal, resolution deletes, promotion
-carry, decision stamping, master marking - wrote with no lease held
-anywhere in its own chain. A lane holding an EXCLUSIVE lease to place
-clips could run concurrently with another writer adding or deleting
-markers under no lease at all.
-
-This pins both halves: every mutation takes an EXCLUSIVE lease, and a
-write attempted while another process holds the instance refuses instead
-of proceeding - with the marker TEXT and colour read back FROM A
-SEPARATE PROCESS, never a count and never an in-script read.
+History: docs/evidence/resolve_test_history.md#test_marker_writes_hold_lease.
 """
 
 from __future__ import annotations
@@ -23,7 +12,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 from library.tools import (
     marker_carry,
@@ -52,18 +40,23 @@ MUTATIONS = [
 ]
 
 
-@pytest.mark.parametrize("mutate", MUTATIONS,
-                         ids=lambda f: f.__module__ + "." + f.__name__)
-def test_every_marker_mutation_holds_an_exclusive_lease(mutate):
-    """The lease sits on the MUTATION, not on the caller remembering."""
-    leased = getattr(mutate, "__resolve_lease__", None)
-    assert leased is not None, (
-        f"{mutate.__module__}.{mutate.__name__} mutates markers and "
-        f"takes no lease - a caller holding EXCLUSIVE for placement "
-        f"would still race it.")
-    _purpose, exclusive, prefer = leased
-    assert exclusive is True, "a marker mutation must exclude writers"
-    assert prefer is False, "a person never presses these by hand"
+def test_every_marker_mutation_holds_an_exclusive_lease():
+    """The lease sits on the MUTATION, not on the caller remembering.
+    Exclusive (a caller holding EXCLUSIVE for placement would still
+    race an unleased one), and never human-preferred."""
+    wrong = []
+    for mutate in MUTATIONS:
+        name = f"{mutate.__module__}.{mutate.__name__}"
+        leased = getattr(mutate, "__resolve_lease__", None)
+        if leased is None:
+            wrong.append(f"{name} mutates markers and takes no lease")
+            continue
+        _purpose, exclusive, prefer = leased
+        if exclusive is not True:
+            wrong.append(f"{name}: a marker mutation must exclude writers")
+        if prefer is not False:
+            wrong.append(f"{name}: a person never presses these by hand")
+    assert not wrong, wrong
 
 
 # ── In-memory fakes: every legitimate producer still survives ────────

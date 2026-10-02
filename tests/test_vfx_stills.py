@@ -1,25 +1,12 @@
 """4.03 sees the picture its effects land on.
 
-The motion designer plans effects onto shots it has only read about:
-`vfx_suggested` carries camera prose, and the `motion` view carries
-peaks - neither says what the shot LOOKS like. So the 4.03 pre-bridge
-draws one still per candidate block (at the block's first measured
-motion apex where one exists, else the middle of its range) and asks
-the still router what moves in it - the same route step 5.01 takes
-for colour (`shot_stills` / `still_colour_notes`).
-
-These tests drive the bridge helpers with a stubbed extractor (no
-ffmpeg): apex selection prefers the first apex in range, the middle
-is the fallback, a block with no range or no source is NAMED rather
-than quietly absent, and the router observation states whose vision
-answered or why nothing did.
+History: docs/evidence/resolve_test_history.md#test_vfx_stills.
 """
 import json
 import os
 import sys
 from pathlib import Path
 
-import pytest
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -62,26 +49,17 @@ def _data(**over):
     return payload
 
 
-def test_still_moment_prefers_the_first_apex_in_range():
+def test_still_moment_prefers_an_apex_then_the_middle():
     motion = vfx_bridge._motion_by_clip(_data())
     at, basis = vfx_bridge._block_still_moment(
         SPINE["structure"][0], "clip_001", motion)
     # The 99.0 apex sits outside the 100-110 range: skipped.
     assert (at, basis) == (104.0, "apex")
-
-
-def test_still_moment_falls_back_to_the_middle():
-    motion = vfx_bridge._motion_by_clip(_data())
-    at, basis = vfx_bridge._block_still_moment(
-        SPINE["structure"][1], "clip_002", motion)
-    assert (at, basis) == (202.0, "middle")
-
-
-def test_still_moment_without_a_range_is_unranged():
-    motion = vfx_bridge._motion_by_clip(_data())
-    at, basis = vfx_bridge._block_still_moment(
-        SPINE["structure"][2], None, motion)
-    assert (at, basis) == (None, "unranged")
+    # No apex in range: the middle. No range at all: unranged.
+    assert vfx_bridge._block_still_moment(
+        SPINE["structure"][1], "clip_002", motion) == (202.0, "middle")
+    assert vfx_bridge._block_still_moment(
+        SPINE["structure"][2], None, motion) == (None, "unranged")
 
 
 def test_draw_names_what_it_could_not_draw(tmp_path, monkeypatch):
@@ -103,11 +81,8 @@ def test_draw_names_what_it_could_not_draw(tmp_path, monkeypatch):
     assert drawn[paths[1]] == ("/nowhere/b.mp4", 202.0)
     assert "block_1__vfx.jpg" in block
     assert "NOT DRAWN: 3 (no source clip)" in block
-
-
-def test_draw_without_a_project_folder_draws_nothing():
-    block, paths = vfx_bridge.draw_vfx_stills(_data(), "")
-    assert (block, paths) == ("", [])
+    # Without a project folder nothing is drawn.
+    assert vfx_bridge.draw_vfx_stills(_data(), "") == ("", [])
 
 
 def test_observe_states_whose_vision_answered(monkeypatch, tmp_path):
@@ -123,9 +98,7 @@ def test_observe_states_whose_vision_answered(monkeypatch, tmp_path):
     notes = vfx_bridge.observe_vfx_stills([str(still)], str(tmp_path))
     assert notes["observed_by"].startswith("gemma4 fallback")
     assert "still" in notes["text"]
-
-
-def test_observe_states_why_nothing_answered():
+    # And why nothing answered, when nothing did.
     notes = vfx_bridge.observe_vfx_stills([], "/nowhere")
     assert notes["observed_by"] == "none"
     assert "no stills were drawn" in notes["reason"]

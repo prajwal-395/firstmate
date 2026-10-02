@@ -39,14 +39,11 @@ def test_only_time_bounded_gemma_action_rows_select_spans():
             "gestures with a hand", "leans forward", "points to the screen",
         ],
     }]
-
-
-def test_generic_speech_and_static_posture_do_not_trigger_a_footage_sweep():
-    spans = rm.action_candidate_spans(_vision([
+    # Generic speech and static posture do not trigger a footage sweep.
+    assert rm.action_candidate_spans(_vision([
         {"start": 0, "end": 10, "action": "person speaking to camera",
          "body_language": "seated, hands visible"},
-    ]), duration=10)
-    assert spans == []
+    ]), duration=10) == []
 
 
 def test_scene_boundaries_split_selected_spans_without_expanding_them():
@@ -100,54 +97,40 @@ def test_moving_region_is_separate_from_the_face_and_in_crop_evidence():
         "no_dynamic_crop_needed")
 
 
-def test_stable_face_span_explicitly_says_no_dynamic_crop_needed():
+def test_only_a_face_trajectory_suggests_a_dynamic_crop():
+    """A stable face says so explicitly; a one-sample face-box outlier
+    does not trigger a crop; a real trajectory still can. The decision
+    view's summary carries no per-sample trajectories."""
     np = pytest.importorskip("numpy")
     pytest.importorskip("cv2")
-    frames = [np.zeros((rm.SAMPLE_HEIGHT, rm.SAMPLE_WIDTH), dtype=np.uint8)
-              for _ in range(10)]
-    faces = _face_presence([[0.32, 0.14, 0.5, 0.42]] * 5)
-    result = rm.analyze_frames(
-        frames, 0.0, faces, 16 / 9,
-        {"start": 0.0, "end": 1.0, "selected_by": "gemma_action",
-         "action_labels": ["speaking"]},
-    )
-    assert result["crop_suggestion"]["recommendation"] == (
+
+    def analyze(n_frames, boxes, end, label):
+        frames = [np.zeros((rm.SAMPLE_HEIGHT, rm.SAMPLE_WIDTH), dtype=np.uint8)
+                  for _ in range(n_frames)]
+        return rm.analyze_frames(
+            frames, 0.0, _face_presence(boxes), 16 / 9,
+            {"start": 0.0, "end": end, "selected_by": "gemma_action",
+             "action_labels": [label]})
+
+    stable = analyze(10, [[0.32, 0.14, 0.5, 0.42]] * 5, 1.0, "speaking")
+    assert stable["crop_suggestion"]["recommendation"] == (
         "no_dynamic_crop_needed")
-    assert result["crop_suggestion"]["dynamic_crop_needed"] is False
+    assert stable["crop_suggestion"]["dynamic_crop_needed"] is False
+    compact = rm.compact_span(stable)
+    assert "observations" not in compact["face"]
+    assert "observations" not in compact
 
-
-def test_face_box_outlier_does_not_trigger_dynamic_crop():
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("cv2")
-    frames = [np.zeros((rm.SAMPLE_HEIGHT, rm.SAMPLE_WIDTH), dtype=np.uint8)
-              for _ in range(40)]
     boxes = [[0.32, 0.14, 0.5, 0.42] for _ in range(20)]
     boxes[10] = [0.32, 0.38, 0.5, 0.66]
-    result = rm.analyze_frames(
-        frames, 0.0, _face_presence(boxes), 16 / 9,
-        {"start": 0.0, "end": 4.0, "selected_by": "gemma_action",
-         "action_labels": ["gestures briefly"]},
-    )
-
-    assert result["crop_suggestion"]["recommendation"] == (
+    outlier = analyze(40, boxes, 4.0, "gestures briefly")
+    assert outlier["crop_suggestion"]["recommendation"] == (
         "no_dynamic_crop_needed")
-    assert result["crop_suggestion"]["face_center_drift"] < 0.08
+    assert outlier["crop_suggestion"]["face_center_drift"] < 0.08
 
-
-def test_face_trajectory_can_still_trigger_dynamic_crop():
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("cv2")
-    frames = [np.zeros((rm.SAMPLE_HEIGHT, rm.SAMPLE_WIDTH), dtype=np.uint8)
-              for _ in range(12)]
-    boxes = [[0.2 + index * 0.1, 0.14, 0.36 + index * 0.1, 0.42]
-             for index in range(6)]
-    result = rm.analyze_frames(
-        frames, 0.0, _face_presence(boxes), 16 / 9,
-        {"start": 0.0, "end": 1.2, "selected_by": "gemma_action",
-         "action_labels": ["turns toward the speaker"]},
-    )
-
-    assert result["crop_suggestion"]["recommendation"] == (
+    moving = analyze(12, [[0.2 + index * 0.1, 0.14, 0.36 + index * 0.1, 0.42]
+                          for index in range(6)],
+                     1.2, "turns toward the speaker")
+    assert moving["crop_suggestion"]["recommendation"] == (
         "consider_dynamic_crop")
 
 
@@ -164,19 +147,3 @@ def test_no_gemma_action_means_no_video_decode(monkeypatch):
     assert result["measurement_status"] == "no_candidates"
     assert result["spans"] == []
     assert "not run over the footage" in result["reason"]
-
-
-def test_decision_view_summary_does_not_include_per_sample_trajectories():
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("cv2")
-    frames = [np.zeros((rm.SAMPLE_HEIGHT, rm.SAMPLE_WIDTH), dtype=np.uint8)
-              for _ in range(10)]
-    span = rm.analyze_frames(
-        frames, 0.0, _face_presence([[0.32, 0.14, 0.5, 0.42]] * 5),
-        16 / 9,
-        {"start": 0.0, "end": 1.0, "selected_by": "gemma_action",
-         "action_labels": ["speaking"]},
-    )
-    compact = rm.compact_span(span)
-    assert "observations" not in compact["face"]
-    assert "observations" not in compact

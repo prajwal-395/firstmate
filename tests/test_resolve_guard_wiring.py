@@ -1,17 +1,6 @@
 """The guard is WIRED, and this is what stops it drifting back to zero.
 
-`resolve_placement_lock` was removed on 2026-09-12 with zero callers in
-library, tests, docs or scripts, while the check it was meant to protect
-had 22. A guard nobody enters reads as coverage (AGENTS.md 10.4), so the
-count is not a detail - it IS the property.
-
-Three claims are pinned here:
-
-1. Every `RESOLVE_CURSOR` operation in `concurrency_routing.OPERATIONS`
-   really takes the lease.
-2. Every module that connects to Resolve is accounted for in that table,
-   so a new Resolve caller cannot appear unrouted.
-3. Nothing under `library/` turns the refusal off.
+History: docs/evidence/resolve_test_history.md#test_resolve_guard_wiring.
 """
 
 import ast
@@ -20,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import resolve_lock
 from library.tools.concurrency_routing import (
     OPERATIONS, RESOLVE_CURSOR, RESOLVE_READ)
 
@@ -60,57 +48,61 @@ CURSOR_ROWS = [op for op in OPERATIONS if op.exclusion == RESOLVE_CURSOR]
 READ_ROWS = [op for op in OPERATIONS if op.exclusion == RESOLVE_READ]
 
 
-def test_there_are_cursor_operations_to_check():
-    """A wiring gate over an empty list is a gate that cannot fail."""
-    assert len(CURSOR_ROWS) >= 6
+def _lease_failures(op):
+    """What is wrong with one routed row's lease, or [] if it is right."""
+    leased = getattr(_resolve_entry_point(op.entry_point),
+                     "__resolve_lease__", None)
+    if op.exclusion == RESOLVE_CURSOR:
+        if leased is None:
+            return [f"{op.entry_point} is routed {op.exclusion} and does not "
+                    f"take the instance. Decorate it with "
+                    f"`resolve_lock.under_lease(...)`, or move the row to "
+                    f"the class it really belongs in."]
+        out = []
+        if leased[1] is not True:
+            out.append(f"{op.entry_point} holds a SHARED lease")
+        if leased[2] is not op.human_initiated:
+            # Which one a person presses is a property of the operation,
+            # and the two halves may not disagree about it.
+            out.append(f"{op.entry_point} takes the instance with "
+                       f"prefer={leased[2]} while the table says "
+                       f"human_initiated={op.human_initiated}")
+        return out
+    if leased is None:
+        return [f"{op.entry_point} is routed {op.exclusion} and takes "
+                f"nothing. It will block inside the scriptapp handshake "
+                f"instead, which is the starvation the routing table "
+                f"exists to end."]
+    if leased[1] is not False:
+        return [f"{op.entry_point} is a READ holding an EXCLUSIVE lease - "
+                f"two readers would serialise for no reason."]
+    return []
 
 
-@pytest.mark.parametrize("op", CURSOR_ROWS, ids=lambda op: op.name)
-def test_every_cursor_operation_takes_the_lease(op):
-    function = _resolve_entry_point(op.entry_point)
-    if function is None:
-        pytest.skip(
-            f"{op.entry_point} names no importable callable in this "
-            f"environment - a row that must gain one, not a pass")
-    leased = getattr(function, "__resolve_lease__", None)
-    assert leased is not None, (
-        f"{op.entry_point} is routed {op.exclusion} and does not take the "
-        f"instance. Decorate it with `resolve_lock.under_lease(...)`, or "
-        f"move the row to the class it really belongs in.")
-    assert leased[1] is True, f"{op.entry_point} holds a SHARED lease"
-    assert leased[2] is op.human_initiated, (
-        f"{op.entry_point} takes the instance with prefer={leased[2]} while "
-        f"the table says human_initiated={op.human_initiated}. Which one a "
-        f"person presses is a property of the operation, and the two halves "
-        f"may not disagree about it.")
+def test_every_routed_operation_takes_the_lease_its_class_needs():
+    """A cursor operation takes the instance exclusively, with the
+    table's `human_initiated` preference; a reader takes a SHARED lease.
 
-
-@pytest.mark.parametrize("op", READ_ROWS, ids=lambda op: op.name)
-def test_every_read_operation_takes_a_shared_lease(op):
-    """A reader has to wait on the LOCK, not on the handshake.
-
-    Measured 2026-09-12 (`docs/DUAL_WORKFLOW_SYNC_2026-09-12.md`):
-    while a sibling lane placed clips, a read-only call blocked for
-    over twelve minutes inside `scriptapp("Resolve")` itself - the
-    Fusion connect handshake, before any timeline was reached. So a
-    reader that does not take the lease does not avoid waiting; it
-    waits somewhere with no bound, no diagnostic and no holder to name.
-    The shared lease moves that wait to a file lock that has all three,
-    and lets readers run together.
+    A reader has to wait on the LOCK, not on the handshake. Measured
+    2026-09-12 (`docs/DUAL_WORKFLOW_SYNC_2026-09-12.md`): while a sibling
+    lane placed clips, a read-only call blocked for over twelve minutes
+    inside `scriptapp("Resolve")` itself - the Fusion connect handshake.
+    The shared lease moves that wait to a file lock with a bound, a
+    diagnostic and a holder to name, and lets readers run together.
     """
-    function = _resolve_entry_point(op.entry_point)
-    if function is None:
+    # A wiring gate over an empty list is a gate that cannot fail.
+    assert len(CURSOR_ROWS) >= 6 and READ_ROWS
+    unimportable, failures = [], []
+    for op in CURSOR_ROWS + READ_ROWS:
+        if _resolve_entry_point(op.entry_point) is None:
+            unimportable.append(op.entry_point)
+            continue
+        failures += _lease_failures(op)
+    assert not failures, failures
+    if unimportable:
         pytest.skip(
-            f"{op.entry_point} names no importable callable in this "
-            f"environment - a row that must gain one, not a pass")
-    leased = getattr(function, "__resolve_lease__", None)
-    assert leased is not None, (
-        f"{op.entry_point} is routed {op.exclusion} and takes nothing. "
-        f"It will block inside the scriptapp handshake instead, which is "
-        f"the starvation the routing table exists to end.")
-    assert leased[1] is False, (
-        f"{op.entry_point} is a READ holding an EXCLUSIVE lease - two "
-        f"readers would serialise for no reason.")
+            f"{unimportable} name no importable callable in this "
+            f"environment - rows that must gain one, not a pass")
 
 
 # ── No Resolve caller escapes the table ─────────────────────────────

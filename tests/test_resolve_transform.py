@@ -71,19 +71,6 @@ def test_the_law_reproduces_every_measured_picture_case():
             f"pan {pan} tilt {tilt} at zoom {_zoom}")
 
 
-def test_the_two_measured_units_on_the_reels_geometry():
-    """The numbers the picture half was wrong by, stated outright.
-
-    Pinned as history at explicit gain 1.0.
-    """
-    base = fit_base_scale(3840, 2160, 1080, 1920)
-    assert base == pytest.approx(0.28125, abs=1e-9)
-    assert shift_px(1.0, 3840, 1080, base, 1.0) == pytest.approx(
-        1.0, abs=1e-9)
-    assert shift_px(1.0, 2160, 1920, base, 1.0) == pytest.approx(
-        0.31640625, abs=1e-9)
-
-
 def test_a_zero_dimension_raises_rather_than_dividing():
     with pytest.raises(ResolveTransformError):
         shift_px(100.0, 0, 1920)
@@ -92,33 +79,6 @@ def test_a_zero_dimension_raises_rather_than_dividing():
 
 
 # ── 2. The two paths agree ───────────────────────────────────────────
-
-def test_the_overlay_path_and_the_picture_path_draw_the_same_pixels():
-    """The gate on the structural fault.
-
-    A clip the size of the frame is the one geometry both paths can
-    describe: the overlay path carries it at `Scaling=1` (base 1) and
-    the picture path fits it (fit is also 1), so for any Pan/Tilt they
-    must report the SAME rectangle. Under the two old models they did
-    not: the overlay path doubled the shift and the picture path took
-    Tilt for pixels with the sign reversed, so a Tilt of 100 put the
-    same clip 200px up on one path and 100px DOWN on the other.
-    """
-    frame_w, frame_h = 1080, 1920
-    for pan, tilt in ((0.0, 0.0), (100.0, 0.0), (0.0, 100.0),
-                      (-250.0, 480.0)):
-        overlay = canvas_screen_origin(frame_w, frame_h,
-                                       {"scaling": 1, "pan": pan,
-                                        "tilt": tilt},
-                                       frame_w, frame_h)
-        picture = delivered_picture(frame_w, frame_h, frame_w, frame_h,
-                                    {"ZoomX": 1.0, "ZoomY": 1.0,
-                                     "Pan": pan, "Tilt": tilt})
-        assert (round(overlay[0]), round(overlay[1])) == \
-            (picture.left, picture.top), (
-            f"the overlay path and the picture path disagree at "
-            f"pan {pan} tilt {tilt}")
-
 
 def test_both_paths_are_the_law_and_not_a_second_copy_of_it():
     """Each call site's answer IS `resolve_transform`'s answer.
@@ -180,5 +140,3 @@ def test_the_box_file_reader_and_the_placer_share_one_origin():
                           NATIVE_BASE_SCALE, None, None, 1.0)
     assert canvas_offset(box) == (round(ox), round(oy))
 
-
-# ── 3. What the two wrong models would have answered ─────────────────

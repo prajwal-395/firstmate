@@ -1,32 +1,11 @@
 """The captain's edits survive a rebuild - as deltas, not replacements.
 
-The captain (2026-09-09): *"if i ask to remove a piece of the video and
-replace it with something else, and then ask you to rebuild the timeline,
-those changes should persist"*. And: *"going into the subtitles and making
-corrections that i ask of you so it's there"*.
-
-Two gaps closed here, on top of `library/tools/external_inputs.py`
-(state the pipeline did not produce, CHECKED never asserted):
-
-1. Captions had NO external route. `captain_edits` is a supportable key
-   whose check verifies each edit still corresponds to speech it names,
-   so a supplied caption fix cannot silently drift from the audio.
-2. Supply was whole-value. An edit is a small readable DELTA anchored
-   to the spoken words - the one thing that survives a rebuild, where
-   frame numbers (PR 847), source timecodes and pipeline ordinals do
-   not. An edit that can no longer apply is reported STALE, loudly,
-   never dropped silently.
-
-Sibling lane `transcript_corrections` (in flight) owns CORRECTIONS - a
-fact about the world, everywhere and forever ("Lucie not Lucy"). This
-module owns EDITS - a decision about this one piece. Both are needed;
-neither subsumes the other.
+History: docs/evidence/resolve_test_history.md#test_captain_edits.
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -123,46 +102,30 @@ def _entries():
 # ── 1. The delta validates ───────────────────────────────────────────
 
 
-
-def test_an_unknown_kind_is_refused():
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.validate_edits(
-            [{"kind": "color_grade", "anchor_phrase": "hello",
-              "reason": "taste"}])
-    assert "kind" in str(exc.value)
-
-
-
-
-def test_a_caption_fix_without_a_replacement_is_refused():
-    edit = _fix()
-    del edit["replacement"]
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.validate_edits([edit])
-    assert "replacement" in str(exc.value)
-
-
-def test_a_frame_anchored_edit_is_refused():
-    """Frame numbers are not stable across a rebuild (PR 847 refused
-    delete-by-moved-frame for the same reason), so an edit anchored to
-    one is refused at write time rather than lost at rebuild time."""
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.validate_edits(
-            [{**_drop(), "anchor_frame": 528}])
-    assert "frame" in str(exc.value).lower()
-
-
-def test_an_edit_without_a_reason_is_refused():
-    edit = _drop()
-    del edit["reason"]
-    with pytest.raises(captain_edits.CaptainEditError):
-        captain_edits.validate_edits([edit])
+def test_a_malformed_edit_is_refused_at_write_time():
+    """An unknown kind, a caption fix with no replacement, an edit with
+    no reason, and an edit anchored to a frame number - frames are not
+    stable across a rebuild (PR 847 refused delete-by-moved-frame for
+    the same reason), so it is refused at write time rather than lost at
+    rebuild time."""
+    no_replacement = _fix()
+    del no_replacement["replacement"]
+    no_reason = _drop()
+    del no_reason["reason"]
+    rows = (
+        ({"kind": "color_grade", "anchor_phrase": "hello", "reason": "taste"},
+         "kind"),
+        (no_replacement, "replacement"),
+        ({**_drop(), "anchor_frame": 528}, "frame"),
+        (no_reason, ""),
+    )
+    for edit, needle in rows:
+        with pytest.raises(captain_edits.CaptainEditError) as exc:
+            captain_edits.validate_edits([edit])
+        assert needle in str(exc.value).lower(), edit
 
 
 # ── 2. The external key checks drift ─────────────────────────────────
-
-
-
 
 
 def test_a_caption_fix_drifted_from_its_speech_is_refused(tmp_path):
@@ -179,14 +142,9 @@ def test_a_caption_fix_drifted_from_its_speech_is_refused(tmp_path):
     with pytest.raises(ExternalStateError) as exc:
         external_inputs.load(str(project), state)
     assert "zebras on mars" in str(exc.value)
-
-
-def test_unverifiable_anchors_pass_structurally(tmp_path):
-    """The check must reach a verdict without state: on a first run,
-    before any spine exists, a well-formed edit verifies and the drift
-    question moves to apply time, where it reports STALE loudly."""
-    project = _project(tmp_path)
-    _write_edits_file(project, [_fix(anchor="zebras on mars")])
+    # The check reaches a verdict without state: on a first run, before
+    # any spine exists, a well-formed edit verifies and the drift
+    # question moves to apply time, where it reports STALE loudly.
     supplied = external_inputs.load(str(project), {})
     assert set(supplied) == {"captain_edits"}
 
@@ -209,13 +167,10 @@ def test_a_caption_fix_rewrites_text_and_rederives_the_rest():
     assert fixed[1]["word_count"] == len(fixed[1]["text"].split())
     # Untouched entries pass through byte-identical.
     assert fixed[0]["text"] == "welcome back to the show"
-
-
-def test_a_caption_fix_that_matches_nothing_reports_stale():
+    # A fix that matches nothing reports stale and changes nothing.
     entries = _entries()
     _, applied, stale = captain_edits.apply_caption_fixes(
-        entries, [_fix(anchor="zebras on mars",
-                       replacement="zebras")])
+        entries, [_fix(anchor="zebras on mars", replacement="zebras")])
     assert applied == []
     assert len(stale) == 1
     assert "zebras on mars" in stale[0]["reason"]
@@ -242,10 +197,7 @@ def test_a_drop_removes_the_block_and_rederives_later_timings():
     assert blocks[1]["timeline_start"] < before[2] - removed + 0.01
 
 
-
-
 # ── 5. The captain can read what is in force ─────────────────────────
-
 
 
 def test_stale_edits_are_announced_not_silenced(capsys):

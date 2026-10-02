@@ -1,30 +1,10 @@
 """The composer resolves a goal backwards - or refuses it by name.
 
-The captain's intent: Ren reaches a goal without him naming the steps,
-and a goal it cannot reach is refused BEFORE anything runs - "no
-capability produces X" - rather than by running and failing.
-
-Two halves, and the second is the deliverable as much as the first:
-
-**Resolution.**  The two goals that close through capabilities alone are
-pinned exactly - operations in run order, machine assumptions and
-outside assumptions split.  Either half alone (operations without the
-assumptions, or the split collapsed) would keep passing while the plan
-stopped being runnable-or-honest.
-
-**Refusal.**  Every other goal refuses naming what nothing produces: a
-producer-less goal names itself, a goal behind a step with no operation
-names the deepest requirement the traversal met and which step owns it.
-`test_no_plan_names_a_blind_capability` pins the converse - the six
-deliberately empty-effect operations are never selected, no matter how
-many capabilities the composer learns. The ever-selected SET is
-deliberately not pinned: it grows with every coverage lane by design,
-and a snapshot of it would fail each remaining lane on a literal.
+History: docs/evidence/resolve_test_history.md#test_composer.
 """
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -46,29 +26,24 @@ PRODUCER_LESS_GOALS = (
 )
 
 
-@pytest.mark.parametrize("goal", PRODUCER_LESS_GOALS)
-def test_producer_less_goal_is_refused_by_name(goal):
-    """A goal nothing produces refuses naming itself, before any run."""
-    comp = C.compose(goal)
-    assert comp.refused
-    assert comp.blocker == goal
-    assert f"no capability produces {goal}" in comp.refusal_reason()
+def test_a_goal_nothing_produces_is_refused_by_name():
+    """A goal nothing produces refuses naming itself, before any run.
 
-
-def test_unknown_goal_is_refused_by_name():
-    """A goal no operation speaks refuses rather than closing empty.
-
-    Closing empty would read as "nothing to do" - the plan that runs
-    nothing and reports success, which is what `produced_nothing` on
-    `OperationResult` exists to stop at the execution layer.
+    So does a goal no operation speaks: closing empty would read as
+    "nothing to do" - the plan that runs nothing and reports success,
+    which is what `produced_nothing` on `OperationResult` exists to stop
+    at the execution layer.
     """
+    for goal in PRODUCER_LESS_GOALS:
+        comp = C.compose(goal)
+        assert comp.refused, goal
+        assert comp.blocker == goal
+        assert f"no capability produces {goal}" in comp.refusal_reason()
     comp = C.compose("no.such.requirement")
     assert comp.refused
     assert comp.unknown_goal
     assert ("no capability produces no.such.requirement"
             in comp.refusal_reason())
-
-
 
 
 # ── Refusal subjects the tests own ──────────────────────────────────
@@ -235,7 +210,6 @@ def test_deep_strand_names_the_blocker_and_the_chain(monkeypatch):
 # ── Resolution: the two goals that close ──────────────────────────────
 
 
-
 def test_reel_build_plan_is_exact():
     """`reel.build` wins registry order over `reel.ask`: same contract,
     and the build is the whole the ask is a part of."""
@@ -283,9 +257,6 @@ def test_completed_plan_is_closed():
 # ITS OWN requirement kind.  These pin the MEASUREMENT, not the
 # mechanism - whether each of the three verdict operations is now
 # reachable, and what stops the one that is not.
-
-
-
 
 
 def test_validation_verdict_goal_closes_through_the_manifest_compile():
@@ -336,8 +307,6 @@ def test_no_plan_names_a_blind_capability():
         "node-granular effect leaked into selection")
 
 
-
-
 def test_reachable_goals_are_exactly_the_capability_produced():
     """`--list` shows every requirement at least one capability
     produces - each composable to a plan or a named deeper blocker,
@@ -357,43 +326,40 @@ def test_reachable_goals_are_exactly_the_capability_produced():
 # shared subplans, ordering and cycles are driven through `_closure`
 # directly - the pure seam over (all_producers, capable, needs).
 
-def test_shortest_choice_wins():
-    """Two producer nodes close the goal; the one-step closure beats
-    the two-step one."""
-    nodes, blocker, _, _ = C._closure(
-        "g",
-        all_producers={"g": ("n_long", "n_short"),
-                       "a": ("m",), "leaf": ()},
-        capable={"g": ("n_long", "n_short"), "a": ("m",)},
-        needs={"n_long": ("a",), "n_short": ("leaf",),
-               "m": ("leaf",)})
-    assert blocker == ""
-    assert nodes == ("n_short",)
-
-
-def test_shared_subplan_runs_once():
-    """Two preconditions closed by one node name it once, first."""
-    nodes, blocker, _, _ = C._closure(
-        "g",
-        all_producers={"g": ("n",), "a": ("m",), "b": ("m",),
-                       "leaf": ()},
-        capable={"g": ("n",), "a": ("m",), "b": ("m",)},
-        needs={"n": ("a", "b"), "m": ("leaf",)})
-    assert blocker == ""
-    assert nodes == ("m", "n")
-
-
-def test_producers_order_before_consumers():
-    """A three-deep chain plans bottom-up: the run order IS the
-    dependency order."""
-    nodes, blocker, _, _ = C._closure(
-        "g",
-        all_producers={"g": ("n3",), "r2": ("n2",), "r1": ("n1",),
-                       "leaf": ()},
-        capable={"g": ("n3",), "r2": ("n2",), "r1": ("n1",)},
-        needs={"n3": ("r2",), "n2": ("r1",), "n1": ("leaf",)})
-    assert blocker == ""
-    assert nodes == ("n1", "n2", "n3")
+def test_the_closure_search_chooses_dedupes_and_orders():
+    """Rows: two producers close the goal and the one-step closure beats
+    the two-step one; two preconditions closed by one node name it once,
+    first; a three-deep chain plans bottom-up (the run order IS the
+    dependency order); and a first producer that strands on a blocker
+    no capability owns falls back to the second - the refusal of one
+    path is not the refusal of the goal (`void` IS produced, by `bare`,
+    but `bare` owns no capability)."""
+    rows = (
+        (dict(all_producers={"g": ("n_long", "n_short"),
+                             "a": ("m",), "leaf": ()},
+              capable={"g": ("n_long", "n_short"), "a": ("m",)},
+              needs={"n_long": ("a",), "n_short": ("leaf",),
+                     "m": ("leaf",)}),
+         ("n_short",)),
+        (dict(all_producers={"g": ("n",), "a": ("m",), "b": ("m",),
+                             "leaf": ()},
+              capable={"g": ("n",), "a": ("m",), "b": ("m",)},
+              needs={"n": ("a", "b"), "m": ("leaf",)}),
+         ("m", "n")),
+        (dict(all_producers={"g": ("n3",), "r2": ("n2",), "r1": ("n1",),
+                             "leaf": ()},
+              capable={"g": ("n3",), "r2": ("n2",), "r1": ("n1",)},
+              needs={"n3": ("r2",), "n2": ("r1",), "n1": ("leaf",)}),
+         ("n1", "n2", "n3")),
+        (dict(all_producers={"g": ("n_bad", "n_good"), "void": ("bare",),
+                             "leaf": ()},
+              capable={"g": ("n_bad", "n_good")},
+              needs={"n_bad": ("void",), "n_good": ("leaf",)}),
+         ("n_good",)),
+    )
+    for maps, expected in rows:
+        nodes, blocker, _, _ = C._closure("g", **maps)
+        assert (nodes, blocker) == (expected, ""), maps
 
 
 def test_circular_producers_strand_by_name():
@@ -408,22 +374,6 @@ def test_circular_producers_strand_by_name():
     assert blocker == "r1"
     assert producers == ("n2",)
     assert chain[0] == "g" and chain[-1] == "r1"
-
-
-def test_fallback_producer_tried_after_strand():
-    """The first producer strands on a blocker no capability owns, but
-    the second closes - the refusal of one path is not the refusal of
-    the goal."""
-    nodes, blocker, _, _ = C._closure(
-        "g",
-        all_producers={"g": ("n_bad", "n_good"), "void": ("bare",),
-                       "leaf": ()},
-        capable={"g": ("n_bad", "n_good")},
-        needs={"n_bad": ("void",), "n_good": ("leaf",)})
-    # `void` IS produced (by `bare`) but `bare` owns no capability, so
-    # `n_bad` strands while `n_good` closes on the leaf alone.
-    assert blocker == ""
-    assert nodes == ("n_good",)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────

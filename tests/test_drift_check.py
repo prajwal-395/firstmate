@@ -1,21 +1,6 @@
 """The drift detector finally has a caller, and the caller is pinned.
 
-`library/tools/drift_check.py` is the schedule `transform_drift.py`
-never had: newest build snapshot per reel against a self-read of the
-live timeline, printing the per-reel factor at both ends of every
-build. What these pin:
-
-- the comparison that found the 2026-09-16 halving reproduces exactly:
-  halved Pan/Tilt on every clip reads as one factor of 0.5;
-- the two things the measurement must handle: snapshot rounding
-  (0.49996-0.50004 is one factor, not a second one) and zero-valued
-  placements (undefined ratio, never 1.0, never diluting the verdict);
-- matching is on track, record frame AND name: a replaced clip reads
-  as missing, never as a factor;
-- the self-read is load-bearing: the read happens with the reel
-  current, and the cursor is back where it started afterwards;
-- the build runs the check at its start AND its end, and neither call
-  can fail the build it instruments.
+History: docs/evidence/resolve_test_history.md#test_drift_check.
 """
 
 import ast
@@ -77,6 +62,10 @@ def test_the_measured_halving_reads_as_one_factor_of_a_half():
     assert compared["factor"] == pytest.approx(0.5)
     assert compared["moved"] == 3
     assert "every one by x0.5" in compared["line"]
+    # Zero times anything is zero: the caption Pan, 0.0 built and live,
+    # is undefined (never 1.0) and does not dilute the verdict.
+    zero_rows = [row for row in compared["rows"] if row["built"]["Pan"] == 0.0]
+    assert zero_rows and all(row["factors"]["Pan"] is None for row in zero_rows)
 
 
 def test_snapshot_rounding_is_one_factor_not_a_second():
@@ -95,42 +84,24 @@ def test_snapshot_rounding_is_one_factor_not_a_second():
     assert "NO single factor" not in compared["line"]
 
 
-def test_zero_placements_are_undefined_never_one():
-    """Zero times anything is zero: immune, and not diluting.
-
-    The caption Pan above is 0.0 built and 0.0 live. Its ratio is
-    undefined (not 1.0), and the reel still verdicts 0.5 on the axes
-    that can move.
-    """
-    compared = compare_documents("Reel 26", BUILT, HALVED)
-    zero_rows = [row for row in compared["rows"] if row["built"]["Pan"] == 0.0]
-    assert zero_rows and all(row["factors"]["Pan"] is None for row in zero_rows)
-    assert compared["factor"] == pytest.approx(0.5)
-
-
-def test_an_all_zero_reel_cannot_verdict_anything_and_holds():
-    """Where nothing can move, nothing moved - not x1.0."""
-    built = doc("Reel X", (1, 0, "still.mov", 0.0, 0.0))
-    compared = compare_documents("Reel X", built, built)
+def test_no_factor_is_invented_where_none_is_measured():
+    """Where nothing can move, nothing moved - not x1.0. A replaced clip
+    (same track and record frame, different name) is missing: matching
+    on position alone would divide a stranger's transform by the
+    build's. A non-uniform move is a DIFFERENT fault and must not borrow
+    this one's name - the tolerance is for rounding, not for causes."""
+    still = doc("Reel X", (1, 0, "still.mov", 0.0, 0.0))
+    compared = compare_documents("Reel X", still, still)
     assert compared["factor"] is None
     assert "hold exactly what the build wrote" in compared["line"]
 
-
-def test_a_replaced_clip_reads_as_missing_never_as_a_factor():
-    """Same track and record frame, different name: the build's clip
-    went away. Matching on position alone would divide the stranger's
-    transform by the build's and invent a factor."""
-    built = doc("Reel 01", (1, 590, "LC4930.MXF", 1.493, 0.25))
-    live = doc("Reel 01", (1, 590, "LC4932.MXF", 5.972, 1.0))
-    compared = compare_documents("Reel 01", built, live)
+    compared = compare_documents(
+        "Reel 01", doc("Reel 01", (1, 590, "LC4930.MXF", 1.493, 0.25)),
+        doc("Reel 01", (1, 590, "LC4932.MXF", 5.972, 1.0)))
     assert compared["missing"] == 1
     assert compared["factor"] is None
     assert "no longer has" in compared["line"]
 
-
-def test_two_different_factors_refuse_to_read_as_one():
-    """A non-uniform move is a DIFFERENT fault and must not borrow
-    this one's name - the tolerance is for rounding, not for causes."""
     built = doc(
         "Reel 01", (1, 590, "a.MXF", 10.0, 0.25), (1, 1069, "b.MXF", 10.0, 0.25)
     )
@@ -169,6 +140,10 @@ LIVE_FRAMED = doc(
 
 
 def test_a_factor_across_a_resolution_change_is_the_unit():
+    """Across two project resolutions the factor is the unit, not a
+    drift; a snapshot with no recorded epoch (every one before
+    2026-10-02 - the records the broken repair trusted) cannot prove a
+    drift; and a move within one epoch is still a drift."""
     compared = compare_documents(
         "Reel 01", _at(AS_BUILT_OLD_EPOCH, [1920, 1080]), _at(LIVE_FRAMED, [3840, 2160])
     )
@@ -177,10 +152,6 @@ def test_a_factor_across_a_resolution_change_is_the_unit():
     assert "1920x1080" in compared["unit_epoch"]
     assert "never write a transform from this factor" in compared["line"]
 
-
-def test_a_snapshot_with_no_recorded_epoch_cannot_prove_a_drift():
-    """Every snapshot before 2026-10-02 lacks the field - the exact
-    records the broken repair trusted."""
     compared = compare_documents(
         "Reel 01", AS_BUILT_OLD_EPOCH, _at(LIVE_FRAMED, [3840, 2160])
     )
@@ -188,8 +159,6 @@ def test_a_snapshot_with_no_recorded_epoch_cannot_prove_a_drift():
     assert "did not record the project resolution" in compared["unit_epoch"]
     assert "NOT a drift" in compared["line"]
 
-
-def test_a_move_within_one_epoch_is_still_a_drift():
     compared = compare_documents(
         "Reel 26", _at(BUILT, [3840, 2160]), _at(HALVED, [3840, 2160])
     )
