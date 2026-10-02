@@ -396,7 +396,7 @@ def test_the_runner_refuses_a_region_rerun_rather_than_redoing_everything():
 
 
 def test_the_refusal_says_so_plainly_when_no_operation_takes_a_region():
-    """`plan_transitions` has no region-scoped operation, so there is no
+    """`color_grade` has no region-scoped operation, so there is no
     partial re-run of it to offer. Naming a route that does not exist is
     worse than saying there is none."""
     from library.tools.step_ledger import LedgerError
@@ -404,11 +404,24 @@ def test_the_refusal_says_so_plainly_when_no_operation_takes_a_region():
     runner = _runner()
     with pytest.raises(LedgerError) as exc:
         runner.apply_rerun_requests(
+            "/nonexistent", {}, ["color_grade@32.0-48.0"],
+            {"color_grade": "edit"}, {})
+    message = str(exc.value)
+    assert "No operation on color_grade runs at a region" in message
+    assert "--rerun color_grade" in message
+
+
+def test_the_refusal_names_the_region_splice_a_planner_now_offers():
+    """The mirror: `plan_transitions` gained `transitions.splice`, so a
+    region re-run of it is pointed at that operation (punch list 9)."""
+    from library.tools.step_ledger import LedgerError
+
+    runner = _runner()
+    with pytest.raises(LedgerError) as exc:
+        runner.apply_rerun_requests(
             "/nonexistent", {}, ["plan_transitions@32.0-48.0"],
             {"plan_transitions": "edit"}, {})
-    message = str(exc.value)
-    assert "No operation on plan_transitions runs at a region" in message
-    assert "--rerun plan_transitions" in message
+    assert "transitions.splice" in str(exc.value)
 
 
 # ── The line that joins the two halves of the seam ───────────────────

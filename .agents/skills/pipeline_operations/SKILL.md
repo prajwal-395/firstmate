@@ -51,6 +51,7 @@ run at a declared scope. It owns no logic of its own.
 | `subtitles.splice` | `plan_subtitles` | region | Put a region's re-planned captions back into the stored plan |
 | `rough_cut.review` | `review_rough_cut` | project | Run the mechanical duration, continuity and source checks over the rough cut |
 | `transitions.resolve` | `plan_transitions` | project | Resolve the model's transition plan to execution specs |
+| `transitions.splice` | `plan_transitions` | region | Resolve a region's re-planned transitions and put them back into the stored plan |
 | `vfx.resolve` | `plan_vfx` | project | Resolve the model's VFX plan to execution specs |
 | `vfx.splice` | `plan_vfx` | region | Resolve a region's re-planned effects and put them back into the stored plan |
 | `sfx.resolve` | `plan_sfx` | project | Resolve the model's SFX plan to playable placements |

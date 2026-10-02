@@ -20,6 +20,7 @@ import math
 import sys
 from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.plan_splice import number_within_block
 from library.tools.ren_refusal import RenRefusal
 from library.tools.spine_contract import (
     block_word_end_times_timeline,
@@ -102,6 +103,14 @@ END_CAPABLE_TYPES = ("fade_to_black", "cross_dissolve")
 # may be taken. About one short word: the point is to nudge a cut onto the
 # music, not to choose a different place to cut. See resolve_cut_point.
 MAX_WORD_END_BACKTRACK = 0.35
+
+
+
+CUT_KEY = "cut_into_position"
+"""The spine position of the block a transition cuts INTO - or END_SLOT."""
+
+END_SLOT = "end"
+"""The cut past the last block: `cut_point_position: "end"`."""
 
 
 def snap_to_beat(
@@ -498,6 +507,12 @@ def resolve_transitions(
                 if reason is not None:
                     unplaceable.append((block.get("position"), trans_dict,
                                         reason))
+            # The cut this transition sits on, named by the block it
+            # cuts INTO ("end" past the last one): the key a region
+            # splice exchanges transitions by, and what the id counts
+            # within.
+            trans_dict[CUT_KEY] = END_SLOT if is_end else block.get(
+                "position")
             resolved.append(trans_dict)
 
     if unplaceable and attempt == 1:
@@ -536,8 +551,7 @@ def resolve_transitions(
         t["downgrade_reason"] = reason
 
     resolved.sort(key=lambda t: t["cut_point_timeline"])
-    for i, t in enumerate(resolved, start=1):
-        t["transition_id"] = f"trans_{i:03d}"
+    number_within_block(resolved, CUT_KEY, "transition_id", "trans")
 
     _assert_transitions_distinct(resolved)
     return resolved
@@ -1109,6 +1123,105 @@ def _assert_transitions_distinct(resolved: list) -> None:
         )
 
 
+def _v2_spans(assignments, interjections) -> list:
+    """Every b-roll assignment and interjection, as a V2 span."""
+    spans = []
+    for rows in (assignments, interjections):
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            clip = row.get("assigned_clip") if "assigned_clip" in row \
+                else row
+            if not isinstance(clip, dict):
+                continue
+            try:
+                spans.append((float(clip["timeline_start"]),
+                              float(clip["timeline_end"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return spans
+
+
+# ── Region-scoped re-plan, and putting it back ──────────────────────
+
+def splice_region_transitions(transition_creative: list, timed_spine: dict,
+                              music_selection: dict,
+                              stored_transitions: list, scope,
+                              temporal_event_indices=None,
+                              project_fps: float = 30.0,
+                              creative_direction: dict = None,
+                              brand_effect: dict = None,
+                              music_analysis: dict = None,
+                              b_roll_assignments: list = None,
+                              b_roll_interjections: list = None) -> dict:
+    """Resolve a REGION's fresh transitions and splice them into
+    `stored_transitions` (this step's recorded `transition_spec`).
+
+    A transition sits on a CUT, and a region owns the cuts INTO the
+    blocks it touches - plus the end slot when it touches the last block.
+    The cut out of the region's last block is the next block's, outside.
+    `transition_creative` is the model's answer FOR THE REGION, and every
+    transition on a cut outside it comes back byte-identical; the report
+    MEASURES that.
+
+    Each cut resolves from its own two blocks, the beat grid and the
+    temporal index, and ids count within their cut, so a cut re-plans to
+    the same entry whether or not the others are in the plan.
+
+    A transition no cut carries is downgraded to the hard cut with the
+    reason recorded - the later-pass behaviour, because a splice has no
+    model retry to send it back through.
+
+    Refuses: a region touching no block; a fresh transition on a cut
+    outside the region (`plan_splice`); a merged plan with two
+    transitions on one cut point (`_assert_transitions_distinct`).
+
+    Returns `{"transition_spec": [...], "splice": <report>}`.
+    """
+    from library.tools.plan_splice import (
+        SpliceRefused,
+        splice_entries,
+        splice_report,
+    )
+    from library.tools.post_bridge_retry import MAX_ATTEMPTS
+    from library.tools.spine_contract import blocks_overlapping
+
+    span = scope.region_span
+    structure = timed_spine.get(
+        "structure", timed_spine.get("audio_spine", {}).get("structure", []))
+    touched = blocks_overlapping(structure, span.start, span.end)
+    if not touched:
+        raise SpliceRefused(
+            f"region {span} touches no spine block",
+            "there is nothing in it to re-plan",
+            "address a region inside the timeline")
+    cuts = [b["position"] for b in touched]
+    if touched[-1] is structure[-1]:
+        cuts.append(END_SLOT)
+
+    creative = [v for v in (transition_creative or [])
+                if isinstance(v, dict)]
+    temporal = temporal_event_indices or []
+    if isinstance(temporal, dict):
+        temporal = temporal.get("temporal_event_indices", [])
+    fresh = resolve_transitions(
+        creative, timed_spine, music_selection or {}, temporal, project_fps,
+        creative_direction or {}, brand_effect or {},
+        music_analysis=music_analysis or {},
+        v2_spans=_v2_spans(b_roll_assignments, b_roll_interjections),
+        attempt=MAX_ATTEMPTS)
+
+    stored = list(stored_transitions or [])
+    merged = splice_entries(stored, fresh, cuts, CUT_KEY, "transition_id",
+                            start_key="cut_point_timeline")
+    _assert_transitions_distinct(merged)
+
+    report = splice_report(stored, merged, cuts, CUT_KEY)
+    report["region"] = span.as_address()
+    report["region_proposed"] = len(creative)
+    return {"transition_spec": merged, "splice": report}
+
+
 def main():
     data = json.loads(sys.stdin.read())
 
@@ -1182,20 +1295,8 @@ def main():
     # the b-roll's own track (finding 16). Read defensively - an
     # entry without a usable span is not a span.
     from library.tools.post_bridge_retry import ATTEMPT_KEY
-    v2_spans = []
-    for _key in ("b_roll_assignments", "b_roll_interjections"):
-        for _row in data.get(_key, []) or []:
-            if not isinstance(_row, dict):
-                continue
-            _clip = _row.get("assigned_clip") if "assigned_clip" in _row \
-                else _row
-            if not isinstance(_clip, dict):
-                continue
-            try:
-                v2_spans.append((float(_clip["timeline_start"]),
-                                 float(_clip["timeline_end"])))
-            except (KeyError, TypeError, ValueError):
-                continue
+    v2_spans = _v2_spans(data.get("b_roll_assignments"),
+                         data.get("b_roll_interjections"))
     result = resolve_transitions(creative, spine, music, temporal, fps,
                                  creative_direction, brand_effect,
                                  music_analysis=music_analysis,

@@ -155,6 +155,7 @@ CAPABILITY_NEEDS: dict = {
     "subtitles.splice": CapabilityNeeds(),
     "rough_cut.review": CapabilityNeeds(),
     "transitions.resolve": CapabilityNeeds(_MODEL),
+    "transitions.splice": CapabilityNeeds(_MODEL),
     "vfx.resolve": CapabilityNeeds(_MODEL),
     "vfx.splice": CapabilityNeeds(_MODEL),
     "sfx.resolve": CapabilityNeeds(_MODEL + ("config.sfx_library",)),

@@ -1372,6 +1372,20 @@ _REGISTRY: tuple[Operation, ...] = (
         # promise a scope the function does not keep.
     ),
     Operation(
+        name="transitions.splice",
+        summary="Resolve a region's re-planned transitions and put them back into the stored plan",
+        owning_node="plan_transitions",
+        owning_dir="step_4_02_plan_transitions", body="post_bridge.py",
+        attr="splice_region_transitions",
+        # REGION only, beside `transitions.resolve`: a region owns the
+        # cuts INTO the blocks it touches (plus the end slot on the last
+        # block). The model's answer for those cuts is supplied as
+        # `transition_creative`, the plan it goes INTO as
+        # `stored_transitions`; every other cut comes back byte-identical
+        # (`plan_splice`).
+        scopes=(REGION,),
+    ),
+    Operation(
         name="vfx.resolve",
         summary="Resolve the model's VFX plan to execution specs",
         owning_node="plan_vfx",
