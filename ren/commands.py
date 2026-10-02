@@ -114,7 +114,7 @@ VERBS = (
     Verb("timeline", "Resolve", "Answer what a timeline holds from its recorded generations; touches no Resolve",
          module_argv=("library.tools.timeline_shadow",),
          detail="log, show, clips, markers or diff a timeline's recorded generations (the shadow store). Never reads Resolve"),
-    Verb("resolved", "Resolve", "Run or ask the broker that schedules the one Resolve (serve|status|list|submit|result|stop)",
+    Verb("resolved", "Resolve", "Run or ask the broker that schedules the one Resolve (serve|status|list|submit|result|stop|kpi)",
          module_argv=("library.tools.resolved",)),
 
     Verb("search", "Footage", "Find where in a project's footage something happens",

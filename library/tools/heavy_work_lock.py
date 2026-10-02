@@ -70,8 +70,11 @@ def owns(profile: str = MACHINE) -> bool:
         held, resource_scheduler.demand_for(profile))
 
 
-def take_heavy_lock(owner: str, profile: str = MACHINE) -> None:
-    """Acquire `profile`'s resources, re-entering a grant that covers them."""
+def take_heavy_lock(owner: str, profile: str = MACHINE,
+                    cancelled: Callable[[], bool] | None = None) -> None:
+    """Acquire `profile`'s resources, re-entering a grant that covers them.
+
+    `cancelled` ends a wait early (`resource_scheduler.Cancelled`)."""
     global _held_state
     demand = resource_scheduler.demand_for(profile)
     with _state_guard:
@@ -96,10 +99,21 @@ def take_heavy_lock(owner: str, profile: str = MACHINE) -> None:
                            "demand": held, "previous_env": inherited}
             return
 
-        token = _scheduler().acquire(
-            owner, demand, announce=lambda line: print(line, flush=True))
+        # Built BEFORE the grant: nothing may run between a successful
+        # acquire and `_held_state`, or a signal there (SIGTERM to a
+        # gate) leaves the grant held with nobody to release it.
+        sampler = resource_scheduler.TreeSampler(
+            watch_resolve=bool(demand.get("resolve_cursor")))
+        try:
+            token = _scheduler().acquire(
+                owner, demand, announce=lambda line: print(line, flush=True),
+                cancelled=cancelled)
+        except BaseException:
+            sampler.stop()
+            raise
         _held_state = {"depth": 1, "token": token, "owned": True,
-                       "demand": demand, "previous_env": inherited}
+                       "demand": demand, "previous_env": inherited,
+                       "profile": profile, "sampler": sampler}
         os.environ[OWNER_ENV] = token
 
 
@@ -116,7 +130,8 @@ def release_heavy_lock() -> None:
             return
         try:
             if held["owned"]:
-                _scheduler().release(held["token"])
+                _scheduler().release(held["token"], held["profile"],
+                                     held["sampler"].stop())
         finally:
             previous_env = held["previous_env"]
             if previous_env is None:
@@ -127,9 +142,11 @@ def release_heavy_lock() -> None:
 
 
 @contextmanager
-def heavy_work_lock(owner: str, profile: str = MACHINE) -> Iterator[None]:
+def heavy_work_lock(owner: str, profile: str = MACHINE,
+                    cancelled: Callable[[], bool] | None = None
+                    ) -> Iterator[None]:
     """Context manager for one heavy-work section."""
-    take_heavy_lock(owner, profile)
+    take_heavy_lock(owner, profile, cancelled)
     try:
         yield
     finally:
@@ -149,40 +166,49 @@ def heavy_work_locked(owner: str, profile: str = MACHINE
 
 
 def _run_locked(owner: str, profile: str, command: list[str]) -> int:
-    """Run a child under the grant and forward termination signals to it."""
+    """Run a child under the grant and forward termination signals to it.
+
+    The handler only RECORDS a signal (and forwards it to a running
+    child); it never raises. A handler that raised could land inside the
+    admitting transaction - grant taken, token not yet held - and leave
+    the machine-wide lock held by nobody. A signal before admission ends
+    the wait through `cancelled`; one during admission is seen as soon as
+    the grant is held, and leaving the `with` releases it.
+    """
     if not command:
         raise ValueError("heavy-work: run requires a command after --")
 
     watched = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
     previous_handlers = {sig: signal.getsignal(sig) for sig in watched}
     child: subprocess.Popen | None = None
-    starting_child = False
     received: list[int] = []
+    return_code = 0
 
     def forward(signum, _frame):
         received.append(signum)
-        if child is None:
-            if not starting_child:
-                raise SystemExit(128 + signum)
-            return
-        try:
-            os.killpg(child.pid, signum)
-        except ProcessLookupError:
-            pass
+        if child is not None:
+            try:
+                os.killpg(child.pid, signum)
+            except ProcessLookupError:
+                pass
 
     for sig in watched:
         signal.signal(sig, forward)
     try:
-        with heavy_work_lock(owner, profile):
-            starting_child = True
-            child = subprocess.Popen(command, start_new_session=True)
-            starting_child = False
-            for signum in received:
-                try:
-                    os.killpg(child.pid, signum)
-                except ProcessLookupError:
-                    pass
-            return_code = child.wait()
+        with heavy_work_lock(owner, profile,
+                             cancelled=lambda: bool(received)):
+            if not received:
+                child = subprocess.Popen(command, start_new_session=True)
+                # A signal between the check and `child` being set was
+                # recorded but not forwarded: forward it now.
+                for signum in received:
+                    try:
+                        os.killpg(child.pid, signum)
+                    except ProcessLookupError:
+                        pass
+                return_code = child.wait()
+    except resource_scheduler.Cancelled:
+        pass
     finally:
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)
@@ -198,8 +224,47 @@ def _option(args: list[str], name: str, default: str | None) -> str | None:
     return args[args.index(name) + 1]
 
 
+def _history(days: float) -> str:
+    """Each profile's declared demand beside what its grants measured."""
+    import time
+    grants = _scheduler().history(time.time() - days * 86400)
+    declared = resource_scheduler.profiles()
+    by_profile: dict = {}
+    for grant in grants:
+        by_profile.setdefault(grant["profile"] or "?", []).append(grant)
+    lines = [f"{len(grants)} grant(s) in {days:g} day(s); capacity "
+             f"{resource_scheduler.capacity()}"]
+    for name, rows in sorted(by_profile.items()):
+        sampled = [r for r in rows if r["samples"]]
+        held = [r["finished_at"] - r["started_at"] for r in rows]
+        waited = [r["started_at"] - r["enqueued_at"] for r in rows]
+        lines.append(
+            f"{name}: {len(rows)} grant(s), held max {max(held):.0f}s, "
+            f"waited max {max(waited):.0f}s")
+        lines.append(f"  declared  {declared.get(name, '(not a profile)')}")
+        if sampled:
+            mean_cores = max(r["cpu_s"] / max(1.0, r["finished_at"]
+                                              - r["started_at"])
+                             for r in sampled)
+            lines.append(
+                f"  measured  peak cores max "
+                f"{max(r['peak_cores'] for r in sampled):.2f}, mean cores "
+                f"max {mean_cores:.2f}, peak rss max "
+                f"{max(r['peak_rss_gb'] for r in sampled):.2f} GB")
+            watched = [r for r in sampled
+                       if r["resolve_peak_cores"] is not None]
+            if watched:
+                lines.append(
+                    f"  Resolve   peak cores max "
+                    f"{max(r['resolve_peak_cores'] for r in watched):.2f}, "
+                    f"peak rss max "
+                    f"{max(r['resolve_peak_rss_gb'] for r in watched):.2f}"
+                    f" GB (includes the captain's own use)")
+    return "\n".join(lines)
+
+
 USAGE = ("usage: python -m library.tools.heavy_work_lock "
-         "owns [--profile NAME] | jobs | "
+         "owns [--profile NAME] | jobs | history [--days N] | "
          "run --owner NAME [--profile NAME] -- COMMAND [ARG ...]")
 
 
@@ -211,6 +276,9 @@ def main(argv: list[str] | None = None) -> int:
         for job in _scheduler().jobs():
             print(f"{job['state']:8} pid {job['pid']:>6}  "
                   f"{job['owner']}  {job['demand']}")
+        return 0
+    if args[:1] == ["history"]:
+        print(_history(float(_option(args, "--days", "30"))))
         return 0
     if args[:1] == ["run"] and "--" in args:
         separator = args.index("--")

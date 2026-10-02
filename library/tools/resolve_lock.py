@@ -97,6 +97,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from library.tools import perf_ledger
 from library.tools.ren_refusal import RenRefusal
 from typing import Optional
 
@@ -400,6 +401,11 @@ def _wait_for_captain(purpose: str, timeout: float) -> None:
 
 _depth = 0
 _mode: Optional[str] = None
+# Timeline cursor moves made under this process's outermost lease, for
+# its `resolve_hold` row in the perf ledger, and the last timeline that
+# lease set (`assert_current_timeline`).
+_cursor_switches = 0
+_last_set_id = None
 _sole_writer_reason: Optional[str] = None
 
 
@@ -534,7 +540,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     section; the broker refuses it unless that project is the
     qualification project and is the one open.
     """
-    global _depth, _mode
+    global _depth, _mode, _cursor_switches, _last_set_id
     if _sole_writer_reason is not None:
         # A declared sole writer has no instance to contend for - a test
         # whose Resolve is a mock - so there is nothing to wait on, no
@@ -599,67 +605,89 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     if _entry_holder is not None:
         waited_on = _entry_holder.describe()
     _entry_captain = captain_present() if honor_captain else None
-    if honor_captain:
-        _wait_for_captain(purpose, resolved_timeout)
-    with _broker_turn(purpose, exclusive, not honor_captain,
-                      resolved_timeout, owner or default_owner(),
-                      qualification_project):
-        deadline = time.time() + resolved_timeout
-        lock_dir().mkdir(parents=True, exist_ok=True)
-        handle = open(lock_path(), "a+", encoding="utf-8")
-        try:
-            while not _flock(handle, exclusive, blocking=False):
-                if time.time() >= deadline:
-                    current = holder()
-                    raise ResolveBusy(
-                        f"Resolve is held by "
-                        f"{current.describe() if current else 'another process'}"
-                        f" - waited {resolved_timeout:g}s "
-                        f"for {purpose!r}",
-                        "one instance, no isolation",
-                        "wait for the holder to finish, or come back later - "
-                        "re-run the same command")
-                # Who is holding it NOW, not just who was there at entry:
-                # a handoff mid-wait otherwise misattributes the delay.
-                # One small file read per poll; the most recent holder
-                # seen is what the granted lease names.
-                _during = holder()
-                if _during is not None:
-                    waited_on = _during.describe()
-                time.sleep(_POLL_SECONDS)
-
-            wait_seconds = max(0.0, time.time() - acquire_start)
-            if not waited_on and _entry_captain is not None:
-                waited_on = _entry_captain.describe()
-            lease = Lease(owner=owner or default_owner(), purpose=purpose,
-                          pid=os.getpid(), host=socket.gethostname(),
-                          since=time.time(),
-                          wait_seconds=wait_seconds,
-                          waited_on=waited_on)
-            _depth, _mode = 1, "exclusive" if exclusive else "shared"
-            previous_inherit = os.environ.get(INHERIT_ENV)
-            previous_inherit_mode = os.environ.get(INHERIT_MODE_ENV)
-            os.environ[INHERIT_ENV] = str(os.getpid())
-            os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
-            if exclusive:
-                _write_lease(lease)
+    granted_at = None
+    try:
+        if honor_captain:
+            _wait_for_captain(purpose, resolved_timeout)
+        with _broker_turn(purpose, exclusive, not honor_captain,
+                          resolved_timeout, owner or default_owner(),
+                          qualification_project) as broker_job:
+            deadline = time.time() + resolved_timeout
+            lock_dir().mkdir(parents=True, exist_ok=True)
+            handle = open(lock_path(), "a+", encoding="utf-8")
             try:
-                yield lease
-            finally:
-                _depth, _mode = 0, None
-                if previous_inherit is None:
-                    os.environ.pop(INHERIT_ENV, None)
-                else:
-                    os.environ[INHERIT_ENV] = previous_inherit
-                if previous_inherit_mode is None:
-                    os.environ.pop(INHERIT_MODE_ENV, None)
-                else:
-                    os.environ[INHERIT_MODE_ENV] = previous_inherit_mode
+                while not _flock(handle, exclusive, blocking=False):
+                    if time.time() >= deadline:
+                        current = holder()
+                        raise ResolveBusy(
+                            f"Resolve is held by "
+                            f"{current.describe() if current else 'another process'}"
+                            f" - waited {resolved_timeout:g}s "
+                            f"for {purpose!r}",
+                            "one instance, no isolation",
+                            "wait for the holder to finish, or come back later - "
+                            "re-run the same command")
+                    # Who is holding it NOW, not just who was there at entry:
+                    # a handoff mid-wait otherwise misattributes the delay.
+                    # One small file read per poll; the most recent holder
+                    # seen is what the granted lease names.
+                    _during = holder()
+                    if _during is not None:
+                        waited_on = _during.describe()
+                    time.sleep(_POLL_SECONDS)
+
+                wait_seconds = max(0.0, time.time() - acquire_start)
+                if not waited_on and _entry_captain is not None:
+                    waited_on = _entry_captain.describe()
+                lease = Lease(owner=owner or default_owner(), purpose=purpose,
+                              pid=os.getpid(), host=socket.gethostname(),
+                              since=time.time(),
+                              wait_seconds=wait_seconds,
+                              waited_on=waited_on)
+                _depth, _mode = 1, "exclusive" if exclusive else "shared"
+                previous_inherit = os.environ.get(INHERIT_ENV)
+                previous_inherit_mode = os.environ.get(INHERIT_MODE_ENV)
+                os.environ[INHERIT_ENV] = str(os.getpid())
+                os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
                 if exclusive:
-                    _clear_lease()
-                _unflock(handle)
-        finally:
-            handle.close()
+                    _write_lease(lease)
+                granted_at = time.time()
+                _cursor_switches, _last_set_id = 0, None
+                perf_ledger.record(perf_ledger.RESOLVE_WAIT, wait_seconds,
+                                   started_at=acquire_start, outcome="granted",
+                                   purpose=purpose, exclusive=exclusive)
+                try:
+                    with perf_ledger.span(perf_ledger.RESOLVE_HOLD,
+                                          purpose=purpose, exclusive=exclusive,
+                                          broker_job=broker_job) as held:
+                        try:
+                            yield lease
+                        finally:
+                            held["held_s"] = round(time.time() - granted_at, 3)
+                        held["timeline_switches"] = _cursor_switches
+                finally:
+                    _depth, _mode = 0, None
+                    if previous_inherit is None:
+                        os.environ.pop(INHERIT_ENV, None)
+                    else:
+                        os.environ[INHERIT_ENV] = previous_inherit
+                    if previous_inherit_mode is None:
+                        os.environ.pop(INHERIT_MODE_ENV, None)
+                    else:
+                        os.environ[INHERIT_MODE_ENV] = previous_inherit_mode
+                    if exclusive:
+                        _clear_lease()
+                    _unflock(handle)
+            finally:
+                handle.close()
+    finally:
+        if granted_at is None:
+            # A refused acquisition lost its seconds as surely as a
+            # granted one did; the run's ledger says so.
+            perf_ledger.record(perf_ledger.RESOLVE_WAIT,
+                               time.time() - acquire_start,
+                               started_at=acquire_start, outcome="refused",
+                               purpose=purpose, exclusive=exclusive)
 
 
 @contextmanager
@@ -998,6 +1026,7 @@ def assert_current_timeline(project, expected_timeline):
     caller may remember or forget: the check every write path already
     makes now refuses without it.
     """
+    global _cursor_switches, _last_set_id
     if not held():
         raise UnguardedPlacementError(
             f"placing into {_timeline_name(expected_timeline)!r} without "
@@ -1019,12 +1048,19 @@ def assert_current_timeline(project, expected_timeline):
     # which is why the original check could enforce the precondition
     # and still not know it had been violated.
     fence = current_fence()
+    before = _last_set_id
     if fence is not None and fence.expected_id is not None:
         found = project.GetCurrentTimeline()
-        if _timeline_id(found) != fence.expected_id:
+        before = _timeline_id(found)
+        if before != fence.expected_id:
             fence.drift_seen.append(CursorDrift(
                 expected=fence.expected_name, found=_timeline_name(found),
                 at=f"inside {fence.purpose!r}"))
+    # Counted from what is already known - the fence's read, else the
+    # last timeline this hold set - never from an extra Resolve call, so
+    # an unfenced first write is not counted: a lower bound.
+    if before is not None and before != _timeline_id(expected_timeline):
+        _cursor_switches += 1
 
     project.SetCurrentTimeline(expected_timeline)
     current = project.GetCurrentTimeline()
@@ -1033,6 +1069,7 @@ def assert_current_timeline(project, expected_timeline):
             f"Timeline race: expected {expected_timeline.GetName()}, but "
             f"got {current.GetName() if current else 'None'}. Mutator "
             f"changed it!")
+    _last_set_id = _timeline_id(expected_timeline)
 
 
 # ── The captain's terminal: set it, see it, clear it ────────────────

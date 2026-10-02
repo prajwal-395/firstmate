@@ -96,6 +96,14 @@ CREATE TABLE IF NOT EXISTS generations (
 );
 CREATE INDEX IF NOT EXISTS generations_by_name
     ON generations (project, timeline_name);
+-- One row per question answered here instead of by a live read: the
+-- "live reads avoided" KPI (`library/tools/resolved/kpi.py`).
+CREATE TABLE IF NOT EXISTS answers (
+    answered_at REAL NOT NULL,
+    command     TEXT NOT NULL,
+    project     TEXT NOT NULL,
+    timeline_id TEXT NOT NULL
+);
 """
 
 
@@ -252,6 +260,17 @@ class ShadowStore:
                 f"{timeline!r} ({', '.join(ids)}); name one by its id")
         return ids[0]
 
+    def answered(self, command: str, project: str, timeline_id: str) -> None:
+        """Count one question this store answered in place of Resolve."""
+        with self._connect() as db:
+            db.execute("INSERT INTO answers VALUES (?, ?, ?, ?)",
+                       (time.time(), command, project, timeline_id))
+
+    def answers_since(self, since: float) -> int:
+        with self._connect() as db:
+            return db.execute("SELECT COUNT(*) FROM answers WHERE"
+                              " answered_at >= ?", (since,)).fetchone()[0]
+
     # ── writes ──
 
     def record(self, *, project: str, timeline_id: str, timeline_name: str,
@@ -310,6 +329,14 @@ class ShadowStore:
 
 
 # ── The live half: one read, under the reader's own lease ─────────────
+
+
+def answers_since(since: float, path: Path | None = None) -> int | None:
+    """Questions answered since `since`; None where no store exists yet."""
+    target = Path(path) if path is not None else default_db_path()
+    if not target.exists():
+        return None
+    return ShadowStore(target).answers_since(since)
 
 
 def timeline_key(resolve_project, timeline) -> tuple:
@@ -452,6 +479,7 @@ def _main(argv=None) -> int:
     except ShadowError as missing:
         print(f"timeline_shadow: {missing}", file=sys.stderr)
         return 2
+    store.answered(args.command, args.project, timeline_id)
     print(json.dumps(out, indent=2, sort_keys=True, default=str))
     return 0
 

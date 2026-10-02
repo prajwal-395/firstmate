@@ -23,6 +23,13 @@ Two kinds of row, appended to `pipeline_output/logs/perf_ledger.jsonl`
                 calls, tokens, decoded source seconds, subprocesses,
                 cache hits/misses, bytes, peak RSS.
 
+The Resolve lease (`resolve_lock.resolve_lease`) writes two spans of its
+own: `resolve_wait`, the seconds an acquisition waited, granted or
+refused, and `resolve_hold`, the seconds it held Resolve. `ren profile`
+reads them back as the run's share of agent time lost waiting for
+Resolve (`resolve_kpis`); the machine's side - every broker job, every
+agent - is `ren resolved kpi` (`library/tools/resolved/kpi.py`).
+
 A step runs as a subprocess, so the front door hands the ledger's path,
 the run and the capability to its children through the environment
 (`LEDGER_ENV`, `RUN_ENV`, `CAPABILITY_ENV`). A span with no ledger in its
@@ -39,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import resource
 import sys
@@ -55,6 +63,11 @@ CAPABILITY_ENV = "REN_PERF_CAPABILITY"
 
 CAPABILITY = "capability"
 SPAN = "span"
+
+# The Resolve lease's two layers (`resolve_lock.resolve_lease`): the
+# seconds a capability waited for its turn, and the seconds it held it.
+RESOLVE_WAIT = "resolve_wait"
+RESOLVE_HOLD = "resolve_hold"
 
 # ru_maxrss is bytes on macOS and kilobytes on Linux.
 _RSS_TO_MB = 1 / (1024 * 1024) if sys.platform == "darwin" else 1 / 1024
@@ -240,21 +253,30 @@ def span(layer: str, **fields: Any) -> Iterator[Dict[str, Any]]:
         _append(path, row)
 
 
-def record(layer: str, wall_s: float, **fields: Any) -> None:
-    """A span for an interval the caller already measured, ENDING now.
+def record(layer: str, wall_s: float, started_at: Optional[float] = None,
+           **fields: Any) -> None:
+    """A span for an interval the caller already measured.
 
     For a layer whose wait is a loop that already times itself (a host
-    model's answer through the file handshake). A leaf: nothing nested
-    inside it is subtracted.
+    model's answer through the file handshake, a Resolve lease's
+    acquisition). The interval ends now unless `started_at` says where
+    it began. A leaf: nothing nested inside it is subtracted, but it IS
+    subtracted from an enclosing `span`, so its seconds are counted once.
     """
     path = os.environ.get(LEDGER_ENV)
     if not path:
         return
     wall_s = max(0.0, float(wall_s))
+    if started_at is None:
+        started_at = time.time() - wall_s
+    stack = getattr(_local, "stack", None)
+    if stack:
+        stack[-1]["child_wall"] += wall_s
+        stack[-1]["children"].append((started_at, started_at + wall_s))
     _append(path, {**fields, "kind": SPAN, "layer": layer,
                    "run_id": os.environ.get(RUN_ENV),
                    "capability": os.environ.get(CAPABILITY_ENV),
-                   "started_at": round(time.time() - wall_s, 3),
+                   "started_at": round(started_at, 3),
                    "wall_s": round(wall_s, 3)})
 
 
@@ -308,7 +330,7 @@ def _gaps(outer: tuple, inner: List[tuple]) -> List[List[float]]:
     return gaps
 
 
-def _union_s(intervals: List[tuple]) -> float:
+def union_s(intervals: List[tuple]) -> float:
     """Seconds covered by a set of (start, end) intervals."""
     total, reach = 0.0, None
     for begin, finish in sorted(intervals):
@@ -363,7 +385,7 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
         by_cap.setdefault(cap, []).extend(intervals_of(s))
     layer_sum = 0.0
     for (_cap, layer), intervals in by_cap_layer.items():
-        covered = _union_s(intervals)
+        covered = union_s(intervals)
         buckets[layer]["wall_s"] += covered
         layer_sum += covered
 
@@ -374,7 +396,7 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
         cap = str(c.get("capability"))
         cap_names.add(cap)
         wall = float(c.get("wall_s") or 0.0)
-        covered = min(wall, _union_s(by_cap.get(cap, [])))
+        covered = min(wall, union_s(by_cap.get(cap, [])))
         inside += covered
         bucket(f"{cap} (other)")["wall_s"] += max(0.0, wall - covered)
         per_capability.append({k: c.get(k) for k in (
@@ -392,7 +414,73 @@ def profile(rows: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
     return {"run_id": run_id, "total_wall_s": round(total, 3),
             "overlap_s": round(max(0.0, layer_sum - inside), 3),
             "lines": lines, "capabilities": per_capability,
+            "resolve": resolve_kpis(spans, total, caps),
             "spans_without_capability_row": sorted(set(by_cap) - cap_names)}
+
+
+def quantile(values: List[float], q: float) -> Optional[float]:
+    """Nearest-rank quantile; None for no values (never a zero)."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    return round(ordered[max(0, math.ceil(q * len(ordered)) - 1)], 3)
+
+
+def resolve_kpis(spans: List[Dict[str, Any]], total_wall_s: float,
+                 caps: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """What one run paid for the one Resolve.
+
+    `blocked_s` is the time the run's capabilities spent waiting for a
+    Resolve lease (`RESOLVE_WAIT` rows: the captain's signal, the
+    broker's queue and the flock, granted or refused); `useful_s` is
+    the rest of the run's capability wall. `lost_ratio` is blocked over
+    total - the single-Resolve plan's KPI: once it is small, software
+    has nothing left to win from one Resolve instance. `held_s` is the
+    time the run held Resolve and `exclusive_held_s` the part no other
+    lease could share, and `timeline_switches` the cursor moves made
+    under those holds. `concurrency` is how many capabilities ran at
+    once on average outside Resolve: each capability's seconds outside
+    its own waits and holds, over the wall clock those seconds cover.
+    """
+    waits = [s for s in spans if s.get("layer") == RESOLVE_WAIT]
+    holds = [s for s in spans if s.get("layer") == RESOLVE_HOLD]
+    renders = [s for s in spans if s.get("layer") == "resolve_render"]
+    blocked = sum(float(s.get("wall_s") or 0.0) for s in waits)
+    wait_values = [float(s.get("wall_s") or 0.0) for s in waits]
+    in_resolve: Dict[str, List[tuple]] = {}
+    for rows, length_key in ((waits, "wall_s"), (holds, "held_s")):
+        for s in rows:
+            begin = float(s.get("started_at") or 0.0)
+            in_resolve.setdefault(str(s.get("capability")), []).append(
+                (begin, begin + float(s.get(length_key) or 0.0)))
+    free: List[tuple] = []
+    for c in caps:
+        begin = float(c.get("started_at") or 0.0)
+        outer = (begin, begin + float(c.get("wall_s") or 0.0))
+        free.extend(tuple(g) for g in _gaps(
+            outer, in_resolve.get(str(c.get("capability")), [])))
+    free_s = sum(end - begin for begin, end in free)
+    clock = union_s(free)
+    return {
+        "leases": len(holds),
+        "refused": sum(1 for s in waits if s.get("outcome") == "refused"),
+        "blocked_s": round(blocked, 3),
+        "useful_s": round(max(0.0, total_wall_s - blocked), 3),
+        "lost_ratio": (round(blocked / total_wall_s, 4)
+                       if total_wall_s else None),
+        "wait_p50_s": quantile(wait_values, 0.5),
+        "wait_p95_s": quantile(wait_values, 0.95),
+        "held_s": round(sum(float(s.get("held_s") or 0.0)
+                            for s in holds), 3),
+        "exclusive_held_s": round(sum(float(s.get("held_s") or 0.0)
+                                      for s in holds if s.get("exclusive")),
+                                  3),
+        "render_s": round(sum(float(s.get("wall_s") or 0.0)
+                              for s in renders), 3),
+        "timeline_switches": sum(int(s.get("timeline_switches") or 0)
+                                 for s in holds),
+        "concurrency": round(free_s / clock, 2) if clock else None,
+    }
 
 
 def render(report: Dict[str, Any]) -> str:
@@ -424,10 +512,31 @@ def render(report: Dict[str, Any]) -> str:
         out.append("Spans with no capability row (the run did not finish "
                    "them, or ran outside a front door): "
                    + ", ".join(report["spans_without_capability_row"]))
+    kpi = report.get("resolve") or {}
+    if kpi.get("leases") or kpi.get("blocked_s"):
+        out.append("")
+        ratio = kpi["lost_ratio"]
+        out.append(
+            f"Resolve: {kpi['blocked_s']:.1f}s waiting / "
+            f"{total:.1f}s capability wall = "
+            f"{100 * ratio:.1f}% of agent time lost to Resolve"
+            if ratio is not None else "Resolve: no capability wall")
+        out.append(
+            f"  {kpi['leases']} lease(s), {kpi['refused']} refused; wait "
+            f"p50 {_seconds(kpi['wait_p50_s'])} p95 "
+            f"{_seconds(kpi['wait_p95_s'])}; held {kpi['held_s']:.1f}s "
+            f"({kpi['exclusive_held_s']:.1f}s exclusive); render "
+            f"{kpi['render_s']:.1f}s; {kpi['timeline_switches']} timeline "
+            f"switch(es); free-work concurrency "
+            f"{kpi['concurrency'] if kpi['concurrency'] is not None else '-'}")
     if report["overlap_s"] >= 0.05:
         out.append(f"{report['overlap_s']:.1f}s ran in two layers at once "
                    f"and is counted in both, so the shares add past 100%.")
     return "\n".join(out)
+
+
+def _seconds(value: Optional[float]) -> str:
+    return "-" if value is None else f"{value:.2f}s"
 
 
 def _resolve_project(ref: str) -> str:

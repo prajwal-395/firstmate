@@ -41,6 +41,14 @@ jobs cannot starve a large one. A row whose process is gone is reaped by
 the next transaction; a reused pid only keeps a row alive longer, which
 errs toward exclusion, never toward double admission.
 
+What a grant really used
+------------------------
+Every grant is sampled while it runs (`TreeSampler`) and kept in the
+`grants` table when it is released;
+`python3 -m library.tools.heavy_work_lock history` sets the measured peak
+cores and resident memory beside each profile's declaration, which is
+how a declaration above is checked.
+
 The bridge to the old lock
 --------------------------
 Lanes still on code from before this module take the old mkdir lock at
@@ -61,6 +69,8 @@ import json
 import os
 import socket
 import sqlite3
+import subprocess
+import threading
 import time
 import uuid
 from contextlib import closing
@@ -71,10 +81,16 @@ RESOURCES = ("resolve_cursor", "resolve_render", "cpu", "gpu", "ram_gb",
              "disk")
 RAM_RESERVE_GB = 8
 DISK_CAPACITY = 4
+# Resolve's own process, by executable name (`TreeSampler`).
+RESOLVE_PROCESS = "Resolve"
 DB_FILENAME = "resource-scheduler.sqlite3"
 OWNER_FILE = "owner"
 POLL_SECONDS = 0.5
 BUSY_TIMEOUT_MS = 30_000
+
+
+class Cancelled(Exception):
+    """A waiter's `cancelled` answered True before it was admitted."""
 
 
 def _physical_ram_gb() -> int:
@@ -196,6 +212,25 @@ class Scheduler:
             " demand TEXT NOT NULL,"
             " enqueued_at REAL NOT NULL,"
             " started_at REAL)")
+        # What each finished grant really used, for checking `profiles()`.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS grants ("
+            " owner TEXT NOT NULL,"
+            " profile TEXT NOT NULL,"
+            " demand TEXT NOT NULL,"
+            " enqueued_at REAL NOT NULL,"
+            " started_at REAL NOT NULL,"
+            " finished_at REAL NOT NULL,"
+            " cpu_s REAL,"
+            " peak_cores REAL,"
+            " peak_rss_gb REAL,"
+            " samples INTEGER,"
+            " resolve_peak_cores REAL,"
+            " resolve_peak_rss_gb REAL)")
+        have = {row[1] for row in conn.execute("PRAGMA table_info(grants)")}
+        for column in ("resolve_peak_cores", "resolve_peak_rss_gb"):
+            if column not in have:     # a table from before the column
+                conn.execute(f"ALTER TABLE grants ADD COLUMN {column} REAL")
         return conn
 
     def _transaction(self, body: Callable[[sqlite3.Connection], object]):
@@ -266,8 +301,16 @@ class Scheduler:
 
     # ── jobs ──
     def acquire(self, owner: str, demand: Dict[str, int],
-                announce: Callable[[str], None] = print) -> str:
-        """Block until `demand` is admitted; return the job's token."""
+                announce: Callable[[str], None] = print,
+                cancelled: Optional[Callable[[], bool]] = None) -> str:
+        """Block until `demand` is admitted; return the job's token.
+
+        `cancelled` is polled between attempts; once it answers True the
+        wait ends with `Cancelled`, its row removed. It is the way to
+        stop a waiter from a signal handler: a handler that RAISES can
+        land inside the admitting transaction, after the grant is taken
+        and before anyone holds its token to release it.
+        """
         cap = capacity()
         if not _fits([demand], cap):
             raise ValueError(f"resource scheduler: {owner!r} demands "
@@ -285,6 +328,9 @@ class Scheduler:
                     lambda conn: self._try_admit(conn, token, demand, cap))
                 if not blockers:
                     return token
+                if cancelled is not None and cancelled():
+                    raise Cancelled(f"resource scheduler: {owner!r} stopped "
+                                    "waiting")
                 if not announced:
                     announce("heavy-work: waiting for " + "; ".join(blockers))
                     announced = True
@@ -318,13 +364,25 @@ class Scheduler:
                      " WHERE token = ?", (time.time(), token))
         return []
 
-    def release(self, token: str) -> None:
+    def release(self, token: str, profile: str = "",
+                measured: Optional[Dict[str, float]] = None) -> None:
+        """End a running job; keep what it used in `grants`."""
         def body(conn):
-            gone = conn.execute("DELETE FROM jobs WHERE token = ?"
-                                " AND state = 'running'", (token,)).rowcount
-            if not gone:
+            row = conn.execute(
+                "SELECT owner, demand, enqueued_at, started_at FROM jobs"
+                " WHERE token = ? AND state = 'running'", (token,)).fetchone()
+            if row is None:
                 raise RuntimeError("resource scheduler: release of a job "
                                    "that is not running; refusing")
+            conn.execute("DELETE FROM jobs WHERE token = ?", (token,))
+            used = measured or {}
+            try:
+                _record_grant(conn, row, profile, used)
+            except sqlite3.Error:
+                # A measurement that fails to persist never fails the
+                # release (seen 2026-10-02: a waiter on older code met a
+                # newer table and the gate's grant raised on release).
+                pass
             self._reap(conn)
             self._drop_legacy_dir_if_idle(conn)
         self._transaction(body)
@@ -338,6 +396,15 @@ class Scheduler:
             return json.loads(row[0]) if row else None
         return self._transaction(body)
 
+    def history(self, since: float = 0.0) -> list:
+        """Every finished grant since `since`, oldest first, as dicts."""
+        def body(conn):
+            conn.row_factory = sqlite3.Row
+            return [dict(r) for r in conn.execute(
+                "SELECT * FROM grants WHERE finished_at >= ?"
+                " ORDER BY finished_at", (since,)).fetchall()]
+        return self._transaction(body)
+
     def jobs(self) -> list:
         """Every live row, oldest first, as dicts."""
         def body(conn):
@@ -348,6 +415,154 @@ class Scheduler:
         return [{"owner": o, "pid": p, "state": s, "demand": json.loads(d),
                  "enqueued_at": e, "started_at": st}
                 for o, p, s, d, e, st in self._transaction(body)]
+
+
+class TreeSampler:
+    """What one grant's process tree really uses, sampled while it runs.
+
+    Every `SAMPLE_SECONDS` one `ps` over the machine: the tree is this
+    process and every descendant. Resident memory is SUMMED across the
+    tree - a gate's pytest workers each hold their own - and cores are
+    the tree's CPU-time growth over the interval, so a burst between
+    samples is averaged into its interval, never missed. A process that
+    is not a descendant (a model server the work talks to over a socket)
+    is not in the tree, and its use is not measured here. Resolve is the
+    exception that matters: with `watch_resolve` (a grant demanding the
+    cursor) its own process is sampled the same way into
+    `resolve_peak_cores` / `resolve_peak_rss_gb`, kept apart because the
+    captain's live use of Resolve lands there too. Its cores are sound;
+    its RSS is NOT its memory - macOS keeps most of Resolve's in GPU and
+    compressed pages `ps` does not count (0.06 GB RSS with a project
+    open), so a ram declaration for Resolve needs a footprint reading.
+    `cpu_s` is the grant's whole CPU time from `getrusage`.
+    """
+
+    SAMPLE_SECONDS = 2.0
+
+    def __init__(self, watch_resolve: bool = False) -> None:
+        import resource
+        self.watch_resolve = watch_resolve
+        self._resolve_last: Dict[int, float] = {}
+        self.resolve_peak_cores = 0.0
+        self.resolve_peak_rss_gb = 0.0
+        self._resource = resource
+        self._cpu0 = self._cpu()
+        self._stop = threading.Event()
+        self._last: Dict[int, float] = {}
+        self._last_at = 0.0
+        self.peak_cores = 0.0
+        self.peak_rss_gb = 0.0
+        self.samples = 0
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name="heavy-work-sampler")
+        self._thread.start()
+
+    def _cpu(self) -> float:
+        total = 0.0
+        for who in (self._resource.RUSAGE_SELF,
+                    self._resource.RUSAGE_CHILDREN):
+            usage = self._resource.getrusage(who)
+            total += usage.ru_utime + usage.ru_stime
+        return total
+
+    def _loop(self) -> None:
+        while True:
+            self._sample()
+            if self._stop.wait(self.SAMPLE_SECONDS):
+                return
+
+    def _sample(self) -> None:
+        try:
+            out = subprocess.run(
+                ["ps", "-A", "-o", "pid=,ppid=,rss=,time=,comm="],
+                capture_output=True, encoding="utf-8", timeout=10,
+                check=False).stdout
+        except (OSError, subprocess.SubprocessError):
+            return
+        children: Dict[int, list] = {}
+        stats: Dict[int, tuple] = {}
+        resolve: set = set()
+        for line in out.splitlines():
+            parts = line.split(None, 4)
+            if len(parts) != 5:
+                continue
+            if os.path.basename(parts[4]) == RESOLVE_PROCESS:
+                resolve.add(int(parts[0]))
+            try:
+                pid, ppid, rss_kb = int(parts[0]), int(parts[1]), int(parts[2])
+                cpu = _cpu_seconds(parts[3])
+            except ValueError:
+                continue
+            children.setdefault(ppid, []).append(pid)
+            stats[pid] = (rss_kb, cpu)
+        tree, frontier = set(), [os.getpid()]
+        while frontier:
+            pid = frontier.pop()
+            if pid in tree:
+                continue
+            tree.add(pid)
+            frontier.extend(children.get(pid, []))
+        now = time.monotonic()
+        rss = sum(stats[pid][0] for pid in tree if pid in stats)
+        cpu = {pid: stats[pid][1] for pid in tree if pid in stats}
+        theirs = {pid: stats[pid][1] for pid in resolve if pid in stats}
+        if self._last_at:
+            elapsed = max(1e-6, now - self._last_at)
+            self.peak_cores = max(self.peak_cores,
+                                  _grown(self._last, cpu) / elapsed)
+            if self.watch_resolve:
+                self.resolve_peak_cores = max(
+                    self.resolve_peak_cores,
+                    _grown(self._resolve_last, theirs) / elapsed)
+        self._last, self._resolve_last, self._last_at = cpu, theirs, now
+        self.peak_rss_gb = max(self.peak_rss_gb, rss / 2 ** 20)
+        if self.watch_resolve:
+            self.resolve_peak_rss_gb = max(
+                self.resolve_peak_rss_gb,
+                sum(stats[pid][0] for pid in theirs) / 2 ** 20)
+        self.samples += 1
+
+    def stop(self) -> Dict[str, float]:
+        """The peaks so far. A release never waits on a measurement: a
+        sample still in flight on a starved machine is left behind."""
+        self._stop.set()
+        self._thread.join(timeout=0.5)
+        return {"cpu_s": round(self._cpu() - self._cpu0, 1),
+                "peak_cores": round(self.peak_cores, 2),
+                "peak_rss_gb": round(self.peak_rss_gb, 2),
+                "samples": self.samples,
+                **({"resolve_peak_cores": round(self.resolve_peak_cores, 2),
+                    "resolve_peak_rss_gb": round(self.resolve_peak_rss_gb,
+                                                 2)}
+                   if self.watch_resolve else {})}
+
+
+def _grown(before: Dict[int, float], after: Dict[int, float]) -> float:
+    """CPU seconds a set of processes gained between two samples."""
+    return sum(max(0.0, value - before.get(pid, 0.0))
+               for pid, value in after.items())
+
+
+def _cpu_seconds(text: str) -> float:
+    """`ps` TIME, `[[DD-]HH:]MM:SS.ss`, as seconds."""
+    days, _, clock = text.rpartition("-")
+    seconds = 0.0
+    for part in clock.split(":"):
+        seconds = seconds * 60 + float(part)
+    return seconds + (int(days) * 86400 if days else 0)
+
+
+def _record_grant(conn, row, profile: str, used: Dict[str, float]) -> None:
+    """Keep one finished grant's measured use in `grants`."""
+    conn.execute(
+        "INSERT INTO grants (owner, profile, demand, enqueued_at,"
+        " started_at, finished_at, cpu_s, peak_cores, peak_rss_gb,"
+        " samples, resolve_peak_cores, resolve_peak_rss_gb)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (row[0], profile, row[1], row[2], row[3], time.time(),
+         used.get("cpu_s"), used.get("peak_cores"), used.get("peak_rss_gb"),
+         used.get("samples"), used.get("resolve_peak_cores"),
+         used.get("resolve_peak_rss_gb")))
 
 
 def _label(owner: dict) -> str:

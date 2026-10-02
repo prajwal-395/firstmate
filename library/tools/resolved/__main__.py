@@ -1,4 +1,4 @@
-"""`ren resolved serve|status|list|stop|submit|result` (see the package)."""
+"""`ren resolved serve|status|list|stop|submit|result|kpi` (see the package)."""
 
 from __future__ import annotations
 
@@ -30,12 +30,19 @@ def main(argv=None) -> int:
     result = verbs.add_parser("result", help="a job's receipt")
     result.add_argument("id")
     result.add_argument("--wait", type=float, default=0.0)
+    kpi = verbs.add_parser("kpi", help="what Resolve cost, off the receipts")
+    kpi.add_argument("--hours", type=float, default=24.0,
+                     help="the window, ending now (default 24)")
+    kpi.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     if args.verb == "serve":
         from library.tools.resolved.server import serve
         serve()
         return 0
+    if args.verb == "kpi":
+        from library.tools.resolved import kpi as kpi_report
+        return kpi_report.main(args.hours, args.json)
     if args.verb == "status":
         answer = client.ping()
         print(json.dumps({"serving": answer is not None,
