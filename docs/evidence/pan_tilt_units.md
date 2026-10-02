@@ -1,7 +1,7 @@
 # Resolve Pan/Tilt units
 
 `tests/unit/resolve/test_resolve_transform.py` and
-`tests/unit/resolve/test_draw_gain_measured.py` pin the measured conversion and its
+`tests/unit/resolve/test_resolve_transform.py` pin the measured conversion and its
 callers. `library/tools/resolve_transform.py` is the one law and the
 authoritative source for the measurement cells.
 

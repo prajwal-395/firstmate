@@ -2,7 +2,7 @@
 
 History moved out of test module docstrings; the tests keep the invariant.
 
-## `tests/unit/reels/test_rough_cut_gate.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_rough_cut.py` (moved from its module docstring, 2026-10-02)
 
 A rejected rough cut refuses re-entry, and the override is recorded.
 
@@ -36,7 +36,7 @@ Three constraints, and this file tests all three:
 3. it is NOT REACHABLE BY DEFAULT - a requirement must opt in, and
    naming one that has not is refused.
 
-## `tests/unit/reels/test_rough_cut_actual_script.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_rough_cut.py` (moved from its module docstring, 2026-10-02)
 
 Check 5's reconstruction is script work, and now a script does it.
 

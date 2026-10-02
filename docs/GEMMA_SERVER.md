@@ -107,7 +107,7 @@ Knobs:
 | `GEMMA_SERVER_MODEL` | `mlx-community/gemma-4-12b-it-4bit` | Model id sent in chat requests |
 | `GEMMA_SERVER_TIMEOUT` | `300` | Seconds per HTTP request |
 
-Tests: `tests/unit/picture/test_vision_model_server.py` (mocked server; no model
+Tests: `tests/unit/picture/test_vision_model.py` (mocked server; no model
 load). Live proof on 2026-09-09: `analyze_image` + `analyze_video`
 through the module against the running server, both answered over the
 server path.

@@ -2,7 +2,7 @@
 
 Narrative moved verbatim out of test module docstrings; the tests keep the invariant.
 
-## `tests/unit/reels/test_reel_f7_placed_floor.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_conformance_verifier.py` module docstring (moved 2026-10-02)
 
 ```text
 F7 measures PLACED item durations against the readability floor, with

@@ -82,7 +82,7 @@ survived; a genuinely fresh project cannot start.
 `interface.inputs: []`. Unrunnable by construction on any fresh project.
 
 `gather_step_inputs` now supplies a process-level input to a step that
-**declares** it, and only to that step. `tests/contracts/test_entry_step_inputs.py`
+**declares** it, and only to that step. `tests/contracts/test_context_contracts.py`
 reads `step.py`'s own AST for the keys it pulls off the stdin payload and
 asserts the manifest declares them.
 
@@ -539,7 +539,7 @@ for the look, calm energy, 30-60s duration, sparse SFX, restrained
 transitions, and the caption colours the series names. This is a design
 job, not a config change, and it has one hard dependency: the series
 specifies **Nanum Pen Script**, which is not bundled, and
-`tests/contracts/test_bundled_fonts.py` fails a template naming a font that is
+`tests/contracts/test_asset_policy.py` fails a template naming a font that is
 neither bundled nor an accepted system font. Nanum Pen Script is licensed
 OFL 1.1, the same licence as the Montserrat already shipped under section
 11 of `AGENTS.md`, so bundling it is permitted - but it is a separate

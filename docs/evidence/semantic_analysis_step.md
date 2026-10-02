@@ -1,6 +1,6 @@
 # Step 1.03 re-analysed footage it had already analysed
 
-Tests: `tests/unit/picture/test_semantic_analysis_step.py`.
+Tests: `tests/unit/picture/test_picture_view.py`.
 
 This file used to cover `_rename_profile`, a helper that renamed each
 fresh profile from the media file's stem to the catalog's `clip_XXX` id.

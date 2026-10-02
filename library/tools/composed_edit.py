@@ -59,7 +59,7 @@ The refusal is structural, in four places:
 **Where "structural" stops.**  A caller that does not use this module
 can always call `ImportFusionComp` itself.  That boundary is enforced by
 a test that fails when library code reaches for the destructive call
-outside the modules that own it (`tests/unit/resolve/test_composed_edit_refusal.py`).
+outside the modules that own it (`tests/unit/resolve/test_composed_edit.py`).
 
 ── What a composed edit cannot carry across ───────────────────────────
 

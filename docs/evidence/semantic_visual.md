@@ -36,7 +36,7 @@ The structural no-keyword-table source scan (`test_the_engine_carries_no_keyword
 
 ## The planner was never asked (authoring)
 
-Tests: `tests/unit/picture/test_semantic_visual_authoring.py`.
+Tests: `tests/unit/picture/test_semantic_visual.py`.
 
 PR 738 landed the mechanism - an entry names a free-text `subject` and an
 `anchor_phrase`, and the visual arrives on that word's measured window -

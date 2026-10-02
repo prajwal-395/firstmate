@@ -64,7 +64,7 @@ it, and a note dropped AGAIN after discharge reopens with its prior
 discharge kept in `history` - a discharge said that instance was
 handled, and a new drop is a new fact.
 
-`tests/unit/resolve/test_uncarried_notes.py`.
+`tests/unit/resolve/test_marker_carry.py`.
 """
 
 from __future__ import annotations

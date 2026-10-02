@@ -1,6 +1,6 @@
 # Transitions ride their own track (finding 16) and the finding-32 retry
 
-Tests: `tests/unit/picture/test_transition_own_track_and_retry.py`.
+Tests: `tests/unit/picture/test_transition_placement.py`.
 
 Finding 16 + the finding-32 retry: transitions ride their own track.
 
@@ -26,7 +26,7 @@ the hard-cut fallback ship, surfaced on the row.
 
 ## Finding 32: a misplaced transition downgrades instead of failing the compile
 
-Tests: `tests/unit/picture/test_misplaced_transition_downgrades.py`.
+Tests: `tests/unit/picture/test_transition_planning.py`.
 
 Finding 32: a transition 4.02 accepts can refuse the whole compile.
 

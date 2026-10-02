@@ -42,7 +42,7 @@ any frame.
 The audit that found no step had seen the picture, the measured strip
 cost, and the accounting of which recorded interventions a watcher would
 have caught: docs/evidence/render_watch.md and
-`docs/WATCHING_THE_BUILT_REEL.md`.  `tests/unit/resolve/test_render_watch_in_render.py`.
+`docs/WATCHING_THE_BUILT_REEL.md`.  `tests/unit/resolve/test_render_qa.py`.
 """
 
 from __future__ import annotations

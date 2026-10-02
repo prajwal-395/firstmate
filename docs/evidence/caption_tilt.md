@@ -31,4 +31,4 @@ is 10px and a canvas centred at full-frame y 1395 reads Tilt -1740.0 while the
 Reel 13 and Reel 09 actually store, read off the live timelines. Pinned as
 history at explicit gain 1.0 (HISTORY_GAIN in `test_tight_box.py`); under
 today's gain the same rows store half these Tilts
-(`tests/unit/resolve/test_draw_gain_measured.py`).
+(`tests/unit/resolve/test_resolve_transform.py`).

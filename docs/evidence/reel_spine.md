@@ -115,7 +115,7 @@ fabricated block (AGENTS.md 10.5).
 `tests/unit/reels/test_reel_spine.py`.
 ```
 
-## `tests/unit/reels/test_reel_fragment_blocks.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_proposal.py` module docstring (moved 2026-10-02)
 
 ```text
 A mid-sentence transcript row is given back to its sentence.

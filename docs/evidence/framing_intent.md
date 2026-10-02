@@ -118,7 +118,7 @@ Source: spine block > project > template > `DEFAULT_FRAMING_INTENT` (1.0). [why]
 - **Which clips letterbox is a MEASUREMENT, not a second creative choice** (section 10.5).
 ```
 
-## `tests/unit/reels/test_reel_framing.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_look.py` module docstring (moved 2026-10-02)
 
 ```text
 The picture a built reel puts on the frame, and the gate that reads it.

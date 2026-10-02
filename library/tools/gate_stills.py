@@ -267,7 +267,7 @@ def grab_reel_stills(project, timeline_name: str, frames: list,
         try:
             # Routed through the shared establishment: the lease above
             # is held, so this sets exactly as before, plus the
-            # fence-drift check. `tests/contracts/test_cursor_discipline.py`
+            # fence-drift check. `tests/contracts/test_resolve_guard_wiring.py`
             # counts raw `SetCurrentTimeline` sites - none may live
             # outside `resolve_lock`.
             assert_current_timeline(project, timeline)

@@ -64,7 +64,7 @@ and points here.
 - **The residual lives at `camera_motion_decomposition.values[].residual`.**
 - **The thresholds are read off the INSTRUMENT, not fitted to a project.** `MEASURED_ON_001` attaches that project's distribution and the VLM cross-check as a CHECK, with the caveat that one project is a thin basis and no render has been made against them.
 - **Every label carries `camera_stability_method`** - `optical_flow_residual`, `motion_energy_std` or `unmeasured` - because a method field travels with the number it qualifies. A document written before the field existed reads `unrecorded`, which is a different claim from `unmeasured`.
-- `tests/unit/picture/test_camera_stability.py`.
+- `tests/unit/picture/test_temporal_index.py`.
 - **The DISPLAY reads the method, not the ranges.** `usable_ranges_summary` answers "unmeasured" whenever the method says so, whatever the ranges hold, and `adapt_semantic_document` REPLACES a stale `usable_portions` rather than deferring to it. Same read-side shape as `stability_summary` treating the literal `"unknown"` as absent - neither writes to the stored document.
 """
 

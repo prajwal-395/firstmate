@@ -28,7 +28,7 @@ Two bounds, both from the spike's own measurements, both non-negotiable
    frame.  Nothing in the ending-freeze path
    (``library/tools/reel_ending.py``, ``reel_build._with_freeze``) or the
    named-frame grabs (``gate_stills.py``, step 7.02) may import this module;
-   ``tests/unit/picture/test_frame_ranker.py`` pins that.
+   ``tests/unit/picture/test_picture_quality.py`` pins that.
 
 What it costs (measured on the captain's machine, not re-derived)
 -----------------------------------------------------------------

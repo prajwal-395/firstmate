@@ -1,7 +1,7 @@
 """Which typefaces a render may name, and how one is delivered.
 
 One enumeration, because there were two and one of them was a test.
-`tests/contracts/test_bundled_fonts.py` owned `ACCEPTED_SYSTEM_FONTS` privately, so
+`tests/contracts/test_asset_policy.py` owned `ACCEPTED_SYSTEM_FONTS` privately, so
 the engine could not consult the list it is judged against: a declaration
 naming an unbundled family was caught at CI time for brand templates and
 not caught at all anywhere else. This module is the list, and the test
@@ -40,7 +40,7 @@ from library.tools.project_asset import resolve_project_asset, ProjectAssetNotFo
 
 # The one family this repository ships. Kept equal to `fonts.ts`'s
 # BUNDLED_FONT_FAMILY and to subtitle_style.LEGACY_FONT_FAMILY;
-# tests/contracts/test_bundled_fonts.py fails if they drift.
+# tests/contracts/test_asset_policy.py fails if they drift.
 BUNDLED_FONT_FAMILY = "Montserrat"
 
 # Where prep_remotion stages a project's own brand files, relative to

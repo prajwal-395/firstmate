@@ -37,7 +37,7 @@ and points here.
 **Every LLM step declares `context_fields`, and the deterministic half loses nothing by it.**
 Projection happens inside `present_llm_step`, so a hybrid's post-bridge and a `deterministic_with_llm` step's `step.py` keep receiving the unprojected inputs - only the prompt narrows. A step declaring none is handed every byte it was routed. [why](docs/RULE_EVIDENCE.md#two-steps-had-no-projection)
 - A path prefixed with `-` DROPS what the paths above it selected. Prefer it to enumerating what to keep. `"timed_spine"` then `"-timed_spine.structure.*.word_timestamps"`.
-- `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps (captain decision). `tests/contracts/test_llm_context_routing.py` holds that exemption list.
+- `render` (6.01) and `validate` (6.02) are the only unprojected LLM steps (captain decision). `tests/contracts/test_context_contracts.py` holds that exemption list.
 - **A pre-bridge's own table is never projected away, and you do not have to list it.** `project_step_context` restores any `bridge_supplied` key the allow-list dropped. Listing it is the only way to NARROW it. [why](docs/RULE_EVIDENCE.md#the-bridge-table-that-was-projected-away)
 
 **A table the prompt names, arriving with zero rows, is reported on the run that sends it.**

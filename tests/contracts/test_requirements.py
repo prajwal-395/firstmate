@@ -1,0 +1,385 @@
+"""Every requirement must be able to say no, and say what to run.
+
+Walks the WHOLE registry, never a curated list: each requirement's own
+witnesses must refuse (with a remedy) and pass (with a source). There is
+no skip list; a requirement that cannot refuse is deleted, not exempted.
+History: `docs/evidence/requirements.md` (tests section).
+"""
+import os
+import sys
+import pytest
+
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from library.tools import requirements as R
+
+
+HAND_WRITTEN = list(R.registry())
+DERIVED = list(R.derive_state_keys())
+INJECTED = list(R.derive_runner_injected_keys())
+"""The other derived half: the hard inputs no EDGE can carry. Walked in
+full rather than sampled - there is one, its witnesses are AUTHORED
+rather than generated from the DAG, and it is the only requirement in the
+tree with no producer to fall back on."""
+
+
+def _ids(reqs):
+    return [r.name for r in reqs]
+
+
+def _witness_failures(req) -> list:
+    """Every way `req`'s two witnesses fail to prove it can refuse (with
+    a remedy) and pass (with a source)."""
+    out = []
+    verdict = req.check(req.refuting_context())
+    if not verdict.is_unsatisfied:
+        return [f"{req.name} returned SATISFIED for its own declared "
+                f"refuting context - the witness is wrong or it cannot "
+                f"fail, and one that cannot fail is deleted, not kept"]
+    if not verdict.reason.strip():
+        out.append(f"{req.name} refuses without saying why")
+    # Two honest shapes: it NAMES a step that would produce the missing
+    # thing, or it CARRIES an instruction (environment, external index).
+    names_a_producer = bool(verdict.produced_by)
+    carries_a_remedy = len(verdict.reason) > len(req.describe)
+    if not (names_a_producer or carries_a_remedy):
+        out.append(f"{req.name} refuses naming no producer and carrying "
+                   f"no remedy: {verdict.reason!r}")
+    if req.kind == R.KIND_ENVIRONMENT and names_a_producer:
+        out.append(f"{req.name} is environment yet names a producer")
+    if req.kind == R.KIND_ENVIRONMENT and not carries_a_remedy:
+        out.append(f"{req.name} refuses with no remedy beyond restating "
+                   f"itself")
+    passed = req.check(req.satisfying_context())
+    if not passed.is_satisfied:
+        out.append(f"{req.name} returned UNSATISFIED for its own declared "
+                   f"satisfying context: {passed.reason}")
+    elif passed.source not in R.SOURCES:
+        out.append(f"{req.name} passed without saying how it passed")
+    return out
+
+
+def test_every_requirement_refuses_with_a_remedy_and_passes_with_a_source():
+    """Both witnesses, for EVERY hand-written requirement: it can refuse,
+    says what to run, and can pass saying how. A refusal naming no remedy
+    leaves the operator nowhere to go - the old `gather_step_inputs`
+    raised mid-run naming the missing key and no producer. Vacuous if
+    the registry is empty, so that is asserted first."""
+    assert HAND_WRITTEN, "the hand-written registry is empty"
+    assert DERIVED, "no state_key requirements were derived from the DAG"
+    assert INJECTED, (
+        "nothing was derived for the hard inputs the runner supplies from "
+        "outside the DAG, so `select_reels` cannot refuse for any reason")
+    failures = [f for req in HAND_WRITTEN for f in _witness_failures(req)]
+    assert failures == [], "\n  ".join(failures)
+
+
+@pytest.mark.parametrize("req", INJECTED, ids=_ids(INJECTED))
+def test_runner_injected_keys_can_refuse_and_say_what_to_do(req):
+    """Both witnesses, plus the remedy - because there is no producer.
+
+    Every other refusal in the tree can end with "run that step first".
+    This one cannot: the transcript is written by a CLI tool that needs
+    Resolve open, so the refusal has to carry the command itself or the
+    operator is told what is wrong and nothing about what to do.
+    """
+    refusal = req.check(req.refuting_context())
+    assert refusal.is_unsatisfied
+    assert not refusal.produced_by, (
+        f"{req.name} names a producer; no step writes this")
+    assert len(refusal.reason) > len(req.describe), (
+        f"{req.name} refuses by restating itself and names no producer, "
+        f"so the operator has nowhere to go: {refusal.reason!r}")
+
+    passed = req.check(req.satisfying_context())
+    assert passed.is_satisfied, passed.reason
+    assert passed.source in R.SOURCES
+
+
+def test_a_requirement_no_step_consumes_is_refused():
+    """A requirement nothing can ever ask is the vacuous case."""
+    with pytest.raises(ValueError, match="nothing can ever ask"):
+        R.Requirement(
+            name="nobody.wants.this", kind=R.KIND_PREDICATE,
+            describe="orphan", produced_by=(), consumers=(),
+            check=lambda ctx: R.SATISFIED(R.MEASURED),
+            refuting_context=lambda: R.Context(),
+            satisfying_context=lambda: R.Context(),
+        )
+
+
+# --------------------------------------------------------------------------
+# From test_no_requirement_refuses_correct_input.py
+#
+# The mirror: the requirement layer must not be vacuously STRICT either.
+#
+# A correct full run is not refused, a requirement is only asked of a step
+# that runs, and an empty expected side refuses rather than skips (AGENTS.md
+# 10.4). History: `docs/evidence/requirements.md` (tests section).
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from library.tools import input_contract, requirements as R, run_scope
+
+
+# ── Half 1: a correct state must not be refused ──────────────────────
+
+def _full_default_run() -> frozenset:
+    """The steps a plain full run really schedules.
+
+    NOT "every node in the DAG", which is what this said until a
+    requirement existed for a step the pipeline does not schedule on its
+    own. `run_scope.DESELECTED_BY_DEFAULT` is the pipeline's own answer
+    to "what does a default run leave out", and `select_reels` is in it
+    for exactly the reason its requirement refuses:
+
+        "Requires a timeline_transcript produced outside the pipeline
+         (needs Resolve open and WhisperX). Running it by default would
+         crash on the missing transcript."
+
+    Asking a deselected step's requirement of a run that never includes
+    it is the scope dimension of vacuous strictness -
+    `test_a_requirement_is_only_asked_of_a_step_that_is_running` below
+    is the same point for the machine side. The requirement's own
+    refusal, on a run that DOES select the step, is asserted in
+    `tests/unit/context/test_operations.py`.
+    """
+    dag = run_scope.load_dag()
+    return frozenset(n["id"] for n in dag["nodes"]
+                     if n["id"] not in run_scope.DESELECTED_BY_DEFAULT)
+
+
+def test_a_full_default_run_is_not_refused_for_state():
+    """A plain full run must not be refused by ANY state-side requirement.
+
+    This assertion used to exclude the predicate and coverage kinds "because
+    they read real values a synthetic state does not carry". That exclusion
+    was a hole, and the full suite fell straight through it: a plain
+    `--full-auto` run was REFUSED with
+
+        no clip in temporal_index carries a non-empty speech_regions list
+        no audio_spine is available, so there is no transcript to time
+        captions against
+
+    on a run that schedules `temporal_index` and `mesh_spine` before their
+    consumers. The requirements were asking whether a value existed BEFORE
+    the step that makes it had run - vacuous strictness, and exactly the
+    class this file exists to catch.
+
+    `_producer_will_make_it` is the fix, and this assertion is now
+    unrestricted so the hole cannot reopen. Only environment requirements
+    are excluded, because no step produces a machine.
+    """
+    run_set = _full_default_run()
+    context = R.Context(run_set=run_set)
+
+    state_side = [r for r in R.all_requirements()
+                  if r.kind != R.KIND_ENVIRONMENT]
+    unmet = R.check(run_set, context, state_side)
+
+    assert unmet == [], (
+        "these requirements refuse a run in which every producer "
+        "executes, which is a correct full run:\n  "
+        + "\n  ".join(f"{u.requirement.name} ({u.requirement.kind}): "
+                      f"{u.satisfaction.reason}" for u in unmet))
+
+
+def test_a_requirement_is_deferred_to_its_producer_when_it_runs():
+    """The mechanism behind the assertion above, pinned directly.
+
+    A coverage requirement on the spine is NOT asked when `mesh_spine` is
+    in the run - the producer owns the value and its own step refuses if
+    it cannot make one. It IS asked on a scoped re-entry that expects the
+    spine to be on file already, which is the case it exists for.
+    """
+    coverage = next(r for r in HAND_WRITTEN if r.name == "spine.word_timings")
+    empty = R.Context(state={"step_outputs": {
+        "mesh_spine": {"audio_spine": {"structure": []}}}})
+
+    with_producer = {"mesh_spine", "temporal_index", "speech_sequence",
+                     "plan_subtitles"}
+    assert R.check(with_producer, empty, [coverage]) == [], (
+        "the spine requirement was asked before mesh_spine had run")
+
+    assert len(R.check({"plan_subtitles"}, empty, [coverage])) == 1, (
+        "the spine requirement was NOT asked on a re-entry that depends "
+        "on a spine already being on file - which is the whole case it "
+        "exists for")
+
+
+def test_a_requirement_is_only_asked_of_a_step_that_is_running():
+    """A machine with no Node.js must not refuse a run with no renderer.
+
+    Vacuous strictness has a scope dimension too: asking every
+    requirement of every run would refuse work that never needed it.
+    """
+    npx = next(r for r in HAND_WRITTEN if r.name == "env.npx")
+    assert npx.applies_to({"render_subtitles"})
+    assert not npx.applies_to({"plan_subtitles", "scan", "catalog"})
+
+    unmet = R.check({"scan", "catalog"},
+                    R.Context(run_set=frozenset({"scan", "catalog"})),
+                    HAND_WRITTEN)
+    assert unmet == [], (
+        "a run of scan+catalog was refused by a requirement belonging to "
+        "some other step")
+
+
+# ── Half 2: no requirement may be tautological ───────────────────────
+
+def test_an_empty_expected_side_refuses_rather_than_skipping():
+    """Design rule: an empty reference set is a REFUSAL, never a skip.
+
+    The live counter-example is `reel_conformance_verifier.py:1519`,
+    where `if plan.captions and ...` turns an empty plan side into a
+    silent pass. The coverage requirement must do the opposite.
+    """
+    empty_spine = R.Context(state={"step_outputs": {
+        "mesh_spine": {"audio_spine": {"structure": []}}}})
+    coverage = next(r for r in HAND_WRITTEN if r.name == "spine.word_timings")
+    verdict = coverage.check(empty_spine)
+    assert verdict.is_unsatisfied, (
+        "an audio_spine with an empty structure was accepted. An empty "
+        "expected side must refuse - a zero-entry subtitle plan is not a "
+        "captioned video, and it is exactly what the runner was measured "
+        "producing with a `✓ Completed` and no warning.")
+    assert "empty" in verdict.reason.lower()
+
+
+# ── The prose may not come back ──────────────────────────────────────
+#
+# Kept here rather than appended to `test_input_declarations_are_true.py`
+# deliberately: that file's verdicts depend on `read_step_code`, which
+# AST-walks each step directory, and a parallel increment is moving
+# refusal code between step bodies. This assertion is about MANIFESTS and
+# is independent of where a step's code lives, so it is kept where that
+# churn cannot redden it.
+
+def test_no_manifest_carries_prose_preconditions():
+    """126 strings across 29 manifests, and nothing evaluated one.
+
+    A manifest that grows the field back is declaring a contract with
+    nothing behind it, which is worse than declaring none - it reads as
+    coverage.
+    """
+    assert input_contract.prose_preconditions() == [], (
+        "these manifests carry prose preconditions/postconditions again. "
+        "They are replaced by interface.requirements, naming executable "
+        "Requirements in library/tools/requirements.py.")
+
+
+def test_manifests_and_the_requirement_registry_agree():
+    """Every hand-written requirement is named by each consumer manifest, and back.
+
+    Derived from the registry rather than listed twice, so the manifest
+    and the registry cannot drift.
+    """
+    import json
+    from pathlib import Path
+
+    from library.tools import processes
+
+    steps = Path(__file__).resolve().parents[2] / "library" / "steps"
+    # Every process, so a requirement consumed by a node of the reel
+    # process is checked against ITS manifest rather than skipped for
+    # not being in edit_video's graph - which would have made the
+    # declaration optional exactly where it is new.
+    dir_of = processes.step_dirnames()
+
+    missing = []
+    unknown_consumers = []
+    for req in HAND_WRITTEN:
+        for consumer in req.consumers:
+            step_dir = dir_of.get(consumer)
+            if not step_dir:
+                unknown_consumers.append(f"{req.name} -> {consumer}")
+                continue
+            manifest = json.loads(
+                (steps / step_dir / "manifest.json").read_text(
+                    encoding="utf-8"))
+            declared = manifest["interface"].get("requirements", [])
+            if req.name not in declared:
+                missing.append(f"{step_dir} does not declare {req.name}")
+    assert missing == [], "\n  ".join(missing)
+    assert unknown_consumers == [], (
+        "these requirements name a consumer no process declares, so they "
+        "can never be asked:\n  " + "\n  ".join(unknown_consumers))
+    # The mirror - a manifest naming a requirement nothing implements.
+    known = {r.name for r in R.HAND_WRITTEN}
+    unknown = [f"{path.parent.name}: {name}"
+               for path in sorted(steps.glob("*/manifest.json"))
+               for name in json.loads(path.read_text(encoding="utf-8"))
+               ["interface"].get("requirements", [])
+               if name not in known]
+    assert unknown == [], (
+        "these manifests name requirements that do not exist:\n  "
+        + "\n  ".join(unknown))
+
+
+# ── The fresh-checkout condition, which local runs cannot otherwise see ──
+
+def test_a_fresh_checkout_can_still_run_the_pipeline(tmp_path, monkeypatch):
+    """A clone of this repository with NO locally-built assets must run.
+
+    This is the condition the clean room found and no local run could:
+    a developer machine has the SFX index built, so
+    `test_a_full_default_run_is_not_refused_for_state` passed here while
+    failing on a fresh Linux runner with
+
+        the SFX index loads to zero entries: no readable sfx_index.json
+        and no profiles/*.json under the library
+
+    and the run was REFUSED before it started - a fresh clone could not
+    run the pipeline at all. A second failure,
+    `test_dashboard_run_control.py::test_handbrake_stops_the_runner`,
+    was the same defect downstream: the run never reached the handbrake.
+
+    Pointing the library at an empty directory reproduces that exactly,
+    so the class is catchable locally from now on.
+    """
+    monkeypatch.setenv("PIPELINE_SFX_LIBRARY", str(tmp_path))
+
+    run_set = _full_default_run()
+    unmet = R.check(run_set, R.Context(run_set=run_set),
+                    [r for r in R.all_requirements()
+                     if r.kind != R.KIND_ENVIRONMENT])
+
+    assert unmet == [], (
+        "a fresh checkout with no locally-built assets cannot run the "
+        "pipeline:\n  "
+        + "\n  ".join(f"{u.requirement.name} ({u.requirement.kind}): "
+                      f"{u.satisfaction.reason}" for u in unmet))
+
+
+def test_a_predicate_without_a_producer_cannot_be_registered():
+    """The structural cause, made unrepresentable.
+
+    A predicate or coverage requirement with no `produced_by` can never
+    be deferred to the step that makes the value, so it fires on every
+    run - a run-blocker by construction. That is exactly what
+    `sfx.index_loads` was. The empty producer list is the tell: if
+    nothing in the pipeline produces the thing, it is the machine (an
+    `environment` requirement, which reports rather than refuses) or it
+    is some step's own subject matter.
+    """
+    with pytest.raises(ValueError, match="must name what produces"):
+        R.Requirement(
+            name="no.producer", kind=R.KIND_PREDICATE,
+            describe="something nothing in the pipeline makes",
+            produced_by=(), consumers=("scan",),
+            check=lambda ctx: R.SATISFIED(R.MEASURED),
+            refuting_context=lambda: R.Context(),
+            satisfying_context=lambda: R.Context(),
+        )
+
+    # And the mirror: no step produces a machine.
+    with pytest.raises(ValueError, match="must not name a producer"):
+        R.Requirement(
+            name="env.wrong", kind=R.KIND_ENVIRONMENT,
+            describe="an environment requirement claiming a producer",
+            produced_by=("scan",), consumers=("scan",),
+            check=lambda ctx: R.SATISFIED(R.MEASURED),
+            refuting_context=lambda: R.Context(),
+            satisfying_context=lambda: R.Context(),
+        )

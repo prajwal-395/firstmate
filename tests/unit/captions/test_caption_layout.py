@@ -192,7 +192,7 @@ def test_two_carriages_need_different_numbers_for_one_row():
 #     ``canvas_h / frame_h`` times the measured draw gain - 0.25 × 2.0
 #     = 0.5 delivery pixels under today's renderer (see
 #     ``resolve_transform`` for the 2026-09-17 rendered-pixel
-#     calibration, and ``tests/unit/resolve/test_draw_gain_measured.py`` for the
+#     calibration, and ``tests/unit/resolve/test_resolve_transform.py`` for the
 #     derivation from measurements rather than restatement)::
 #
 #         tilt = -(canvas_centre_y - 960) / 0.5
@@ -654,7 +654,7 @@ def test_card_spans_mint_the_role_row_and_join_its_packing():
 # The faithful fakes live with the SOP proof; this file only adds the
 # card to the world they already build.
 
-from tests.scenarios.test_reel_build_sop_conformance import (  # noqa: E402
+from tests.scenarios.test_reel_build import (  # noqa: E402
     FakeMoment,
     _caption,
     _master_clips,

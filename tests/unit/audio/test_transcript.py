@@ -1469,7 +1469,7 @@ TRANSCRIPT_STEPS = {
 }
 
 # The steps that read the VIEW: 2.02 builds its own `transcripts_toon`
-# (`tests/contracts/test_context_ships_it_once.py`), and 3.03 needs what the viewer
+# (`tests/contracts/test_context_contracts.py`), and 3.03 needs what the viewer
 # actually hears (docs/RULE_EVIDENCE.md, "the review answered and nobody
 # read it").
 VIEW_STEPS = {
@@ -1478,7 +1478,7 @@ VIEW_STEPS = {
 }
 
 # The two steps handed their whole input set on a standing decision
-# (tests/contracts/test_llm_context_routing.py NO_PROJECTION).  They carried word
+# (tests/contracts/test_context_contracts.py NO_PROJECTION).  They carried word
 # timings too, by a different route: `assembly_manifest.subtitles[*].words`
 # from `plan_subtitles`.  6,953 bytes of 001's render call.
 QA_STEPS = {

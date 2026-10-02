@@ -46,7 +46,7 @@ Reversibility: an empty shell re-creates exactly.  A dead bin
 re-creates as an empty shell - its removed items do not come back,
 and `revert` says so, naming the files for hand re-import.
 
-`tests/unit/reels/test_retire_empty_shells.py`, `tests/unit/resolve/test_dead_render_bins.py`.
+`tests/unit/reels/test_reel_retirement.py`, `tests/unit/resolve/test_build_sweep.py`.
 """
 from __future__ import annotations
 

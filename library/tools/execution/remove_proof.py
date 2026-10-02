@@ -28,7 +28,7 @@ never unlinked here.  The journal names the timeline, every bin, and
 every removed item with the file behind it - it is the record, and
 there is no revert: a deleted timeline does not come back.
 
-`tests/unit/resolve/test_dead_render_bins.py`.
+`tests/unit/resolve/test_build_sweep.py`.
 """
 from __future__ import annotations
 

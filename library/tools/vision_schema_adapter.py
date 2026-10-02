@@ -40,7 +40,7 @@ Derive only what v3 measured. [why](docs/RULE_EVIDENCE.md#vision-schema-two-view
 A step wanting framing, stability, usable ranges or subject visibility must list those paths in `context_fields`, or they are deleted before the prompt.
 
 **Never send a summary and the structure it was rendered from.**
-`analysis.scene` IS `scene[]` rendered by `vision_schema_adapter.scene_prose`, and `analysis.motion` IS `camera[]`. Send the prose (it is lossless here and 30-50% smaller) unless the step's handoff tells the model to read the segment bounds - 3.02's does, so 3.02 keeps the prose inline (`broll_candidates_toon.description`, the place axis `test_picture_view` pins) and the structure BY REFERENCE (`footage_reference`, #339: every byte at the path, a map in the prompt). `tests/contracts/test_context_ships_it_once.py` fails on a manifest declaring a pair. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
+`analysis.scene` IS `scene[]` rendered by `vision_schema_adapter.scene_prose`, and `analysis.motion` IS `camera[]`. Send the prose (it is lossless here and 30-50% smaller) unless the step's handoff tells the model to read the segment bounds - 3.02's does, so 3.02 keeps the prose inline (`broll_candidates_toon.description`, the place axis `test_picture_view` pins) and the structure BY REFERENCE (`footage_reference`, #339: every byte at the path, a map in the prompt). `tests/contracts/test_context_contracts.py` fails on a manifest declaring a pair. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
 """
 
 import math

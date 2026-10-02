@@ -2846,6 +2846,9 @@ def _load_405_2():
     return module
 
 
+r405_2 = _load_405_2()
+
+
 # ── Fixtures: a spine small enough to read, shaped like the contract ──
 
 
@@ -2974,37 +2977,37 @@ def test_a_failed_render_is_REPORTED_not_dropped(tmp_path):
     then refuses the compile citing a missing block rather than the
     render that actually failed.
     """
-    seg = r405.render_one_segment(_props_3(), str(tmp_path), "tl",
+    seg = r405_2.render_one_segment(_props_3(), str(tmp_path), "tl",
                                   remotion_dir=REPO,
                                   renderer=_Renderer_2(ok=False, error="boom"))
     assert seg is not None
-    assert seg["provenance"] == r405.FAILED
+    assert seg["provenance"] == r405_2.FAILED
     assert "boom" in seg["failure"]
 
 
 def test_an_unchanged_segment_is_reused_and_a_changed_one_never_is(tmp_path):
     """MUTATION 9: mark everything `rendered`."""
     engine = _Renderer_2()
-    first = r405.render_one_segment(_props_3(), str(tmp_path), "tl",
+    first = r405_2.render_one_segment(_props_3(), str(tmp_path), "tl",
                                     remotion_dir=REMOTION_4, renderer=engine,
                                     reuse=True,
                                     overlay_geometry="full")
-    second = r405.render_one_segment(_props_3(), str(tmp_path), "tl",
+    second = r405_2.render_one_segment(_props_3(), str(tmp_path), "tl",
                                      remotion_dir=REMOTION_4, renderer=engine,
                                      reuse=True,
                                      overlay_geometry="full")
-    assert first["provenance"] == r405.RENDERED
-    assert second["provenance"] == r405.REUSED
+    assert first["provenance"] == r405_2.RENDERED
+    assert second["provenance"] == r405_2.REUSED
     assert engine.calls == 1, "the second call must not have rendered"
 
     # MUTATION 10, the one that matters most: a CHANGED segment is never
     # skipped. Skipping on PRESENCE would skip a text-only correction
     # (on 001, changing every caption in a block changed 0 of 8 names).
-    again = r405.render_one_segment(_props_3(text="AFTER"), str(tmp_path), "tl",
+    again = r405_2.render_one_segment(_props_3(text="AFTER"), str(tmp_path), "tl",
                                     remotion_dir=REMOTION_4, renderer=engine,
                                     reuse=True,
                                     overlay_geometry="full")
-    assert again["provenance"] == r405.RENDERED
+    assert again["provenance"] == r405_2.RENDERED
     assert engine.calls == 2
 
 
@@ -3017,13 +3020,13 @@ def test_a_plain_run_re_renders_even_when_the_key_matches(tmp_path):
     would be a stale caption in a delivered video.
     """
     engine = _Renderer_2()
-    r405.render_one_segment(_props_3(), str(tmp_path), "tl",
+    r405_2.render_one_segment(_props_3(), str(tmp_path), "tl",
                             remotion_dir=REMOTION_4, renderer=engine, reuse=True,
                             overlay_geometry="full")
-    plain = r405.render_one_segment(_props_3(), str(tmp_path), "tl",
+    plain = r405_2.render_one_segment(_props_3(), str(tmp_path), "tl",
                                     remotion_dir=REMOTION_4, renderer=engine,
                                     overlay_geometry="full")
-    assert plain["provenance"] == r405.RENDERED
+    assert plain["provenance"] == r405_2.RENDERED
     assert engine.calls == 2
 
 
@@ -3032,15 +3035,15 @@ def test_an_unavailable_renderer_fingerprint_refuses_reuse(tmp_path):
 
     Unavailable evidence must never read as matching evidence.
     """
-    assert r405.renderer_fingerprint(str(tmp_path / "nothing-here")) == ""
+    assert r405_2.renderer_fingerprint(str(tmp_path / "nothing-here")) == ""
     engine = _Renderer_2()
     for _ in range(2):
-        seg = r405.render_one_segment(
+        seg = r405_2.render_one_segment(
             _props_3(), str(tmp_path), "tl",
             remotion_dir=str(tmp_path / "nothing-here"),
             renderer=engine, reuse=True,
             overlay_geometry="full")
-        assert seg["provenance"] == r405.RENDERED
+        assert seg["provenance"] == r405_2.RENDERED
     assert engine.calls == 2
 
 
@@ -3218,9 +3221,9 @@ def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
         built.append(engine)
         return engine
 
-    monkeypatch.setattr(r405, "PersistentCaptionRenderer", factory)
+    monkeypatch.setattr(r405_2, "PersistentCaptionRenderer", factory)
     with pytest.raises(RuntimeError):
-        r405.render_subtitle_overlays(plan, spine,
+        r405_2.render_subtitle_overlays(plan, spine,
                                       project_folder=str(tmp_path),
                                       remotion_dir=REMOTION_4)
     assert built and built[0].closed == 1, "we built it, so we close it"

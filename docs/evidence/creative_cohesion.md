@@ -55,7 +55,7 @@ selected in ONE ordering, and the gate compares nothing else: two
 orderings the model itself wrote, the order the passages PLAY in against
 the order it RANKED them in. Where a sequence carries no judgement at all
 the gate still STATES that it has no basis; see
-tests/unit/picture/test_passage_engagement.py.
+tests/unit/picture/test_mesh_spine.py.
 
 **The duration check measured the wrong quantity.** It used
 `body_sequence[-1]["end_time"]`, a SOURCE timestamp - where the last

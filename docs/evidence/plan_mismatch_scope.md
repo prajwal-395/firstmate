@@ -1,6 +1,6 @@
 # PLAN-MISMATCH scopes to picture
 
-Test: `tests/unit/picture/test_plan_mismatch_scopes_to_picture.py`.
+Test: `tests/unit/picture/test_picture_qa.py`.
 
 PLAN-MISMATCH scopes to picture: reel 13's one-frame refusal.
 

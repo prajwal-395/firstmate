@@ -1,6 +1,6 @@
 # `library.tools.reel_phase_log` - why the instrument exists
 
-Moved from the module docstring of `tests/unit/reels/test_reel_phase_log.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_reel_build_runner.py` (2026-10-02).
 
 2026-09-18, batch 5: reel M05 waited 85 minutes between its plan answers
 arriving (10:06:58) and its build landing (11:32:08), with a 64-minute window

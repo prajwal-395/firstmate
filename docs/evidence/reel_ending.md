@@ -153,7 +153,7 @@ So a reel closing on a call to action inherits BOTH: the freeze
 (`CTA_TAIL_HOLD`), and the closing BREATH (`closing_breath_end`),
 which plays the trailing silence the aligner's word boundary cut off.
 
-`tests/unit/reels/test_reel_ending_cta_default.py` is the gate: it fails the
+`tests/unit/reels/test_reel_ending.py` is the gate: it fails the
 moment a newly planned reel stops inheriting the freeze.
 
 What this module deliberately cannot say
@@ -167,10 +167,10 @@ freeze is the one he chose, and it uses only a frame the reel already
 plays.  A tail that does not fit inside the shot and declares no
 freeze is a refusal here.
 
-`tests/unit/reels/test_reel_ending.py`, `tests/unit/resolve/test_orphan_wiring.py`.
+`tests/unit/reels/test_reel_ending.py`, `tests/unit/resolve/test_captain_edits.py`.
 ```
 
-## `tests/unit/reels/test_reel_ending_cta_default.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_ending.py` module docstring (moved 2026-10-02)
 
 ```text
 A reel INHERITS its freeze ending from the call to action it closes on.

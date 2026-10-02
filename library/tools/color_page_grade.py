@@ -73,7 +73,7 @@ How a DRX reaches a run:
   with no recorded source and authorisation is REFUSED - that is the
   replacement for the withdrawn no-drx rule: the old test failed on any
   `.drx` anywhere; the new rule fails on a `.drx` nobody authorised.
-  `tests/unit/picture/test_color_page_grade.py`, `tests/unit/picture/test_color_grade_delivery.py`.
+  `tests/unit/picture/test_grade_delivery.py`, `tests/unit/picture/test_grade_delivery.py`.
 """
 from __future__ import annotations
 

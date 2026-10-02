@@ -56,7 +56,7 @@ gap but a narrower one on smaller numbers.
 Two bands, the same shape the line-level detector uses and for the same
 reason - the boundary is REPORTED, not decided.
 
-`tests/unit/reels/test_reel_exchange.py`.
+`tests/unit/reels/test_reel_selection.py`.
 """
 
 from __future__ import annotations

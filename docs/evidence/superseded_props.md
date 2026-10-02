@@ -1,6 +1,6 @@
 # Superseded subtitle props: leave and make visible
 
-Tests: `tests/unit/picture/test_superseded_props_visible.py`. Moved from that module's docstring in the 2026-10 suite halving.
+Tests: `tests/unit/picture/test_semantic_visual.py`. Moved from that module's docstring in the 2026-10 suite halving.
 
 ```textA re-plan must never leave a silent duplicate: two props files, one span.
 

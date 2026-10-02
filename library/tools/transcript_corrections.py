@@ -122,7 +122,7 @@ captain's name would be the misattribution the store exists to
 prevent.  `correct()` promotes a confirmed proposal to a correction.
 
 `tests/unit/audio/test_transcript.py`,
-`tests/unit/reels/test_keep_insistence.py`.
+`tests/unit/reels/test_keep_ranges.py`.
 """
 
 from __future__ import annotations

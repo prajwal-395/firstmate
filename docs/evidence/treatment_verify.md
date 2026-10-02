@@ -33,7 +33,7 @@ tests without Resolve - the comp builder is Resolve-free by design):
 
 ## Finding 5: 4.03's gate could not verify anything 4.03 plans
 
-Moved from the module docstring of `tests/unit/reels/test_verify_treatment_knows_drift.py` (2026-10-02).
+Moved from the module docstring of `tests/unit/reels/test_treatment_verify.py` (2026-10-02).
 
 On the scout's B1 run (FR3.3) every plan_vfx answer - even an empty plan -
 failed with "declared gating skill(s) verify_treatment never ran", and the

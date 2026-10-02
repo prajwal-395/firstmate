@@ -61,7 +61,7 @@ Reachability
     python3 -m library.tools.reel_quality_bar --project <project_folder>
     python3 -m library.tools.reel_quality_bar --project <p> --json
 
-`tests/unit/reels/test_reel_quality_bar.py`, `tests/unit/reels/test_quality_bar_thesis_ending.py`.
+`tests/unit/reels/test_reel_quality_bar.py`, `tests/unit/reels/test_reel_quality_bar.py`.
 The measurements and rulings behind each rule (the 2026-09-05 batch that
 passed every mechanical check, the 31-reel coherence calibration, the
 2026-09-18 removal of the duration gate and the not-followable warning):

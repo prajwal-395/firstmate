@@ -1,6 +1,6 @@
 # Unparsed action windows
 
-Tests: `tests/unit/picture/test_unparsed_action_windows.py`.
+Tests: `tests/unit/picture/test_picture_view.py`.
 
 MEASURED on project 001's 29 Aug run: IMG_1809 window [10,20] and
 IMG_1820 window [0,10] both returned ``actions: []``, and the picture

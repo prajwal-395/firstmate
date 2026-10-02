@@ -58,7 +58,7 @@ from library.tools.vfx_plan_basis import (
 # of the five advertised effects rendering nothing while the manifest
 # recorded them as planned. So the names are enumerated here, checked
 # against the renderer's own dispatch by
-# tests/scenarios/test_vfx_reaches_the_manifest.py, and an entry carrying none of
+# tests/scenarios/test_plan_reaches_the_manifest.py, and an entry carrying none of
 # its effect's names is DROPPED with the reason rather than passed on to
 # draw nothing - `no_readable_parameters`, which is the drop reason
 # `vfx_plan_basis` records.

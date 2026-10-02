@@ -3,7 +3,7 @@
 Narrative moved out of the context tests. The rules live in AGENTS.md 10.1 and
 `library/tools/context_projector.py`; the tests keep the invariants.
 
-## Nothing reaches a prompt twice (tests/contracts/test_context_ships_it_once.py)
+## Nothing reaches a prompt twice (tests/contracts/test_context_contracts.py)
 
 An audit of the ten LLM request payloads the 2026-08-26 clean run of 001
 wrote to `pipeline_output/llm_requests/` found the same mistake three
@@ -53,7 +53,7 @@ were rendered from - 11,737 B of nested JSON in one prompt on 001.
 `qa_report_path` names the file on disk and 6.02 declares the gating
 `verify_render` skill, so the rows are reachable rather than withheld.
 
-## A declaration the projection never read (tests/contracts/test_context_fields_binds.py)
+## A declaration the projection never read (tests/contracts/test_context_contracts.py)
 
 Step 3.04 declared its allow-list under `interface`, beside the inputs and
 outputs. `project_step_context` looks at the manifest's top level, found nothing

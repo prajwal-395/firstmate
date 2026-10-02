@@ -44,7 +44,7 @@ Only what the project DECLARES is in there; an undeclared key is absent, never f
 `library/tools/template_loader.BRAND_CONSTRAINT_STEPS` is that enumeration, checked against the step table at import.
 - **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them.** `library/tools/project_layout.node_id_for` is the ONLY translator. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 - The `agent` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
-- `tests/contracts/test_brand_constraints_reach_the_prompt.py`.
+- `tests/contracts/test_context_contracts.py`.
 """
 
 import os

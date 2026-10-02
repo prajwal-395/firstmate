@@ -79,7 +79,7 @@ What fails, and what only reports
   propagates): a promotion that cannot see the words it just moved
   must not proceed to delete the generation that still holds them.
 
-`tests/unit/resolve/test_marker_gate.py`.
+`tests/unit/resolve/test_marker_carry.py`.
 """
 
 from __future__ import annotations

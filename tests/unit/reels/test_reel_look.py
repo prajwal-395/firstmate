@@ -1,12 +1,31 @@
-"""Tests for reel-look framing, motion mapping, and treatment limits."""
+"""Tests for reel-look framing, motion mapping, and treatment limits.
+"""
 from __future__ import annotations
-
 import json
 import os
 import sys
 from dataclasses import dataclass
-
 import pytest
+import importlib
+from pathlib import Path
+from library.tools.framing_intent import DEFAULT_FRAMING_INTENT, FILL, LETTERBOX
+from library.tools.reel_conformance_verifier import (
+    FindingClass,
+    TimelineItem,
+    check_delivered_framing,
+)
+from library.tools.reel_framing import (
+    PIXEL,
+    ReelFramingError,
+    declared_picture,
+    delivered_picture,
+    disagreement,
+    display_size,
+    max_zoom,
+)
+from library.tools.fusion.comp_builder import build_effect_comp
+from library.tools.fusion.transition_frames import parse_splines, value_at
+
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
@@ -919,3 +938,515 @@ def test_motion_mapping_follows_the_shot_and_refuses_ambiguous_spans(case):
         with pytest.raises(reel_look.ReelLookRefused, match="2 piece"):
             reel_look.remap_motion_positions(
                 [], base, offset, 24.0, locked_closing_positions=[2])
+
+
+# --------------------------------------------------------------------------
+# From test_reel_motion_reaches_every_row.py
+#
+# A treatment planned for a clip on ANY picture row must reach that clip.
+#
+# A two-angle reel built through `timeline_layout.plan_layout` draws every
+# planned drift, on both rows. Reel 09's history: docs/evidence/reel_look.md.
+
+REPO = Path(__file__).resolve().parents[3]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from library.tools.pipeline_skills import read_receipts
+from library.tools.timeline_layout import plan_layout
+
+
+class _Clip_2:
+    def __init__(self, source_file, track_index, speaker):
+        self.source_file = source_file
+        self.track_type = "video"
+        self.track_index = track_index
+        self.timeline_start = 0.0
+        self.source_in = 0.0
+        self.speaker = speaker
+
+
+def _placement_2(source_file, track_index, record_frame, speaker, fps=24.0):
+    seconds = 5.0
+    return {
+        "clip": _Clip_2(source_file, track_index, speaker),
+        "source_in": 0.0,
+        "source_out": seconds,
+        "record": record_frame / fps,
+        "snapped_record": record_frame,
+        "speaker": speaker,
+    }
+
+
+def _two_angle_plan():
+    """The Reel 09 shape: Akshita on V1, Craig on V2, the set above."""
+    return plan_layout({
+        "angles": [
+            {"key": "1", "label": "Akshita",
+             "speech_name": "Akshita CH1", "program_channel": 1},
+            {"key": "2", "label": "Craig",
+             "speech_name": "Craig CH1", "program_channel": 1},
+        ],
+        "has_broll": False,
+        "has_frame": True,
+        "caption_spans": [],
+        "has_transitions": False,
+        "has_explainer": False,
+        "has_semantic": False,
+        "mg_spans": [],
+        "has_generators": False,
+        "timed_text_spans": [],
+        "music_spans": [],
+        "sfx_spans": [],
+    })
+
+
+def _angle_key(clip):
+    return str(int(clip.track_index))
+
+
+def _placements():
+    # The Reel 09 arrangement: the outer shots ride Craig's row (V2),
+    # the inner two Akshita's (V1).
+    return [
+        _placement_2("/tmp/cr0.mxf", 2, 0, "Craig"),
+        _placement_2("/tmp/ak1.mxf", 1, 120, "Akshita"),
+        _placement_2("/tmp/ak2.mxf", 1, 240, "Akshita"),
+        _placement_2("/tmp/cr3.mxf", 2, 360, "Craig"),
+    ]
+
+
+def _motion(count=4):
+    return [{
+        "target_block_position": i,
+        "effect_type": "slow_zoom_in",
+        "params": {"zoom_start": 1.0, "zoom_mid": 1.02,
+                   "zoom_end": 1.04},
+    } for i in range(count)]
+
+
+def _manifest():
+    return reel_look.fusion_manifest(
+        _placements(), {"power": {}}, _motion(), 24.0,
+        track_plan=_two_angle_plan().serializable(),
+        angle_key=_angle_key)
+
+
+def test_manifest_groups_clips_by_the_plan_rows():
+    manifest = _manifest()
+    labels = {row: [c["label"] for c in spec["clips"]]
+              for row, spec in manifest["tracks"].items()}
+    assert labels == {
+        "V1": [reel_look.clip_label(1), reel_look.clip_label(2)],
+        "V2": [reel_look.clip_label(0), reel_look.clip_label(3)],
+    }
+
+
+# ── The pass itself, driven against a fake Resolve ────────────────────
+
+class _FakeMediaPoolItem:
+    def __init__(self, path, frames=600, fps="24", resolution="1080x1920"):
+        self._props = {
+            "File Path": path, "Frames": str(frames),
+            "FPS": fps, "Resolution": resolution,
+        }
+
+    def GetClipProperty(self, key=None):
+        return self._props if key is None else self._props.get(key, "")
+
+
+class _FakeComp:
+    def __init__(self):
+        self.locked = False
+
+    def Lock(self):
+        self.locked = True
+
+    def Unlock(self):
+        self.locked = False
+
+    def GetToolList(self):
+        class _Tool:
+            def __init__(self, regid):
+                self._regid = regid
+
+            def GetAttrs(self):
+                return {"TOOLS_RegID": self._regid}
+
+            def Delete(self):
+                return True
+        return {1: _Tool("MediaIn"), 2: _Tool("Merge"), 3: _Tool("MediaOut")}
+
+    def AddTool(self, _name):
+        assert self.locked, "Fusion node creation must hold comp.Lock()"
+        class _Dummy:
+            def Delete(self):
+                return True
+        return _Dummy()
+
+    def FindTool(self, _name):
+        return None
+
+
+class _FakeTimelineItem:
+    def __init__(self, path, start, end):
+        self.mpi = _FakeMediaPoolItem(path)
+        self.imported = []
+        self._start, self._end = start, end
+
+    def GetMediaPoolItem(self):
+        return self.mpi
+
+    def GetStart(self):
+        return self._start
+
+    def GetEnd(self):
+        return self._end
+
+    def GetDuration(self):
+        return self._end - self._start
+
+    def GetFusionCompNameList(self):
+        return ["Composition 1"] if self.imported else []
+
+    def DeleteFusionCompByName(self, _name):
+        self.imported = []
+        return True
+
+    def ImportFusionComp(self, path):
+        with open(path, encoding="utf-8") as f:
+            self.imported.append(f.read())
+        return _FakeComp()
+
+    def GetFusionCompByName(self, _name):
+        return _FakeComp()
+
+
+class _FakeTimeline:
+    def __init__(self, items_by_track):
+        self.items_by_track = items_by_track
+
+    def GetSetting(self, _key):
+        return "24"
+
+    def GetItemListInTrack(self, _kind, index):
+        return self.items_by_track.get(index, [])
+
+
+class _FakeResolve:
+    def __init__(self, timeline):
+        self._timeline = timeline
+
+    def GetProjectManager(self):
+        return self
+
+    def GetCurrentProject(self):
+        return self
+
+    def GetCurrentTimeline(self):
+        return self._timeline
+
+    def OpenPage(self, _name):
+        return True
+
+
+class _FakeDvr:
+    def __init__(self, timeline):
+        self.timeline = timeline
+
+    def scriptapp(self, _name):
+        return _FakeResolve(self.timeline)
+
+
+@pytest.fixture
+def fusion_module():
+    module = importlib.import_module(
+        "library.tools.execution.apply_fusion_comps")
+    return importlib.reload(module)
+
+
+def _timeline():
+    return _FakeTimeline({
+        1: [_FakeTimelineItem("/tmp/ak1.mxf", 120, 240),
+            _FakeTimelineItem("/tmp/ak2.mxf", 240, 360)],
+        2: [_FakeTimelineItem("/tmp/cr0.mxf", 0, 120),
+            _FakeTimelineItem("/tmp/cr3.mxf", 360, 480)],
+    })
+
+
+def test_drift_on_each_row_gets_a_comp_and_draws(fusion_module,
+                                                 monkeypatch, tmp_path):
+    """The Reel 09 receipt shape, closed: four planned, four checked."""
+    timeline = _timeline()
+    monkeypatch.setattr(fusion_module, "dvr", _FakeDvr(timeline))
+
+    assert fusion_module.apply_fusion_comps(
+        json.loads(json.dumps(_manifest())), str(tmp_path)) is True
+
+    for row in (1, 2):
+        for item in timeline.items_by_track[row]:
+            assert item.imported, (
+                f"{item.mpi.GetClipProperty('File Path')} got no comp - "
+                f"its planned drift never reached the picture")
+
+    result = read_receipts(str(tmp_path), "render")["verify_treatment"][
+        "result"]
+    assert result["clips_checked"] == len(result["rows"])
+    drift_rows = [r for r in result["rows"] if "motion_over_time" in r]
+    assert {r["label"] for r in drift_rows} == {
+        reel_look.clip_label(i) for i in range(4)}
+    assert all(r["motion_over_time"] for r in drift_rows), (
+        "a planned drift that moves no frame is the shipped defect")
+    assert not any(r["undone"] for r in drift_rows)
+
+
+# --------------------------------------------------------------------------
+# From test_reel_framing.py
+#
+# The picture a built reel puts on the frame, and the F12 gate that reads it.
+# Both directions are pinned (AGENTS.md 10.4): the gate passes the declared
+# framing and fails the same reel under the engine default.
+#
+# History: `docs/evidence/framing_intent.md` (test_reel_framing.py).
+
+# The delivery frame every reel in this engine is built into.
+FRAME_W, FRAME_H = 1080, 1920
+
+# The podcast's source: 3840x2160 MXF, measured by step 1.02.
+SRC_W, SRC_H = 3840, 2160
+
+# What Resolve reports for an item nobody has touched, which is what all
+# 376 items of the field test carry.
+_HARVEST = {"ZoomX": 1.0, "ZoomY": 1.0, "Pan": 0.0, "Tilt": 0.0,
+            "CropLeft": 0.0, "CropRight": 0.0,
+            "CropTop": 0.0, "CropBottom": 0.0}
+
+
+def _item(transform=None, source="/footage/LC4930.MXF", track=1):
+    return TimelineItem(
+        track_type="video", track_index=track, start_frame=0, end_frame=100,
+        duration_frames=100, source_start_frame=0, source_end_frame=100,
+        source_file=source, speaker="Craig", name="LC4930.MXF",
+        transform=dict(_HARVEST if transform is None else transform))
+
+
+_SIZES = {"/footage/LC4930.MXF": {"width": SRC_W, "height": SRC_H,
+                                  "rotation": 0}}
+
+
+# ── The geometry ─────────────────────────────────────────────────────
+
+class TestDeliveredPicture:
+
+    def test_untouched_landscape_delivers_the_measured_strip(self):
+        """The number `render_qa` measured on a real export, from metadata."""
+        picture = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, _HARVEST)
+        assert picture.rect == (0, 656, 1080, 1264)
+        assert picture.framing_intent == LETTERBOX
+        assert round(picture.covered_fraction, 4) == 0.3167
+        assert not picture.stretched
+        assert not picture.crop_unread
+
+
+    def test_fill_zoom_covers_the_whole_frame(self):
+        ceiling = max_zoom(SRC_W, SRC_H, FRAME_W, FRAME_H)
+        picture = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
+                                    {"ZoomX": ceiling, "ZoomY": ceiling})
+        assert picture.covered_fraction == pytest.approx(1.0, abs=1e-3)
+        assert picture.framing_intent == pytest.approx(FILL)
+        assert picture.left < 0 and picture.right > FRAME_W
+
+    def test_the_intent_survives_a_round_trip(self):
+        """`declared_picture` runs `_conform_fields`' formula forwards and
+        `delivered_picture` runs it backwards; they must agree, or a
+        disagreement between them would be two spellings of one geometry
+        rather than a real difference in the picture."""
+        for intent in (0.0, 1.0):
+            declared = declared_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, intent)
+            assert declared.framing_intent == pytest.approx(intent, abs=1e-6)
+
+
+    def test_a_rotated_source_is_read_at_its_display_size(self):
+        assert display_size(1920, 1080, rotation=90) == (1080, 1920)
+        picture = delivered_picture(1920, 1080, FRAME_W, FRAME_H,
+                                    _HARVEST, rotation=90)
+        assert picture.covered_fraction == pytest.approx(1.0)
+        assert picture.framing_intent == FILL
+
+    def test_a_source_that_already_covers_fills_at_every_intent(self):
+        """`source_covers_frame`: there are no bars to give, so LETTERBOX
+        and FILL are the same picture and neither is a defect."""
+        for intent in (LETTERBOX, 0.5, FILL):
+            declared = declared_picture(1080, 1920, FRAME_W, FRAME_H, intent)
+            assert declared.framing_intent == FILL
+            assert declared.covered_fraction == pytest.approx(1.0)
+
+    def test_a_source_with_no_dimensions_refuses(self):
+        with pytest.raises(ReelFramingError):
+            delivered_picture(0, 0, FRAME_W, FRAME_H, _HARVEST)
+
+
+# ── The comparison ───────────────────────────────────────────────────
+
+class TestDisagreement:
+
+    def test_one_pixel_is_the_same_picture_and_two_is_not(self):
+        """The only tolerance is the resolution of the medium: one real
+        number rounded by two rules can land a pixel apart.
+
+        The tolerance is in PIXELS, and a Tilt unit is not a pixel: on
+        this geometry one unit draws `(2160/1920) * (1080/3840)` =
+        0.3164 px, so a pixel of movement is Tilt 3.16 and two pixels
+        is Tilt 6.32.  Spelling these as `PIXEL` and `PIXEL + 1` was
+        the picture path's own version of the defect - it asked for
+        two pixels and moved two thirds of one.
+        """
+        # History gain throughout: the 2026-09-11 read (one unit drew
+        # 0.3164 px then; 0.6328 under today's).
+        one_pixel_of_tilt = 1.0 / ((2160 / 1920) * (1080 / 3840))
+        assert one_pixel_of_tilt == pytest.approx(3.1605, abs=0.001)
+        base = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, _HARVEST,
+                                 draw_gain=1.0)
+        # NEGATIVE, because positive Tilt moves the picture UP - measured,
+        # and the other half of what this path had wrong: it added Tilt to
+        # the centre, so every vertical aim went the wrong way as well as
+        # 3.16x short.
+        near = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
+                                 dict(_HARVEST, Tilt=-one_pixel_of_tilt),
+                                 draw_gain=1.0)
+        far = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
+                                dict(_HARVEST, Tilt=-2 * one_pixel_of_tilt),
+                                draw_gain=1.0)
+        assert near.top == base.top + PIXEL
+        assert far.top == base.top + 2 * PIXEL
+        assert disagreement(near, base) is None
+        assert disagreement(far, base) is not None
+
+    def test_a_stretch_is_named_as_a_stretch(self):
+        delivered = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
+                                      dict(_HARVEST, ZoomX=2.0, ZoomY=1.0))
+        assert delivered.stretched
+        why = disagreement(delivered,
+                           declared_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
+                                            LETTERBOX))
+        assert "stretched" in why
+
+    def test_a_non_zero_crop_is_refused_rather_than_assumed(self):
+        """AGENTS.md 5: judge a Resolve call by what it RETURNS. Every
+        Crop* in the field test reads back 0.0, so their units have never
+        been observed and are not guessed at here."""
+        delivered = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
+                                      dict(_HARVEST, CropLeft=100.0))
+        assert delivered.crop_unread
+        why = disagreement(delivered,
+                           declared_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
+                                            LETTERBOX))
+        assert "crop" in why and "will not assume" in why
+
+
+# ── F12, the gate ────────────────────────────────────────────────────
+
+class TestF12:
+
+    def test_it_passes_the_framing_the_project_declared(self):
+        """The correct-output direction, on the geometry the captain's
+        twenty harvest reels really carry."""
+        findings = check_delivered_framing(
+            "Reel 01 (harvest)", [_item()], FRAME_W, FRAME_H,
+            source_sizes=_SIZES, declared_intent=LETTERBOX)
+        assert findings == []
+
+    def test_it_fails_the_same_reel_under_the_engine_default(self):
+        """The failing direction. Nothing about the timeline changed -
+        only what the project says it wanted."""
+        findings = check_delivered_framing(
+            "Reel 01 (harvest)", [_item()], FRAME_W, FRAME_H,
+            source_sizes=_SIZES, declared_intent=DEFAULT_FRAMING_INTENT)
+        assert [f.finding_class for f in findings] == [FindingClass.F12]
+        assert findings[0].severity == "error"
+        assert findings[0].detail["delivered"]["covered_fraction"] == 0.3167
+        assert findings[0].detail["declared"]["covered_fraction"] == 1.0
+
+
+    def test_an_unresolved_declaration_warns_rather_than_passing(self):
+        findings = check_delivered_framing(
+            "Reel 01 (harvest)", [_item()], FRAME_W, FRAME_H,
+            source_sizes=_SIZES, declared_intent=None)
+        assert len(findings) == 1
+        assert findings[0].severity == "warning"
+        assert "cannot be compared" in findings[0].message
+
+
+    def test_caption_cards_are_not_graded_as_footage(self):
+        """V3 carries 1080x1920 overlays, which fill by construction.
+        Grading them would report a defect on every reel that has them."""
+        captions = [_item(source="/overlays/sub_x.mov", track=3)]
+        findings = check_delivered_framing(
+            "Reel 01 (harvest)", captions, FRAME_W, FRAME_H,
+            source_sizes=_SIZES, declared_intent=DEFAULT_FRAMING_INTENT)
+        assert findings == []
+
+    def test_a_timeline_with_no_resolution_is_not_graded(self):
+        """There is nothing for the picture to be a fraction OF, and F10
+        already reports a timeline that does not say its own shape."""
+        assert check_delivered_framing(
+            "Reel 01 (harvest)", [_item()], 0, 0,
+            source_sizes=_SIZES, declared_intent=FILL) == []
+
+
+# --------------------------------------------------------------------------
+# From test_cut_in_anchored_window.py
+#
+# A comp keys its zoom to the anchored `effect_window_frames` and holds
+# neutral outside it; no window (or a full-range one) keys as before.
+# Asserted on the serialized comp's own splines.
+#
+# History: docs/evidence/composed_edit.md.
+
+def _size_keys(comp_text):
+    splines = parse_splines(comp_text)
+    names = [n for n in splines if n.endswith("Size")]
+    assert len(names) == 1, f"one zoom spline, got {sorted(splines)}"
+    return splines[names[0]]
+
+
+def _comp(zoom, window_frames=None, clip_dur=216):
+    effects = {"zoom_start": zoom, "zoom_mid": zoom, "zoom_end": zoom}
+    if window_frames is not None:
+        effects["effect_window_frames"] = list(window_frames)
+    return build_effect_comp(effects, clip_dur, (1920, 1080))
+
+
+def test_anchored_cut_in_holds_neutral_outside_the_window():
+    """Finding 36's exact shape: constant 1.15 over 216 played
+    frames, anchored to 0.2-7.185 s = comp frames [6, 215]. Frame 2
+    (0.07 s, before the word) holds neutral; the punch draws only
+    inside the anchored span."""
+    keys = _size_keys(_comp(1.15, [6, 215]))
+    assert value_at(keys, 2) == 1.0
+    assert value_at(keys, 100) == 1.15
+    assert value_at(keys, 215) == 1.15
+
+
+def test_no_window_or_a_full_range_window_punches_the_whole_item():
+    """No window (an unanchored entry spanning the block) keeps the
+    whole-item behaviour - a scalar Size, every frame punched - and a
+    window covering everything played is no window: same scalar, no
+    spline either."""
+    for window in (None, [0, 215]):
+        comp_text = _comp(1.15, window)
+        assert "Size = Input { Value = 1.15, }" in comp_text, window
+        assert parse_splines(comp_text) == {}
+
+
+def test_windowed_drift_ramps_inside_and_holds_outside():
+    """A drift keys its eased ramp to the window and holds neutral
+    on both sides of it."""
+    effects = {"zoom_start": 1.0, "zoom_mid": 1.02, "zoom_end": 1.04,
+               "effect_window_frames": [10, 50]}
+    keys = _size_keys(build_effect_comp(effects, 216, (1920, 1080)))
+    assert value_at(keys, 0) == 1.0
+    assert value_at(keys, 5) == 1.0
+    assert 1.0 < value_at(keys, 30) < 1.04
+    assert value_at(keys, 50) == 1.04
+    assert value_at(keys, 100) == 1.0

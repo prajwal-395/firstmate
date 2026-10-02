@@ -1,6 +1,6 @@
 # passage engagement
 
-Test: `tests/unit/picture/test_passage_engagement.py`.
+Test: `tests/unit/picture/test_mesh_spine.py`.
 
 A missing measurement must never resolve to a value that reads as a
 real one.

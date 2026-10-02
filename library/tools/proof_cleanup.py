@@ -65,7 +65,7 @@ This module holds no Resolve calls and does no I/O - the same split
 `resolve_organization` uses.  `library/tools/execution/remove_proof.py`
 is the half that deletes.
 
-`tests/unit/resolve/test_dead_render_bins.py`.
+`tests/unit/resolve/test_build_sweep.py`.
 """
 from __future__ import annotations
 

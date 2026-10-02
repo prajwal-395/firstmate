@@ -124,7 +124,7 @@ A variant is a BUILT reel, so it can be signed off;
 - a signed-off variant that LOSES keeps its sign-off and is never
   collected.
 
-`tests/unit/reels/test_version_variants.py`, `tests/unit/reels/test_version_variant_choice.py`.
+`tests/unit/reels/test_version_variants.py`, `tests/unit/reels/test_version_variants.py`.
 
 The measurements and rulings behind these rules (the version-control
 report's merge ruling, issue #925, the captain's 2026-09-12 answer, the

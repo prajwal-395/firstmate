@@ -40,13 +40,12 @@ TESTS = os.path.join(REPO_ROOT, "tests")
 # set. Pinned by `tests/tooling/test_select_dependent_tests.py`.
 CONTRACT_SETS = {
     "motion_graphics_plan": [
+        "tests/unit/audio/test_speaker_identity.py",
         "tests/unit/captions/test_caption_layout.py",
         "tests/unit/captions/test_full_frame_element.py",
         "tests/unit/captions/test_motion_graphics_plan.py",
-        "tests/unit/captions/test_motion_graphics_plan.py",
-        "tests/unit/reels/test_reel_semantic_visual.py",
         "tests/unit/picture/test_semantic_visual.py",
-        "tests/unit/audio/test_speaker_identity.py",
+        "tests/unit/reels/test_reel_conformance_verifier.py",
     ],
 }
 

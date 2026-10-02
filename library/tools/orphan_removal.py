@@ -69,7 +69,7 @@ when no placed item anywhere points at it - three facts, each read, none
 weighed.  How many superseded renders are too many was never this
 module's question: the captain answered it.
 
-`tests/unit/resolve/test_orphan_removal.py`.
+`tests/unit/resolve/test_build_sweep.py`.
 """
 from __future__ import annotations
 

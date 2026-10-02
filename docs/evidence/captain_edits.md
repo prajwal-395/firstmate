@@ -96,7 +96,7 @@ edges (the end never moves), and no overlap with the reel's own body,
 which would play those seconds twice. Anything failing that is
 reported LOUDLY and that reel keeps its span.
 
-`tests/unit/reels/test_closer_redraw.py`.
+`tests/unit/reels/test_reel_ending.py`.
 
 A hand move in the Inspector
 ----------------------------

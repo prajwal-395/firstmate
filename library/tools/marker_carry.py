@@ -72,7 +72,7 @@ rebuilds.  The limits:
   separately rather than pretending to pair them.
 
 `tests/unit/resolve/test_marker_carry.py` (including the already-present case) and
-`tests/unit/resolve/test_clip_marker_carry.py`.
+`tests/unit/resolve/test_marker_carry.py`.
 
 The measurements and history behind these rules (Reel 09, Reel 13,
 Reel 29): docs/evidence/marker_carry.md.
@@ -630,7 +630,7 @@ def place(timeline, carried) -> list:
 #   identity; the clip plane does not - pairing across replaced items
 #   is a second mechanism this change does not build.
 #
-# `tests/unit/resolve/test_clip_marker_carry.py`.
+# `tests/unit/resolve/test_marker_carry.py`.
 
 #: Every track a clip marker may live on. The retiring inventory held
 #: caption cards, motion graphics (video) and one master-MXF audio

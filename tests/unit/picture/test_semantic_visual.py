@@ -7,8 +7,10 @@ name. Rationale and the captain's ask: `docs/evidence/semantic_visual.md`.
 """
 import os
 import sys
-
 import pytest
+import json
+import re
+
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if PROJECT_ROOT not in sys.path:
@@ -150,3 +152,301 @@ def test_collect_word_windows_maps_source_onto_the_timeline():
         {"clip_id": "clip_001", "word_timestamps": [
             {"word": "money", "start": 1.0, "end": 1.5}]}]}) == []
 
+
+# --------------------------------------------------------------------------
+# From test_semantic_visual_authoring.py
+#
+# The planning step is actually ASKED for semantic visuals.
+#
+# The motion-graphics planner is ASKED for anchored semantic visuals: the
+# machine-readable output schema names the anchor keys, no worked example
+# teaches the `conflicting_timing` shape, and a planner-authored entry
+# lands on its measured word. Incident: `docs/evidence/semantic_visual.md`.
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from library.steps.step_4_06_render_motion_graphics.bridge import (
+    timeline_rows,
+)
+from library.steps.step_4_06_render_motion_graphics.generate_motion_props import (
+    generate_motion_props,
+)
+
+STEP_DIR = os.path.join(
+    PROJECT_ROOT, "library", "steps", "step_4_06_render_motion_graphics")
+
+
+def _manifest():
+    with open(os.path.join(STEP_DIR, "manifest.json"),
+              encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _handoff():
+    with open(os.path.join(STEP_DIR, "handoff.md"), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_the_machine_readable_schema_names_the_anchor_keys():
+    """The `llm_outputs` description is the Required Output Format block.
+
+    `run_pipeline.generate_output_schema_text` renders it verbatim into
+    the prompt and the agent request file carries it as `expected_schema`.
+    If `subject`/`anchor_phrase`/`hold_seconds` are named nowhere in it,
+    the model is not asked - handoff prose notwithstanding.
+    """
+    manifest = _manifest()
+    llm_outputs = manifest["interface"]["llm_outputs"]
+    plan = next(o for o in llm_outputs if o["name"] == "motion_graphics_plan")
+    for key in ("subject", "anchor_phrase", "hold_seconds"):
+        assert key in plan["description"], (
+            f"{key!r} is named nowhere in the motion_graphics_plan "
+            f"llm_outputs description, so the rendered Required Output "
+            f"Format block never asks for it")
+
+
+def test_no_worked_example_mixes_anchor_with_declared_seconds():
+    """No single example entry may carry both timings.
+
+    An entry naming `anchor_phrase` beside `start_seconds` or
+    `duration_seconds` is dropped as `conflicting_timing` - the engine
+    picks neither. An example showing both teaches the failing shape.
+    """
+    blocks = re.findall(r"```json\n(.*?)```", _handoff(), re.DOTALL)
+    assert blocks, "the handoff carries no JSON answer template at all"
+    checked = 0
+    for block in blocks:
+        try:
+            parsed = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        entries = parsed if isinstance(parsed, list) else [parsed]
+        for entry in entries:
+            if not isinstance(entry, dict) or "element" not in entry:
+                continue
+            checked += 1
+            if str(entry.get("anchor_phrase") or "").strip():
+                assert entry.get("start_seconds") is None, (
+                    "worked example names anchor_phrase beside "
+                    "start_seconds - resolve_plan drops that shape as "
+                    "conflicting_timing")
+                assert entry.get("duration_seconds") is None, (
+                    "worked example names anchor_phrase beside "
+                    "duration_seconds - resolve_plan drops that shape "
+                    "as conflicting_timing")
+    assert checked, "no example entry with an element key was found"
+
+
+def _spine():
+    """One block of speech, with source-clocked word measurements.
+
+    The words say the rent is due; the planner's subject below is one
+    nobody enumerated - no table maps these words to anything.
+    """
+    words = ["the", "rent", "is", "due", "on", "friday"]
+    return {"structure": [{
+        "position": 1,
+        "block_type": "body",
+        "clip_id": "clip_001",
+        "timeline_start": 40.0,
+        "timeline_end": 46.0,
+        "source_start": 10.0,
+        "source_end": 16.0,
+        "content": {"text": "the rent is due on friday no exceptions"},
+        "word_timestamps": [
+            {"word": w, "start": 10.0 + i * 0.4, "end": 10.3 + i * 0.4}
+            for i, w in enumerate(words)
+        ],
+    }]}
+
+
+def test_a_planner_authored_entry_quoted_from_bridge_context_lands():
+    """Context the bridge built, entry the planner reasoned, landing real.
+
+    The anchor phrase is quoted from the bridge's own
+    `timeline_context_toon` table - the only speech the prompt shows -
+    and the entry carries no `start_seconds`/`duration_seconds`, the
+    shape the fixed handoff teaches. `generate_motion_props` is the
+    runner's own resolution half, so a landing here is a landing on a
+    run.
+    """
+    spine = _spine()
+    rows = timeline_rows(spine)
+    says = " ".join(r["says"] for r in rows)
+    assert "rent is due" in says
+
+    entry = {
+        "element": "subject_emblem",
+        "subject": "deadline pressure - the rent lands friday",
+        "anchor_phrase": "rent is due",
+        "hold_seconds": 2.0,
+        "anchor": "middle_right",
+        "copy": {"display": "FRI", "supporting": "rent due friday"},
+        "color": "#F5C518",
+        "why": "answers when the deadline the speech names actually is",
+    }
+    segments, resolved = generate_motion_props(
+        [entry], spine, fps=30, width=1080, height=1920,
+        project_folder="")
+    assert resolved.basis == "elements_planned", (
+        f"planner-authored entry did not survive: "
+        f"{[(d.element, d.reason) for d in resolved.dropped]}")
+    moment = resolved.moments[0]
+    assert moment["timing_basis"] == "word_window:rent is due"
+    assert moment["subject"] == "deadline pressure - the rent lands friday"
+    assert moment["timeline_start"] == segments[0]["timeline_start"]
+
+
+# --------------------------------------------------------------------------
+# From test_superseded_props_visible.py
+#
+# A re-plan must never leave a silent duplicate: two props files, one span.
+#
+# POLICY (leave-and-make-visible): the step LEAVES the old file and REPORTS
+# the pair (`ambiguous_span_pairs`, ledger-grouped, timeline-scoped), so the
+# orphan is identifiable as the non-drawing mate without opening either
+# render. Why not retire-with-archive: `docs/evidence/superseded_props.md`.
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from library.steps.step_4_05_render_subtitles.step import (
+    RENDERED,
+    _ambiguous_pairs_for_dir,
+    render_one_segment,
+)
+from library.tools.caption_asset_gc import (
+    ambiguous_span_pairs,
+    ledger_path_for,
+)
+from tests.unit.captions.test_overlay_carriage import (
+    _props,
+    _StubRenderer,
+)
+
+
+def _old_plan_props():
+    """A plan entry predating `card_index`, in the old capitalisation."""
+    props = _props()
+    assert "_card_index" not in props
+    props["subtitles"] = [dict(props["subtitles"][0],
+                               text="And So My Very")]
+    return props
+
+
+def _replanned_props():
+    """The same card re-planned: carded, lowercased, span shifted.
+
+    The source span moves past the millisecond the filename carries,
+    so the provenance stem - and the card - differs: the same-card
+    retention rule names nothing superseded, and the old file would
+    sit silent beside its replacement. The timeline span is
+    untouched: one span, two files.
+    """
+    props = _props()
+    props["_card_index"] = 7
+    props["_source_start"] = 20.0
+    props["_source_end"] = 22.0
+    props["subtitles"] = [dict(props["subtitles"][0],
+                               text="and so my very")]
+    return props
+
+
+def _render(props, out_dir):
+    return render_one_segment(props, out_dir, "tl",
+                              remotion_dir="/none",
+                              renderer=_StubRenderer(),
+                              overlay_geometry="full")
+
+
+def test_replan_pair_is_reported_not_moved(tmp_path, capsys):
+    """The brief's case: the orphan is named as the mate, on disk."""
+    out_dir = str(tmp_path)
+    first = _render(_old_plan_props(), out_dir)
+    assert first["provenance"] == RENDERED
+    second = _render(_replanned_props(), out_dir)
+    assert second["provenance"] == RENDERED
+    assert second["overlay_path"] != first["overlay_path"]
+    # The same-card rule missed it: different card, nothing superseded.
+    assert second["superseded"] == []
+    # Nothing moved: both generations are still on disk.
+    assert os.path.isfile(first["overlay_path"])
+    assert os.path.isfile(second["overlay_path"])
+
+    pairs = _ambiguous_pairs_for_dir(out_dir, {second["overlay_path"]})
+
+    assert len(pairs) == 1
+    pair = pairs[0]
+    assert pair["timeline"] == "tl"
+    assert pair["files"] == sorted(
+        [first["overlay_path"], second["overlay_path"]])
+    # Identifiable WITHOUT opening either render: the ledger alone
+    # says which file drew this pass and which did not.
+    assert pair["drawn_fresh"] == [second["overlay_path"]]
+    # And said loudly, not just carried.
+    assert "AMBIGUOUS" in capsys.readouterr().err
+
+
+def test_explained_pair_is_not_ambiguous(tmp_path):
+    """A re-render the ledger already attributes leaves no pair behind."""
+    out_dir = str(tmp_path)
+    first = _render(_props(), out_dir)
+    changed = _props()
+    changed["subtitles"] = [dict(changed["subtitles"][0],
+                                 text="and so my very CHANGED")]
+    second = _render(changed, out_dir)
+    assert second["provenance"] == RENDERED
+    assert second["superseded"] == [first["overlay_path"]]
+    pairs = _ambiguous_pairs_for_dir(out_dir, {second["overlay_path"]})
+    assert pairs == []
+
+
+def test_sharing_and_cross_timeline_spans_are_not_pairs():
+    """One file serving two placings is the sharing, not a duplicate."""
+    entry = {"overlay_path": "/d/sub_a_b_1-2_aaaaaaaa.mov",
+             "binding": {"timeline": "tl"},
+             "timeline_start": 0.0, "timeline_end": 2.0,
+             "superseded": []}
+    twin = dict(entry, binding={"timeline": "tl", "block_position": 2})
+    assert ambiguous_span_pairs([entry, twin], set()) == []
+    # A master card and a reel card share absolute seconds legitimately:
+    # the props carry no timeline, which is why this groups on the ledger
+    # bindings instead of on a directory scan.
+    master = {"overlay_path": "/d/sub_a_b_1-2_aaaaaaaa.mov",
+              "binding": {"timeline": "master"},
+              "timeline_start": 10.0, "timeline_end": 12.0,
+              "superseded": []}
+    reel = {"overlay_path": "/d/sub_c_d_3-4_bbbbbbbb.mov",
+            "binding": {"timeline": "reel 01"},
+            "timeline_start": 10.0, "timeline_end": 12.0,
+            "superseded": []}
+    assert ambiguous_span_pairs([master, reel], set()) == []
+
+
+def test_stale_duplicate_with_no_fresh_claim_is_still_visible():
+    """A duplicate from history no pass in this process drew is still
+    reported - with nobody named as drawing - rather than silent."""
+    old = {"overlay_path": "/d/sub_a_b_1-2_aaaaaaaa.mov",
+           "binding": {"timeline": "tl"},
+           "timeline_start": 0.0, "timeline_end": 2.0,
+           "superseded": []}
+    new = {"overlay_path": "/d/sub_c_d_3-4_bbbbbbbb.mov",
+           "binding": {"timeline": "tl"},
+           "timeline_start": 0.0, "timeline_end": 2.0,
+           "superseded": []}
+    pairs = ambiguous_span_pairs([old, new], set())
+    assert len(pairs) == 1
+    assert pairs[0]["drawn_fresh"] == []
+    assert pairs[0]["files"] == sorted(
+        [old["overlay_path"], new["overlay_path"]])
+
+
+def test_ledger_is_the_only_thing_the_report_reads(tmp_path):
+    """The pair is established from ledger paths alone: corrupt the
+    ledger and the report degrades to a note, never a refusal."""
+    out_dir = str(tmp_path)
+    _render(_old_plan_props(), out_dir)
+    with open(ledger_path_for(out_dir), "w", encoding="utf-8") as handle:
+        handle.write("{not json")
+    assert _ambiguous_pairs_for_dir(out_dir, set()) == []

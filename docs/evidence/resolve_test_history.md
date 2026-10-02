@@ -315,7 +315,7 @@ source ranges - and the promoted timeline matches the edited one on
 those passages. The next rebuild carries the same edits again from the
 ledger with no fresh editor change on record.
 
-Trims and moves are carried in `tests/unit/resolve/test_editor_edit_carry_composed.py`.
+Trims and moves are carried in `tests/unit/resolve/test_editor_edit_carry.py`.
 ```
 
 ## test_fusion_bank_reads_this_build
@@ -363,7 +363,7 @@ transitions on project 001 therefore drew none of their 30 planned
 frames and held a full-strength blur across 331 frames instead.
 
 ``library/tools/fusion/played_window.py`` carries the measurement and
-``tests/unit/picture/test_transition_ramp_draws.py`` counts the frames a transition
+``tests/unit/picture/test_transition_placement.py`` counts the frames a transition
 is drawn on, which is the check this file could not make: a keyframe in
 range is necessary and not sufficient.
 
@@ -455,7 +455,7 @@ under all three notes - had been dropped, which is why the first test
 below said "four clips" over a list of three.
 
 No Resolve, and no fake of one: everything here is the disk half, the
-same line `tests/unit/resolve/test_marker_feedback_records.py` draws.  Nothing in this
+same line `tests/unit/resolve/test_markers.py` draws.  Nothing in this
 file reaches a real project - the project is built under `tmp_path`.
 ```
 
@@ -483,7 +483,7 @@ SEPARATE PROCESS, never a count and never an in-script read.
 ```text
 The widened default-as-measured sweep (WP1, principle 3).
 
-`tests/unit/picture/test_assessment_reports_no_default_as_measured.py` sweeps exactly
+`tests/unit/picture/test_picture_view.py` sweeps exactly
 one producer - `compute_deterministic_assessment`. The defect family it
 names spans the codebase ("assume another exists until the sweep says
 otherwise"), and the 177-site `audit_p3b.py` pass plus its classification

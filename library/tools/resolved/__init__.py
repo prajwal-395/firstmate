@@ -40,5 +40,5 @@ exclusive section, through `resolve_lock.cursor_fence`.
 
 Socket and database live in `resolve_lock.lock_dir()`, next to the
 lease, so `PIPELINE_RESOLVE_LOCK_DIR` isolates a test's broker exactly
-as it isolates a test's lease. `tests/unit/resolve/test_resolved.py`.
+as it isolates a test's lease. `tests/unit/resolve/test_resolve_lock.py`.
 """

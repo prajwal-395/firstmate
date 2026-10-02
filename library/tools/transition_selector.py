@@ -35,7 +35,7 @@ _HIGH_ENERGY_WORDS = HIGH_ENERGY_WORDS
 # says so in as many words: a cut type draws nothing, and AGENTS.md 10.4
 # records that "an edit of nothing but hard cuts is the absence of
 # decoration". Absence is a legitimate answer; an invented `defocus` is
-# not. Guarded by tests/unit/picture/test_transition_selector.py.
+# not. Guarded by tests/unit/picture/test_transition_planning.py.
 WITHDRAWN_SCENE_CHANGE_DEFAULTS = {
     "flash": "invented on a `music_behavior` of 'step_up' - which is not "
              "even a word in library/tools/music_behavior.py, so the "

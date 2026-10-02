@@ -77,7 +77,7 @@ The build path REFUSES to delete a timeline carrying uncollected notes:
     python3 -m library.tools.marker_feedback check --project <p>
 
 `tests/qualification/test_marker_feedback_against_resolve.py`,
-`tests/unit/resolve/test_marker_feedback_records.py`.
+`tests/unit/resolve/test_markers.py`.
 
 The probe these findings were measured on, and the assumptions it
 overturned: docs/evidence/marker_feedback.md.

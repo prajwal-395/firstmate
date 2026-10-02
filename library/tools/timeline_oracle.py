@@ -47,7 +47,7 @@ corrected - see `render_report`.
     python3 -m library.tools.timeline_oracle --timeline "Reel 09" \\
         --expected-rows /tmp/expected_rows.json --live-rows /tmp/live_rows.json
 
-`tests/unit/resolve/test_timeline_oracle.py`.
+`tests/unit/resolve/test_drift_check.py`.
 """
 
 from __future__ import annotations
@@ -192,7 +192,7 @@ def live_rows_of_tracks(tracks: list) -> dict:
 LEGACY_PRECONDITION = "rough_cut_exists"
 """The one undeclared name this module evaluates, kept for its own tests.
 
-`tests/unit/resolve/test_timeline_oracle.py` pins the picture evaluation under this
+`tests/unit/resolve/test_drift_check.py` pins the picture evaluation under this
 name, and the CLI defaults to it. It is NOT added to the requirement
 vocabulary - `tests/scenarios/test_ren_one_real_edit.py` pins that it stays out -
 so no new undeclared name joins it."""

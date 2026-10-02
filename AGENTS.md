@@ -523,7 +523,7 @@ Detail: `library/tools/analysis/picture_quality.py`. [why](docs/RULE_EVIDENCE.md
 `library/tools/camera_stability.py`. [why](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
 
 **No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
-`tests/unit/picture/test_assessment_reports_no_default_as_measured.py`. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
+`tests/unit/picture/test_picture_view.py`. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
 
 ### 10.4 Gates, and what counts as evidence
 
@@ -537,7 +537,7 @@ Detail: `library/tools/analysis/picture_quality.py`. [why](docs/RULE_EVIDENCE.md
 
 **TWO versions of a reel may be alive at once, and CHOOSING one is an ACT: `manage_project.py variant new|build|list|diff|choose|merge`.** A variant differs in a SEAM or a per-project DECLARATION and in nothing else; the archive holds ONE unchosen variant per REEL. `library/tools/versions/variants.py`.
 
-**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.** `library/tools/passage_engagement.py`, `tests/unit/picture/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
+**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.** `library/tools/passage_engagement.py`, `tests/unit/picture/test_mesh_spine.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 
 **A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.** `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
 
@@ -612,13 +612,13 @@ Detail: `library/tools/music_measurement.py`. [why](docs/RULE_EVIDENCE.md#what-s
 **Anything added to `library/presets/` from an outside source needs its licence recorded here before it lands.**
 
 **A PowerGrade lands only with its provenance recorded here.**
-Captain's ruling 2026-09-10: `The Grade Free_1.13.1.drx` (captain-supplied, Zay's free grade) is authorised; no file ships in this repo. `library/tools/color_page_grade.py`; `tests/unit/picture/test_color_page_grade.py`. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
+Captain's ruling 2026-09-10: `The Grade Free_1.13.1.drx` (captain-supplied, Zay's free grade) is authorised; no file ships in this repo. `library/tools/color_page_grade.py`; `tests/unit/picture/test_grade_delivery.py`. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
 
 **Two third-party assets ship, with their licences.**
 Montserrat, as `remotion-subtitles/public/fonts/Montserrat-Variable.ttf` (variable 100-900), under **SIL Open Font License 1.1** (`public/fonts/OFL-Montserrat.txt`). GSAP, as `hyperframes/vendor/gsap.min.js` (3.14.2, pinned), under the **GSAP Standard License** (free; header in the file).
 
 - **Bundle fonts; never import one over HTTP.** [why](docs/RULE_EVIDENCE.md#the-webfont-race)
-- `tests/contracts/test_bundled_fonts.py` fails if the font or licence goes missing, a font arrives over HTTP, or a template names one neither bundled nor accepted as system.
+- `tests/contracts/test_asset_policy.py` fails if the font or licence goes missing, a font arrives over HTTP, or a template names one neither bundled nor accepted as system.
 
 **A declared typeface must be one that really draws the glyphs.**
 One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system font, or carried by the project as a `font_file`.

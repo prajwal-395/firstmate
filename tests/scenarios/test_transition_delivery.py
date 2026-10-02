@@ -13,7 +13,7 @@ from library.tools.transition_vocabulary import FUSION_TYPES
 
 #: The source frame every comp below is built at. The builder takes no
 #: default frame, so each call states it - the same numbers the removed
-#: default carried (see tests/unit/picture/test_vfx_delivery.py).
+#: default carried (see tests/unit/picture/test_vfx.py).
 SOURCE_RES = (1080, 1920)
 
 

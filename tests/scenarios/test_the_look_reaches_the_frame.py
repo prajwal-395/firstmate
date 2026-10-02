@@ -33,7 +33,7 @@ the CRT switch       `CropTop`/`CropBottom`, which Crop does not have, so
                      Fusion's origin is bottom-left.
 ===================  ====================================================
 
-The name half is gated by `tests/unit/resolve/test_fusion_tool_inputs.py`. This file
+The name half is gated by `tests/unit/resolve/test_fusion_parser.py`. This file
 holds the value half: the declared magnitude must arrive at the tool that
 draws it, unchanged, and an effect armed without one must be REFUSED
 rather than completed.

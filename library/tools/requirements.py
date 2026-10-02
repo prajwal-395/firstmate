@@ -69,17 +69,17 @@ A gate that cannot fail is worse than no gate, because it reads as
 coverage (AGENTS.md 10.4).  Every `Requirement` must carry BOTH
 witnesses - `refuting_context()` and `satisfying_context()` - with no
 defaults, so a requirement **cannot be registered without them**.  The
-registration is the gate; `tests/contracts/test_every_requirement_can_refuse.py`
+registration is the gate; `tests/contracts/test_requirements.py`
 only reads it.  A requirement that genuinely cannot refuse is DELETED,
-never exempted.  `tests/contracts/test_no_requirement_refuses_correct_input.py` is
+never exempted.  `tests/contracts/test_requirements.py` is
 the mirror, so the layer cannot be vacuously strict either.
 
     python3 -m library.tools.requirements          # the registry
     python3 -m library.tools.requirements --kinds  # counts by kind
 
 `tests/test_requirements.py`,
-`tests/contracts/test_every_requirement_can_refuse.py`,
-`tests/contracts/test_no_requirement_refuses_correct_input.py`.
+`tests/contracts/test_requirements.py`,
+`tests/contracts/test_requirements.py`.
 
 The prose contracts nothing evaluated, the measured cases that passed
 them, and the rulings that added verdicts and optionals:
@@ -1610,7 +1610,7 @@ firmly as enforcing it."""
 # Six of the prose preconditions named a key the DAG never routes.
 # Converting them verbatim would have refused a CORRECT run, which is a
 # vacuously STRICT gate - no more coverage than one that cannot fail.
-# `tests/contracts/test_no_requirement_refuses_correct_input.py` is what catches
+# `tests/contracts/test_requirements.py` is what catches
 # that class, and it is why each of these is recorded here rather than
 # silently dropped: a deleted requirement with no reason reads as an
 # oversight.

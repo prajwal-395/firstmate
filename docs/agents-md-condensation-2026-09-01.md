@@ -109,7 +109,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 357 [Frame mapping] - **A ramp longer than the frames its clip plays is REFUSED by name** (`TransitionLongerThanTheClip`), never drawn: it never reaches neutral, so it covers the whole clip.
 
-  L 358 [Frame mapping] - **Count DRAWN frames, not planned ones.** `library/tools/fusion/transition_frames.py` reads the comp the renderer writes and evaluates its splines; `tests/unit/picture/test_transition_ramp_draws.py` is the gate. 001's plan was correct on every run it ever made, which is exactly what kept this invisible - a test that asserts a plan exists cannot see it.
+  L 358 [Frame mapping] - **Count DRAWN frames, not planned ones.** `library/tools/fusion/transition_frames.py` reads the comp the renderer writes and evaluates its splines; `tests/unit/picture/test_transition_placement.py` is the gate. 001's plan was correct on every run it ever made, which is exactly what kept this invisible - a test that asserts a plan exists cannot see it.
 
   L 373 [Tracks] - `compile_manifest` merges a declared look onto both. Any pass that draws it must read both. [why](docs/RULE_EVIDENCE.md#house-look-missed-the-broll)
 
@@ -169,7 +169,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 627 [10.1 Contracts between steps] - **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them** - `scan` is not a prefix of `scan_project`. `library/tools/project_layout.node_id_for` is the ONLY translator, and the node id is what `pipeline_data.json`, both ledgers and the runner key everything by. Code holding one vocabulary while its caller holds the other goes through that function or it silently answers nothing. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 
-  L 636 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/contracts/test_creative_brief_reaches_prompt.py` fails if a handoff documents a brief its manifest does not declare.
+  L 636 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. `tests/contracts/test_context_contracts.py` fails if a handoff documents a brief its manifest does not declare.
 
   L 646 [10.1 Contracts between steps] - **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
 
@@ -199,7 +199,7 @@ REMOVED normative statements (each must be accounted for):
 
   L 727 [10.1 Contracts between steps] - **It can only see what a manifest DECLARES**, and `expected_schema` is one level deep, so a field asked for inside a list-item shape (4.02's `duration_feel`, 3.03's `cut_decisions`) is invisible to it. Closing that needs nested `expected_schema`, not a new format.
 
-  L 770 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** `tests/scenarios/test_vfx_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
+  L 770 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** `tests/scenarios/test_plan_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
 
   L 805 [10.2 Reaching the picture and the sound] - **The split is BALANCED, not greedy.** A greedy fill leaves the remainder as a runt card, and a card is on screen only until the NEXT card's first word, so nothing downstream can lengthen one. `split_into_groups` solves per block for the partition with the fewest cards under the floor. Model the REAL display duration if you touch it.
 
@@ -425,7 +425,7 @@ ADDED normative statements:
 
   L 417 [Frame mapping] - **A ramp longer than the frames its clip plays is REFUSED by name** (`TransitionLongerThanTheClip`), never drawn: (Mentions: never).
 
-  L 419 [Frame mapping] - **Count DRAWN frames, not planned ones.** (Mentions: `library/tools/fusion/transition_frames.py`, `tests/unit/picture/test_transition_ramp_draws.py`, cannot, exactly).
+  L 419 [Frame mapping] - **Count DRAWN frames, not planned ones.** (Mentions: `library/tools/fusion/transition_frames.py`, `tests/unit/picture/test_transition_placement.py`, cannot, exactly).
 
   L 435 [Tracks] - `compile_manifest` merges a declared look onto both. (Mentions: must). [why](docs/RULE_EVIDENCE.md#house-look-missed-the-broll)
 
@@ -485,7 +485,7 @@ ADDED normative statements:
 
   L 735 [10.1 Contracts between steps] - **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them** - `scan` is not a prefix of `scan_project`. (Mentions: ONLY, `library/tools/project_layout.node_id_for`, `pipeline_data.json`). [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 
-  L 745 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. (Mentions: `tests/contracts/test_creative_brief_reaches_prompt.py`, does not).
+  L 745 [10.1 Contracts between steps] - Seven of them - `creative_direction`, `speech_sequence`, `music_selection`, `select_broll`, `plan_transitions`, `plan_vfx` and `plan_sfx` - are the ones whose handoffs tell the model to read one. (Mentions: `tests/contracts/test_context_contracts.py`, does not).
 
   L 760 [10.1 Contracts between steps] - **Which sections are about THIS video is not the engine's judgement.** (Mentions: `pipeline.creative_brief_inline`, `project.yaml`).
 
@@ -515,7 +515,7 @@ ADDED normative statements:
 
   L 870 [10.1 Contracts between steps] - **It can only see what a manifest DECLARES**, and `expected_schema` is one level deep, so a field asked for inside a list-item shape (4.02's `duration_feel`, 3.03's `cut_decisions`) is invisible to it. (Mentions: `expected_schema`).
 
-  L 918 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** (Mentions: `tests/scenarios/test_vfx_reaches_the_manifest.py`).
+  L 918 [10.2 Reaching the picture and the sound] - **The step is not broken and the vocabulary is not missing.** (Mentions: `tests/scenarios/test_plan_reaches_the_manifest.py`).
 
   L 955 [10.2 Reaching the picture and the sound] - **The split is BALANCED, not greedy.** (Mentions: `split_into_groups`, only).
 

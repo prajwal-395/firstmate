@@ -220,7 +220,7 @@ Reachability
 `tests/unit/reels/test_reel_quality_bar.py`.
 ```
 
-## `tests/unit/reels/test_quality_bar_thesis_ending.py` module docstring (moved 2026-10-02)
+## `tests/unit/reels/test_reel_quality_bar.py` module docstring (moved 2026-10-02)
 
 ```text
 A closer-less reel a project declares ends on its own thesis passes.

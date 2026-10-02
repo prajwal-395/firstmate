@@ -1750,7 +1750,7 @@ def rewrite_f5_against_live_final(staging_name: str,
 
     Pure: the caller grades both timelines and compares here, so this
     decision is testable without Resolve
-    (`tests/unit/reels/test_f5_refuses_new_violations_not_all.py`).
+    (`tests/unit/reels/test_conformance_baseline.py`).
     """
     if staging_checker_version is None or \
             final_checker_version is None or \
@@ -1913,7 +1913,7 @@ def rewrite_f25_against_live_final(staging_name: str,
 
     Pure, like its F5 sibling, for the same reason: the decision is
     testable without Resolve
-    (`tests/unit/reels/test_f25_refuses_new_word_mismatch_not_all.py`).
+    (`tests/unit/reels/test_conformance_baseline.py`).
     """
     if staging_checker_version is None or \
             final_checker_version is None or \

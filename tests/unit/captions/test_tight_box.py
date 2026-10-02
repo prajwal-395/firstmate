@@ -35,7 +35,7 @@ SAFE = {"top": 120, "right": 120, "bottom": 320, "left": 90}
 #: measurement from that calibration. The renderer draws
 #: `resolve_transform.FALLBACK_DRAW_GAIN` today; these tests say what
 #: it drew then, so a reader can tell history from the current truth
-#: (which `tests/unit/resolve/test_draw_gain_measured.py` derives from rendered
+#: (which `tests/unit/resolve/test_resolve_transform.py` derives from rendered
 #: pixels rather than restating).
 HISTORY_GAIN = 1.0
 

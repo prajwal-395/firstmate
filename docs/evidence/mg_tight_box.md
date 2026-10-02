@@ -140,7 +140,7 @@ off the top - what the captain saw on seventeen graphics. The pipeline must
 compute 2592 itself: no hand correction, no halving at the call site. Pinned as
 history at explicit gain 1.0 (the renderer drew that gain on 2026-09-11); under
 today's measured gain the same graphic stores 1296 for the identical rows
-(`tests/unit/resolve/test_draw_gain_measured.py`).
+(`tests/unit/resolve/test_resolve_transform.py`).
 
 Since the layout-width floor (captain 2026-09-21) this top-centre graphic ships
 on a 966-wide canvas instead of the union-sized one: the canvas spans the

@@ -10,12 +10,9 @@ proven to CATCH each finding class without requiring Resolve.
 
 ``tests/unit/reels/test_reel_conformance_verifier.py``.
 """
-
 from __future__ import annotations
-
 import json
 import pytest
-
 from library.tools.reel_conformance_verifier import (
     check_caption_hangs,
     check_caption_slugs,
@@ -43,6 +40,23 @@ from library.tools.reel_conformance_verifier import (
     check_short_captions,
     check_subtitle_styling,
     verify_reel,
+)
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+from library.tools import operations, reel_look
+from library.tools import reel_conformance_verifier as verifier
+from library.tools.reel_proposal import Approval, ReelMoment, write_proposal
+from library.tools.reel_quality_bar import BarReport
+from library.tools.timeline_ingest import TimelineClip, TimelineSnapshot
+from library.tools.timeline_transcript import transcript_path
+import shutil
+import subprocess
+from library.tools.reel_build import OffsetRefused, verify_cover_clip
+from library.tools import reel_semantic_visual as sem
+from library.tools.reel_conformance_verifier import (
+    check_semantic_visuals,
 )
 
 
@@ -1681,3 +1695,642 @@ class TestRecordedPinsAreReadBeforeThePlanIsGraded:
         assert derive < body.index(reader), (
             f"run_verification derives project_folder AFTER it reads "
             f"{what}, so every CLI run grades without it")
+
+
+# --------------------------------------------------------------------------
+# From test_reel_f7_placed_floor.py
+#
+# F7 fails every PLACED caption card and A/V item under the readability
+# floor (`MIN_CAPTION_DISPLAY_SECONDS`), with no last-of-block exemption.
+#
+# History: `docs/evidence/reel_conformance_f7.md` (test_reel_f7_placed_floor.py).
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from library.tools import reel_conformance_verifier
+from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+from library.tools.reel_conformance_verifier import (
+    check_short_av_items,
+)
+
+
+def _placed_card(frames, text="yeah.", last_of_own_block=True):
+    """A placed caption card dict as `verify_reel` builds it off the
+    timeline - plus, when asked, the block keys that used to exempt it.
+
+    A one-card block's only card is trivially its last, which is the
+    shape every flash card in the report takes.
+    """
+    card = {"reel_start": 0.0,
+            "reel_end": frames / FPS,
+            "text": text,
+            "speaker": None,
+            "frames": frames}
+    if last_of_own_block:
+        card["block_position"] = "7"
+        card["block_end"] = frames / FPS
+    return card
+
+
+def _errors(findings):
+    return [f for f in findings if f.severity == "error"]
+
+
+def test_flash_cards_last_of_their_own_block_now_fail():
+    """R02 card 0 "yeah." 3 frames and R19 card 32 "yeah." 2 frames, each
+    the last card of its own block - the exemption that used to hold them."""
+    for reel, frames in (("Reel 02 - seo-that-hurts-your-ai-ranking", 3),
+                         ("Reel 19 - can-you-game-ai", 2)):
+        findings = check_short_captions(reel, [_placed_card(frames)], FPS)
+        errors = _errors(findings)
+        assert len(errors) == 1, [f.message for f in findings]
+        assert errors[0].finding_class == FindingClass.F7
+        assert errors[0].detail["duration_frames"] == frames
+
+
+def test_a_correct_length_card_still_passes():
+    findings = check_short_captions(
+        "Reel 01", [_placed_card(int(round(1.0 * FPS)),
+                                   text="a full second of text")], FPS)
+    assert findings == []
+
+
+def _item_2(track_type, track_index, duration_frames, name="clip"):
+    return reel_conformance_verifier.TimelineItem(
+        track_type=track_type, track_index=track_index,
+        start_frame=0, end_frame=duration_frames,
+        duration_frames=duration_frames,
+        source_start_frame=0, source_end_frame=duration_frames,
+        source_file="/m/a.MXF", speaker="Akshita", name=name)
+
+
+def test_fragment_av_slivers_fail_against_the_same_floor():
+    """The report's keep-range slivers: R02's 3f "their keywords" video
+    chirp and R04's 5f "size." audio blip are under the same 12-frame
+    floor as the flash cards."""
+    findings = check_short_av_items(
+        "Reel 02",
+        [_item_2("video", 1, 3, name="their keywords"),
+         _item_2("video", 1, 600, name="a real take")],
+        [_item_2("audio", 1, 5, name="size."),
+         _item_2("audio", 1, 600, name="a real take")],
+        FPS)
+    errors = _errors(findings)
+    assert len(errors) == 2, [f.message for f in findings]
+    assert all(f.finding_class == FindingClass.F7 for f in errors)
+    assert {f.detail["duration_frames"] for f in errors} == {3, 5}
+
+
+def test_verify_reel_grades_the_placed_card_not_the_plan():
+    """End to end: the plan asks for a full-length card, the timeline
+    carries a 2-frame flash - F7 must fail the flash, not pass the plan.
+    """
+    from library.tools.reel_conformance_verifier import (
+        PlannedCaption,
+        PlannedPlacement,
+        ReelPlan,
+        ReelTimeline,
+        TimelineItem,
+        verify_reel,
+    )
+    plan = ReelPlan(
+        reel_name="Reel 19 - can-you-game-ai", reel_number=19,
+        plan_seconds=30.0, plan_frames=round(30.0 * FPS, 1),
+        span_start=0.0, span_end=30.0,
+        placements=(PlannedPlacement(
+            track_index=1, speaker="Akshita", record_seconds=0.0,
+            source_in=0.0, source_out=30.0,
+            source_file="/m/a.MXF"),),
+        captions=(PlannedCaption(
+            start_seconds=0.0, end_seconds=1.0, text="yeah.",
+            speaker="Akshita", frames=int(round(1.0 * FPS)),
+            block_position="7", block_end_seconds=1.0),),
+        keep_ranges=((0.0, 30.0),))
+    picture = TimelineItem(
+        track_type="video", track_index=1, start_frame=0,
+        end_frame=int(round(30.0 * FPS)),
+        duration_frames=int(round(30.0 * FPS)),
+        source_start_frame=0,
+        source_end_frame=int(round(30.0 * FPS)),
+        source_file="/m/a.MXF", speaker="Akshita", name="take")
+    flash = TimelineItem(
+        track_type="video", track_index=3, start_frame=0, end_frame=2,
+        duration_frames=2, source_start_frame=0, source_end_frame=2,
+        source_file="/m/a.MXF", speaker="Akshita", name="yeah.")
+    timeline = ReelTimeline(
+        reel_name="Reel 19 - can-you-game-ai", fps=FPS,
+        total_frames=int(round(30.0 * FPS)),
+        video_items=(picture,), audio_items=(picture,), caption_items=(flash,))
+    result = verify_reel(plan, timeline)
+    f7 = [f for f in result.findings
+          if f.finding_class == FindingClass.F7
+          and f.severity == "error"]
+    assert len(f7) == 1, [f.message for f in result.findings]
+    assert f7[0].detail["duration_frames"] == 2
+
+
+# --------------------------------------------------------------------------
+# From test_reel_verifier_timeline_units.py
+#
+# The pipeline verifier restores Pan/Tilt units without moving Resolve.
+#
+# Resolve scales Pan and Tilt returned through a non-current timeline handle
+# by the current timeline's dimensions over the read timeline's dimensions.
+# This models the exact Reel 24 TV-window geometry and exercises the real
+# `reel.verify` operation against a read-only Resolve stand-in.
+
+MASTER = "GEO Podcast - Synced"
+FINAL = "Reel 24 - why-ai-trusts-youtube"
+STAGING = FINAL + " (rebuild staging)"
+SOURCE = "/media/LC4932.MXF"
+WINDOW = (56.106, 530.6365, 1022.967, 1829.827)
+LOOK = {
+    "asset": "TV 4k.png", "punch_in": 2.3,
+    # The live project scales the portrait frame to 0.9298. This gives
+    # the same effective 2.138585 punch-in recorded by Reel 24's build.
+    "scale": 0.9298, "power": {},
+}
+
+
+class _Timeline:
+    def __init__(self, name, width, height):
+        self.name = name
+        self.width = width
+        self.height = height
+
+    def GetName(self):
+        return self.name
+
+    def GetSetting(self, key):
+        return {
+            "timelineResolutionWidth": str(self.width),
+            "timelineResolutionHeight": str(self.height),
+        }.get(key, "")
+
+
+class _Project:
+    def __init__(self, timelines, current):
+        self.timelines = timelines
+        self.current = current
+
+    def GetTimelineCount(self):
+        return len(self.timelines)
+
+    def GetTimelineByIndex(self, index):
+        return self.timelines[index - 1]
+
+    def GetCurrentTimeline(self):
+        return self.current
+
+
+def _snapshot(timeline, transform=None):
+    clips = ()
+    if timeline.GetName() == STAGING:
+        clips = (TimelineClip(
+            resolve_item_id="uid-lc4932",
+            track_type="video", track_index=1, track_name="Akshita",
+            speaker="Akshita", source_file=SOURCE,
+            source_in=0.0, source_out=10.0,
+            source_in_frame=0, source_out_frame=240,
+            source_frames=1000,
+            timeline_start=0.0, timeline_end=10.0,
+            name="LC4932.MXF", transform=dict(transform or {})),)
+    width, height = timeline.width, timeline.height
+    return TimelineSnapshot(
+        project_name="Mock Project", timeline_name=timeline.GetName(),
+        fps=FPS, reported_fps=23.976,
+        width=width, height=height,
+        start_frame=0, end_frame=240, clips=clips)
+
+
+def _focused_f12_result(plan, timeline, **kwargs):
+    """Run the production F12 check while leaving unrelated gates neutral."""
+    findings = verifier.check_delivered_framing(
+        plan.reel_name, timeline.video_items, timeline.width,
+        timeline.height, source_sizes=kwargs["source_sizes"],
+        declared_intent=kwargs["declared_intent"],
+        declared_crop_factor=kwargs["declared_crop_factor"],
+        cards=plan.cards, look=kwargs["look"],
+        draw_gain=kwargs["draw_gain"])
+    return verifier.ReelResult(
+        reel_name=plan.reel_name, reel_number=24,
+        plan_seconds=10.0, plan_frames=round(10.0 * FPS),
+        actual_frames=240, items_expected=1, items_actual=1,
+        one_frame_holes=0, big_holes=[], captions_expected=0,
+        captions_actual=0, speech_seconds=0.0,
+        uncaptioned_seconds=0.0, uncaptioned_pct=0.0,
+        short_captions=0, edge_cuts=0, bad_take_cuts=0,
+        markers=0, findings=findings)
+
+
+def test_reel_verify_operation_corrects_noncurrent_transform_read(
+        tmp_path, capsys):
+    """A quarter-size current timeline used to turn a valid aim into F12."""
+    properties = reel_look.punch_in_properties(
+        LOOK, SimpleNamespace(center_x=0.5023, center_y=0.3132),
+        3840, 2160, 1080, 1920, window=WINDOW, draw_gain=1.0)
+    assert properties["ZoomX"] == pytest.approx(2.138585, abs=0.000001)
+    assert properties["Tilt"] == pytest.approx(-696.041, abs=0.001)
+
+    # Resolve reads the target timeline's transforms in current-timeline
+    # units. With a 270x480 current timeline, both axes come back at 1/4.
+    raw_transform = dict(properties)
+    raw_transform["Pan"] *= 0.25
+    raw_transform["Tilt"] *= 0.25
+    raw_snapshot = _snapshot(_Timeline(STAGING, 1080, 1920), raw_transform)
+    raw_timeline = verifier._snapshot_to_reel_timeline(raw_snapshot)
+    with patch.object(reel_look, "screen_window_rect_for",
+                      return_value=WINDOW):
+        raw_findings = verifier.check_delivered_framing(
+            STAGING, raw_timeline.video_items, 1080, 1920,
+            source_sizes={SOURCE: {"width": 3840, "height": 2160}},
+            declared_intent=0.0, declared_crop_factor=1.0,
+            look=LOOK, draw_gain=1.0)
+    assert len(raw_findings) == 1
+    assert "bottom 165.8px" in raw_findings[0].message
+
+    current = _Timeline("Probe 270x480", 270, 480)
+    master = _Timeline(MASTER, 3840, 2160)
+    staging = _Timeline(STAGING, 1080, 1920)
+    project = _Project([master, staging, current], current)
+    resolve = MagicMock()
+    resolve.GetProjectManager.return_value = MagicMock()
+
+    review = tmp_path / "pipeline_output" / "review"
+    review.mkdir(parents=True)
+    plan_path = review / "reel_proposals_v2.json"
+    write_proposal(
+        plan_path,
+        [ReelMoment(
+            number=24, slug="why-ai-trusts-youtube",
+            reason="Exercise the built Reel 24 framing.",
+            timeline_start=0.0, timeline_end=10.0,
+            approval=Approval.APPROVED)],
+        {"derived_from": {"duration_seconds": 10.0}})
+    (tmp_path / "pipeline_output").mkdir(exist_ok=True)
+    record = {
+        "resolve_project_name": "Mock Project",
+        "master_timeline_name": MASTER,
+        "plan_path": str(plan_path),
+        "timelines_built": [STAGING],
+        "staged_timelines": {FINAL: STAGING},
+        # This is the gain recorded by Reel 24's build log.
+        "draw_gain_calibration": {"gain": 1.0},
+    }
+    (tmp_path / "pipeline_data.json").write_text(json.dumps({
+        "project_folder": str(tmp_path),
+        "step_outputs": {"build_reels": {"reel_build": record}},
+    }), encoding="utf-8")
+    transcript = transcript_path(tmp_path)
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text(json.dumps({"segments": []}), encoding="utf-8")
+
+    def snapshot_for(timeline, _project_name):
+        transform = (raw_transform if timeline.GetName() == STAGING else None)
+        return _snapshot(timeline, transform)
+
+    # A pass promotes in this operation; isolate the read-only verifier
+    # from that separate Resolve write.
+    with patch("library.tools.marker_feedback.connect_resolve",
+               return_value=resolve), \
+            patch("library.tools.timeline_ingest.resolve_project_exactly",
+                  return_value=project), \
+            patch("library.tools.timeline_ingest.snapshot_timeline",
+                  side_effect=snapshot_for), \
+            patch.object(verifier, "_catalog_source_sizes",
+                         return_value={SOURCE: {
+                             "width": 3840, "height": 2160,
+                             "rotation": 0}}), \
+            patch("library.tools.delivery_format.resolve_delivery_format",
+                  return_value=(1080, 1920)), \
+            patch.object(reel_look, "resolve_look", return_value=LOOK), \
+            patch.object(reel_look, "screen_window_rect_for",
+                         return_value=WINDOW), \
+            patch.object(verifier, "_declared_framing",
+                         return_value=(0.0, 1.0)), \
+            patch("library.tools.reel_quality_bar.judge",
+                  return_value=BarReport()), \
+            patch.object(verifier, "verify_reel",
+                         side_effect=_focused_f12_result), \
+            patch("library.tools.reel_build.promote_staged_reels",
+                  return_value={"promoted": [FINAL],
+                                "organised": None, "markers": {}}), \
+            patch("library.tools.reel_build."
+                  "sweep_all_reels_informational") as sweep, \
+            patch("library.tools.versions.store.record_reel_promotion",
+                  return_value={"committed": False,
+                                "reason": "offline verifier test"}):
+            result = operations.get("reel.verify").execute(str(tmp_path))
+
+    assert result.completed, result.error
+    assert sweep.call_args.kwargs["draw_gain"] == 1.0
+    output = capsys.readouterr().err
+    assert "restored Pan x4, Tilt x4 to 1080x1920" in output
+    report_path = tmp_path / "pipeline_output" / "review" / \
+        "conformance_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    findings = [finding for reel in report["reels"]
+                for finding in reel["findings"]]
+    assert not [finding for finding in findings
+                if finding["finding_class"] == "F12"]
+    assert report["read_only_proof"]["all_identical"] is True
+
+
+# --------------------------------------------------------------------------
+# From test_reel_cover_clip.py
+#
+# The cutaway cover check: unplaced source placed on the master clock.
+#
+# Covers `verify_cover_clip` in `library/tools/reel_build.py` - the
+# external-input check (AGENTS.md 3) that lets a reaction cutaway show
+# listening picture the master never carried. The sync is DERIVED from
+# the nearest placed clip of the same file, never asserted, and every
+# other claim (bounds, disjointness, transcript silence, a locked
+# static shot) is checked too.
+#
+# Media fixtures are generated into `tmp_path` with ffmpeg - no test
+# reaches a real project. The static shot is a `color=` source (a
+# locked camera, by construction); the moving shot is `testsrc2` (real
+# motion, by construction); the black shot is `color=black`.
+
+_SECTION_3_MARK = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason=(
+        "ffmpeg/ffprobe is not available here, so the cover fixtures "
+        "cannot be built or measured. Runs anywhere ffmpeg and "
+        "ffprobe are on PATH - the CI runner installs them and "
+        "AGENTS.md 9 requires them for any real run."
+    ),
+)
+
+
+def _render(path, src, duration=4):
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+         "-i", f"{src}:d={duration}",
+         "-pix_fmt", "yuv420p", str(path)],
+        check=True)
+
+
+def _placed(source_file, source_in, source_out, master_start):
+    return TimelineClip(
+        resolve_item_id=f"placed-{source_in}",
+        track_type="video", track_index=1, track_name="Akshita",
+        speaker="Akshita", source_file=str(source_file),
+        source_in=source_in, source_out=source_out,
+        source_in_frame=int(source_in * 24),
+        source_out_frame=int(source_out * 24),
+        source_frames=int(4.0 * 24),
+        timeline_start=master_start,
+        timeline_end=master_start + (source_out - source_in),
+        name="clip", transform={"ZoomX": 2.0})
+
+
+def _transcript(words=()):
+    return {"segments": [
+        {"speaker": "Akshita", "timeline_start": 0.0,
+         "words": [{"word": w[2], "start": w[0], "end": w[1]}
+                   for w in words]}]}
+
+
+@_SECTION_3_MARK
+def test_cover_derives_master_span_from_the_neighbour(tmp_path):
+    """Slope-1 continuation: the placed clip ends src 2.0 at master
+    100.0, so src 2.5-3.5 lands master 100.5-101.5 - derived, and the
+    neighbour's row, name, speaker and framing travel with it."""
+    media = tmp_path / "cam.mxf"
+    _render(media, "color=c=0x808080:s=160x120:r=24")
+    clip = verify_cover_clip(str(media), 2.5, 3.5,
+                             [_placed(media, 0.0, 2.0, 98.0)],
+                             _transcript(), FPS, require_face=False)
+    assert clip.timeline_start == pytest.approx(100.5)
+    assert clip.timeline_end == pytest.approx(101.5)
+    assert (clip.track_index, clip.track_name, clip.speaker) == (
+        1, "Akshita", "Akshita")
+    assert clip.transform == {"ZoomX": 2.0}, \
+        "the same camera keeps the same crop"
+    assert clip.source_file == str(media)
+
+
+@_SECTION_3_MARK
+def test_cover_refuses_every_claim_it_cannot_check(tmp_path):
+    """Each refusal names its reason: no placed clip of the file to sync
+    from (sync would be asserted), the speaker talking inside the derived
+    span (a cutaway mid-sentence is no reaction), a moving camera, and -
+    under the production default - no face reading on a flat grey card."""
+    media = tmp_path / "cam.mxf"
+    other = tmp_path / "other.mxf"
+    moving = tmp_path / "moving.mp4"
+    _render(media, "color=c=0x808080:s=160x120:r=24")
+    _render(other, "color=c=0x808080")
+    _render(moving, "testsrc2=s=160x120:r=24")
+    cases = (
+        (media, [_placed(other, 0.0, 2.0, 98.0)], _transcript(), {},
+         "no sync basis"),
+        (media, [_placed(media, 0.0, 2.0, 98.0)],
+         _transcript(words=[(100.7, 101.0, "mm-hm")]), {}, "mid-sentence"),
+        (moving, [_placed(moving, 0.0, 2.0, 98.0)], _transcript(),
+         {"require_face": False}, "camera moved"),
+        (media, [_placed(media, 0.0, 2.0, 98.0)], _transcript(), {},
+         "no face (check|reads)"),
+    )
+    for source, placed, transcript, kwargs, match in cases:
+        with pytest.raises(OffsetRefused, match=match):
+            verify_cover_clip(str(source), 2.5, 3.5, placed, transcript,
+                              FPS, **kwargs)
+
+
+# --------------------------------------------------------------------------
+# From test_reel_semantic_visual.py
+#
+# F22: semantic visuals, graded against the record the build wrote.
+#
+# Both directions, mirroring F21 beside it. A check that only catches an
+# absence reads as coverage while an out-of-band append walks past it
+# (AGENTS.md 10.4).
+#
+# The planning half - the request the model answers, and what an
+# unanswered request builds - is tested below against
+# `library/tools/reel_semantic_visual.py` without Resolve and without a
+# model: a missing answer file must build nothing and say
+# `awaiting_model_answer`, never block and never invent.
+
+def _item_3(start, frames, track=sem.SEMANTIC_TRACK, name="vox_reel_09_00.mov"):
+    return TimelineItem(
+        track_type="video", track_index=track,
+        start_frame=start, end_frame=start + frames,
+        duration_frames=frames,
+        source_start_frame=0, source_end_frame=frames,
+        source_file="/x.mov", speaker=None, name=name,
+        unique_id=f"id-{start}")
+
+
+def _record(*segments, basis=sem.PLANNED):
+    return {"reel": "Reel 09", "basis": basis,
+            "entries": [{"element": "subject_emblem"}],
+            "dropped": [],
+            "segments": [{"timeline_start": s, "total_frames": f,
+                          "timeline_end": s + f / FPS,
+                          "elements": ["subject_emblem"]}
+                         for s, f in segments]}
+
+
+# ── F22 passes what is right ─────────────────────────────────────────
+
+# ── F22 fails what is wrong, in both directions ──────────────────────
+
+def test_f22_fails_what_is_wrong_in_both_directions():
+    start = int(round(4.901 * FPS))
+    table = [
+        # planned, but the timeline does not carry it
+        ([], _record((4.901, 75)), "no item"),
+        # an item no record accounts for: the out-of-band append
+        ([_item_3(100, 50)], _record(basis=sem.AWAITING_MODEL_ANSWER), None),
+        ([_item_3(start, 74)], _record((4.901, 75)), "74 frames"),
+        ([_item_3(start, 75), _item_3(start + 10, 75)],
+         _record((4.901, 75), (5.5, 75)), "overlap"),
+    ]
+    for items, record, says in table:
+        findings = check_semantic_visuals("Reel 09", items, record, FPS)
+        assert FindingClass.F22 in [f.finding_class for f in findings], says
+        if says:
+            assert any(says in f.message for f in findings), says
+    # ... and passes what is right
+    start = int(round(4.901 * FPS))
+    findings = check_semantic_visuals(
+        "Reel 09", [_item_3(start, 75)], _record((4.901, 75)), FPS)
+    assert findings == []
+
+
+def test_promotion_replaces_the_previous_final_record(tmp_path):
+    """A rebuild records under the staging name and promotion renames
+    it to the final one - but the previous build's record is already
+    there under the final name. Renaming beside it leaves TWO records
+    for one reel (live catch on Reel 09: a stale `awaiting_model_answer`
+    beside the new `planned`), and `record_for_reel` reads the first,
+    so the next verifier grades the promoted timeline against the
+    absence. Promotion replaces; it does not shelve beside."""
+
+    project = tmp_path / "proj"
+    review = project / "pipeline_output" / "review"
+    review.mkdir(parents=True)
+    final = "Reel 09 - your-website-is-only-20-percent"
+    staging = final + " (rebuild staging)"
+    (review / sem.PLAN_FILENAME).write_text(
+        json.dumps({"format": "semantic_visual_plans/1", "plans": [
+            {"reel": final, "basis": sem.AWAITING_MODEL_ANSWER,
+             "entries": [], "dropped": [], "segments": []},
+            {"reel": staging, "basis": sem.PLANNED,
+             "entries": [{"element": "subject_emblem"}], "dropped": [],
+             "segments": []}]}),
+        encoding="utf-8")
+    sem.rename_record_reels(str(project), {staging: final})
+    stored = json.loads(
+        (review / sem.PLAN_FILENAME).read_text(encoding="utf-8"))
+    kept = [p for p in stored["plans"] if p["reel"] == final]
+    assert len(kept) == 1
+    assert kept[0]["basis"] == sem.PLANNED
+
+
+# ── An unanswered ask builds nothing and says so ─────────────────────
+
+class _Moment:
+    number = 9
+    timeline_name = "Reel 09 - your-website-is-only-20-percent"
+
+
+def _ranges():
+    return [(631.12, 693.3)]
+
+
+def test_no_answer_file_builds_nothing_and_names_its_basis(tmp_path):
+    project = tmp_path / "proj"
+    (project / "pipeline_output" / "review").mkdir(parents=True)
+    segments, record = sem.build_for_reel(
+        _Moment(), {"structure": []}, _ranges(), str(project),
+        fps=FPS, width=1080, height=1920)
+    assert segments == []
+    assert record["basis"] == sem.AWAITING_MODEL_ANSWER
+    assert record["reel"] == _Moment.timeline_name
+
+
+# ── The ask is the pipeline's own planning surface ───────────────────
+
+def test_the_request_carries_the_reel_spine_and_the_roster():
+    spine = {"structure": [{
+        "position": 1, "block_type": "speech",
+        "timeline_start": 0.0, "timeline_end": 4.0,
+        "content": {"text": "we spent a lot of money on the website"},
+    }]}
+    context = sem.bridge_context(spine, "", FPS)
+    assert "money" in context["timeline_context_toon"]
+    assert "subject_emblem" in context["motion_elements_toon"]
+    assert "anchor_phrase" in sem.handoff_text()
+
+
+# ── The project reaches the renderer ─────────────────────────────────
+#
+# `build_for_reel` drove `motion_graphics.render_segment` without the
+# project, so `render_one_segment` resolved the geometry against
+# nothing and every reel graphic rendered full canvas even on a
+# project declaring `motion_graphics_overlay_geometry: tight` - while
+# the master pass beside it rendered tight. The project is forwarded
+# so the declaration is read live, per render.
+
+
+class _CapturedRender:
+    """The render operation, recording what the build handed it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def run(self, planned, out_dir, **kwargs):
+        self.calls.append((planned, out_dir, kwargs))
+        return {
+            "overlay_path": f"{kwargs.get('segment_name')}.mov",
+            "timeline_start": 0.0,
+            "timeline_end": 1.0,
+            "total_frames": 24,
+            "elements": ["title_lockup"],
+        }
+
+
+class _Resolved:
+    def __init__(self):
+        self.moments = [{"element": "title_lockup"}]
+        self.proposed = 1
+        self.dropped = []
+
+
+def test_build_for_reel_forwards_the_project_to_the_render(
+        tmp_path, monkeypatch):
+    import library.tools.motion_graphics_plan as mg
+    import library.tools.operations as operations
+    import library.tools.reel_spine as reel_spine
+
+    project = tmp_path / "proj"
+    (project / "pipeline_output" / "review").mkdir(parents=True)
+    (project / "pipeline_output" / "llm_responses").mkdir(parents=True)
+    (project / "pipeline_output" / "llm_responses"
+     / "reel_semantic_09.json").write_text(
+        json.dumps({"motion_graphics_plan": [{"element": "title_lockup"}]}),
+        encoding="utf-8")
+    captured = _CapturedRender()
+    monkeypatch.setattr(
+        reel_spine, "spine_for_reel", lambda *a, **k: {"structure": []})
+    monkeypatch.setattr(
+        mg, "resolve_plan", lambda *a, **k: _Resolved())
+    monkeypatch.setattr(
+        mg, "plan_segments",
+        lambda *a, **k: [{"index": 0, "props": {}}])
+    monkeypatch.setattr(
+        operations, "get", lambda name: captured)
+
+    segments, _record = sem.build_for_reel(
+        _Moment(), {"structure": []}, _ranges(), str(project),
+        fps=FPS, width=1080, height=1920)
+
+    assert len(segments) == 1
+    assert len(captured.calls) == 1
+    _planned, _out_dir, kwargs = captured.calls[0]
+    assert kwargs.get("project_folder") == str(project)

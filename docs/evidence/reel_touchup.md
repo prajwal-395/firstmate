@@ -133,7 +133,7 @@ change defensively, and its `rederive` returns a receipt that says
 comp-expecting insertion off the live timeline, and with none present
 there is nothing whose comp could be stale.  The four structural
 refusals in `composed_edit` are untouched -
-`tests/unit/resolve/test_composed_edit_refusal.py` attempts the bypass eight ways
+`tests/unit/resolve/test_composed_edit.py` attempts the bypass eight ways
 and must keep passing.
 
 "Staged", not "in place on the captain's timeline"

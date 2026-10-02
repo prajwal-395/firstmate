@@ -1,6 +1,6 @@
 # Step 3.04 `select_reels` - why it reaches a model
 
-Moved verbatim on 2026-10-02 from `tests/unit/reels/test_reel_selection_reaches_a_model.py`
+Moved verbatim on 2026-10-02 from `tests/unit/reels/test_reel_selection.py`
 when the test file kept only its invariant. The handoff-wording tests that
 pinned the captain's definition of a reel, the measurements-not-scores line
 and judging overlap on meaning (not seconds) were removed as prompt-wording

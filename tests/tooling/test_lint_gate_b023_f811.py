@@ -22,8 +22,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GATE_CONFIG = REPO_ROOT / "ruff-ci-gate.toml"
 RUN_PIPELINE = REPO_ROOT / "library" / "processes" / "edit_video" / "run_pipeline.py"
-CAPTION_CASE_TEST = REPO_ROOT / "tests" / "unit" / "captions" / "test_caption_case.py"
-SUBJECT_FRAMING_TEST = REPO_ROOT / "tests" / "unit" / "picture" / "test_subject_framing.py"
 
 
 def _deferred_files(code: str) -> list[str]:

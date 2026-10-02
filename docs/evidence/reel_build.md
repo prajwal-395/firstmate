@@ -15,7 +15,7 @@ The helpers that first closed this (`required_tracks`, `audio_layout`,
 `strays`) are gone: the track plan (`timeline_layout.plan_layout`)
 owns row counts and names now, and stream enforcement reads every
 placed audio item back. Their coverage lives in
-`tests/scenarios/test_reel_build_sop_conformance.py`, which drives the real
+`tests/scenarios/test_reel_build.py`, which drives the real
 `build_reel_timeline` against fake Resolve and reads the timeline
 back through the verifier.
 

@@ -54,8 +54,8 @@ One enumeration, `library/tools/vfx_plan_basis.py`. [why - `{"visual_effects": [
 - `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused by name, so a new drop branch has to say what it is before it can go quiet.
 - **`no_effects_planned` and `every_entry_dropped` are spelled differently on purpose**: the first is a decision, the second is the absence of one.
 - **Recording is not gating.** An empty plan is accepted. Whether a dropped entry should REFUSE the step is the captain's call (`THE_REFUSAL_QUESTION`). true` on `vfx_creative` still holds and an empty plan is still accepted;
-- **The step is not broken and the vocabulary is not missing.** `tests/scenarios/test_vfx_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
-- `tests/unit/picture/test_vfx_plan_basis.py`.
+- **The step is not broken and the vocabulary is not missing.** `tests/scenarios/test_plan_reaches_the_manifest.py` runs a named toolkit effect end to end to a drawn node.
+- `tests/unit/picture/test_vfx.py`.
 """
 
 from dataclasses import dataclass, field

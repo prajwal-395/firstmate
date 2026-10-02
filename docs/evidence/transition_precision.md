@@ -1,6 +1,6 @@
 # Rung 7 precision vocabulary on step 4.02
 
-Tests: `tests/unit/picture/test_plan_transitions_precision.py` (moved from its module docstring, 2026-10-02).
+Tests: `tests/unit/picture/test_transition_planning.py` (moved from its module docstring, 2026-10-02).
 
 Rung 7 precision vocabulary on step 4.02 (K1: TR3.1, TR3.2, C3.1).
 

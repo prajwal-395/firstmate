@@ -75,7 +75,7 @@ Resolve's OTIO carries clip volume in plain JSON, **in dB**, with keyframes.
 [why - the measured renders, and the routes that were rejected](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
 - **The import REBUILDS the timeline.** Fusion comps and CDL grades do NOT survive it. The
   placement, transform (`_apply_conform`), timeline markers and native transitions do.
-  `tests/scenarios/test_audio_mix_delivery.py` drives a whole build and asserts the comps are still there.
+  `tests/scenarios/test_plan_reaches_the_manifest.py` drives a whole build and asserts the comps are still there.
 - **The `volume` parameter is ABSENT from an untouched export**: it must be INSERTED, not patched.
 - **A keyframe's frame number is measured from the CLIP'S START ON THE TIMELINE**.
 - **`ImportTimelineFromFile` answers None with no diagnostic** when a referenced media file is

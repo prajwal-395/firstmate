@@ -1,6 +1,6 @@
 # broll coverage
 
-Test: `tests/unit/picture/test_broll_coverage_reaches_the_tables.py`.
+Test: `tests/unit/picture/test_broll.py`.
 
 The B-roll rows of two candidate tables said nothing was measurable.
 

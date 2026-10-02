@@ -104,7 +104,7 @@ FADE_BEHAVIORS = ("fade_in", "fade_out")
 
 # The bottom of the fader.  `otio_mix.MIN_VOLUME_DB` is the delivery
 # floor this has to sit at or above, and the two are asserted equal-or-
-# above in tests/scenarios/test_audio_mix_delivery.py.
+# above in tests/scenarios/test_plan_reaches_the_manifest.py.
 SILENT_LEVEL_DB = -96
 
 # What the five words used to carry, and where each number went.  Kept

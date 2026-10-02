@@ -445,7 +445,7 @@ def test_the_report_names_every_note_and_where_it_went(tmp_path):
 # An edgeless DAG: these are about the injection mechanism, not about
 # `data_mapping` routing, and a real node would demand its whole upstream
 # be present in state first.  Same shape as
-# `tests/contracts/test_creative_brief_reaches_prompt.py`.
+# `tests/contracts/test_context_contracts.py`.
 
 EDGELESS_DAG = {"nodes": [], "edges": []}
 

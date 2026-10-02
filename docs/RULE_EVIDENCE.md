@@ -559,7 +559,7 @@ Held for the whole clip, that is exactly what #202 reports: *"it never returns t
 A defocus has no transform, so the same hold reads as a blur rather than as an uncovered frame; the mechanism is one.
 
 The fix is one statement of the time base, `library/tools/fusion/played_window.py`, used by the zoom, the fade and both transition halves.
-The gate is `tests/unit/picture/test_transition_ramp_draws.py`, which counts the frames a transition is DRAWN on by evaluating the comp's own splines - because a test that asserts the plan is right passes on every run this defect ever shipped.
+The gate is `tests/unit/picture/test_transition_placement.py`, which counts the frames a transition is DRAWN on by evaluating the comp's own splines - because a test that asserts the plan is right passes on every run this defect ever shipped.
 
 ### background-sized-to-the-delivery-frame
 
@@ -578,7 +578,7 @@ Project 001's three cutaways therefore played at a different contrast with no gr
 Transitions stay on V1 because `after_clip` indexes the V1 clip LIST; replaying it elsewhere draws a transition at an unrelated cut.
 The drop detection in `build_verification` now asks whether a label was PLACED, not whether it is on V1.
 
-`tests/unit/picture/test_series_look_reaches_broll.py` drives the real pass against a fake Resolve.
+`tests/unit/picture/test_grade_delivery.py` drives the real pass against a fake Resolve.
 
 ### pan-tilt-and-volume
 
@@ -1271,7 +1271,7 @@ Measured both ways against `default_brand`: 382 B / 179 B / 41 B with the direct
 The whole block costs about 250 tokens across the three steps.
 
 The one existing test called the function with the identifier the FUNCTION wanted, which is why nothing caught it for the life of the code.
-Every assertion in `tests/contracts/test_brand_constraints_reach_the_prompt.py` therefore starts from `dag.json` and the templates on disk.
+Every assertion in `tests/contracts/test_context_contracts.py` therefore starts from `dag.json` and the templates on disk.
 
 A second half was found while fixing it: the `agy` request file wrote `prompt` alone, while `constraints` was concatenated only into the API path's `full_prompt`.
 In the mode this pipeline actually runs, a working `get_brand_constraints` would still have reached nobody.
@@ -1756,7 +1756,7 @@ Note what the fix does NOT fix.
 The cascade fires on trees and dashboards, and on 001's face-free B-roll a 3s window crosses 0.34 at every size above 240.
 The squash was suppressing those by suppressing everything.
 
-`tests/unit/picture/test_face_sample_aspect.py` pins the aspect, not a detection count, which would rot with the OpenCV build.
+`tests/unit/picture/test_temporal_index.py` pins the aspect, not a detection count, which would rot with the OpenCV build.
 
 Face detection needs Haar cascades, so `opencv-python` is pinned `<5`; OpenCV 5 removed them.
 
@@ -1998,7 +1998,7 @@ coverage anywhere and got real tests - `tests/unit/context/test_bridges.py` and 
 of `tests/unit/context/test_bridges.py`, both mutation-checked. The other three named tests were
 deleted, because 3.02's pre-bridge, 2.02's `enrich_speech_sequence` and step 1.05 are all covered
 properly elsewhere (`tests/unit/context/test_bridges.py`, `tests/scenarios/test_captured_run_regression.py`
-and `tests/unit/picture/test_passage_engagement.py`, `tests/unit/audio/test_prosody.py`). Step 3.01
+and `tests/unit/picture/test_mesh_spine.py`, `tests/unit/audio/test_prosody.py`). Step 3.01
 `assign_aroll` is left with no direct test and that is stated rather than papered over.
 
 **The check.** `tests/skip_audit.py` and `tests/tooling/test_no_unfailable_tests.py`, plus the session
@@ -2106,7 +2106,7 @@ Its mechanical half - ink exists, ink is inside the frame, ink is bottom-positio
 ### baseline-craft-properties
 
 Source: `data/vep-craft-reference-decomposition/report.md`; its Appendix A is the reproducible method.
-Test: `tests/unit/picture/test_baseline_craft_properties.py`.
+Test: `tests/unit/picture/test_picture_qa.py`.
 
 The true-peak half of `measure_lufs` used to print +1.85 dBTP inside a detail string and drop it whenever the LUFS check had already failed.
 It sets `passed = False` now.
@@ -2118,7 +2118,7 @@ The chroma floor is an open captain decision and the mix has no delivery route, 
 
 ### a-dim-shot-is-not-a-letterbox-bar
 
-Issue #221. Test: `tests/unit/picture/test_baseline_craft_properties.py`.
+Issue #221. Test: `tests/unit/picture/test_picture_qa.py`.
 
 P1 called a row "lit" at or above `LIT_LUMA_THRESHOLD` and read every other row as letterbox bar.
 That measures DARKNESS, and darkness does not separate a black bar from a night shot.
@@ -2295,9 +2295,9 @@ The one true thing the reduction knew - a block with no speech under it has noth
 The repository previously carried one PowerGrade, `cinematic_warm.drx` - a free gift from Zay's Aesthetics with no written terms of any kind, and so no commercial usage clause for a repository that produces commercial video.
 
 It was removed along with the whole PowerGrade route: `build_powergrade.py`, the `luts/` and `dctls/` preset directories, and `preset_indexer.py`.
-`tests/unit/picture/test_color_grade_delivery.py` fails if any `.drx` reappears.
+`tests/unit/picture/test_grade_delivery.py` fails if any `.drx` reappears.
 
-Captain's ruling 2026-09-10, over that removal: *"what do you mean DRX is out, its just lua tables in a file that can be imported right?"* - firstmate's reasoning was wrong twice (a `.drx` is XML wrapping a hex `FieldsBlob`, not lua tables; and the route probed was the wrong object - the import route is `GalleryStillAlbum.ImportStills` and the apply route is `Graph.ApplyGradeFromDRX`, both proved by calling on `SCRATCH_grade_probe`, never by `dir()`). And the asset is the captain's own - `The Grade Free_1.13.1.drx`, Zay's Aesthetics free PowerGrade, supplied at `/Users/prajwal/Downloads/TheGradeFree.zip` - so the licensing caution was firstmate being skittish about the captain's own call. The rule now stands as AGENTS.md 11 has it: a `.drx` lands only with its provenance recorded, and an unrecorded one is refused (`tests/unit/picture/test_color_page_grade.py`). No file ships in this repo; the captain's file proved the route from outside it.
+Captain's ruling 2026-09-10, over that removal: *"what do you mean DRX is out, its just lua tables in a file that can be imported right?"* - firstmate's reasoning was wrong twice (a `.drx` is XML wrapping a hex `FieldsBlob`, not lua tables; and the route probed was the wrong object - the import route is `GalleryStillAlbum.ImportStills` and the apply route is `Graph.ApplyGradeFromDRX`, both proved by calling on `SCRATCH_grade_probe`, never by `dir()`). And the asset is the captain's own - `The Grade Free_1.13.1.drx`, Zay's Aesthetics free PowerGrade, supplied at `/Users/prajwal/Downloads/TheGradeFree.zip` - so the licensing caution was firstmate being skittish about the captain's own call. The rule now stands as AGENTS.md 11 has it: a `.drx` lands only with its provenance recorded, and an unrecorded one is refused (`tests/unit/picture/test_grade_delivery.py`). No file ships in this repo; the captain's file proved the route from outside it.
 
 ### the-webfont-race
 
@@ -2510,7 +2510,7 @@ It was answerable only because `timed_spine` was separately routed and the beat 
 The fix restores by NAME in `present_llm_step` rather than adding four allow-list entries, and only where the projection dropped the key entirely - so a manifest that names its table may still narrow it with sub-paths.
 Four more list entries would have fixed these four steps and left the fifth new one to be found the same way.
 
-`tests/contracts/test_llm_context_routing.py` pins it two ways: every table a bridge builds is mentioned by its handoff, and every table reaches the prompt.
+`tests/contracts/test_context_contracts.py` pins it two ways: every table a bridge builds is mentioned by its handoff, and every table reaches the prompt.
 Both fail on the parent revision for exactly the four steps above and pass for `select_broll`.
 
 ### the-decision-that-was-remembered-not-sourced
@@ -3491,7 +3491,7 @@ Three separate fixes, each found by noticing one field:
 | #248 | `usable_ranges` | `[[0, duration]]` beside `usable_ranges_method: "unmeasured"` | producer |
 | #301 | `speech_coverage`, `speech_present`, `primary_subject_visible`, `clip_type` | below | producer + read-side |
 
-Each was found one at a time, which is why `tests/unit/picture/test_assessment_reports_no_default_as_measured.py`
+Each was found one at a time, which is why `tests/unit/picture/test_picture_view.py`
 computes the whole deterministic assessment with nothing to measure and asserts that NO field holds a
 value, rather than naming the four that were known.
 
@@ -4978,7 +4978,7 @@ four different fixes - or none:
 
 ### The verdict: (d) at the run of record, with a residual (b) that hides it
 
-**(c) is refuted by a test that already existed.** `tests/unit/picture/test_vfx_delivery.py` parametrises the
+**(c) is refuted by a test that already existed.** `tests/unit/picture/test_vfx.py` parametrises the
 five toolkit effects over the three intensities and asserts each draws real Fusion nodes through
 `build_effect_comp`, and `test_the_handoff_offers_exactly_the_effects_the_bridge_resolves` pins the
 handoff's table against `INTENSITY_MAP`. The vocabulary exists, is complete, and is drawn.
@@ -4994,7 +4994,7 @@ closed it.
 
 **(b) is refuted for the resolution path.** Feeding the real post-bridge a two-entry plan against
 001's own frozen spine resolves both, with the block positions turned into timeline ranges and the
-intensities into `zoom_start`/`zoom_end`. `tests/scenarios/test_vfx_reaches_the_manifest.py` carries one the
+intensities into `zoom_start`/`zoom_end`. `tests/scenarios/test_plan_reaches_the_manifest.py` carries one the
 whole way: post-bridge subprocess -> `enhancement_spec` -> the real `compile_manifest` ->
 `manifest["vfx"]` -> `fusion_effects.per_clip` -> a comp string with a `Transform` in it.
 
@@ -5137,7 +5137,7 @@ and `run_full_render_qa` declines to run P3 at all when it is None rather than a
 the file. Step 6.02's `_music_bed` computes it as `source_in - timeline_in` off the first A2 clip -
 the same two numbers `compile_manifest` placed it with.
 
-`tests/unit/picture/test_baseline_craft_properties.py::TestP3SpeechAboveBed` keeps the defect executable: one
+`tests/unit/picture/test_picture_qa.py::TestP3SpeechAboveBed` keeps the defect executable: one
 test fits a master carrying the second half of an 8 s music file at the right offset and gets
 |r| > 0.5 with a 2 dB margin, and its sibling fits the same master from 0 and asserts the old
 reading - |r| < 0.1, a margin over 20 dB, and `meets_plan` True.
@@ -6077,7 +6077,7 @@ discipline reads the measurements WITH, and what is and is not that step's
 to decide - and it carries no preference about the answer, which
 `tests/contracts/test_no_creative_floors.py` reads the rendered text to hold.
 
-Steps with no declared role are recorded in `WITHOUT_A_DECLARED_ROLE` with what each is addressed as today - the live census is the two tables in `library/tools/craft_role.py`, whose prose counts `tests/contracts/test_craft_role.py` pins. That is a gap made visible rather than closed: writing a role for a discipline nobody has studied would be the engine inventing an expertise,
+Steps with no declared role are recorded in `WITHOUT_A_DECLARED_ROLE` with what each is addressed as today - the live census is the two tables in `library/tools/craft_role.py`, whose prose counts `tests/contracts/test_context_contracts.py` pins. That is a gap made visible rather than closed: writing a role for a discipline nobody has studied would be the engine inventing an expertise,
 which is the defect one level up.
 
 ## the-build-that-deleted-nineteen-timelines-to-write-one
@@ -6148,7 +6148,7 @@ selection cannot catch the selection being wrong - and REFUSES rather
 than deleting anything unplanned.  `only` and `name_suffix` scope the
 same path rather than forking it.
 
-`tests/unit/reels/test_reel_build_touches_only_its_own_timelines.py` asserts the
+`tests/unit/reels/test_reel_build_gate.py` asserts the
 survivors by name off a media pool that really deletes, and fires the
 guard in both directions: permitted on a legitimate replace, refused on
 an over-collecting selection driven through the real build path.
@@ -6241,7 +6241,7 @@ outcome: the reel matches what the captain approved, minus a 0.200s
 duplicate, and the report names the take, the ratio that stopped it and
 that redrawing the span is the way out.
 
-`tests/unit/reels/test_reel_partial_take_cuts.py` carries reel 03's and reel 16's
+`tests/unit/reels/test_take_cuts.py` carries reel 03's and reel 16's
 real segments as data and fires the guard in both directions - the
 coherent cut list passes, the cut list the rebuild actually used is
 REFUSED by name.
@@ -6337,7 +6337,7 @@ become 71,908 and 8,509 word-timing records become 0.
 reader of the location, and it RAISES on a misplaced declaration rather
 than falling back to reading it: a fallback would make the wrong
 location work, and the wrong location would then spread.
-`tests/contracts/test_context_fields_binds.py` fails on `origin/main` in both
+`tests/contracts/test_context_contracts.py` fails on `origin/main` in both
 directions that matter - it fires on `select_reels` and stays silent on
 the eleven steps that project correctly.
 
@@ -6469,7 +6469,7 @@ load-bearing for whether the QA model was called at all, because
 already in hand.  It is not - 6.02 has no step.py, its pre-bridge emits
 `deterministic_validation`, and the model is still asked for
 `validation_result`, which is exactly its half.
-`tests/contracts/test_llm_context_routing.py` asked that question through a
+`tests/contracts/test_context_contracts.py` asked that question through a
 hand-written `{"validation_result"}` set called "produced by step.py";
 nothing produces it before the model, so the test was passing for the
 wrong reason.  It now drives the shipped `llm_output_declarations`.
@@ -6565,7 +6565,7 @@ left behind, and the reason it stayed invisible is that project 001 is
 
 Every drawn transition on that project held about 50% longer than the
 word the model wrote asked for.  4.02 now takes `project_fps` on the
-catalog edge and reads it first; `tests/unit/picture/test_transition_frames_use_the_projects_timebase.py`
+catalog edge and reads it first; `tests/unit/picture/test_transition_planning.py`
 fails in three places with the old read restored.
 
 4.03 is deliberately NOT routed: it threads `frame_rate` into
@@ -6754,7 +6754,7 @@ with the same predicate the gate grades with
 raises `PunchInLeavesBlack` at placement - never as six identical
 findings after a full build. `tight_box` holds the same line: every
 SetProperty is still judged by its return (`library/tools/tight_box.py`).
-Pinned by `tests/unit/resolve/test_punch_in_readback.py`.
+Pinned by `tests/unit/resolve/test_tv_frame.py`.
 
 ## the-probe-that-could-not-run
 
@@ -6775,7 +6775,7 @@ refuses the build with the cause instead of shipping staging the gate
 deletes. The same line `render_qa.measure_face_intact` draws with its
 "No Haar cascade available" warning: a measurement that could not be
 taken must say so. Pinned by
-`tests/unit/picture/test_subject_probe_unavailable.py`.
+`tests/unit/picture/test_subject_framing.py`.
 
 ## the-name-that-said-where-instead-of-what
 
@@ -7142,7 +7142,7 @@ row is the plan's, every item is linked. Nothing was malformed. Something was
 simply not applied.
 
 The guard is therefore not another structural check. It is:
-`tests/unit/reels/test_reel_variants_carry_recorded_obedience.py` - whatever
+`tests/unit/reels/test_version_variants.py` - whatever
 `rebuild_reels_in_project` reads in order to obey a decision the captain
 RECORDED, `build_reel_variants` reads too. It parses both functions and asserts
 the subset, and it names the missing call in the failure. It fails on the code
@@ -7173,7 +7173,7 @@ sets `SelectAllFrames: False`, reads the queued job back off `GetRenderJobList`,
 and REFUSES before `StartRendering` if the range is not exactly what was asked
 for. The job is deleted either way.
 
-`tests/unit/resolve/test_segment_render_range_takes.py` drives it with a fake project whose
+`tests/unit/resolve/test_resolve_render.py` drives it with a fake project whose
 queue reports the wrong range, and asserts nothing was started. Three of its
 four tests fail on the unfixed module; the fourth is the
 does-not-refuse-correct-output half, which must pass both ways.
@@ -7279,7 +7279,7 @@ never trigger, so a shortened cut passes; an unreadable retiring
 timeline refuses rather than passing. Fresh builds skip the diff -
 nothing is being replaced.
 
-`tests/unit/reels/test_promote_replace_guard.py` reconstructs drops 1 and 2 as
+`tests/unit/reels/test_promotion.py` reconstructs drops 1 and 2 as
 refusals, plus the declared-reduction pass, the unreadable refusal,
 and the growth/shortening passes. A guard nobody has watched fire is
 not a guard.
@@ -7455,7 +7455,7 @@ generator that declined, crashed or never reached the clip is caught by
 state rather than by its own report. Where "structural" stops is named
 in the module: a caller that does not use the module can always call
 `ImportFusionComp` itself, which is the same boundary AGENTS.md 15 draws
-around `reel_read`. `tests/unit/resolve/test_composed_edit_refusal.py` attempts the
+around `reel_read`. `tests/unit/resolve/test_composed_edit.py` attempts the
 bypass eight ways.
 
 **Judged against a REBUILD of the same edit, on exported pixels**
@@ -7894,7 +7894,7 @@ Reel 03 note destroyed at frame 551 belonged at 523 after a 78-frame
 cut upstream, and only the anchor could produce 523. Plus a
 fleet-wide total as a cheap backstop: reels the operation did not
 touch must read back exactly what they held. `library/tools/marker_gate.py`,
-`tests/unit/resolve/test_marker_gate.py`.
+`tests/unit/resolve/test_marker_carry.py`.
 
 ## unversioned-brand-masters
 

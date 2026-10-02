@@ -198,7 +198,7 @@ project, was handed the podcast field test's path. The engine serves a daily
 channel and client work and states no series' own paths (AGENTS.md 14). It now
 derives the path from `project_folder`, and claims nothing when there is no
 project folder to derive it from. Both directions are pinned in
-`tests/unit/reels/test_select_reels_post_bridge_subprocess.py`.
+`tests/unit/reels/test_reel_selection.py`.
 
 ## What was NOT touched
 

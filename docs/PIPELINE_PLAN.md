@@ -88,7 +88,7 @@ projects render identically.~~ That heuristic is DELETED (P1.4);
 enumeration, `library/tools/framing_intent.py`: spine block > project.yaml
 `pipeline.framing_intent` > brand template `style.framing_intent` > fill.
 An explicit per-clip pan still outranks the measurement. Tests:
-`tests/unit/picture/test_framing_intent.py`, `tests/unit/picture/test_framing_parameter.py`,
+`tests/unit/picture/test_framing_intent.py`, `tests/unit/picture/test_framing_intent.py`,
 `tests/unit/picture/test_subject_framing.py`.
 
 **Per-clip SFX levels do not reach the mix.** This table listed 4.04 under
@@ -156,7 +156,7 @@ are built at `compile_manifest/step.py:880,897,914` as
 `f"{block['block_type']}_{block['position']}"`, and `block_type` is
 lowercase (`spine_contract.py:55`). `"hook_1" in {"HOOK", ...}` is never
 true. ~~`SEGMENT_RECIPES` and `CompEngine.from_preset` are reachable only from
-`tests/unit/resolve/test_fusion_effects.py`.~~ Those two were deleted in
+`tests/unit/resolve/test_fusion_parser.py`.~~ Those two were deleted in
 #103; `SEGMENT_PRESETS` itself remains, still unselectable, and is P3.4.
 
 **3. The preset index.** ~~`library/tools/preset_indexer.py`~~ **REMOVED**
@@ -451,7 +451,7 @@ only piece of the five left standing.
   `framing_intent` (0.0-1.0) and `framing_pan_x` (-1.0-1.0). The renderer
   applies `ZoomX`/`ZoomY` and `PanX`. Brand templates can bias via
   `style.framing_intent`. Spine blocks can override per clip.
-  Tests: `tests/unit/picture/test_framing_parameter.py` (21 tests).
+  Tests: `tests/unit/picture/test_framing_intent.py` (21 tests).
 - **P1.2 Subject-aware pan offset.** ~~Use the vision pass's subject bounding
   box to compute an intelligent `framing_pan_x` default rather than
   dead-centre. The Pan infrastructure exists; the policy to drive it from
@@ -480,7 +480,7 @@ only piece of the five left standing.
   one site. Silence is a real answer - no detections, too few, a subject
   already near centre, or an OpenCV without Haar all yield None, which
   means the framing a project gets today. Tests:
-  `tests/unit/picture/test_subject_framing.py`, `tests/unit/picture/test_face_presence_position.py`.
+  `tests/unit/picture/test_subject_framing.py`, `tests/unit/picture/test_temporal_index.py`.
 
   **Q1 (2026-08-16):** the captain ruled letterbox stays the default and
   the tracking gets built regardless, so a clip a template or spine block
@@ -614,7 +614,7 @@ The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limite
   rather than falling back to Chromium's default sans, which was invisible
   in the output. Licence: SIL OFL 1.1, shipped beside the font and recorded
   in AGENTS.md section 11. The `Inter` import went too - nothing in `src/`
-  ever asked for Inter. Tests: `tests/contracts/test_bundled_fonts.py`.
+  ever asked for Inter. Tests: `tests/contracts/test_asset_policy.py`.
 
   Verified two ways: removing the bundled file makes the render fail with
   `Failed to load bundled font Montserrat`, proving the render really

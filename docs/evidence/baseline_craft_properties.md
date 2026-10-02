@@ -1,6 +1,6 @@
 # Baseline craft properties
 
-Tests: `tests/unit/picture/test_baseline_craft_properties.py`.
+Tests: `tests/unit/picture/test_picture_qa.py`.
 
 ## Where P4's verdict lives, and where it must not
 

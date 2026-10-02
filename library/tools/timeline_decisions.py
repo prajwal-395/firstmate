@@ -108,7 +108,7 @@ markers that exist.
     python3 -m library.tools.timeline_decisions show   --project <dir>
     python3 -m library.tools.timeline_decisions stamp  --project <dir>
 
-`tests/unit/resolve/test_timeline_decisions.py`.
+`tests/unit/resolve/test_timeline_layout.py`.
 
 
 Rules relocated from AGENTS.md 15
@@ -138,7 +138,7 @@ loop above.
 - A marker's own stamp outranks the ledger, because it was written when the marker was made
   and the ledger describes the LAST build. Neither is guessed at: a placement that matches no
   row comes back as a stated reason.
-- `tests/unit/resolve/test_timeline_decisions.py`.
+- `tests/unit/resolve/test_timeline_layout.py`.
 """
 
 from __future__ import annotations

@@ -126,5 +126,5 @@ Wiring: `promote_staged_reels` runs this in phase 4 beside the reel
 retirement, never fatally and always reported. A refusal leaves the
 promoted reels promoted and the comparisons standing.
 
-`tests/unit/reels/test_comparison_retirement.py`.
+`tests/unit/reels/test_reel_retirement.py`.
 ```

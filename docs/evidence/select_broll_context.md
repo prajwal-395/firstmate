@@ -1,6 +1,6 @@
 # select_broll: scene prose inline, scene structure at a path
 
-Test: `tests/unit/picture/test_select_broll_scene_prose_not_structure.py`.
+Test: `tests/unit/picture/test_broll.py`.
 
 Issue #679: "select_broll still reads the scene prose and the scene
 structure". Written against the pre-#339 prompt, where BOTH travelled

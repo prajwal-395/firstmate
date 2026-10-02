@@ -71,7 +71,7 @@ and points here.
 - A backdrop clip carries **no `framing_pan_x`**.
 - **The verdict is carried by the PLAN check**, `manifest_validator`'s P8. `render_qa.measure_face_intact` is the render-side backstop and is weaker on purpose: a face cropped hard enough stops being detectable at all.
 - An explicit `framing_pan_x` still outranks the measurement, and the clip then keeps its crop with `subject_safe_zoom` recorded so P8 can say what that cost.
-- `tests/unit/picture/test_subject_survives_the_conform.py`.
+- `tests/unit/picture/test_subject_framing.py`.
 """
 
 import json
@@ -210,7 +210,7 @@ def subject_center_reading(
 
     A test that feeds a centred track and a sparse track and asserts the
     two Nones carry different statuses fails the moment anyone collapses
-    them again (``tests/unit/picture/test_subject_reading.py``).
+    them again (``tests/unit/picture/test_subject_framing.py``).
     """
     if not face_presence:
         return SubjectReading(None, "unmeasurable", "no_face_track")

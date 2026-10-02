@@ -2,7 +2,7 @@
 
 History moved out of test module docstrings; the tests keep the invariant.
 
-## `tests/unit/reels/test_take_judge.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_take_cuts.py` (moved from its module docstring, 2026-10-02)
 
 The judge above the take-cut heuristic.
 
@@ -28,7 +28,7 @@ captain approved those reels.
 Synthetic under `tmp_path`-style fixtures (AGENTS.md 8); the field-test
 numbers appear as stated inputs, never read from a real project.
 
-## `tests/unit/reels/test_keep_exclusion_reel13_repeat.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_keep_ranges.py` (moved from its module docstring, 2026-10-02)
 
 Reel 13's repetitive Craig line, removed in the keep ranges.
 
@@ -64,7 +64,7 @@ seam carries no partial word and no clipped breath - the cut starts on
 "and"'s first frame (grown back over the wordless lead-in to "yes."'s
 last) and ends on "company"'s last.
 
-## `tests/unit/reels/test_reel_partial_take_cuts.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_take_cuts.py` (moved from its module docstring, 2026-10-02)
 
 A repeated take is removed WHOLE or not at all.
 
@@ -92,7 +92,7 @@ measurement travels as data so the case can be run anywhere.
 `library/tools/reel_build.py` - `redundant_runs`, `refused_take_groups`,
 `assert_takes_are_whole`.
 
-## `tests/unit/reels/test_take_cut_wordless_island.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_take_cuts.py` (moved from its module docstring, 2026-10-02)
 
 Wordless islands stranded BETWEEN take cuts are absorbed, not placed.
 
@@ -114,7 +114,7 @@ Numbers below are the field test's own, copied verbatim from
 approved reel span. No test here reads that project (AGENTS.md 8):
 the measurement travels as data so the case runs anywhere.
 
-## `tests/unit/reels/test_take_verdict_cascade.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_take_cuts.py` (moved from its module docstring, 2026-10-02)
 
 The six duplicate-take fixes hold through the build cascade.
 
@@ -131,7 +131,7 @@ texts, boundaries and the word timings the verdict edges depend on are
 the 2026-09-18 timeline transcript's own; interior words of long
 tellings are evenly spread, which moves no edge these tests assert.
 
-## `tests/unit/reels/test_retake_scan.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_take_cuts.py` (moved from its module docstring, 2026-10-02)
 
 Retake and false-start candidates the cut lane misses.
 
@@ -148,7 +148,7 @@ transcript's own; word timings are the transcript's own where the span
 under test depends on them (Reel 21's tail-drop, Reel 24's restart),
 evenly spread where only the wording matters. Each test says which.
 
-## `tests/unit/reels/test_keep_insistence.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_keep_ranges.py` (moved from its module docstring, 2026-10-02)
 
 Seconds the captain says STAY IN withdraw the take cut that drops them.
 
@@ -169,7 +169,7 @@ the same store, enforced at the build.
 Synthetic under `tmp_path` (AGENTS.md 8); nothing reaches a real
 project.
 
-## `tests/unit/reels/test_exclusions_reach_approved_builds.py` (moved from its module docstring, 2026-10-02)
+## `tests/unit/reels/test_keep_ranges.py` (moved from its module docstring, 2026-10-02)
 
 A recorded exclusion reaches an approved moment's build.
 

@@ -354,7 +354,7 @@ def _canned_answer(**extra):
 def _run_task(monkeypatch, project, name, context, answer):
     """Invoke a declared task through the agent backend with a stubbed wait.
 
-    Mirrors tests/contracts/test_craft_role.py: the request file the answering
+    Mirrors tests/contracts/test_context_contracts.py: the request file the answering
     agent reads is the artifact asserted on.
     """
     from library.processes.edit_video import run_pipeline

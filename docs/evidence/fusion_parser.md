@@ -1,6 +1,6 @@
 # `library.tools.fusion.parser` - the builtin-preset incident
 
-Moved verbatim from the module docstring of `tests/unit/resolve/test_fusion_builtin_presets.py`
+Moved verbatim from the module docstring of `tests/unit/resolve/test_fusion_parser.py`
 (2026-10-02 test consolidation). The tests keep the invariant; this is the story.
 
 ```text

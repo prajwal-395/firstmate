@@ -37,7 +37,7 @@ and points here.
 
 **Which SECONDS of a chosen cutaway play is decided from the PICTURE, never from its audio.**
 One enumeration, `library/tools/cutaway_window.py`. A cutaway is placed `video_only: True`. [why](docs/RULE_EVIDENCE.md#the-cutaway-window-came-from-a-muted-waveform)
-- `AUDIO_SIGNALS` is the enumeration of what may not reach the decision, and `tests/unit/picture/test_cutaway_window.py` reads the SOURCE of both the module and step 3.02's post-bridge.
+- `AUDIO_SIGNALS` is the enumeration of what may not reach the decision, and `tests/unit/picture/test_broll.py` reads the SOURCE of both the module and step 3.02's post-bridge.
 - **The candidate spans are scene boundaries UNION the vision pass's time-bounded `blocks`.**
 - **The model's own `preferred_moment` chooses**, matched against what the vision pass observed
   during each span. The engine resolves words to seconds; it does not decide that a busier or
@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 #
 # A cutaway plays muted.  These are the keys of a `temporal_index` record
 # that measure its SOUND, and none of them may reach a window decision.
-# `tests/unit/picture/test_cutaway_window.py` reads this module's own source and fails
+# `tests/unit/picture/test_broll.py` reads this module's own source and fails
 # if one appears in it.
 AUDIO_SIGNALS = {
     "energy_curve": "per-second RMS of the clip's audio, which is muted",

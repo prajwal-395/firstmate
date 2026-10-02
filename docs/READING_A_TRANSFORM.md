@@ -67,7 +67,7 @@ exists for.  Both ends now take a self-read
 read-back, which is part of every reel's derivation digest and would
 otherwise rebuild the whole project from a different entry point.
 
-`tests/unit/reels/test_reel_build_leaves_unchanged_reels_alone.py::test_a_reel_reads_the_same_however_the_run_entered`
+`tests/unit/reels/test_reel_build_runner.py::test_a_reel_reads_the_same_however_the_run_entered`
 enters a second build on every timeline in the project in turn and
 requires all three reels left alone each time.  It FAILS with the
 self-read removed.
@@ -204,7 +204,7 @@ aim by rebasing the override at application time, while
 https://github.com/prajwal-395/video_editing_pilot/pull/1472 keeps
 non-current timeline Pan/Tilt in the same target timeline units.
 https://github.com/prajwal-395/video_editing_pilot/pull/1474 adds the
-application-time rebase. `tests/scenarios/test_reel_build_sop_conformance.py` exercises the
+application-time rebase. `tests/scenarios/test_reel_build.py` exercises the
 actual `build_reel_timeline` path offline at both gains, including the
 opening override and the other punch-ins.
 

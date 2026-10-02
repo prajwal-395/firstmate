@@ -1,6 +1,6 @@
 # duration enforcement
 
-Test: `tests/unit/picture/test_duration_enforcement.py`.
+Test: `tests/unit/picture/test_pacing.py`.
 
 Tests for duration enforcement in review_rough_cut and creative_cohesion.
 

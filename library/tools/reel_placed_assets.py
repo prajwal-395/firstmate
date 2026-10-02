@@ -45,7 +45,7 @@ scratch/ raises rather than reaching Resolve. The promotion helpers
 call it on what they return, so the invariant is proved at the moment
 of placement, not hoped for.
 
-`tests/unit/reels/test_reel_placed_assets.py`.
+`tests/unit/reels/test_promotion.py`.
 """
 
 from __future__ import annotations

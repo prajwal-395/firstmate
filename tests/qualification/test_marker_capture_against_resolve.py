@@ -10,7 +10,7 @@ The project folder is always `tmp_path`, passed to `capture` explicitly.
 The button's own project DISCOVERY walks up from the footage on the
 timeline, and the footage this test borrows is the captain's - so letting
 it discover would write a test's stills into a real project.  That walk
-is proved on real directories in `tests/unit/resolve/test_marker_payload.py`.
+is proved on real directories in `tests/unit/resolve/test_markers.py`.
 """
 
 from __future__ import annotations

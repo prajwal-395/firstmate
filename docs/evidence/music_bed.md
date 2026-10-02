@@ -128,5 +128,5 @@ One enumeration, `library/tools/music_bed.py`. Captain, 2026-09-01: *"we can use
 - **A splice with no declared `crossfade_seconds` is a HARD splice** - the absence of decoration, the `CUT_TYPES`/`NEUTRAL_CDL` reading - and no length is invented for one.
 - **A declared crossfade is a real OVERLAP**: the outgoing piece plays past the boundary while the incoming one plays from it, `otio_mix.music_curve` ramps one down and the other up, and the renderer's `_allocate_audio_tracks` spreads the bed across A2, A3, ... exactly as it already does for SFX - with the SFX bucket starting above whatever the bed used. **A2's overlap check allows exactly the declared fade and nothing else**, in `compile_manifest` and in `manifest_validator`.
 - **The beat grid has one offset PER SEGMENT.** `music_analysis` measures the PRIMARY track only, so a beat is on the timeline only where that file plays; `beat_positions`/`downbeat_positions` take the spine and the duration for this.
-- `tests/unit/audio/test_music_bed.py`, `tests/scenarios/test_spliced_bed_reaches_the_manifest.py`.
+- `tests/unit/audio/test_music_bed.py`, `tests/scenarios/test_plan_reaches_the_manifest.py`.
 ```

@@ -7,7 +7,7 @@ then shows the untouched project checking silent. Resolve-side
 displays (a moved timeline item, a hand-graded node) have no file
 carrier the pipeline wrote, so no fingerprint can witness them:
 those two classes refuse through `edit_depth` instead (proven in
-`tests/unit/resolve/test_edit_depth.py`), and the per-class reason is stated in
+`tests/unit/resolve/test_composer.py`), and the per-class reason is stated in
 `display_drift`'s docstring.
 """
 from __future__ import annotations

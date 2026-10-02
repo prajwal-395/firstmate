@@ -235,7 +235,7 @@ def _tv_power(clip_dur: int, *, direction: str,
     off animation goes to fully black"*.  Two separately tuned builders
     could satisfy that sentence on the day and drift apart on the next
     re-timing, so there is ONE builder and the direction is a
-    parameter.  ``tests/unit/resolve/test_tv_power.py`` proves the switch-on's
+    parameter.  ``tests/unit/resolve/test_tv_frame.py`` proves the switch-on's
     keyframes are the switch-off's, mirrored in time.
 
     The nodes and their names come from the switch-off, the half the

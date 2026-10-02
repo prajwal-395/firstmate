@@ -1,6 +1,6 @@
 # Finding 34: a dropped VFX plan entry goes back to the model
 
-Tests: `tests/unit/picture/test_vfx_drops_reach_the_model.py` (moved from its module docstring, 2026-10-02).
+Tests: `tests/unit/picture/test_vfx.py` (moved from its module docstring, 2026-10-02).
 
 Finding 34: a dropped plan entry never goes back to the model.
 

@@ -46,7 +46,7 @@ foreign.  Which question decided a refusal travels as `decided_by`
 (`point` / `ending` / `foreign`) with the model's own reason carrying the
 why.
 
-**It must discriminate.**  `tests/unit/reels/test_reel_thesis.py` pins that the
+**It must discriminate.**  `tests/unit/reels/test_reel_quality_bar.py` pins that the
 known failing kept sequences read INCOHERENT and their fixed
 counterparts read COHERENT.  If a future batch shows this reading
 constant across approved and rejected alike, DEMOTE it to a report - do
@@ -69,7 +69,7 @@ Where it runs
   words, unjudged reels and unreadable inputs all REPORT and promote: an
   instrument must never fail the build it instruments.
 
-`tests/unit/reels/test_reel_thesis.py`.
+`tests/unit/reels/test_reel_quality_bar.py`.
 
 The field-test reels behind this gate and the discrimination record it
 had to beat: docs/evidence/reel_thesis.md.

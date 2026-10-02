@@ -51,7 +51,7 @@ captain ruled on).  Applying a recorded pin to an approved moment is
 obedience, not re-decision.  The added seconds are checked like a new
 span - real speech inside, whole segments at both edges, no overlap with
 the reel's own body - and anything failing that is reported LOUDLY and
-that reel keeps its span.  `tests/unit/reels/test_closer_redraw.py`.
+that reel keeps its span.  `tests/unit/reels/test_reel_ending.py`.
 
 A hand move in the Inspector
 ----------------------------
@@ -82,7 +82,7 @@ reports HELD, and a match on nothing reports STALE.  The write stamps
 where the anchor resolves now (`recorded_edge`), and
 `check_span_retime_freshness` reports, pre-build and in FRAMES, a trim
 whose words now resolve elsewhere as DRIFTED (`report_drifted`) rather
-than following them silently.  `tests/unit/resolve/test_retime_drift.py`.
+than following them silently.  `tests/unit/resolve/test_captain_edits.py`.
 
 Recording a decision: the one route
 ------------------------------------

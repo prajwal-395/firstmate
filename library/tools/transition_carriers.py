@@ -85,7 +85,7 @@ One enumeration, `library/tools/transition_carriers.py`.
 - Every B-roll placement goes on V2, so a cut whose OUTGOING block is a `transition_slot` has no V1 clip ending on it and `compile_manifest` refuses the transition by name. A cut whose outgoing clip is the LAST thing on V1 is refused too: the effect is a tail AND a head.
 - `cut_carriers` reads that off the spine before the run, and step 4.02's bridge puts it in `cuts_toon` as `can_carry_drawn_transition` / `carry_basis`. **Both columns are DEFINED in step 4.02's `handoff.md`**, under "Context data available". They travelled beside the table as a `CUTS_LEGEND` dict only while that file was under the captain's freeze; the freeze was lifted 2026-09-09 and the definition moved into the prose, because one living in two places is worse than either.
 - **The table is never filtered or re-ranked.** Every cut is still offered; the model is told the truth and still chooses (section 10.5).
-- `tests/unit/picture/test_transition_carriers.py`.
+- `tests/unit/picture/test_transition_planning.py`.
 """
 
 from library.tools.bookends import block_bookend

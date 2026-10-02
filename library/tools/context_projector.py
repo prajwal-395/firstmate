@@ -26,7 +26,7 @@ for it to be somewhere else.
   a dead `library/schema/manifest.schema.json` once described it too, but
   nothing ever loaded that file, so it was deleted rather than left as a
   second spelling of the rule.
-- `tests/contracts/test_context_fields_binds.py`.
+- `tests/contracts/test_context_contracts.py`.
 
 `project_fields` is documented on the function.
 """

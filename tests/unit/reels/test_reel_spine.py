@@ -11,10 +11,9 @@ subtitle step, unmodified, with no reel branch anywhere in that step.
 `test_the_pipeline_step_captions_a_reel_from_this_spine` is that test,
 and it is why `reel_subtitles.py` can be deleted rather than extended.
 """
+from __future__ import annotations
 from dataclasses import dataclass
-
 import pytest
-
 from library.tools import operations
 from library.tools import region as region_mod
 from library.tools.reel_spine import (
@@ -22,6 +21,22 @@ from library.tools.reel_spine import (
     spine_for_reel,
 )
 from library.tools.spine_contract import REQUIRED_BLOCK_KEYS, is_speech_block
+import json
+from library.tools import reel_semantic_visual as span
+from library.tools.reel_conformance_verifier import (
+    FindingClass,
+    ReelPlan,
+    ReelTimeline,
+    check_span_plan,
+    verify_reel,
+)
+from library.tools import scope as scope_mod
+from library.tools.region import MASTER, Region
+from types import SimpleNamespace
+from library.tools.reel_ledger import (
+    OutOfWindowRange,
+    audit_ranges,
+)
 
 
 @dataclass
@@ -584,3 +599,491 @@ def test_an_uncaptioned_stretch_is_reported_with_its_reel_seconds():
         "the envelope is 12 seconds and the words are 0.8 of it")
 
 
+# --------------------------------------------------------------------------
+# From test_reel_span_record.py
+#
+# The span plan is recorded where the pipeline reads it, and refused when empty.
+#
+# PR 774's resolver distinguishes a model that chose stillness
+# (`span_no_events_planned` - a decision) from a model whose every beat
+# was refused (`span_every_event_dropped` - the absence of a decision
+# surviving). This file proves the three halves that connect that
+# distinction to the build:
+#
+# 1. A RECORD: `span_record_for_build` resolves one reel's answer and
+#    returns it in the V6 record's own convention - same REVIEW area,
+#    same `{"format": ..., "plans": [...]}` envelope, same merge-per-reel
+#    write - filed by `write_span_records` and read back by
+#    `read_span_records` / `span_record_for_reel`.
+# 2. A GRADE: F23 (`check_span_plan`) refuses an all-refused plan and
+#    passes a deliberate stillness, and `verify_reel` threads it through.
+# 3. No look values anywhere on the path: a resolved moment carries what
+#    is SHOWN and its measured window, never a colour, size, font or
+#    motion value.
+#
+# The placer is OUT on purpose: moments carry `shows` as free-text
+# provenance and segments need declared look values, so laying moments
+# on PR 776's windows needs its own change carrying those decisions.
+# What is proven here is that an all-refused plan cannot build green
+# and silently while that placer is still missing.
+
+def _transcript():
+    """Two keep ranges' worth of timed words, in MASTER seconds."""
+    return {"segments": [{
+        "words": [
+            {"word": "he", "start": 10.5, "end": 10.7, "timed": True},
+            {"word": "plays", "start": 11.0, "end": 11.4, "timed": True},
+            {"word": "with", "start": 11.5, "end": 11.8, "timed": True},
+            {"word": "his", "start": 12.0, "end": 12.2, "timed": True},
+            {"word": "mind", "start": 12.5, "end": 13.0, "timed": True},
+            {"word": "has", "start": 20.5, "end": 20.9, "timed": True},
+            {"word": "vision", "start": 21.5, "end": 22.0, "timed": True},
+        ]}]}
+
+
+def _ranges():
+    return [(10.0, 14.0), (20.0, 26.0)]
+
+
+class _Moment:
+    number = 9
+    timeline_name = "Reel 09 - plays with his mind"
+
+
+def _answer_file(project, beats):
+    responses = project / "pipeline_output" / "llm_responses"
+    responses.mkdir(parents=True, exist_ok=True)
+    (responses / "reel_span_09.json").write_text(
+        json.dumps({"span_visual_plan": beats}), encoding="utf-8")
+
+
+def _resolving_beat():
+    return {"segment": 1, "shows": "a mind, illustrated",
+            "anchor_phrase": "his mind", "lead_seconds": 0.2,
+            "why": "the line is about playing with the mind"}
+
+
+def _refused_beat():
+    # "goalkeeper" is spoken nowhere in `_transcript`: the resolver
+    # drops this as `anchor_phrase_not_found`, and with nothing else
+    # proposed the plan lands on SPAN_EVERY_EVENT_DROPPED. This is the
+    # concrete input that makes the F23 refusal fire.
+    return {"segment": 1, "shows": "a goalkeeper",
+            "anchor_phrase": "goalkeeper",
+            "why": "not in the speech"}
+
+
+# ── The record: resolve, file, read back ─────────────────────────────
+
+def test_a_resolved_plan_records_its_moments(tmp_path):
+    project = tmp_path / "proj"
+    _answer_file(project, [_resolving_beat()])
+    record = span.span_record_for_build(
+        _Moment(), _transcript(), _ranges(), str(project),
+        fps=30.0, timeline_name="Reel 09 - plays with his mind")
+    assert record["reel"] == "Reel 09 - plays with his mind"
+    assert record["basis"] == span.SPAN_EVENTS_PLANNED
+    assert record["proposed"] == 1 and record["resolved"] == 1
+    assert len(record["moments"]) == 1
+    assert record["moments"][0]["event_start"] == 2.0 - 0.2
+    assert record["dropped"] == []
+
+
+def test_no_answer_file_is_not_a_decision_for_no_pictures(tmp_path):
+    project = tmp_path / "proj"
+    (project / "pipeline_output" / "review").mkdir(parents=True)
+    record = span.span_record_for_build(
+        _Moment(), _transcript(), _ranges(), str(project),
+        fps=30.0, timeline_name="Reel 09 - plays with his mind")
+    assert record["basis"] == span.SPAN_NOT_PLANNED
+    assert record["moments"] == []
+
+
+# ── The file: the V6 convention, a span payload ──────────────────────
+
+def test_records_merge_per_reel_the_v6_way(tmp_path):
+    project = tmp_path / "proj"
+    _answer_file(project, [_resolving_beat()])
+    first = span.span_record_for_build(
+        _Moment(), _transcript(), _ranges(), str(project),
+        fps=30.0, timeline_name="Reel 09 - plays with his mind")
+    path = span.write_span_records(str(project), [first])
+    assert path.endswith("span_visual_plans.json")
+    with open(path, "r", encoding="utf-8") as handle:
+        stored = json.load(handle)
+    assert stored["format"] == "span_visual_plans/1"
+
+    # A partial build recording a second reel must not delete the first.
+    other = dict(first, reel="Reel 10 - vision")
+    span.write_span_records(str(project), [other])
+    records = span.read_span_records(str(project))
+    assert span.span_record_for_reel(records, "Reel 09 - plays with his mind")[
+        "basis"] == span.SPAN_EVENTS_PLANNED
+    assert span.span_record_for_reel(records, "Reel 10 - vision") is not None
+
+    # Re-recording a reel replaces it whole, including with an emptier basis.
+    span.write_span_records(
+        str(project), [dict(first, basis=span.SPAN_NO_EVENTS_PLANNED,
+                            moments=[])])
+    records = span.read_span_records(str(project))
+    assert span.span_record_for_reel(records, "Reel 09 - plays with his mind")[
+        "basis"] == span.SPAN_NO_EVENTS_PLANNED
+    assert span.span_record_for_reel(records, "No such reel") is None
+    assert span.span_record_for_reel(None, "Reel 09 - plays with his mind") is None
+
+
+# ── The grade: every-dropped refuses, stillness passes ───────────────
+
+def _record(basis, proposed=0, reasons=()):
+    return {"reel": "Reel 09 - plays with his mind", "basis": basis,
+            "entries": [{}] * proposed,
+            "dropped": [{"element": "a goalkeeper", "reason": reason,
+                         "what_the_reason_means": "...",
+                         "detail": "..."} for reason in reasons],
+            "moments": [],
+            "proposed": proposed, "resolved": 0}
+
+
+def test_an_all_refused_span_plan_fails_f23():
+    findings = check_span_plan(
+        "Reel 09 - plays with his mind",
+        _record(span.SPAN_EVERY_EVENT_DROPPED, proposed=1,
+                reasons=["anchor_phrase_not_found"]))
+    assert [f.finding_class for f in findings] == [FindingClass.F23]
+    assert findings[0].severity == "error"
+    assert "every one was refused" in findings[0].message
+    assert "anchor_phrase_not_found" in findings[0].message
+
+
+# ── End to end: resolve, record, grade ───────────────────────────────
+
+def test_every_dropped_and_no_events_reach_different_outcomes(tmp_path):
+    """The defect this change closes: counting moments alone cannot tell
+    an all-refused plan from a deliberately still reel. The RECORD can,
+    and the grade follows it."""
+    project = tmp_path / "proj"
+
+    _answer_file(project, [_refused_beat()])
+    refused = span.span_record_for_build(
+        _Moment(), _transcript(), _ranges(), str(project),
+        fps=30.0, timeline_name="Reel 09 - plays with his mind")
+    assert refused["basis"] == span.SPAN_EVERY_EVENT_DROPPED
+    assert refused["proposed"] == 1 and refused["resolved"] == 0
+    assert refused["moments"] == []
+    assert [d["reason"] for d in refused["dropped"]] == [
+        "anchor_phrase_not_found"]
+    span.write_span_records(str(project), [refused])
+
+    _answer_file(project, [])
+    still = span.span_record_for_build(
+        _Moment(), _transcript(), _ranges(), str(project),
+        fps=30.0, timeline_name="Reel 10 - vision")
+    # an empty answer is a DECISION for no pictures
+    assert still["basis"] == span.SPAN_NO_EVENTS_PLANNED
+    assert still["moments"] == [] and still["dropped"] == []
+    span.write_span_records(str(project), [still])
+
+    records = span.read_span_records(str(project))
+    refused_findings = check_span_plan(
+        "Reel 09 - plays with his mind",
+        span.span_record_for_reel(records, "Reel 09 - plays with his mind"))
+    still_findings = check_span_plan(
+        "Reel 10 - vision",
+        span.span_record_for_reel(records, "Reel 10 - vision"))
+    assert [f.finding_class for f in refused_findings] == [FindingClass.F23]
+    assert still_findings == []
+
+
+def _plan():
+    return ReelPlan(
+        reel_name="Reel 09 - plays with his mind", reel_number=9,
+        plan_seconds=10.0, plan_frames=300.0,
+        span_start=0.0, span_end=10.0, placements=(),
+        keep_ranges=((0.0, 10.0),))
+
+
+def _timeline():
+    return ReelTimeline(
+        reel_name="Reel 09 - plays with his mind", fps=30.0,
+        total_frames=300, video_items=(), audio_items=(),
+        caption_items=())
+
+
+def test_verify_reel_refuses_an_all_refused_span_plan():
+    result = verify_reel(
+        _plan(), _timeline(),
+        span_plan=_record(span.SPAN_EVERY_EVENT_DROPPED, proposed=1,
+                         reasons=["anchor_phrase_not_found"]))
+    assert FindingClass.F23 in [f.finding_class for f in result.errors]
+
+
+# --------------------------------------------------------------------------
+# From test_reel_span_visual.py
+#
+# A span can be planned from its speech: request, accept, refuse.
+#
+# Blocker 1 (`docs/SPAN_RENDERER_CAPABILITY.md` §3.1): no model plans a
+# span. `reel_semantic_visual` builds a planning request only for the V6
+# overlay layer. This file tests the span's own ask - a request built from
+# measured word windows, a schema the answer must satisfy, and a resolver
+# that binds picture events to real word timings and REFUSES what it
+# cannot bind - without Resolve and without a model.
+#
+# The shape matched is the V6 one in the same module: `write_request`
+# (request file), `read_answer` (answer file), `motion_graphics_plan`
+# `resolve_plan` (named drops). The span reuses that pattern with its own
+# reasons, because the overlay machinery does not generalise: it resolves
+# element keys, anchors, colours and copy against the overlay roster, and
+# a span beat is none of those - it is a noun illustrated, cued to words,
+# leading them.
+#
+# What the reference needs (`docs/ANIMATION_FIRST_REFERENCE.md` §1):
+# every picture event illustrates a NOUN from the spoken line, and events
+# lead their nouns. So each event names `shows` (the noun), an
+# `anchor_phrase` (words from its own segment), and `lead_seconds` (how
+# far before the anchor the picture lands). The output carries what is
+# SHOWN and no look values - no colour, no size, no font, no motion
+# values - and an entry carrying any of those is refused rather than
+# read past.
+
+def _words():
+    """The measured evidence, in REEL seconds: segment 1 is reel 0-4,
+    segment 2 is reel 4-10."""
+    return span.span_segment_words(_ranges(), _transcript())
+
+
+# ── The request is built from measured word windows ──────────────────
+
+def test_the_request_carries_each_segments_measured_words(tmp_path):
+    project = tmp_path / "proj"
+    (project / "pipeline_output" / "review").mkdir(parents=True)
+    path = span.write_span_request(
+        _Moment(), _transcript(), _ranges(), str(project), fps=30.0)
+    assert path.endswith("reel_span_09.json")
+    with open(path, "r", encoding="utf-8") as handle:
+        request = json.load(handle)
+    assert request["step_id"] == "reel_span_visual"
+    assert "span_visual_plan" in request["expected_schema"]
+    context = request["context"]
+    assert "mind" in context and "vision" in context
+    words = _words()
+    assert [w["word"] for w in words[0]] == [
+        "he", "plays", "with", "his", "mind"]
+    assert (words[0][4]["start"], words[0][4]["end"]) == (2.5, 3.0)
+    assert [w["word"] for w in words[1]] == ["has", "vision"]
+
+
+# ── The resolver binds what it can ───────────────────────────────────
+
+def test_a_noun_anchored_event_with_a_lead_resolves():
+    resolved = span.resolve_span_plan(
+        [{"segment": 1, "shows": "a mind, illustrated",
+          "anchor_phrase": "his mind", "lead_seconds": 0.2,
+          "why": "the line is about playing with the mind"}],
+        segment_words=_words(), ranges=_ranges())
+    assert len(resolved.moments) == 1
+    moment = resolved.moments[0]
+    assert moment["anchor_start"] == 2.0
+    assert moment["anchor_end"] == 3.0
+    assert moment["event_start"] == 2.0 - 0.2
+    assert moment["timing_basis"] == "word_window:his mind"
+    assert moment["shows"] == "a mind, illustrated"
+    assert resolved.basis == span.SPAN_EVENTS_PLANNED
+
+
+# ── ... and refuses what it cannot ───────────────────────────────────
+
+def test_an_event_the_resolver_cannot_bind_is_refused_by_name():
+    table = [
+        ({"segment": 1, "shows": "a goalkeeper",
+          "anchor_phrase": "goalkeeper", "why": "not in the speech"},
+         "anchor_phrase_not_found"),
+        ({"segment": 1, "shows": "a whistle on the first word",
+          "anchor_phrase": "he", "lead_seconds": 1.0,
+          "why": "a lead longer than the anchor's distance to the edge"},
+         "beat_outside_segment"),
+        ({"segment": 1, "shows": "a mind", "anchor_phrase": "mind",
+          "color": "#123456", "font_size": 96, "entrance": "scale",
+          "why": "taste smuggled into a picture plan"},
+         "look_value_in_picture_plan"),
+        ({"segment": 1, "shows": "a mind", "why": "no anchor at all"},
+         "no_anchor_declared"),
+    ]
+    for beat, reason in table:
+        resolved = span.resolve_span_plan(
+            [beat], segment_words=_words(), ranges=_ranges())
+        assert resolved.moments == [], reason
+        assert resolved.basis == span.SPAN_EVERY_EVENT_DROPPED, reason
+        assert [d.reason for d in resolved.dropped] == [reason]
+
+
+# ── The answer file reads like the V6 one ────────────────────────────
+
+def test_a_malformed_span_answer_reads_as_unanswered(tmp_path):
+    project = tmp_path / "proj"
+    (project / "pipeline_output" / "llm_responses").mkdir(parents=True)
+    (project / "pipeline_output" / "llm_responses" / "reel_span_09.json").write_text(
+        '{"span_visual_plan": "not a list"}', encoding="utf-8")
+    assert span.read_span_answer(str(project), 9) is None
+
+
+# --------------------------------------------------------------------------
+# From test_scope_reel.py
+#
+# A reel is a SHAPE of scope, not a kind of region.
+#
+# Firstmate-decided 2026-09-05. `Region.timeline` answers WHICH TIMELINE;
+# `Scope.kind` answers WHAT SHAPE - PROJECT, CLIP, REGION, REEL. The two
+# axes are independent, and a reel cannot be a REGION for two measured
+# reasons:
+#
+#   cardinality - a reel is a LIST of keep ranges with its bad takes cut
+#                 out (`reel_build.keep_ranges`); a REGION is one span;
+#   time base   - the ranges are on the reel's own timeline, which is its
+#                 kept ranges laid end to end, so the same number means a
+#                 different moment than on the master.
+#
+# Bolting either onto REGION would make one of the two silent.
+
+def test_a_reel_range_is_not_a_bare_pair_of_floats():
+    """Pairs are accepted at the door and become Regions immediately."""
+    reel = scope_mod.reel([(0.0, 5.0)], timeline="reel_03")
+    assert reel.reel_ranges[0] == Region("reel_03", 0.0, 5.0)
+    with pytest.raises(scope_mod.ScopeError):
+        scope_mod.reel([3.0], timeline="reel_03")
+
+
+def test_a_malformed_reel_is_refused_by_name():
+    table = [
+        # empty would read as the whole project and redo everything
+        (lambda: scope_mod.reel([], timeline="reel_03"), "whole project"),
+        (lambda: scope_mod.reel([Region("reel_03", 0.0, 5.0),
+                                 Region("reel_09", 6.0, 7.0)]),
+         "ONE timeline"),
+        # reel_time returns the first containing range, so an overlap
+        # gives one second two answers
+        (lambda: scope_mod.reel([(0.0, 5.0), (3.0, 8.0)], timeline="reel_03"),
+         "overlap"),
+    ]
+    for build, says in table:
+        with pytest.raises(scope_mod.ScopeError) as exc:
+            build()
+        assert says in str(exc.value)
+
+
+def test_play_order_is_preserved_and_time_order_is_not_required():
+    """A closing CTA legitimately sits EARLIER on the master than the body
+    (`reel_build.reel_ranges` appends it LAST), so ordering the ranges by
+    time would move the closer into the middle of the reel."""
+    reel = scope_mod.reel([(30.0, 40.0), (5.0, 8.0)], timeline="reel_03")
+    assert [r.start for r in reel.reel_ranges] == [30.0, 5.0]
+
+
+def test_reel_ranges_on_a_non_reel_scope_are_refused():
+    """__post_init__ was EXTENDED to REEL, not loosened for it."""
+    with pytest.raises(scope_mod.ScopeError) as exc:
+        scope_mod.Scope(scope_mod.PROJECT,
+                        reel_ranges=(Region(MASTER, 0.0, 1.0),))
+    assert "reel" in str(exc.value).lower()
+
+
+# --------------------------------------------------------------------------
+# From test_reel_out_of_window.py
+#
+# A placed range must touch its reel's declared windows - or else.
+#
+# Reel 13 of the field test played 7.6 seconds drawn from another
+# moment's pool after its own closer: the stored closer ended at
+# 342.03s, Reel 05's declared body opens at 342.038s, and the snap
+# widened the closer end to the bound segment edge at 349.54s.
+# `reel_ledger.audit_ranges` is the build-time assertion that catches
+# the next such range, and the ledger it files is the WHY on disk.
+# These tests pin both halves with the measured numbers - synthetic
+# windows, never a real project (tests never reach one).
+
+def _moment(body, closer=None):
+    cta = None
+    if closer is not None:
+        cta = SimpleNamespace(timeline_start=closer[0],
+                              timeline_end=closer[1])
+    return SimpleNamespace(timeline_start=body[0], timeline_end=body[1],
+                           call_to_action=cta)
+
+
+# The measured shape: Reel 13 declared, Reel 05 declared, and what the
+# snap made of Reel 13's closer (cta_end 342.03 -> 349.54 through
+# Craig's opening "So").
+R13_BODY = (889.92, 956.64)
+R13_CLOSER = (328.608, 342.03)
+R05_BODY = (342.038, 413.851)
+R13_RANGES_UNENDED = [(889.89, 956.68), (328.54, 349.54)]
+
+SIBLINGS = {
+    13: {"body": R13_BODY, "closer": R13_CLOSER},
+    5: {"body": R05_BODY, "closer": (179.83, 192.391)},
+}
+
+
+def test_clean_ranges_and_small_word_edge_cover_pass_silently():
+    ledger = audit_ranges(
+        number=13, staging="s", final="f",
+        stored_body=R13_BODY, stored_closer=R13_CLOSER,
+        ranges=[(889.92, 956.64), (328.608, 342.03)],
+        sibling_windows=SIBLINGS)
+    assert ledger["disjoint"] == []
+    assert all(row["overhang_seconds"] == {"before": 0.0, "after": 0.0}
+               for row in ledger["ranges"])
+    assert [row["origin"] for row in ledger["ranges"]] == ["body", "closer"]
+    # Reel 02's measured cover (closer end +0.22s over "bio.") reads
+    # as a small overhang into nobody's pool - kept, unattributed.
+    ledger = audit_ranges(
+        number=2, staging="s", final="f",
+        stored_body=(127.84, 160.83), stored_closer=(319.28, 328.231),
+        ranges=[(127.84, 160.83), (319.28, 328.45)],
+        sibling_windows={2: {"body": (127.84, 160.83),
+                             "closer": (319.28, 328.231)}})
+    assert ledger["disjoint"] == []
+    assert ledger["ranges"][1]["overhang_seconds"]["after"] == (
+        pytest.approx(0.219))
+    assert ledger["ranges"][1]["invades"] == []
+
+
+def test_reel_13_overextension_is_kept_named_and_attributed():
+    """The defect shape: kept (word-edge cover is legitimate), but the
+    7.51s overhang is measured and Reel 05's pool is named."""
+    ledger = audit_ranges(
+        number=13, staging="s", final="f",
+        stored_body=R13_BODY, stored_closer=R13_CLOSER,
+        repaired_body=(889.89, 956.68),
+        repaired_closer=(328.54, 349.54),
+        ranges=R13_RANGES_UNENDED,
+        sibling_windows=SIBLINGS,
+        repair_moves=[{"boundary": "cta_end", "was": 342.03,
+                       "now": 349.54, "through": "So"}])
+    assert ledger["disjoint"] == []
+    closer_row = ledger["ranges"][1]
+    assert closer_row["origin"] == "closer"
+    assert closer_row["overhang_seconds"]["after"] == pytest.approx(7.51)
+    invaded = closer_row["invades"]
+    assert len(invaded) == 1
+    assert invaded[0]["reel"] == 5
+    assert invaded[0]["window"] == "body"
+    assert invaded[0]["seconds"] == pytest.approx([342.038, 349.54])
+    # The repair move that did it is on the record.
+    assert ledger["repaired"]["moves"][0]["boundary"] == "cta_end"
+
+
+def test_wholly_foreign_range_refuses_with_ledger_attached():
+    """A range no declared window touches is refused for this reel -
+    and the refusal carries the ledger, because a skipped reel is
+    exactly when the WHY is needed."""
+    with pytest.raises(OutOfWindowRange) as caught:
+        audit_ranges(
+            number=13, staging="s", final="f",
+            stored_body=R13_BODY, stored_closer=R13_CLOSER,
+            ranges=[(889.92, 956.64), (500.0, 510.0)],
+            sibling_windows=SIBLINGS)
+    assert "500.00-510.00" in str(caught.value)
+    ledger = caught.value.ledger
+    assert ledger["disjoint"] == [1]
+    assert ledger["ranges"][1]["invades"] == []

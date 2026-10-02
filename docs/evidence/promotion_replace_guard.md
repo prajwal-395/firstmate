@@ -1,7 +1,7 @@
 # Promotion replacement guard
 
 The incident coverage lives in
-`tests/unit/reels/test_promote_replace_guard.py`.
+`tests/unit/reels/test_promotion.py`.
 `library/tools/reel_replace_guard.py` owns the row diff;
 `library/tools/reel_build.py::promote_staged_reels` runs it before
 renaming or deleting timelines.

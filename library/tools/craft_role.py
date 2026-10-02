@@ -40,7 +40,7 @@ judgement should come out. That is the line AGENTS.md 10.5 draws, and
 this module is on the same side of it as every other one: it hands over
 capability and authority, never taste. Quantity ownership is declared
 per capability in `library/tools/capabilities.py`; role delivery is
-exercised by `tests/contracts/test_craft_role.py`.
+exercised by `tests/contracts/test_context_contracts.py`.
 
 How it reaches the model
 ------------------------
@@ -79,7 +79,7 @@ level up.  Six of the fifteen are there today; each row says what the
 step is addressed as now, so the next worker adding one knows what they
 are replacing.
 
-`tests/contracts/test_craft_role.py`.
+`tests/contracts/test_context_contracts.py`.
 
 
 Rules relocated from AGENTS.md 3
@@ -95,7 +95,7 @@ One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the 
 - **It is PREPENDED to the handoff by `present_llm_step`**, which is the one thing it does differently from `undetermined` and its siblings - those ask for a FIELD and belong beside the schema, and a role is the frame the rest of the document is read in. **`replay_bench/reconstruct.py` mirrors it**, or `verify` reports every role-carrying step as an unaccounted difference.
 - **It goes in the prompt**, and a role may carry a `corrects` line naming a withdrawn instruction still in a handoff - but ONLY where that line is the captain's to edit. Since the freeze lifted 2026-09-09 there is one: 4.04's SFX toolkit table, which still offers `foley`, `ambient` and `reverse_cymbal` (AGENTS.md 10.5).
 - **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Nine are declared; six are not, each with what it is addressed as today.
-- `tests/contracts/test_craft_role.py`.
+- `tests/contracts/test_context_contracts.py`.
 """
 
 from __future__ import annotations

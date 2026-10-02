@@ -86,7 +86,7 @@ placed.  A card trimmed to nothing draws nothing and IS refused, and a
 pin that matches no card reports STALE rather than vanishing, which is
 how the same trim came to be lost twice before anyone noticed.
 
-`tests/unit/captions/test_caption_timing.py`, `tests/unit/resolve/test_orphan_wiring.py`.
+`tests/unit/captions/test_caption_timing.py`, `tests/unit/resolve/test_captain_edits.py`.
 """
 
 from __future__ import annotations

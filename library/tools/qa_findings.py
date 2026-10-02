@@ -53,7 +53,7 @@ and points here.
 
 The occupancy gate needs to know what the picture was SUPPOSED to look like, so `compile_manifest._conform_fields` records the resolved `framing_intent` on every clip.
 A declared letterbox is exempt from the fill floor and never from the consistency half.
-`tests/unit/picture/test_baseline_craft_properties.py`.
+`tests/unit/picture/test_picture_qa.py`.
 **Every QA finding has a reader, and one that has none is reported.**
 One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
 - **Two readers, one module.** The run summary prints them at the end of every run, and step 3.03 `review_rough_cut` is handed them as `render_qa_findings`. Both go through `read_qa_report`, so neither can develop a private opinion about which findings matter.

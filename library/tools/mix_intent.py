@@ -42,7 +42,7 @@ A pin matching no timed words reports STALE; a `level_db` outside
 `[-60, 12]` dB is REFUSED at write time (below hearing, above
 Fairlight sense); a partial pin is refused, never merged.
 
-`tests/unit/resolve/test_orphan_owners.py`.
+`tests/unit/resolve/test_captain_edits.py`.
 """
 
 from __future__ import annotations

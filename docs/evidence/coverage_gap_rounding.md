@@ -1,6 +1,6 @@
 # coverage gap rounding
 
-Test: `tests/unit/picture/test_coverage_gap_rounding.py`.
+Test: `tests/unit/picture/test_coverage_gaps.py`.
 
 A sub-frame abutment is not a hole in the timeline.
 

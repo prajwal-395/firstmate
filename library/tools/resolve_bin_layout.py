@@ -58,7 +58,7 @@ lands. The numbered scheme survives because it is bound to
 the retired scheme's per-timeline filing survives as sub-bins UNDER
 it (`LEGACY_SUCCESSORS`).
 
-`tests/unit/resolve/test_resolve_bin_layout.py`, `tests/unit/resolve/test_bins_one_owner.py`.
+`tests/unit/resolve/test_resolve_bin_layout.py`, `tests/unit/resolve/test_resolve_bin_layout.py`.
 """
 from __future__ import annotations
 

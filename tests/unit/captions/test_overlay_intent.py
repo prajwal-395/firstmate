@@ -66,7 +66,7 @@ COMPUTED_CAPTION = {"scaling": 1, "pan": 0.0, "tilt": -1744.0}
 #: The 2026-09-11 draw gain: these tests pin routing against pins
 #: recorded under that calibration (see HISTORY_GAIN in
 #: test_tight_box.py). Today's gain is proven separately
-#: (`tests/unit/resolve/test_draw_gain_measured.py`) and by the rebuild gate.
+#: (`tests/unit/resolve/test_resolve_transform.py`) and by the rebuild gate.
 HISTORY_GAIN = 1.0
 
 
@@ -1174,7 +1174,7 @@ def test_mismatched_entry_size_is_a_refusal():
 #: The 2026-09-11 draw gain: every measurement this file reproduces
 #: comes from that calibration's stills (see HISTORY_GAIN in
 #: test_tight_box.py). Today's gain is proven separately
-#: (`tests/unit/resolve/test_draw_gain_measured.py`) and by the rebuild gate.
+#: (`tests/unit/resolve/test_resolve_transform.py`) and by the rebuild gate.
 #: Reel 13 @854, measured: 840x480 canvas, ink rows 279..432, cols 47..775.
 TIGHT_CANVAS = (840.0, 480.0)
 TIGHT_INK = (47.0, 279.0, 775.0, 432.0)

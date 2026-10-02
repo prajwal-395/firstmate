@@ -18,7 +18,7 @@ you check out the data and rebuild):
    first, then `!` exceptions for the text record.  A new binary
    directory somebody adds tomorrow is ignored by default, which is
    what keeps the 599 MB caption renders seen on 2026-09-10 out of
-   the repo.  `tests/unit/reels/test_version_store.py` pins this with a
+   the repo.  `tests/unit/reels/test_version_rounds.py` pins this with a
    binary directory the module never names.
 2. `record_finished_timeline` runs at the end of step 6.01, AFTER
    comps and grade, and writes the machine-made timeline export

@@ -1,6 +1,6 @@
 # Effect windows are frame-exact (finding 27); unmapped comps fail by name (finding 15)
 
-Tests: `tests/unit/picture/test_vfx_window_frame_exact.py` (moved from its module docstring, 2026-10-02).
+Tests: `tests/unit/picture/test_vfx.py` (moved from its module docstring, 2026-10-02).
 
 Effect windows are frame-exact (finding 27), and unmapped comps fail
 by name (finding 15).
