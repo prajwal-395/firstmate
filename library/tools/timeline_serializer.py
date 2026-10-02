@@ -65,7 +65,7 @@ def _clean_dict(d: dict) -> dict:
 
 # ─── Serializer ──────────────────────────────────────────────
 
-def _project_resolution(resolve) -> Optional[list]:
+def _transform_unit_resolution(resolve) -> Optional[list]:
     """`[width, height]` of the current project's timeline setting, or
     `None` where nothing answers - never a guessed default."""
     try:
@@ -139,9 +139,10 @@ def serialize_timeline_state(
     # The PROJECT resolution is the unit epoch of every Pan/Tilt below:
     # Resolve rescales stored Pan/Tilt when it changes, so two snapshots
     # taken under different project resolutions hold different numbers
-    # for the same picture (`drift_check.unit_epoch_mismatch`).
-    state["metadata"]["project_resolution"] = _project_resolution(
-        resolve)
+    # for the same picture (`drift_check.unit_epoch_mismatch`). It is
+    # not called by the retired render-target name (delivery_format.py).
+    state["metadata"]["transform_unit_resolution"] = (
+        _transform_unit_resolution(resolve))
 
     # Timeline Markers
     markers = timeline.GetMarkers() or {}

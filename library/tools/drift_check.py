@@ -264,8 +264,9 @@ def unit_epoch_mismatch(snapshot_doc, live_doc) -> str:
     frame. A snapshot that did not record its project resolution
     cannot prove it shares the live one.
     """
-    built = (snapshot_doc.get("metadata") or {}).get("project_resolution")
-    live = (live_doc.get("metadata") or {}).get("project_resolution")
+    key = "transform_unit_resolution"
+    built = (snapshot_doc.get("metadata") or {}).get(key)
+    live = (live_doc.get("metadata") or {}).get(key)
     if not built:
         return ("the build snapshot did not record the project "
                 "resolution its Pan/Tilt were stored under")

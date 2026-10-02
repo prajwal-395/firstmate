@@ -139,10 +139,10 @@ def test_two_different_factors_refuse_to_read_as_one():
 
 # ── A factor across a project-resolution change is the UNIT ─────────
 
-def _at(document, project_resolution):
+def _at(document, transform_unit_resolution):
     return {**document, "metadata": {**document["metadata"],
-                                     "project_resolution":
-                                         project_resolution}}
+                                     "transform_unit_resolution":
+                                         transform_unit_resolution}}
 
 
 #: geo-podcast Reel 01, 2026-10-02: the as-built snapshot (written under
@@ -156,7 +156,7 @@ LIVE_FRAMED = doc("Reel 01",
                   (3, 0, "tv_frame.mov", 0.0, -55.0))
 
 
-def test_a_factor_across_a_project_resolution_change_is_not_a_drift():
+def test_a_factor_across_a_resolution_change_is_the_unit():
     compared = compare_documents(
         "Reel 01", _at(AS_BUILT_OLD_EPOCH, [1920, 1080]),
         _at(LIVE_FRAMED, [3840, 2160]))
@@ -184,8 +184,8 @@ def test_a_move_within_one_epoch_is_still_a_drift():
     assert "NOT a drift" not in compared["line"]
 
 
-def test_the_serializer_records_the_project_resolution():
-    from library.tools.timeline_serializer import _project_resolution
+def test_the_serializer_records_the_transform_unit_resolution():
+    from library.tools.timeline_serializer import _transform_unit_resolution
 
     class _Project:
         def GetSetting(self, key):
@@ -199,8 +199,8 @@ def test_the_serializer_records_the_project_resolution():
         def GetCurrentProject(self):
             return _Project()
 
-    assert _project_resolution(_Resolve()) == [3840, 2160]
-    assert _project_resolution(None) is None
+    assert _transform_unit_resolution(_Resolve()) == [3840, 2160]
+    assert _transform_unit_resolution(None) is None
 
 
 # ── The self-read: current for its own read, cursor back ─────────────
