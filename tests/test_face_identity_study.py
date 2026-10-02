@@ -1,9 +1,8 @@
 """The face-identity study measures the frames production decodes.
 
-Its first run measured 4K stills while production ran ArcFace on 384 px
-M2 thumbnails, so the gate passed on inputs production never saw (FRR
-0.075 at 0.30 once rerun on the thumbnails). Nothing here runs ffmpeg
-or insightface; the measured numbers are in the PR that landed this.
+The first run measured 4K stills while production ran ArcFace on 384 px
+M2 thumbnails. The study now reaches production's source decode and
+measured output-width cap. Nothing here runs ffmpeg or insightface.
 """
 
 import json

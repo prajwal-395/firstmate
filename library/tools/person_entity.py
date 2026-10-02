@@ -16,12 +16,13 @@ its 512-d ArcFace embedding and nothing else.
 
 **What this module measures, per source file:**
 
-- Face tracks: sampled frames decoded at SOURCE resolution - at the
-  shared M2 I-frame times (`source_memory.read_m2`) when a fresh sample
-  exists, else at this module's own planned times - each face
-  insightface `buffalo_l` detects and embeds, clustered within the one
-  source by cosine >= `FACE_MATCH_THRESHOLD`. Never the 384 px M2
-  thumbnails themselves: see `FRAME_SOURCE_M2_TIMES`.
+- Face tracks: sampled frames decoded from the SOURCE - at the shared M2
+  I-frame times (`source_memory.read_m2`) when a fresh sample exists,
+  else at this module's own planned times. The decoded frame is capped
+  at `FACE_INPUT_MAX_WIDTH` before insightface `buffalo_l` detects and
+  embeds; faces are clustered within one source by cosine >=
+  `FACE_MATCH_THRESHOLD`. Never the 384 px M2 thumbnails themselves:
+  see `FRAME_SOURCE_M2_TIMES`.
 - Voice tracks: the source's own program-track audio, diarized with the
   already-landed ECAPA fallback (`single_track_diarization.diarize_track`,
   PR #1482) - reused as-is, not re-measured here.
@@ -42,10 +43,12 @@ never on their own cosine distance to another source's voice track.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -60,17 +63,15 @@ except ImportError:  # imported as `tools.*` from inside library/
 FACE_MATCH_THRESHOLD = 0.25
 """Cosine floor for 'same person' on a 512-d ArcFace embedding.
 
-Measured, not chosen, on the source-resolution frames this module
-decodes (`face_identity_study`, 2026-10-02): FAR=0, FRR=0 on the 83-face
-study set (closest different-person pair 0.124, weakest same-person
-0.346) AND on the 427 frames production samples from the geo-podcast
-sources (closest different-person 0.144, weakest same-person 0.298 - an
-eyes-closed, low-light LC4932 frame). The zero-error band both share is
-0.15-0.29; 0.30, picked on the 83 alone, missed 2 of the 427 set's
-47,091 same-person pairs. Biased toward FAR over FRR: a false merge
-silently corrupts a person's whole span history, a missed match just
-leaves two person_ids for one person - visible and recoverable in
-search results.
+Measured, not chosen, by `face_identity_study` (2026-10-02): the 83-face
+hard-case set passes at 512 px (closest different-person 0.110, weakest
+same-person 0.259), while the combined 508-frame set fails at 512 px
+(157 false rejects) and 1280 px (2 false rejects). At 1408 px the same
+set has FAR=0/FRR=0 at this threshold: closest different-person 0.1452,
+weakest same-person 0.2647. This is the smallest passing width in the
+measured sweep. Biased toward FAR over FRR: a false merge silently
+corrupts a person's whole span history; a missed match leaves two
+person_ids for one person, visible and recoverable in search results.
 """
 
 FRAME_SAMPLE_INTERVAL_S = 10.0
@@ -78,12 +79,21 @@ FRAME_SAMPLE_INTERVAL_S = 10.0
 snaps each planned timestamp to the nearest shared M2 I-frame
 (`source_memory.read_m2`) when a fresh sample exists for this digest;
 either way the frame is this module's own sparse `ffmpeg -ss` decode at
-source resolution (no full decode)."""
+source resolution, capped to `FACE_INPUT_MAX_WIDTH` on output."""
 
 MAX_FRAME_SAMPLES = 120
 """Upper bound on frames sampled per source, so an hours-long file costs
-minutes, not the file's own runtime, at the measured ~0.1 s/frame
-(buffalo_l) plus ffmpeg seek overhead."""
+minutes, not the file's own runtime. Repeated builds reuse the stored face
+measurement while its source, sample plan, threshold, input size and model
+pack stay the same."""
+
+FACE_INPUT_MAX_WIDTH = 1408
+"""Width cap for ArcFace input. Smallest width in the measured sweep
+that passes the combined production and hard-case study."""
+
+FACE_MEASUREMENT_REVISION = 1
+"""Bump when face preprocessing or clustering semantics change so cached
+M3b face tracks are measured again."""
 
 FACE_SPAN_RADIUS_S = 0.1
 """A face observation is a point sample, not a tracked interval - the
@@ -165,16 +175,19 @@ def _face_app():
     return app
 
 
-FRAME_SOURCE_M2_TIMES = "M2-times-source-resolution"
-"""Decoded at source resolution, at the shared M2 I-frame times - the
-same instants M3 measured, so `event_spans` can join the two.
+FRAME_SOURCE_M2_TIMES = "M2-times-source-decode"
+"""Frames are decoded from the source at the shared M2 I-frame times -
+the same instants M3 measured, so `event_spans` can join the two. The
+decoded frame is scaled to `FACE_INPUT_MAX_WIDTH` before it is written;
+the 384x216 M2 thumbnail itself is never used for ArcFace."""
 
-Not the M2 thumbnails: at 384x216 a face is ~41 px tall, and ArcFace
-aligns it up to 112x112. Rerun on thumbnails, the 83-face study's FRR at
-0.30 was 0.075 (the profile frames fell to cosine 0.02 against their own
-person) and no threshold separated the two people; at source resolution
-the same frames give FAR=0/FRR=0 (`face_identity_study`). Measured cost:
-~0.45 s of `ffmpeg -ss` per frame on the 4K MXF sources."""
+FRAME_DECODE_WORKERS = 10
+"""Parallel `ffmpeg -ss` seeks in `frames_at`. Measured 2026-10-02 on
+LCATL0013.MXF across 24 production timestamps: 436 ms/frame at 1 worker,
+246 at 2, 162 at 4, 130 at 8 and 138 at 10. A same-timestamp repeat
+measured medians of 142 ms at 8 and 139.5 at 10; a 12-worker sweep was
+146 ms. Ten is marginally fastest here and matches this machine's CPU
+count. Capped by CPU count on smaller machines."""
 
 FRAME_SOURCE_M2 = "M2-shared-sample"
 """Records written before `FRAME_SOURCE_M2_TIMES`: measured ON the 384 px
@@ -184,11 +197,18 @@ FRAME_SOURCE_OWN_DECODE = "own-decode"
 
 
 def extract_frame(source_file: str, timestamp: float, out_path: str) -> bool:
-    """One JPEG frame at `timestamp`, fast-seek. True on success."""
+    """One scaled JPEG frame at `timestamp`, fast-seek. True on success.
+
+    FFmpeg still decodes the source frame at native resolution. Scaling
+    the output reduces the JPEG and model input without changing seek or
+    long-GOP decode time.
+    """
     try:
         out = subprocess.run(
             ["ffmpeg", "-nostdin", "-y", "-ss", f"{timestamp:.3f}",
-             "-i", source_file, "-frames:v", "1", "-q:v", "2", out_path,
+             "-i", source_file, "-vf",
+             f"scale='min({FACE_INPUT_MAX_WIDTH},iw)':-2",
+             "-frames:v", "1", "-q:v", "2", out_path,
              "-loglevel", "error"],
             capture_output=True, encoding="utf-8", errors="replace",
             timeout=120, check=False)
@@ -214,6 +234,61 @@ def _nearest_m2_times(m2_frames: List[dict], timestamps: List[float]) -> List[fl
     return [frame_times[idx] for idx in sorted(chosen)]
 
 
+def _resolved_frame_times(source_file: str, digest: str,
+                          timestamps: List[float], root: Optional[Path]
+                          ) -> Tuple[List[float], str]:
+    """Resolve planned times to fresh M2 timestamps, or keep the plan."""
+    m2 = source_memory.read_m2(digest, root)
+    if (timestamps and m2 is not None and source_memory.is_fresh(m2, source_file)
+            and m2.get("frames")):
+        return _nearest_m2_times(m2["frames"], timestamps), FRAME_SOURCE_M2_TIMES
+    return timestamps, FRAME_SOURCE_OWN_DECODE
+
+
+def _face_cache_key(digest: str, frame_source: str,
+                    timestamps: List[float], interval_s: float,
+                    max_samples: int) -> str:
+    """Stable key for the face tracks saved in one M3b record."""
+    payload = {
+        "revision": FACE_MEASUREMENT_REVISION,
+        "content_digest": digest,
+        "frame_source": frame_source,
+        "timestamps": [round(ts, 3) for ts in sorted(timestamps)],
+        "sample_interval_s": interval_s,
+        "max_samples": max_samples,
+        "input_max_width": FACE_INPUT_MAX_WIDTH,
+        "model_pack": shared_environment.INSIGHTFACE_PACK_NAME,
+        "threshold": FACE_MATCH_THRESHOLD,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _cached_face_record(identity: Optional[dict], cache_key: str,
+                        expected_sample_count: int) -> bool:
+    """Whether a prior successful face measurement exactly fits this plan."""
+    if not identity or identity.get("status") not in (STATUS_MEASURED,
+                                                       STATUS_NO_FACES):
+        return False
+    instrument = identity.get("instrument") or {}
+    pixels = instrument.get("frame_pixels")
+    frame_size_matches = (
+        expected_sample_count == 0
+        or (isinstance(pixels, list) and len(pixels) == 2
+            and isinstance(pixels[0], (int, float))
+            and isinstance(pixels[1], (int, float))
+            and 0 < pixels[0] <= FACE_INPUT_MAX_WIDTH and pixels[1] > 0)
+    )
+    return (
+        identity.get("face_match_threshold") == FACE_MATCH_THRESHOLD
+        and instrument.get("face_cache_key") == cache_key
+        and instrument.get("sample_count") == expected_sample_count
+        and instrument.get("face_input_max_width") == FACE_INPUT_MAX_WIDTH
+        and instrument.get("face_model_pack") == shared_environment.INSIGHTFACE_PACK_NAME
+        and frame_size_matches
+    )
+
+
 def frames_at(source_file: str, digest: str, timestamps: List[float],
               root: Optional[Path], scratch_dir: str
               ) -> Tuple[List[Tuple[float, str, bool]], str]:
@@ -225,21 +300,32 @@ def frames_at(source_file: str, digest: str, timestamps: List[float],
     snaps to its nearest M2 I-frame, so M3 and M3b describe the same
     instants; otherwise the planned times are decoded as given.
 
-    Returns `[(timestamp, path, owned)]`; every path is extracted into
-    `scratch_dir` and is the caller's to delete.
+    The seeks run in parallel (`FRAME_DECODE_WORKERS`); the returned
+    list is sorted by timestamp regardless of completion order, and a
+    frame that fails to decode is omitted, exactly as the sequential
+    loop did. Returns `[(timestamp, path, owned)]`; every path is
+    extracted into `scratch_dir` and is the caller's to delete.
     """
-    frame_source = FRAME_SOURCE_OWN_DECODE
-    m2 = source_memory.read_m2(digest, root)
-    if (timestamps and m2 is not None and source_memory.is_fresh(m2, source_file)
-            and m2.get("frames")):
-        timestamps = _nearest_m2_times(m2["frames"], timestamps)
-        frame_source = FRAME_SOURCE_M2_TIMES
+    timestamps, frame_source = _resolved_frame_times(
+        source_file, digest, timestamps, root)
 
-    frames = []
-    for ts in timestamps:
+    def decode_one(ts: float) -> Optional[Tuple[float, str, bool]]:
         frame_path = os.path.join(scratch_dir, f"f_{ts:.3f}.jpg")
         if extract_frame(source_file, ts, frame_path):
-            frames.append((ts, frame_path, True))
+            return (ts, frame_path, True)
+        return None
+
+    workers = min(FRAME_DECODE_WORKERS, os.cpu_count() or FRAME_DECODE_WORKERS,
+                  len(timestamps))
+    if workers <= 1:
+        frames = [row for row in (decode_one(ts) for ts in timestamps)
+                  if row is not None]
+    else:
+        with ThreadPoolExecutor(max_workers=workers,
+                                thread_name_prefix="face-decode") as pool:
+            frames = [row for row in pool.map(decode_one, timestamps)
+                      if row is not None]
+    frames.sort(key=lambda row: row[0])
     return frames, frame_source
 
 
@@ -410,8 +496,9 @@ def build_source_identity(source_file: str,
                           program_declaration: Optional[int] = None) -> dict:
     """M3b for one source file. Returns the per-file account.
 
-    Heavy: sparse frame extraction + face embedding + voice diarization.
-    Callers run this under the heavy-work lock; media is read-only.
+    Heavy on a cache miss: sparse frame extraction + face embedding.
+    Voice tracks are rebuilt from the already-decoded program WAV. Callers
+    run this under the heavy-work lock; source media is read-only.
     The probe and the program track are the source's primitives
     (`library/tools/source_primitives.py`) - the same track M1
     transcribed, decided under the same declaration - so the voices
@@ -438,34 +525,48 @@ def build_source_identity(source_file: str,
                "content_digest": digest, "status": STATUS_NO_VIDEO,
                "faces": 0, "voices": 0, "links": 0}
 
-    face_unavailable_reason = None
-    try:
-        shared_environment.require_insightface()
-    except shared_environment.InsightfaceEnvironmentMissing as missing:
-        face_unavailable_reason = str(missing)
+    planned = sample_timestamps(duration, interval_s, max_samples)
+    resolved, frame_source = _resolved_frame_times(
+        source_file, digest, planned, root)
+    face_cache_key = _face_cache_key(
+        digest, frame_source, resolved, interval_s, max_samples)
+    previous = read_identity(digest, root)
+    face_measurement_reused = _cached_face_record(
+        previous, face_cache_key, len(resolved))
 
-    frame_source = FRAME_SOURCE_OWN_DECODE
-    sample_count = 0
+    face_unavailable_reason = None
     frame_pixels = None
-    with tempfile.TemporaryDirectory(prefix="person-entity-",
-                                     dir=scratch_parent) as scratch:
+    sample_count = 0
+    if face_measurement_reused:
+        previous_instrument = previous["instrument"]
+        face_tracks = previous["faces"]
+        frame_pixels = previous_instrument["frame_pixels"]
+        sample_count = previous_instrument["sample_count"]
+    else:
+        try:
+            shared_environment.require_insightface()
+        except shared_environment.InsightfaceEnvironmentMissing as missing:
+            face_unavailable_reason = str(missing)
+
         if face_unavailable_reason is None:
-            frames, frame_source = resolve_sample_frames(
-                source_file, digest, duration, root, scratch,
-                interval_s, max_samples)
-            sample_count = len(frames)
-            observations, frame_pixels = measure_face_observations(frames)
-            face_tracks = cluster_face_observations(observations)
+            with tempfile.TemporaryDirectory(prefix="person-entity-",
+                                             dir=scratch_parent) as scratch:
+                frames, frame_source = resolve_sample_frames(
+                    source_file, digest, duration, root, scratch,
+                    interval_s, max_samples)
+                sample_count = len(frames)
+                observations, frame_pixels = measure_face_observations(frames)
+                face_tracks = cluster_face_observations(observations)
         else:
             face_tracks = []
 
-        voice_tracks: List[dict] = []
-        if primitives["program_wav"] is not None:
-            voice_tracks, voice_unavailable_reason = measure_voice_tracks(
-                primitives["program_wav"], declared_speaker_count)
-        else:
-            voice_unavailable_reason = (m0["program_track"].get("basis")
-                                        or "no-live-track")
+    voice_tracks: List[dict] = []
+    if primitives["program_wav"] is not None:
+        voice_tracks, voice_unavailable_reason = measure_voice_tracks(
+            primitives["program_wav"], declared_speaker_count)
+    else:
+        voice_unavailable_reason = (m0["program_track"].get("basis")
+                                    or "no-live-track")
 
     links = link_speech_to_face(face_tracks, voice_tracks)
 
@@ -496,13 +597,22 @@ def build_source_identity(source_file: str,
             "frame_pixels": frame_pixels,
             "sample_count": sample_count,
             "sample_interval_s": interval_s,
+            "max_samples": max_samples,
+            "face_input_max_width": (FACE_INPUT_MAX_WIDTH
+                                     if face_unavailable_reason is None
+                                     else None),
+            "face_model_pack": (shared_environment.INSIGHTFACE_PACK_NAME
+                                if face_unavailable_reason is None else None),
+            "face_cache_key": (face_cache_key
+                               if face_unavailable_reason is None else None),
         },
     }
     source_memory.write_json(target / source_memory.SLOT_IDENTITY, record)
     return {"source_file": os.path.abspath(source_file),
            "content_digest": digest, "status": status,
            "faces": len(face_tracks), "voices": len(voice_tracks),
-           "links": len(links)}
+           "links": len(links),
+           "face_measurement_reused": face_measurement_reused}
 
 
 def build_project_identity(project_folder: str,

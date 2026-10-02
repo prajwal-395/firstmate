@@ -187,12 +187,12 @@ def span_bounds(times: Sequence[float], first: int, last: int) -> Tuple[float, f
 def _m3b_frame_dims(identity: dict, m3: dict) -> Tuple[float, float]:
     """Pixel size of the frames M3b drew its boxes on.
 
-    M3b decodes at source resolution at the M2 I-frame times
+    M3b extracts from source at the M2 I-frame times
     (`FRAME_SOURCE_M2_TIMES`), the same instants M3 measured, and records
-    its own `frame_pixels`. A record from before that measured ON the M2
-    thumbnails (`FRAME_SOURCE_M2`) shares M3's `frame_pixels`. An
-    own-decode record is at times M3 never sampled; it cannot be joined
-    and raises rather than guessing.
+    its actual output `frame_pixels`. A record from before that measured
+    ON the M2 thumbnails (`FRAME_SOURCE_M2`) shares M3's `frame_pixels`.
+    An own-decode record is at times M3 never sampled; it cannot be
+    joined and raises rather than guessing.
     """
     instrument = identity.get("instrument") or {}
     source = instrument.get("frame_source")

@@ -86,15 +86,33 @@ def test_sample_timestamps_respects_max_samples():
     assert out[-1] < 10000.0
 
 
+def test_extract_frame_scales_before_writing_the_jpeg(tmp_path, monkeypatch):
+    output = tmp_path / "frame.jpg"
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        Path(command[command.index("-q:v") + 2]).write_bytes(b"jpeg")
+        return type("Completed", (), {"returncode": 0})()
+
+    monkeypatch.setattr(person_entity.subprocess, "run", fake_run)
+
+    assert person_entity.extract_frame("source.MXF", 5.0, str(output))
+    command = captured["command"]
+    assert command[command.index("-vf") + 1] == (
+        f"scale='min({person_entity.FACE_INPUT_MAX_WIDTH},iw)':-2")
+    assert output.read_bytes() == b"jpeg"
+
+
 # ── resolve_sample_frames (M2 reuse vs own decode) ──────────────────────
 
 
 def test_a_fresh_m2_sample_gives_its_times_never_its_thumbnails(tmp_path, memory_root,
                                                                 monkeypatch):
-    """With a fresh M2 the frames are decoded at source resolution at
-    M2's I-frame times. ArcFace on the 384 px thumbnails themselves
-    failed the face study (FRR 0.075 at 0.30, no separating threshold);
-    the times still have to be M2's so M7 can join M3b to M3."""
+    """With a fresh M2 the frames are decoded from source at M2's I-frame
+    times, then capped to the measured face input width. ArcFace on the
+    384 px thumbnails themselves fails the face study; the times still
+    have to be M2's so M7 can join M3b to M3."""
     media = _media(tmp_path, "A.MXF", b"source-a")
     digest = footage_identity.fingerprint(str(media))["content_digest"]
     source_memory.write_json(memory_root / digest / source_memory.SLOT_FRAMES_INDEX, {
@@ -119,7 +137,7 @@ def test_a_fresh_m2_sample_gives_its_times_never_its_thumbnails(tmp_path, memory
         scratch_dir=str(scratch), interval_s=4.0, max_samples=10)
 
     assert source == person_entity.FRAME_SOURCE_M2_TIMES
-    assert decoded == [(str(media), 0.5), (str(media), 5.0), (str(media), 9.9)]
+    assert sorted(decoded) == [(str(media), 0.5), (str(media), 5.0), (str(media), 9.9)]
     assert [t for t, _path, _owned in frames] == [0.5, 5.0, 9.9]
     assert all(owned and "frames/frame_" not in path for _t, path, owned in frames)
 
@@ -174,6 +192,76 @@ def test_resolve_sample_frames_falls_back_with_no_m2_record(tmp_path, memory_roo
     assert frames
 
 
+# ── frames_at parallelism ───────────────────────────────────────────
+
+
+def test_frames_at_returns_timestamp_order_whatever_finishes_first(
+        tmp_path, memory_root, monkeypatch):
+    """Parallel seeks complete out of order - the returned frames must
+    still be timestamp-sorted. The defect this guards is completion
+    order leaking into `measure_face_observations`, whose cluster spans
+    assume time order."""
+    import time as _time
+
+    media = _media(tmp_path, "A.MXF", b"source-a")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+
+    def slow_first(source_file, timestamp, out_path):
+        _time.sleep(max(0.0, 0.05 - timestamp * 0.01))
+        Path(out_path).write_bytes(b"x")
+        return True
+
+    monkeypatch.setattr(person_entity, "extract_frame", slow_first)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    frames, _source = person_entity.frames_at(
+        str(media), digest, [5.0, 1.0, 3.0, 2.0, 4.0], None, str(scratch))
+
+    assert [t for t, _path, _owned in frames] == [1.0, 2.0, 3.0, 4.0, 5.0]
+
+
+def test_frames_at_omits_a_failed_decode_and_keeps_the_rest(
+        tmp_path, memory_root, monkeypatch):
+    """One corrupt seek must not fail the lane - the frame is omitted
+    and the surviving frames still arrive sorted."""
+    media = _media(tmp_path, "A.MXF", b"source-a")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+
+    def flaky(source_file, timestamp, out_path):
+        if timestamp == 3.0:
+            return False
+        Path(out_path).write_bytes(b"x")
+        return True
+
+    monkeypatch.setattr(person_entity, "extract_frame", flaky)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    frames, _source = person_entity.frames_at(
+        str(media), digest, [1.0, 2.0, 3.0, 4.0], None, str(scratch))
+
+    assert [t for t, _path, _owned in frames] == [1.0, 2.0, 4.0]
+
+
+def test_frames_at_empty_timestamps_decodes_nothing(tmp_path, memory_root,
+                                                    monkeypatch):
+    """No timestamps means no work - in particular no zero-worker pool,
+    which `ThreadPoolExecutor` refuses."""
+    media = _media(tmp_path, "A.MXF", b"source-a")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+
+    def boom(source_file, timestamp, out_path):  # pragma: no cover
+        raise AssertionError("must not decode")
+
+    monkeypatch.setattr(person_entity, "extract_frame", boom)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    frames, source = person_entity.frames_at(
+        str(media), digest, [], None, str(scratch))
+
+    assert frames == []
+    assert source == person_entity.FRAME_SOURCE_OWN_DECODE
+
+
 def test_nearest_m2_times_deduplicates_shared_nearest_frame():
     """Two planned timestamps landing on the same nearest M2 frame must
     contribute it once, not twice - a regression here would double-count
@@ -181,6 +269,85 @@ def test_nearest_m2_times_deduplicates_shared_nearest_frame():
     m2_frames = [{"file": "frames/frame_000001.jpg", "t": 1.0},
                 {"file": "frames/frame_000002.jpg", "t": 20.0}]
     assert person_entity._nearest_m2_times(m2_frames, [0.9, 1.1, 19.0]) == [1.0, 20.0]
+
+
+def test_face_cache_key_tracks_the_sample_plan_and_input_width(monkeypatch):
+    args = ("digest", person_entity.FRAME_SOURCE_OWN_DECODE, [1.0, 2.0],
+            person_entity.FRAME_SAMPLE_INTERVAL_S, person_entity.MAX_FRAME_SAMPLES)
+    original = person_entity._face_cache_key(*args)
+    changed_times = person_entity._face_cache_key(
+        args[0], args[1], [1.0, 2.5], args[3], args[4])
+
+    monkeypatch.setattr(person_entity, "FACE_INPUT_MAX_WIDTH", 640)
+    changed_width = person_entity._face_cache_key(*args)
+
+    assert original != changed_times
+    assert original != changed_width
+
+
+def test_face_cache_rejects_a_record_with_pixels_above_the_width_cap():
+    cache_key = person_entity._face_cache_key(
+        "digest", person_entity.FRAME_SOURCE_OWN_DECODE, [5.0], 10.0,
+        person_entity.MAX_FRAME_SAMPLES)
+    identity = {"status": person_entity.STATUS_MEASURED,
+                "face_match_threshold": person_entity.FACE_MATCH_THRESHOLD,
+                "instrument": {
+                    "face_cache_key": cache_key,
+                    "sample_count": 1,
+                    "face_input_max_width": person_entity.FACE_INPUT_MAX_WIDTH,
+                    "face_model_pack": person_entity.shared_environment.INSIGHTFACE_PACK_NAME,
+                    "frame_pixels": [3840, 2160],
+                }}
+
+    assert not person_entity._cached_face_record(identity, cache_key, 1)
+
+
+def test_build_source_identity_reuses_a_matching_face_measurement(
+        tmp_path, memory_root, monkeypatch):
+    from library.tools import source_primitives
+
+    media = _media(tmp_path, "A.MXF", b"source-a")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+    m0 = {"video_streams": [{"width": 3840, "height": 2160}],
+          "duration_seconds": 10.0,
+          "program_track": {"basis": "no-audio-streams"}}
+    primitives = {"content_digest": digest, "m0": m0,
+                  "program_wav": None}
+    monkeypatch.setattr(source_primitives, "ensure",
+                        lambda *_args, **_kwargs: primitives)
+
+    timestamps = person_entity.sample_timestamps(10.0)
+    cache_key = person_entity._face_cache_key(
+        digest, person_entity.FRAME_SOURCE_OWN_DECODE, timestamps,
+        person_entity.FRAME_SAMPLE_INTERVAL_S, person_entity.MAX_FRAME_SAMPLES)
+    faces = [{"track_id": "face_001", "embedding": [1.0, 0.0],
+              "spans": [{"start": 4.9, "end": 5.1,
+                         "box": [0.0, 0.0, 1.0, 1.0], "det_score": 0.9}]}]
+    source_memory.write_json(source_memory.source_dir(digest, memory_root)
+                             / source_memory.SLOT_IDENTITY, {
+        "content_digest": digest, "status": person_entity.STATUS_MEASURED,
+        "face_match_threshold": person_entity.FACE_MATCH_THRESHOLD,
+        "faces": faces, "instrument": {
+            "face_cache_key": cache_key,
+            "sample_count": len(timestamps),
+            "face_input_max_width": person_entity.FACE_INPUT_MAX_WIDTH,
+            "face_model_pack": person_entity.shared_environment.INSIGHTFACE_PACK_NAME,
+            "frame_source": person_entity.FRAME_SOURCE_OWN_DECODE,
+            "frame_pixels": [person_entity.FACE_INPUT_MAX_WIDTH, 288],
+        },
+    })
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("a valid face cache must bypass decode and embedding")
+
+    monkeypatch.setattr(person_entity, "resolve_sample_frames", unexpected)
+    monkeypatch.setattr(person_entity, "measure_face_observations", unexpected)
+
+    result = person_entity.build_source_identity(str(media), root=memory_root)
+
+    assert result["face_measurement_reused"] is True
+    assert result["faces"] == 1
+    assert person_entity.read_identity(digest, memory_root)["faces"] == faces
 
 
 # ── cluster_face_observations ─────────────────────────────────────────

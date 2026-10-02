@@ -2,9 +2,10 @@
 
 `person_entity.FACE_MATCH_THRESHOLD` is a measured number: a false-accept
 study over labelled faces (`data/vep-person-entity-store/eval/` in
-firstmate's home). That study first ran on 4K stills while production
-ran ArcFace on the 384x216 M2 thumbnails, so its gate passed on inputs
-production never saw - rerun on the thumbnails, FRR at 0.30 was 0.075.
+firstmate's home). Its first pass used 4K stills while production ran
+ArcFace on 384x216 M2 thumbnails. The production-path study exposed the
+misses; the current path decodes from source and caps its saved frame at
+the narrowest width that passed the combined production and hard-case set.
 
 **The study reaches its frames through `person_entity.frames_at`, the
 one path production's faces take, and embeds them through

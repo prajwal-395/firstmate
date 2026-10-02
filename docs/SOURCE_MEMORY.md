@@ -237,13 +237,14 @@ Owner: `library/tools/person_entity.py`. Measured, not guessed: the
 face-match threshold below is the false-accept study (labelled set at
 `data/vep-person-entity-store/eval/` in firstmate's home), rerun on the
 frames production decodes by `library/tools/face_identity_study.py`:
-FAR=0/FRR=0 over 507 real faces, 2 cameras, profile and eyes-closed
-frames included. **ArcFace never reads the 384 px M2 thumbnails**: a
-face there is ~41 px tall and the study's FRR at 0.30 was 0.075. Each
-frame is its own sparse `ffmpeg -ss` decode at source resolution, at the
-nearest M2 I-frame times when a fresh M2 exists (so M7 can join it to
-M3), else at its own planned times (`instrument.frame_source` says
-which; `instrument.frame_pixels` is the size the boxes are drawn on).
+FAR=0/FRR=0 over 508 faces at 1408x792, 2 cameras, profile and
+eyes-closed frames included. At 1280 px, two same-person pairs fall
+below the production threshold; at 512 px, 157 do. **ArcFace never
+reads the 384 px M2 thumbnails.** Each frame is decoded from source and
+scaled to 1408 px before JPEG output, at the nearest M2 I-frame times
+when a fresh M2 exists (so M7 can join it to M3), else at its own planned
+times (`instrument.frame_source` says which;
+`instrument.frame_pixels` is the size the boxes are drawn on).
 
 ```json
 {
@@ -262,9 +263,12 @@ which; `instrument.frame_pixels` is the size the boxes are drawn on).
   "instrument": {"face": "insightface buffalo_l (ArcFace, 512-d)",
                  "face_unavailable_reason": null,
                  "voice": "speechbrain ECAPA (192-d) via single_track_diarization.diarize_track",
-                 "frame_source": "M2-times-source-resolution|own-decode",
-                 "frame_pixels": [3840, 2160],
-                 "sample_count": 12, "sample_interval_s": 10.0}
+                 "frame_source": "M2-times-source-decode|own-decode",
+                 "frame_pixels": [1408, 792],
+                 "sample_count": 12, "sample_interval_s": 10.0,
+                 "max_samples": 120, "face_input_max_width": 1408,
+                 "face_model_pack": "buffalo_l",
+                 "face_cache_key": "sha256 hex"}
 }
 ```
 
@@ -273,6 +277,10 @@ similarity (face: `FACE_MATCH_THRESHOLD`; voice reuses the already-landed
 diarization clusters outright, PR #1482). `status` is `measured`,
 `no-video-stream`, `no-faces-detected` or `face-identity-unavailable`
 (insightface unreachable) - never a default where nothing was measured.
+The face tracks are reused when `face_cache_key` still matches the source,
+M2 timestamps, threshold, sampling policy, input width and model pack.
+Changing one of those inputs rebuilds faces. Voice diarization still runs
+on each build.
 
 **Cross-source person identity is face-only.** `person_entity.
 resolve_person_tracks` unifies face tracks across every source digest a
