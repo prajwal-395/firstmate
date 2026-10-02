@@ -1,106 +1,88 @@
 """Brand motion in a Remotion render: the slot, not the choice.
 
-The gap this closes: no Remotion composition reads a video file, so the
-captain's real brand motion - ``logo_reveal.mov`` (3.0s) and
-``transition_bumper.mov`` (1.5s), both 1080x1920 ProRes 4444 with alpha at
-30fps - could be REFERENCED (``transition_overlay`` asset mode,
-``content.bookends`` asset mode) but never COMPOSITED into a Remotion
-render. This module is the taste-free half of that gap: measure the file,
-stage something the renderer can actually read, and build the props. What
-it does NOT do is pick a frame-rate conform on the captain's behalf -
-motion is their brand language, and the three strategies are named in
+The captain's brand motion is delivered as ProRes 4444 with alpha, which
+can be REFERENCED (``transition_overlay`` asset mode, ``content.bookends``
+asset mode) but which no Remotion composition can read as-is.  This module
+is the taste-free half of compositing it into a Remotion render: measure
+the file (:func:`measure_source`), stage something the renderer can
+actually read, and build the props.  What it does NOT do is pick a
+frame-rate conform on the captain's behalf - motion is their brand
+language, and the three strategies are named in
 :data:`CONFORM_STRATEGIES` with their costs, never chosen here.
 
-Why a mezzanine exists at all
------------------------------
-Measured 2026-09-08 in the same Chrome build Remotion renders with: a
-``<video>`` pointed at the bumper's ProRes 4444 ``.mov`` reports
-``videoWidth`` 0, ``videoHeight`` 0 and ``canPlayType('video/quicktime')``
-``""`` - the container parses (duration reads, the audio clock even
-seeks) but there is NO decodable video track, so an ``<OffthreadVideo>``
-on the raw file renders nothing, silently. The same page pointed at a
-VP9/``yuva420p`` WebM transcode reads 1080x1920 and paints the sparse
-artwork with its alpha intact. ``docs/BRAND_MOTION_MEASURED.md`` has the
-procedure and the numbers.
-
-So the slot stages a same-rate VP9 WebM mezzanine of the source and the
-composition plays THAT. Same rate is what keeps the transcode mechanical:
-no frame is created or dropped, every source frame survives 1:1, and the
-only change is the codec - which is forced, because VP9-in-WebM is the
-only browser-decodable format that carries alpha. The cross-rate question
-(30fps asset on a 24000/1001 timeline) is untouched by the transcode and
-is answered by the declared conform strategy, below.
+The mezzanine
+-------------
+Chrome (the browser Remotion renders with) has no decodable video track
+for a ProRes 4444 ``.mov``, so an ``<OffthreadVideo>`` on the raw file
+renders nothing, silently.  The slot therefore stages a same-rate VP9
+WebM mezzanine (``yuva420p``, alpha intact) and the composition plays
+THAT (:func:`needs_mezzanine`, :func:`ensure_mezzanine`,
+:func:`stage_mezzanine`).  Same rate keeps the transcode mechanical: no
+frame is created or dropped, and the only change is the codec - forced,
+because VP9-in-WebM is the only browser-decodable format that carries
+alpha.  A source that cannot be measured raises
+:class:`BrandMotionUnmeasurable`.
 
 The three conform strategies, named and not chosen
 --------------------------------------------------
-:data:`CONFORM_STRATEGIES` is one enumeration, and :func:`require_conform`
-refuses a declaration that names none of them - or names the one that is
-not built - by name, with the costs. No default: any default here would
-be the engine deciding what the captain's motion feels like.
+:func:`require_conform` refuses a declaration that names none of them
+(:class:`ConformNotDeclared`) - or names the one that is not built - by
+name, with the costs (:data:`CONFORM_COSTS`).  No default: any default
+here would be the engine deciding what the captain's motion feels like.
 
 ``native_sample``
     Play the mezzanine in wall-clock time at the composition rate, which
     is what Remotion's ``<OffthreadVideo>`` does: each composition frame
-    seeks the source timestamp. Nothing is blended and no authored pixel
-    changes. What it costs is stated exactly: sampling 30fps at
-    24000/1001 drops every 5th source frame (9 of the bumper's 45, 18 of
-    the logo's 90 - a regular stutter-step, max jump 2 source frames).
-    Wall-clock duration is exact; cadence is not.
+    seeks the source timestamp.  Nothing is blended and no authored pixel
+    changes.  Wall-clock duration is exact; cadence is not (30fps
+    sampled at 24000/1001 drops every 5th source frame).
 
 ``blended_conform``
-    Pre-conform the mezzanine to the composition rate with frame blending
-    (``ffmpeg`` ``minterpolate``/``framerate``). No frame is skipped and
-    the cadence is smooth - and every output frame is a synthesis that
-    softens the authored glow and ghosts fast motion. Which blender and
-    how much blend IS the look, so this strategy is named, costed, and
-    NOT BUILT: declaring it raises :class:`ConformNotBuilt` carrying the
-    parameters nobody has chosen. That refusal is the taste question,
-    stated as code.
+    Pre-conform the mezzanine with frame blending.  Smooth cadence, but
+    every output frame is a synthesis.  Which blender and how much blend
+    IS the look, so this strategy is named, costed, and NOT BUILT:
+    declaring it raises :class:`ConformNotBuilt` carrying the parameters
+    nobody has chosen.
 
 ``resolve_native``
     No Remotion render at all: place the original file on the Resolve
     timeline at its own rate through ``transition_overlay`` asset mode,
-    whose placer already does the per-source-fps arithmetic
-    (``reel_build``: 36 timeline frames of the bumper are 45 of its own).
-    This is the route that already works today, and naming it here is
-    what makes the enumeration complete rather than a menu of one.
+    whose placer already does the per-source-fps arithmetic.
 
 The fixed length is not a fourth question
 -----------------------------------------
-Both files have FIXED lengths and the fear was that concatenating one
-re-times a reel. It does not, because the slot never places anything:
+The slot never places anything, so a fixed-length asset does not re-time
+a reel:
 
 * as an OVERLAY over a cut the element is additive
   (``transition_overlay.TIMING_IS_ADDITIVE``): the reel keeps its length,
-  its keep ranges and every caption binding. The 1.5s bumper covers; it
-  does not insert.
+  its keep ranges and every caption binding.
 * as a CARD at the head or tail it concatenates (``content.bookends`` via
-  ``mesh_spine``): the reel absorbs the 3.0s logo by declaration and the
-  cursor shifts by exactly that. That is the declared shape, not drift.
+  ``mesh_spine``): the reel absorbs it by declaration.
 
-Trimming the asset to fit is refused wherever this module is asked:
-:func:`brand_motion_props` renders the WHOLE file
-(``durationInFrames`` is the measured seconds at the composition rate)
-and there is no trim parameter to disagree about - the same refusal
-``OverlayDoesNotFit`` and the duration-mismatch check make on the
-Resolve route. A reel that needs a shorter sting needs a shorter asset,
-which is an authoring decision, not a render flag.
+Trimming the asset to fit is refused: :func:`brand_motion_props` renders
+the WHOLE file (``durationInFrames`` is the measured seconds at the
+composition rate) and there is no trim parameter - the same refusal
+``OverlayDoesNotFit`` makes on the Resolve route.  A reel that needs a
+shorter sting needs a shorter asset.
 
 What reaches the composition
 ----------------------------
 ``BrandMotion`` (``remotion-subtitles/src/compositions/BrandMotion``) is
 an ENGINE composition in the ``channel_bug`` shape: the engine draws and
-the project supplies. Props carry the staged ``brand/<file>`` path, the
+the project supplies.  Props carry the staged ``brand/<file>`` path, the
 frame geometry, the measured duration in frames, and ``muted`` - which is
-REQUIRED with no default, because both real assets carry an audio stream
-and whether brand sound plays is a choice nobody made on the engine's
-behalf. Geometry must match the delivery frame exactly: ``contain`` vs
-``cover`` on a mismatch is framing taste, so a mismatch is refused
-(:class:`GeometryMismatch`) rather than fitted.
+REQUIRED with no default, because whether brand sound plays is a choice
+nobody made on the engine's behalf.  Geometry must match the delivery
+frame exactly: a mismatch is refused (:class:`GeometryMismatch`) rather
+than fitted, because ``contain`` vs ``cover`` is framing taste.
 
     python3 -m library.tools.brand_motion --measure <file.mov>
 
 ``tests/test_brand_motion.py``.
+
+The Chrome decode measurement and the per-asset frame-drop arithmetic:
+``docs/BRAND_MOTION_MEASURED.md`` and docs/evidence/brand_motion.md.
 """
 from __future__ import annotations
 

@@ -1,12 +1,13 @@
 """Resolve a goal backwards to the shortest capability set that reaches it.
 
 Given a goal - one requirement NAME, in the vocabulary `Operation.requires`
-and `Operation.effect` already share - work backwards through effect and
-requires to the capability set that reaches it, shortest first.  A goal no
-capability produces is REFUSED BY NAME - "no capability produces X" -
-rather than run and failed.  That refusal is the deliverable as much as
-the resolution is: the operator learns the goal is unreachable before
-anything runs.
+and `Operation.effect` already share - `compose` works backwards through
+effect and requires to the capability set that reaches it, shortest
+first.  A goal no capability produces is REFUSED BY NAME - "no capability
+produces X" - rather than run and failed.  That refusal is the deliverable
+as much as the resolution is: `compose` returns a REFUSED `Composition`
+for an unreachable goal, and raises `ComposerError` only for a caller
+error such as a blank goal.  `reachable_goals` is the addressable set.
 
 What this reads, and what it never does
 ---------------------------------------
@@ -17,67 +18,43 @@ nothing, and owns no step logic - Ruling 1 (`library/tools/operations.py`)
 holds because a plan only NAMES operations; executing one is still
 `Operation.execute`'s own refusal-or-run.
 
-The blindness, stated rather than patched around
-------------------------------------------------
-The composer can only select capabilities - registered operations - so it
-inherits both limits of the layer underneath, and both are TRUE rather
-than gaps:
+Where a node has sibling routes, `compose_with_change` plans the same
+representatives and then `select_operation` names the sibling serving
+each node for the asked change (`RouteSelection`, with `decided_by`
+saying whether the selector or the static representative chose); a
+multi-route node no selector covers REFUSES rather than silently taking
+the representative (`selector_coverage`).
+
+What the composer can and cannot select
+---------------------------------------
+It can only select capabilities - registered operations - so it inherits
+the limits of the layer underneath, stated rather than patched around:
 
 * THE FOUR.  Four operations have a deliberately empty derived effect
-  (`operations.EMPTY_EFFECT_REASONS`: four ARTIFACTS written to disk
-  rather than state).  A composer working backwards from requirements
-  alone can never select them, because artifact productions are
-  invisible as goals.  No plan this module returns ever names one, and
-  `tests/test_composer.py` pins that.  (`reel.gate_stills`, the third
-  artifact, shares `verify_reels`' verdict effect by the node
-  granularity `Operation.effect` declares - and is still never
-  planned: that test pins it explicitly, and the route-selection
-  guard covers the selector naming `reel.verify`.)
-*
-  THE VERDICTS, WHICH ARE NO LONGER BLIND.  The tree was checked
-  against a third kind - VERDICT, the effect that is pass/fail rather
-  than a state key - and the captain ruled on it 2026-09-23: a verdict
-  is expressible as a goal AS ITS OWN requirement kind, not by
-  loosening what a requirement means.  `requirements.VERDICTS` is that
-  kind, so `sfx_library.validate`, `reel.verify` and
-  `validation.resolve` derive non-empty effects and compose as
-  `verdict.*` goals.  Whether each one REACHES is measured per goal,
-  not promised by the kind: a verdict whose own preconditions strand
-  still refuses, naming what stops it.
-*
-  THE OPTIONALS, WHICH ARE NO LONGER BLIND EITHER.  The tree was
-  checked against a fourth kind - OPTIONAL, the edge that may or may
-  not carry state - and the captain ruled on it 2026-09-23, board
-  answer "add-optional": ADD OPTIONALITY TO THE VOCABULARY, as its
-  own kind and not by loosening `produced_by` or widening an existing
-  kind.  `requirements.OPTIONALS` is that kind, so `prosody.analyse`,
-  `color_grade.resolve`, `ocr.extract`, `transitions.resolve`,
-  `sfx.resolve`, `vfx.resolve` and `cohesion.review` derive non-empty
-  effects and compose as `optional.*` goals - the three mechanism-B
-  edges (`transition_spec`, `sfx_spec`, `enhancement_spec` for
-  `compile_manifest`) alongside the four mechanism-A productions and
-  `cohesion_review`.  Whether
-  each one REACHES is measured per goal, not promised by the kind.
+  (`operations.EMPTY_EFFECT_REASONS`: ARTIFACTS written to disk rather
+  than state).  No plan this module returns ever names one.
+  `reel.gate_stills` shares `verify_reels`' verdict effect by node
+  granularity and is still never planned.
+* VERDICTS compose as their own requirement kind (`requirements.VERDICTS`,
+  `verdict.*` goals; captain, 2026-09-23), not by loosening what a
+  requirement means.
+* OPTIONALS compose as their own requirement kind
+  (`requirements.OPTIONALS`, `optional.*` goals; captain, 2026-09-23),
+  not by loosening `produced_by` or widening an existing kind;
+  `cohesion.review`'s `cohesion_review` composes this way.  For both
+  kinds, whether each goal REACHES is measured per goal, not promised by
+  the kind: one whose own preconditions strand still refuses, naming
+  what stops it.
 * THE MIDDLE OF THE DAG.  A producer node with no registered operation
-  (`dag_adapter.legacy_only_nodes()`: thirteen at introduction, two
-  now - `compile_manifest` and `object_segmentation`, whose bodies take
-  an output directory `main()` derives rather than a declared input).
-  A goal whose chain passes through one is unreachable BY
-  CAPABILITIES ALONE - reaching it would mean adding a capability, which
-  this module will not do on the caller's behalf.  It refuses instead,
-  naming the deepest requirement nothing reaches and which step produces
-  it, so the operator knows the DAG run (or the outside supply) that the
-  plan would need first.
-
-  Measured at introduction: exactly two goals close through capabilities
-  alone (`state.judge_reels.reel_selection`,
-  `state.verify_reels.reel_build`).  Everything else refuses.  That
-  proportion is a finding about registry coverage, not about this
-  module: as operations are registered for middle-DAG nodes, more goals
-  resolve with nothing changed here.  `creative_cohesion` is the
-  measured instance: `optional.compile_manifest.cohesion_review`
-  refused naming the node until `cohesion.review` was registered, and
-  then closed with nothing here changed.
+  (`dag_adapter.legacy_only_nodes()`: `compile_manifest` and
+  `object_segmentation`, whose bodies take an output directory `main()`
+  derives rather than a declared input) makes a goal whose chain passes
+  through it unreachable BY CAPABILITIES ALONE.  Adding a
+  capability is not this module's call: it refuses, naming the deepest
+  requirement nothing reaches and which step produces it, so the operator
+  knows the DAG run (or the outside supply) the plan would need first.
+  As operations are registered for those nodes, more goals resolve with
+  nothing changed here.
 
 What a precondition without a producer becomes
 ----------------------------------------------
@@ -87,12 +64,11 @@ before it runs.  So a producer-less precondition is an ASSUMPTION the
 plan reports, never a refusal:
 
 * `environment` kind - a machine fact (`env.npx`, `env.resolve_scripting`
-  and the rest).  The requirement layer reports these rather than
-  refusing on them, and so does the plan: `assumes_machine`.
+  and the rest): `assumes_machine`.
 * anything else producer-less - satisfiable only from outside the
   pipeline (the captain's approval, `project.yaml`, the transcript the
-  runner reads off disk).  `assumes_outside`, quoting the requirement's
-  own `describe`, which already says what must be supplied.
+  runner reads off disk): `assumes_outside`, quoting the requirement's
+  own `describe`.
 
 Asymmetry, deliberately: as a GOAL, a producer-less requirement still
 refuses - no sequence of capabilities makes approval, a binding or a
@@ -104,6 +80,11 @@ Reachability
 ------------
     python3 -m library.tools.composer state.verify_reels.reel_build
     python3 -m library.tools.composer --list
+
+`tests/test_composer.py`.
+
+The rulings that added the verdict and optional kinds, and the coverage
+measured at introduction: docs/evidence/composer.md.
 """
 from __future__ import annotations
 

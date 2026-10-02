@@ -1,50 +1,25 @@
 """How much of the delivery frame the picture fills. One enumeration.
 
-``framing_intent`` is a normalised scalar: **0.0 letterboxes** (the source
-is fitted inside the frame and the leftover is black), **1.0 fills** (the
-source is scaled until the frame is covered and the crop window follows
-the subject), and values between punch in partway.
-``compile_manifest._conform_fields`` owns the geometry that turns it into
-a zoom and a pan; this module owns only the question of *which number a
-clip gets*.
+``framing_intent`` is a normalised scalar: **0.0 letterboxes**
+(:data:`LETTERBOX` - the source is fitted inside the frame and the
+leftover is black), **1.0 fills** (:data:`FILL` - the source is scaled
+until the frame is covered and the crop window follows the subject), and
+values between punch in partway.  ``compile_manifest._conform_fields``
+owns the geometry that turns it into a zoom and a pan; this module owns
+only the question of *which number a clip gets*.
 
 Why the default is FILL
 -----------------------
-It used to be a heuristic, and the heuristic was inverted.  With no
-declaration, ``_conform_fields`` ran a "legacy auto-decision" whose rule
-was: *if the primary subject is visible during this clip's source range,
-a centre crop might cut them off, so prefer letterbox*.  On a selfie
-monologue the subject is visible in every clip, so **every clip
-letterboxed, always**.
-
-Measured on the only finished export on disk - project 001,
-``exports/Pipeline_Edit.mp4``, 1080x1920 - the A-roll picture occupied
-rows 656..1263: 608 of 1920 rows, 31.7% of the frame height, with 61.6%
-of all pixels below luma 12 averaged over 55 samples.  The three B-roll
-cutaways are portrait-shot and filled the frame, so the video also
-flipped between full-bleed and a thin strip three times.
-
-That is not 9:16 delivery.  The captain's standing direction
-(``PLAN/series portfolio '26 planning/overall_branding_creative_direction.md``)
-says "Aspect ratio: 9:16 (1080x1920)" at line 363, "Every frame should
-look deliberate" at 364 and "the frame should never be lazy" at 76.  A
-template declares ``delivery_format: vertical_1080x1920`` to say what the
-product IS; silently shipping a 16:9 strip inside it is the same class of
-defect as the retired source-derived render target that
-``delivery_format.py`` exists to close.
-
-The thing the old rule was protecting is real - a blind centre crop
-beheads a speaker standing in the left third - and it is now protected
-properly rather than by refusing to crop at all.  The crop window follows
+:data:`DEFAULT_FRAMING_INTENT` is FILL, and there is no heuristic.  A
+template that declares a vertical delivery format says what the product
+IS, and silently shipping a landscape strip inside it is a defect.  The
+risk a heuristic once guarded against - a blind centre crop beheading a
+speaker - is handled by aiming the crop: the window follows
 ``library/tools/subject_framing.subject_center_x``, measured off the
 face-centre track ``step_1_04_temporal_index.compute_face_presence``
-already banks at 5Hz.  When the footage cannot support a position the
-window stays centred, which is what ``subject_framing`` returning None has
-always meant.
-
-A series that genuinely wants bars still says so, and one already does:
-a project's own ``brand.json`` declares ``style.framing_intent: 0.0``
-because the letterbox is its look.
+banks, and stays centred when the footage cannot support a position.
+A series that wants bars declares ``style.framing_intent: 0.0`` in its
+own ``brand.json``.
 
 Precedence
 ----------
@@ -53,13 +28,18 @@ Precedence
       > brand template ``style.framing_intent``
       > :data:`DEFAULT_FRAMING_INTENT`
 
-The project level is the one this module ADDS.  It is the same
+:func:`resolve_framing_intent` walks it.  The project level is the same
 project-over-template precedence ``delivery_format_name`` and
-``timed_text_overlay.resolve_declaration`` use, and for the same reason: a
-series may ship one video framed differently without forking its
-template.
+``timed_text_overlay.resolve_declaration`` use: a series may ship one
+video framed differently without forking its template.
 
-A malformed declaration RAISES.  A framing declaration that is silently
+``framing_crop_factor`` is the second control, how tight WITHIN fill
+(1.0 is no extra crop, bounded by :data:`MAX_CROP_FACTOR`), resolved by
+the same chain (:func:`resolve_crop_factor`, ``pipeline.`` /
+``style.framing_crop_factor``, :data:`DEFAULT_CROP_FACTOR`).
+
+A malformed declaration RAISES (:func:`validate_framing_intent`,
+:func:`validate_crop_factor`).  A framing declaration that is silently
 dropped is a frame the editor believes shipped.
 
 Declared is not delivered
@@ -67,25 +47,20 @@ Declared is not delivered
 A declaration says what the editor WANTS.  What a clip can actually give
 is arithmetic, and the two differ in one direction: **a source whose
 display aspect already matches the delivery frame has no bars to give.**
-It covers the frame at every intent, ``0.0`` included, because there is
-nothing to letterbox.
-
-That is not a corner case - it is project 001's whole edit.  Its eleven
-A-roll placements are landscape 1920x1080 into a 1080x1920 frame and its
-seven cutaways are shot portrait, so ONE declaration of ``0.0`` puts bars
-on the A-roll and leaves the cutaways full-bleed.  The per-clip framing
-of that video is not a second creative choice on top of the first; it is
-the first choice meeting seventeen measured source aspects.
+It covers the frame at every intent, ``0.0`` included
+(:func:`source_covers_frame`).  So one declaration of ``0.0`` on a mixed
+edit bars the landscape A-roll and leaves portrait cutaways full-bleed:
+the per-clip result is that one choice meeting each source's measured
+aspect, not a second creative choice.
 
 :func:`delivered_framing_intent` is that reading, and
 ``compile_manifest._conform_fields`` records it beside the declaration as
-``framing_delivered``.  Recording the declaration alone is what made the
-distinction invisible: ``render_qa``'s occupancy gate reads the manifest
-to learn what the picture was SUPPOSED to look like, and a portrait clip
-carrying ``framing_intent: 0.0`` tells it the frame is barred when the
-frame is full.  Same defect class as AGENTS.md section 10.3's rule about
-an assessment field reporting a value nobody measured, arriving through
-the manifest instead of through the vision pass.
+``framing_delivered``, so ``render_qa``'s occupancy gate learns what the
+picture was SUPPOSED to look like from what was delivered, not from what
+was declared.
+
+The measured letterbox export and the creative-direction lines behind
+the FILL default: docs/evidence/framing_intent.md.
 
 
 Rules relocated from AGENTS.md 10.3

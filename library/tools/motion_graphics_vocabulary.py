@@ -1,43 +1,22 @@
 """The motion-graphics elements this pipeline may plan, and the axes each one is declared on.
 
-**The problem this closes.** The captain, 2026-08-29, on the capability:
-the pipeline has *"access to remotion to make literally any kind of
-motion design and animation desired."*  That is true of the toolchain and
-false at the moment of decision.  A step asked to pick from an undefined
-set picks nothing, or invents inconsistently: the creative audit of round
-2 counted **9 of 28 output decisions the model was never asked**, and an
-undefined roster is exactly that failure - a decision nobody offered.
-"Anything is possible" is not a menu.
-
-**What was here before.** An implicit roster of three, and nobody wrote
-it down.  ``remotion-subtitles/src/compositions/MotionGraphics/index.tsx``
-draws a two-line upper third, four corner brackets and a progress bar,
-each behind its own boolean; ``generate_motion_props`` turns two brand
-flags into those booleans and reads ``creative_direction`` for a title
-that its schema has no field for.  Project 001 rendered eight segments,
-53.8 MB of ProRes, in which ``max(alpha)`` is 0 on every frame - motion
-graphics reported as delivered, drawing nothing.  Three elements chosen
-by whoever wrote the component is not a vocabulary, and the fact that the
-render path is broken is not a reason to keep it at three.
-
-**So this table is written from what an editor needs, not from what the
-composition can draw today.**  Every entry carries
+A step asked to pick from an undefined set picks nothing, or invents
+inconsistently; "anything is possible" is not a menu.  :data:`ROSTER` is
+the menu, written from what an editor needs, not from what the
+composition can draw today.  Every entry carries
 :attr:`MotionElement.reachable` saying whether the current renderer can
-put it on a frame, and one of the nineteen cannot.  The reachability
-flag is a fact reported about each entry; it is not a filter on
-membership.  A roster written around today's renderer would bake a
-defect into the vocabulary permanently.
+put it on a frame (:data:`REACHABILITY`); one of the nineteen cannot.
+The flag is a fact reported about each entry, never a filter on
+membership: a roster written around today's renderer would bake a defect
+into the vocabulary permanently.  ``motion_graphics_plan.DRAWABLE`` is
+derived from it.
 
 An axis, not a value
 --------------------
 Every entry defines the DIMENSIONS a declaration must fill and fixes none
 of them.  There is no colour here, no duration, no size, no easing
 strength and no intensity, and none of those has a default or a bound
-either - the captain, 2026-08-28: *"i want no hardcoded values. there are
-no house glow looks, there are no settled house grain or anything"*, and
-PR #310 emptied ``series_look.py`` on that ruling.  A roster that said
-"the stat callout holds for 1.2 s in the accent colour" would put the
-same defect back one level up, in the one place it is hardest to see.
+(captain, 2026-08-28: no hardcoded values, no house looks).
 
 :data:`AXES` is the vocabulary of dimensions; an entry names the axes it
 is declared on.  An axis with enumerated positions names the positions
@@ -46,20 +25,20 @@ characters, not a chosen one).  An axis without them is continuous and
 its magnitude belongs to whoever declares it.
 :func:`assert_no_settled_values` is the runnable statement of that rule
 and ``tests/test_motion_graphics_vocabulary.py`` parses this file's own
-source to enforce it.
+source to enforce it.  :func:`assert_roster_is_well_formed` raises
+:class:`MotionVocabularyError` on a malformed entry - an unknown
+function, axis or reachability, or an entry recording no refusals
+(``never``), because an entry that only says what a thing is teaches a
+model to reach for it everywhere.
 
-Series-neutral, because the purpose is two purposes
----------------------------------------------------
-Set 2026-08-25: this engine serves a daily channel **and** client work,
-so anything keyed to one identity is a defect rather than a shortcut
-(AGENTS.md section 14).  Nothing here names a channel, a host, a show, a
-palette or a typeface.  ``channel_bug`` is the closest an entry comes to
-identity and it takes a project-supplied ASSET; the engine ships no
-artwork and states none.  The captain's own standard - clean, vibrant and
-deliberate, not distressed; saturated and bold, no washed-out neutrals -
-is a standard for the DECLARATIONS a project or a template writes, and it
-is deliberately not encoded here, because encoding it would make every
-client's video look like the captain's.
+Series-neutral
+--------------
+This engine serves a daily channel **and** client work, so anything keyed
+to one identity is a defect (AGENTS.md section 14).  Nothing here names a
+channel, a host, a show, a palette or a typeface.  ``channel_bug`` takes a
+project-supplied ASSET; the engine ships no artwork and states none.  The
+captain's own visual standard is a standard for the DECLARATIONS a project
+or a template writes, and is deliberately not encoded here.
 
 Two neighbouring decisions this roster does NOT take
 ----------------------------------------------------
@@ -68,10 +47,9 @@ answer works:
 
 1. **What produces the copy a motion graphic shows.**  Entries declare
    :attr:`MotionElement.copy` - whether the element needs a text payload
-   at all - and never where that text comes from.  A model writing it, a
-   project declaring it, a transcript supplying it and a template
-   carrying it all satisfy the same entry.  :data:`COPY_SOURCE_IS_UNSET`
-   records that this file must never grow a producer.
+   at all - and never where that text comes from.
+   :data:`COPY_SOURCE_IS_UNSET` records that this file must never grow a
+   producer.
 2. **Whether the model authors each component or fills a props schema.**
    An entry names a KIND, its axes, its inputs and its refusals.  Under
    the props answer the axes are the schema; under the authoring answer
@@ -87,10 +65,10 @@ Where the boundary runs
 graphics and belong to another enumeration - captions, transitions,
 picture treatment, bookend artwork - each with the module that owns it.
 An element is in this roster when it is an ADDITIVE OVERLAY that carries
-MEANING the picture and the captions do not already carry.  That is the
-line: a treatment of the picture is VFX, a treatment of the spoken word
-is a caption, a change between two shots is a transition, and a full
-frame of artwork is a bookend.
+MEANING the picture and the captions do not already carry.  A treatment
+of the picture is VFX, a treatment of the spoken word is a caption, a
+change between two shots is a transition, and a full frame of artwork is
+a bookend.
 
 Reading it
 ----------
@@ -98,12 +76,14 @@ Reading it
     python3 -m library.tools.motion_graphics_vocabulary --check    # the rules, as a gate
 
 :func:`roster_rows` and :data:`ROSTER_LEGEND` are the prompt-side route -
-the same shape ``sfx_library.load_sfx_catalog`` and
-``music_measurement.MEASUREMENT_LEGEND`` take, so a planning step's
+the same shape ``sfx_library.load_sfx_catalog`` takes, so a planning step's
 bridge can put the whole roster in front of the model as a table without
 this module knowing anything about prompts.  Nothing is shortlisted:
-nineteen entries fit, and whatever selects a shortlist becomes the chooser
-(AGENTS.md section 10.5).
+whatever selects a shortlist becomes the chooser (AGENTS.md section 10.5).
+
+The implicit three-element roster this replaced, the render that drew
+nothing, and the rulings behind the axis rule:
+docs/evidence/motion_graphics_vocabulary.md.
 """
 
 from __future__ import annotations

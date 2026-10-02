@@ -51,8 +51,8 @@ Safety shape, stated once:
   moves the current-timeline cursor: listing and reading go through
   `GetTimelineByIndex`, never `SetCurrentTimeline`. Opening something
   is a write to the captain's session.
-- Reads hold the Resolve lease SHARED (`exclusive=False`); the three
-  writes hold it EXCLUSIVE. `restore --apply` and `reply --apply`
+- Reads hold the Resolve lease SHARED (`exclusive=False`); any call
+  with `--apply` or `--unsafe` holds it EXCLUSIVE. `restore --apply` and `reply --apply`
   refuse unless the cursor already sits on the reel; `run --unsafe`
   reports the cursor before and after the script instead (an arbitrary
   script owns its own cursor, so there is nothing to assert it against).
