@@ -12,15 +12,17 @@ that by resolving every `run` back to the file it is defined in and
 refusing anything that is not the owning step's own body, or a
 `library/tools/` module that step already imports.
 
-`owning_node` is required, and LEGACY
--------------------------------------
+The DAG node is DERIVED, and LEGACY
+-----------------------------------
 Most of the runner's per-step services (the two ledgers, the run status,
 the review gate, the marker routing, the step export, the run-level
-collectors) are keyed by the DAG node id, so an operation names the node
-whose decision it is, and `library/tools/capabilities.problems` checks the
-name is real.  It is metadata, not identity: an operation's `name` is its
-capability id (`library/tools/capabilities.py`), and every node-keyed read
-goes through `library/tools/dag_adapter.py`.  The handbrake (keyed by
+collectors) are keyed by the DAG node id.  An operation does not name
+one: it names its executor's step directory (`owning_dir`), and its node
+is the node whose `step_ref` is that directory (`legacy_node`, answered
+by `library/tools/dag_adapter.node_of`).  It is metadata, not identity:
+an operation's `name` is its capability id
+(`library/tools/capabilities.py`), and every node-keyed read goes
+through `library/tools/dag_adapter.py`.  The handbrake (keyed by
 project) and the provenance snapshot (no key) are the two services that
 are not node-keyed.
 
@@ -40,7 +42,7 @@ What an operation REQUIRES and EFFECTS, both derived
 ----------------------------------------------------
 `Operation.requires` is DERIVED, never hand-written: every requirement in
 `library/tools/requirements.py` whose `consumers` include this operation's
-`owning_node`.  `Operation.effect` is DECLARED PER CAPABILITY (captain,
+`legacy_node`.  `Operation.effect` is DECLARED PER CAPABILITY (captain,
 2026-10-02): each entry lists the state keys it `produces`, and its effect
 is every requirement whose key at its node (`Requirement.key_at`) is one
 of them.  A node's effect is derived from its capabilities
@@ -197,7 +199,7 @@ class OperationResult:
     """
 
     operation: str
-    owning_node: str
+    legacy_node: str
     scope: Scope
     status: str
     payload: Any = None
@@ -266,7 +268,7 @@ class OperationResult:
         """The flat form for a log line or a hook payload."""
         return {
             "operation": self.operation,
-            "owning_node": self.owning_node,
+            "legacy_node": self.legacy_node,
             "scope": str(self.scope),
             "status": self.status,
             "produced_nothing": self.produced_nothing,
@@ -328,7 +330,6 @@ class Operation:
 
     name: str
     summary: str
-    owning_node: str            # LEGACY: the DAG node, via dag_adapter
     owning_dir: str             # its directory under library/steps/
     body: str                   # step.py | bridge.py | post_bridge.py
     attr: str                   # the function's name in that body
@@ -407,9 +408,10 @@ class Operation:
     def legacy_node(self) -> str:
         """The DAG node, reached through the compatibility adapter.
 
-        Every node-keyed read in this class asks here rather than reading
-        `owning_node`, so the capability id stays the identity and the
-        node stays metadata (`library/tools/dag_adapter.py`).
+        Derived from `owning_dir` - the node whose `step_ref` is the
+        executor's directory - so the capability id stays the identity,
+        the node stays metadata, and no field can name a node the
+        executor does not run under (`library/tools/dag_adapter.py`).
         """
         from library.tools import dag_adapter
         return dag_adapter.node_of(self)
@@ -425,8 +427,8 @@ class Operation:
         to update.
 
         A requirement is keyed by its `consumers`, which are DAG node
-        ids; `owning_node` is what makes an operation addressable in that
-        vocabulary, which is the second reason it is not decoration.
+        ids; `legacy_node` is what makes an operation addressable in that
+        vocabulary.
         """
         from library.tools import dag_adapter
         return dag_adapter.requirements_consumed(self)
@@ -625,7 +627,7 @@ class Operation:
         missing = self.unmet(project_folder)
         if missing:
             return OperationResult(
-                operation=self.name, owning_node=self.owning_node,
+                operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 unsatisfied=tuple(entry.requirement for entry in missing),
                 error=self._teach(missing))
@@ -640,7 +642,7 @@ class Operation:
         # raises by design rather than returning something to bind.
         if self.is_prompt:
             return OperationResult(
-                operation=self.name, owning_node=self.owning_node,
+                operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 error=self._teach_prompt())
 
@@ -658,10 +660,10 @@ class Operation:
         owed = self.missing_model_answer(inputs)
         if owed:
             return OperationResult(
-                operation=self.name, owning_node=self.owning_node,
+                operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 error=(
-                    f"{self.name} is the POST-BRIDGE of {self.owning_node}: "
+                    f"{self.name} is the POST-BRIDGE of {self.legacy_node}: "
                     f"the dict it takes is the step's inputs PLUS its "
                     f"pre-bridge's output PLUS the model's answer, and an "
                     f"operation gathers only the first of those three.\n"
@@ -669,7 +671,7 @@ class Operation:
                     f"{', '.join(owed)}.\n"
                     f"\nEither supply them - "
                     f"`operations.get({self.name!r}).execute(project, "
-                    f"{owed[0]}=...)` - or run {self.owning_node} so the "
+                    f"{owed[0]}=...)` - or run {self.legacy_node} so the "
                     f"runner asks the model for them. Resolving without "
                     f"them would produce a confident answer to a question "
                     f"nobody was asked."))
@@ -677,13 +679,13 @@ class Operation:
         unbound = self.unbound_parameters(arguments)
         if unbound:
             return OperationResult(
-                operation=self.name, owning_node=self.owning_node,
+                operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 error=self._teach_unbound(unbound, where))
 
         payload = self.run(**arguments)
         return OperationResult(
-            operation=self.name, owning_node=self.owning_node,
+            operation=self.name, legacy_node=self.legacy_node,
             scope=where, status=COMPLETED, payload=payload)
 
     def _teach_prompt(self) -> str:
@@ -697,11 +699,11 @@ class Operation:
         cannot.
         """
         return (
-            f"{self.name} is the PROMPT of {self.owning_node}: its "
+            f"{self.name} is the PROMPT of {self.legacy_node}: its "
             f"implementation is {self.owning_dir}/{self.body}, which the "
             f"runner asks a model to answer - and an operation runs "
             f"ALONE, with no model to ask.\n"
-            f"\nRun {self.owning_node} so the runner asks the model for "
+            f"\nRun {self.legacy_node} so the runner asks the model for "
             f"it, or run the DAG.")
 
     def _teach(self, missing: list) -> str:
@@ -811,7 +813,7 @@ class Operation:
         return (
             f"{self.name} runs {self.owning_dir}/{self.body}:{self.attr}, "
             f"whose signature requires {named} - and nothing the DAG "
-            f"routes to {self.owning_node} carries "
+            f"routes to {self.legacy_node} carries "
             f"{'them' if len(unbound) > 1 else 'it'}.\n"
             f"\nThese are arguments a CALLER decides, not state a "
             f"previous step recorded, so there is nothing to run first: "
@@ -938,7 +940,7 @@ class Operation:
         and be recorded by nothing.  Both names, always, and the refusal
         is loud rather than silent if one is missed.
         """
-        return {"operation_id": self.name, "step_id": self.owning_node}
+        return {"operation_id": self.name, "step_id": self.legacy_node}
 
     def check_scope(self, scope: Scope) -> None:
         if not self.supports(scope):
@@ -1078,7 +1080,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="sfx_library.validate",
         summary="Check the SFX library can actually serve a run",
-        owning_node="validate_sfx_library",
         owning_dir="step_0_01_validate_sfx_library", body="step.py",
         attr="validate_sfx_library",
         produces=("sfx_library_status",),
@@ -1087,7 +1088,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="footage.scan",
         summary="Scan the project folder for raw video files",
-        owning_node="scan",
         owning_dir="step_1_01_scan_project", body="step.py",
         attr="scan_project_folder",
         produces=(
@@ -1102,7 +1102,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="footage.catalog",
         summary="Extract per-file metadata into the ordered clip catalog",
-        owning_node="catalog",
         owning_dir="step_1_02_catalog_footage", body="step.py",
         attr="catalog_footage",
         produces=(
@@ -1118,7 +1117,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="semantics.analyse",
         summary="Run the v3 vision pass over clips without a profile",
-        owning_node="semantic_analysis",
         owning_dir="step_1_03_semantic_analysis", body="step.py",
         attr="analyse_semantics",
         produces=("semantic_analysis_documents", "total_clips_analyzed"),
@@ -1127,7 +1125,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="temporal.index",
         summary="Index each clip's speech, sound and motion over time",
-        owning_node="temporal_index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="index_project",
         produces=(
@@ -1148,7 +1145,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="prosody.analyse",
         summary="Measure pitch, pace, voice quality and intensity per clip",
-        owning_node="prosody_analysis",
         owning_dir="step_1_05_prosody_analysis", body="step.py",
         attr="analyse_prosody",
         produces=("prosody_analysis",),
@@ -1157,7 +1153,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="ocr.extract",
         summary="Extract on-screen text from the footage",
-        owning_node="ocr_extraction",
         owning_dir="step_1_07_ocr_extraction", body="step.py",
         attr="extract_ocr",
         produces=("ocr_extraction",),
@@ -1166,7 +1161,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="creative.direct",
         summary="Decide the video's creative direction from the preflight reads",
-        owning_node="creative_direction",
         owning_dir="step_2_01_creative_direction", body="handoff.md",
         attr="",
         produces=("creative_direction",),
@@ -1186,7 +1180,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="speech.enrich",
         summary="Enrich the model's speech sequence with word timings from the temporal index",
-        owning_node="speech_sequence",
         owning_dir="step_2_02_speech_sequence", body="post_bridge.py",
         attr="enrich_speech_sequence",
         produces=("speech_sequence",),
@@ -1206,7 +1199,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="music.resolve",
         summary="Resolve the model's music choice against the measured candidates",
-        owning_node="music_selection",
         owning_dir="step_2_04_music_selection", body="post_bridge.py",
         attr="resolve_selection",
         produces=("music_selection",),
@@ -1222,7 +1214,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="duration_zone.build",
         summary="Resolve the project's target duration into the band the model is shown",
-        owning_node="mesh_spine",
         owning_dir="step_2_05_mesh_spine", body="bridge.py",
         attr="build_duration_zone",
         produces=("duration_zone",),
@@ -1238,7 +1229,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="spine.mesh",
         summary="Mesh the model's spine against the speech and the music into the timed spine",
-        owning_node="mesh_spine",
         owning_dir="step_2_05_mesh_spine", body="post_bridge.py",
         attr="resolve_spine",
         produces=("audio_spine", "timed_spine"),
@@ -1254,7 +1244,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="aroll.assign",
         summary="Map speech blocks and hook to their A-roll source files",
-        owning_node="assign_aroll",
         owning_dir="step_3_01_assign_aroll", body="step.py",
         attr="assign_a_roll",
         produces=(
@@ -1267,7 +1256,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="aroll.splice",
         summary="Re-assign a region's A-roll from the spine and put it back into the stored assignments",
-        owning_node="assign_aroll",
         owning_dir="step_3_01_assign_aroll", body="step.py",
         attr="splice_region_aroll",
         produces=(
@@ -1287,7 +1275,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="broll.resolve",
         summary="Resolve B-roll selections to placed cutaways with source ranges",
-        owning_node="select_broll",
         owning_dir="step_3_02_select_broll", body="post_bridge.py",
         attr="resolve_broll",
         produces=("b_roll_assignments", "b_roll_interjections"),
@@ -1309,7 +1296,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="broll.splice",
         summary="Resolve a region's re-planned cutaways and put them back into the stored selections",
-        owning_node="select_broll",
         owning_dir="step_3_02_select_broll", body="post_bridge.py",
         attr="splice_region_broll",
         produces=("b_roll_assignments", "b_roll_interjections"),
@@ -1355,7 +1341,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.candidates",
         summary="Measure every contiguous exchange in the cut, ranked and filtered by nothing",
-        owning_node="select_reels",
         owning_dir="step_3_04_select_reels", body="bridge.py",
         attr="build_context",
         produces=(
@@ -1373,7 +1358,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.select",
         summary="Check the model's chosen moments against the cut and publish them PROPOSED",
-        owning_node="select_reels",
         owning_dir="step_3_04_select_reels", body="post_bridge.py",
         attr="resolve",
         produces=("reel_selection",),
@@ -1382,7 +1366,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.reading_context",
         summary="Work out the words each proposed reel plays, for a reader who has not heard the episode",
-        owning_node="judge_reels",
         owning_dir="step_3_05_judge_reels", body="bridge.py",
         attr="build_context",
         produces=("reels_to_read", "reels_not_readable"),
@@ -1391,7 +1374,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.judge",
         summary="Check each reading against its reel's own words and derive the verdicts and ordering",
-        owning_node="judge_reels",
         owning_dir="step_3_05_judge_reels", body="post_bridge.py",
         attr="resolve",
         produces=("reel_judgement",),
@@ -1400,7 +1382,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.build",
         summary="Cut every APPROVED moment onto its own Resolve timeline, bad takes removed",
-        owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="build_reels",
         produces=("reel_build",),
@@ -1409,7 +1390,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.touchup",
         summary="Change one built reel's own timeline in place, instead of rebuilding it",
-        owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="touch_reel",
         produces=(),
@@ -1428,7 +1408,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.entry_motion",
         summary="Animate a placed overlay element in (and out) with a Fusion fade, without rebuilding its reel",
-        owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="animate_entry",
         produces=(),
@@ -1446,7 +1425,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.set_properties",
         summary="Change properties on an already-placed clip in place, without deleting and re-placing it",
-        owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="set_clip_properties",
         produces=(),
@@ -1462,7 +1440,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.ask",
         summary="Write every APPROVED reel's three visual asks without building anything",
-        owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="ask_reels",
         produces=(),
@@ -1471,7 +1448,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.verify",
         summary="Grade the built reel timelines against the plan they were built from",
-        owning_node="verify_reels",
         owning_dir="step_7_02_verify_reels", body="step.py",
         attr="verify_reels",
         produces=("reel_verification",),
@@ -1480,7 +1456,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="reel.gate_stills",
         summary="Grab gate stills at named reel-relative frames off one built reel timeline",
-        owning_node="verify_reels",
         owning_dir="step_7_02_verify_reels", body="step.py",
         attr="grab_gate_stills",
         produces=(),
@@ -1498,7 +1473,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="music.analyse",
         summary="Analyse the selected track for beat grid, BPM, key and structure",
-        owning_node="music_analysis",
         owning_dir="step_2_06_music_analysis", body="step.py",
         attr="analyse_music",
         produces=("music_analysis",),
@@ -1507,7 +1481,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="subtitles.plan",
         summary="Generate subtitle entries from the spine's own word timestamps",
-        owning_node="plan_subtitles",
         owning_dir="step_4_01_plan_subtitles", body="step.py",
         attr="generate_subtitles",
         produces=("subtitle_plan",),
@@ -1529,7 +1502,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="subtitles.splice",
         summary="Put a region's re-planned captions back into the stored plan",
-        owning_node="plan_subtitles",
         owning_dir="step_4_01_plan_subtitles", body="step.py",
         attr="splice_region_plan",
         produces=("subtitle_plan",),
@@ -1543,7 +1515,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="rough_cut.review",
         summary="Run the mechanical duration, continuity and source checks over the rough cut",
-        owning_node="review_rough_cut",
         owning_dir="step_3_03_review_rough_cut", body="step.py",
         attr="run_mechanical_checks",
         produces=("rough_cut_review",),
@@ -1558,7 +1529,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="transitions.resolve",
         summary="Resolve the model's transition plan to execution specs",
-        owning_node="plan_transitions",
         owning_dir="step_4_02_plan_transitions", body="post_bridge.py",
         attr="resolve_transitions",
         produces=("transition_spec",),
@@ -1585,7 +1555,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="transitions.splice",
         summary="Resolve a region's re-planned transitions and put them back into the stored plan",
-        owning_node="plan_transitions",
         owning_dir="step_4_02_plan_transitions", body="post_bridge.py",
         attr="splice_region_transitions",
         produces=("transition_spec",),
@@ -1612,7 +1581,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="vfx.resolve",
         summary="Resolve the model's VFX plan to execution specs",
-        owning_node="plan_vfx",
         owning_dir="step_4_03_plan_vfx", body="post_bridge.py",
         attr="resolve_vfx",
         produces=("enhancement_spec",),
@@ -1637,7 +1605,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="vfx.splice",
         summary="Resolve a region's re-planned effects and put them back into the stored plan",
-        owning_node="plan_vfx",
         owning_dir="step_4_03_plan_vfx", body="post_bridge.py",
         attr="splice_region_vfx",
         produces=("enhancement_spec",),
@@ -1663,7 +1630,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="sfx.resolve",
         summary="Resolve the model's SFX plan to playable placements",
-        owning_node="plan_sfx",
         owning_dir="step_4_04_plan_sfx", body="post_bridge.py",
         attr="resolve_sfx",
         produces=("sfx_spec",),
@@ -1691,7 +1657,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="sfx.splice",
         summary="Place a region's re-planned sounds and put them back into the stored plan",
-        owning_node="plan_sfx",
         owning_dir="step_4_04_plan_sfx", body="post_bridge.py",
         attr="splice_region_sfx",
         produces=("sfx_spec",),
@@ -1717,7 +1682,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="transcript.reindex",
         summary="Re-measure the speech in one region, back at the raw footage",
-        owning_node="temporal_index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="reindex_region",
         produces=(),
@@ -1729,7 +1693,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="transcript.splice",
         summary="Put a re-measured region back into the per-clip speech index",
-        owning_node="temporal_index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="splice_region_index",
         produces=(),
@@ -1739,7 +1702,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="subtitles.render",
         summary="Render one overlay artefact per captioned spine block",
-        owning_node="render_subtitles",
         owning_dir="step_4_05_render_subtitles", body="step.py",
         attr="render_subtitle_overlays",
         produces=("subtitle_overlay",),
@@ -1754,7 +1716,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="subtitles.render_segment",
         summary="Render ONE subtitle segment - the per-segment unit a region-scoped redo reaches",
-        owning_node="render_subtitles",
         owning_dir="step_4_05_render_subtitles", body="step.py",
         attr="render_one_segment",
         produces=(),
@@ -1768,7 +1729,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="subtitles.rerender_swap",
         summary="Re-render named caption segments and swap them onto every timeline holding the old file",
-        owning_node="render_subtitles",
         owning_dir="step_4_05_render_subtitles", body="step.py",
         attr="rerender_and_swap",
         produces=(),
@@ -1786,7 +1746,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="motion_graphics.render",
         summary="Render the planned motion graphics, bookends and timed text",
-        owning_node="render_motion_graphics",
         owning_dir="step_4_06_render_motion_graphics", body="post_bridge.py",
         attr="render_motion_graphics",
         produces=(
@@ -1804,7 +1763,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="motion_graphics.render_segment",
         summary="Render ONE motion-graphics overlay segment",
-        owning_node="render_motion_graphics",
         owning_dir="step_4_06_render_motion_graphics", body="post_bridge.py",
         attr="render_one_segment",
         produces=(),
@@ -1826,7 +1784,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="color_grade.resolve",
         summary="Join the colourist's answer to the measured clips as one CDL each",
-        owning_node="color_grade",
         owning_dir="step_5_01_color_grade", body="post_bridge.py",
         attr="resolve_color_grade",
         produces=("color_grade_spec",),
@@ -1841,7 +1798,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="audio_mix.resolve",
         summary="Join the mix answer to the bed and speech measurements as per-window clip gain",
-        owning_node="audio_mix",
         owning_dir="step_5_02_audio_mix", body="post_bridge.py",
         attr="resolve_audio_mix",
         produces=("audio_mix_spec",),
@@ -1858,7 +1814,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="cohesion.review",
         summary="Review the planned transitions and sound against the declared direction",
-        owning_node="creative_cohesion",
         owning_dir="step_5_03_creative_cohesion", body="step.py",
         attr="review_creative_cohesion",
         produces=("cohesion_review",),
@@ -1873,7 +1828,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="render.build",
         summary="Build the final timeline in DaVinci Resolve and export the finished video",
-        owning_node="render",
         owning_dir="step_6_01_render", body="step.py",
         attr="run",
         produces=("render_output",),
@@ -1885,7 +1839,6 @@ _REGISTRY: tuple[Operation, ...] = (
     Operation(
         name="validation.resolve",
         summary="Combine the deterministic checks and the model's reading into one verdict",
-        owning_node="validate",
         owning_dir="step_6_02_validate_output", body="post_bridge.py",
         attr="resolve_validation",
         produces=("validation_result",),
@@ -2026,7 +1979,7 @@ def describe() -> str:
     lines.append("-" * (width + 46))
     for op in _REGISTRY:
         lines.append(f"{op.name.ljust(width)}  "
-                     f"{op.owning_node.ljust(22)}  {','.join(op.scopes)}")
+                     f"{op.legacy_node.ljust(22)}  {','.join(op.scopes)}")
         lines.append(f"{' ' * width}  {op.summary}")
     return "\n".join(lines)
 
@@ -2061,7 +2014,7 @@ def emit_skill() -> str:
             "| operation | owning node | scopes | what it does |",
             "|---|---|---|---|"]
     for op in _REGISTRY:
-        out.append(f"| `{op.name}` | `{op.owning_node}` | "
+        out.append(f"| `{op.name}` | `{op.legacy_node}` | "
                    f"{', '.join(op.scopes)} | {op.summary} |")
     out += ["", "## Calling one", "",
             "```",

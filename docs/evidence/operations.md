@@ -36,6 +36,13 @@ would lose its place in all of them - it would run, and nothing would
 record that it had.  So an operation names the node whose decision it
 is, and `library/tools/capabilities.problems` checks the name is real.
 
+> **Superseded 2026-10-02.** The field is gone.  The node is still needed
+> for the same sixteen services, but it is DERIVED: a capability names its
+> executor's step directory (`owning_dir`), and its node is the one whose
+> `step_ref` is that directory (`dag_adapter.node_of`).  Measured before
+> the removal, every registered `owning_node` equalled that derivation,
+> so the field said nothing the directory did not.
+
 It is LEGACY metadata, not identity.  An operation's `name` is its
 capability id (`library/tools/capabilities.py`), and every node-keyed
 read below goes through `library/tools/dag_adapter.py` - the one place

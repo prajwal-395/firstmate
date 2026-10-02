@@ -96,7 +96,7 @@ def test_the_loop_passes_a_ready_project_and_runs_what_follows_touchup(
     # Nothing caller-supplied was driven: the loop is not their caller.
     reels_nodes = set(processes_mod.execution_order(processes_mod.REELS))
     caller_supplied = {op.name for op in operations.all()
-                       if op.caller_supplied and op.owning_node in reels_nodes}
+                       if op.caller_supplied and op.legacy_node in reels_nodes}
     assert caller_supplied, "the registry names no caller-supplied reel op"
     assert not (set(ran) & caller_supplied)
     # The run recorded the runner-driven outputs node by node.

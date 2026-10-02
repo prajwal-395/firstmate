@@ -220,7 +220,7 @@ def _routable_multi_operation_nodes():
     producers: dict = defaultdict(set)
     for op in O.all():
         for r in op.effect:
-            producers[(op.owning_node, r.name)].add(op.name)
+            producers[(op.legacy_node, r.name)].add(op.name)
     return sorted({node for (node, _), ops in producers.items()
                    if len(ops) > 1})
 

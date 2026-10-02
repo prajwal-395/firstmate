@@ -36,8 +36,9 @@ def _scan():
      "defines no top-level 'no_such_fn'"),
     (lambda: replace(_scan(), name="footage.ghost", body="nope.py"),
      "does not exist"),
-    (lambda: replace(_scan(), name="footage.ghost", owning_node="ghost"),
-     "not a node of any process"),
+    (lambda: replace(_scan(), name="footage.ghost",
+                     owning_dir="step_9_99_ghost"),
+     "no process runs step_9_99_ghost"),
     (lambda: replace(_scan(), name="footage ghost"), "not a stable token"),
     (lambda: replace(_scan(), name="footage.ghost",
                      produces=("no_such_output",)),
@@ -84,7 +85,7 @@ def test_an_artifact_without_an_owner_is_named(monkeypatch):
 def test_a_capability_without_a_legacy_node_refuses_node_keyed_questions():
     """Requirements are still node-keyed, so an empty answer would read as
     'requires nothing' and let a composer schedule it anywhere."""
-    nodeless = replace(_scan(), owning_node="")
+    nodeless = replace(_scan(), owning_dir="step_9_99_nodeless")
     with pytest.raises(dag_adapter.NoLegacyNode, match="footage.scan"):
         nodeless.requires                                     # noqa: B018
 

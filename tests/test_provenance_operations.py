@@ -87,7 +87,7 @@ def test_a_step_is_still_recorded_as_a_step(project):
 
 # ── The refusals, each paired with the passing case ─────────────────
 
-def test_an_operation_with_no_owning_node_is_refused(project):
+def test_an_operation_with_no_owning_step_is_refused(project):
     """A producer that resolves to no node loses its place in four
     step-keyed records while appearing to have been recorded."""
     ledger = ProvenanceLedger(project, step_ids=["plan_subtitles"],
@@ -115,7 +115,7 @@ def test_an_undeclared_operation_is_refused(project):
     assert "subtitles.invented" in str(exc.value)
 
 
-def test_an_operation_naming_an_unknown_owning_node_is_refused(project):
+def test_an_operation_naming_an_unknown_node_is_refused(project):
     ledger = ProvenanceLedger(project, step_ids=["plan_subtitles"],
                               operation_ids=["subtitles.plan"])
 
@@ -179,7 +179,7 @@ def test_running_a_capability_records_its_id_and_derives_the_node(
     def writes_a_segment(self, project_folder, scope=None, **overrides):
         _write(project, Area.SUBTITLE_SEGMENTS, "seg.mov")
         return operations.OperationResult(
-            operation=self.name, owning_node=self.owning_node,
+            operation=self.name, legacy_node=self.legacy_node,
             scope=scope, status=operations.COMPLETED, payload={})
 
     monkeypatch.setattr(operations.Operation, "execute", writes_a_segment)

@@ -65,7 +65,7 @@ def empty_project(tmp_path):
 
 
 def test_no_operation_hand_writes_a_requirement():
-    """`requires` comes from requirements.py, keyed by owning_node.
+    """`requires` comes from requirements.py, keyed by its legacy node.
 
     A hand-written list here would be a second requirement vocabulary
     beside the one that exists, and the hand-written half would be prose

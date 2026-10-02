@@ -15,7 +15,13 @@ capability id authoritative first, keep writing the legacy node fields
 until nothing reads them, then remove the graph.  Every "which node?"
 question a capability-keyed caller asks is answered here, so the day a
 reader stops needing the node is the day one function here goes, rather
-than an audit of every `owning_node` read in the tree.
+than an audit of every node read in the tree.
+
+A capability does not NAME its node.  It names its executor, and the
+executor lives in a step directory; the node is whichever DAG node's
+`step_ref` is that directory (`node_of`).  So the node is derived from
+the one thing a capability must carry anyway, and there is no second
+field to fall out of agreement with it.
 
 Effects are not answered by the node: a capability declares what it
 `produces`, and a node's effect is DERIVED from its capabilities
@@ -39,6 +45,7 @@ composer schedule it anywhere.  No capability lacks a node today.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from library.tools.ren_refusal import RenRefusal
@@ -48,24 +55,50 @@ class NoLegacyNode(RenRefusal):
     """A capability that has no DAG node was asked a node-keyed question."""
 
 
+@lru_cache(maxsize=1)
+def _nodes_by_dir() -> dict:
+    """`{step directory: (node ids whose step_ref it is)}`, every process."""
+    from library.tools import processes
+    out: dict = {}
+    for node, dirname in processes.step_dirnames().items():
+        out.setdefault(dirname, []).append(node)
+    return {d: tuple(sorted(n)) for d, n in out.items()}
+
+
 def node_of(op: Any) -> str:
     """The legacy DAG node a registry entry is attributed to.
 
-    The one read of `Operation.owning_node` outside the registry's own
-    definition: everything node-keyed (ledgers, `step_outputs`, the
-    derived requirements, provenance's `step_id`) asks here.
+    DERIVED from the executor's step directory (`Operation.owning_dir`):
+    the node whose `step_ref` is that directory.  Everything node-keyed
+    (the step ledgers, the derived requirements, provenance's `step_id`)
+    asks here.
     """
-    node = getattr(op, "owning_node", "") or ""
-    if not node:
+    dirname = getattr(op, "owning_dir", "") or ""
+    nodes = _nodes_by_dir().get(dirname)
+    if nodes is None:
+        # A graph handed in after the cache was built (a test's DAG, a
+        # process added under a running interpreter) is read afresh
+        # rather than refused on a stale index.
+        _nodes_by_dir.cache_clear()
+        nodes = _nodes_by_dir().get(dirname, ())
+    if len(nodes) == 1:
+        return nodes[0]
+    if nodes:
         raise NoLegacyNode(
-            f"capability {op.name!r} has no legacy DAG node",
-            "requirements, the step ledgers and step_outputs are still "
-            "keyed by node id, so a capability without one cannot be "
-            "checked, gathered for or recorded yet - answering with "
-            "nothing would read as 'requires nothing'",
-            "attribute it to the node that owns its decision until its "
-            "requirements are keyed by capability id")
-    return node
+            f"capability {op.name!r} runs {dirname}, which the nodes "
+            f"{', '.join(nodes)} all run",
+            "its node is derived from its executor's step directory, so "
+            "a directory two nodes run names no single node",
+            "give each node its own step directory")
+    raise NoLegacyNode(
+        f"capability {op.name!r} has no legacy DAG node: no process runs "
+        f"{dirname or '(no directory)'}",
+        "requirements and the step ledgers are still keyed by node id, "
+        "so a capability without one cannot be checked, gathered for or "
+        "recorded yet - answering with nothing would read as 'requires "
+        "nothing'",
+        "add a node whose step_ref is the capability's step directory to "
+        "a process's dag.json")
 
 
 def node_ids() -> frozenset:
@@ -77,8 +110,10 @@ def node_ids() -> frozenset:
 def capabilities_at(node_id: str) -> tuple:
     """Every registered capability attributed to one legacy node."""
     from library.tools import operations
+    from library.tools import processes
+    dirname = processes.step_dirnames().get(node_id)
     return tuple(op for op in operations.all()
-                 if getattr(op, "owning_node", "") == node_id)
+                 if dirname and op.owning_dir == dirname)
 
 
 def nodes_with_capabilities() -> frozenset:

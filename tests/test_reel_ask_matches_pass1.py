@@ -176,7 +176,7 @@ def test_write_visual_asks_matches_pass1_sequence(tmp_path):
 
 def test_reel_ask_is_registered_with_a_help_line():
     op = operations.get("reel.ask")
-    assert op.owning_node == "build_reels"
+    assert op.legacy_node == "build_reels"
     assert op.owning_dir == "step_7_01_build_reels"
     assert op.attr == "ask_reels"
     assert "without building" in op.summary

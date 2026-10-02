@@ -356,7 +356,7 @@ def test_a_ledger_with_no_declarations_refuses_even_a_real_operation(project):
     """Why the wiring above is not optional."""
     from library.tools import operations, provenance
     real = sorted(operations.names())[0]
-    owner = operations.get(real).owning_node
+    owner = operations.get(real).legacy_node
 
     bare = provenance.ProvenanceLedger(str(project))
     with pytest.raises(provenance.ProvenanceError):

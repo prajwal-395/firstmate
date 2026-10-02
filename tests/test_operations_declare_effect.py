@@ -4,7 +4,7 @@ The captain's intent: capabilities compose only when each declares what
 is true after it runs.  `Operation.requires` already declares
 preconditions, derived from `requirements.all_requirements()`; this
 file pins the mirror - `Operation.effect` filters that same registry
-on `owning_node in r.produced_by` - so an effect can be matched against
+on `legacy_node in r.produced_by` - so an effect can be matched against
 a precondition without a second vocabulary.
 
 Thirty-four of the 39 operations have a non-empty derived effect.

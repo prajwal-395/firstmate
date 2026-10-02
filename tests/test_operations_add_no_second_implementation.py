@@ -257,7 +257,7 @@ def test_the_rule_refuses_a_prompt_no_manifest_declares():
     """
     planted = operations.Operation(
         name="planted.prompt", summary="a prompt nobody declared",
-        owning_node="scan", owning_dir="step_1_01_scan_project",
+        owning_dir="step_1_01_scan_project",
         body="handoff.md", attr="", produces=(), consumes=())
     assert "handoff.md" in (violation(planted) or "")
 
@@ -293,7 +293,7 @@ def test_a_refusal_names_a_producer():
     """A refusal that only says "missing" is the prose prerequisite in a
     new costume. `requirement_unsatisfied` has to be able to route."""
     result = operations.OperationResult(
-        operation="subtitles.render", owning_node="render_subtitles",
+        operation="subtitles.render", legacy_node="render_subtitles",
         scope=operations.scope_mod.project(), status=operations.REFUSED,
         unsatisfied=(_fake_requirement("transcript", "temporal_index"),))
     assert result.refused and not result.completed
@@ -305,7 +305,7 @@ def test_a_refusal_must_say_why():
     """The type refuses to be constructed as an unexplained refusal."""
     with pytest.raises(operations.OperationError):
         operations.OperationResult(
-            operation="x", owning_node="render_subtitles",
+            operation="x", legacy_node="render_subtitles",
             scope=operations.scope_mod.project(), status=operations.REFUSED)
 
 
@@ -313,7 +313,7 @@ def test_produced_nothing_separates_the_three_cases():
     """`output_empty` must distinguish produced-something, produced-nothing
     and refused - the empty-side-passes shape depends on it."""
     scope = operations.scope_mod.project()
-    common = dict(operation="o", owning_node="render_subtitles", scope=scope)
+    common = dict(operation="o", legacy_node="render_subtitles", scope=scope)
     real = operations.OperationResult(
         status=operations.COMPLETED, payload={"segments": [1]}, **common)
     empty = operations.OperationResult(
@@ -334,7 +334,7 @@ def test_produced_nothing_separates_the_three_cases():
 def test_an_unknown_status_is_refused():
     with pytest.raises(operations.OperationError):
         operations.OperationResult(
-            operation="o", owning_node="render_subtitles",
+            operation="o", legacy_node="render_subtitles",
             scope=operations.scope_mod.project(), status="maybe")
 
 

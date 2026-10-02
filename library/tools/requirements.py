@@ -1357,7 +1357,7 @@ COVERAGE: Tuple[Requirement, ...] = (
 # false for every run set, so `evaluate`, `check`, `describe_refusal`
 # and the runner's report/refuse split never see them.  They exist in
 # `all_requirements()` so that `Operation.effect` - which filters that
-# pool on `owning_node in r.produced_by` and is NOT touched here -
+# pool on `legacy_node in r.produced_by` and is NOT touched here -
 # derives a non-empty effect for the three verdict operations, and so
 # that the composer can name them as goals.  That derivation is the
 # whole mechanism: no effect is listed beside any operation.
@@ -1456,7 +1456,7 @@ VERDICTS: Tuple[Requirement, ...] = (
 # false for every run set, so `evaluate`, `check`, `describe_refusal`
 # and the runner's report/refuse split never see them.  They exist in
 # `all_requirements()` so that `Operation.effect` - which filters that
-# pool on `owning_node in r.produced_by` and is NOT touched here -
+# pool on `legacy_node in r.produced_by` and is NOT touched here -
 # derives a non-empty effect for the six operations owned by these
 # nodes, and so that the composer can name them as goals.  That
 # derivation is the whole mechanism: no effect is listed beside any
@@ -1473,7 +1473,7 @@ VERDICTS: Tuple[Requirement, ...] = (
 # gate that cannot fail is worse than no gate) or be metadata nothing
 # reads.  The verdict kind is the shape studied and followed: KINDS
 # grows by one, `__post_init__` enforces the new shape in both
-# directions, and the `owning_node in r.produced_by` filter carries
+# directions, and the `legacy_node in r.produced_by` filter carries
 # zero changed lines.
 
 def _optional_requirement(consumer: str, producer: str, key: str,

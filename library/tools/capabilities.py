@@ -337,8 +337,9 @@ def problems(registry=None) -> list:
     1. every capability has a unique, stable id;
     2. every executable thing is registered - each executor resolves to
        a real body, and each step directory is reached or explained;
-    3. every producer has stable identity - a legacy node is a real node
-       and every requirement producer is one;
+    3. every producer has stable identity - a capability's executor
+       directory is the step of exactly one node (its legacy node is
+       derived from it) and every requirement producer is a node;
     4. every artifact has an owner - each step-owned layout area names a
        real node;
     5. a capability that produces nothing says why (`EMPTY_EFFECT_REASONS`);
@@ -383,10 +384,13 @@ def problems(registry=None) -> list:
             out.append(f"{op.name}: {op.body} defines no top-level "
                        f"{op.attr!r}")
 
-        node = getattr(op, "owning_node", "")
-        if node and node not in nodes:
-            out.append(f"{op.name}: legacy node {node!r} is not a node of "
-                       f"any process")
+        try:
+            node = dag_adapter.node_of(op)
+        except dag_adapter.NoLegacyNode as exc:
+            # Nothing below can be asked of it: its contract is derived
+            # from the node it does not have.
+            out.append(f"{op.name}: {exc}")
+            continue
 
         declared = _manifest_outputs(op.owning_dir)
         for key in getattr(op, "produces", ()):
@@ -435,12 +439,16 @@ def problems(registry=None) -> list:
         out.append(f"step directory {d} is reached by no capability and "
                    f"no process node, and STEPS declares no reason")
 
-    with_capabilities = {getattr(op, "owning_node", "") for op in registry}
+    with_capabilities: set = set()
     produced_at: dict = {}
     for op in registry:
+        try:
+            node = dag_adapter.node_of(op)
+        except dag_adapter.NoLegacyNode:
+            continue        # reported above, by name
+        with_capabilities.add(node)
         for r in op.effect:
-            produced_at.setdefault(getattr(op, "owning_node", ""),
-                                   set()).add(r.name)
+            produced_at.setdefault(node, set()).add(r.name)
     for r in all_reqs:
         for producer in r.produced_by:
             if producer not in nodes:

@@ -29,6 +29,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from library.tools import composer as C
+from library.tools import dag_adapter, processes
 from library.tools import operations as O
 from library.tools import requirements as R
 
@@ -198,12 +199,15 @@ def test_deep_strand_names_the_blocker_and_the_chain(monkeypatch):
             "a synthetic goal behind a capable step with a stranded "
             "precondition"))
     real_ops = O.all
+    real_dirs = processes.step_dirnames
+    monkeypatch.setattr(processes, "step_dirnames", lambda: {
+        **real_dirs(), SYNTHETIC_DEEP_TOP_STEP: "step_9_99_synthetic_fixture"})
+    dag_adapter._nodes_by_dir.cache_clear()
     monkeypatch.setattr(
         O, "all", lambda: (*real_ops(), O.Operation(
             name="synthetic.composer_test.op",
             summary="the test's one capability, closing the goal's "
             "first step but stranded on its precondition",
-            owning_node=SYNTHETIC_DEEP_TOP_STEP,
             owning_dir="step_9_99_synthetic_fixture",
             body="step.py", attr="run",
             produces=(SYNTHETIC_DEEP_GOAL,), consumes=())))
