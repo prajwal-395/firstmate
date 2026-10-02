@@ -1,120 +1,66 @@
 """A transition carried by an ELEMENT laid over the cut, and why nothing is keyed.
 
-The captain named "chroma key transitions" as a capability the pipeline
-should have.  Read plainly that is the classic form: a graphic or a piece
-of footage shot on green, keyed out, sweeping across frame to hide a cut.
-In short form it is the wipes, sweeps and shape transitions that carry a
-cut without a hard jump.
+This module is the mechanism for "chroma key transitions" in their short
+form sense: a wipe, sweep, bumper or shape transition that carries a cut
+without a hard jump.  It carries no keyer.
 
-This module is the mechanism.  It carries no keyer, and the rest of this
-docstring is why that is the right answer rather than a shortcut.
+Nothing is keyed: alpha is REQUIRED
+-----------------------------------
+An element must be BORN with an alpha channel - rendered from a Remotion
+composition, as every caption (``library/tools/overlay_carriage.py``) and
+motion graphic already is.  A keyer cannot recover an authored alpha at
+any similarity setting, and choosing a key colour, similarity and blend
+is taste with no producer here (AGENTS.md 10.5,
+``tests/test_no_creative_floors.py``).  So an element whose picture
+carries no alpha plane is refused by name (:class:`ElementHasNoAlpha`,
+:data:`ALPHA_IS_REQUIRED_NOT_KEYED`) rather than composited as an opaque
+rectangle; one that draws nothing is :class:`ElementDrawsNothing`, and
+one that cannot be measured is :class:`ElementUnmeasurable`.
+:func:`measure_element` and :func:`measure_alpha` are the measurement;
+``docs/CHROMA_KEY_TRANSITIONS_MEASURED.md`` has the keying measurement.
 
-Nothing is keyed, because nothing needs keying
-----------------------------------------------
-Measured 2026-09-07, over every asset library and every project on this
-machine:
-
-- **There is no green-screen source to key.**  The only motion elements
-  any project owns are ``transition_bumper.mov`` and ``logo_reveal.mov``
-  in the Lucie brand assets, and both are already ProRes 4444
-  (``yuva444p12le``) - an ALPHA CHANNEL, authored, 1080x1920.  Nobody
-  keyed them and nobody would.  They were rendered from the project's own
-  Remotion compositions, which is the route the engine already runs for
-  every caption (step 4.05 emits an alpha artefact - see
-  ``library/tools/overlay_carriage.py``) and every motion
-  graphic (4.06).  **An element that is born with alpha never needs
-  keying at all.**
-- **A keyer cannot recover an authored alpha, even in its best case.**
-  The bumper's own frame 22 was flattened onto perfectly uniform
-  ``0x00B140`` - no spill, no lighting variation, no compression, which
-  is a cleaner plate than any real shoot produces - and keyed back with
-  ``ffmpeg chromakey`` across the whole similarity range.  Against the
-  authored alpha (31,871 ink pixels of 2,073,600):
-
-      similarity   background left opaque   holes punched in the element
-      0.01              2,041,729                        0
-      0.05                  1,054                   10,426
-      0.10                      2                   20,980
-      0.20                      0                   24,729
-      0.30                      0                   30,501
-
-  There is no setting that returns the element.  Every one of them either
-  leaves the plate or eats the artwork, and the soft glow the design
-  actually carries is destroyed at every setting.  ``docs/CHROMA_KEY_TRANSITIONS_MEASURED.md``
-  has the pictures.
-- **Choosing between those rows is taste with no producer here.**  A key
-  colour, a similarity and a blend are three numbers nobody in this
-  pipeline is asked for, and ``if similarity < 0.x`` is precisely the
-  invented threshold AGENTS.md 10.5 and ``tests/test_no_creative_floors.py``
-  exist to keep out.  An authored alpha needs none of them: the softness
-  is drawn, not derived.
-
-So the engine REQUIRES alpha and does not key.  An element whose picture
-carries no alpha plane is refused by name, with that reasoning, rather
-than silently composited as an opaque rectangle - see
-:func:`measure_element` and :data:`ALPHA_IS_REQUIRED_NOT_KEYED`.
+:func:`gesture_of` reads off the alpha what the element does to its cut:
+:data:`GESTURE_HIDES` (some frame covers the picture completely) or
+:data:`GESTURE_STAMPS` (the cut stays visible underneath).  Both are
+real transitions and neither is refused.
 
 Why an OVERLAY is buildable where a wipe is not
 -----------------------------------------------
 ``transition_vocabulary.WITHDRAWN`` withdrew ``cross_dissolve``, ``wipe``
-and ``whip_pan`` for one reason, and it is still true: a per-clip Fusion
-comp sees only its own clip, so nothing on that route can MIX the
-outgoing and incoming pictures.
-
-An element laid over the cut does not mix them.  It HIDES the cut - it is
-an additive overlay on its own track, and it reads neither neighbour.
-That is the whole reason this capability exists when a wipe does not, and
-it is why the mechanism belongs here rather than in
-``library/tools/fusion/``.
-
-The same distinction is already drawn in
-``motion_graphics_vocabulary.OUT_OF_VOCABULARY``, which sends
-``shape_wipe_transition`` to ``transition_vocabulary`` and notes the
-per-clip limitation.  This module is the answer that entry was waiting
-for, and ``transition_vocabulary.OVERLAY_TYPES`` is where it is named, so
-there is still one enumeration of transition types and not two.
+and ``whip_pan`` because a per-clip Fusion comp sees only its own clip
+and cannot MIX the outgoing and incoming pictures.  An element laid over
+the cut does not mix them: it HIDES the cut, as an additive overlay on
+its own track (:data:`OVERLAY_TRACK`), reading neither neighbour.
+``transition_vocabulary.OVERLAY_TYPES`` names it, so there is one
+enumeration of transition types; ``motion_graphics_vocabulary.
+OUT_OF_VOCABULARY`` sends ``shape_wipe_transition`` there.
 
 An overlay is ADDITIVE: it changes no duration
 ----------------------------------------------
-:data:`TIMING_IS_ADDITIVE` is the ruling and this is the reasoning.
+:data:`TIMING_IS_ADDITIVE` is the ruling.  The hard cut underneath stays
+on exactly the frame it was on: duration, ``keep_ranges``, every
+caption's timing and ``plan_provenance.footage_binding_hash`` are
+unchanged.  Consuming frames from either shot would re-time every later
+caption; extending the reel would desynchronise picture and sound.
+``tests/test_transition_overlay.py`` asserts the binding hash is
+byte-identical either side of adding overlays.
 
-A transition occupies time, and the question is whose.  Three answers
-were available and two of them cost something the captain measures:
-
-1. **Consume frames from the shots either side.**  The reel gets shorter,
-   which is a change to a delivered quality.  Worse, a reel is its
-   ``keep_ranges`` laid end to end (``reel_build.reel_time``), so eating
-   frames at a seam moves every caption after it AND changes every later
-   block's ``timeline_start`` - which is one of the five fields
-   ``plan_provenance.footage_binding_hash`` digests.  Every caption on
-   the reel would have to be re-planned and re-rendered to stay bound to
-   its footage.
-2. **Extend the reel.**  Picture and sound come off the same ranges, so
-   inserting picture frames the audio does not have desynchronises
-   everything downstream of the seam.
-3. **Lay the element OVER the cut.**  The hard cut underneath stays on
-   exactly the frame it was on.  Duration is unchanged, ``keep_ranges``
-   is unchanged, every caption's timing and binding is unchanged, and the
-   element hides the jump - which is what the gesture is for.
-
-Three is what an editor does with a bumper, and it is the only one of the
-three that costs nothing.  ``tests/test_transition_overlay.py`` asserts
-the binding hash is byte-identical either side of adding overlays, so the
-claim is checked rather than asserted.
-
-What it DOES cost is stated rather than assumed: an element over the cut
-draws over whatever else is on frame, captions included.
+What it DOES cost is stated: an element over the cut draws over captions.
 :func:`captions_covered` measures which caption cards it covers and for
-how long, and the reels conformance verifier reports it.  Whether that is
-wanted is the captain's; that it happened is a fact, and a fact with a
-reader (AGENTS.md 10.1).
+how long, and the reels conformance verifier reports it.
+
+Two elements may not occupy the same frames of one track:
+:func:`assert_no_collisions` raises :class:`OverlaysCollide` naming both
+seams, because ``AppendToTimeline`` silently drops one.  An element that,
+anchored as declared, would start before the reel or end after it raises
+:class:`OverlayDoesNotFit` rather than being clamped; a position that is
+not a cut on this reel raises :class:`NotASeam`.
 
 The engine ships no element
 ---------------------------
-An element is ARTWORK - copy or a graphic the viewer reads - so it lives
-with the project, not the engine (AGENTS.md 14, ``docs/ASSET_LIBRARY_PLAN.md``).
-The declaration is the same two-mode shape ``content.bookends`` uses and
-for the same recorded reason::
+An element is ARTWORK, so it lives with the project (AGENTS.md 14,
+``docs/ASSET_LIBRARY_PLAN.md``).  The declaration is the same two-mode
+shape ``content.bookends`` uses (:func:`resolve_declaration`)::
 
     # <project>/project.yaml
     effect:
@@ -128,47 +74,40 @@ for the same recorded reason::
         anchor: centre
         on_cuts: [closer]
 
-The key is ``on_cuts`` and not ``on`` because YAML 1.1 - which PyYAML
-implements - parses a bare ``on`` as the BOOLEAN True.  Written as
-``on:`` the declaration parses to ``{True: ['closer']}``, the lookup
-finds nothing, and the reader is told they declared no seams while
-looking straight at the line where they did.  Found by writing the
-documented syntax and running it.
+The key is ``on_cuts`` and not ``on`` because YAML 1.1 parses a bare
+``on`` as the BOOLEAN True.  A declaration names WHERE it wants elements
+by seam kind (``on_cuts:``, from :data:`SELECTABLE_KINDS`) or by explicit
+index (``seams:``), and must name one; there is no "everywhere"
+(:func:`select_seams`).  A kind that matches no seam on a reel is a real
+answer, reported by the caller.
 
 Nothing here has a default.  ``anchor`` is REQUIRED and comes from
-:data:`ANCHORS` - naming a set is not choosing from it - because where an
-element sits relative to the cut is the gesture, and an engine-supplied
-default would be taste arriving one level up.  ``duration_seconds`` is
-required only in ``composition`` mode, where there is no file to measure;
-in ``asset`` mode it is MEASURED off the element and a declared value that
-disagrees with the measurement is refused rather than believed.
+:data:`ANCHORS`.  ``duration_seconds`` is required only in
+``composition`` mode, where there is no file to measure; in ``asset``
+mode it is MEASURED, and a declared value that disagrees is refused.
 
-Which renderer owns a full-frame element
-----------------------------------------
-Another lane owns the full-screen architecture and had not landed a
-``docs/`` ruling when this was written (2026-09-07: no such document, no
-open PR).  **This module renders nothing**, which is what makes it
-reconcilable with whatever that lane decides: it consumes an element BY
-PATH and places it.  ``asset`` mode needs no renderer at all, and
-``composition`` mode names the composition and its project-owned source
-so it goes wherever bookends go - and until a renderer exists on the
-reels side it REFUSES by name rather than placing nothing, because the
-reels process is two nodes and neither renders (see
-:func:`resolve_element`).  If the full-screen lane names Remotion,
-nothing here changes; if it names something else, nothing here changes
-either.  Ruling 1 holds: no second path is built beside it.
+This module renders nothing
+---------------------------
+It consumes an element BY PATH and places it.  ``asset`` mode needs no
+renderer.  ``composition`` mode looks for the render at
+:func:`overlay_render_path` (under :data:`OVERLAY_RENDER_DIRNAME`); no
+step of the reels process (``build_reels``, ``verify_reels``) renders a
+composition, so until one exists :func:`resolve_element` REFUSES by name
+when the file is absent rather than placing nothing.
 
 Reachability
 ------------
 ``element_overlay`` is reachable when a declared element MEASURES
 drawable, and that is derived rather than declared -
-:func:`element_is_reachable` runs the measurement.  A roster entry that
-claims reachability it does not have is the defect class this project
-spent a week removing, so nothing here claims it.
+:func:`element_is_reachable` runs the measurement.
 
     python3 -m library.tools.transition_overlay --measure <element.mov>
 
 ``tests/test_transition_overlay.py``.
+
+The measurements and rulings behind these rules (the 2026-09-07 asset
+census and keying table, the three timing options weighed, the ``on:``
+parse): docs/evidence/transition_overlay.md.
 """
 from __future__ import annotations
 

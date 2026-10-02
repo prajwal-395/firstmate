@@ -1,69 +1,58 @@
 """Route a note the captain typed on the timeline to the step that owns it.
 
 `marker_feedback.py` READS the captain's typed notes off a DaVinci Resolve
-timeline and writes them durably to `<project>/marker_feedback/`.  Nothing
-consumed them: a detailed note about a b-roll choice reached a file and
-stopped there, and the step that made that choice never heard about it.
-
-This module is the other half.  It answers two questions about every
-collected note, separately, and never lets one answer stand in for the
-other:
+timeline and writes them durably to `<project>/marker_feedback/`.  This
+module is the other half: it answers two questions about every collected
+note, separately, and never lets one answer stand in for the other:
 
     WHAT IS IT ATTACHED TO - a specific clip, or a moment on the timeline
     WHICH STEP'S DECISION IS IT ABOUT
 
-The first is a MEASUREMENT off the marker itself.  The second is a
-ROUTING, and it is the one that can be wrong, so it is allowed to answer
-"I do not know" and it is allowed to answer "more than one".
+The first is a MEASUREMENT off the marker itself (`resolve_target`).  The
+second is a ROUTING (`route_note`), and it is the one that can be wrong,
+so it is allowed to answer "I do not know" and "more than one".
 
 
 A clip note and a moment note are different things
 --------------------------------------------------
-A marker typed onto a CLIP is about that clip: the captain selected it,
-put the playhead on it and typed.  A marker typed onto the TIMELINE is
-about a moment - what is happening then, which may involve every clip
-stacked under that frame and the cut on either side of it.
+A marker typed onto a CLIP (`CLIP_ATTACHED_SOURCES`) is about that clip
+and carries `clip`.  A marker typed onto the TIMELINE
+(`MOMENT_ATTACHED_SOURCES`) is about a moment and carries `clips_under`,
+which is CONTEXT and is explicitly not an attachment.
 
-These are never flattened together.  A clip note carries `clip`; a
-moment note carries `clips_under`, which is CONTEXT and is explicitly not
-an attachment.  Reading "the clips at this frame" as "the clip this note
-is about" would hand a note typed on a V2 cutaway to whatever happened to
-be on V1 underneath it.
-
-`marker_feedback.MarkerNote.attached_clip` records the placement directly
-for anything read after this module existed.  A pull file written before
-that has the placement RECOVERABLE rather than recorded, from the frame
-arithmetic PR 276 established:
+`marker_feedback.MarkerNote.attached_clip` records the placement.  For a
+pull file written before that, the placement is RECOVERED from the frame
+arithmetic:
 
     timeline_frame = clip.timeline_start + (source_frame - clip.source_start)
 
 Only a clip that both plays the source frame and lands on the note's own
 timeline frame is a candidate, and the recovery is refused unless the
 candidates are one clip - Resolve's linked audio and video items of one
-placement agreeing on file, timeline range and source range count as the
-one clip they are.  Zero candidates, or two real ones, is reported as
-`unresolved`, never broken by picking the first.
+placement count as one (`_same_placement`).  Zero candidates, or two
+real ones, is reported as `unresolved`, never broken by picking the first.
 
 
-Which step - declared, or by the words the captain used
--------------------------------------------------------
+Which step
+----------
 `STEP_DECISIONS` is the whole vocabulary of what a note can be routed to.
-A step that is not in it cannot be routed to, and a note naming one is
-refused BY NAME rather than sent to the nearest thing.
+A note naming a step outside it is refused BY NAME
+(`OUTCOME_UNKNOWN_STEP`) rather than sent to the nearest thing.
 
-Two bases, in this order:
+A note carrying a typed edit spec is routed by it first: its rows name
+their owning steps (`BASIS_EDIT_SPEC`), and a spec still pending
+translation or superseded by a later ledger decision holds the note back
+from planning (`BASIS_EDIT_SPEC_PENDING`, `BASIS_EDIT_SPEC_SUPERSEDED`).
+Otherwise, three bases, in this order:
 
 * `declared` - the note says which step, either as a line
   `step: select_broll` typed into the marker's Name or Notes field, or as
-  a `route` record in its `customData` (a writer's channel; see
-  `marker_payload`).  A declaration is authoritative and stops here.
+  a `route` record in its `customData` (see `marker_payload`).  A
+  declaration is authoritative and stops here.
 * `vocabulary` - the note's own words name EXACTLY ONE step's decision.
-
-* `stamped` - the words name nothing, and the ONE clip the note is
-  typed on carries the decision that produced it, written into its
-  `customData` at build time or looked up in the project's decision
-  ledger (`library/tools/timeline_decisions.py`).  This is the producer
-  side of the loop: where it answers, nothing is inferred at all.
+* `stamped` - the words name nothing, and the ONE clip the note is typed
+  on carries the decision that produced it (`stamped_decision`, from its
+  `customData` or the decision ledger, `library/tools/timeline_decisions.py`).
 
 and two non-answers, which are outcomes and not failures:
 
@@ -71,63 +60,37 @@ and two non-answers, which are outcomes and not failures:
   candidate is reported.  Nothing breaks the tie.
 * `unrouted` - the words name none.
 
-THE STAMP RANKS BELOW THE WORDS, and this is the one ordering worth
-arguing about.  A stamp says what PRODUCED the picture; the captain's
-words say what the note is ABOUT.  Measured on their own three notes off
-001's timeline: *"why is this fully blurry, is it the zoom blur applied
-wrong?"* is typed on a V1 A-roll clip whose stamp is `speech_sequence`,
-while its words are ambiguous between `plan_transitions` and `plan_vfx` -
-and a blur that held for a whole clip is decided in one of those two.  A
-stamp that outranked the words would have sent that note to the step that
-chose the passage.  So the stamp answers only where the words answer
-nothing, which on those three notes changes none of them.  That is the
-point: it closes the UNROUTED case without touching the routed ones.
-
-It is also not `WITHDRAWN_ROUTERS['the_clip_under_the_playhead_decides']`
-coming back.  That one read the STACK at a frame, which on this pipeline
-is always a V1 clip, a caption card and a music bed.  The stamp reads the
-ONE clip the captain selected and typed on, and a MOMENT note never
-reaches it - the decisions under a moment are recorded as
+THE STAMP RANKS BELOW THE WORDS: a stamp says what PRODUCED the picture,
+the captain's words say what the note is ABOUT
+(`timeline_decisions.STAMP_RANKS_BELOW_THE_WORDS`).  A MOMENT note never
+reaches the stamp; the decisions under a moment are recorded as
 `decision_context` and route nothing.
 
-This is a ROUTER, not a chooser, and the difference from the SFX word
-list AGENTS.md section 10.5 deleted is the refusal rule.  That one scored
-each candidate by substring hits and took the HIGHEST COUNT, so it always
-produced an answer and the answer was frequently the library's first
-entry.  Here there is no score, no ranking, no tie-break and no default:
-two candidates is a reported ambiguity and zero is a reported miss.
-`WITHDRAWN_ROUTERS` records the shapes that were considered and refused.
-
-A note routed to the wrong step is worse than one reported as ambiguous,
-so where the two readings of a word are both real - "zoom" is a
-transition in `plan_transitions` and an effect in `plan_vfx` - both steps
-declare it and a note using it comes out ambiguous.  That is the correct
-output, not a gap to be closed.
+This is a ROUTER, not a chooser: there is no score, no ranking, no
+tie-break and no default.  Where a word has two real readings - "zoom" is
+a transition in `plan_transitions` and an effect in `plan_vfx` - both
+steps declare it and a note using it comes out ambiguous; that is the
+correct output.  `WITHDRAWN_ROUTERS` records the shapes considered and
+refused.
 
 
 Reaching the step
 -----------------
-`STEP_DECISIONS[...].delivery` says how, and there are two ways because
-the pipeline has two kinds of step:
+`STEP_DECISIONS[...].delivery` says how:
 
-* `DELIVERY_PROMPT` - the step has a `handoff.md` and reads a prompt.  It
-  declares `timeline_notes` in its manifest and `gather_step_inputs`
-  hands it `prompt_block()` - the captain's words with a legend saying
-  what they are.  The NOTES are per-run data and can only travel as
-  data; the legend beside them is the same sentence for every step, so
-  it is single-sourced here rather than copied into fifteen prompts.
-  Not the handoff freeze, lifted 2026-09-09 - every one of the fifteen
-  now carries a "Timeline Notes" section of its own.
-* `DELIVERY_REPORT` - the step is deterministic and has no prompt at all.
-  The note is still routed, still recorded and still reported; it is
-  stated as not prompt-deliverable, with the reason, rather than being
-  quietly dropped on the floor.  The primary consumer of a routed note is
-  a human investigating it, and that consumer is served either way.
+* `DELIVERY_PROMPT` - the step has a `handoff.md`, declares
+  `timeline_notes` in its manifest, and `gather_step_inputs` hands it
+  `prompt_block()` - the captain's words with `PROMPT_LEGEND`, the same
+  sentence for every step and so single-sourced here.  Each such step's
+  handoff also carries a "Timeline Notes" section of its own.
+* `DELIVERY_REPORT` - the step is deterministic and has no prompt.  The
+  note is still routed, recorded and reported, stated as not
+  prompt-deliverable with the reason.
 
 **Nothing may silently drop a routed note.**  `assert_deliverable` is
-called from `gather_step_inputs`: a note routed to a step whose manifest
-does not declare `timeline_notes` FAILS the run, naming the note and the
-step, rather than being assembled into a context that does not carry it.
+called from `gather_step_inputs` and raises `UndeliverableNote` when a
+note is routed to a step whose manifest does not declare
+`timeline_notes`, naming the note and the step.
 
     python3 -m library.tools.marker_routing report --project <dir>
     python3 -m library.tools.marker_routing write  --project <dir>
@@ -174,6 +137,10 @@ One enumeration, `library/tools/marker_routing.py`.
   not unmake the record of the first. `ROUTED-NOTES.md` is generated from the pull files and
   never hand-edited.
 - `tests/test_marker_routing.py`, whose note fixtures are the three the captain really typed.
+
+The measurements and rulings behind these rules (the three notes off
+001's timeline, the deleted SFX word list, the handoff freeze):
+docs/evidence/marker_routing.md.
 """
 
 from __future__ import annotations
