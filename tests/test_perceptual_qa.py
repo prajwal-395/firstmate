@@ -166,11 +166,14 @@ def test_the_router_finds_clips_where_they_actually_live():
         "project": {"frame_rate": 30},
         "tracks": {
             "V1": {"clips": [
-                {"label": "a", "timeline_in_frame": 0, "timeline_out_frame": 60},
-                {"label": "b", "timeline_in_frame": 60, "timeline_out_frame": 120},
+                {"label": "a", "source_file": "a.mov", "source_in": 0.0, "source_out": 2.0,
+                 "timeline_in_frame": 0, "timeline_out_frame": 60},
+                {"label": "b", "source_file": "b.mov", "source_in": 0.0, "source_out": 2.0,
+                 "timeline_in_frame": 60, "timeline_out_frame": 120},
             ]},
             "V2": {"clips": [
-                {"label": "c", "timeline_in_frame": 30, "timeline_out_frame": 90},
+                {"label": "c", "source_file": "c.mov", "source_in": 0.0, "source_out": 2.0,
+                 "timeline_in_frame": 30, "timeline_out_frame": 90},
             ]},
         },
     }

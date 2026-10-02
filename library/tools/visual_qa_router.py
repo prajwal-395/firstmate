@@ -11,7 +11,7 @@ Routes QA checks through two paths:
    - Best for: quick spot checks, color grade verification, VFX validation
 
 2. Video segment (asynchronous):
-   - Renders a timeline range to a temp file
+   - Cuts a timeline range out of the pass's batch render
    - Runs deterministic ffmpeg checks (black frames, freeze, LUFS, color)
    - Sends frames to local Gemma 4 12B for vision analysis
    - Returns structured text analysis that feeds back as LLM context
@@ -20,6 +20,14 @@ Routes QA checks through two paths:
 The orchestrating LLM (Claude, Codex, etc.) drives the frame grab path
 directly via MCP gallery_stills.grab_and_export. This module provides
 the Python-level support and the video segment path.
+
+Every planned check carries the FIDELITY its question needs
+(`library/tools/qa_fidelity.py`). Only `resolve_composite` checks reach
+Resolve, and `execute_qa_plan` renders all of a pass's composite frames
+and segments in ONE batch (`segment_renderer.render_batch`), cutting the
+frames and sub-ranges out of it with ffmpeg. A `clip_placement` grab asks
+whether the right footage is there, which the source file answers: it is
+read off disk and never rendered.
 """
 
 import base64
@@ -30,11 +38,21 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from library.tools.qa_fidelity import (
+    RESOLVE_COMPOSITE,
+    fidelity_of,
+    frame_check_fidelity,
+    needs_resolve_render,
+)
 from library.tools.segment_renderer import (
     SegmentRenderResult,
+    cleanup_segment,
+    extract_frames,
+    render_batch,
+    render_frames,
     render_segment,
     render_single_frame,
-    cleanup_segment,
+    trim_to_range,
 )
 from library.tools.perceptual_qa import (
     build_prompt as perceptual_prompt,
@@ -59,6 +77,10 @@ class FrameGrabRequest:
     check_type: str
     prompt: str
     context: Dict[str, Any]
+    # `qa_fidelity`: only RESOLVE_COMPOSITE is rendered through Resolve.
+    # A source_pixel / generated_asset grab names its file in
+    # `context["source_file"]` and the second in `context["source_seconds"]`.
+    fidelity: str = RESOLVE_COMPOSITE
 
 
 @dataclass
@@ -78,6 +100,7 @@ class VideoSegmentRequest:
     prompt: str
     context: Dict[str, Any]
     deterministic_checks: List[str] = field(default_factory=lambda: ["general"])
+    fidelity: str = RESOLVE_COMPOSITE
 
 
 @dataclass
@@ -171,6 +194,13 @@ def plan_qa_checks(manifest: dict, phase: str = "post_build",
             ctx = {
                 "clip_name": clip.get("clip_name", clip.get("source_file", f"clip_{i}")),
                 "timecode": frame_to_timecode(mid_frame, fps),
+                # Whether this is the right footage is a question about
+                # the SOURCE (or, for a bookend card, the rendered card):
+                # the middle of the range the clip plays, read off disk.
+                # The middle of the source range rather than a mapped
+                # timeline frame, so a retimed clip reads its own footage.
+                "source_file": clip["source_file"],
+                "source_seconds": (clip["source_in"] + clip["source_out"]) / 2.0,
             }
             plan.frame_grabs.append(FrameGrabRequest(
                 frame_number=mid_frame,
@@ -178,6 +208,7 @@ def plan_qa_checks(manifest: dict, phase: str = "post_build",
                 check_type="clip_placement",
                 prompt=frame_grab_inline_prompt("clip_placement", ctx),
                 context=ctx,
+                fidelity=frame_check_fidelity("clip_placement", clip),
             ))
 
     if phase in ("post_transitions", "post_build", "pre_render"):
@@ -279,6 +310,10 @@ def prepare_frame_grab(frame_number: int, check_type: str,
     timecode = frame_to_timecode(frame_number, fps)
     context.setdefault("timecode", timecode)
     prompt = frame_grab_inline_prompt(check_type, context)
+    fidelity = fidelity_of(check_type)
+    if not needs_resolve_render(fidelity) and "source_file" not in context:
+        # No file to read it from: the composite is the only picture left.
+        fidelity = RESOLVE_COMPOSITE
 
     return FrameGrabRequest(
         frame_number=frame_number,
@@ -286,37 +321,42 @@ def prepare_frame_grab(frame_number: int, check_type: str,
         check_type=check_type,
         prompt=prompt,
         context=context,
+        fidelity=fidelity,
     )
 
 
 # --- Execution: Frame Grab (Python API path) ---
 
-def execute_frame_grab(resolve, project, timeline,
-                       request: FrameGrabRequest,
-                       output_dir: str = None) -> FrameGrabResult:
-    """Grab a single frame using Resolve's Deliver page and encode as base64.
+def extract_source_frame(source_file: str, seconds: float,
+                         output_dir: str = None) -> Optional[str]:
+    """A PNG of `source_file` at `seconds`, by ffmpeg. None on failure."""
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="vqa_source_")
+    os.makedirs(output_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(source_file))[0]
+    png_path = os.path.join(output_dir, f"{stem}_{seconds:.3f}s.png")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-ss", f"{seconds:.3f}",
+             "-i", source_file, "-frames:v", "1", png_path],
+            capture_output=True, timeout=30, check=True,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return None
+    if os.path.exists(png_path) and os.path.getsize(png_path) > 0:
+        return png_path
+    return None
 
-    This is the Python-API path for frame grabs. For the MCP path, the
-    orchestrating LLM calls gallery_stills.grab_and_export directly using
-    the prompt from request.prompt.
 
-    This is the trustworthy fallback route: it renders through the
-    Deliver page rather than the gallery (which failed silently on
-    2026-09-10 - see `marker_capture`'s "WHEN THE ROUTE FAILS" and
-    "WHICH CAPTURE ROUTES ARE TRUSTWORTHY" before choosing one).
-    A failed render, extraction, or empty file returns None - never a
-    path - and the caller turns that into a FAILED check, never a
-    passing measurement.
+def _grab_off_resolve(request: FrameGrabRequest,
+                      output_dir: str = None) -> Optional[str]:
+    return extract_source_frame(request.context["source_file"],
+                                request.context["source_seconds"], output_dir)
 
-    Returns a FrameGrabResult with the base64 image and a VisualQACheck
-    stub (passed=None, to be filled by the analyzer).
-    """
-    png_path = render_single_frame(
-        resolve, project, timeline,
-        frame=request.frame_number,
-        output_dir=output_dir,
-    )
 
+def _frame_grab_result(request: FrameGrabRequest,
+                       png_path: Optional[str]) -> FrameGrabResult:
+    """A captured frame awaiting analysis, or a FAILED check - never a pass."""
     if not png_path:
         return FrameGrabResult(
             check=VisualQACheck(
@@ -327,7 +367,9 @@ def execute_frame_grab(resolve, project, timeline,
                 severity="error",
                 frame_timecode=request.timecode,
                 model_used="none",
-                detail="Failed to render frame from timeline",
+                detail=(f"Failed to read the {request.fidelity} frame"
+                        if not needs_resolve_render(request.fidelity) else
+                        "Failed to render frame from timeline"),
                 confidence=0.0,
                 issues=[],
             ),
@@ -352,6 +394,35 @@ def execute_frame_grab(resolve, project, timeline,
         base64_image=b64,
         image_path=png_path,
     )
+
+
+def execute_frame_grab(resolve, project, timeline,
+                       request: FrameGrabRequest,
+                       output_dir: str = None) -> FrameGrabResult:
+    """Grab one frame, from the picture its fidelity needs.
+
+    A `resolve_composite` grab renders through the Deliver page rather
+    than the gallery (which failed silently on 2026-09-10 - see
+    `marker_capture`'s "WHEN THE ROUTE FAILS" and "WHICH CAPTURE ROUTES
+    ARE TRUSTWORTHY" before choosing one). Any other grab reads its file
+    with ffmpeg and never touches Resolve. A failed render, extraction,
+    or empty file is a FAILED check, never a passing measurement.
+
+    Several grabs belong in `execute_qa_plan`, which renders all of a
+    pass's composite frames in one batch.
+
+    Returns a FrameGrabResult with the base64 image and a VisualQACheck
+    stub (passed=None, to be filled by the analyzer).
+    """
+    if needs_resolve_render(request.fidelity):
+        png_path = render_single_frame(
+            resolve, project, timeline,
+            frame=request.frame_number,
+            output_dir=output_dir,
+        )
+    else:
+        png_path = _grab_off_resolve(request, output_dir)
+    return _frame_grab_result(request, png_path)
 
 
 def analyze_frame_locally(image_path: str, check_type: str,
@@ -406,15 +477,21 @@ def execute_video_segment_check(resolve, project, timeline,
     This is the async path. In practice the orchestrating LLM fires this
     off and continues working; the result feeds back as text context.
     """
-    from library.tools.video_segment_analyzer import run_analysis
-
-    # Render the segment
     render_result = render_segment(
         resolve, project, timeline,
         mark_in=request.mark_in,
         mark_out=request.mark_out,
         output_dir=output_dir,
     )
+    return _analyze_segment(request, render_result, sample_count, cleanup)
+
+
+def _analyze_segment(request: VideoSegmentRequest,
+                     render_result: SegmentRenderResult,
+                     sample_count: int = 5,
+                     cleanup: bool = True) -> VideoSegmentResult:
+    """Deterministic checks + vision over one rendered segment."""
+    from library.tools.video_segment_analyzer import run_analysis
 
     if not render_result.success:
         return VideoSegmentResult(
@@ -492,6 +569,76 @@ def execute_video_segment_check(resolve, project, timeline,
         result.segment_path = None
 
     return result
+
+
+@dataclass
+class QAPassExecution:
+    """What one executed pass produced, in plan order."""
+    frame_results: List[FrameGrabResult] = field(default_factory=list)
+    segment_results: List[VideoSegmentResult] = field(default_factory=list)
+    # Every composite frame the batch rendered, by timeline frame - the
+    # grabs' own and `extra_frames` - so a later reader (the perceptual
+    # observation) uses these rather than rendering them again.
+    composite_frames: Dict[int, str] = field(default_factory=dict)
+
+
+def execute_qa_plan(resolve, project, timeline, plan: QAPassPlan,
+                    extra_frames=(), output_dir: str = None,
+                    sample_count: int = 5) -> QAPassExecution:
+    """Execute a whole pass with at most ONE Resolve render.
+
+    Grabs that are not `resolve_composite` are read off their files.
+    Every composite grab, every segment check and every `extra_frames`
+    frame are rendered in a single `render_batch` (neighbouring ranges
+    merged), and the frames and segment ranges are cut out of it with
+    ffmpeg. Results come back in plan order.
+    """
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="vqa_pass_")
+    composite = [g for g in plan.frame_grabs if needs_resolve_render(g.fidelity)]
+    frames = sorted({g.frame_number for g in composite} | {int(f) for f in extra_frames})
+    ranges = ([(f, f) for f in frames]
+              + [(s.mark_in, s.mark_out) for s in plan.segment_checks])
+
+    batch = (render_batch(resolve, project, timeline, ranges,
+                          output_dir=output_dir, name_prefix="qa_pass")
+             if ranges else None)
+
+    out = QAPassExecution()
+    if batch is not None:
+        for seg in batch.segments:
+            out.composite_frames.update(extract_frames(seg, frames, output_dir))
+
+    for grab in plan.frame_grabs:
+        if needs_resolve_render(grab.fidelity):
+            png = out.composite_frames.get(grab.frame_number)
+        else:
+            png = _grab_off_resolve(grab, output_dir)
+        out.frame_results.append(_frame_grab_result(grab, png))
+
+    for k, req in enumerate(plan.segment_checks):
+        covering = batch.covering(req.mark_in, req.mark_out)
+        if covering is None:
+            failed = next(s for s in batch.segments
+                          if s.mark_in <= req.mark_in and req.mark_out <= s.mark_out)
+            out.segment_results.append(_analyze_segment(req, failed, sample_count))
+            continue
+        path = trim_to_range(covering, req.mark_in, req.mark_out,
+                             os.path.join(output_dir, f"segment_{k:03d}.mov"))
+        own = SegmentRenderResult(
+            path=path or "", mark_in=req.mark_in, mark_out=req.mark_out,
+            duration_frames=req.mark_out - req.mark_in + 1,
+            width=covering.width, height=covering.height,
+            success=bool(path),
+            error=None if path else "Could not cut the range from the batch render")
+        # The batch file itself is removed below, not by the analysis.
+        out.segment_results.append(_analyze_segment(
+            req, own, sample_count, cleanup=path != covering.path))
+
+    if batch is not None:
+        for seg in batch.segments:
+            cleanup_segment(seg.path)
+    return out
 
 
 # --- Response Parsing ---
@@ -607,7 +754,13 @@ def format_qa_plan_for_llm(plan: QAPassPlan) -> dict:
                 "frame": fg.frame_number,
                 "timecode": fg.timecode,
                 "check_type": fg.check_type,
+                "fidelity": fg.fidelity,
                 "prompt": fg.prompt,
+            } | ({
+                "source": (f"ffmpeg -ss {fg.context['source_seconds']:.3f} "
+                           f"-i {fg.context['source_file']} -frames:v 1 - "
+                           f"no Resolve: the file answers this check"),
+            } if not needs_resolve_render(fg.fidelity) else {
                 "mcp_sequence": [
                     "1. resolve_control.save_state()",
                     "2. resolve_control.open_page('color')",
@@ -616,7 +769,7 @@ def format_qa_plan_for_llm(plan: QAPassPlan) -> dict:
                     "5. Analyze the returned base64 image using the prompt above",
                     "6. resolve_control.restore_state(state_token=<from step 1>)",
                 ],
-            }
+            })
             for fg in plan.frame_grabs
         ],
         "segment_checks": [
@@ -656,12 +809,28 @@ def perceptual_qa_enabled() -> bool:
         "1", "true", "yes", "on")
 
 
+def perceptual_sample(plan: QAPassPlan, max_frames: int = 6) -> tuple:
+    """The grabs the perceptual observation examines, and how many it drops.
+
+    Sampled evenly across the timeline rather than truncated to the first
+    N, so the cost bound does not read as full coverage.
+    """
+    grabs = list(plan.frame_grabs)
+    if len(grabs) <= max_frames:
+        return grabs, 0
+    step = len(grabs) / float(max_frames)
+    sampled = [grabs[int(i * step)] for i in range(max_frames)]
+    return sampled, len(grabs) - len(sampled)
+
+
 def run_perceptual_observation(resolve, project, timeline, manifest: dict,
                                 fps: float = 30.0,
                                 max_frames: int = 6,
                                 force: bool = False,
                                 harness: Optional[str] = None,
-                                project_folder: Optional[str] = None) -> Optional[dict]:
+                                project_folder: Optional[str] = None,
+                                rendered_frames: Optional[Dict[int, str]] = None,
+                                ) -> Optional[dict]:
     """Watch the render and report what looks wrong. OBSERVATION ONLY.
 
     Returns None unless `PIPELINE_PERCEPTUAL_QA` is set or `force=True`;
@@ -684,13 +853,17 @@ def run_perceptual_observation(resolve, project, timeline, manifest: dict,
     every render. Frames are sampled evenly across the timeline rather
     than truncated to the first N, and the number dropped is reported -
     a silent cap reads as full coverage.
+
+    It judges the COMPOSITE (letterbox, a head cropped by the transform),
+    so its frames render through Resolve - every one not already in
+    `rendered_frames` (the pass's own batch, `execute_qa_plan`) in ONE
+    further batch.
     """
     if not (force or perceptual_qa_enabled()):
         return None
 
     plan = plan_qa_checks(manifest, phase="post_build", fps=fps)
-    grabs = list(plan.frame_grabs)
-    if not grabs:
+    if not plan.frame_grabs:
         return None
 
     # Imported here, not at module scope: importing this router must stay
@@ -699,21 +872,20 @@ def run_perceptual_observation(resolve, project, timeline, manifest: dict,
     # not pay for it.
     from library.tools.still_vision import inspect_stills
 
-    dropped = 0
-    if len(grabs) > max_frames:
-        step = len(grabs) / float(max_frames)
-        sampled = [grabs[int(i * step)] for i in range(max_frames)]
-        dropped = len(grabs) - len(sampled)
-        grabs = sampled
+    grabs, dropped = perceptual_sample(plan, max_frames)
+    frames = dict(rendered_frames or {})
+    missing = [g.frame_number for g in grabs if g.frame_number not in frames]
+    if missing:
+        frames.update(render_frames(resolve, project, timeline, missing))
 
     prompt = perceptual_prompt()
     verdicts = []
     for req in grabs:
-        result = execute_frame_grab(resolve, project, timeline, req)
-        if not result.image_path:
+        image_path = frames.get(req.frame_number)
+        if not image_path:
             continue
         raw = inspect_stills(
-            prompt, [result.image_path], harness=harness,
+            prompt, [image_path], harness=harness,
             project_folder=project_folder,
             step_id="perceptual_qa", label="perceptual_qa",
             max_tokens=240)

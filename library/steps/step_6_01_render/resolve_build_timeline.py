@@ -133,7 +133,7 @@ except ImportError as _e:
 
 try:
     from visual_qa_router import (
-        plan_qa_checks, execute_frame_grab, execute_video_segment_check,
+        plan_qa_checks, execute_qa_plan, perceptual_sample,
         analyze_frame_locally, format_frame_grab_for_llm,
         format_segment_result_for_llm, run_perceptual_observation,
         perceptual_qa_enabled
@@ -3885,8 +3885,22 @@ def build_timeline(
                 qa_plan.frame_grabs = []
                 qa_plan.segment_checks = []
 
-            for fg_req in qa_plan.frame_grabs:
-                res = execute_frame_grab(resolve, project, timeline, fg_req)
+            # ONE Resolve render for the whole pass: the composite grabs,
+            # the segment checks and the perceptual observation's frames
+            # are batched (`segment_renderer.render_batch`); grabs whose
+            # question the source file answers never reach Resolve
+            # (`qa_fidelity`).
+            perceptual_frames = []
+            if run_perceptual_observation and qa_plan.frame_grabs:
+                perceptual_frames = [
+                    g.frame_number
+                    for g in perceptual_sample(qa_plan)[0]]
+            execution = execute_qa_plan(
+                resolve, project, timeline, qa_plan,
+                extra_frames=perceptual_frames)
+
+            for fg_req, res in zip(qa_plan.frame_grabs,
+                                   execution.frame_results):
                 if res.image_path:
                     res.check = analyze_frame_locally(
                         res.image_path, fg_req.check_type, fg_req.context,
@@ -3894,8 +3908,7 @@ def build_timeline(
                         step_id="render")
                 visual_qa_results.append(format_frame_grab_for_llm(res))
                 
-            for seg_req in qa_plan.segment_checks:
-                res = execute_video_segment_check(resolve, project, timeline, seg_req)
+            for res in execution.segment_results:
                 visual_qa_results.append(format_segment_result_for_llm(res))
                 
             if visual_qa_results:
@@ -3914,7 +3927,8 @@ def build_timeline(
                 try:
                     observation = run_perceptual_observation(
                         resolve, project, timeline, manifest, fps=fps,
-                        project_folder=project_folder or None)
+                        project_folder=project_folder or None,
+                        rendered_frames=execution.composite_frames)
                     if observation:
                         results["perceptual_observation"] = observation
                         n = len(observation.get("findings", []))
