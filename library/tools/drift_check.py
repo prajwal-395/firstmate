@@ -248,16 +248,60 @@ def _cursor_name(project):
         return ""
 
 
+def unit_epoch_mismatch(snapshot_doc, live_doc) -> str:
+    """Why these two documents' Pan/Tilt are NOT in one unit, or `""`.
+
+    Resolve rescales every stored Pan/Tilt when the PROJECT timeline
+    resolution changes (`resolve_build_timeline.
+    project_timeline_shape_refusal`), and the picture stays where it
+    was. A snapshot written before such a change holds different
+    numbers for the same framing, so a uniform factor across the
+    change is the unit, not a move. Measured 2026-10-02 on geo-podcast:
+    every snapshot up to 2026-09-29T20:30Z reads x4 the live value on
+    all 1,165 non-zero axes of 25 reels, every one after T23:08Z x1,
+    and the live x1 timelines are the correctly framed ones; a repair
+    that multiplied live by 4 to match pushed every reel half off the
+    frame. A snapshot that did not record its project resolution
+    cannot prove it shares the live one.
+    """
+    built = (snapshot_doc.get("metadata") or {}).get("project_resolution")
+    live = (live_doc.get("metadata") or {}).get("project_resolution")
+    if not built:
+        return ("the build snapshot did not record the project "
+                "resolution its Pan/Tilt were stored under")
+    if not live:
+        return "the live project resolution could not be read"
+    if list(built) != list(live):
+        return (f"the build snapshot was stored under project resolution "
+                f"{built[0]}x{built[1]} and the project is now "
+                f"{live[0]}x{live[1]}")
+    return ""
+
+
 def compare_documents(name: str, snapshot_doc, live_doc) -> dict:
-    """Clip-by-clip comparison of two serializer-shaped documents."""
+    """Clip-by-clip comparison of two serializer-shaped documents.
+
+    A move measured across a project-resolution change (or one that
+    cannot be shown not to be) is reported with `unit_epoch` and is
+    NOT a drift: its factor is a unit conversion, never a correction
+    to apply. Missing placements stay real either way.
+    """
     rows = drift_rows(keyed_transforms(snapshot_doc),
                       keyed_transforms(live_doc))
     moved = sum(1 for row in rows if row.get("moved"))
     missing = sum(1 for row in rows if row.get("missing"))
+    line = summarize(name, rows)
+    epoch = unit_epoch_mismatch(snapshot_doc, live_doc) if moved else ""
+    if epoch:
+        line += (f" - NOT a drift: {epoch}, and Resolve rescales stored "
+                 f"Pan/Tilt with the project resolution. Judge the "
+                 f"picture; never write a transform from this factor")
     return {"name": name, "compared": True, "rows": rows,
             "factor": per_reel_factor(rows),
             "moved": moved, "missing": missing, "total": len(rows),
-            "line": summarize(name, rows)}
+            "unit_epoch": epoch, "drifted": bool(missing or
+                                                 (moved and not epoch)),
+            "line": line}
 
 
 def check_project(project_folder: str, *, when: str = "",
@@ -382,8 +426,11 @@ def check_project(project_folder: str, *, when: str = "",
             report["unreadable"] = True
             continue
         report["reels"][name] = compared
-        if compared["moved"] or compared["missing"]:
+        if compared["drifted"]:
             report["drifted"] = True
+        elif compared["unit_epoch"]:
+            # Not comparable by number, so not a matching reel either.
+            report["unreadable"] = True
 
     if wanted is not None:
         for name in sorted(wanted - names):

@@ -65,6 +65,18 @@ def _clean_dict(d: dict) -> dict:
 
 # ─── Serializer ──────────────────────────────────────────────
 
+def _project_resolution(resolve) -> Optional[list]:
+    """`[width, height]` of the current project's timeline setting, or
+    `None` where nothing answers - never a guessed default."""
+    try:
+        project = resolve.GetProjectManager().GetCurrentProject()
+        width = int(project.GetSetting("timelineResolutionWidth"))
+        height = int(project.GetSetting("timelineResolutionHeight"))
+    except Exception:  # noqa: BLE001 - unknown is recorded as unknown
+        return None
+    return [width, height] if width > 0 and height > 0 else None
+
+
 @under_lease("serialize timeline state", exclusive=False)
 def serialize_timeline_state(
     manifest_path: Optional[str] = None,
@@ -82,6 +94,7 @@ def serialize_timeline_state(
     caller that names its handle keeps the cursor where it found it.
     Without `timeline` the current one is read, as before.
     """
+    resolve = resolve_mock
     if timeline is None:
         if resolve_mock:
             resolve = resolve_mock
@@ -122,6 +135,13 @@ def serialize_timeline_state(
         state["metadata"]["resolution"] = [int(width) if width else 0, int(height) if height else 0]
     except Exception:
         state["metadata"]["resolution"] = [0, 0]
+
+    # The PROJECT resolution is the unit epoch of every Pan/Tilt below:
+    # Resolve rescales stored Pan/Tilt when it changes, so two snapshots
+    # taken under different project resolutions hold different numbers
+    # for the same picture (`drift_check.unit_epoch_mismatch`).
+    state["metadata"]["project_resolution"] = _project_resolution(
+        resolve)
 
     # Timeline Markers
     markers = timeline.GetMarkers() or {}

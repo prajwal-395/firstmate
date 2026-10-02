@@ -137,6 +137,72 @@ def test_two_different_factors_refuse_to_read_as_one():
     assert "by NO single factor" in compared["line"]
 
 
+# ── A factor across a project-resolution change is the UNIT ─────────
+
+def _at(document, project_resolution):
+    return {**document, "metadata": {**document["metadata"],
+                                     "project_resolution":
+                                         project_resolution}}
+
+
+#: geo-podcast Reel 01, 2026-10-02: the as-built snapshot (written under
+#: the old project resolution) holds x4 what the correctly framed live
+#: timeline stores. A repair that matched live to it broke 25 reels.
+AS_BUILT_OLD_EPOCH = doc("Reel 01",
+                         (1, 591, "LC4930.MXF", -20.54, -696.041),
+                         (3, 0, "tv_frame.mov", 0.0, -220.0))
+LIVE_FRAMED = doc("Reel 01",
+                  (1, 591, "LC4930.MXF", -5.135, -174.01025),
+                  (3, 0, "tv_frame.mov", 0.0, -55.0))
+
+
+def test_a_factor_across_a_project_resolution_change_is_not_a_drift():
+    compared = compare_documents(
+        "Reel 01", _at(AS_BUILT_OLD_EPOCH, [1920, 1080]),
+        _at(LIVE_FRAMED, [3840, 2160]))
+    assert compared["factor"] == pytest.approx(0.25)
+    assert compared["drifted"] is False
+    assert "1920x1080" in compared["unit_epoch"]
+    assert "never write a transform from this factor" in compared["line"]
+
+
+def test_a_snapshot_with_no_recorded_epoch_cannot_prove_a_drift():
+    """Every snapshot before 2026-10-02 lacks the field - the exact
+    records the broken repair trusted."""
+    compared = compare_documents(
+        "Reel 01", AS_BUILT_OLD_EPOCH, _at(LIVE_FRAMED, [3840, 2160]))
+    assert compared["drifted"] is False
+    assert "did not record the project resolution" in compared["unit_epoch"]
+    assert "NOT a drift" in compared["line"]
+
+
+def test_a_move_within_one_epoch_is_still_a_drift():
+    compared = compare_documents(
+        "Reel 26", _at(BUILT, [3840, 2160]), _at(HALVED, [3840, 2160]))
+    assert compared["unit_epoch"] == ""
+    assert compared["drifted"] is True
+    assert "NOT a drift" not in compared["line"]
+
+
+def test_the_serializer_records_the_project_resolution():
+    from library.tools.timeline_serializer import _project_resolution
+
+    class _Project:
+        def GetSetting(self, key):
+            return {"timelineResolutionWidth": "3840",
+                    "timelineResolutionHeight": "2160"}[key]
+
+    class _Resolve:
+        def GetProjectManager(self):
+            return self
+
+        def GetCurrentProject(self):
+            return _Project()
+
+    assert _project_resolution(_Resolve()) == [3840, 2160]
+    assert _project_resolution(None) is None
+
+
 # ── The self-read: current for its own read, cursor back ─────────────
 
 class _FakeTimeline:
