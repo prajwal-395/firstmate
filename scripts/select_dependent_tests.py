@@ -2,39 +2,21 @@
 """The narrowest selection covering a change, computed - not judged.
 
 AGENTS.md 9 says to run the tests of what a change touches, in both
-directions. This script is what "both directions" means, mechanically:
-
-- BACKWARD (what the changed module uses): every module it imports -
-  matched textually, so FUNCTION-level imports count exactly like
-  top-level ones. PR #1258's miss was this edge in reverse:
-  `speaker_identity` imports `motion_graphics_plan` at function level
-  (`speaker_identity.py:313`), so a top-level import graph says the
-  speaker tests do not cover a `resolve_plan` change, and the repo's
-  own end-to-end guarantee sat red through the merge.
-- FORWARD (what uses the changed module): every module that imports
-  it, plus ONE transitive hop through re-exporters (a module that
-  re-exports a name carries its dependents one hop further out -
-  e.g. step 4.06's `generate_motion_props` re-exports `resolve_plan`).
-- CONTRACT SETS below: a shared resolver earns a named set of the
-  test files that feed it. Any change to the resolver - or to anything
-  that resolves through it - runs the whole set, whatever else it
-  runs. A named set rots unless this procedure rebuilds who belongs;
-  a procedure misjudges depth unless the set pins the answer. The two
-  are kept together here so neither simplifies away.
+directions: BACKWARD (what the changed module uses) and FORWARD (what
+uses the changed module, plus one hop through re-exporters).
+`tests/test_select_dependent_tests.py` pins the incident edges.
 
 Usage: `python3 scripts/select_dependent_tests.py <changed-file> ...`
 prints test paths relative to the repo root, one per line.
 
-The procedure errs WIDE, never narrow: same-stem collisions (every
-step has a `bridge.py`) qualify by package directory but still match
-broadly, and non-Python changed files match by stem mention. A wider
-selection costs seconds; a narrower one costs a red main.
+The procedure errs WIDE, never narrow. A wider selection costs
+seconds; a narrower one costs a red main.
 """
 
 from __future__ import annotations
 
+import ast
 import os
-import re
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -56,38 +38,33 @@ CONTRACT_SETS = {
     ],
 }
 
-def _imports_stem_line(line, stem):
-    """Whether one source line imports `stem`.
 
-    Line-anchored (`^\\s*`), so a docstring that merely MENTIONS the
-    module never matches - but ANY indentation does, so a
-    function-level import counts exactly like a top-level one. PR
-    #1258's miss was this edge: `speaker_identity` imports
-    `motion_graphics_plan` inside a function (`speaker_identity.py:313`),
-    which a top-level import graph never sees.
+def _imported_stems(tree: ast.Module) -> set[str]:
+    """Every module stem imported anywhere in the tree, at any depth.
+
+    One AST walk sees function-level imports exactly like top-level
+    ones, so no line-anchored regex is needed.
     """
-    line = line.split("#", 1)[0]
-    match = re.match(r"\s*import\s+(.+)", line)
-    if match:
-        for name in match.group(1).split(","):
-            name = name.strip().split(" as ")[0].strip()
-            if name.split(".")[-1] == stem or name == stem:
-                return True
-        return False
-    match = re.match(r"\s*from\s+([\w.]+)\s+import\s+(.+)", line)
-    if match:
-        module, names = match.groups()
-        if module.split(".")[-1] == stem:
-            return True
-        for name in re.split(r"[,\s()]+", names):
-            name = name.strip().split(" as ")[0].strip()
-            if name == stem:
-                return True
-    return False
+    stems = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                stems.add(alias.name.split(".")[-1])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                stems.add(node.module.split(".")[-1])
+            for alias in node.names:
+                if alias.name != "*":
+                    stems.add(alias.name.split(".")[-1])
+    return stems
 
 
-def _imports_stem(text, stem):
-    return any(_imports_stem_line(line, stem) for line in text.splitlines())
+def _parse(path: str) -> ast.Module | None:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return ast.parse(handle.read())
+    except (OSError, SyntaxError):
+        return None
 
 
 def _modules_under(root):
@@ -103,68 +80,12 @@ def _modules_under(root):
     return out
 
 
-def _read(path):
-    with open(path, encoding="utf-8") as handle:
-        return handle.read()
-
-
-def _importers_of(stem, package, modules):
-    """Dotted paths of modules importing `stem` (any depth)."""
-    found = set()
-    for dotted, abs_path in modules:
-        if dotted.endswith("." + stem) or dotted == stem:
-            continue
-        try:
-            text = _read(abs_path)
-        except OSError:
-            continue
-        if _imports_stem(text, stem):
-            found.add(dotted)
-            continue
-        if package and re.search(
-                r"\b" + re.escape(package + "." + stem) + r"\b", text):
-            found.add(dotted)
-    return found
-
-
 def _imported_by_module(abs_path):
-    """Stems the module itself imports (textual, all depths)."""
-    try:
-        text = _read(abs_path)
-    except OSError:
+    """Stems the module itself imports (AST, all depths)."""
+    tree = _parse(abs_path)
+    if tree is None:
         return set()
-    stems = set()
-    for match in re.finditer(
-            r"(?m)^\s*from\s+([\w.]+)\s+import\s+(.+)$", text):
-        module, names = match.groups()
-        stems.add(module.split(".")[-1])
-        for name in names.split(","):
-            name = name.strip().split(" as ")[0].strip()
-            if name and name != "*":
-                stems.add(name)
-    for match in re.finditer(r"(?m)^\s*import\s+(.+)$", text):
-        for name in match.group(1).split(","):
-            name = name.strip().split(" as ")[0].strip()
-            if name:
-                stems.add(name.split(".")[-1])
-    return stems
-
-
-def _tests_for_stem(stem, test_modules):
-    """Test files covering `stem`: same-stem file plus importers."""
-    found = set()
-    for dotted, abs_path in test_modules:
-        rel = os.path.relpath(abs_path, REPO_ROOT)
-        if os.path.basename(abs_path) == "test_" + stem + ".py":
-            found.add(rel)
-            continue
-        try:
-            text = _read(abs_path)
-        except OSError:
-            continue
-        if _imports_stem(text, stem):
-            found.add(rel)
-    return found
+    return _imported_stems(tree)
 
 
 def _reexports(text):
@@ -172,26 +93,43 @@ def _reexports(text):
     return "re-export" in text.lower()
 
 
+def _read(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
 def select(changed):
     """Test paths (repo-relative) covering the changed files."""
     library_modules = _modules_under(LIBRARY)
     test_modules = _modules_under(TESTS)
-    dotted_by_stem = {}
-    for dotted, _abs in library_modules:
-        dotted_by_stem.setdefault(dotted.split(".")[-1], set()).add(dotted)
-
+    # One index per invocation: every module's imported stems, parsed
+    # once. A per-changed-file rescan would reparse the whole tree
+    # once per file.
+    lib_imports = {}
+    lib_text = {}
+    for dotted, abs_path in library_modules:
+        tree = _parse(abs_path)
+        lib_imports[dotted] = _imported_stems(tree) if tree is not None else set()
+        if tree is None:
+            try:
+                lib_text[dotted] = _read(abs_path)
+            except OSError:
+                lib_text[dotted] = ""
+        else:
+            try:
+                lib_text[dotted] = _read(abs_path)
+            except OSError:
+                lib_text[dotted] = ""
+    test_imports = {}
+    for dotted, abs_path in test_modules:
+        tree = _parse(abs_path)
+        test_imports[abs_path] = _imported_stems(tree) if tree is not None else set()
     test_files = set(os.listdir(TESTS))
     selected = set()
     for path in changed:
         abs_path = (path if os.path.isabs(path)
                     else os.path.join(REPO_ROOT, path))
         stem = os.path.splitext(os.path.basename(abs_path))[0]
-        parent = os.path.basename(os.path.dirname(abs_path))
-        package = None
-        if abs_path.startswith(LIBRARY + os.sep):
-            rel_dir = os.path.dirname(
-                os.path.relpath(abs_path, REPO_ROOT))
-            package = rel_dir.replace(os.sep, ".")
 
         resolvers = set()
         if stem in CONTRACT_SETS:
@@ -199,54 +137,44 @@ def select(changed):
 
         # BACKWARD: what the changed module uses. Only the used
         # module's OWN test file plus any contract set it belongs to -
-        # every test importing e.g. `os` does not cover this change,
-        # and pulling those in turns every selection into the whole
-        # suite. The direction that validates a change to a shared
-        # module is FORWARD (below); backward exists so a change to a
-        # PRODUCER also runs the resolver contract set it feeds.
+        # every test importing e.g. `os` does not cover this change.
         uses = _imported_by_module(abs_path)
         for used in uses:
             if used in CONTRACT_SETS:
                 resolvers.add(used)
-            # Matched against the LISTING, not `isfile`: on a
-            # case-insensitive filesystem `from scope import REGION`
-            # found `test_REGION.py` as `test_region.py`, and pytest
-            # refused the whole selection over a path it cannot collect.
             same = "test_" + used + ".py"
             if same in test_files:
                 selected.add(os.path.relpath(os.path.join(TESTS, same),
                                              REPO_ROOT))
 
-        # FORWARD: what uses the changed module - the tests importing
-        # it directly are the contract tests (producers resolving
-        # through it, readers of its output). Only RE-EXPORTERS extend
-        # the carrier set: a module that re-exports a name is imported
-        # under its own stem by tests that still exercise this change
-        # (e.g. step 4.06's `generate_motion_props` re-exports
-        # `resolve_plan`). Every other importer's own test fan-out is
-        # deliberately NOT followed: tests importing a heavy consumer
-        # (every test importing `reel_build`) exercise this change
-        # only transitively, and following them turns every selection
-        # into the whole suite - the "large in the wrong direction"
-        # failure of #1258. Re-exporters say so in their own text.
-        direct = _importers_of(stem, package, library_modules)
-        by_dotted = {dotted: abs_path for dotted, abs_path in library_modules}
+        # FORWARD: what uses the changed module. Only RE-EXPORTERS
+        # extend the carrier set: a module that re-exports a name is
+        # imported under its own stem by tests that still exercise
+        # this change. Every other importer's own test fan-out is
+        # deliberately NOT followed: following it turns every
+        # selection into the whole suite.
+        direct = {dotted for dotted, stems in lib_imports.items()
+                  if stem in stems
+                  and not (dotted.endswith("." + stem) or dotted == stem)}
         carriers = {stem}
         for importer in direct:
-            abs_importer = by_dotted.get(importer)
-            if abs_importer is None:
-                continue
-            try:
-                text = _read(abs_importer)
-            except OSError:
-                continue
-            if _reexports(text):
+            if _reexports(lib_text.get(importer, "")):
                 carriers.add(importer.split(".")[-1])
         for carrier in carriers:
-            selected.update(_tests_for_stem(carrier, test_modules))
+            for dotted, test_abs in test_modules:
+                rel = os.path.relpath(test_abs, REPO_ROOT)
+                if os.path.basename(test_abs) == "test_" + carrier + ".py":
+                    selected.add(rel)
+                elif carrier in test_imports.get(test_abs, set()):
+                    selected.add(rel)
             if carrier in CONTRACT_SETS:
                 resolvers.add(carrier)
-        selected.update(_tests_for_stem(stem, test_modules))
+        for dotted, test_abs in test_modules:
+            rel = os.path.relpath(test_abs, REPO_ROOT)
+            if os.path.basename(test_abs) == "test_" + stem + ".py":
+                selected.add(rel)
+            elif stem in test_imports.get(test_abs, set()):
+                selected.add(rel)
 
         for resolver in resolvers:
             selected.update(CONTRACT_SETS[resolver])
