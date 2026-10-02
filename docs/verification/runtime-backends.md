@@ -1951,3 +1951,13 @@ A throwaway scout was spawned through `bin/fm-spawn.sh --scout --harness omp --m
 6. `bin/fm-control.sh <id> exit` stopped the agent and `bin/fm-teardown.sh` returned the worktree and closed the item.
 
 `FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` refreshes the primary evidence; the worker path above is refreshed by repeating the scout dispatch after any omp upgrade.
+
+## Launch brief delivery by file pointer
+
+Since 2026-10-01, supervised launches pass a fixed instruction that points to the canonical absolute brief path rather than embedding brief contents in harness argv.
+Kimi and Rovo launch bare and receive that same pointer after their readiness gates; the other adapters put it in their supported startup prompt shape.
+The harness-adapter references own the exact command shape for each CLI.
+
+`tests/fm-spawn-dispatch-profile.test.sh` captures the command sent by `fm-spawn.sh`, invokes it through an argv-capture harness, and checks that a distinctive string in the generated brief is absent from argv while the pointer remains present.
+The same suite checks that the fake worker reads the generated brief through the pointer, including the Firstmate role correction, and that a persistent Pi secondmate charter remains outside argv.
+The direct plain-shell harness results and any provider availability limits are recorded in the change's PR evidence.

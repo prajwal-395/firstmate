@@ -218,7 +218,7 @@ test_missing_endpoint_creates_replacement_in_recorded_worktree() {
     || fail "the replacement must be created in the recorded worktree '$dir/wt', got '$(cat "$dir/fake/created_cwd")'"
   [ "$(meta_field "$dir" m1 worktree)" = "$dir/wt" ] \
     || fail "the worktree must be reused, not reallocated"
-  assert_grep "encode launch-brief" "$dir/fake/literal" "the replacement should have been launched"
+  assert_grep "Read the brief at " "$dir/fake/literal" "the replacement should have been launched"
   pass "fm-spawn --relaunch: a missing endpoint creates its replacement in the task's recorded worktree"
 }
 

@@ -6,6 +6,7 @@ Verified on 2026-09-25 with codex-cli 0.156.1 unless a fact gives a newer versio
 
 | Fact | Value |
 |---|---|
+| Launch | Starts its interactive turn from a fixed positional prompt that points to the absolute brief path; task instructions remain in the file. |
 | Busy state | Unknown until a semantic source is live-verified: the app-server turn lifecycle is unreachable for a pane worker, and project lifecycle hooks did not fire for a Firstmate-launched worker. |
 | Exit command | `/quit`; its slash popup needs about one second between text and Enter, which the shared submit path used by the control plane handles. |
 | Interrupt | Single Escape. |

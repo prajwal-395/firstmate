@@ -270,7 +270,7 @@
 #   command-line posture. bin/fm-claude-posture-sweep.sh detects that live shape
 #   and asks fm-control to reattach the same session with the configured flag.
 #   Launch templates live in launch_template() below; placeholders replaced before launch:
-#     __BRIEF__    absolute path to data/<task-id>/brief.md
+#     __BRIEFPOINTER__ shell-quoted instruction naming only the absolute brief path
 #     __CLAUDEPERMFLAG__ the claude permission flag selected by config/claude-permission-mode
 #     __CLAUDEPERMSETTING__ the matching Claude Code settings defaultMode value (bypassPermissions or auto)
 #     __PIBIN__    quoted concrete Pi-family executable path resolved from PATH
@@ -286,7 +286,6 @@
 #                  turn-end extension, written by this script; outside the worktree so
 #                  omp's cwd-only auto-discovery cannot load it a second time)
 #     __OMPWORKERCFG__ absolute path to the tracked .omp/fm-worker-overlay.yml posture overlay
-#     __OPINPUT__   absolute path to the canonical operational-input encoder
 #     __WORKTREE__  absolute path to the task worktree
 #     __CURSORBIN__ resolved, cursor-verified executable for a cursor launch
 #     __GEMINISETTINGS__ firstmate-owned per-task gemini settings file (busy-state hooks)
@@ -302,7 +301,7 @@
 # log; muse, gemini, and agy are crewmate/scout only and are refused for --secondmate.
 # rovo installs no hook either - its eventHooks fire at tool granularity only,
 # never turn-end - so it carries no busy-source wiring at all and no turn-end
-# hook. A positional brief is dead-on-arrival (rovo loads, never works, and drops
+# hook. A positional prompt is dead-on-arrival (rovo loads, never works, and drops
 # to an idle shell), so rovo launches BARE and receives an absolute brief pointer
 # only after a TUI readiness gate, then a delivery-confirmation gate - the same
 # launch-then-send shape as kimi. Its busy state is a screen-scrape fallback like
@@ -311,7 +310,7 @@
 # PostInvocation, Stop), so it installs a firstmate-owned global hook plugin
 # plus a per-task registry entry - the same shape as grok and Kimi - carrying
 # both its turn-end notification and its semantic busy source, and driving the
-# agy ladder tick and the point-of-spend gate. Its brief rides the launch
+# agy ladder tick and the point-of-spend gate. Its brief pointer rides the launch
 # command. agy matches trustedWorkspaces by exact path, so a broad parent entry
 # never covers a fresh pool worktree and the folder-trust dialog fires there;
 # firstmate deliberately does NOT pre-register the worktree in agy's own trust
@@ -1640,24 +1639,24 @@ launch_template() {
     # (bypassPermissions or auto), carried in the inline --settings JSON.
     # Settings files do not preserve this posture across a bare resume on
     # current Claude Code; the posture sweep repairs that restore shape.
-    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude __CLAUDEPERMFLAG__ --settings '\''{"permissions":{"defaultMode":"__CLAUDEPERMSETTING__"},"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}'\'\ '__MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude __CLAUDEPERMFLAG__ --settings '\''{"permissions":{"defaultMode":"__CLAUDEPERMSETTING__"},"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}'\'\ '__MODELFLAG____EFFORTFLAG____BRIEFPOINTER__' ;;
     codex)
       if [ "$kind" = secondmate ]; then
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox __BRIEFPOINTER__'
       else
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" __BRIEFPOINTER__'
       fi
       ;;
-    opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt __BRIEFPOINTER__' ;;
     pi|pi-signed)
       printf '%s' '__PIBIN____PITUIMODE__'
       if [ "$kind" = secondmate ]; then
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ __BRIEFPOINTER__'
       else
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ __BRIEFPOINTER__'
       fi
       ;;
-    # omp (Oh My Pi), a Pi fork. Same one-positional-brief, --model, --thinking,
+    # omp (Oh My Pi), a Pi fork. Same one-positional-pointer, --model, --thinking,
     # and -e shape as Pi, verified on omp 18.1.11. The differences are all at
     # the launch boundary and documented in the header above: foreign markers
     # cleared (omp has none of its own, so an inherited CLAUDECODE would win),
@@ -1672,15 +1671,14 @@ launch_template() {
     omp)
       printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_OMP_HARNESS=omp OMP_SKIP_SETUP=1 __OMPBIN__ --config __OMPWORKERCFG__ --auto-approve --cwd __WORKTREE__'
       if [ "$kind" = secondmate ]; then
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG____BRIEFPOINTER__'
       else
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __OMPEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __OMPEXT__ __BRIEFPOINTER__'
       fi
       ;;
-    # agy (Antigravity CLI): --prompt-interactive "<brief>" starts the supervised
-    # interactive session and auto-submits it, so the brief rides the launch
-    # command (verified: a multi-line brief submitted itself with no extra Enter,
-    # agy 1.2.0). --model takes the bare catalog id from `agy models`
+    # agy (Antigravity CLI): --prompt-interactive starts the supervised
+    # interactive session and auto-submits a fixed pointer to the brief
+    # (verified on agy 1.2.0). --model takes the bare catalog id from `agy models`
     # (gemini-3.8-flash-high, never the unlisted bare gemini-3.8-flash).
     # --effort takes low|medium|high. --dangerously-skip-permissions
     # auto-approves every tool call, which an unattended crewmate needs.
@@ -1704,7 +1702,7 @@ launch_template() {
     # Stop), so its turn-end notification and semantic busy source are the
     # firstmate-owned global hook plugin installed below - not a rendered-tail
     # fallback - and the ladder tick and spend gate ride that same surface.
-    agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS __AGYBIN__ --prompt-interactive "$(__OPINPUT__ encode launch-brief < __BRIEF__)" __MODELFLAG____EFFORTFLAG__--dangerously-skip-permissions' ;;
+    agy) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS __AGYBIN__ --prompt-interactive __BRIEFPOINTER__ __MODELFLAG____EFFORTFLAG__--dangerously-skip-permissions' ;;
     # grok (Grok Build TUI): a positional prompt starts the supervised interactive
     # session. --always-approve auto-approves every tool execution (verified: the
     # crewmate runs fully autonomously, no permission gate), which an unattended
@@ -1712,7 +1710,7 @@ launch_template() {
     # --dangerously-skip-permissions. grok's turn-end signal does NOT ride the
     # launch command - it is a Stop-event hook installed below (global hook +
     # per-task pointer), so the template is identical for ship/scout/secondmate.
-    grok) printf '%s' 'grok --always-approve __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    grok) printf '%s' 'grok --always-approve __MODELFLAG____EFFORTFLAG____BRIEFPOINTER__' ;;
     # Cursor Agent CLI. --trust suppresses the workspace-trust prompt, which
     # --yolo does NOT cover and which would otherwise block every spawn, since
     # each task gets a fresh worktree path cursor has never seen. --yolo is the
@@ -1725,11 +1723,10 @@ launch_template() {
     # inherited CLAUDECODE cannot outrank cursor's own marker in a process that
     # only reads the environment. Cursor exposes no effort flag, so the shared
     # effort axis is deliberately omitted from the task metadata and launch.
-    cursor) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_INVOKED_AS __CURSORBIN__ --trust --yolo __MODELFLAG__--workspace __WORKTREE__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    cursor) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_INVOKED_AS __CURSORBIN__ --trust --yolo __MODELFLAG__--workspace __WORKTREE__ __BRIEFPOINTER__' ;;
     # gemini (Google Gemini CLI): a positional query starts the supervised
-    # interactive session and auto-submits it, so the brief rides the launch
-    # command exactly as it does for claude and grok (verified: a multi-line
-    # brief submitted itself with no extra Enter, gemini-cli 0.58.0).
+    # interactive session and auto-submits it. The query is a fixed pointer to
+    # the task brief, as for claude and grok (verified on gemini-cli 0.58.0).
     # -y (--yolo) auto-approves every tool call, which an unattended crewmate
     # needs; the footer renders ` YOLO Ctrl+Y` while it is on and a WriteFile
     # was verified to land with no approval gate.
@@ -1760,7 +1757,7 @@ launch_template() {
     # is omitted from task metadata and launch, per the shared effort contract.
     # Its turn-end and busy-state signals do NOT ride the launch command:
     # they are project hooks written into the worktree below.
-    gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    gemini) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS GEMINI_CLI_TRUST_WORKSPACE=true GEMINI_CLI_SYSTEM_SETTINGS_PATH=__GEMINISETTINGS__ gemini -y __MODELFLAG____BRIEFPOINTER__' ;;
     # Kimi Code rejects a positional prompt, so it launches bare and receives
     # only an absolute brief pointer after the TUI readiness gate below.
     # Its turn-end signal is a globally configured Stop hook plus a guarded
@@ -1792,8 +1789,8 @@ launch_template() {
     # inherited marker. The clearing stays on the cursor and muse templates as the
     # verified launch behavior their evidence records, not as the only thing
     # standing between a retained marker and a misidentified worker.
-    muse) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS XDG_CONFIG_HOME=__MUSECONFIG__ XDG_DATA_HOME=__MUSEDATA__ MUSE_EXPERIMENTAL_FOREIGN_PERSONAL_CONTEXT_KILL=on __MUSEBIN__ --yolo __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
-    # rovo (Atlassian Rovo CLI): a positional brief is dead-on-arrival - rovo
+    muse) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS XDG_CONFIG_HOME=__MUSECONFIG__ XDG_DATA_HOME=__MUSEDATA__ MUSE_EXPERIMENTAL_FOREIGN_PERSONAL_CONTEXT_KILL=on __MUSEBIN__ --yolo __MODELFLAG____EFFORTFLAG____BRIEFPOINTER__' ;;
+    # rovo (Atlassian Rovo CLI): a positional prompt is dead-on-arrival - rovo
     # loads, never enters a working state, and drops back to an idle shell within
     # about 10-15 seconds (confirmed live four times over a raw PTY and once under
     # real tmux with the exact send-keys shape below). So rovo launches BARE,
@@ -2636,6 +2633,7 @@ fi
 
 BRIEF_DIR_REAL=$(cd "$(dirname "$BRIEF")" && pwd -P)
 BRIEF_REAL="$BRIEF_DIR_REAL/$(basename "$BRIEF")"
+BRIEF_POINTER="Read the brief at $BRIEF_REAL and follow it exactly."
 
 # PROJ_ABS can still carry a symlinked path component (e.g. macOS's /tmp ->
 # /private/tmp) when it came from the ship/scout branch's logical `pwd` above.
@@ -3415,7 +3413,7 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
-# rovo mirrors kimi's launch-then-send shape exactly: a positional brief is
+# rovo mirrors kimi's launch-then-send shape exactly: a positional prompt is
 # dead-on-arrival, so rovo launches bare and takes its brief pointer only after a
 # readiness gate, then a delivery-confirmation gate. Both route their
 # composer-emptiness half through the shared classifier (fm_backend_composer_state)
@@ -4663,14 +4661,13 @@ fi
 "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
-sq_brief=$(shell_quote "$BRIEF")
+sq_brief_pointer=$(shell_quote "$BRIEF_POINTER")
 sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
 sq_piturnend=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-turnend-guard.ts")
 sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-pi-watch.ts")
 sq_ompext=$(shell_quote "$STATE/$ID.omp-ext.ts")
 sq_ompcfg=$(shell_quote "${OMP_WORKER_CFG:-$FM_ROOT/.omp/fm-worker-overlay.yml}")
-sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 sq_worktree=$(shell_quote "$WT")
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
@@ -4683,14 +4680,13 @@ if [ "$HARNESS" = rovo ]; then
   }
   LAUNCH=${LAUNCH//__ROVOCONFIGOVERRIDE__/$ROVOCONFIGOVERRIDE}
 fi
-LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
+LAUNCH=${LAUNCH//__BRIEFPOINTER__/$sq_brief_pointer}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
 LAUNCH=${LAUNCH//__OMPEXT__/$sq_ompext}
 LAUNCH=${LAUNCH//__OMPWORKERCFG__/$sq_ompcfg}
-LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 case "$HARNESS" in
   pi|pi-signed) LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$PI_BIN")"} ;;
   cursor) LAUNCH=${LAUNCH//__CURSORBIN__/"$(shell_quote "$CURSOR_BIN")"} ;;
@@ -4832,7 +4828,7 @@ if [ "$HARNESS" = kimi ]; then
     kimi_spawn_fail "kimi did not show a verified ready signal before brief delivery"
     exit 1
   fi
-  KIMI_POINTER="Read the brief at $BRIEF_REAL and follow it exactly."
+  KIMI_POINTER=$BRIEF_POINTER
   KIMI_SUBMIT_RETRIES=${FM_KIMI_SUBMIT_RETRIES:-3}
   KIMI_SUBMIT_SLEEP=${FM_KIMI_SUBMIT_SLEEP:-${FM_KIMI_POLL_INTERVAL:-0.5}}
   KIMI_SUBMIT_SETTLE=${FM_KIMI_SUBMIT_SETTLE:-0}
@@ -4856,7 +4852,7 @@ if [ "$HARNESS" = rovo ]; then
     rovo_spawn_fail "rovo did not show a verified ready signal before brief delivery in window $T"
     exit 1
   fi
-  ROVO_POINTER="Read the brief at $BRIEF_REAL and follow it exactly."
+  ROVO_POINTER=$BRIEF_POINTER
   ROVO_SUBMIT_RETRIES=${FM_ROVO_SUBMIT_RETRIES:-3}
   ROVO_SUBMIT_SLEEP=${FM_ROVO_SUBMIT_SLEEP:-${FM_ROVO_POLL_INTERVAL:-0.5}}
   ROVO_SUBMIT_SETTLE=${FM_ROVO_SUBMIT_SETTLE:-0}

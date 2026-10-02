@@ -1030,12 +1030,22 @@ test_worker_role_scope() {
     fi
     brief="$home/data/$kind/brief.md"
     assert_no_grep '# Current worker role contract' "$brief" "$kind scaffolded a second owner of the role scope fm-spawn.sh delivers"
+    assert_grep 'Stop processes only by exact PIDs you started; never kill by pattern' "$brief" \
+      "$kind scaffold omitted the process-stop safety rule"
+    assert_grep 'pkill -f' "$brief" "$kind scaffold omitted the pkill example"
+    assert_grep 'killall' "$brief" "$kind scaffold omitted the killall example"
+    assert_grep 'pgrep | xargs kill' "$brief" "$kind scaffold omitted the pgrep pipeline example"
   done
   FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
     "$ROOT/bin/fm-brief.sh" supervisor --secondmate --no-projects >/dev/null || fail "secondmate scaffold failed"
   brief="$home/data/supervisor/brief.md"
   assert_no_grep '# Current worker role contract' "$brief" "secondmate received the worker exception"
   assert_no_grep 'do not adopt the supervisor identity' "$brief" "secondmate received the worker exception"
+  assert_grep 'Stop processes only by exact PIDs you started; never kill by pattern' "$brief" \
+    "secondmate scaffold omitted the process-stop safety rule"
+  assert_grep 'pkill -f' "$brief" "secondmate scaffold omitted the pkill example"
+  assert_grep 'killall' "$brief" "secondmate scaffold omitted the killall example"
+  assert_grep 'pgrep | xargs kill' "$brief" "secondmate scaffold omitted the pgrep pipeline example"
   assert_grep "The local \`AGENTS.md\` is your job description" "$brief" "secondmate lost its supervisor contract"
   assert_grep 'That file is your parent channel' "$brief" "secondmate lost its parent channel"
   pass "fm-brief: scaffolds leave the worker role scope to the launch boundary and keep the secondmate contract"
