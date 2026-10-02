@@ -412,3 +412,67 @@ def test_a_rippled_cut_under_another_rows_item_refuses_before_writing(
     assert "'semantic-late' at record 540..580" in message
     assert getattr(staging, "deletes", 0) == 0
     assert sorted(resolve.names()) == sorted([MASTER, FINAL, STAGING])
+
+
+def _item(row, name, source_in, source_out, record_in, record_out,
+          track_type="video", track_index=1):
+    return {"track_type": track_type, "track_index": track_index,
+            "track_name": row, "name": name,
+            "source_identity": f"file:/media/{name}",
+            "source_in_frame": source_in, "source_out_frame": source_out,
+            "record_in": record_in, "record_out": record_out,
+            "duration": record_out - record_in, "enabled": True,
+            "transform": {}, "composite": {}, "fusion": {}, "color": {},
+            "markers": []}
+
+
+def test_reel_7_as_resolve_reads_it_derives_rippled_cuts():
+    """The live Reel 7 read, 2026-10-02: each cut passage takes its
+    captions with it, and Resolve reads the passage's source out a frame
+    short of its record span (112 frames read as 25,263-25,374). Both
+    once made the closed gap read as a lift and the picture after it as
+    a reorder."""
+    def picture(rows):
+        return [_item("Speakers", name, a, b, r0, r1)
+                for name, a, b, r0, r1 in rows] + [
+                _item("Dialogue", name, a, b, r0, r1, "audio", 1)
+                for name, a, b, r0, r1 in rows]
+
+    before = picture([("Akshita", 22_232, 22_347, 0, 116),
+                      ("Craig", 22_257, 22_693, 116, 553),
+                      ("Craig", 25_263, 25_374, 553, 665),
+                      ("Akshita", 25_557, 25_750, 665, 859),
+                      ("Akshita", 60_745, 60_978, 859, 1_093)]) + [
+        _item("Speakers", "freeze", 0, 18, 1_093, 1_112),
+        _item("Subtitles", "cap-a", 12, 38, 561, 587, track_index=2),
+        _item("Subtitles", "cap-b", 12, 32, 587, 607, track_index=2),
+        _item("Subtitles", "cap-c", 12, 50, 669, 707, track_index=2),
+        _item("Subtitles", "cap-d", 12, 55, 859, 902, track_index=2),
+    ]
+    after = picture([("Akshita", 22_232, 22_347, 0, 116),
+                     ("Craig", 22_257, 22_693, 116, 553),
+                     ("Akshita", 25_557, 25_750, 553, 747)]) + [
+        _item("Speakers", "freeze", 0, 18, 747, 766),
+        _item("Subtitles", "cap-c", 12, 50, 557, 595, track_index=2),
+    ]
+    record = {"id": "reel-7", "timeline": FINAL,
+              "changes": guard.snapshot_diff({"items": before},
+                                             {"items": after}),
+              "before_snapshot": {"items": before},
+              "after_snapshot": {"items": after}}
+
+    edits, uncarried = carry.derive_edits(record, plan_version="plan-v1")
+
+    assert uncarried == []
+    cuts = sorted((edit["row"], edit["name"], edit["ripple"])
+                  for edit in edits if edit["kind"] == "cut")
+    assert cuts == [
+        ("audio:Dialogue", "Akshita", True),
+        ("audio:Dialogue", "Craig", True),
+        ("video:Speakers", "Akshita", True),
+        ("video:Speakers", "Craig", True),
+        ("video:Subtitles", "cap-a", True),
+        ("video:Subtitles", "cap-b", True),
+        ("video:Subtitles", "cap-d", True),
+    ]
+    assert [edit for edit in edits if edit["kind"] == "move"] == []

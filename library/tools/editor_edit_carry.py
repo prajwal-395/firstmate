@@ -218,6 +218,31 @@ def _shift_model(events: list[dict], pairs: list[tuple]) -> None:
             prior += event["amount"]
 
 
+def _nest_events(events: list[dict]) -> list[dict]:
+    """Fold each event that lies inside a wider one into that one.
+
+    A passage cut takes the captions over it with it: on Reel 7 the nine
+    caption cards under Craig 25,263-25,374 and Akshita 60,745-60,979 are
+    removed items too. That is one stretch of TIME leaving the timeline,
+    not ten - counted apart, the shift model expects the items after the
+    passage to move by the caption lengths as well, reads the passage
+    cut as lifted and the picture after it as reordered. An event whose
+    record span lies within another's joins it and takes its ripple.
+    """
+    widest = sorted(events, key=lambda event: (
+        event["start"], -(event["end"] - event["start"])))
+    kept = []
+    for event in widest:
+        container = next((outer for outer in kept
+                          if outer["start"] <= event["start"]
+                          and event["end"] <= outer["end"]), None)
+        if container is None:
+            kept.append(event)
+        else:
+            container["edits"].extend(event["edits"])
+    return kept
+
+
 def _explained(events: list[dict], frame: int) -> int:
     return -sum(event["amount"] for event in events
                 if event["ripple"] and event["end"] <= frame)
@@ -336,8 +361,18 @@ def derive_edits(record: dict, *, plan_version=None) -> tuple[list, list]:
                     "record_out": old.get("record_out"), "present": True},
             after={"present": False})
         edits.append(edit)
-        event_for(old, old["source_out_frame"] - old["source_in_frame"], edit)
+        # The TIME a cut removes is its record span. Resolve's source-out
+        # getter can read a frame short of it (Reel 7: Craig 25,263-25,374
+        # read 111 over a 112-frame span), and a ripple amount a frame off
+        # reads the closed gap as a lift and the picture after as a move.
+        record_in, record_out = old.get("record_in"), old.get("record_out")
+        removed = (record_out - record_in
+                   if isinstance(record_in, int)
+                   and isinstance(record_out, int)
+                   else old["source_out_frame"] - old["source_in_frame"])
+        event_for(old, removed, edit)
 
+    events = _nest_events(events)
     pairs = _pairs(record)
     _shift_model(events, pairs)
     for event in events:
