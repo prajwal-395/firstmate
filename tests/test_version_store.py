@@ -252,6 +252,27 @@ def test_store_never_commits_a_binary(tmp_path):
         hashlib.sha256(mov).hexdigest()
 
 
+def test_manifest_skips_ignored_renders_beside_step_records(tmp_path):
+    """A render in a step directory is ignored, so it is no versioned binary.
+
+    `pipeline_output/steps/*/` is globbed whole, so every render in it
+    is a candidate until `git check-ignore` filters it. That call passed
+    `--stdin` beside pathspecs, which git refuses, so nothing was ever
+    filtered - and on geo-podcast the argv overflowed (E2BIG) and the
+    commit raised.
+    """
+    _write(tmp_path, "pipeline_output/steps/4_05_render_subtitles/output.json",
+           "{}\n")
+    render = "pipeline_output/steps/4_05_render_subtitles/seg_0001.mov"
+    _write(tmp_path, render, b"\x00\x00\x00\x18ftypqt  " + b"\x00" * 100)
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+
+    result = bvc.commit_build(str(tmp_path), message="first\n")
+
+    assert result["committed"] is True
+    assert render not in {e["path"] for e in result["binaries_recorded"]}
+
+
 def test_legacy_tracked_binary_leaves_the_repo_but_stays_on_disk(tmp_path):
     """A binary tracked before the text-only rule is untracked, not kept.
 
@@ -287,6 +308,26 @@ def test_legacy_tracked_binary_leaves_the_repo_but_stays_on_disk(tmp_path):
         (tmp_path / "pipeline_output" / "provenance"
          / "binary_manifest.json").read_text(encoding="utf-8"))
     assert manifest["files"][0]["sha256"] == hashlib.sha256(new).hexdigest()
+
+
+def test_modified_jsonl_log_stays_tracked(tmp_path):
+    """A JSON Lines log is text, so a modification is committed, not uncached.
+
+    Uncaching it records a deletion on the branch, and merging that
+    branch into one that still tracks the log deletes the live file -
+    `pipeline_output/review/reel_phase_log.jsonl` on geo-podcast.
+    """
+    log = "pipeline_output/review/reel_phase_log.jsonl"
+    _write(tmp_path, log, '{"phase": 1}\n')
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+    assert bvc.commit_build(str(tmp_path), message="first\n")["committed"]
+    _write(tmp_path, log, '{"phase": 1}\n{"phase": 2}\n')
+
+    result = bvc.commit_build(str(tmp_path), message="second\n")
+
+    assert result["committed"] is True
+    assert log in set(_git(tmp_path, "ls-files").splitlines())
+    assert _git(tmp_path, "show", f"HEAD:{log}").count("phase") == 2
 
 
 def test_verify_binary_manifest_checks_hashes(tmp_path):

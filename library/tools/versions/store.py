@@ -196,7 +196,7 @@ def gitignore_body() -> str:
 # the content must sniff as text.  Anything else on a versioned
 # path is a binary and goes to the manifest, never the repo.
 TEXT_SUFFIXES = frozenset({
-    ".json", ".md", ".yaml", ".yml", ".otio", ".comp", ".txt",
+    ".json", ".jsonl", ".md", ".yaml", ".yml", ".otio", ".comp", ".txt",
 })
 
 # Committed, on the allow-list via /pipeline_output/provenance/**.
@@ -258,9 +258,18 @@ def _versioned_files(root: Path) -> list[Path]:
                   if ".git" not in p.relative_to(root).parts}
     if not candidates:
         return []
-    proc = git(str(root), "check-ignore", "--stdin", "--",
-               *[str(p.relative_to(root)) for p in sorted(candidates)])
-    ignored = set(proc.stdout.splitlines()) if proc.stdout else set()
+    # The paths go over stdin, NUL-separated: git refuses `--stdin`
+    # beside pathspec arguments, and a live project's candidates
+    # (every file under every step directory) overflow argv anyway.
+    rels = [str(p.relative_to(root)) for p in sorted(candidates)]
+    proc = git(str(root), "check-ignore", "-z", "--stdin",
+               input="\0".join(rels) + "\0")
+    # 0: some ignored, 1: none ignored; anything else is a failure,
+    # and an unfiltered set would hash every render as "versioned".
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(
+            f"git check-ignore failed: {proc.stderr.strip()[-400:]}")
+    ignored = {p for p in proc.stdout.split("\0") if p}
     return sorted(
         p for p in candidates
         if str(p.relative_to(root)) not in ignored)
@@ -369,7 +378,12 @@ def stage_for_commit(project_folder: str) -> dict:
     root = Path(project_folder)
     report: dict = {"staged": True, "binaries_recorded": [],
                     "untracked": []}
-    entries = binary_manifest_entries(project_folder)
+    try:
+        entries = binary_manifest_entries(project_folder)
+    except RuntimeError as exc:
+        report["staged"] = False
+        report["reason"] = str(exc)
+        return report
     write_binary_manifest(project_folder, entries)
     report["binaries_recorded"] = entries
     add = git(project_folder, "add", "-A")
@@ -401,7 +415,8 @@ def stage_for_commit(project_folder: str) -> dict:
     return report
 
 
-def git(project_folder, *args: str) -> subprocess.CompletedProcess:
+def git(project_folder, *args: str,
+        input: str | None = None) -> subprocess.CompletedProcess:
     """Run git in the project's store. The one git call of the version model.
 
     Never raises on a git failure: callers judge `returncode`, because a
@@ -410,6 +425,7 @@ def git(project_folder, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", *args],
         cwd=str(project_folder),
+        input=input,
         capture_output=True,
         text=True,
         encoding="utf-8",
