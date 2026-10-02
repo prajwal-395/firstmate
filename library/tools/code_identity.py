@@ -150,6 +150,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/analysis/vision_pipeline_v3.py",
         # The model run is serialized against other local heavy work.
         "library/tools/heavy_work_lock.py",
+        # Imported by heavy_work_lock: admits it by resource demand.
+        "library/tools/resource_scheduler.py",
         # Its measurement imports: soft-picture ranges and the steadiness
         # reading both land in the cached profile.
         "library/tools/analysis/picture_quality.py",

@@ -3021,7 +3021,7 @@ class _LazyAnalyzer:
         return False
 
 
-@heavy_work_locked("Gemma video analysis")
+@heavy_work_locked("Gemma video analysis", "local_vlm")
 def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                  harness=None, project_folder=None):
     """Run the v3 vision pipeline on a list of clip paths.

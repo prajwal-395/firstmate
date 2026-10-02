@@ -12644,7 +12644,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # heavy-work lock second. A Resolve waiter must not reserve
             # heavy work while it queues behind another lane.
             with resolve_lease(f"place {name}", exclusive=True) as _lease, \
-                    heavy_work_lock(f"reel placement {name}"):
+                    heavy_work_lock(f"reel placement {name}",
+                                    "resolve_placement"):
                 # Lease-contention measurement: one `wait` line per
                 # placement acquisition, ALWAYS including the
                 # uncontended ones - the fraction that contended is the

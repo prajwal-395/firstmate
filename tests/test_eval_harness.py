@@ -862,11 +862,13 @@ def test_heavy_work_lock_records_owner_and_releases_by_removing_directory(
     monkeypatch.setattr(heavy_work_lock, "HEAVY_LOCK_DIR", lock_dir)
 
     eval_harness.take_heavy_lock("task-123 resolve render")
-    owner = json.loads((lock_dir / "owner").read_text(encoding="utf-8"))
-    assert owner["owner"] == "task-123 resolve render"
-    assert owner["token"]
+    jobs = heavy_work_lock._scheduler().jobs()
+    assert [(job["owner"], job["state"]) for job in jobs] == [
+        ("task-123 resolve render", "running")]
+    assert lock_dir.exists()
 
     eval_harness.release_heavy_lock()
+    assert heavy_work_lock._scheduler().jobs() == []
     assert not lock_dir.exists()
 
 

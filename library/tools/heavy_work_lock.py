@@ -1,166 +1,106 @@
-"""Shared machine lock for work that competes for local CPU, memory or GPU.
+"""Admission to the machine's heavy work, through the resource scheduler.
 
-The owner file carries a random token in ``VEP_HEAVY_WORK_OWNER``. Child
-processes inherit it and can re-enter the lock without waiting on their own
-parent. Lock directories are never reclaimed automatically: a waiter will
-name the recorded owner and wait rather than risk deleting a live owner's
-lock.
+A heavy section names the PROFILE of work it is (`resource_scheduler.
+profiles()`), and `library/tools/resource_scheduler.py` admits it while
+every resource stays within capacity: sections that can coexist do, and
+the rest queue. A section that names no profile demands the whole
+machine (`machine`), which is the old global mutex exactly.
 
-When an operation needs both this lock and Resolve's instance lease, it
-acquires the Resolve lease first and this lock second. Waiting on Resolve
-while holding the machine-wide heavy-work lock would block unrelated heavy
-work and could deadlock a caller that takes them in the opposite order.
+The job's token is carried in ``VEP_HEAVY_WORK_OWNER``. Child processes
+inherit it and re-enter without waiting on their own parent, as does a
+nested section in the same process - but only for a demand the held
+grant already covers. A nested demand it does not cover RAISES: growing
+a grant while holding one is how two jobs deadlock.
+
+When an operation needs both this and Resolve's instance lease, it
+acquires the Resolve lease first and this second. Waiting on Resolve
+while holding machine resources would block unrelated heavy work and
+could deadlock a caller that takes them in the opposite order.
 """
 
 from __future__ import annotations
 
 import functools
-import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import threading
-import time
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator, TypeVar
 
+from library.tools import resource_scheduler
+
 
 LOCK_DIR_ENV = "VEP_HEAVY_WORK_LOCK_DIR"
-"""Overrides where the lock lives. The test suite points it at a private
-directory (tests/conftest.py) so a mocked build never queues behind the
-machine's real heavy work; nothing else sets it."""
+"""Overrides where the scheduler lives: its store sits beside this old
+lock directory, which it holds while any job runs (the bridge in
+`resource_scheduler`). The test suite points it at a private directory
+(tests/conftest.py) so a mocked build never queues behind the machine's
+real heavy work; nothing else sets it."""
 HEAVY_LOCK_DIR = Path(
     os.environ.get(LOCK_DIR_ENV)
     or Path.home() / ".local" / "share" / "vep" / "heavy-work.lock")
-OWNER_FILE = "owner"
 OWNER_ENV = "VEP_HEAVY_WORK_OWNER"
-POLL_SECONDS = 1.0
+MACHINE = "machine"
 
 _state_guard = threading.Lock()
 _held_state: dict | None = None
 _F = TypeVar("_F", bound=Callable)
 
 
-def _read_owner() -> dict:
-    try:
-        raw = (HEAVY_LOCK_DIR / OWNER_FILE).read_text(encoding="utf-8")
-    except OSError:
-        return {}
-    try:
-        value = json.loads(raw)
-    except ValueError:
-        # Read the original eval_harness format while an older lane still
-        # holds the machine lock.
-        return {"owner": raw.strip()} if raw.strip() else {}
-    return value if isinstance(value, dict) else {}
+def _scheduler() -> resource_scheduler.Scheduler:
+    return resource_scheduler.Scheduler(HEAVY_LOCK_DIR)
 
 
-def _owner_label(owner: dict) -> str:
-    if not owner:
-        return "unknown owner"
-    label = str(owner.get("owner") or "unknown owner")
-    pid = owner.get("pid")
-    host = owner.get("host")
-    if pid is not None:
-        label += f" (pid {pid}"
-        if host:
-            label += f"@{host}"
-        label += ")"
-    return label
+class GrantTooSmall(RuntimeError):
+    """A nested section asked for more than the grant it runs under."""
 
 
-def _current_process_owns_lock() -> bool:
+def _inherited_grant() -> dict | None:
     token = os.environ.get(OWNER_ENV)
-    return bool(token and _read_owner().get("token") == token)
+    return _scheduler().running_demand(token) if token else None
 
 
-def take_heavy_lock(owner: str) -> None:
-    """Acquire the machine lock, re-entering when this owner already holds it."""
+def owns(profile: str = MACHINE) -> bool:
+    """Whether this process already runs under a grant covering `profile`."""
+    held = _inherited_grant()
+    return held is not None and resource_scheduler.covers(
+        held, resource_scheduler.demand_for(profile))
+
+
+def take_heavy_lock(owner: str, profile: str = MACHINE) -> None:
+    """Acquire `profile`'s resources, re-entering a grant that covers them."""
     global _held_state
+    demand = resource_scheduler.demand_for(profile)
     with _state_guard:
         if _held_state is not None:
+            if not resource_scheduler.covers(_held_state["demand"], demand):
+                raise GrantTooSmall(
+                    f"heavy-work: {owner!r} needs {demand} inside a grant "
+                    f"of {_held_state['demand']}; take the larger profile "
+                    "at the outer section")
             _held_state["depth"] += 1
             return
 
-        inherited_token = os.environ.get(OWNER_ENV)
-        if inherited_token and _read_owner().get("token") == inherited_token:
-            _held_state = {
-                "depth": 1,
-                "token": inherited_token,
-                "owned": False,
-                "previous_env": inherited_token,
-            }
+        inherited = os.environ.get(OWNER_ENV)
+        held = _inherited_grant()
+        if held is not None:
+            if not resource_scheduler.covers(held, demand):
+                raise GrantTooSmall(
+                    f"heavy-work: {owner!r} needs {demand} inside an "
+                    f"inherited grant of {held}; take the larger profile "
+                    "in the parent")
+            _held_state = {"depth": 1, "token": inherited, "owned": False,
+                           "demand": held, "previous_env": inherited}
             return
 
-        HEAVY_LOCK_DIR.parent.mkdir(parents=True, exist_ok=True)
-        announced = False
-        ownerless_since = None
-        while True:
-            try:
-                HEAVY_LOCK_DIR.mkdir(exist_ok=False)
-                break
-            except FileExistsError:
-                current = _read_owner()
-                if current:
-                    if not announced:
-                        print("heavy-work: waiting for lock held by "
-                              f"{_owner_label(current)}", flush=True)
-                        announced = True
-                    time.sleep(POLL_SECONDS)
-                else:
-                    # A newly-created lock can briefly have no owner file
-                    # while its owner publishes the record. Never remove it.
-                    if ownerless_since is None:
-                        ownerless_since = time.monotonic()
-                    elif (not announced and time.monotonic()
-                          - ownerless_since >= POLL_SECONDS):
-                        print("heavy-work: waiting for lock held by "
-                              "unknown owner (owner file missing)", flush=True)
-                        announced = True
-                    time.sleep(0.05)
-
-        token = uuid.uuid4().hex
-        previous_env = os.environ.get(OWNER_ENV)
-        owner_record = {
-            "owner": owner,
-            "token": token,
-            "pid": os.getpid(),
-            "host": socket.gethostname(),
-        }
-        owner_path = HEAVY_LOCK_DIR / OWNER_FILE
-        temp_path = HEAVY_LOCK_DIR / f".{OWNER_FILE}.{token}.tmp"
-        _held_state = {
-            "depth": 1,
-            "token": token,
-            "owned": True,
-            "previous_env": previous_env,
-        }
-        try:
-            temp_path.write_text(json.dumps(owner_record) + "\n",
-                                 encoding="utf-8")
-            os.replace(temp_path, owner_path)
-            os.environ[OWNER_ENV] = token
-        except BaseException:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            try:
-                if _read_owner().get("token") == token:
-                    owner_path.unlink()
-                HEAVY_LOCK_DIR.rmdir()
-            except OSError:
-                pass
-            if previous_env is None:
-                os.environ.pop(OWNER_ENV, None)
-            else:
-                os.environ[OWNER_ENV] = previous_env
-            _held_state = None
-            raise
+        token = _scheduler().acquire(
+            owner, demand, announce=lambda line: print(line, flush=True))
+        _held_state = {"depth": 1, "token": token, "owned": True,
+                       "demand": demand, "previous_env": inherited}
+        os.environ[OWNER_ENV] = token
 
 
 def release_heavy_lock() -> None:
@@ -174,19 +114,9 @@ def release_heavy_lock() -> None:
         held["depth"] -= 1
         if held["depth"]:
             return
-
         try:
             if held["owned"]:
-                current = _read_owner()
-                if current.get("token") != held["token"]:
-                    raise RuntimeError(
-                        "heavy-work: lock owner changed before release; "
-                        "refusing to remove another owner's lock")
-                (HEAVY_LOCK_DIR / OWNER_FILE).unlink()
-                HEAVY_LOCK_DIR.rmdir()
-        except OSError as exc:
-            raise RuntimeError(
-                f"heavy-work: could not release lock: {exc}") from exc
+                _scheduler().release(held["token"])
         finally:
             previous_env = held["previous_env"]
             if previous_env is None:
@@ -197,28 +127,29 @@ def release_heavy_lock() -> None:
 
 
 @contextmanager
-def heavy_work_lock(owner: str) -> Iterator[None]:
+def heavy_work_lock(owner: str, profile: str = MACHINE) -> Iterator[None]:
     """Context manager for one heavy-work section."""
-    take_heavy_lock(owner)
+    take_heavy_lock(owner, profile)
     try:
         yield
     finally:
         release_heavy_lock()
 
 
-def heavy_work_locked(owner: str) -> Callable[[_F], _F]:
+def heavy_work_locked(owner: str, profile: str = MACHINE
+                      ) -> Callable[[_F], _F]:
     """Decorate an entry point whose body is one locally heavy section."""
     def decorate(function: _F) -> _F:
         @functools.wraps(function)
         def wrapped(*args, **kwargs):
-            with heavy_work_lock(owner):
+            with heavy_work_lock(owner, profile):
                 return function(*args, **kwargs)
         return wrapped  # type: ignore[return-value]
     return decorate
 
 
-def _run_locked(owner: str, command: list[str]) -> int:
-    """Run a child under the lock and forward termination signals to it."""
+def _run_locked(owner: str, profile: str, command: list[str]) -> int:
+    """Run a child under the grant and forward termination signals to it."""
     if not command:
         raise ValueError("heavy-work: run requires a command after --")
 
@@ -242,7 +173,7 @@ def _run_locked(owner: str, command: list[str]) -> int:
     for sig in watched:
         signal.signal(sig, forward)
     try:
-        with heavy_work_lock(owner):
+        with heavy_work_lock(owner, profile):
             starting_child = True
             child = subprocess.Popen(command, start_new_session=True)
             starting_child = False
@@ -261,24 +192,37 @@ def _run_locked(owner: str, command: list[str]) -> int:
     return return_code
 
 
+def _option(args: list[str], name: str, default: str | None) -> str | None:
+    if name not in args:
+        return default
+    return args[args.index(name) + 1]
+
+
+USAGE = ("usage: python -m library.tools.heavy_work_lock "
+         "owns [--profile NAME] | jobs | "
+         "run --owner NAME [--profile NAME] -- COMMAND [ARG ...]")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args == ["owns"]:
-        return 0 if _current_process_owns_lock() else 1
-    if args and args[0] == "run":
+    if args[:1] == ["owns"]:
+        return 0 if owns(_option(args, "--profile", MACHINE)) else 1
+    if args == ["jobs"]:
+        for job in _scheduler().jobs():
+            print(f"{job['state']:8} pid {job['pid']:>6}  "
+                  f"{job['owner']}  {job['demand']}")
+        return 0
+    if args[:1] == ["run"] and "--" in args:
+        separator = args.index("--")
+        head = args[:separator]
         try:
-            owner_index = args.index("--owner")
-            owner = args[owner_index + 1]
-            separator = args.index("--", owner_index + 2)
-        except (ValueError, IndexError):
-            raise SystemExit(
-                "usage: python -m library.tools.heavy_work_lock run "
-                "--owner NAME -- COMMAND [ARG ...]")
-        return _run_locked(owner, args[separator + 1:])
-    raise SystemExit(
-        "usage: python -m library.tools.heavy_work_lock owns | "
-        "run --owner NAME -- COMMAND [ARG ...]")
-
+            owner = _option(head, "--owner", None)
+            profile = _option(head, "--profile", MACHINE)
+        except IndexError:
+            raise SystemExit(USAGE)
+        if owner:
+            return _run_locked(owner, profile, args[separator + 1:])
+    raise SystemExit(USAGE)
 
 if __name__ == "__main__":
     raise SystemExit(main())
