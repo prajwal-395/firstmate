@@ -10,8 +10,7 @@ An element must be BORN with an alpha channel - rendered from a Remotion
 composition, as every caption (``library/tools/overlay_carriage.py``) and
 motion graphic already is.  A keyer cannot recover an authored alpha at
 any similarity setting, and choosing a key colour, similarity and blend
-is taste with no producer here (AGENTS.md 10.5,
-``tests/test_no_creative_floors.py``).  So an element whose picture
+is taste with no producer here (AGENTS.md 10.5). So an element whose picture
 carries no alpha plane is refused by name (:class:`ElementHasNoAlpha`,
 :data:`ALPHA_IS_REQUIRED_NOT_KEYED`) rather than composited as an opaque
 rectangle; one that draws nothing is :class:`ElementDrawsNothing`, and

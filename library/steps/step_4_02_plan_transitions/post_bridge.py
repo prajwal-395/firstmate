@@ -1267,8 +1267,9 @@ def main():
     # How many transitions a piece gets is a creative decision. An empty
     # plan is a legitimate answer: `transition_vocabulary.CUT_TYPES` draw
     # nothing, so an edit of nothing but hard cuts is the absence of
-    # decoration (AGENTS.md 10.4), not a defect. Guarded by
-    # tests/test_no_creative_floors.py.
+    # decoration (AGENTS.md 10.4), not a defect. The capability's
+    # creative policy and shared bridge scan guard against reintroduced
+    # defaults; empty-plan behavior is covered by transition scenarios.
 
     spine = data.get("timed_spine", {})
     music = data.get("music_selection", {})

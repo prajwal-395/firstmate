@@ -263,6 +263,36 @@ def test_only_one_cutaway_reaches_a_block():
     assert len(out["b_roll_assignments"]) == 1
 
 
+def test_an_uncovered_music_block_is_refused_by_position():
+    payload = {
+        "clip_catalog": [{
+            "clip_id": "clip_001", "source_file": "/tmp/a.mov",
+            "duration_seconds": 30.0, "width": 1080, "height": 1920,
+        }],
+        "semantic_analysis_documents": [],
+        "temporal_event_indices": [],
+        "timed_spine": {"structure": [{
+            "position": 1, "block_type": "music", "clip_id": None,
+            "timeline_start": 0.0, "timeline_end": 4.0,
+        }]},
+        "broll_creative": [],
+        "b_roll_interjections": [],
+    }
+    script = os.path.join(
+        REPO_ROOT, "library", "steps", "step_3_02_select_broll",
+        "post_bridge.py",
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = REPO_ROOT + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, script], input=json.dumps(payload),
+        capture_output=True, text=True, encoding="utf-8", cwd=REPO_ROOT,
+        env=env,
+    )
+    assert proc.returncode != 0, "an uncovered music block passed the post-bridge"
+    assert "1" in (proc.stdout + proc.stderr), "the refusal names no block position"
+
+
 def test_a_needs_conform_from_the_model_is_refused():
     """The handoff tells the model not to answer `needs_conform` - the
     bridge recomputes it from the catalog on every assignment. A model

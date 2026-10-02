@@ -6,7 +6,7 @@ and step-hood was firstmate's over-correction of the real complaint, which
 was that the judgement circumvented the pipeline (no model was ever
 reached). Step-hood is currently what forces an actual invocation with a
 recorded prompt, and what makes the three guards reach it - craft_role's
-role plumbing, test_no_creative_floors' derived roster, and
+role plumbing, creative_floors' declaration check, and
 direction_contradiction's coverage. A brief that nothing invokes is a
 document, and a document a worker reads and then acts on in-turn is
 exactly the failure diagnosed in findings section 15.
@@ -18,7 +18,7 @@ not a second mechanism. The three guards reconcile against the declared
 task rather than a step id:
 
 * the role is PREPENDED to the handoff by the shared renderer;
-* the floors gate reads the task's prompt (and a task whose role or
+* the runtime floors gate reads the task's prompt (and a task whose role or
   handoff demands a count is refused at declaration);
 * a task that takes the direction with declared evidence gets the
   contradiction field; every invoked task gets the undetermined field.
@@ -213,4 +213,3 @@ def test_a_task_with_direction_and_evidence_gets_the_flag_field(
 
 
 # ── The declaration round-trips through the project config ─────────────
-

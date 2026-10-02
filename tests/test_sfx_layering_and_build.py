@@ -114,6 +114,20 @@ def test_two_sounds_on_one_block_survive_as_two_placements(sfx_library):
     assert sorted(s["volume_db"] for s in on_block_one) == [-14.0, -8.0]
 
 
+def test_moments_planned_on_different_blocks_cannot_collapse_to_one_position():
+    from library.steps.step_4_04_plan_sfx.post_bridge import (
+        _assert_sfx_distributed,
+    )
+
+    with pytest.raises(ValueError, match="collapse"):
+        _assert_sfx_distributed([
+            {"label": "sfx_001", "timeline_in": 6.0,
+             "spine_block_position": 1},
+            {"label": "sfx_002", "timeline_in": 6.0,
+             "spine_block_position": 4},
+        ])
+
+
 def test_a_swelling_sound_ends_on_the_peak_when_the_block_allows_it(
         sfx_library):
     payload = _payload([
@@ -140,5 +154,4 @@ def test_a_punchy_sound_is_anchored_by_its_start_instead(sfx_library):
     entry = placed[0]
     assert entry["sfx_envelope"] == "punchy"
     assert entry["timeline_in"] == pytest.approx(0.2, abs=0.05)
-
 

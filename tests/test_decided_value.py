@@ -22,8 +22,8 @@ What is pinned here:
   is refused.
 
 The route to the model (schema appender, split-out answer, the
-post-bridge hand-off) is pinned in tests/test_no_creative_floors.py's
-shape-4 sweep, which derives from the same registry.
+post-bridge hand-off) is exercised by the scenarios below; creative
+quantity ownership is declared separately on the capability registry.
 """
 
 import pytest

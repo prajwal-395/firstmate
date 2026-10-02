@@ -576,7 +576,7 @@ Detail: `library/tools/decided_value.py`. [why](docs/CREATIVE_VALUE_DECISION.md)
 - Dead code that states taste is removed, not left.
 
 **There are NO creative floors, and there must not be again.**
-Detail: `tests/test_no_creative_floors.py`. [why](docs/RULE_EVIDENCE.md#no-creative-floors)
+Detail: `library/tools/creative_floors.py`. [why](docs/RULE_EVIDENCE.md#no-creative-floors)
 
 **Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**
 [why](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)

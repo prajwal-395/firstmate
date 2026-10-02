@@ -14,10 +14,70 @@ one state, two run sets, opposite verdicts. Two tests asserting each
 outcome alone would both keep passing if the distinction collapsed.
 """
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from library.tools import operations, requirements
+
+
+def test_a_refusal_names_a_producer():
+    req = SimpleNamespace(name="transcript", produced_by="temporal_index")
+    result = operations.OperationResult(
+        operation="subtitles.render",
+        legacy_node="render_subtitles",
+        scope=operations.scope_mod.project(),
+        status=operations.REFUSED,
+        unsatisfied=(req,),
+    )
+    assert result.refused and not result.completed
+    reason = result.refusal_reason()
+    assert "transcript" in reason and "temporal_index" in reason
+
+
+def test_a_refusal_must_say_why():
+    with pytest.raises(operations.OperationError):
+        operations.OperationResult(
+            operation="x",
+            legacy_node="render_subtitles",
+            scope=operations.scope_mod.project(),
+            status=operations.REFUSED,
+        )
+
+
+def test_produced_nothing_separates_empty_hollow_and_refused_results():
+    scope = operations.scope_mod.project()
+    common = dict(operation="o", legacy_node="render_subtitles", scope=scope)
+    real = operations.OperationResult(
+        status=operations.COMPLETED, payload={"segments": [1]}, **common
+    )
+    empty = operations.OperationResult(
+        status=operations.COMPLETED, payload={}, **common
+    )
+    hollow = operations.OperationResult(
+        status=operations.COMPLETED,
+        payload={"segments": []},
+        hollow=("segments",),
+        **common,
+    )
+    refused = operations.OperationResult(
+        status=operations.REFUSED, error="no transcript", **common
+    )
+
+    assert real.produced_nothing is False
+    assert empty.produced_nothing is True
+    assert hollow.produced_nothing is True
+    assert refused.produced_nothing is True
+
+
+def test_an_unknown_operation_status_is_refused():
+    with pytest.raises(operations.OperationError):
+        operations.OperationResult(
+            operation="o",
+            legacy_node="render_subtitles",
+            scope=operations.scope_mod.project(),
+            status="maybe",
+        )
 
 
 def _word(text, start, end):
@@ -687,7 +747,5 @@ def test_set_refuses_a_bare_word_rather_than_guessing_it_is_a_string():
     with pytest.raises(operations.OperationError) as exc:
         operations.parse_overrides(["stored_plan=not json"])
     assert "not valid JSON" in str(exc.value)
-
-
 
 

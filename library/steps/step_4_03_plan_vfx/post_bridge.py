@@ -149,8 +149,9 @@ DRIFT_EFFECTS = ("slow_zoom_in", "slow_zoom_out")
 # to every speech block over three seconds that the plan had deliberately
 # left alone, "because the style spec requires subtle motion on all A-roll
 # clips >3s". That is a creative floor, removed by the captain's ruling of
-# 2026-08-20, and it is the one that survived because
-# `tests/test_no_creative_floors.py` guarded only the PROMPTS.
+# 2026-08-20, and it is the one that survived because the old creative
+# guard inspected prompts but not this bridge. The capability policy now
+# includes the bridge in the shared source check.
 # See docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan.
 
 

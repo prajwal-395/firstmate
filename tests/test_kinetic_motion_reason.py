@@ -12,8 +12,8 @@ The mechanical half is in step 4.03's post-bridge: a drift entry
 hold) whose `rationale` is missing or blank is DROPPED with reason
 `no_stated_reason`, recorded in `planning_basis` like every other drop.
 The engine half already holds: `inject_default_ken_burns` is gone and
-nothing adds motion the plan did not ask for
-(tests/test_no_creative_floors.py).
+the shared static checker watches creative-policy bridge code for its
+reintroduction.
 
 Scope is deliberate: the ruling is about motion on static shots, not
 about emphasis effects. A `zoom_emphasis` on material anchors is a

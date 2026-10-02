@@ -24,7 +24,7 @@ def _load_selector():
 
     An import-time `sys.path.insert` of `scripts/` is process-global:
     collection order would decide what a later bare name binds to
-    (`tests/test_no_syspath_shadowing.py`). The agents-md gate loads
+    (`tests/test_static_check.py`). The agents-md gate loads
     its scripts the same way (`tests/test_agents_md_gates.py`).
     """
     spec = importlib.util.spec_from_file_location(

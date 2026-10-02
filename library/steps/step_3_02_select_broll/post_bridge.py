@@ -592,7 +592,8 @@ def main():
     # removed outright, not reconciled and not downgraded to a warning.
     # The accepted consequence: a thin edit is no longer caught
     # mechanically. Do not reintroduce an equivalent check here or
-    # elsewhere. Guarded by tests/test_no_creative_floors.py.
+    # elsewhere. Sparse and uncovered-block behavior is covered by
+    # tests/test_select_broll_bridge.py.
     #
     # What an empty plan must still not do is leave a block with no V1
     # picture uncovered: with no A-roll underneath, the cutaway IS the

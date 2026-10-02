@@ -17,10 +17,9 @@ This file holds the wiring together in both directions:
     reads `unjudged`, and the mild end of the scale is not borrowed for
     it (AGENTS.md 10.5).
 
-The bridge is DRIVEN rather than modelled, for the reason
-`tests/test_no_creative_floors.py` drives the real bridges: a table this
-step builds in code is exactly where the last two defects of this class
-hid.
+The bridge is DRIVEN rather than modelled: a table this step builds in
+code is exactly where the last two defects of this class hid. This test
+drives the bridge subprocess and asserts its observable output.
 """
 
 import json
@@ -89,7 +88,7 @@ CUT_DECISIONS = [
 
 def run_bridge(payload):
     # The runner launches a bridge with the repo importable, the same way
-    # tests/test_no_creative_floors.py drives the real ones.
+    # production does.
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
     proc = subprocess.run(

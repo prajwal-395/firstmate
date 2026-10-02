@@ -73,6 +73,27 @@ MODEL = "model"
 LIGHT = "light"
 COST_CLASSES = (HEAVY, MODEL, LIGHT)
 
+MODEL_DECIDES_QUANTITY = "model_decides_quantity"
+CREATIVE_POLICIES = {
+    # These capabilities carry a creative plan or decision whose count is
+    # the model/editor's. Deterministic bridges may validate and resolve
+    # a sparse answer, but may not complete it to an engine-chosen quota.
+    "speech.enrich": MODEL_DECIDES_QUANTITY,
+    "spine.mesh": MODEL_DECIDES_QUANTITY,
+    "broll.resolve": MODEL_DECIDES_QUANTITY,
+    "broll.splice": MODEL_DECIDES_QUANTITY,
+    "reel.select": MODEL_DECIDES_QUANTITY,
+    "transitions.resolve": MODEL_DECIDES_QUANTITY,
+    "transitions.splice": MODEL_DECIDES_QUANTITY,
+    "vfx.resolve": MODEL_DECIDES_QUANTITY,
+    "vfx.splice": MODEL_DECIDES_QUANTITY,
+    "sfx.resolve": MODEL_DECIDES_QUANTITY,
+    "sfx.splice": MODEL_DECIDES_QUANTITY,
+    "motion_graphics.render": MODEL_DECIDES_QUANTITY,
+    "color_grade.resolve": MODEL_DECIDES_QUANTITY,
+    "audio_mix.resolve": MODEL_DECIDES_QUANTITY,
+}
+
 HEAVY_LOCK_SITES: dict = {
     # capability id -> the `module:function` lock sites it runs through.
     "semantics.analyse": (
@@ -154,6 +175,8 @@ class CapabilitySpec:
     """HEAVY | MODEL | LIGHT - the module docstring's cost rule."""
     cost_basis: str = ""
     """The evidence `cost_class` was decided from."""
+    creative_policy: str | None = None
+    """Machine-readable owner of creative choice cardinality, when any."""
 
 
 def _cost_of(capability_id: str, needs_model_answer: bool) -> tuple:
@@ -216,6 +239,7 @@ def spec_of(op) -> CapabilitySpec:
                           process=processes.process_of(node) or ""),
         cost_class=cost_class,
         cost_basis=cost_basis,
+        creative_policy=CREATIVE_POLICIES.get(op.name),
     )
 
 
@@ -445,6 +469,23 @@ def problems(registry=None) -> list:
         elif op.effect and excused:
             out.append(f"{op.name}: EMPTY_EFFECT_REASONS excuses an empty "
                        f"effect, but it produces {len(op.effect)}")
+
+    valid_creative_policies = {MODEL_DECIDES_QUANTITY}
+    for capability_id, policy in CREATIVE_POLICIES.items():
+        if policy not in valid_creative_policies:
+            out.append(f"{capability_id}: unknown creative policy {policy!r}")
+            continue
+        op = next((item for item in registry if item.name == capability_id), None)
+        if op is None:
+            out.append(f"creative policy names unknown capability {capability_id!r}")
+            continue
+        needs_model_answer = op.is_prompt or (
+            not op.caller_supplied and bool(op.missing_model_answer({}))
+        )
+        if not needs_model_answer:
+            out.append(
+                f"{capability_id}: {policy} requires a model-reaching capability"
+            )
 
     for name in operations.EMPTY_EFFECT_REASONS:
         if name not in seen:

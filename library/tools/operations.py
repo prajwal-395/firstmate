@@ -7,8 +7,8 @@ code.  It owns no logic.**
 
 `Operation.run` POINTS AT the step's own function.  It never wraps it,
 never reimplements it, and never adds a rule the step does not already
-have.  `tests/test_operations_add_no_second_implementation.py` enforces
-that by resolving every `run` back to the file it is defined in and
+have.  `library/tools/static_check.py` enforces that by resolving every
+`run` back to the file it is defined in and
 refusing anything that is not the owning step's own body, or a
 `library/tools/` module that step already imports.
 
@@ -392,7 +392,7 @@ class Operation:
         the prompt file as its `body` and leaves `attr` empty.
 
         Syntactic here (`body` names a `.md` file), truthful by gate:
-        `tests/test_operations_add_no_second_implementation.py`
+        `tests/test_static_check.py`
         refuses a prompt entry unless the owning step's own manifest
         declares exactly that runtime and entry point - so the registry
         cannot relabel a Python step as a prompt to dodge `run`.
@@ -468,7 +468,7 @@ class Operation:
         Do NOT turn `run` back into a plain field holding a callable.
         The moment it is one, a wrapper defined in this module type-checks
         and the registry starts owning logic.
-        `tests/test_operations_add_no_second_implementation.py` still
+        `tests/test_static_check.py` still
         plants all three shapes, because a future edit here would make
         them reachable again.
 

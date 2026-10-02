@@ -126,7 +126,7 @@ def _library_files():
 #: supervisor never dispatches. Listed rather than pattern-matched, so
 #: adding one is a decision somebody made on purpose.
 CONNECTS_BUT_IS_NOT_DISPATCHED = {
-    "library/tools/resolve_locale.py",        # the connection itself
+    "library/tools/resolve_locale.py", "library/tools/static_check.py",        # the connection itself
     "library/tools/resolve_health.py",        # is Resolve up?
     "library/tools/resolve_relinker.py",      # operator tool
     "library/tools/timeline_serializer.py",   # debugging dump

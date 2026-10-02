@@ -69,8 +69,7 @@ registry and `decide` is the only ladder.
   (`library/tools/output_contract.py`).
 - **The trace is MERGED, never replaced**, and a row from an earlier run
   is marked so it is never read as fresh.
-- `tests/test_decided_value.py`, and the derived sweep in
-  `tests/test_no_creative_floors.py`.
+- `tests/test_decided_value.py`.
 
 The rulings behind the precedence, and the per-module basis enumerations
 and constants it replaces: docs/evidence/decided_value.md.

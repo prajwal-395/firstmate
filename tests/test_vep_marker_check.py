@@ -17,7 +17,7 @@ def _load_comparer():
 
     The old import-time insert was doubly fragile: process-global
     (collection order decides later bindings -
-    `tests/test_no_syspath_shadowing.py`) and relative (it resolves
+    `tests/test_static_check.py`) and relative (it resolves
     against whatever the working directory happens to be).
     """
     spec = importlib.util.spec_from_file_location(

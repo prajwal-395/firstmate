@@ -6,17 +6,15 @@ minimums. The creative direction decides how many of anything a piece
 gets; nothing is padded to satisfy a number.
 
 A floor is a floor whether it pads, rejects, warns, or cuts, and whether
-it lives in a prompt or in code. Until this module the vocabulary for one
-lived in `tests/test_no_creative_floors.py` alone, which meant a second
-reader - a project-declared creative task whose role and handoff arrive
-from outside the repository (`library/tools/creative_tasks.py`) - had no
-enumeration to be read for. A guard whose vocabulary exists in only one
-place cannot reach a second prompt without being restated, and a restated
-guard is two guards that can disagree about what a floor is.
+it lives in a prompt or in code. This module owns the runtime vocabulary
+used to reject project-declared creative tasks. The capability registry
+separately declares which production capabilities leave quantity to the
+model or editor, so source checks can select bridges from data rather
+than keep a second step roster.
 
-So the phrases and patterns live here, once. The test imports them, and
-a declared task is refused at declaration time against the same list -
-the prompt a task carries is read by the same gate that reads a step's.
+The phrases and patterns live here, once. A declared task is refused at
+declaration time against the same list - the prompt a task carries is
+read by the same gate that reads a step's.
 
 Rules relocated from AGENTS.md 10.5
 -----------------------------------

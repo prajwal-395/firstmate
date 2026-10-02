@@ -17,23 +17,16 @@ and nothing sets that variable in CI or locally.  The module then wrote
 footage and renders cannot be re-shot and this machine has no Time
 Machine destination, so there is no undo.
 
-Three checks, because they fail for different reasons and a green from
-one is not a green from another:
+Two runtime proofs remain here:
 
-1. RUNTIME - the projects root a test can see is the empty sandbox
-   `tests/conftest.py` installs, not the configured one.  This closes
-   routes nobody has enumerated, including ones added tomorrow.
-2. SOURCE - no test module reads the `PROJECTS_ROOT` constant, and none
-   hardcodes an absolute path into a user's home directory.  This is what
-   fails if the fallback above is pasted back in.
-3. BEHAVIOUR - collect the whole suite in a subprocess against a DECOY
-   projects root that looks exactly like a populated real one, with the
-   sandbox deliberately disabled and `PIPELINE_TEST_PROJECT` unset.
-   Nothing may bind a path under it, and not one byte of it may change.
+1. Tests see the empty sandbox installed by `tests/conftest.py`.
+2. Collecting the suite against a populated DECOY root binds nothing
+   beneath it and changes no bytes.
 
-Check 3 is the honest one: it reproduces the captain's machine with a
-stand-in and asks the suite to misbehave.  It is also the slow one, which
-is why 1 and 2 exist as cheap tripwires beside it.
+The source policies (no test reads `PROJECTS_ROOT`, no machine-specific
+home path) run in `library.tools.static_check` with the other repository
+source checks. The end-to-end sandbox test is its documented exception
+for the root-read rule because it must inspect the value it is testing.
 
 
 Rules relocated from AGENTS.md 8
@@ -49,7 +42,6 @@ keeps the headline and points here.
 - `tests/test_tests_never_reach_real_projects.py` asserts the guarantee: the root a test sees is the sandbox, no test source carries a real path, and collecting the suite against a populated DECOY root binds nothing.
 """
 
-import ast
 import hashlib
 import json
 import os
@@ -63,34 +55,6 @@ from library.tools import paths
 
 TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent
-
-# Two files may touch the constant, and only these two.
-#
-#   this module - reading it is how check 1 proves the sandbox is there.
-#   tests/conftest.py - it INSTALLS the sandbox, so it has to read the
-#     configured value in order to replace it.
-#
-# Exempting the installer does leave one door: a fallback pasted into
-# conftest.py itself would not be flagged here.  Check 3 covers that
-# one, because it disables the sandbox and watches a decoy.
-SELF = Path(__file__).resolve()
-SANDBOX_INSTALLER = (TESTS_DIR / "conftest.py").resolve()
-EXEMPT = {SELF, SANDBOX_INSTALLER}
-
-# Any user home outside the repo.  `~` expansion and the PIPELINE_* env
-# vars are how a real path is supposed to reach a test.
-HOME_ABSOLUTE_PREFIXES = ("/Users/", "/home/")
-
-
-def _test_sources():
-    """Every Python file under tests/, minus the two EXEMPT ones."""
-    for path in sorted(TESTS_DIR.rglob("*.py")):
-        if path.resolve() in EXEMPT:
-            continue
-        if "__pycache__" in path.parts:
-            continue
-        yield path
-
 
 # ── 1. Runtime: what the suite actually sees ────────────────────────
 
@@ -121,76 +85,7 @@ def test_the_configured_projects_root_is_not_what_tests_see():
     )
 
 
-# ── 2. Source: the shape must not come back ─────────────────────────
-
-def _docstring_node_ids(tree):
-    """ids of the Constant nodes that are module/class/function docstrings.
-
-    A hazard recorded in prose is documentation.  test_runner_no_fixture
-    _shortcuts.py quotes a real absolute path in its module docstring for
-    exactly that reason, and must not be flagged for it.
-    """
-    ids = set()
-    holders = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-    for node in ast.walk(tree):
-        if not isinstance(node, holders):
-            continue
-        body = getattr(node, "body", None)
-        if not body:
-            continue
-        first = body[0]
-        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
-                and isinstance(first.value.value, str):
-            ids.add(id(first.value))
-    return ids
-
-
-def test_no_test_module_reads_the_projects_root_constant():
-    offenders = []
-    for path in _test_sources():
-        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
-        for node in ast.walk(tree):
-            # `paths.PROJECTS_ROOT` / `pipeline_paths.PROJECTS_ROOT`
-            if isinstance(node, ast.Attribute) and node.attr == "PROJECTS_ROOT":
-                offenders.append(f"{path.name}:{node.lineno}: .PROJECTS_ROOT")
-            # `from library.tools.paths import PROJECTS_ROOT`
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    if alias.name == "PROJECTS_ROOT":
-                        offenders.append(
-                            f"{path.name}:{node.lineno}: "
-                            f"from {node.module} import PROJECTS_ROOT")
-    assert not offenders, (
-        "A test read the constant that names the captain's real projects "
-        "root:\n  " + "\n  ".join(offenders) + "\n"
-        "A test that needs a project builds one under tmp_path. "
-        "Patching it by string - @patch('library.tools.paths.PROJECTS_ROOT') "
-        "- is fine and is not flagged."
-    )
-
-
-def test_no_test_module_hardcodes_a_path_under_a_users_home():
-    offenders = []
-    for path in _test_sources():
-        source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source, str(path))
-        skip = _docstring_node_ids(tree)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Constant):
-                continue
-            if not isinstance(node.value, str) or id(node) in skip:
-                continue
-            if node.value.startswith(HOME_ABSOLUTE_PREFIXES):
-                offenders.append(f"{path.name}:{node.lineno}: {node.value!r}")
-    assert not offenders, (
-        "A test carries an absolute path into a home directory:\n  "
-        + "\n  ".join(offenders) + "\n"
-        "A path only one machine has is not a fixture. Build it under "
-        "tmp_path, or reach it through a PIPELINE_* env var."
-    )
-
-
-# ── 3. Behaviour: collect against a decoy and check it is untouched ──
+# ── 2. Behaviour: collect against a decoy and check it is untouched ──
 
 _DECOY_PLUGIN = '''
 """Reports every collected module global that points into the decoy."""
@@ -250,6 +145,7 @@ def _build_decoy(root: Path) -> Path:
     return project
 
 
+@pytest.mark.heavy
 def test_collecting_the_suite_binds_nothing_under_a_populated_projects_root(
         tmp_path):
     decoy_root = tmp_path / "video_projects"

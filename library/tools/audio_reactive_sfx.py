@@ -82,5 +82,6 @@ because a constant says the piece is "moderate" is a creative floor in
 the other direction, and leaving it here uncalled would state that
 taste as fact for the next reader.
 
-Both deletions are guarded by `tests/test_no_creative_floors.py`.
+Both deletions are guarded by the creative-code rules in
+`library/tools/static_check.py`.
 """

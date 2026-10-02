@@ -609,7 +609,7 @@ def resolve_sfx(
     # How many sound effects a piece gets is a creative decision -
     # captain's ruling 2026-08-20 - and that holds for cutting them as
     # much as for padding them. The function is deleted, not just
-    # unwired. Guarded by tests/test_no_creative_floors.py.
+    # unwired. The bridge-marker guard lives in library/tools/static_check.py.
 
     # There is no prosody alignment here, and there must not be one
     # again. `audio_reactive_sfx.align_sfx_to_prosody` ran at this point
@@ -1076,7 +1076,9 @@ def main():
     # 5-10 requirement is removed outright, not reconciled and not
     # downgraded to a warning, with the accepted consequence that a thin
     # sound design is no longer caught mechanically. Do not reintroduce an
-    # equivalent check. Guarded by tests/test_no_creative_floors.py.
+    # equivalent check. Sparse-plan behavior is covered by
+    # tests/test_no_creative_floors.py; distribution-collapse behavior is
+    # covered by tests/test_sfx_layering_and_build.py.
     # `_assert_sfx_distributed` stays: it catches a COLLAPSE (several
     # planned moments on one frame), which is a broken plan, not a sparse
     # one. A single moment carrying several sounds is a layer and passes.

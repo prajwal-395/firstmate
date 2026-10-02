@@ -18,7 +18,7 @@ which track.  This body reads the merged input dict, REFUSES what it
 cannot do, and calls that module.  That is the same shape every other
 `step.py` in this tree has, and it is what keeps `build-reels` and this
 node one implementation rather than two (Ruling 1,
-`tests/test_operations_add_no_second_implementation.py`).
+`library/tools/static_check.py`).
 
 Captions come from 4.01 and 4.05
 --------------------------------
@@ -157,7 +157,7 @@ def ask_reels(data: dict) -> dict:
     same shape `build_reels` above has: this body owns no ask logic,
     and the pass-1 build stays the one implementation rather than
     growing a second beside it (Ruling 1,
-    `tests/test_operations_add_no_second_implementation.py`).
+    `library/tools/static_check.py`).
 
     Returns the RECORD of what was asked, per reel: the three
     `llm_requests/*.json` paths the model answers beside. The answers
@@ -215,7 +215,7 @@ def _require_single_kind_spec(project_folder: str, spec: dict,
     addressed the wrong operation, so it raises rather than running
     as the other one: two names for one behaviour would be the
     second implementation Ruling 1 forbids
-    (`tests/test_operations_add_no_second_implementation.py`).
+    (`library/tools/static_check.py`).
     """
     if not project_folder:
         raise ValueError(
@@ -256,7 +256,7 @@ def animate_entry(project_folder: str, spec: dict) -> dict:
     `touch_reel` below has: this body owns no entry-motion logic,
     and the composed-edit path stays one implementation rather than
     growing a second beside it (Ruling 1,
-    `tests/test_operations_add_no_second_implementation.py`).
+    `library/tools/static_check.py`).
 
     Malformed input RAISES: no project folder or a spec naming no
     edits (`ValueError`), a spec that is not a mapping at all
@@ -290,7 +290,7 @@ def set_clip_properties(project_folder: str, spec: dict) -> dict:
     (`composed_edit.set_properties` writes, with read-back), and the
     composed-edit path stays one implementation rather than growing
     a second beside it (Ruling 1,
-    `tests/test_operations_add_no_second_implementation.py`).
+    `library/tools/static_check.py`).
 
     Malformed input RAISES like `animate_entry` above, and anything
     Resolve-side raises the tool's own `TouchupRefused` /
@@ -321,7 +321,7 @@ def touch_reel(project_folder: str, spec: dict) -> dict:
     `build_reels` and `ask_reels` above have: this body owns no
     touchup logic, and the composed-edit path stays one
     implementation rather than growing a second beside it (Ruling 1,
-    `tests/test_operations_add_no_second_implementation.py`).
+    `library/tools/static_check.py`).
 
     Malformed input RAISES: no project folder or a spec naming no
     edits (`ValueError`), or a spec that is not a mapping at all

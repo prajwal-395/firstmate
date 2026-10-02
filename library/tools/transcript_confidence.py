@@ -68,7 +68,7 @@ There is NO threshold
 ---------------------
 Not here, not in the view, not in the step.  The captain's standing
 ruling is that the model gets the number and judges (AGENTS.md 10.5,
-and `tests/test_no_creative_floors.py`).  A cutoff below which a line is
+and `tests/test_transcript_confidence.py`). A cutoff below which a line is
 "bad" would be the engine deciding, for every project and every
 recording condition, what a struggling transcriber sounds like - and
 the measured evidence says it would have decided wrong here: re-heard in

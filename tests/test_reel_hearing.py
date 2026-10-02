@@ -332,13 +332,11 @@ def test_the_fixture_carries_no_real_project_path():
     """The captain's directory layout does not belong in the repository.
 
     The prefixes come from the guard that enforces the same rule on test
-    SOURCE (`tests/test_tests_never_reach_real_projects.py`), so this
+    source (`library.tools.static_check`), so this
     holds the fixtures to that one enumeration rather than a second
     spelling of it - which is also why this file cannot write them out.
     """
-    from tests.test_tests_never_reach_real_projects import (
-        HOME_ABSOLUTE_PREFIXES,
-    )
+    from library.tools.static_check import HOME_ABSOLUTE_PREFIXES
 
     for name in ("reel26.timeline.json", "reel26.transcript.json",
                  "reel26.heard.json"):
@@ -431,5 +429,4 @@ def test_pairing_is_skipped_openly_when_there_are_no_captions(
                                            for row in quiet.skipped}
     assert reel_hearing.PAIRING_METRIC not in {f.metric
                                                for f in quiet.findings}
-
 

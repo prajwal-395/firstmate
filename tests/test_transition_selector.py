@@ -18,8 +18,7 @@ def test_a_scene_change_the_plan_did_not_decorate_is_a_hard_cut():
     This used to answer `defocus` once every twenty seconds, and
     `fade_to_black` or `flash` off the incoming block's type - taste
     chosen by a constant for a cut nobody asked to decorate. See
-    `WITHDRAWN_SCENE_CHANGE_DEFAULTS`, and
-    tests/test_no_creative_floors.py.
+    `WITHDRAWN_SCENE_CHANGE_DEFAULTS`; this scenario pins the behavior.
     """
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002", "timeline_start": 5.0},
@@ -193,4 +192,3 @@ def test_a_measured_refusal_never_lands_in_the_outcome_set():
             {"transition_types": ["macro", "light_leak"]},
             {"target_energy": "high"}, requested_type="whip_pan",
         )
-

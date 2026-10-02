@@ -182,8 +182,7 @@ def test_no_step_keeps_a_private_behaviour_to_db_table():
     #
     # Read only lines that can EXECUTE: the comment recording the
     # withdrawal names both keys on purpose, and prose recording a removal
-    # is not a level the renderer reads - the same line
-    # tests/test_no_creative_floors.py draws when it sweeps for fallbacks.
+    # is not a level the renderer reads.
     code = "\n".join(line for line in source.splitlines()
                      if not line.strip().startswith("#"))
     assert "prominent_level_db" not in code

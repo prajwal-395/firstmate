@@ -97,6 +97,12 @@ PYTHON="${PYTHON:-python3}"
 # lanes would have handled.  Only pytest itself runs under ${PYTHON}.
 HELPER_PYTHON="python3"
 
+echo "=== full-suite gate: static source checks (${PYTHON}) ==="
+if ! "${PYTHON}" -m library.tools.static_check --check; then
+  echo "FULL-SUITE GATE: FAIL (static source checks)"
+  exit 1
+fi
+
 # These two drive the RUNNING DaVinci Resolve and switch the current
 # timeline out from under whoever is using the app.  CI has no Resolve,
 # so they skip there and excluding them costs no coverage - but a local

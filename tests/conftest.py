@@ -87,7 +87,7 @@ if PROJECT_ROOT not in sys.path:
 # module did that insert itself, at import time, collection order
 # decided which directory a bare name bound to (PR 624: a bare
 # `import step` bound step_5_04's step.py instead of step_6_01's).
-# tests/test_no_syspath_shadowing.py forbids test modules from adding
+# library/tools/static_check.py forbids test modules from adding
 # anything but the repo root, so the entries that production code
 # genuinely requires live here instead: this file is imported before
 # every test module, deterministically, so what it establishes cannot

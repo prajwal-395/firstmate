@@ -43,6 +43,14 @@ def test_node_ids_are_unique_across_every_process():
         for pid in processes.process_ids())
 
 
+def test_duplicate_node_ids_are_refused(monkeypatch):
+    monkeypatch.setattr(processes, "load_dag", lambda pid: {
+        "nodes": [{"id": "shared", "name": "x", "step_ref": "steps/x"}]
+    })
+    with pytest.raises(processes.ProcessError, match="unique"):
+        processes.assert_node_ids_are_unique()
+
+
 # ── The lookup an operation depends on ──────────────────────────────
 
 
@@ -111,4 +119,3 @@ def test_the_reel_process_reuses_steps_rather_than_copying_them():
             f"4.05, reached through the registry by "
             f"reel_build.reel_subtitle_segments, and a reel-shaped second "
             f"caption path is the thing this process exists NOT to be")
-

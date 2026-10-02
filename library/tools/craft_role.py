@@ -36,11 +36,11 @@ A role is THREE things and no fourth:
 
 **A role states no preference about the answer.**  It may not say how
 many of anything to plan, how strong an effect should be, or which way a
-judgement should come out.  That is the line AGENTS.md 10.5 draws, and
+judgement should come out. That is the line AGENTS.md 10.5 draws, and
 this module is on the same side of it as every other one: it hands over
-capability and authority, never taste.  `tests/test_no_creative_floors.py`
-reads the rendered role text of every creative-planning step for exactly
-that, because **a floor in a role block is a floor**.
+capability and authority, never taste. Quantity ownership is declared
+per capability in `library/tools/capabilities.py`; role delivery is
+exercised by `tests/test_craft_role.py`.
 
 How it reaches the model
 ------------------------
