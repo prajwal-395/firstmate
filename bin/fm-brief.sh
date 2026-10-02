@@ -601,6 +601,7 @@ You are in an isolated firstmate home. The local \`AGENTS.md\` is your job descr
 $PROJECT_CLONES_NOTE
 Delegate project work to your own crewmates with the normal firstmate lifecycle: brief, spawn, status, watcher, steer, teardown, and recovery.
 Do not invent a second delegation system.
+Stop processes only by exact PIDs you started; never kill by pattern (\`pkill -f\`, \`killall\`, or \`pgrep | xargs kill\`).
 You do not generate your own work.
 Act only on tasks the main firstmate routes to you.
 Never start a survey, audit, or "find improvements" sweep on your own initiative; that is not your job and it is unwanted.
@@ -725,6 +726,7 @@ The worktree is your laboratory - install, run, edit, and make scratch commits f
 The report is the only thing that survives, so anything worth keeping must be in it.
 
 # Rules
+Stop processes only by exact PIDs you started; never kill by pattern (\`pkill -f\`, \`killall\`, or \`pgrep | xargs kill\`).
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
@@ -828,6 +830,7 @@ Firstmate's home is \`$FM_HOME\`: the status file, inbox, and helper scripts nam
 Never cd into it, edit, commit, branch, or run project code there; the only writes allowed under it are the ones this brief gives you explicit commands for.
 
 # Rules
+Stop processes only by exact PIDs you started; never kill by pattern (\`pkill -f\`, \`killall\`, or \`pgrep | xargs kill\`).
 $RULE1
 2. Stay inside that worktree; the firstmate-home paths below are outside it, not additional places to work.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.

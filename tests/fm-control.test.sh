@@ -104,7 +104,7 @@ case "${1:-}" in
         printf 'zsh' > "$D/command"
       fi
       case "$payload" in
-        *'encode launch-brief'*) cat "$D/becomes" > "$D/command" ;;
+        *'Read the brief at '*) cat "$D/becomes" > "$D/command" ;;
         'claude --resume '*--dangerously-skip-permissions|'claude --resume '*--permission-mode=auto)
           printf 'claude\n' > "$D/command"
           if [ -n "${FM_CLAUDE_POSTURE_TEST_ARGS_FILE:-}" ]; then

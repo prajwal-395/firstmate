@@ -6,6 +6,7 @@ Verified on 2026-06-11 across versions 1.15.7 through 1.17.6, with busy-queue be
 
 | Fact | Value |
 |---|---|
+| Launch | Uses its interactive `--prompt` argument with a fixed pointer to the absolute brief path; task instructions remain in the file. |
 | Busy state | The Firstmate-owned plugin's semantic `session.status`: `busy` and `retry` are active, `idle` is inactive, latched to the worker's own session. |
 | Usage-cap visibility | A capped lane stays in `retry` with an hours-long backoff instead of failing; the plugin records the vendor's `attempt`/`next` horizon and a quota-scale horizon reads `blocked` in supervision. Contract: `../../../bin/fm-opencode-retry.sh`. |
 | Exit command | `/exit`. |
