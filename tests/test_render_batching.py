@@ -16,73 +16,16 @@ import pytest
 from library.tools import segment_renderer, visual_qa_router
 from library.tools.qa_fidelity import (
     GENERATED_ASSET, RESOLVE_COMPOSITE, SOURCE_PIXEL)
+from tests.resolve_double import FakeProject, FakeResolve, FakeTimeline
 
 
-class FakeTimeline:
-    def GetName(self):
-        return "T"
-
-    def GetUniqueId(self):
-        return "tl-1"
-
-
-class FakeResolve:
-    def GetCurrentPage(self):
-        return "edit"
-
-    def OpenPage(self, page):
-        return True
-
-
-class FakeProject:
-    """Queues what it is asked for, verbatim unless told to lie."""
-
-    def __init__(self, timeline, lie_on=None):
-        self._timeline = timeline
-        self.jobs = {}
-        self.started = []
-        self.deleted = []
-        self._pending = None
-        self._lie_on = lie_on
-
-    def GetCurrentRenderFormatAndCodec(self):
-        return {"format": "mov", "codec": "H.264"}
-
-    def SetCurrentRenderFormatAndCodec(self, fmt, codec):
-        return True
-
-    def SetRenderSettings(self, settings):
-        self._pending = dict(settings)
-        return True
-
-    def AddRenderJob(self):
-        job_id = f"job-{len(self.jobs) + 1}"
-        mark_in, mark_out = self._pending["MarkIn"], self._pending["MarkOut"]
-        if self._lie_on == mark_in:
-            mark_in, mark_out = 0, 1665
-        self.jobs[job_id] = {"JobId": job_id, "MarkIn": mark_in, "MarkOut": mark_out}
-        return job_id
-
-    def GetRenderJobList(self):
-        return list(self.jobs.values())
-
-    def StartRendering(self, jobs, isInteractiveMode=False):
-        self.started.append(list(jobs))
-        return True
-
-    def IsRenderingInProgress(self):
-        return False
-
-    def DeleteRenderJob(self, job_id):
-        self.deleted.append(job_id)
-        return True
-
-    def GetCurrentTimeline(self):
-        return self._timeline
-
-    def SetCurrentTimeline(self, timeline):
-        self._timeline = timeline
-        return True
+def _project(lie_on=None):
+    """A 0-1665 reel; ``lie_on`` is the MarkIn whose job queues the whole
+    timeline anyway (the 2026-09-11 shape)."""
+    tl = FakeTimeline("T", end_frame=1665)
+    project = FakeProject([tl], current=tl)
+    project.ignore_render_marks = {lie_on} if lie_on is not None else False
+    return tl, project
 
 
 def test_neighbouring_ranges_merge_and_distant_ones_do_not():
@@ -95,28 +38,25 @@ def test_neighbouring_ranges_merge_and_distant_ones_do_not():
 
 
 def test_a_batch_starts_every_job_together_and_deletes_only_its_own(tmp_path):
-    tl = FakeTimeline()
-    project = FakeProject(tl)
-    project.jobs["captain"] = {"JobId": "captain", "MarkIn": 0, "MarkOut": 9}
+    tl, project = _project()
+    project.render_jobs.append({"JobId": "captain", "MarkIn": 0, "MarkOut": 9})
     segment_renderer.render_batch(
-        FakeResolve(), project, tl, [(300, 300), (310, 340), (2000, 2000)],
+        FakeResolve(project), project, tl, [(300, 300), (310, 340), (2000, 2000)],
         output_dir=str(tmp_path), max_gap_frames=30)
-    assert project.started == [["job-2", "job-3"]], (
+    assert project.started_renders == [["job-2", "job-3"]], (
         "one StartRendering for the whole batch, one job per merged range")
-    assert project.jobs["job-2"]["MarkIn"] == 300
-    assert project.jobs["job-2"]["MarkOut"] == 340
-    assert sorted(project.deleted) == ["job-2", "job-3"]
+    assert sorted(project.deleted_render_jobs) == ["job-2", "job-3"]
+    assert [job["JobId"] for job in project.GetRenderJobList()] == ["captain"]
 
 
 def test_one_range_that_did_not_take_refuses_the_whole_batch(tmp_path):
-    tl = FakeTimeline()
-    project = FakeProject(tl, lie_on=2000)
+    tl, project = _project(lie_on=2000)
     batch = segment_renderer.render_batch(
-        FakeResolve(), project, tl, [(300, 300), (2000, 2000)],
+        FakeResolve(project), project, tl, [(300, 300), (2000, 2000)],
         output_dir=str(tmp_path))
-    assert project.started == [], "a whole-timeline job must never start"
+    assert project.started_renders == [], "a whole-timeline job must never start"
     assert batch.error and "1665" in batch.error
-    assert sorted(project.deleted) == ["job-1", "job-2"]
+    assert sorted(project.deleted_render_jobs) == ["job-1", "job-2"]
 
 
 def _manifest():

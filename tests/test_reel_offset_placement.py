@@ -35,6 +35,7 @@ from library.tools.timeline_conformance import (
 )
 from library.tools.timeline_ingest import TimelineClip
 from library.tools.timeline_layout import plan_layout
+from tests.resolve_double import FakeProject, FakeTimeline, timeline_item
 
 FPS = 23.976
 JOIN_SECONDS = 10.0
@@ -48,173 +49,22 @@ REEL_09B_CUTAWAY = (
     "Reel 09B - your-website-is-only-20-percent (reaction-cutaway)")
 
 
-# ── Faithful fakes ─────────────────────────────────────────────
-# Same measured semantics as test_reel_build_sop_conformance.py:
-# SetClipsLinked forms one group per call; a later call sharing an
-# item replaces (breaks) the earlier group. Copied, not imported -
-# that file's fakes are test-local and this file must stand alone.
+# ── The canonical double (tests/resolve_double.py) ─────────────
+# Its SetClipsLinked forms one group per call, and a later call sharing
+# an item replaces (breaks) the earlier group - the measured semantics.
 
-class FakeItem:
-    _ids = iter(range(500000, 5000000))
-
-    def __init__(self, name, start, end, pool_path="", channel=1):
-        self._name = name
-        self._start = start
-        self._end = end
-        self._pool_path = pool_path
-        self._channel = channel
-        self._uid = f"oitem-{next(FakeItem._ids)}"
-        self._group = {self._uid}
-
-    def GetName(self): return self._name
-    def GetStart(self): return self._start
-    def GetEnd(self): return self._end
-    def GetDuration(self): return self._end - self._start
-    def GetUniqueId(self): return self._uid
-    def GetMediaPoolItem(self):
-        class _P:
-            def __init__(self, p): self._p = p
-            def GetClipProperty(self, k):
-                return self._p if k == "File Path" else ""
-        return _P(self._pool_path)
-    def GetLinkedItems(self):
-        return [i for i in FakeTimeline._registry.values()
-                if i._uid in self._group and i._uid != self._uid]
-    def GetSourceAudioChannelMapping(self):
-        import json as _json
-        return _json.dumps({
-            "embedded_audio_channels": 4, "linked_audio": {},
-            "track_mapping": {"1": {"channel_idx": [self._channel],
-                                    "mute": False, "type": "mono"}}})
-    def SetProperty(self, *a): return True
+POOL_PATHS = ["/m/akshita.MXF", "/m/craig.MXF", "/m/cap.mov"]
 
 
-class FakeTimeline:
-    _registry = {}
-
-    def __init__(self):
-        self.tracks = {("video", 1): [], ("audio", 1): []}
-        self.names = {("video", 1): "Video 1", ("audio", 1): "Audio 1"}
-        self.link_calls = []
-        self.deleted_items = []
-        self.deleted_tracks = []
-
-    def GetTrackCount(self, mt): return max(
-        (i for (t, i) in self.tracks if t == mt), default=0)
-    def AddTrack(self, mt, *a):
-        n = self.GetTrackCount(mt) + 1
-        self.tracks[(mt, n)] = []
-        self.names[(mt, n)] = f"{mt.capitalize()} {n}"
-        return True
-    def DeleteTrack(self, mt, idx):
-        self.deleted_tracks.append((mt, idx))
-        self.tracks.pop((mt, idx), None)
-        self.names.pop((mt, idx), None)
-        higher = sorted(k for k in self.tracks
-                        if k[0] == mt and k[1] > idx)
-        for (t, i) in higher:
-            self.tracks[(t, i - 1)] = self.tracks.pop((t, i))
-            if (t, i) in self.names:
-                self.names[(t, i - 1)] = self.names.pop((t, i))
-        return True
-    def GetItemListInTrack(self, mt, idx):
-        return list(self.tracks.get((mt, idx), []))
-    def GetTrackName(self, mt, idx): return self.names.get((mt, idx), "")
-    def SetTrackName(self, mt, idx, name):
-        self.names[(mt, idx)] = name
-        return True
-    def SetClipsLinked(self, items, link):
-        self.link_calls.append((list(items), link))
-        if link:
-            group = {i.GetUniqueId() for i in items}
-            for i in items:
-                i._group = set(group)
-        else:
-            for i in items:
-                i._group = {i.GetUniqueId()}
-        return True
-    def DeleteClips(self, items, ripple=False):
-        for it in items:
-            self.deleted_items.append(it.GetUniqueId())
-            for key, lst in self.tracks.items():
-                if it in lst:
-                    lst.remove(it)
-        return True
-    def SetSetting(self, k, v): return True
-    def GetUniqueId(self): return "fake-offset-timeline"
-    def GetName(self): return "Fake Offset Reel"
+def _item(path, start, end):
+    """A placed item playing ``path`` over ``[start, end)``."""
+    return timeline_item(path.split("/")[-1], start, end, path=path)
 
 
-class FakePoolItem:
-    def __init__(self, path):
-        self._path = path
-    def GetClipProperty(self, k):
-        if k == "File Path": return self._path
-        if k == "FPS": return "23.976"
-        if k == "Resolution": return "3840x2160"
-        return ""
-
-
-class FakeFolder:
-    # The bin API landed with the pool filing of PR 897, which this
-    # file predates.  Without it every build here dies on
-    # `AddSubFolder` inside `_ensure_bin_path` - the offset planning
-    # these tests exist for is never reached.
-    def __init__(self, name="Master"):
-        self.clips = []
-        self.subs = []
-        self.name = name
-    def GetName(self): return self.name
-    def GetClipList(self): return list(self.clips)
-    def GetSubFolderList(self): return list(self.subs)
-
-
-class FakePool:
-    def __init__(self, timeline, paths):
-        self.timeline = timeline
-        self.root = FakeFolder()
-        self.current = self.root
-        self._items = {p: FakePoolItem(p) for p in paths}
-        for item in self._items.values():
-            self.root.clips.append(item)
-
-    def GetRootFolder(self): return self.root
-    def GetCurrentFolder(self): return self.current
-    def SetCurrentFolder(self, folder):
-        self.current = folder
-        return True
-    def AddSubFolder(self, folder, name):
-        sub = FakeFolder(name)
-        folder.subs.append(sub)
-        return sub
-    def ImportMedia(self, paths):
-        out = []
-        for p in paths:
-            item = self._items.get(p, FakePoolItem(p))
-            self._items[p] = item
-            self.current.clips.append(item)
-            out.append(item)
-        return out
-    def CreateEmptyTimeline(self, name):
-        self.created_name = name
-        return self.timeline
-    def AppendToTimeline(self, clip_infos):
-        out = []
-        for info in clip_infos:
-            item = info["mediaPoolItem"]
-            path = (item._path if isinstance(item, FakePoolItem) else "")
-            start, end = info["startFrame"], info["endFrame"]
-            rec = info["recordFrame"]
-            dur = end - start
-            media_type = info.get("mediaType", 1)
-            placed = FakeItem(path.split("/")[-1], rec, rec + dur,
-                              pool_path=path)
-            FakeTimeline._registry[placed.GetUniqueId()] = placed
-            key = ("video" if media_type == 1 else "audio",
-                   info["trackIndex"])
-            self.timeline.tracks.setdefault(key, []).append(placed)
-            out.append(placed)
-        return out
+def _reel_timeline(video=((),), audio=((),)):
+    """The reel container: one video and one audio row to start."""
+    return FakeTimeline("Fake Offset Reel", video=[list(r) for r in video],
+                        audio=[list(r) for r in audio])
 
 
 class FakeMoment:
@@ -264,14 +114,14 @@ def _master_clips(akshita_audio=True):
 
 
 def _world():
-    FakeTimeline._registry = {}
-    timeline = FakeTimeline()
-    pool = FakePool(timeline, ["/m/akshita.MXF", "/m/craig.MXF",
-                               "/m/cap.mov"])
-    project = type("P", (), {})()
-    project.GetMediaPool = lambda: pool
-    project.SetCurrentTimeline = lambda tl: True
-    project.GetCurrentTimeline = lambda: timeline
+    timeline = _reel_timeline()
+    project = FakeProject()
+    pool = project.GetMediaPool()
+    for path in POOL_PATHS:
+        pool.media_properties[path] = {"FPS": "23.976",
+                                       "Resolution": "3840x2160"}
+    pool.ImportMedia(POOL_PATHS)
+    pool.next_timeline = timeline
     return timeline, pool, project
 
 
@@ -429,8 +279,6 @@ def test_captions_follow_the_audio_lead():
 
 def test_ordinary_link_pass_joins_overlapping_same_angle_spans():
     """Ordinary placement links source-edge offsets by angle and span."""
-    FakeTimeline._registry = {}
-    timeline = FakeTimeline()
     plan = plan_layout({
         "angles": [{"key": "1", "label": "Akshita",
                     "speech_name": "Akshita CH1", "program_channel": 1}],
@@ -438,11 +286,9 @@ def test_ordinary_link_pass_joins_overlapping_same_angle_spans():
         "mg_spans": [], "has_generators": False, "timed_text_spans": [],
         "music_spans": [], "sfx_spans": [],
     })
-    pic = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
-    speech = FakeItem("a.MXF", 50, 150, pool_path="/m/a.MXF")
-    for item in (pic, speech):
-        FakeTimeline._registry[item.GetUniqueId()] = item
-    timeline.tracks = {("video", 1): [pic], ("audio", 1): [speech]}
+    pic = _item("/m/a.MXF", 0, 100)
+    speech = _item("/m/a.MXF", 50, 150)
+    timeline = _reel_timeline(video=[[pic]], audio=[[speech]])
     record = link_reel_groups(timeline, plan)
     assert not record["warnings"]
     assert len(record["link_groups"]) == 1
@@ -467,8 +313,6 @@ def test_version_a_j_cut_builds_conformance_clean():
                   _caption(10.6, 12.0, "cap-late")],
         j_cut={"join_seconds": JOIN_SECONDS, "lead_seconds": LEAD_SECONDS,
                "words": words})
-    assert timeline.created_name if hasattr(timeline, "created_name") \
-        else True
     assert record["timeline_name"] == REEL_09A_J_CUT
     assert record["link_warnings"] == [], record["link_warnings"]
     assert record["offsets"]["j_cut"]["kind"] == "j_cut"
@@ -501,8 +345,6 @@ def test_version_a_j_cut_builds_conformance_clean():
 
 def _offset_census_timeline(tail_name, tail_pool):
     """One linkable speech+picture pair plus one unlinked tail item."""
-    FakeTimeline._registry = {}
-    timeline = FakeTimeline()
     plan = plan_layout({
         "angles": [{"key": "1", "label": "Akshita",
                     "speech_name": "Akshita CH1", "program_channel": 1}],
@@ -510,12 +352,10 @@ def _offset_census_timeline(tail_name, tail_pool):
         "mg_spans": [], "has_generators": False, "timed_text_spans": [],
         "music_spans": [], "sfx_spans": [],
     })
-    pic = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
-    speech = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
-    tail = FakeItem(tail_name, 100, 119, pool_path=tail_pool)
-    for item in (pic, speech, tail):
-        FakeTimeline._registry[item.GetUniqueId()] = item
-    timeline.tracks = {("video", 1): [pic, tail], ("audio", 1): [speech]}
+    pic = _item("/m/a.MXF", 0, 100)
+    speech = _item("/m/a.MXF", 0, 100)
+    tail = timeline_item(tail_name, 100, 119, path=tail_pool)
+    timeline = _reel_timeline(video=[[pic, tail]], audio=[[speech]])
     return timeline, plan, tail
 
 

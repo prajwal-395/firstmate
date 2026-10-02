@@ -19,94 +19,33 @@ import pytest
 from library.tools import caption_swap
 from library.tools.caption_swap import (
     CaptionSwapError,
-    find_placements,
     swap_files,
-    verify_files,
+)
+from tests.resolve_double import (
+    FakeMediaPoolItem,
+    FakeProject,
+    FakeTimeline,
+    FakeTimelineItem,
 )
 
 
-class FakePoolItem:
+def _pool(path):
     """A media pool item playing one file, replaceable."""
-
-    def __init__(self, path, refuse_replace=False):
-        self._path = path
-        self.replace_calls = []
-        self._refuse = refuse_replace
-        self._props = {}
-
-    def GetClipProperty(self, name):
-        if name == "File Path":
-            return self._path
-        return self._props.get(name, "")
-
-    def SetClipProperty(self, name, value):
-        self._props[name] = value
-        return True
-
-    def ReplaceClip(self, new_path):
-        self.replace_calls.append(new_path)
-        if self._refuse:
-            return False
-        self._path = new_path
-        return True
+    pool = FakeMediaPoolItem(path.rsplit("/", 1)[-1])
+    pool.SetClipProperty("File Path", path)
+    return pool
 
 
-class FakeItem:
-    """A timeline item on a track, holding a pool item at fixed frames."""
-
-    def __init__(self, pool_item, start, end, moves_on_swap=False,
-                 left_offset=0):
-        self._pool = pool_item
-        self._start = start
-        self._end = end
-        self._moves = moves_on_swap
-        self._left_offset = left_offset
-
-    def GetMediaPoolItem(self):
-        return self._pool
-
-    def GetStart(self):
-        # A placement that moves under the swap: the read-back sees it.
-        if self._moves and self._pool.replace_calls:
-            return self._start + 1
-        return self._start
-
-    def GetEnd(self):
-        return self._end
-
-    def GetLeftOffset(self):
-        return self._left_offset
+def _placed(pool, start, end, left_offset=0):
+    """A Subtitles-row placement of ``pool`` at fixed frames."""
+    return FakeTimelineItem(pool.GetName(), None, start=start,
+                            duration=end - start, left_offset=left_offset,
+                            pool_item=pool)
 
 
-class FakeTimeline:
-    def __init__(self, name, tracks):
-        # tracks: {track_name: [items]}
-        self._name = name
-        self._tracks = dict(tracks)
-
-    def GetName(self):
-        return self._name
-
-    def GetTrackCount(self, kind):
-        assert kind == "video"
-        return len(self._tracks)
-
-    def GetTrackName(self, kind, index):
-        return list(self._tracks)[index - 1]
-
-    def GetItemListInTrack(self, kind, index):
-        return list(self._tracks.values())[index - 1]
-
-
-class FakeProject:
-    def __init__(self, timelines):
-        self._timelines = list(timelines)
-
-    def GetTimelineCount(self):
-        return len(self._timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self._timelines[index - 1]
+def _timeline(name, rows):
+    """``rows`` is ``{track_name: [items]}``, in track order."""
+    return FakeTimeline(name, video=list(rows.items()))
 
 
 @pytest.fixture
@@ -118,25 +57,23 @@ def no_lease(monkeypatch):
 
 def _project():
     """Two timelines sharing one pool item, plus a third holding its own."""
-    shared = FakePoolItem("/seg/old_a.mov")
-    own = FakePoolItem("/seg/old_a.mov")
-    other = FakePoolItem("/seg/old_b.mov")
-    reel1 = FakeTimeline("Reel 01", {
+    shared = _pool("/seg/old_a.mov")
+    own = _pool("/seg/old_a.mov")
+    other = _pool("/seg/old_b.mov")
+    reel1 = _timeline("Reel 01", {
         "V1": [],
-        "Subtitles": [FakeItem(shared, 100, 140),
-                      FakeItem(other, 200, 240)],
+        "Subtitles": [_placed(shared, 100, 140),
+                      _placed(other, 200, 240)],
     })
-    reel2 = FakeTimeline("Reel 02", {
+    reel2 = _timeline("Reel 02", {
         "V1": [],
-        "Subtitles": [FakeItem(shared, 300, 340)],
+        "Subtitles": [_placed(shared, 300, 340)],
     })
-    reel3 = FakeTimeline("Reel 03", {
+    reel3 = _timeline("Reel 03", {
         "V1": [],
-        "Subtitles": [FakeItem(own, 400, 440)],
+        "Subtitles": [_placed(own, 400, 440)],
     })
     return FakeProject([reel1, reel2, reel3]), shared, own, other
-
-
 
 
 def test_one_replace_per_pool_item_swaps_every_timeline(no_lease, tmp_path):
@@ -156,9 +93,9 @@ def test_one_replace_per_pool_item_swaps_every_timeline(no_lease, tmp_path):
 def test_rerender_swap_preserves_caption_item_source_trim(no_lease, tmp_path):
     new = tmp_path / "new_a.mov"
     new.write_bytes(b"x")
-    pool = FakePoolItem("/seg/old_a.mov")
-    placement = FakeItem(pool, 100, 140, left_offset=12)
-    project = FakeProject([FakeTimeline("Reel 01", {
+    pool = _pool("/seg/old_a.mov")
+    placement = _placed(pool, 100, 140, left_offset=12)
+    project = FakeProject([_timeline("Reel 01", {
         "Subtitles": [placement],
     })])
 
@@ -172,9 +109,9 @@ def test_rerender_swap_refuses_a_caption_with_unreadable_source_trim(
         no_lease, tmp_path):
     new = tmp_path / "new_a.mov"
     new.write_bytes(b"x")
-    pool = FakePoolItem("/seg/old_a.mov")
-    project = FakeProject([FakeTimeline("Reel 01", {
-        "Subtitles": [FakeItem(pool, 100, 140, left_offset=None)],
+    pool = _pool("/seg/old_a.mov")
+    project = FakeProject([_timeline("Reel 01", {
+        "Subtitles": [_placed(pool, 100, 140, left_offset=None)],
     })])
 
     with pytest.raises(CaptionSwapError, match="no readable source trim"):
@@ -182,14 +119,13 @@ def test_rerender_swap_refuses_a_caption_with_unreadable_source_trim(
     assert pool.replace_calls == []
 
 
-
-
 def test_a_refused_replace_fails_naming_the_file(no_lease, tmp_path):
     new = tmp_path / "new_a.mov"
     new.write_bytes(b"x")
-    bad = FakePoolItem("/seg/old_a.mov", refuse_replace=True)
-    project = FakeProject([FakeTimeline("Reel 01", {
-        "Subtitles": [FakeItem(bad, 100, 140)]})])
+    bad = _pool("/seg/old_a.mov")
+    bad.refuse_replace = True
+    project = FakeProject([_timeline("Reel 01", {
+        "Subtitles": [_placed(bad, 100, 140)]})])
     with pytest.raises(CaptionSwapError, match="old_a.mov"):
         swap_files(project, {"/seg/old_a.mov": str(new)})
 
@@ -197,9 +133,18 @@ def test_a_refused_replace_fails_naming_the_file(no_lease, tmp_path):
 def test_a_moved_placement_fails_the_read_back(no_lease, tmp_path):
     new = tmp_path / "new_a.mov"
     new.write_bytes(b"x")
-    pool = FakePoolItem("/seg/old_a.mov")
-    project = FakeProject([FakeTimeline("Reel 01", {
-        "Subtitles": [FakeItem(pool, 100, 140, moves_on_swap=True)]})])
+    pool = _pool("/seg/old_a.mov")
+    placement = _placed(pool, 100, 140)
+    replace = pool.ReplaceClip
+
+    def replace_and_move(path):
+        # A placement that moves under the swap: the read-back sees it.
+        placement._start += 1
+        return replace(path)
+
+    pool.ReplaceClip = replace_and_move
+    project = FakeProject([_timeline("Reel 01", {
+        "Subtitles": [placement]})])
     with pytest.raises(CaptionSwapError, match="moved"):
         swap_files(project, {"/seg/old_a.mov": str(new)})
 

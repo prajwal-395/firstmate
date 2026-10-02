@@ -52,15 +52,13 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from library.tools import composer as C  # noqa: E402
-from library.tools import composed_edit as ce  # noqa: E402
-from library.tools import operations as O  # noqa: E402
 from library.tools import reel_read  # noqa: E402
 from library.tools import reel_touchup as tu  # noqa: E402
 from library.tools import requirements as R  # noqa: E402
 from library.tools.timeline_transcript import transcript_path  # noqa: E402
 from tests.composed_edit_harness import (  # noqa: E402
-    FakeComp, FakeMediaPool, FakeTool, build_reel, covering_window,
-    duplicate,
+    FakeComp, FakeTool, build_reel, covering_window, duplicate,
+    media_pool,
 )
 
 #: The effect both operations derive - the same requirement their
@@ -301,7 +299,7 @@ def test_a_rewrite_shadowed_by_an_in_place_write_is_pruned(tmp_path):
 def _staged_pair(tmp_path):
     approved = build_reel(tmp_path)[0]
     staged = duplicate(approved)
-    return approved, staged, FakeMediaPool(staged)
+    return approved, staged, media_pool(staged)
 
 
 def test_property_sets_write_with_no_delete_and_no_place(tmp_path):
@@ -318,7 +316,7 @@ def test_property_sets_write_with_no_delete_and_no_place(tmp_path):
                                  str(tmp_path / "comps"))
     assert staged.rows["V4"][0].GetProperty("ZoomX") == 1.5
     assert staged.delete_calls == []
-    assert _pool.calls == []
+    assert _pool.append_calls == []
     assert applied["properties"][0]["properties"] == {"ZoomX": 1.5}
     assert applied["entry_motion"] == []
 
@@ -360,7 +358,7 @@ def test_entry_motion_imports_a_drawing_comp_with_a_covering_window(
                                  str(tmp_path / "comps"))
     assert item.GetFusionCompCount() == 1
     assert staged.delete_calls == []
-    assert _pool.calls == []
+    assert _pool.append_calls == []
     record = applied["entry_motion"][0]
     assert record["fade_in_frames"] == 6
     assert Path(record["comp"]).is_file()

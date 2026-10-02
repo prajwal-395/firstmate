@@ -6,7 +6,6 @@ about exclusion that is only reasoned about is not evidence, which is
 how a lock with zero callers came to read as coverage for two days.
 """
 
-import json
 import os
 import re
 import subprocess
@@ -29,6 +28,7 @@ from library.tools.resolve_lock import (
     prefer_lease,
     resolve_lease,
 )
+from tests.resolve_double import FakeProject, FakeTimeline
 
 REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 REPO = Path(__file__).resolve().parents[1]
@@ -56,42 +56,6 @@ def unguarded(monkeypatch):
     mock. A test ABOUT the guard has to stand outside that.
     """
     monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
-
-
-class FakeTimeline:
-    def __init__(self, name, uid=None):
-        self.name = name
-        self.uid = uid or name
-
-    def GetName(self):
-        return self.name
-
-    def GetUniqueId(self):
-        return self.uid
-
-
-class FakeProject:
-    """A Resolve project whose cursor can be moved from outside.
-
-    `moves` is the uncooperative writer: a list of timelines the
-    project silently becomes current on, one per `GetCurrentTimeline`
-    call, standing in for the captain clicking another tab.
-    """
-
-    def __init__(self, current=None, moves=()):
-        self.current = current
-        self.moves = list(moves)
-        self.set_calls = []
-
-    def SetCurrentTimeline(self, timeline):
-        self.set_calls.append(timeline.GetName())
-        self.current = timeline
-        return True
-
-    def GetCurrentTimeline(self):
-        if self.moves:
-            self.current = self.moves.pop(0)
-        return self.current
 
 
 # ── The per-write check: the two refusals ───────────────────────────

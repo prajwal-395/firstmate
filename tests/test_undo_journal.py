@@ -31,10 +31,13 @@ from library.tools import reel_touchup as tu  # noqa: E402
 from library.tools import undo_journal as uj  # noqa: E402
 from library.tools.versions import reel_versions  # noqa: E402
 from tests.composed_edit_harness import (  # noqa: E402
-    FakeMediaPool,
+    FakeComp,
+    FakeTool,
     build_reel,
     covering_window,
     duplicate,
+    frames_of,
+    media_pool,
 )
 
 FINAL = "Reel 01 - lab"
@@ -54,7 +57,7 @@ def _touch(tmp_path, spec, *, prepare=None):
         source_timeline=approved, removals=qualification.removals)
 
     staged = duplicate(approved, name=FINAL)
-    pool = FakeMediaPool(staged)
+    pool = media_pool(staged)
     in_place = tu._apply_in_place(staged, qualification,
                                   str(tmp_path / "touch"))
     del in_place
@@ -70,14 +73,14 @@ def _touch(tmp_path, spec, *, prepare=None):
     uj.close_entry(str(folder), entry, after_timeline=staged,
                    rows=reel_read.rows_of(
                        {"tracks": reel_read.read_tracks(staged)}))
-    by_path = {m.path: m for m in media.values()}
+    by_path = {m.GetClipProperty("File Path"): m for m in media.values()}
     return folder, approved, staged, entry, by_path
 
 
 def _undo(tmp_path, folder, staged, entry, by_path):
     entry = uj.read_entry(str(folder), entry["id"])
     return uj.undo_in_place(
-        timeline=staged, media_pool=FakeMediaPool(staged), entry=entry,
+        timeline=staged, media_pool=media_pool(staged), entry=entry,
         entry_root=uj.entry_dir(str(folder), entry["id"]),
         reference=duplicate(staged, name="reference"),
         rederiver=tu._NullRederiver("test"),
@@ -88,10 +91,9 @@ def _card_with_a_look(approved, media):
     """V4[1] carries a transform and a comp of its own - both must return."""
     card = approved.rows["V4"][1]
     card.properties = {**card.properties, "ZoomX": 1.4, "Pan": -12.0}
-    from tests.composed_edit_harness import FakeComp, FakeTool
     card.comps = [FakeComp({
         "MediaIn1": FakeTool("MediaIn",
-                             covering_window(40, 0, media["card"].frames)),
+                             covering_window(40, 0, frames_of(media["card"]))),
         "Transform1": FakeTool("Transform", {"Size": 1.0})})]
 
 

@@ -372,9 +372,20 @@ def _resolve_guard_sole_writer():
         yield
 
 
+#: The ONE opt-in for driving the live Resolve. Without it every test
+#: taking `resolve_session` skips before any Resolve call, so no default
+#: pytest run, dependent selection or gate can reach the captain's
+#: instance (2026-10-02: a dependent-selection run saved and switched the
+#: open project because Resolve merely happened to be running).
+LIVE_RESOLVE_ENV = "REN_LIVE_RESOLVE"
+
+
 @pytest.fixture(scope="module")
 def resolve_session():
     """The real Resolve instance, leased - or the module SKIPS.
+
+    Skips unless `REN_LIVE_RESOLVE=1`: set it only inside a granted
+    borrow-resolve window.
 
     Module scope, so one live-Resolve test file holds the instance for
     its own duration rather than dropping it between tests and letting
@@ -387,6 +398,10 @@ def resolve_session():
     takes must be real - contention, captain wait and all - and it
     SKIPS naming the holder rather than waiting.
     """
+    if os.environ.get(LIVE_RESOLVE_ENV) != "1":
+        pytest.skip(f"drives the live Resolve; runs only with "
+                    f"{LIVE_RESOLVE_ENV}=1 inside a granted borrow-resolve "
+                    f"window")
     from library.tools import resolve_lock
     previous = resolve_lock._sole_writer_reason
     resolve_lock._sole_writer_reason = None

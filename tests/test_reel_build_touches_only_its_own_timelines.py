@@ -29,19 +29,18 @@ The survivors are asserted by NAME.  The fake media pool really removes
 what it is handed, so "the other eighteen are still there" is read off
 the project afterwards rather than inferred from a mock call.
 """
-import json
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from library.tools.reel_build import (
-    BACKUP_SUFFIX,
     ReelBuildError,
     STAGING_SUFFIX,
     assert_deletion_scope,
     rebuild_reels_in_project,
     timelines_to_replace,
 )
+from tests.resolve_double import FakeProject, FakeTimeline
 
 MASTER = "GEO Podcast - Synced"
 APPROVED = [f"Reel {n:02d} - moment-{n}" for n in range(1, 20)]
@@ -84,18 +83,7 @@ def _moment(number, name):
     return moment
 
 
-def _timeline(name):
-    timeline = MagicMock()
-    timeline._name = name
-    timeline.GetName.side_effect = lambda: timeline._name
-    def _rename(new):
-        timeline._name = new
-        return True
-    timeline.SetName.side_effect = _rename
-    return timeline
-
-
-def _only_probe_and_backups_deleted(pool, backups=()):
+def _only_probe_and_backups_deleted(project, backups=()):
     """The build-time draw-gain probe creates and deletes its own
     scratch timeline (`draw_gain_probe.PROBE_TIMELINE_NAME`) on every
     build - that pair is the probe cleaning up after itself - and
@@ -105,83 +93,20 @@ def _only_probe_and_backups_deleted(pool, backups=()):
     from library.tools.draw_gain_probe import PROBE_TIMELINE_NAME
 
     allowed = {PROBE_TIMELINE_NAME} | set(backups or ())
-    deleted = []
-    calls = pool.DeleteTimelines.call_args_list
-    assert calls, "expected the probe's own create-and-delete pair"
-    for call in calls:
-        timelines = call.args[0] if call.args else call.kwargs.get(
-            "timelines", [])
-        assert timelines, "a delete call naming nothing"
-        for timeline in timelines:
-            assert timeline.GetName() in allowed, (
-                f"the build deleted {timeline.GetName()!r} - only the "
-                f"probe's scratch timeline and the replaced backups "
-                f"may be deleted")
-            deleted.append(timeline.GetName())
+    assert project.deleted, "expected the probe's own create-and-delete pair"
+    for name in project.deleted:
+        assert name in allowed, (
+            f"the build deleted {name!r} - only the probe's scratch "
+            f"timeline and the replaced backups may be deleted")
     for name in backups or ():
-        assert name in deleted, (
+        assert name in project.deleted, (
             f"the replaced backup {name!r} was not deleted")
 
 
-def _only_probe_deleted(pool):
+def _only_probe_deleted(project):
     """No reel was replaced, so no backup exists: only the probe's own
     scratch timeline may have been deleted."""
-    _only_probe_and_backups_deleted(pool, [])
-
-
-class FakeProject:
-    """A Resolve project whose media pool really creates and deletes.
-
-    A mock that only RECORDS the delete call cannot answer the question
-    the captain asked - are the other eighteen still there - so this
-    removes them and the tests read the survivors back off it.
-    """
-
-    def __init__(self, names):
-        self.timelines = [_timeline(name) for name in names]
-        self.created = []
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        pool.CreateEmptyTimeline.side_effect = self._create
-        self._pool = pool
-
-    def _create(self, name):
-        timeline = _timeline(name)
-        self.timelines.append(timeline)
-        self.created.append(name)
-        return timeline
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.timelines.remove(timeline)
-        return True
-
-    def GetName(self):
-        return "Mock Project"
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
-
-    # A Resolve project HAS a cursor, and `resolve_lock`'s guard reads
-    # it back by unique id - a fake without one cannot model the guard.
-    def GetCurrentTimeline(self):
-        # None until something sets it: a project that has not been
-        # pointed anywhere has no cursor, and inventing one here would
-        # hand the entry-unit guard a timeline nobody opened.
-        return getattr(self, "_current", None)
-
-    def SetCurrentTimeline(self, timeline):
-        self._current = timeline
-        return True
+    _only_probe_and_backups_deleted(project, [])
 
 
 def _run(resolve_project, project_dir, **kwargs):
@@ -251,7 +176,7 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
     # (`library/tools/reel_retirement.py`).
     assert sorted(survivors) == sorted([MASTER] + APPROVED)
     _only_probe_and_backups_deleted(
-        resolve_project.GetMediaPool(),
+        resolve_project,
         ["Reel 03 - moment-3 (pre-rebuild backup)"])
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert record["staged_timelines"] == {}
@@ -266,7 +191,7 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
 def test_the_guard_refuses_a_timeline_that_was_never_planned():
     with pytest.raises(ReelBuildError) as refused:
         assert_deletion_scope(
-            [_timeline("Reel 03 - moment-3"), _timeline("Reel 07 - other")],
+            [FakeTimeline("Reel 03 - moment-3"), FakeTimeline("Reel 07 - other")],
             {"Reel 03 - moment-3"})
     message = str(refused.value)
     assert "Reel 07 - other" in message
@@ -293,7 +218,7 @@ def test_the_guard_is_wired_where_the_deletion_happens(project):
             _run(resolve_project, project, only=[3])
 
     assert resolve_project.names() == [MASTER] + APPROVED
-    _only_probe_deleted(resolve_project.GetMediaPool())
+    _only_probe_deleted(resolve_project)
 
 
 def test_the_selection_matches_a_name_exactly_never_by_prefix():
@@ -317,7 +242,7 @@ def test_only_refuses_a_reel_the_plan_has_not_approved(project):
     assert resolve_project.names() == [MASTER] + APPROVED
     # A refused build probes nothing: the probe runs after the plan
     # validation, so a build that never starts never touches Resolve.
-    assert not resolve_project.GetMediaPool().DeleteTimelines.called
+    assert resolve_project.deleted == []
 
 
 # ── What `only` accepts, and what it refuses ─────────────────────────

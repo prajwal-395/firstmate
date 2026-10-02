@@ -21,6 +21,7 @@ from library.tools.reel_proposal import (
     proposal_path,
     write_proposal,
 )
+from tests.resolve_double import FakeProject
 
 
 def _record_reel_lane(project: str, reel: int, barrier) -> None:
@@ -125,21 +126,8 @@ def test_concurrent_only_reel_asks_run_only_the_selected_reel(
         tmp_path, monkeypatch):
     """The real reel.ask step snaps, derives and asks for N only."""
     project, _moments = _ask_project(tmp_path / "project")
-    master = SimpleNamespace(GetName=lambda: "Master")
-
-    class FakeProject:
-        def GetName(self):
-            return "Fixture"
-
-        def GetTimelineCount(self):
-            return 1
-
-        def GetTimelineByIndex(self, index):
-            assert index == 1
-            return master
-
     monkeypatch.setattr(reel_build, "_connect_resolve_project",
-                        lambda name: FakeProject())
+                        lambda name: FakeProject("Fixture", ["Master"]))
     monkeypatch.setattr(
         "library.tools.timeline_ingest.snapshot_timeline",
         lambda timeline, project_name: SimpleNamespace(clips=[]))

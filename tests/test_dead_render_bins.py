@@ -27,17 +27,12 @@ from library.tools.proof_cleanup import (
     CAPTAINS_PROOF_TIMELINE,
     FINAL_REEL_TIMELINE,
     MERGE_DEMO_TIMELINE,
-    POSITIONING_SCRATCH_PREFIX,
     PRE_REBUILD_BACKUP_TIMELINE,
     PROTECTED_TIMELINES,
     SUPERSEDED_PLAIN_TIMELINE,
     SUPERSEDED_REACTION_TIMELINE,
     SUPERSEDED_REEL_TIMELINES,
     ProofRemovalRefused,
-    discover_proof_bins,
-    discover_scratch_timelines,
-    discover_superseded_bins,
-    discover_superseded_timelines,
     is_authorised_superseded,
     plan_proof_removal,
     plan_superseded_removal,
@@ -47,6 +42,12 @@ from library.tools.resolve_organization import (
     plan_dead_render_bins,
     plan_retirements,
     render_bin_census,
+)
+from tests.resolve_double import (
+    FakeProject,
+    FakeTimeline,
+    make_pool_clip,
+    place_clip,
 )
 
 MASTER = "GEO Podcast - Synced"
@@ -443,153 +444,35 @@ def test_the_superseded_path_refuses_a_bin_final_still_plays(project_root):
 # ------------------------------------------------------- the executor
 
 
-class FakeFolder:
-    def __init__(self, name, uid):
-        self._name, self.uid, self.clips, self.subs = name, uid, [], []
-
-    def GetName(self): return self._name
-    def GetUniqueId(self): return self.uid
-    def GetClipList(self): return list(self.clips)
-    def GetSubFolderList(self): return list(self.subs)
+def _clip(uid, name, path):
+    return make_pool_clip(name, path=path, uid=uid, clip_type="Video + Audio")
 
 
-class FakeClip:
-    def __init__(self, uid, name, kind="clip", path=""):
-        self.uid, self._name, self.kind, self.path = uid, name, kind, path
-
-    def GetUniqueId(self): return self.uid
-    def GetName(self): return self._name
-
-    def GetClipProperty(self, key):
-        if key == "Type":
-            return "Timeline" if self.kind == "timeline" else "Video + Audio"
-        if key == "File Path":
-            return self.path
-        return ""
-
-    def GetMetadata(self, key=None): return ""
-
-    def SetMetadata(self, key, value):
-        return key in ("Comments", "Keywords")
-
-    def SetClipColor(self, value): return True
-    def ClearClipColor(self): return True
-
-
-class FakeTimeline:
-    def __init__(self, name, items=()):
-        self._name, self.items = name, list(items)
-
-    def GetName(self): return self._name
-    def GetTrackCount(self, kind): return 1 if kind == "video" else 0
-    def GetItemListInTrack(self, kind, index):
-        return list(self.items) if kind == "video" else []
-
-
-class FakeItem:
-    def __init__(self, clip): self.clip = clip
-    def GetMediaPoolItem(self): return self.clip
-
-
-class FakePool:
-    def __init__(self, root):
-        self.root, self.current = root, root
-
-    def GetRootFolder(self): return self.root
-    def GetCurrentFolder(self): return self.current
-    def SetCurrentFolder(self, folder):
-        self.current = folder
-        return True
-
-    def _home(self, clip):
-        def walk(folder):
-            if clip in folder.clips:
-                return folder
-            for sub in folder.subs:
-                found = walk(sub)
-                if found is not None:
-                    return found
-            return None
-        return walk(self.root)
-
-    def MoveClips(self, clips, folder):
-        for clip in clips:
-            home = self._home(clip)
-            if home is not None:
-                home.clips.remove(clip)
-            folder.clips.append(clip)
-        return True
-
-    def AddSubFolder(self, parent, name):
-        self._n = getattr(self, "_n", 0) + 1
-        folder = FakeFolder(name, f"made{self._n}")
-        parent.subs.append(folder)
-        self.current = folder
-        return folder
-
-    def DeleteClips(self, items):
-        # Removes the ITEMS; files stay on disk, so there is no disk
-        # here to touch - which is the property under test.
-        wanted = {c.GetUniqueId() for c in items}
-
-        def walk(folder):
-            folder.clips[:] = [c for c in folder.clips
-                               if c.GetUniqueId() not in wanted]
-            for sub in folder.subs:
-                walk(sub)
-
-        walk(self.root)
-        return True
-
-    def DeleteFolders(self, folders):
-        for folder in folders:
-            if folder.GetClipList() or folder.GetSubFolderList():
-                return False
-            parent = self._parent(folder)
-            if parent is None:
-                return False
-            parent.subs.remove(folder)
-        return True
-
-    def _parent(self, folder):
-        def walk(node):
-            for sub in node.subs:
-                if sub is folder:
-                    return node
-                found = walk(sub)
-                if found is not None:
-                    return found
-            return None
-        return walk(self.root)
-
-
-class FakeProject:
-    def __init__(self, name, pool, timelines=()):
-        self._name, self.pool, self.timelines = name, pool, list(timelines)
-
-    def GetName(self): return self._name
-    def GetMediaPool(self): return self.pool
-    def GetTimelineCount(self): return len(self.timelines)
-    def GetTimelineByIndex(self, i): return self.timelines[i - 1]
+def _reel(proj, name, *played):
+    """A project timeline playing ``played`` - not filed in the pool."""
+    reel = proj.adopt(FakeTimeline(name))
+    for clip in played:
+        place_clip(reel, clip, 0, 47)
+    return reel
 
 
 def live_pool(project_root):
     """Fake pool shaped like the captain's: a dead leaf with two
     unplaced renders, a live leaf with one placed render."""
-    root = FakeFolder("Master", "root")
-    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
-    dead = FakeFolder(DEAD, "f-dead")
-    dead.clips.append(FakeClip("c-dead-a", "sub_dead_a.mov",
-                               path=generated(project_root, "a.mov")))
-    dead.clips.append(FakeClip("c-dead-b", "sub_dead_b.mov",
-                               path=generated(project_root, "b.mov")))
-    live = FakeFolder(LIVE, "f-live")
-    live_clip = FakeClip("c-live", "sub_live.mov", path=generated(project_root, "live.mov"))
-    live.clips.append(live_clip)
-    six.subs.extend([dead, live])
-    root.subs.append(six)
-    timelines = [FakeTimeline(LIVE, [FakeItem(live_clip)])]
-    return FakeProject("Fake", FakePool(root), timelines)
+    proj = FakeProject("Fake")
+    pool = proj.GetMediaPool()
+    six = pool.AddSubFolder(pool.GetRootFolder(), bins.SUBTITLES_BIN)
+    dead = pool.AddSubFolder(six, DEAD)
+    dead.add_clip(_clip("c-dead-a", "sub_dead_a.mov",
+                        generated(project_root, "a.mov")))
+    dead.add_clip(_clip("c-dead-b", "sub_dead_b.mov",
+                        generated(project_root, "b.mov")))
+    live = pool.AddSubFolder(six, LIVE)
+    live_clip = live.add_clip(_clip("c-live", "sub_live.mov",
+                                    generated(project_root, "live.mov")))
+    pool.SetCurrentFolder(pool.GetRootFolder())
+    _reel(proj, LIVE, live_clip)
+    return proj
 
 
 def pool_bins(proj):
@@ -664,7 +547,7 @@ def test_a_dead_leaf_that_gained_a_placement_between_plan_and_apply_refuses(
     six = next(s for s in root.GetSubFolderList()
                if s.GetName() == bins.SUBTITLES_BIN)
     dead = next(s for s in six.GetSubFolderList() if s.GetName() == DEAD)
-    proj.timelines.append(FakeTimeline(LIVE, [FakeItem(dead.clips[0])]))
+    _reel(proj, LIVE, dead.GetClipList()[0])
     with pytest.raises(retire.RetirementRefused, match="no longer proves dead"):
         retire.retire_bins(proj, plan, str(tmp_path / "retire.json"),
                            project_root=project_root)
@@ -678,27 +561,25 @@ def test_contents_calling_themselves_clips_but_reading_as_timelines_refuse(
     the call - the pool changed mid-run - and the run refuses."""
     from library.tools.execution.organise_media_pool import read_pool
 
-    class ChangingClip(FakeClip):
-        # Clip on every read the planner makes, a timeline at the
-        # moment of the call: the pool changed mid-run.
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self._reads = 0
-
-        def GetClipProperty(self, key):
-            if key == "Type":
-                self._reads += 1
-                return "Timeline" if self._reads > 2 else "Video + Audio"
-            return super().GetClipProperty(key)
-
     proj = live_pool(project_root)
     root = proj.GetMediaPool().GetRootFolder()
     six = next(s for s in root.GetSubFolderList()
                if s.GetName() == bins.SUBTITLES_BIN)
     dead = next(s for s in six.GetSubFolderList() if s.GetName() == DEAD)
-    changer = ChangingClip("c-changing", "changing.mov",
-                           path=generated(project_root, "changing.mov"))
-    dead.clips.append(changer)
+    changer = dead.add_clip(_clip("c-changing", "changing.mov",
+                                  generated(project_root, "changing.mov")))
+    reads = {"type": 0}
+    read = changer.GetClipProperty
+
+    def changing(key=None):
+        # Clip on every read the planner makes, a timeline at the
+        # moment of the call: the pool changed mid-run.
+        if key == "Type":
+            reads["type"] += 1
+            return "Timeline" if reads["type"] > 2 else "Video + Audio"
+        return read(key)
+
+    changer.GetClipProperty = changing
     artefacts, _, _, _ = read_pool(proj)
     plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)),
                             project_root=project_root)
@@ -713,25 +594,23 @@ def test_contents_calling_themselves_clips_but_reading_as_timelines_refuse(
 
 def test_remove_proof_deletes_the_timeline_its_bin_and_nothing_else(tmp_path, project_root):
     from library.tools.execution import remove_proof
-    root = FakeFolder("Master", "root")
-    reels = FakeFolder(bins.REELS_BIN, "f5")
-    proof_bin = FakeFolder(bins.REELS_PROOF_BIN, "f-proof")
-    proof_tl = FakeClip("t-proof", CAPTAINS_PROOF_TIMELINE, kind="timeline")
-    proof_bin.clips.append(proof_tl)
-    reels.subs.append(proof_bin)
-    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
-    cap_bin = FakeFolder("SOP Proof_min-canvas-rail", "f-cap")
-    cap_bin.clips.append(FakeClip("c-p", "proof_cap.mov",
-                                  path=generated(project_root, "p.mov")))
-    six.subs.append(cap_bin)
-    live = FakeFolder(LIVE, "f-live")
-    live.clips.append(FakeClip("c-live", "sub_live.mov",
-                               path=generated(project_root, "live.mov")))
-    six.subs.append(live)
-    root.subs.extend([reels, six])
-    live_tl = FakeTimeline(
-        LIVE, [FakeItem(live.clips[0])])
-    proj = FakeProject("Fake", FakePool(root), [live_tl])
+    proj = FakeProject("Fake")
+    pool = proj.GetMediaPool()
+    root = pool.GetRootFolder()
+    reels = pool.AddSubFolder(root, bins.REELS_BIN)
+    pool.AddSubFolder(reels, bins.REELS_PROOF_BIN)  # becomes current
+    pool.next_timeline = FakeTimeline(CAPTAINS_PROOF_TIMELINE,
+                                      pool_uid="t-proof")
+    pool.CreateEmptyTimeline(CAPTAINS_PROOF_TIMELINE)
+    six = pool.AddSubFolder(root, bins.SUBTITLES_BIN)
+    cap_bin = pool.AddSubFolder(six, "SOP Proof_min-canvas-rail")
+    cap_bin.add_clip(_clip("c-p", "proof_cap.mov",
+                           generated(project_root, "p.mov")))
+    live = pool.AddSubFolder(six, LIVE)
+    live_clip = live.add_clip(_clip("c-live", "sub_live.mov",
+                                    generated(project_root, "live.mov")))
+    pool.SetCurrentFolder(root)
+    _reel(proj, LIVE, live_clip)
     plan = {
         "timeline": {"item_id": "t-proof", "name": CAPTAINS_PROOF_TIMELINE,
                      "folder": f"{bins.REELS_BIN}/{bins.REELS_PROOF_BIN}"},
@@ -752,6 +631,8 @@ def test_remove_proof_deletes_the_timeline_its_bin_and_nothing_else(tmp_path, pr
         f"{bins.SUBTITLES_BIN}/SOP Proof_min-canvas-rail"]
     assert pool_clip_names(proj) == ["sub_live.mov"]
     assert CAPTAINS_PROOF_TIMELINE not in pool_clip_names(proj)
+    # DeleteClips on the timeline's pool item deleted the timeline.
+    assert proj.names() == [LIVE]
     journal = json.loads(Path(journal_path).read_text(encoding="utf-8"))
     assert journal["timeline"]["name"] == CAPTAINS_PROOF_TIMELINE
     assert journal["removed_items"][0]["kind"] == "timeline"
@@ -769,20 +650,18 @@ def test_apply_holds_dead_contents_back_and_retires_bin_with_them(tmp_path):
     from library.tools.execution import organise_media_pool as ex
     gen = str(tmp_path / "pipeline_output" / "steps" /
               "4_05_render_subtitles")
-    root = FakeFolder("Master", "root")
-    root.clips.append(FakeClip("t-master", MASTER, kind="timeline"))
-    root.clips.append(FakeClip("t-live", LIVE, kind="timeline"))
-    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
-    dead = FakeFolder(DEAD, "f-dead")
-    dead.clips.append(FakeClip("c-dead-a", "sub_dead_a.mov",
-                               path=f"{gen}/a.mov"))
-    six.subs.append(dead)
-    root.subs.append(six)
-    live_clip = FakeClip("c-live", "sub_live.mov",
-                         path=f"{gen}/live.mov")
-    root.clips.append(live_clip)
-    proj = FakeProject("Fake", FakePool(root),
-                       [FakeTimeline(LIVE, [FakeItem(live_clip)])])
+    proj = FakeProject("Fake")
+    pool = proj.GetMediaPool()
+    root = pool.GetRootFolder()
+    pool.CreateEmptyTimeline(MASTER)
+    live_reel = pool.CreateEmptyTimeline(LIVE)
+    six = pool.AddSubFolder(root, bins.SUBTITLES_BIN)
+    dead = pool.AddSubFolder(six, DEAD)
+    dead.add_clip(_clip("c-dead-a", "sub_dead_a.mov", f"{gen}/a.mov"))
+    live_clip = root.add_clip(_clip("c-live", "sub_live.mov",
+                                    f"{gen}/live.mov"))
+    pool.SetCurrentFolder(root)
+    place_clip(live_reel, live_clip, 0, 47)
     review = tmp_path / "pipeline_output" / "review"
     review.mkdir(parents=True)
     (review / "plan_provenance.json").write_text(json.dumps({
@@ -872,15 +751,13 @@ def test_a_vocabulary_free_entry_with_contents_fails_its_re_proof(
     """The same guard through the dead-leaf path: the fresh re-proof
     runs the fixed planner, which declines the leaf, so the run
     refuses with 'no longer proves dead' instead of deleting it."""
-    from library.tools.execution.organise_media_pool import read_pool
-    root = FakeFolder("Master", "root")
-    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
-    picks = FakeFolder("my picks", "f-picks")
-    picks.clips.append(FakeClip("c-pick", "sub_pick.mov",
-                                path=generated(project_root, "pick.mov")))
-    six.subs.append(picks)
-    root.subs.append(six)
-    proj = FakeProject("Fake", FakePool(root))
+    proj = FakeProject("Fake")
+    pool = proj.GetMediaPool()
+    six = pool.AddSubFolder(pool.GetRootFolder(), bins.SUBTITLES_BIN)
+    picks = pool.AddSubFolder(six, "my picks")
+    picks.add_clip(_clip("c-pick", "sub_pick.mov",
+                         generated(project_root, "pick.mov")))
+    pool.SetCurrentFolder(pool.GetRootFolder())
     plan = [{"path": (bins.SUBTITLES_BIN, "my picks"),
              "kind": "dead_render_bin",
              "why": "test",

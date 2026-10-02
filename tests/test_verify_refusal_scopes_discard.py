@@ -39,6 +39,7 @@ from library.tools.reel_build import (
     rebuild_reels_in_project,
 )
 from tests.promotion_test_helpers import install_fake_timeline_snapshots
+from tests.resolve_double import FakeProject
 
 MASTER = "GEO Podcast - Synced"
 APPROVED = [f"Reel {n:02d} - moment-{n}" for n in range(1, 20)]
@@ -82,95 +83,6 @@ def _moment(number, name):
     moment.timeline_start = 0.0
     moment.timeline_end = 10.0
     return moment
-
-
-class FakeTimeline:
-    """A timeline whose deletion really removes it from the project."""
-
-    def __init__(self, name):
-        self._name = name
-
-    def GetName(self):
-        return self._name
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetTrackCount(self, kind):
-        return 0
-
-    def GetItemListInTrack(self, kind, index):
-        return []
-
-    # Promotion reads the captain's markers off the retiring timeline
-    # before anything is renamed (`library/tools/marker_carry.py`), and
-    # REFUSES a timeline whose markers it cannot see - so a fake that
-    # cannot answer for them is a fake of a different object.
-    def GetStartFrame(self):
-        return 0
-
-    def GetMarkers(self):
-        return dict(getattr(self, "_markers", {}))
-
-    def AddMarker(self, frame, color, name, note, duration, custom=""):
-        self.added_markers = getattr(self, "added_markers", [])
-        self.added_markers.append((frame, color, name, note))
-        return True
-
-    def GetUniqueId(self):
-        if not getattr(self, "_uid", None):
-            type(self)._seq = getattr(type(self), "_seq", 0) + 1
-            self._uid = f"{type(self).__name__}-{type(self)._seq}"
-        return self._uid
-
-
-class FakeProject:
-    """A Resolve project whose pool really creates and deletes."""
-
-    def __init__(self, names):
-        self.timelines = [FakeTimeline(name) for name in names]
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        pool.CreateEmptyTimeline.side_effect = self._create
-        self._pool = pool
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.timelines.remove(timeline)
-        return True
-
-    def _create(self, name):
-        timeline = FakeTimeline(name)
-        self.timelines.append(timeline)
-        return timeline
-
-    def GetName(self):
-        return "Mock Project"
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
-
-    # A Resolve project HAS a cursor, and `resolve_lock`'s guard reads
-    # it back by unique id - a fake without one cannot model the guard.
-    def GetCurrentTimeline(self):
-        # None until something sets it: a project that has not been
-        # pointed anywhere has no cursor, and inventing one here would
-        # hand the entry-unit guard a timeline nobody opened.
-        return getattr(self, "_current", None)
-
-    def SetCurrentTimeline(self, timeline):
-        self._current = timeline
-        return True
 
 
 def _write_gate_report(project_dir, rows):

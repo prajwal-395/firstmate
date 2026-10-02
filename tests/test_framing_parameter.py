@@ -9,7 +9,8 @@ Covers the four acceptance criteria:
 import os
 import sys
 import pytest
-from unittest.mock import MagicMock, call
+
+from tests.resolve_double import VIDEO_ITEM_PROPERTIES, timeline_item
 
 # Ensure project root is on the path before any library imports.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,7 +31,6 @@ from library.steps.step_6_01_render.resolve_build_timeline import (
 
 
 # ── Import schema to verify the field exists ──
-from library.schemas.brand_template import BrandTemplate, StyleSlots
 
 
 # ── The one measured Pan/Tilt law, driven directly ──
@@ -61,60 +61,18 @@ EXPECTED_FULL_FILL_ZOOM = round(
 )
 
 
-# The Inspector Transform properties Resolve actually exposes on a video
-# TimelineItem, read off `GetProperty()` on Resolve 21.0.0b.28. Note what
-# is NOT here: `PanX` and `PanY`. Horizontal and vertical position are
-# `Pan` and `Tilt`.
-RESOLVE_VIDEO_ITEM_PROPERTIES = frozenset({
-    "AnchorPointX", "AnchorPointY", "CompositeMode", "CropBottom",
-    "CropLeft", "CropRetain", "CropRight", "CropSoftness", "CropTop",
-    "Distortion", "DynamicZoomEase", "FlipX", "FlipY", "MotionEstimation",
-    "Opacity", "Pan", "Pitch", "ResizeFilter", "RetimeProcess",
-    "RotationAngle", "Scaling", "Tilt", "Yaw", "ZoomGang", "ZoomX", "ZoomY",
-})
+def _item(source_size=None):
+    """A video item that declines unknown property names, as Resolve does.
 
-
-class FakeTimelineItem:
-    """A TimelineItem that refuses unknown property names, as Resolve does.
-
-    This exists because a bare `MagicMock` accepts every name and returns
-    whatever `return_value` says. Under one, `_apply_conform` wrote `PanX`
-    and `PanY` for the life of the feature: Resolve returned False, read
-    back None, and the picture never moved, while the test suite was
-    green. Resolve does not raise on a bad property name - it declines -
-    so a fake that cannot decline cannot catch this.
+    A bare `MagicMock` accepts every name: under one, `_apply_conform`
+    wrote `PanX`/`PanY` for the life of the feature and the picture never
+    moved while the suite was green. No source size means no pool item.
     """
-
-    def __init__(self, source_size=None):
-        self.properties = {}
-        self.refused = []
-        self._source_size = source_size
-
-    def GetMediaPoolItem(self):
-        if self._source_size is None:
-            return None
-        size = self._source_size
-
-        class _Pool:
-            def GetClipProperty(self, name):
-                return f"{size[0]}x{size[1]}" if name == "Resolution" else None
-
-        return _Pool()
-
-    def SetProperty(self, name, value):
-        if name not in RESOLVE_VIDEO_ITEM_PROPERTIES:
-            self.refused.append((name, value))
-            return False
-        self.properties[name] = value
-        return True
-
-    def GetProperty(self, name=None):
-        if name is None:
-            return dict(self.properties)
-        return self.properties.get(name)
-
-    def GetName(self):
-        return "fake.mov"
+    item = timeline_item("fake.mov", 0, 48, has_media=source_size is not None)
+    if source_size is not None:
+        item.GetMediaPoolItem().SetClipProperty(
+            "Resolution", f"{source_size[0]}x{source_size[1]}")
+    return item
 
 
 # ─────────────────────────────────────────────────────────
@@ -164,7 +122,7 @@ class TestFramingEndToEnd:
         is what Resolve does. `PanX` passed this test for the life of the
         feature and moved nothing.
         """
-        item = FakeTimelineItem(source_size=(3840, 2160))
+        item = _item(source_size=(3840, 2160))
         results = {"warnings": []}
         clip = {
             "needs_conform": True,
@@ -175,8 +133,8 @@ class TestFramingEndToEnd:
         _apply_conform(item, clip, results, frame_size=(1080, 1920))
 
         assert item.refused == [], f"Resolve would refuse {item.refused}"
-        assert item.properties["ZoomX"] == 2.0
-        assert item.properties["ZoomY"] == 2.0
+        assert item.GetProperty("ZoomX") == 2.0
+        assert item.GetProperty("ZoomY") == 2.0
         # 50 delivery pixels, in the Pan UNIT the one measured law gives
         # for 3840x2160 into 1080x1920: the fit is width-bound, so the
         # geometry factor is exactly 1 and the conversion IS the
@@ -184,10 +142,10 @@ class TestFramingEndToEnd:
         # was CONVERTED, not because a pixel is a unit - see the Tilt
         # case below.  Driven against the law rather than restated, so
         # the next calibration moves this with the code.
-        assert item.properties["Pan"] == pytest.approx(
+        assert item.GetProperty("Pan") == pytest.approx(
             units_for_shift(50.0, 3840, 1080, _FIT_3840_TO_1080x1920),
             abs=0.01)
-        assert item.properties["Pan"] == pytest.approx(25.0, abs=0.01)
+        assert item.GetProperty("Pan") == pytest.approx(25.0, abs=0.01)
         assert not results["warnings"]
 
     def test_renderer_uses_tilt_for_vertical_pan(self):
@@ -200,17 +158,17 @@ class TestFramingEndToEnd:
         the picture 25 * 0.3164 = 7.9px under the old gain - the
         under-aim this test exists to pin, now stated at today's.
         """
-        item = FakeTimelineItem(source_size=(3840, 2160))
+        item = _item(source_size=(3840, 2160))
         results = {"warnings": []}
         _apply_conform(item, {
             "needs_conform": True, "fill_zoom": 2.0,
             "framing_pan_y": -25.0, "label": "test_clip",
         }, results, frame_size=(1080, 1920))
         assert item.refused == []
-        assert item.properties["Tilt"] == pytest.approx(
+        assert item.GetProperty("Tilt") == pytest.approx(
             units_for_shift(-25.0, 2160, 1920, _FIT_3840_TO_1080x1920),
             abs=0.01)
-        assert item.properties["Tilt"] == pytest.approx(-39.506, abs=0.01)
+        assert item.GetProperty("Tilt") == pytest.approx(-39.506, abs=0.01)
         assert not results["warnings"]
 
     def test_a_pan_that_could_not_be_converted_says_so(self):
@@ -221,13 +179,13 @@ class TestFramingEndToEnd:
         SAYS it was not converted.  Both wrong models of this transform
         survived review by being silent about which units they were in.
         """
-        item = FakeTimelineItem()
+        item = _item()
         results = {"warnings": []}
         _apply_conform(item, {
             "needs_conform": True, "fill_zoom": 2.0,
             "framing_pan_x": 50.0, "label": "test_clip",
         }, results, frame_size=(1080, 1920))
-        assert item.properties["Pan"] == 50.0
+        assert item.GetProperty("Pan") == 50.0
         assert any("unconverted pixels" in w for w in results["warnings"])
 
     def test_renderer_warns_when_resolve_refuses_a_property(self):
@@ -237,12 +195,8 @@ class TestFramingEndToEnd:
         catches exceptions reports success for a property that never
         landed - the same shape as the withdrawn Smart Reframe call.
         """
-        class RefuseEverything(FakeTimelineItem):
-            def SetProperty(self, name, value):
-                self.refused.append((name, value))
-                return False
-
-        item = RefuseEverything()
+        item = _item()
+        item.refuse_properties = VIDEO_ITEM_PROPERTIES
         results = {"warnings": []}
         _apply_conform(item, {
             "needs_conform": True, "fill_zoom": 2.0, "label": "test_clip",
@@ -327,7 +281,7 @@ class TestUnsetIsTheDefault:
     def test_renderer_no_pan_when_unset(self):
         """With no pan in the clip dict, only zoom is touched, so a
         project that never set framing renders byte-identically."""
-        item = FakeTimelineItem()
+        item = _item()
         results = {"warnings": []}
         clip = {
             "needs_conform": True,
@@ -336,7 +290,7 @@ class TestUnsetIsTheDefault:
         }
         _apply_conform(item, clip, results)
 
-        assert set(item.properties) == {"ZoomX", "ZoomY"}
+        assert {name for name, _ in item.property_writes} == {"ZoomX", "ZoomY"}
         assert item.refused == []
         assert not results["warnings"]
 

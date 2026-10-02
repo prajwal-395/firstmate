@@ -25,6 +25,7 @@ import pytest
 from library.tools.plan_provenance import read_provenance
 from library.tools.reel_build import rebuild_reels_in_project
 from tests.promotion_test_helpers import install_fake_timeline_snapshots
+from tests.resolve_double import FakeProject
 
 MASTER = "GEO Podcast - Synced"
 APPROVED = [f"Reel {n:02d} - moment-{n}" for n in (1, 2, 3)]
@@ -61,98 +62,6 @@ def _moment(number, name):
     moment.timeline_start = 0.0
     moment.timeline_end = 10.0
     return moment
-
-
-class FakeTimeline:
-    _next_id = 0
-
-    def __init__(self, name):
-        self._name = name
-        FakeTimeline._next_id += 1
-        # A timeline's identity survives a rename - promotion renames a
-        # staging container to its final name and Resolve keeps the id.
-        # `resolve_lock.assert_current_timeline` reads the cursor back
-        # by this, so a fake without one cannot model the guard.
-        self._unique_id = f"fake-timeline-{FakeTimeline._next_id}"
-
-    def GetName(self):
-        return self._name
-
-    def GetUniqueId(self):
-        return self._unique_id
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetSetting(self, key):
-        # Every container here is a delivery-shaped reel, so the
-        # entry-unit guard (AGENTS.md 5) has nothing to refuse.
-        return {"timelineResolutionWidth": "1080",
-                "timelineResolutionHeight": "1920"}.get(key, "")
-
-    def GetTrackCount(self, kind):
-        return 0
-
-    def GetTrackName(self, kind, index):
-        return ""
-
-    def GetItemListInTrack(self, kind, index):
-        return []
-
-    def GetStartFrame(self):
-        return 0
-
-    def GetMarkers(self):
-        return {}
-
-    def AddMarker(self, *args, **kwargs):
-        return True
-
-
-class FakeProject:
-    def __init__(self, names):
-        self.timelines = [FakeTimeline(name) for name in names]
-        self.current = self.timelines[0] if self.timelines else None
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        pool.CreateEmptyTimeline.side_effect = self._create
-        self._pool = pool
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            if timeline in self.timelines:
-                self.timelines.remove(timeline)
-        return True
-
-    def _create(self, name):
-        timeline = FakeTimeline(name)
-        self.timelines.append(timeline)
-        return timeline
-
-    def GetName(self):
-        return "Mock Project"
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def GetCurrentTimeline(self):
-        return self.current
-
-    def SetCurrentTimeline(self, timeline):
-        if timeline not in self.timelines:
-            return False
-        self.current = timeline
-        return True
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
 
 
 class FakeClip:

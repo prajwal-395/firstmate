@@ -32,7 +32,6 @@ Both directions, per AGENTS.md 10.4: a full build still grades all it
 placed, and grading nothing never passes.
 """
 import io
-import json
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -42,6 +41,7 @@ from library.tools.reel_build import (
     rebuild_reels_in_project,
 )
 from tests.promotion_test_helpers import install_fake_timeline_snapshots
+from tests.resolve_double import FakeProject, FakeResolve, FakeTimeline
 
 MASTER = "GEO Podcast - Synced"
 APPROVED = [f"Reel {n:02d} - moment-{n}" for n in range(1, 20)]
@@ -83,63 +83,6 @@ def _moment(number, name):
     return moment
 
 
-def _timeline(name):
-    timeline = MagicMock()
-    timeline._name = name
-    timeline.GetName.side_effect = lambda: timeline._name
-    def _rename(new):
-        timeline._name = new
-        return True
-    timeline.SetName.side_effect = _rename
-    return timeline
-
-
-class FakeProject:
-    def __init__(self, names):
-        self.timelines = [_timeline(name) for name in names]
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        pool.CreateEmptyTimeline.side_effect = self._create
-        self._pool = pool
-
-    def _create(self, name):
-        timeline = _timeline(name)
-        self.timelines.append(timeline)
-        return timeline
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.timelines.remove(timeline)
-        return True
-
-    def GetName(self):
-        return "Mock Project"
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
-
-    # A Resolve project HAS a cursor, and `resolve_lock`'s guard reads
-    # it back by unique id - a fake without one cannot model the guard.
-    def GetCurrentTimeline(self):
-        # None until something sets it: a project that has not been
-        # pointed anywhere has no cursor, and inventing one here would
-        # hand the entry-unit guard a timeline nobody opened.
-        return getattr(self, "_current", None)
-
-    def SetCurrentTimeline(self, timeline):
-        self._current = timeline
-        return True
-
-
 def _staging(final):
     return final + STAGING_SUFFIX
 
@@ -153,8 +96,7 @@ def _run_build(resolve_project, project_dir, **kwargs):
     def _place(**place_kwargs):
         name = place_kwargs.get("timeline_name")
         assert name, "the placer was asked to build into no container"
-        timeline = resolve_project.GetMediaPool().CreateEmptyTimeline(name)
-        timeline.GetTrackCount.return_value = 0
+        resolve_project.GetMediaPool().CreateEmptyTimeline(name)
         return {
             "track_plan": {
                 "video_tracks": [], "audio_tracks": [], "material": {},
@@ -268,15 +210,13 @@ def _run_scoped_verification(names, only_reels):
     from library.tools.reel_conformance_verifier import (
         ReelTimeline, run_verification)
 
-    timelines = [_timeline(name) for name in names]
-    fake = MagicMock()
-    fake.GetTimelineCount.return_value = len(timelines)
-    fake.GetTimelineByIndex.side_effect = lambda i: timelines[i - 1]
-    fake.GetCurrentTimeline.return_value = timelines[0]
-    timelines[0].GetSetting.side_effect = lambda key: {
+    master = FakeTimeline(names[0], settings={
         "timelineResolutionWidth": "1080",
         "timelineResolutionHeight": "1920",
-    }.get(key, "")
+    })
+    fake = FakeProject(
+        [master] + [FakeTimeline(name) for name in names[1:]],
+        current=master)
 
     FPS = 24000 / 1001
 
@@ -315,7 +255,7 @@ def _run_scoped_verification(names, only_reels):
                       video_items=(), audio_items=(), caption_items=())), \
             patch("library.tools.reel_conformance_verifier.verify_reel",
                   side_effect=fake_verify):
-        connect.return_value.GetProjectManager.return_value = MagicMock()
+        connect.return_value = FakeResolve()
         code = run_verification(
             project_name="Mock Project",
             master_name=MASTER,

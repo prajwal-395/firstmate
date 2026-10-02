@@ -45,7 +45,18 @@ if str(REPO) not in sys.path:
 from library.tools import composed_edit as ce  # noqa: E402
 from library.tools import reel_read  # noqa: E402
 from library.tools import reel_touchup as tu  # noqa: E402
-from tests.composed_edit_harness import build_reel  # noqa: E402
+from tests.composed_edit_harness import (  # noqa: E402
+    FakeComp,
+    FakeTool,
+    build_reel,
+    covering_window,
+    duplicate,
+    frames_of,
+    media_pool,
+    pool_clip,
+)
+from tests.composed_edit_harness import item as make_item  # noqa: E402
+from tests.resolve_double import FakeProject  # noqa: E402
 
 
 def _tracks(timeline):
@@ -370,25 +381,13 @@ def test_length_change_without_a_generator_still_refuses(tmp_path):
     assert timeline.delete_calls == []
 
 
-class _StubFolder:
-    """The one pool lookup the touchup needs: clips by full path."""
-
-    def __init__(self, clips):
-        self._clips = list(clips)
-
-    def GetClipList(self):
-        return list(self._clips)
-
-    def GetSubFolderList(self):
-        return []
-
-
-class _StubPool:
-    def __init__(self, clips):
-        self._folder = _StubFolder(clips)
-
-    def GetRootFolder(self):
-        return self._folder
+def _pool_holding(clips):
+    """A media pool whose root bin holds ``clips`` - the one lookup the
+    touchup needs is clips by full path."""
+    pool = FakeProject().GetMediaPool()
+    for clip in clips:
+        pool.GetRootFolder().add_clip(clip)
+    return pool
 
 
 def test_remove_plus_move_on_one_row_rekeys_and_verifies(tmp_path):
@@ -502,7 +501,6 @@ def test_swap_on_an_empty_auto_comp_still_qualifies(tmp_path):
     must not catch it - a gate that failed this correct output would
     be no better than one that cannot fail (AGENTS.md 10.4).
     """
-    from tests.composed_edit_harness import FakeComp, FakeTool, covering_window
 
     timeline, _pool, _media = build_reel(tmp_path)
     timeline.rows["V4"][0].comps = [FakeComp({
@@ -539,7 +537,6 @@ def test_graded_swap_refuses_at_resolve(tmp_path):
     is staged. The legitimate producer - Resolve's own default
     single node - is what every qualifying swap test above rides on.
     """
-    from tests.composed_edit_harness import FakeMediaPoolItem
 
     timeline, _pool, _media = build_reel(tmp_path)
     timeline.rows["V4"][0].nodes = 8  # graded, but no drawing comp
@@ -550,7 +547,7 @@ def test_graded_swap_refuses_at_resolve(tmp_path):
          "media": str(pixels)}]}
     qualification = tu.qualify(_tracks(timeline), spec)
     assert qualification.gate_class == tu.COMPOSED
-    stub = _StubPool([FakeMediaPoolItem(str(pixels), frames=200)])
+    stub = _pool_holding([pool_clip(str(pixels), frames=200)])
     with pytest.raises(tu.TouchupRefused) as refusal:
         tu._resolve_insertions(stub, timeline,
                                qualification.insertions)
@@ -572,7 +569,7 @@ def _overlay_swap(tmp_path):
 def test_swap_pixels_preserves_trimmed_caption_preroll(tmp_path):
     """Replacing pixels must not expose the render's 12-frame head handle."""
     timeline, _pool, _media = build_reel(tmp_path)
-    timeline.rows["V4"][0].left_offset = 12
+    timeline.rows["V4"][0]._left_offset = 12
     overlay = tmp_path / "caption-with-head-handle.mov"
     overlay.write_bytes(b"fake-rendered-overlay")
 
@@ -588,7 +585,7 @@ def test_swap_pixels_preserves_trimmed_caption_preroll(tmp_path):
 
 def test_swap_pixels_honors_an_explicit_source_trim(tmp_path):
     timeline, _pool, _media = build_reel(tmp_path)
-    timeline.rows["V4"][0].left_offset = 12
+    timeline.rows["V4"][0]._left_offset = 12
     overlay = tmp_path / "caption-starting-at-frame-zero.mov"
     overlay.write_bytes(b"fake-rendered-overlay")
 
@@ -603,10 +600,9 @@ def test_swap_pixels_honors_an_explicit_source_trim(tmp_path):
 
 
 def test_swap_pixels_names_the_replacement_file(tmp_path):
-    from tests.composed_edit_harness import FakeMediaPoolItem
 
     timeline, _pool, _media = build_reel(tmp_path)
-    timeline.rows["V4"][0].name = "logo_bulb_23976.mov"
+    timeline.rows["V4"][0]._name = "logo_bulb_23976.mov"
     replacement = tmp_path / "logo_bulb_lines_23976.mov"
     replacement.write_bytes(b"replacement pixels")
     qualification = tu.qualify(
@@ -617,7 +613,7 @@ def test_swap_pixels_names_the_replacement_file(tmp_path):
         }]})
 
     insertion, = tu._resolve_insertions(
-        _StubPool([FakeMediaPoolItem(str(replacement))]), timeline,
+        _pool_holding([pool_clip(str(replacement))]), timeline,
         qualification.insertions)
 
     assert insertion.name == "logo_bulb_lines_23976.mov"
@@ -628,22 +624,20 @@ def test_an_overlay_rendered_longer_at_its_path_is_reread_not_refused(
     """The geo-podcast fit-picture run, 2026-09-25: the TV overlay was
     imported at 969 frames for a preview, then re-rendered at 2307 under
     the same name - and 26 reels refused on the pool's stale 969."""
-    from tests.composed_edit_harness import FakeMediaPoolItem
 
     overlay, pending, needed = _overlay_swap(tmp_path)
-    stale = FakeMediaPoolItem(str(overlay), frames=needed - 1,
+    stale = pool_clip(str(overlay), frames=needed - 1,
                               on_disk=needed + 100)
-    tu.check_source_lengths(_StubPool([stale]), pending)
-    assert stale.frames == needed + 100
+    tu.check_source_lengths(_pool_holding([stale]), pending)
+    assert frames_of(stale) == needed + 100
 
 
 def test_a_file_too_short_for_its_span_still_refuses(tmp_path):
-    from tests.composed_edit_harness import FakeMediaPoolItem
 
     overlay, pending, needed = _overlay_swap(tmp_path)
-    short = FakeMediaPoolItem(str(overlay), frames=needed - 1)
+    short = pool_clip(str(overlay), frames=needed - 1)
     with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.check_source_lengths(_StubPool([short]), pending)
+        tu.check_source_lengths(_pool_holding([short]), pending)
     assert f"which holds {needed - 1}f" in str(refusal.value)
 
 
@@ -661,18 +655,17 @@ class _Rederiver(ce.CompRederiver):
         return None
 
     def rederive(self, changes):
-        from tests.composed_edit_harness import FakeItem, covering_window
         for change in changes:
             if not (change.played_length_changes and change.comp_count):
                 continue
             row = self.timeline.rows[change.row]
             item = next(i for i in row
                         if i.GetStart() == change.record_frame)
-            item.comps = FakeItem(
-                item.mpi, item.start, item.duration, item.left_offset,
+            item.comps = make_item(
+                item.GetMediaPoolItem(), item.GetStart(), item.GetDuration(), item.GetLeftOffset(),
                 comp_windows=[covering_window(
-                    item.duration, item.left_offset,
-                    item.mpi.frames)]).comps
+                    item.GetDuration(), item.GetLeftOffset(),
+                    frames_of(item.GetMediaPoolItem()))]).comps
         return {"ran": True, "ok": True}
 
     def expects_comp(self, row, record_frame):
@@ -686,10 +679,9 @@ def _staged_pair(tmp_path):
     the grades resolve off the approved reel, the composition runs on
     the staging copy.
     """
-    from tests.composed_edit_harness import FakeMediaPool, duplicate
     approved, _pool, media = build_reel(tmp_path)
     staged = duplicate(approved)
-    return approved, staged, FakeMediaPool(staged), media
+    return approved, staged, media_pool(staged), media
 
 
 def test_grade_sources_map_by_pre_edit_span(tmp_path):

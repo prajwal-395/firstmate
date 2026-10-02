@@ -15,7 +15,7 @@ while attaching the words to the wrong item is the defect, not the
 fix.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from tests.promotion_test_helpers import (
@@ -25,9 +25,9 @@ from tests.promotion_test_helpers import (
 
 from library.tools import marker_carry
 from library.tools.reel_build import (
-    ReelBuildError,
     promote_staged_reels,
 )
+from tests.resolve_double import FakeProject, FakeTimeline, timeline_item
 
 
 @pytest.fixture(autouse=True)
@@ -35,147 +35,21 @@ def fake_preservation_snapshots(monkeypatch):
     install_fake_timeline_snapshots(monkeypatch)
 
 
-class _Pool:
-    def __init__(self, path, markers=None):
-        self.path = path
-        self._markers = dict(markers or {})
-
-    def GetClipProperty(self, key):
-        return self.path if key == "File Path" else ""
-
-    def GetMarkers(self):
-        return dict(self._markers)
-
-
-class _ClipItem:
-    """One timeline item with a source file, an offset, and its markers."""
-
-    def __init__(self, name, start, end, path, left=0, markers=None,
-                 decline=()):
-        self._name = name
-        self._start = start
-        self._end = end
-        self._pool = _Pool(path) if path else None
-        self._left = left
-        self._markers = dict(markers or {})
-        self._decline = set(decline)
-        self.placed = []
-
-    def GetName(self):
-        return self._name
-
-    def GetStart(self):
-        return self._start
-
-    def GetEnd(self):
-        return self._end
-
-    def GetDuration(self):
-        return self._end - self._start
-
-    def GetClipEnabled(self):
-        return True
-
-    def GetLeftOffset(self):
-        return self._left
-
-    def GetMediaPoolItem(self):
-        return self._pool
-
-    def GetMarkers(self):
-        return dict(self._markers)
-
-    def AddMarker(self, frame, color, name, note, duration,
-                  custom=""):
-        if frame in self._decline:
-            return False
-        self._markers[int(frame)] = {
-            "color": color, "name": name, "note": note,
-            "duration": duration, "customData": custom}
-        self.placed.append((frame, color, name, note, duration, custom))
-        return True
-
-
-class _BareItem:
-    """A double without the marker API: nothing to read, nothing lost."""
-
-    def __init__(self, name, start, end):
-        self._name = name
-        self._start = start
-        self._end = end
-
-    def GetName(self):
-        return self._name
-
-    def GetStart(self):
-        return self._start
-
-    def GetEnd(self):
-        return self._end
-
-    def GetDuration(self):
-        return self._end - self._start
-
-    def GetClipEnabled(self):
-        return True
-
-
-class _Timeline:
-    def __init__(self, name, video=(), audio=(), markers=None, start=0):
-        self._name = name
-        self._video = list(video)
-        self._audio = list(audio)
-        self._markers = dict(markers or {})
-        self._start = start
-
-    def GetName(self):
-        return self._name
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetStartFrame(self):
-        return self._start
-
-    def GetTrackCount(self, media):
-        return len(self._video) if media == "video" else len(self._audio)
-
-    def GetTrackName(self, media, index):
-        rows = self._video if media == "video" else self._audio
-        return rows[index - 1][0]
-
-    def GetItemListInTrack(self, media, index):
-        rows = self._video if media == "video" else self._audio
-        return rows[index - 1][1]
-
-    def GetMarkers(self):
-        return dict(self._markers)
-
-    def AddMarker(self, frame, color, name, note, duration, custom=""):
-        self._markers[int(frame)] = {
-            "color": color, "name": name, "note": note,
-            "duration": duration, "customData": custom}
-        return True
-
-
 CTA_NOTE = "punch in on 'twenty percent' here"
 
 
 def _retiring_cta():
     """Reel 09's shape: the blue CTA note on the motion-graphics card."""
-    card = _ClipItem(
-        "cta card", 500, 560, "/f/mg_cta.mov", left=0,
+    card = timeline_item(
+        "cta card", 500, 560, path="/f/mg_cta.mov", left_offset=0,
         markers={12: {"color": "Blue", "name": "feedback",
                       "note": CTA_NOTE, "duration": 1,
                       "customData": ""}})
-    body = _ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF", left=6505)
-    return _Timeline("Reel 09", video=[
+    body = timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF", left_offset=6505)
+    return FakeTimeline("Reel 09", video=[
         ("Akshita", [body]),
         ("Motion Graphics", [card]),
     ])
-
-
 
 
 def test_a_clip_marker_carries_by_file_not_by_timeline_frame():
@@ -183,10 +57,10 @@ def test_a_clip_marker_carries_by_file_not_by_timeline_frame():
     notes = marker_carry.read_clip_markers(retiring, "Reel 09")
     # The rebuild moved the card seventy frames later; the file is the
     # same and still plays source frame 12.
-    card = _ClipItem("cta card", 570, 630, "/f/mg_cta.mov", left=0)
-    replacement = _Timeline("staging", video=[
-        ("Akshita", [_ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF",
-                               left=6505)]),
+    card = timeline_item("cta card", 570, 630, path="/f/mg_cta.mov", left_offset=0)
+    replacement = FakeTimeline("staging", video=[
+        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+                               left_offset=6505)]),
         ("Motion Graphics", [card]),
     ])
     carried, uncarried = marker_carry.plan_clip_carry(
@@ -211,13 +85,13 @@ def test_a_clip_marker_carries_by_file_not_by_timeline_frame():
 def test_a_marker_on_the_audio_track_is_read():
     """The inventory held one note on the master MXF's audio track -
     the picture-rows-only filter would never see it."""
-    wchar = _ClipItem("master audio", 0, 600, "/f/master.MXF", left=0,
+    wchar = timeline_item("master audio", 0, 600, path="/f/master.MXF", left_offset=0,
                       markers={300: {"color": "Blue", "name": "feedback",
                                      "note": "level dips here",
                                      "duration": 1, "customData": ""}})
-    timeline = _Timeline("Reel 20", video=[
-        ("Akshita", [_ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF",
-                               left=0)])],
+    timeline = FakeTimeline("Reel 20", video=[
+        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+                               left_offset=0)])],
         audio=[("Master", [wchar])])
     notes = marker_carry.read_clip_markers(timeline, "Reel 20")
     assert len(notes) == 1
@@ -230,20 +104,20 @@ def test_two_placements_of_one_file_refuse_rather_than_guess(capsys):
     """The anchor that cannot be resolved uniquely is REPORTED, never
     placed: a marker silently re-anchored to the wrong item is worse
     than one honestly reported missing."""
-    retiring = _Timeline("Reel 09", video=[
-        ("Motion Graphics", [_ClipItem(
-            "cta card", 500, 560, "/f/mg_cta.mov", left=0,
+    retiring = FakeTimeline("Reel 09", video=[
+        ("Motion Graphics", [timeline_item(
+            "cta card", 500, 560, path="/f/mg_cta.mov", left_offset=0,
             markers={12: {"color": "Blue", "name": "feedback",
                           "note": CTA_NOTE, "duration": 1,
                           "customData": ""}})]),
     ])
     notes = marker_carry.read_clip_markers(retiring, "Reel 09")
     # The rebuild says the same card twice; both play source frame 12.
-    replacement = _Timeline("staging", video=[
+    replacement = FakeTimeline("staging", video=[
         ("Motion Graphics", [
-            _ClipItem("cta card", 500, 560, "/f/mg_cta.mov", left=0),
-            _ClipItem("cta card copy", 560, 620, "/f/mg_cta.mov",
-                      left=0),
+            timeline_item("cta card", 500, 560, path="/f/mg_cta.mov", left_offset=0),
+            timeline_item("cta card copy", 560, 620, path="/f/mg_cta.mov",
+                      left_offset=0),
         ]),
     ])
     carried, uncarried = marker_carry.plan_clip_carry(
@@ -256,9 +130,8 @@ def test_two_placements_of_one_file_refuse_rather_than_guess(capsys):
     assert "CLIP MARKER NOT CARRIED" in err
     assert CTA_NOTE in err
     assert "/f/mg_cta.mov" in err
-    for row in replacement._video:
-        for item in row[1]:
-            assert item.placed == []
+    for item in replacement.GetItemListInTrack("video", 1):
+        assert item.placed == []
 
 
 def test_a_marker_whose_file_is_gone_names_the_file(capsys):
@@ -266,11 +139,11 @@ def test_a_marker_whose_file_is_gone_names_the_file(capsys):
     frame of the old file: the report names the file and the words."""
     retiring = _retiring_cta()
     notes = marker_carry.read_clip_markers(retiring, "Reel 09")
-    replacement = _Timeline("staging", video=[
-        ("Akshita", [_ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF",
-                               left=6505)]),
-        ("Motion Graphics", [_ClipItem("cta card", 500, 560,
-                                       "/f/mg_cta_NEW.mov", left=0)]),
+    replacement = FakeTimeline("staging", video=[
+        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+                               left_offset=6505)]),
+        ("Motion Graphics", [timeline_item("cta card", 500, 560,
+                                       path="/f/mg_cta_NEW.mov", left_offset=0)]),
     ])
     carried, uncarried = marker_carry.plan_clip_carry(
         notes, replacement, "Reel 09")
@@ -283,8 +156,6 @@ def test_a_marker_whose_file_is_gone_names_the_file(capsys):
     assert CTA_NOTE in err
 
 
-
-
 def test_a_pool_inherited_copy_is_not_carried_twice():
     """A pool marker seeds onto every placement at build time - the
     replacement's own items already inherit it, so carrying it again
@@ -292,17 +163,11 @@ def test_a_pool_inherited_copy_is_not_carried_twice():
     pool_markers = {12: {"color": "Blue", "name": "feedback",
                          "note": CTA_NOTE, "duration": 1,
                          "customData": ""}}
-    item = _ClipItem("cta card", 500, 560, "/f/mg_cta.mov", left=0,
-                     markers=dict(pool_markers))
-    item._pool = _Pool("/f/mg_cta.mov", markers=pool_markers)
-    timeline = _Timeline("Reel 09", video=[("Motion Graphics", [item])])
+    item = timeline_item("cta card", 500, 560, path="/f/mg_cta.mov",
+                         markers=dict(pool_markers),
+                         pool_markers=pool_markers)
+    timeline = FakeTimeline("Reel 09", video=[("Motion Graphics", [item])])
     assert marker_carry.read_clip_markers(timeline, "Reel 09") == []
-
-
-
-
-
-
 
 
 # ── Through the promotion ─────────────────────────────────────────
@@ -315,33 +180,6 @@ def test_a_pool_inherited_copy_is_not_carried_twice():
 FINAL_A = "Reel 09 - cta (final)"
 FINAL_B = "Reel 17 - doubled card (final)"
 MASTER = "Podcast - Synced"
-
-
-class FakeProject:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        self._pool = pool
-        self.deleted = []
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-        return True
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
 
 
 @pytest.fixture
@@ -368,43 +206,43 @@ def _promote(project, project_dir, staged_to_final):
 
 
 def _reel_a():
-    retiring = _Timeline(FINAL_A, video=[
-        ("Akshita", [_ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF",
-                               left=6505)]),
-        ("Motion Graphics", [_ClipItem(
-            "cta card", 500, 560, "/f/mg_cta.mov", left=0,
+    retiring = FakeTimeline(FINAL_A, video=[
+        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+                               left_offset=6505)]),
+        ("Motion Graphics", [timeline_item(
+            "cta card", 500, 560, path="/f/mg_cta.mov", left_offset=0,
             markers={12: {"color": "Blue", "name": "feedback",
                           "note": CTA_NOTE, "duration": 1,
                           "customData": ""}})]),
     ])
-    staging = _Timeline(FINAL_A + " (rebuild staging)", video=[
-        ("Akshita", [_ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF",
-                               left=6505)]),
-        ("Motion Graphics", [_ClipItem("cta card", 570, 630,
-                                       "/f/mg_cta.mov", left=0)]),
+    staging = FakeTimeline(FINAL_A + " (rebuild staging)", video=[
+        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+                               left_offset=6505)]),
+        ("Motion Graphics", [timeline_item("cta card", 570, 630,
+                                       path="/f/mg_cta.mov", left_offset=0)]),
     ])
     return retiring, staging
 
 
 def _reel_b():
-    retiring = _Timeline(FINAL_B, video=[
-        ("Akshita", [_ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF",
-                               left=6505)]),
-        ("Motion Graphics", [_ClipItem(
-            "doubled card", 100, 160, "/f/mg_doubled.mov", left=0,
+    retiring = FakeTimeline(FINAL_B, video=[
+        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+                               left_offset=6505)]),
+        ("Motion Graphics", [timeline_item(
+            "doubled card", 100, 160, path="/f/mg_doubled.mov", left_offset=0,
             markers={20: {"color": "Blue", "name": "feedback",
                           "note": "this card flashes",
                           "duration": 1, "customData": ""}})]),
     ])
     # Same file twice, both playing source frame 20: no unique item.
-    staging = _Timeline(FINAL_B + " (rebuild staging)", video=[
-        ("Akshita", [_ClipItem("Akshita A", 0, 600, "/f/LC4932.MXF",
-                               left=6505)]),
+    staging = FakeTimeline(FINAL_B + " (rebuild staging)", video=[
+        ("Akshita", [timeline_item("Akshita A", 0, 600, path="/f/LC4932.MXF",
+                               left_offset=6505)]),
         ("Motion Graphics", [
-            _ClipItem("doubled card", 100, 160, "/f/mg_doubled.mov",
-                      left=0),
-            _ClipItem("doubled card encore", 160, 220,
-                      "/f/mg_doubled.mov", left=0),
+            timeline_item("doubled card", 100, 160, path="/f/mg_doubled.mov",
+                      left_offset=0),
+            timeline_item("doubled card encore", 160, 220,
+                      path="/f/mg_doubled.mov", left_offset=0),
         ]),
     ])
     return retiring, staging
@@ -414,7 +252,7 @@ def test_promotion_carries_the_unique_clip_note_and_reports_the_other(
         project_dir, capsys):
     retired_a, staging_a = _reel_a()
     retired_b, staging_b = _reel_b()
-    project = FakeProject([_Timeline(MASTER), retired_a, staging_a,
+    project = FakeProject([FakeTimeline(MASTER), retired_a, staging_a,
                            retired_b, staging_b])
 
     promoted = _promote(project, project_dir,

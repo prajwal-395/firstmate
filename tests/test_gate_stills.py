@@ -23,9 +23,9 @@ from library.tools import gate_stills
 from library.tools.gate_stills import (
     find_timeline,
     grab_reel_stills,
-    png_size,
     still_filename,
 )
+from tests.resolve_double import FakeProject, FakeTimeline
 
 
 def _minimal_png(width: int, height: int) -> bytes:
@@ -41,65 +41,10 @@ def _minimal_png(width: int, height: int) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + chunks
 
 
-class FakeTimeline:
+def _reel(name, **knobs):
     """A timeline starting at absolute frame 100, running at 24 fps."""
-
-    def __init__(self, name, start=100, duration=500, stuck=False):
-        self._name = name
-        self._start = start
-        self._duration = duration
-        self._stuck = stuck
-        self._tc = "00:00:04:04"
-        self.set_calls = []
-
-    def GetName(self):
-        return self._name
-
-    def GetUniqueId(self):
-        # What `assert_current_timeline` reads back after establishing
-        # the cursor: the grab refuses rather than judging frames off
-        # the wrong timeline, so the fake carries a stable id like a
-        # real handle does.
-        return f"fake-timeline-{self._name}"
-
-    def GetStartFrame(self):
-        return self._start
-
-    def GetEndFrame(self):
-        return self._start + self._duration
-
-    def GetSetting(self, key):
-        return "24" if key == "timelineFrameRate" else ""
-
-    def SetCurrentTimecode(self, tc):
-        self.set_calls.append(tc)
-        if not self._stuck:
-            self._tc = tc
-        return True
-
-    def GetCurrentTimecode(self):
-        return self._tc
-
-
-class FakeProject:
-    def __init__(self, timelines, entry=None):
-        self._timelines = list(timelines)
-        self._current = entry if entry is not None else timelines[0]
-        self.switches = []
-
-    def GetTimelineCount(self):
-        return len(self._timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self._timelines[index - 1]
-
-    def GetCurrentTimeline(self):
-        return self._current
-
-    def SetCurrentTimeline(self, timeline):
-        self.switches.append(timeline.GetName())
-        self._current = timeline
-        return True
+    return FakeTimeline(name, start_frame=100, end_frame=600, frame_rate=24,
+                        timecode="00:00:04:04", **knobs)
 
 
 @pytest.fixture
@@ -126,10 +71,10 @@ def grab_png(monkeypatch):
 
 
 def _project():
-    reel = FakeTimeline("Reel 21 - my-website")
-    other = FakeTimeline("Reel 14 - more-content")
-    entry = FakeTimeline("Pipeline_Edit")
-    return FakeProject([entry, reel, other], entry=entry), entry, reel
+    reel = _reel("Reel 21 - my-website")
+    other = _reel("Reel 14 - more-content")
+    entry = _reel("Pipeline_Edit")
+    return FakeProject([entry, reel, other], current=entry), entry, reel
 
 
 def test_produces_stills_for_named_frames_of_named_reel(
@@ -158,13 +103,13 @@ def test_produces_stills_for_named_frames_of_named_reel(
 
 
 def test_timeline_name_is_exact_never_prefix(no_lease, grab_png, tmp_path):
-    short = FakeTimeline("Reel 1")
-    long = FakeTimeline("Reel 14")
-    entry = FakeTimeline("Pipeline_Edit")
-    project = FakeProject([entry, short, long], entry=entry)
+    short = _reel("Reel 1")
+    long = _reel("Reel 14")
+    entry = _reel("Pipeline_Edit")
+    project = FakeProject([entry, short, long], current=entry)
     report = grab_reel_stills(project, "Reel 1", [0], tmp_path, "reel1")
     assert report["ok"] is True
-    assert project.switches[0] == "Reel 1"  # made current, never Reel 14
+    assert project.set_calls[0] == "Reel 1"  # made current, never Reel 14
     assert project.GetCurrentTimeline() is entry  # and put back
     assert find_timeline(project, "Reel") is None
     missing = grab_reel_stills(project, "Reel", [0], tmp_path, "reelX")
@@ -188,8 +133,8 @@ def test_an_out_of_range_frame_is_refused_by_name(
 
 def test_a_playhead_that_will_not_land_fails_the_still(
         no_lease, grab_png, tmp_path):
-    stuck = FakeTimeline("Reel 09 - stuck", stuck=True)
-    project = FakeProject([stuck], entry=stuck)
+    stuck = _reel("Reel 09 - stuck", stuck_playhead=True)
+    project = FakeProject([stuck], current=stuck)
     report = grab_reel_stills(project, "Reel 09 - stuck", [50],
                               tmp_path, "reel9")
     assert report["ok"] is False
@@ -202,12 +147,9 @@ def test_a_playhead_that_will_not_land_fails_the_still(
 
 def test_a_rate_less_timeline_refuses_before_anything_moves(
         no_lease, grab_png, tmp_path):
-    class NoRate(FakeTimeline):
-        def GetSetting(self, key):
-            return ""
-
-    reel = NoRate("Reel 21 - my-website")
-    project = FakeProject([reel], entry=reel)
+    reel = FakeTimeline("Reel 21 - my-website", start_frame=100,
+                        end_frame=600, settings={"timelineFrameRate": ""})
+    project = FakeProject([reel], current=reel)
     report = grab_reel_stills(project, "Reel 21 - my-website", [10],
                               tmp_path, "reel21")
     assert report["ok"] is False

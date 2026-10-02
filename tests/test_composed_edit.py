@@ -27,15 +27,16 @@ if str(REPO) not in sys.path:
 from library.tools import composed_edit as ce  # noqa: E402
 from library.tools import reel_read  # noqa: E402
 from tests.composed_edit_harness import (  # noqa: E402
-    FakeItem,
-    FakeMediaPool,
-    FakeMediaPoolItem,
-    FakeTimeline,
     IDENTITY_PROPERTIES,
     build_reel,
     covering_window,
     duplicate,
+    frames_of,
+    media_pool,
+    pool_clip,
+    reel_timeline,
 )
+from tests.composed_edit_harness import item as make_item  # noqa: E402
 
 CUT = 1069        # where the restored phrase goes in, on the lab reel
 RESTORE = 13      # frames of speech put back
@@ -76,12 +77,12 @@ class _Rederiver(ce.CompRederiver):
                 row = self.timeline.rows[change.row]
                 item = next(i for i in row
                             if i.GetStart() == change.record_frame)
-                item.comps = FakeItem(
-                    item.mpi, item.start, item.duration, item.left_offset,
+                item.comps = make_item(
+                    item.GetMediaPoolItem(), item.GetStart(), item.GetDuration(), item.GetLeftOffset(),
                     comp_windows=[covering_window(
-                        item.duration, item.left_offset, item.mpi.frames)],
+                        item.GetDuration(), item.GetLeftOffset(), frames_of(item.GetMediaPoolItem()))],
                 ).comps
-                item.rederived_over = item.duration
+                item.rederived_over = item.GetDuration()
         return {"ran": self._ran, "ok": self._ok}
 
 
@@ -382,13 +383,13 @@ def test_step5_end_frame_is_exclusive(tmp_path):
     The prior spike's "two black frames" attributed to the API. It is a
     caller bug, and `clip_info` is the one place the arithmetic lives.
     """
-    mpi = FakeMediaPoolItem("/lab/x.mov", frames=100)
+    mpi = pool_clip("/lab/x.mov", frames=100)
     info = ce.clip_info(mpi, left_offset=10, duration=24, track_index=1,
                         record_frame=500)
     assert info["endFrame"] - info["startFrame"] == 24
 
-    timeline = FakeTimeline("short", {"V1": []})
-    pool = FakeMediaPool(timeline)
+    timeline = reel_timeline("short", {"V1": []})
+    pool = media_pool(timeline)
     pool.AppendToTimeline([dict(info, endFrame=info["endFrame"] - 1)])
     assert timeline.rows["V1"][0].GetDuration() == 23, (
         "the harness must reproduce the off-by-one, or the test proves "
@@ -404,14 +405,13 @@ def test_step5_end_frame_is_exclusive(tmp_path):
 
 def test_step6_the_return_value_is_not_the_verdict(tmp_path):
     """A truthy return and an empty track: the track wins."""
-    timeline = FakeTimeline("empty", {"V1": []})
-    mpi = FakeMediaPoolItem("/lab/x.mov", frames=100)
+    timeline = reel_timeline("empty", {"V1": []})
+    mpi = pool_clip("/lab/x.mov", frames=100)
 
-    class _LiesAboutPlacing(FakeMediaPool):
-        def AppendToTimeline(self, infos):
-            return [FakeItem(mpi, 0, 10) for _ in infos]   # placed NOWHERE
-
-    pool = _LiesAboutPlacing(timeline)
+    pool = media_pool(timeline)
+    # placed NOWHERE, a handle returned anyway
+    pool.AppendToTimeline = lambda infos: [make_item(mpi, 0, 10)
+                                           for _ in infos]
     ordered = [(0, 1, 1, ce.clip_info(mpi, 0, 10, 1, 0), None)]
     assert ce.place_all(pool, ordered)["returned_truthy"] is True
 
@@ -453,7 +453,7 @@ def test_step7_restores_transform_comp_window_and_grade(tmp_path):
     assert receipt["windows"][0]["readback"] == capture.restorable_comps[0].window
     assert placed.GetNumNodes() == 8
     assert receipt["property_readback_diff"] == {}
-    assert placed.linked is True
+    assert timeline.rows["A1"][0] in placed.GetLinkedItems()
 
 
 def test_step7_refuses_when_the_media_window_will_not_go_back(tmp_path):
@@ -561,4 +561,4 @@ def test_the_composition_is_one_delete_and_one_place(tmp_path):
                            withheld_dir=withheld,
                            rederiver=_Rederiver(timeline))
     assert timeline.delete_calls == [len(changes)]
-    assert pool.calls == [len(changes)]
+    assert pool.append_calls == [len(changes)]

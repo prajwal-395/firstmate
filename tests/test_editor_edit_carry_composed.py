@@ -12,13 +12,17 @@ play what the edited one played, item for item.
 """
 import json
 from contextlib import ExitStack
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from tests.composed_edit_harness import FakeItem as HarnessItem
-from tests.composed_edit_harness import FakeMediaPoolItem
-from tests.composed_edit_harness import FakeTimeline as HarnessTimeline
-from tests.composed_edit_harness import duplicate
+from tests.composed_edit_harness import (
+    covering_window,
+    frames_of,
+    item,
+    pool_clip,
+    rows_timeline,
+)
+from tests.resolve_double import FakeProject
 from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools.reel_build import ReelBuildError, promote_staged_reels
@@ -45,151 +49,20 @@ def project_dir(tmp_path):
     return root
 
 
-class Item(HarnessItem):
-    """A harness item that also holds enabled state and a clip colour."""
-
-    enabled = True
-    colour = ""
-
-    def GetClipEnabled(self):
-        return self.enabled
-
-    def SetClipEnabled(self, enabled):
-        self.enabled = bool(enabled)
-        return True
-
-    def GetClipColor(self):
-        return self.colour
-
-    def SetClipColor(self, colour):
-        self.colour = colour
-        return True
+def Timeline(name, rows):
+    """A Reel 7 timeline with the field test's row names."""
+    return rows_timeline(name, rows, track_names=NAMES)
 
 
-class Timeline(HarnessTimeline):
-    """A harness timeline a promotion can rename, read and duplicate."""
-
-    project = None
-
-    def __init__(self, name, rows):
-        super().__init__(name, rows, track_names=NAMES)
-        self.uid = f"tl-{name}"
-
-    def GetUniqueId(self):
-        return self.uid
-
-    def SetName(self, name):
-        self.name = name
-        return True
-
-    def GetStartFrame(self):
-        return 0
-
-    def GetEndFrame(self):
-        return max(i.GetEnd() for row in self.rows.values() for i in row)
-
-    def GetSetting(self, key=None):
-        settings = {"timelineFrameRate": "30",
-                    "timelineResolutionWidth": "1080",
-                    "timelineResolutionHeight": "1920"}
-        return settings if key is None else settings.get(key, "")
-
-    def GetMarkers(self):
-        return {}
-
-    def DuplicateTimeline(self, name):
-        copied = duplicate(self, name)
-        twin = Timeline(name, {
-            key: [Item(i.mpi, i.start, i.duration, i.left_offset,
-                       properties=dict(i.properties), nodes=i.nodes)
-                  for i in items] for key, items in copied.rows.items()})
-        self.project.timelines.append(twin)
-        twin.project = self.project
-        return twin
-
-    def DeleteClips(self, items, ripple=False):
-        doomed = {id(item) for item in items}
-        spans = {(item.GetStart(), item.GetEnd()) for item in items}
-        for key, row in self.rows.items():
-            self.rows[key] = [i for i in row if id(i) not in doomed]
-        if ripple:
-            (start, end), = spans
-            for row in self.rows.values():
-                for item in row:
-                    if item.start >= end:
-                        item.start -= end - start
-        return True
+def Project(timelines):
+    """The live project, the master timeline current."""
+    return FakeProject("Mock Project", timelines, current=timelines[0])
 
 
-class Pool:
-    """Appends into the CURRENT timeline, with Resolve's collision rule."""
-
-    def __init__(self, project):
-        self.project = project
-
-    def AppendToTimeline(self, infos):
-        timeline = self.project.current
-        returned = []
-        for info in infos:
-            prefix = "V" if info.get("mediaType", 1) == 1 else "A"
-            key = f"{prefix}{info['trackIndex']}"
-            start = int(info["recordFrame"])
-            duration = int(info["endFrame"]) - int(info["startFrame"])
-            row = timeline.rows.setdefault(key, [])
-            placed = Item(info["mediaPoolItem"], start, duration,
-                          int(info["startFrame"]))
-            returned.append(placed)
-            if any(not (start + duration <= i.GetStart()
-                        or i.GetEnd() <= start) for i in row):
-                continue
-            row.append(placed)
-            row.sort(key=lambda item: item.GetStart())
-        return returned
-
-    def DeleteTimelines(self, timelines):
-        for timeline in timelines:
-            self.project.timelines.remove(timeline)
-        return True
-
-    def __getattr__(self, name):
-        return MagicMock(name=name)
-
-
-class Project:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        for timeline in self.timelines:
-            timeline.project = self
-        self.current = self.timelines[0]
-        self.pool = Pool(self)
-
-    def GetName(self):
-        return "Mock Project"
-
-    def GetMediaPool(self):
-        return self.pool
-
-    def GetCurrentTimeline(self):
-        return self.current
-
-    def SetCurrentTimeline(self, timeline):
-        self.current = timeline
-        return True
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return sorted(t.GetName() for t in self.timelines)
-
-
-AKSHITA = FakeMediaPoolItem("/media/akshita.mov", frames=100_000)
-CRAIG = FakeMediaPoolItem("/media/craig.mov", frames=100_000)
-CARD = FakeMediaPoolItem("/media/semantic-card.mov", frames=200)
-LATE = FakeMediaPoolItem("/media/semantic-late.mov", frames=200)
+AKSHITA = pool_clip("/media/akshita.mov", frames=100_000)
+CRAIG = pool_clip("/media/craig.mov", frames=100_000)
+CARD = pool_clip("/media/semantic-card.mov", frames=200)
+LATE = pool_clip("/media/semantic-late.mov", frames=200)
 
 
 def reel(name, *, craig=437, late_at=700, card_on=True, comps=False):
@@ -200,20 +73,20 @@ def reel(name, *, craig=437, late_at=700, card_on=True, comps=False):
                 (AKSHITA, 60_745, 234, 747 - shift)]
 
     def picture(mpi, left, duration, start):
+        frames = frames_of(mpi)
         windows = ([{"MediaSource": "Timeline", "GlobalIn": -left,
-                     "GlobalOut": mpi.frames - left - 1,
+                     "GlobalOut": frames - left - 1,
                      "ClipTimeStart": -left,
-                     "ClipTimeEnd": mpi.frames - left - 1,
+                     "ClipTimeEnd": frames - left - 1,
                      "MediaID": "", "AudioTrack": "Timeline Audio"}]
                    if comps else [])
-        return Item(mpi, start, duration, left, comp_windows=windows)
+        return item(mpi, start, duration, left, comp_windows=windows)
 
-    card = Item(CARD, 20, 40, 0)
-    card.enabled = card_on
     timeline = Timeline(name, {
         "V1": [picture(*p) for p in passages],
-        "V3": [card, Item(LATE, late_at, 30, 0)],
-        "A1": [Item(mpi, start, duration, left)
+        "V3": [item(CARD, 20, 40, 0, enabled=card_on),
+               item(LATE, late_at, 30, 0)],
+        "A1": [item(mpi, start, duration, left)
                for mpi, left, duration, start in passages],
     })
     return timeline
@@ -227,8 +100,9 @@ def edited():
 
 
 def played(timeline):
-    return {key: [(i.mpi.name, i.left_offset, i.duration, i.start,
-                   i.GetClipEnabled()) for i in items]
+    return {key: [(i.GetMediaPoolItem().GetName(), i.GetLeftOffset(),
+                   i.GetDuration(), i.GetStart(), i.GetClipEnabled())
+                  for i in items]
             for key, items in sorted(timeline.rows.items())}
 
 
@@ -270,7 +144,7 @@ def test_a_rippled_trim_and_a_moved_graphic_are_carried(project_dir):
     assert played(staging) == wanted
     # The re-placed items kept their treatment: the reference copy is
     # gone and every grade came across.
-    assert project.names() == sorted([MASTER, FINAL])
+    assert sorted(project.names()) == sorted([MASTER, FINAL])
     edits = provenance(project_dir)["carried_editor_edits"][FINAL]
     kinds = sorted((edit["kind"], edit["row"]) for edit in edits)
     assert kinds == [("enabled", "video:Semantic"),
@@ -294,9 +168,7 @@ def test_the_next_rebuild_trims_and_moves_again_from_the_ledger(
     project = Project([Timeline(MASTER, {}), live, staging])
     promote(project, project_dir)
 
-    again = reel(STAGING)
-    again.project = project
-    project.timelines.append(again)
+    again = project.adopt(reel(STAGING))
     doc = provenance(project_dir)
     doc["built_reels"] = [STAGING]
     (project_dir / "pipeline_output" / "review" / "plan_provenance.json"
@@ -318,14 +190,15 @@ def test_a_trim_of_a_comp_bearing_clip_with_no_manifest_refuses_unwritten(
 
     assert "recorded fusion manifest" in str(refused.value)
     assert played(staging) == before
-    assert project.names() == sorted([MASTER, FINAL, STAGING])
+    assert sorted(project.names()) == sorted([MASTER, FINAL, STAGING])
 
 
 def test_a_trim_under_another_rows_item_refuses_unwritten(project_dir):
     live, staging = edited(), reel(STAGING)
     # A graphic straddling the end of the Craig passage on both sides.
     for timeline, start in ((live, 500), (staging, 500)):
-        timeline.rows["V3"].insert(1, Item(CARD, start, 80, 0))
+        timeline.add_item("video", 3, item(CARD, start, 80, 0))
+        timeline.rows["V3"].sort(key=lambda placed: placed.GetStart())
     before = played(staging)
     project = Project([Timeline(MASTER, {}), live, staging])
 
@@ -341,13 +214,12 @@ def test_a_trim_under_another_rows_item_refuses_unwritten(project_dir):
 def test_a_comp_bearing_trim_reruns_the_comp_pass_on_its_kept_range(
         project_dir):
     """The pass gets the recorded manifest with the trimmed spec moved."""
-    from tests.composed_edit_harness import covering_window
-
     staging = reel(STAGING, comps=True)
     live = reel(FINAL, craig=400, late_at=600, card_on=False, comps=True)
     wanted = played(live)
     project = Project([Timeline(MASTER, {}), live, staging])
-    sources = [i.mpi.path for i in staging.rows["V1"]]
+    sources = [i.GetMediaPoolItem().GetClipProperty("File Path")
+               for i in staging.rows["V1"]]
     manifest = {
         "fusion_effects": {"per_clip": {"craig": {"zoom": 1.2}}},
         "tracks": {"V1": {"clips": [
@@ -367,11 +239,13 @@ def test_a_comp_bearing_trim_reruns_the_comp_pass_on_its_kept_range(
 
     def comp_pass(given, _folder, _project, timeline_name, **_kw):
         passes.append((given, timeline_name))
-        for item in project.current.rows["V1"]:
-            item.comps = Item(
-                item.mpi, item.start, item.duration, item.left_offset,
+        for placed in project.GetCurrentTimeline().rows["V1"]:
+            placed.comps = item(
+                placed.GetMediaPoolItem(), placed.GetStart(),
+                placed.GetDuration(), placed.GetLeftOffset(),
                 comp_windows=[covering_window(
-                    item.duration, item.left_offset, item.mpi.frames)]).comps
+                    placed.GetDuration(), placed.GetLeftOffset(),
+                    frames_of(placed.GetMediaPoolItem()))]).comps
         return True
 
     with patch("library.tools.reel_look.apply_comps", side_effect=comp_pass):

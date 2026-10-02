@@ -296,7 +296,7 @@ def test_the_pan_reaches_a_property_resolve_accepts():
     renderer wrote it to `PanX`, which Resolve does not have. This drives
     the real `_apply_conform` with a fake that refuses unknown names.
     """
-    from tests.test_framing_parameter import FakeTimelineItem
+    from tests.test_framing_parameter import _item
     from library.steps.step_6_01_render.resolve_build_timeline import (
         _apply_conform,
     )
@@ -310,7 +310,7 @@ def test_the_pan_reaches_a_property_resolve_accepts():
     clip["label"] = "subject_tracked"
     assert clip["framing_pan_x"] > 0
 
-    item = FakeTimelineItem(source_size=(3840, 2160))
+    item = _item(source_size=(3840, 2160))
     results = {"warnings": []}
     _apply_conform(item, clip, results, frame_size=(1080, 1920))
 
@@ -322,10 +322,10 @@ def test_the_pan_reaches_a_property_resolve_accepts():
     # Driven against the law rather than restated, so the next
     # calibration moves this with the code instead of against it.
     base = fit_base_scale(3840, 2160, 1080, 1920)
-    assert item.properties["Pan"] == pytest.approx(
+    assert item.GetProperty("Pan") == pytest.approx(
         units_for_shift(clip["framing_pan_x"], 3840, 1080, base),
         abs=0.01)
-    assert item.properties["Pan"] == pytest.approx(
+    assert item.GetProperty("Pan") == pytest.approx(
         clip["framing_pan_x"] / FALLBACK_DRAW_GAIN, abs=0.01)
-    assert item.properties["ZoomX"] == clip["fill_zoom"]
+    assert item.GetProperty("ZoomX") == clip["fill_zoom"]
     assert not results["warnings"]

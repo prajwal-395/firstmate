@@ -19,7 +19,9 @@ not assumed. Each rule names the field evidence:
   project timeline resolution rescales every stored value while the
   picture stays put (``drift_check``, 2026-10-02: x4 across the epoch).
 - ``SetCurrentTimecode`` returns True even past the end, and the playhead
-  reads back there (``marker_capture`` live test).
+  reads back there (``marker_capture`` live test). NOTE: the shared
+  contract for this FAILED against live Resolve 21.1 on 2026-10-02 (an
+  unplanned qualification run); which half is wrong is not yet measured.
 - ``AddMarker`` accepts past-the-end frames too - the bounds check is the
   CALLER's (``place_reply_marker`` live test).
 - ``DeleteMarkerAtFrame`` / item ``remove`` returns False for "nothing
@@ -30,7 +32,8 @@ not assumed. Each rule names the field evidence:
   added AFTER placement does not reach existing items
   (``marker_feedback`` live tests).
 - ``GetProperty()`` with no argument is the only reading that says what
-  the item carries; unknown single-key reads answer ``""``
+  the item carries; an unknown single-key read is falsy - NOT ``""``
+  (live qualification 2026-10-02), answered here as None
   (``timeline_ingest._item_transform``).
 - audio rows are named for their STREAM (``Akshita CH1``), never for the
   transcript speaker (``Akshita``) - joining speech to picture goes by
@@ -64,14 +67,45 @@ class ResolveDoubleError(AttributeError):
 #: growing a private fake that answers differently.
 UNSUPPORTED = frozenset(
     {
-        "render queue (AddRenderJob/GetRenderJobList/StartRendering)",
-        "Fusion comp import (ImportFusionComp)",
+        "rendering files (StartRendering queues and records, writes nothing)",
         "gallery stills (GrabStill/GetStills)",
         "voice isolation (GetVoiceIsolationState/SetVoiceIsolationState)",
         "multicam (CreateMulticamClip)",
         "project databases and folders on disk (LoadProject/SaveProject)",
     }
 )
+
+#: The Inspector Transform properties Resolve exposes on a video
+#: TimelineItem, read off `GetProperty()` on Resolve 21.0.0b.28. NOT here:
+#: `PanX`/`PanY` - position is `Pan` and `Tilt`. Resolve does not raise on
+#: another name, it DECLINES (False), which is what let `_apply_conform`
+#: write `PanX` for the life of the feature under a `MagicMock`
+#: (`test_framing_parameter.py`).
+VIDEO_ITEM_PROPERTIES = frozenset(
+    {
+        "AnchorPointX", "AnchorPointY", "CompositeMode", "CropBottom",
+        "CropLeft", "CropRetain", "CropRight", "CropSoftness", "CropTop",
+        "Distortion", "DynamicZoomEase", "FlipX", "FlipY", "MotionEstimation",
+        "Opacity", "Pan", "Pitch", "ResizeFilter", "RetimeProcess",
+        "RotationAngle", "Scaling", "Tilt", "Yaw", "ZoomGang", "ZoomX", "ZoomY",
+    }
+)
+
+#: The metadata keys `MediaPoolItem.SetMetadata` accepts, measured on
+#: 21.0.0b.28; any other key returns False and stores nothing
+#: (`execution/organise_media_pool`).
+METADATA_KEYS = frozenset(
+    {
+        "Comments", "Keywords", "Description", "Scene", "Shot", "Take",
+        "Angle", "Reel Number", "Move", "Day / Night", "Camera #",
+        "Production Name", "Episode Name", "Shot Type", "Environment",
+        "Genre", "People", "Location",
+    }
+)
+
+#: Measured on Resolve Studio 21.1 (composed-edit spike): this pair
+#: returns False from `SetProperty` AND sets the value - judge by read-back.
+FALSE_BUT_SET_PROPERTIES = frozenset({"AnchorPointX", "AnchorPointY"})
 
 _DEFAULT_SETTINGS = {
     "timelineResolutionWidth": "1080",
@@ -83,6 +117,8 @@ _DEFAULT_SETTINGS = {
 class FakeResolve:
     """``DaVinciResolveScript.scriptapp("Resolve")`` stood in."""
 
+    EXPORT_OTIO = 15
+
     def __init__(self, project=None) -> None:
         self._manager = FakeProjectManager(project)
 
@@ -91,6 +127,13 @@ class FakeResolve:
 
     def GetProductName(self):
         return "DaVinci Resolve (canonical test double)"
+
+    def GetFairlightPresets(self):
+        """No presets: the captain's limiter preset is not installed."""
+        return {}
+
+    def GetCurrentPage(self):
+        return getattr(self, "opened_pages", ["edit"])[-1]
 
     def OpenPage(self, page):
         self.opened_pages = getattr(self, "opened_pages", []) + [page]
@@ -156,7 +199,19 @@ class FakeProject:
         self.deleted: list = []
         self.delete_ok = delete_ok
         self._pool = FakeMediaPool(self)
+        self.render_settings: dict = {}
+        self.render_format_codec = {"format": "mov", "codec": "H.264"}
+        self.render_jobs: list = []
+        self.started_renders: list = []
+        self.deleted_render_jobs: list = []
+        #: Fault knob: the 2026-09-11 shape - both `SetRenderSettings` and
+        #: `AddRenderJob` succeed and the job queues the WHOLE timeline.
+        #: True for every job, or a collection of MarkIn frames it hits.
+        self.ignore_render_marks = False
         for timeline in timelines:
+            # A bare name stands for an empty timeline of that name.
+            if isinstance(timeline, str):
+                timeline = FakeTimeline(timeline)
             self.adopt(timeline)
         if current is not None:
             self._current = current
@@ -221,6 +276,61 @@ class FakeProject:
         self._current = timeline
         return True
 
+    # ── the render queue ──
+    def GetCurrentRenderFormatAndCodec(self):
+        return dict(self.render_format_codec)
+
+    def SetCurrentRenderFormatAndCodec(self, fmt, codec):
+        self.render_format_codec = {"format": fmt, "codec": codec}
+        return True
+
+    def SetRenderSettings(self, settings):
+        self.render_settings.update(settings)
+        return True
+
+    def AddRenderJob(self):
+        """Queue the current timeline under the current settings.
+
+        WITHOUT ``SelectAllFrames: False`` Resolve IGNORES MarkIn/MarkOut
+        and queues the whole timeline, while every call succeeds
+        (measured 2026-09-11, `segment_renderer`).
+        """
+        timeline = self.GetCurrentTimeline()
+        if timeline is None:
+            return ""
+        settings = self.render_settings
+        ignored = self.ignore_render_marks
+        if not isinstance(ignored, bool):
+            ignored = settings.get("MarkIn") in ignored
+        whole = ignored or settings.get("SelectAllFrames") is not False
+        job = {
+            "JobId": f"job-{len(self.render_jobs) + 1}",
+            "TimelineName": timeline.GetName(),
+            "MarkIn": timeline.GetStartFrame() if whole else settings.get("MarkIn"),
+            "MarkOut": timeline.GetEndFrame() if whole else settings.get("MarkOut"),
+            "TargetDir": settings.get("TargetDir", ""),
+            "OutputFilename": settings.get("CustomName", ""),
+        }
+        self.render_jobs.append(job)
+        return job["JobId"]
+
+    def GetRenderJobList(self):
+        return [dict(job) for job in self.render_jobs]
+
+    def DeleteRenderJob(self, job_id):
+        before = len(self.render_jobs)
+        self.render_jobs = [j for j in self.render_jobs if j["JobId"] != job_id]
+        self.deleted_render_jobs.append(job_id)
+        return len(self.render_jobs) < before
+
+    def StartRendering(self, jobs, isInteractiveMode=False):
+        """Records the start; renders nothing (see `UNSUPPORTED`)."""
+        self.started_renders.append(list(jobs))
+        return True
+
+    def IsRenderingInProgress(self):
+        return False
+
     def ApplyFairlightPresetToCurrentTimeline(self, preset):
         return False
 
@@ -250,12 +360,14 @@ class FakeProject:
 class FakeMediaPool:
     def __init__(self, project) -> None:
         self._project = project
-        self._root = FakeFolder("Root")
+        self._root = FakeFolder("Master")  # Resolve's own root bin name
         self._current_folder = self._root
         self.audio_channels = (1,)
         self.media_properties: dict = {}
         self.import_failures: set = set()
         self.next_timeline = None
+        #: One entry per `AppendToTimeline` call: how many specs it held.
+        self.append_calls: list = []
         self.move_calls: list = []
         self.move_ok = True
         self.delete_folder_calls: list = []
@@ -272,18 +384,24 @@ class FakeMediaPool:
         return True
 
     def AddSubFolder(self, parent, name=None):
+        """Measured on 21.0.0b.28 (`execution/organise_media_pool`): makes
+        a SECOND folder when the name exists, and SETS the current folder
+        to the one it made."""
         if name is None:
             parent, name = self._root, parent
         folder = FakeFolder(name)
         parent._subfolders.append(folder)
+        self._current_folder = folder
         return folder
 
     def CreateEmptyTimeline(self, name):
+        """The new timeline's pool item lands in the CURRENT folder."""
         timeline = self.next_timeline or FakeTimeline(name, self._project)
         self.next_timeline = None
         timeline.SetName(name)
         if timeline not in self._project._timelines:
             self._project.adopt(timeline)
+        self._current_folder._clips.append(timeline.GetMediaPoolItem())
         return timeline
 
     def DeleteTimelines(self, timelines):
@@ -297,7 +415,82 @@ class FakeMediaPool:
                 timeline._deleted = True
             if self._project._current is timeline:
                 self._project._current = None
+            self._unfile([timeline.GetMediaPoolItem()])
         return True
+
+    def ImportTimelineFromFile(self, path, options=None):
+        """Rebuild a timeline from an OTIO file - LOSING every Fusion comp
+        and grade, which is what Resolve really does.
+
+        Answers None, naming nothing, when the name is taken or when ANY
+        referenced file is not on disk (`otio_mix`'s third format fact).
+        """
+        import os
+
+        from library.tools import otio_mix
+
+        options = options or {}
+        name = options.get("timelineName", "")
+        if any(t.GetName() == name for t in self._project._timelines):
+            return None
+        otio = json.loads(Path(path).read_text(encoding="utf-8"))
+        rebuilt = FakeTimeline(name, self._project)
+        for track in otio["tracks"]["children"]:
+            kind = "video" if track["kind"] == "Video" else "audio"
+            index = int(track["name"][1:])
+            rebuilt._ensure_track(kind, index)
+            position = rebuilt.GetStartFrame()
+            for child in track["children"]:
+                source = child["source_range"]
+                duration = int(source["duration"]["value"])
+                if str(child["OTIO_SCHEMA"]).startswith("Clip"):
+                    media = otio_mix.clip_media_path(child)
+                    if not os.path.exists(media):
+                        return None
+                    pool_item = FakeMediaPoolItem(Path(media).name)
+                    pool_item.SetClipProperty("File Path", media)
+                    item = FakeTimelineItem(
+                        pool_item.GetName(), rebuilt, start=position,
+                        duration=duration,
+                        left_offset=int(source["start_time"]["value"]),
+                        pool_item=pool_item)
+                    item._otio_volume = otio_mix._volume_parameter_of(child)
+                    rebuilt._tracks[kind][index - 1][1].append(item)
+                position += duration
+        self._project.adopt(rebuilt)
+        self._current_folder._clips.append(rebuilt.GetMediaPoolItem())
+        return rebuilt
+
+    def DeleteClips(self, clips):
+        """Remove pool items; a TIMELINE's pool item deletes the timeline.
+
+        AGENTS.md §5: `DeleteClips` on a timeline's pool item DELETES THE
+        TIMELINE - the catastrophic case `orphan_removal` guards and the
+        intended act in `execution/remove_proof`.
+        """
+        clips = list(clips)
+        doomed = [
+            timeline
+            for timeline in self._project._timelines
+            if any(timeline.GetMediaPoolItem() is clip for clip in clips)
+        ]
+        self._unfile(clips)
+        if doomed:
+            delete_ok = self._project.delete_ok
+            self._project.delete_ok = True
+            self.DeleteTimelines(doomed)
+            self._project.delete_ok = delete_ok
+        return True
+
+    def _unfile(self, clips):
+        folders = [self._root]
+        while folders:
+            folder = folders.pop()
+            folder._clips[:] = [
+                item for item in folder._clips
+                if not any(item is clip for clip in clips)
+            ]
+            folders.extend(folder._subfolders)
 
     def AppendToTimeline(self, specs):
         """Place clips; pool markers present NOW copy onto the new items.
@@ -309,10 +502,21 @@ class FakeMediaPool:
         (`resolve_lock.PLACEMENT_REQUIRES_CURRENT`). With nothing
         current there is no destination, and the call returns False.
 
+        ``endFrame`` is EXCLUSIVE: the item plays ``endFrame - startFrame``
+        frames. An inclusive reading left a one-frame black hole between
+        abutting placements (`reel_build` caption placement, the
+        composed-edit spike's two black frames).
+
+        Placing over a live item on the destination row is REFUSED in
+        the worst way (measured, composed-edit spike): the call still
+        returns a truthy list holding a live-looking handle, and places
+        NOTHING - only a read-back of the row tells.
+
         A pool marker added AFTER placement does not reach existing items
         (measured, marker_feedback live tests) - so only the markers
         present at this call are inherited.
         """
+        self.append_calls.append(len(specs))
         timeline = self._project._current
         if timeline is None:
             return False
@@ -334,8 +538,10 @@ class FakeMediaPool:
                 item = FakeTimelineItem(
                     pool_item.GetName(),
                     timeline,
-                    start=spec.get("recordFrame", start),
-                    duration=end - start + 1,
+                    # No recordFrame: APPENDED after the row's last item.
+                    start=(int(spec["recordFrame"]) if "recordFrame" in spec
+                           else _append_end(timeline, kind, track_index)),
+                    duration=end - start,
                     left_offset=start,
                     pool_item=pool_item,
                     source_audio_channel_mapping=(
@@ -365,10 +571,17 @@ class FakeMediaPool:
                     raise ResolveDoubleError(
                         "multistream audio spill needs a second existing audio row"
                     )
-                timeline._ensure_track(kind, destination)
-                timeline._tracks[kind][destination - 1][1].append(item)
+                row = timeline._ensure_track(kind, destination)[1]
                 if offset == 0:
                     placed.append(item)
+                # The refusal is measured for the placement itself; a
+                # multistream spill copy is not judged (unmeasured).
+                if offset == 0 and any(
+                        item.GetStart() < live.GetEnd()
+                        and live.GetStart() < item.GetEnd() for live in row):
+                    continue
+                row.append(item)
+                row.sort(key=lambda live: live.GetStart())
         return placed or True
 
     def ImportMedia(self, paths):
@@ -443,12 +656,24 @@ class FakeFolder:
     def GetSubFolderList(self):
         return list(self._subfolders)
 
+    def add_clip(self, clip):
+        """Test-side helper: file an existing pool item in this bin."""
+        self._clips.append(clip)
+        return clip
+
 
 def make_pool_clip(
-    name="clip.mov", frames=1000, resolution="3840x2160", clip_type="Video"
+    name="clip.mov",
+    frames=1000,
+    resolution="3840x2160",
+    clip_type="Video",
+    path=None,
+    uid=None,
 ):
     """A media-pool clip carrying the properties ingest reads."""
-    clip = FakeMediaPoolItem(name)
+    clip = FakeMediaPoolItem(name, uid=uid)
+    if path is not None:
+        clip._props["File Path"] = path
     clip._props.update(
         {
             "File Name": name,
@@ -461,8 +686,9 @@ def make_pool_clip(
 
 
 class FakeMediaPoolItem:
-    def __init__(self, name="clip.mov") -> None:
+    def __init__(self, name="clip.mov", uid=None) -> None:
         self._name = name
+        self._uid = uid
         self._props = {
             "File Name": name,
             "Type": "Video",
@@ -470,6 +696,10 @@ class FakeMediaPoolItem:
             "Resolution": "3840x2160",
         }
         self._markers: dict = {}
+        self._metadata: dict = {}
+        self.replace_calls: list = []
+        self.refuse_replace = False
+        self.on_disk_frames = None
 
     def GetName(self):
         return self._name
@@ -482,8 +712,23 @@ class FakeMediaPoolItem:
     def GetMediaId(self):
         return self._name
 
+    def ReplaceClip(self, path):
+        """Point the pool item at ``path``; every placement follows.
+
+        ``refuse_replace`` is the fault knob (a falsy answer, nothing
+        changed). ``on_disk_frames`` is what the file holds NOW: the pool
+        keeps the length it read at import until a replace re-reads it.
+        """
+        self.replace_calls.append(path)
+        if self.refuse_replace:
+            return False
+        self._props["File Path"] = path
+        if self.on_disk_frames is not None:
+            self._props["Frames"] = str(self.on_disk_frames)
+        return True
+
     def GetUniqueId(self):
-        return f"pool:{self._name}"
+        return self._uid or f"pool:{self._name}"
 
     def GetClipProperty(self, key=None):
         if key is None:
@@ -491,7 +736,25 @@ class FakeMediaPoolItem:
         return self._props.get(key, "")
 
     def GetMetadata(self, key=None):
-        return ""
+        if key is None:
+            return dict(self._metadata)
+        return self._metadata.get(key, "")
+
+    def SetMetadata(self, key, value):
+        """False and nothing stored for a key Resolve does not know
+        (measured, `execution/organise_media_pool`)."""
+        if key not in METADATA_KEYS:
+            return False
+        self._metadata[key] = value
+        return True
+
+    def SetClipColor(self, color):
+        self._props["Clip Color"] = color
+        return True
+
+    def ClearClipColor(self):
+        self._props["Clip Color"] = ""
+        return True
 
     def SetClipProperty(self, key, value):
         self._props[key] = str(value)
@@ -551,10 +814,16 @@ class FakeTimeline:
         end_frame=None,
         settings=None,
         rename_ok=True,
+        pool_uid=None,
+        timecode=None,
+        stuck_playhead=False,
     ) -> None:
         self._name = name
         self.rename_ok = rename_ok
-        self._media_pool_item = FakeMediaPoolItem(name)
+        # A timeline is also a pool item, of Type "Timeline" - the one
+        # `DeleteClips` deletes the timeline through (AGENTS.md §5).
+        self._media_pool_item = FakeMediaPoolItem(name, uid=pool_uid)
+        self._media_pool_item._props["Type"] = "Timeline"
         self._deleted = False
         # Stable across renames, like Resolve's own id (a rename must
         # not read as a new timeline).
@@ -568,6 +837,11 @@ class FakeTimeline:
             int(frame): dict(marker) for frame, marker in (markers or {}).items()
         }
         self._end_frame_override = end_frame
+        self._timecode = timecode
+        #: Fault injection: `SetCurrentTimecode` still answers True but
+        #: the playhead does not move - the read-back is the verdict.
+        self.stuck_playhead = stuck_playhead
+        self.timecode_calls: list = []
         self.deletes = 0
         self.marker_delete_calls: list = []
         self.refuse_marker_delete_frames: set = set()
@@ -575,9 +849,10 @@ class FakeTimeline:
         self.refuse_marker_update_frames: set = set()
         self.forbid_marker_add = False
         self.raise_on_methods: dict = {}
-        self._timecode = None
         self.link_calls: list = []
         self.deleted_items: list = []
+        #: One entry per `DeleteClips` call: how many items it named.
+        self.delete_calls: list = []
         self._init_rows("video", video)
         self._init_rows("audio", audio)
 
@@ -637,7 +912,9 @@ class FakeTimeline:
     def SetCurrentTimecode(self, timecode):
         """Always True - even past the end, where the playhead reads back
         exactly what was set (measured, marker_capture live test)."""
-        self._timecode = timecode
+        self.timecode_calls.append(timecode)
+        if not self.stuck_playhead:
+            self._timecode = timecode
         return True
 
     # ── tracks ──
@@ -814,9 +1091,19 @@ class FakeTimeline:
         """Test-side view of the timeline markers."""
         return self._markers
 
+    @property
+    def rows(self):
+        """Test-side view: ``{"V1": [items], "A1": [...]}``, live lists."""
+        return {
+            f"{kind[0].upper()}{index}": row[1]
+            for kind in ("video", "audio")
+            for index, row in enumerate(self._tracks[kind], start=1)
+        }
+
     # ── edit verbs used by the reel writers ──
     def DeleteClips(self, clips, ripple=False):
         self.deletes += 1
+        self.delete_calls.append(len(clips))
         self.deleted_items.extend(clip.GetUniqueId() for clip in clips)
         spans = {(clip.GetStart(), clip.GetEnd()) for clip in clips}
         for _name, items in self._tracks["video"] + self._tracks["audio"]:
@@ -832,6 +1119,94 @@ class FakeTimeline:
                 for item in items:
                     if item.GetStart() >= end:
                         item._start -= end - start
+        return True
+
+    def DuplicateTimeline(self, name):
+        """A copy in the same project, every item copied with its
+        transform, grade, enabled state, colour and comps; the cursor
+        does not move."""
+        import copy as _copy
+
+        twin = FakeTimeline(name, self._project, start_frame=self._start_frame,
+                            frame_rate=self._frame_rate,
+                            settings=self._settings)
+        for kind in ("video", "audio"):
+            for row_name, items in self._tracks[kind]:
+                index = twin.add_track(kind, row_name)
+                for source in items:
+                    copied = _copy.copy(source)
+                    FakeTimelineItem._next_id += 1
+                    copied._uid = f"item-{FakeTimelineItem._next_id}"
+                    copied._timeline = twin
+                    copied._props = dict(source._props)
+                    copied._markers = {k: dict(v) for k, v in source._markers.items()}
+                    copied._fusion_comps = _copy.deepcopy(source._fusion_comps)
+                    copied._linked_items = []
+                    copied.property_writes, copied.refused = [], []
+                    twin._tracks[kind][index - 1][1].append(copied)
+        if self._project is not None:
+            self._project.adopt(twin)
+        return twin
+
+    def Export(self, path, kind):
+        """Write the OTIO Resolve writes for this timeline (EXPORT_OTIO).
+
+        One track per row, gaps between items, each clip naming its file
+        and carrying the Fairlight volume effect - with an EMPTY
+        parameter list while every value is at its default, the reason
+        `otio_mix` inserts the parameter rather than patching it.
+        """
+        from library.tools import otio_mix
+
+        rate = float(self.GetSetting("timelineFrameRate") or 30)
+
+        def span(start, duration):
+            return {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": {"OTIO_SCHEMA": "RationalTime.1",
+                               "rate": rate, "value": float(start)},
+                "duration": {"OTIO_SCHEMA": "RationalTime.1",
+                             "rate": rate, "value": float(duration)},
+            }
+
+        tracks = []
+        for kind_name, label in (("video", "Video"), ("audio", "Audio")):
+            for index, (_row, items) in enumerate(self._tracks[kind_name], 1):
+                children, position = [], self._start_frame
+                for item in sorted(items, key=lambda i: i.GetStart()):
+                    if item.GetStart() > position:
+                        children.append({
+                            "OTIO_SCHEMA": "Gap.1",
+                            "source_range": span(0, item.GetStart() - position)})
+                    pool = item.GetMediaPoolItem()
+                    media = pool.GetClipProperty("File Path") if pool else ""
+                    volume = item._otio_volume
+                    children.append({
+                        "OTIO_SCHEMA": "Clip.2",
+                        "name": Path(media).name if media else item.GetName(),
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "media_references": {"DEFAULT_MEDIA": {
+                            "OTIO_SCHEMA": "ExternalReference.1",
+                            "target_url": f"file://{media}"}},
+                        "source_range": span(item.GetLeftOffset() or 0,
+                                             item.GetDuration()),
+                        "effects": [{
+                            "OTIO_SCHEMA": "Effect.1", "name": "",
+                            "effect_name": "Resolve Effect",
+                            "metadata": {"Resolve_OTIO": {
+                                "Effect Name": otio_mix.VOLUME_EFFECT_NAME,
+                                "Enabled": True, "Name": "Volume",
+                                "Type": 62,
+                                "Parameters": [volume] if volume else []}}}],
+                    })
+                    position = item.GetEnd()
+                tracks.append({"OTIO_SCHEMA": "Track.1",
+                               "name": f"{label[0]}{index}", "kind": label,
+                               "children": children})
+        Path(path).write_text(json.dumps({
+            "OTIO_SCHEMA": "Timeline.1", "name": self._name,
+            "tracks": {"OTIO_SCHEMA": "Stack.1", "children": tracks},
+        }), encoding="utf-8")
         return True
 
     def AddTransition(self, *args):
@@ -878,6 +1253,66 @@ def _append_end(timeline, kind, track_index):
     return max(item.GetEnd() for item in items)
 
 
+#: The four `MediaIn` inputs that say WHICH FRAMES it reads, and the
+#: three that say what it is bound to (`composed_edit`'s split).
+FRAME_TERMS = ("GlobalIn", "GlobalOut", "ClipTimeStart", "ClipTimeEnd")
+BINDING_TERMS = ("MediaSource", "MediaID", "AudioTrack")
+
+
+class FakeTool:
+    """A Fusion tool. ``SetInput`` returns None whether it took or not.
+
+    ``inert``: accepts every write and changes nothing - the shape
+    `comp_media_window` measured, where `SetInput` cannot pull a window
+    back. ``derived``: measured on Resolve Studio 21.1
+    (`composed_edit.apply_window`) - with `MediaSource` set back to
+    `Timeline` the window is RECOMPUTED from the item and already right,
+    and writing the four frame terms on top moves `GlobalIn` one frame
+    later and `ClipTimeEnd` one frame earlier.
+    """
+
+    def __init__(self, reg_id="MediaIn", inputs=None, inert=False,
+                 derived=None):
+        self._reg_id = reg_id
+        self._inputs = dict(inputs or {})
+        self.inert = inert
+        self.derived = dict(derived) if derived else None
+
+    def GetAttrs(self, key):
+        return self._reg_id if key == "TOOLS_RegID" else None
+
+    def GetInput(self, key, *_frame):
+        return self._inputs.get(key)
+
+    def SetInput(self, key, value, *_frame):
+        if self.inert:
+            return None
+        self._inputs[key] = value
+        if self.derived is None:
+            return None
+        if key == "MediaSource" and value == "Timeline":
+            self._inputs.update(self.derived)
+        elif key in FRAME_TERMS and self._inputs.get("MediaSource") == "Timeline":
+            if key == "GlobalIn":
+                self._inputs[key] = value + 1
+            elif key == "ClipTimeEnd":
+                self._inputs[key] = value - 1
+        return None
+
+
+class FakeComp:
+    """A Fusion composition: named tools."""
+
+    def __init__(self, tools=None):
+        self.tools = dict(tools or {})
+
+    def GetToolList(self, _selected=False):
+        return dict(self.tools)
+
+    def media_in(self):
+        return self.tools["MediaIn1"]
+
+
 class FakeTimelineItem:
     _next_id = 0
 
@@ -897,6 +1332,9 @@ class FakeTimelineItem:
         pool_frame_count=None,
         fusion_comps=(),
         source_audio_channel_mapping=None,
+        has_media=True,
+        nodes=1,
+        inert_media_in=False,
     ) -> None:
         FakeTimelineItem._next_id += 1
         self._uid = uid or f"item-{FakeTimelineItem._next_id}"
@@ -905,13 +1343,18 @@ class FakeTimelineItem:
         self._start = start
         self._duration = duration
         self._left_offset = left_offset
-        self._pool_item = pool_item or FakeMediaPoolItem(name)
+        self._pool_item = (pool_item or FakeMediaPoolItem(name)) if has_media else None
+        # None stays None: an unreadable trim reads as unknown.
         self._source_start_frame = (
             left_offset if source_start_frame is None else source_start_frame
         )
-        self._source_end_frame = (
-            left_offset + duration if source_end_frame is None else source_end_frame
-        )
+        self._source_end_frame = source_end_frame
+        if source_end_frame is None and left_offset is not None:
+            # Read here as left + duration. Real Resolve's reading is
+            # contested: `resolve_axi` calls it inclusive, and
+            # `timeline_ingest` measured it a frame off on about a third
+            # of clips - so a test that cares passes `source_end_frame`.
+            self._source_end_frame = left_offset + duration
         if pool_frame_count is not None:
             self._pool_item.SetClipProperty("Frames", pool_frame_count)
         self.start_tc_frames = 0
@@ -927,10 +1370,22 @@ class FakeTimelineItem:
         self.marker_delete_calls: list = []
         self.refuse_marker_delete_frames: set = set()
         self._props: dict = {"Pan": 0.0, "Tilt": 0.0, "ZoomX": 1.0, "ZoomY": 1.0}
+        #: Every accepted `SetProperty` write, in order: `(name, value)`.
+        self.property_writes: list = []
+        #: Every declined one - a name Resolve does not expose, or one in
+        #: the `refuse_properties` fault knob.
+        self.refused: list = []
+        self.refuse_properties: frozenset = frozenset()
         self._speed = 1.0
         self._fusion_comps = list(fusion_comps)
         self.export_calls: list = []
+        #: Colour-page node count (`GetNumNodes`; `CopyGrades` copies it).
+        self.nodes = nodes
+        #: Comps imported onto this item get an inert MediaIn.
+        self.inert_media_in = inert_media_in
         self._source_audio_channel_mapping = source_audio_channel_mapping or ""
+        #: The clip-volume parameter as OTIO carries it (`Export`).
+        self._otio_volume = None
 
     def GetName(self):
         return self._name
@@ -963,7 +1418,11 @@ class FakeTimelineItem:
         return (self._source_end_frame + self.start_tc_frames) * 1001 / 24000
 
     def GetRightOffset(self):
-        return self._left_offset + self._duration
+        """Source frames left after the out point - how far the item
+        can extend rightwards (0 for an item playing to the file end)."""
+        pool = self._pool_item
+        frames = int((pool.GetClipProperty("Frames") if pool else 0) or 0)
+        return max(0, frames - self._left_offset - self._duration)
 
     def GetMediaPoolItem(self):
         return self._pool_item
@@ -991,11 +1450,25 @@ class FakeTimelineItem:
     def GetProperty(self, key=None):
         if key is None:
             return dict(self._props)
-        return self._props.get(key, "")
+        return self._props.get(key)
+
+    @property
+    def properties(self):
+        """Test-side view of the item's transform properties (live)."""
+        return self._props
+
+    @properties.setter
+    def properties(self, values):
+        self._props = dict(values)
 
     def SetProperty(self, key, value):
+        """Declines a name Resolve does not expose; see the constants."""
+        if key not in VIDEO_ITEM_PROPERTIES or key in self.refuse_properties:
+            self.refused.append((key, value))
+            return False
         self._props[key] = value
-        return True
+        self.property_writes.append((key, value))
+        return key not in FALSE_BUT_SET_PROPERTIES
 
     def GetSpeed(self):
         return self._speed
@@ -1051,18 +1524,91 @@ class FakeTimelineItem:
     def GetFlagList(self):
         return []
 
+    @property
+    def comps(self):
+        """Test-side view of the item's Fusion comps (live list)."""
+        return self._fusion_comps
+
+    @comps.setter
+    def comps(self, comps):
+        self._fusion_comps = list(comps)
+
     def GetFusionCompCount(self):
         return len(self._fusion_comps)
 
     def GetFusionCompNameList(self):
         return [f"Comp {index}" for index in range(1, len(self._fusion_comps) + 1)]
 
+    def GetFusionCompByIndex(self, index):
+        if 1 <= index <= len(self._fusion_comps):
+            return self._fusion_comps[index - 1]
+        return None
+
+    def DeleteFusionCompByName(self, name):
+        index = int(str(name).split()[-1]) - 1
+        if 0 <= index < len(self._fusion_comps):
+            self._fusion_comps.pop(index)
+            return True
+        return False
+
     def ExportFusionComp(self, path, index):
+        """Write comp ``index`` to ``path``: a text comp verbatim, a
+        ``FakeComp`` as its MediaIn window plus the item's length."""
+        if not 1 <= index <= len(self._fusion_comps):
+            return False
         self.export_calls.append((path, index))
+        comp = self._fusion_comps[index - 1]
+        if isinstance(comp, FakeComp):
+            comp = json.dumps({"window": comp.media_in()._inputs,
+                               "keys": self._duration})
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        Path(path).write_text(
-            self._fusion_comps[index - 1], encoding="utf-8", newline=""
-        )
+        Path(path).write_text(comp, encoding="utf-8", newline="")
+        return True
+
+    def ImportFusionComp(self, path):
+        """Measured (composed-edit spike): Resolve re-binds the imported
+        comp's MediaIn to the WHOLE pool clip and throws the authored
+        window away - which is why callers conform after an import.
+
+        A conform export (`ExportFusionComp` above) REPLACES what the item
+        carries; any other comp text - builder output, as the entry-motion
+        path writes - is ADDED beside it. Its Merge stands in for the
+        authored drawing, so `comp_draws_something` reads True.
+        """
+        try:
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        except ValueError:
+            payload = None
+        pool = self._pool_item
+        frames = int((pool.GetClipProperty("Frames") if pool else 0) or 0)
+        rebound = {
+            "MediaSource": "MediaPool",
+            "MediaID": pool.GetMediaId() if pool else "",
+            "AudioTrack": "No_Audo_Track",
+            "GlobalIn": 0, "GlobalOut": frames - 1,
+            "ClipTimeStart": 0, "ClipTimeEnd": frames - 1,
+        }
+        media_in = FakeTool("MediaIn", rebound, inert=self.inert_media_in)
+        if isinstance(payload, dict) and "keys" in payload:
+            self._fusion_comps = [FakeComp({
+                "MediaIn1": media_in,
+                "Transform1": FakeTool("Transform", {"Size": 1.0,
+                                                     "_keys": payload["keys"]}),
+            })]
+        else:
+            self._fusion_comps.append(FakeComp({
+                "MediaIn1": media_in,
+                "EntryFade1": FakeTool("Merge", {"Blend": 1.0}),
+            }))
+        return True
+
+    # ── grade ──
+    def GetNumNodes(self):
+        return self.nodes
+
+    def CopyGrades(self, targets):
+        for target in targets:
+            target.nodes = self.nodes
         return True
 
     def GetColorGroup(self):
@@ -1075,6 +1621,37 @@ class FakeTimelineItem:
             f"FakeTimelineItem has no {name} - extend "
             f"tests/resolve_double.py with the measured behaviour"
         )
+
+
+def timeline_item(
+    name,
+    start,
+    end,
+    *,
+    path=None,
+    left_offset=0,
+    markers=None,
+    pool_markers=None,
+    **knobs,
+):
+    """Test-side builder: one item spanning ``[start, end)`` on no timeline
+    yet, its pool clip at ``path``. ``FakeTimeline(video=...)`` (or
+    ``add_item``) binds it; the test keeps the live handle."""
+    pool_item = FakeMediaPoolItem(name)
+    if path:
+        pool_item.SetClipProperty("File Path", path)
+    for frame, marker in (pool_markers or {}).items():
+        pool_item._markers[int(frame)] = dict(marker)
+    return FakeTimelineItem(
+        name,
+        None,
+        start=start,
+        duration=end - start,
+        left_offset=left_offset,
+        pool_item=pool_item,
+        markers=markers,
+        **knobs,
+    )
 
 
 class TimelineItemSpec:
@@ -1401,6 +1978,85 @@ def check_audio_rows_carry_stream_names(project, pool_clip=None):
     assert timeline.GetTrackName("audio", named_rows[0][0]) != "Akshita"
 
 
+def check_append_end_frame_is_exclusive(project, pool_clip=None):
+    _needs_timeline(project)  # current: the append target below
+    pool_clip = _contract_pool_clip(project, pool_clip)
+    first = _append_contract_clip(project, pool_clip, 100, 148)
+    assert first.GetDuration() == 48
+    assert first.GetEnd() - first.GetStart() == 48
+
+
+def check_append_over_a_live_item_places_nothing(project, pool_clip=None):
+    timeline = _needs_timeline(project)
+    pool_clip = _contract_pool_clip(project, pool_clip)
+    _append_contract_clip(project, pool_clip, 100, 148)
+    returned = project.GetMediaPool().AppendToTimeline([{
+        "mediaPoolItem": pool_clip, "startFrame": 100, "endFrame": 148,
+        "mediaType": 1, "trackIndex": 1,
+        "recordFrame": timeline.GetStartFrame() + 24,
+    }])
+    assert returned  # truthy, with a live-looking handle
+    assert len(timeline.GetItemListInTrack("video", 1)) == 1
+
+
+def check_unknown_property_declines(project, pool_clip=None):
+    _needs_timeline(project)
+    pool_clip = _contract_pool_clip(project, pool_clip)
+    item = _append_contract_clip(project, pool_clip, 0, 48)
+    assert item.SetProperty("PanX", 10.0) is False
+    assert not item.GetProperty("PanX")
+
+
+def check_anchor_point_returns_false_and_sets(project, pool_clip=None):
+    _needs_timeline(project)
+    pool_clip = _contract_pool_clip(project, pool_clip)
+    item = _append_contract_clip(project, pool_clip, 0, 48)
+    assert item.SetProperty("AnchorPointX", 12.0) is False
+    assert item.GetProperty("AnchorPointX") == 12.0
+
+
+def check_add_sub_folder_becomes_current(project, pool_clip=None):
+    pool = project.GetMediaPool()
+    root = pool.GetRootFolder()
+    folder = pool.AddSubFolder(root, "Contract Bin")
+    try:
+        assert pool.GetCurrentFolder().GetUniqueId() == folder.GetUniqueId()
+    finally:
+        pool.SetCurrentFolder(root)
+        pool.DeleteFolders([folder])
+
+
+def check_set_metadata_refuses_an_unknown_key(project, pool_clip=None):
+    pool_clip = _contract_pool_clip(project, pool_clip)
+    assert pool_clip.SetMetadata("Reel Name", "x") is False
+    assert not pool_clip.GetMetadata("Reel Name")
+
+
+def check_delete_clips_on_a_timeline_item_deletes_it(project, pool_clip=None):
+    timeline = project.GetMediaPool().CreateEmptyTimeline("Doomed")
+    assert project.GetTimelineCount() == 1
+    assert project.GetMediaPool().DeleteClips([timeline.GetMediaPoolItem()])
+    assert project.GetTimelineCount() == 0
+
+
+def check_render_range_needs_select_all_frames_off(project, pool_clip=None):
+    """Queues and deletes jobs; never starts a render."""
+    _needs_timeline(project)
+    pool_clip = _contract_pool_clip(project, pool_clip)
+    _append_contract_clip(project, pool_clip, 0, 96)
+    jobs = []
+    try:
+        project.SetRenderSettings({"SelectAllFrames": False,
+                                   "MarkIn": 10, "MarkOut": 10})
+        jobs.append(project.AddRenderJob())
+        queued = next(j for j in project.GetRenderJobList()
+                      if j["JobId"] == jobs[-1])
+        assert (queued["MarkIn"], queued["MarkOut"]) == (10, 10)
+    finally:
+        for job in jobs:
+            project.DeleteRenderJob(job)
+
+
 def check_delete_timelines_updates_count(project, pool_clip=None):
     timeline = _needs_timeline(project)
     assert project.GetTimelineCount() == 1
@@ -1484,6 +2140,29 @@ CONTRACT_CHECKS = [
     ),
     ("property whole-dict-or-nothing", check_property_whole_dict_or_nothing),
     ("audio rows carry stream names", check_audio_rows_carry_stream_names),
+    ("append endFrame is exclusive", check_append_end_frame_is_exclusive),
+    (
+        "append over a live item places nothing",
+        check_append_over_a_live_item_places_nothing,
+    ),
+    ("unknown property declines", check_unknown_property_declines),
+    (
+        "AnchorPointX returns False and sets",
+        check_anchor_point_returns_false_and_sets,
+    ),
+    ("AddSubFolder becomes current", check_add_sub_folder_becomes_current),
+    (
+        "SetMetadata refuses an unknown key",
+        check_set_metadata_refuses_an_unknown_key,
+    ),
+    (
+        "DeleteClips on a timeline item deletes it",
+        check_delete_clips_on_a_timeline_item_deletes_it,
+    ),
+    (
+        "render range needs SelectAllFrames off",
+        check_render_range_needs_select_all_frames_off,
+    ),
     ("delete timelines updates count", check_delete_timelines_updates_count),
     ("delete clips removes items", check_delete_clips_removes_items),
     ("custom data round trip", check_custom_data_round_trip),

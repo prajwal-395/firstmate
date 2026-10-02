@@ -6,9 +6,10 @@ project. The captain's open project is saved and left before the first
 write; qualification imports its source clip into a new project, then
 restores the captain's exact project and timeline and deletes the scratch.
 
-Run this module only after the borrow-resolve decision has been granted.
-Without a running Resolve and an accessible video file in the open project,
-the live cases skip before switching projects.
+It drives the running Resolve, so it never runs by default: like every
+``resolve_session`` test it skips unless ``REN_LIVE_RESOLVE=1``
+(``tests/conftest.py``), set only inside a granted borrow-resolve window. Without a running Resolve and an accessible video file in the
+open project, the live cases skip before switching projects.
 """
 
 from __future__ import annotations

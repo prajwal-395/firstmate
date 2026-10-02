@@ -15,10 +15,10 @@ here drives a whole build and asserts the comps are still on it.
 Nothing in this file asserts a dB VALUE that `music_behavior.py` owns.
 The vocabulary decides the numbers; this layer only has to deliver them.
 """
-import json
+import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -28,8 +28,13 @@ if str(REPO) not in sys.path:
 
 from library.tools import otio_mix
 from library.tools.music_behavior import SILENT_LEVEL_DB
-from library.tools.project_layout import Area, ProjectLayout
 from library.tools.resolve_lock import assume_sole_writer
+from tests.resolve_double import (
+    FakeProject,
+    FakeResolve,
+    FakeTimeline,
+    timeline_item,
+)
 
 FPS = 30.0
 
@@ -352,155 +357,23 @@ def test_missing_media_is_named_before_the_import_can_swallow_it(tmp_path):
 
 # ── The round trip, driven against a fake Resolve ───────────────────
 
-class FakeItem:
-    def __init__(self, name, start, duration, path=""):
-        self.name, self._start, self._duration = name, start, duration
-        self.path, self.comps, self.properties, self.cdl = path, [], {}, None
-        self.volume = None      # the clip-volume parameter, as OTIO carries it
-
-    def GetName(self): return self.name
-    def GetMediaPoolItem(self): return _PoolItem(self.path)
-    def GetStart(self): return self._start
-    def GetEnd(self): return self._start + self._duration
-    def GetDuration(self): return self._duration
-    def GetFusionCompNameList(self): return list(self.comps)
-    def SetProperty(self, key, value):
-        self.properties[key] = value
-        return True
-    def GetProperty(self, key=None):
-        return self.properties if key is None else self.properties.get(key)
-
-
-class FakeTimeline:
-    def __init__(self, name, fps=FPS):
-        self.name, self.fps = name, fps
-        self.video, self.audio = {1: []}, {1: []}
-        self.markers, self.settings = {}, {}
-
-    def GetName(self): return self.name
-    def GetUniqueId(self): return str(id(self))
-    def SetName(self, name):
-        self.name = name
-        return True
-
-    def GetTrackCount(self, kind):
-        return len(self.video if kind == "video" else self.audio)
-
-    def AddTrack(self, kind, *a, **k):
-        book = self.video if kind == "video" else self.audio
-        book[len(book) + 1] = []
-        return True
-
-    def GetItemListInTrack(self, kind, index):
-        return list((self.video if kind == "video" else self.audio).get(index, []))
-
-    # Settings are stored and echoed, not waved through: the build
-    # confirms the timeline shape by reading it back.
-    def SetSetting(self, key, value):
-        self.settings[str(key)] = str(value)
-        return True
-
-    def GetSetting(self, key=None):
-        if key is None:
-            return dict(self.settings)
-        return self.settings.get(str(key), "")
-
-    def SetTrackName(self, *a): return True
-    def SetClipsLinked(self, *a): return True
-    def GetStartFrame(self): return 0
-    def GetEndFrame(self):
-        ends = [i.GetEnd() for t in list(self.video.values()) + list(self.audio.values())
-                for i in t]
-        return max(ends, default=0)
-
-    def AddMarker(self, frame, colour, name, note, duration, *a):
-        self.markers[frame] = {"color": colour, "name": name}
-        return True
-
-    def Export(self, path, kind):
-        """Write the OTIO Resolve would write for this timeline."""
-        tracks = []
-        for label, book in (("Video", self.video), ("Audio", self.audio)):
-            for index in sorted(book):
-                children, position = [], 0
-                for item in sorted(book[index], key=lambda i: i.GetStart()):
-                    if item.GetStart() > position:
-                        children.append(_gap(item.GetStart() - position))
-                    children.append(_clip(item.path, 0, item.GetDuration(),
-                                          volume=item.volume))
-                    position = item.GetEnd()
-                tracks.append((f"{label[0]}{index}", label, children))
-        Path(path).write_text(json.dumps(_otio(tracks)), encoding="utf-8")
-        return True
-
-
-class FakeMediaPool:
-    def __init__(self, project):
-        self.project = project
-
-    def GetRootFolder(self):
-        folder = MagicMock()
-        folder.GetClipList.return_value = []
-        folder.GetSubFolderList.return_value = []
-        return folder
-
-    def DeleteTimelines(self, timelines):
-        for tl in timelines:
-            self.project.timelines = [t for t in self.project.timelines if t is not tl]
-        return True
-
-    def ImportTimelineFromFile(self, path, options=None):
-        """Rebuild the timeline from the file - LOSING the Fusion comps,
-        which is what Resolve really does."""
-        options = options or {}
-        name = options.get("timelineName", "")
-        if any(t.GetName() == name for t in self.project.timelines):
-            return None                      # the name is taken
-        otio = json.loads(Path(path).read_text(encoding="utf-8"))
-        rebuilt = FakeTimeline(name)
-        for track in otio["tracks"]["children"]:
-            index = int(track["name"][1:])
-            book = rebuilt.video if track["kind"] == "Video" else rebuilt.audio
-            book.setdefault(index, [])
-            position = 0
-            for child in track["children"]:
-                span = int(child["source_range"]["duration"]["value"])
-                if str(child["OTIO_SCHEMA"]).startswith("Clip"):
-                    item = FakeItem(child["name"], position, span,
-                                    otio_mix.clip_media_path(child))
-                    item.volume = otio_mix._volume_parameter_of(child)
-                    book[index].append(item)      # note: no comps, no grade
-                position += span
-        rebuilt.levels = otio_mix.read_levels(otio)
-        self.project.timelines.append(rebuilt)
-        return rebuilt
-
-
-class FakeProject:
-    def __init__(self, timeline):
-        self.timelines = [timeline]
-        self.current = timeline
-        self.media_pool = FakeMediaPool(self)
-
-    def GetMediaPool(self): return self.media_pool
-    def SetCurrentTimeline(self, tl):
-        self.current = tl
-        return True
-    def GetCurrentTimeline(self): return self.current
-
-
-class FakeResolve:
-    EXPORT_OTIO = 15
+def _levels(timeline, tmp_path):
+    """The levels the timeline carries, read off its own OTIO export."""
+    path = tmp_path / f"{timeline.GetName()}.levels.otio"
+    assert timeline.Export(str(path), FakeResolve.EXPORT_OTIO)
+    return otio_mix.read_levels(otio_mix.load(str(path)))
 
 
 def _fake_setup(tmp_path):
-    tl = FakeTimeline("Test_Edit")
-    tl.audio[2] = [FakeItem("m.wav", 0, 900, "/m.wav")]
-    tl.audio[3] = [FakeItem("whoosh.mp3", 72, 8, "/whoosh.mp3"),
-                   FakeItem("click.wav", 251, 3, "/click.wav")]
-    tl.video[1] = [FakeItem("a.mov", 0, 900, "/a.mov")]
-    project = FakeProject(tl)
-    return FakeResolve(), project, project.media_pool, tl
+    tl = FakeTimeline("Test_Edit", frame_rate=int(FPS), video=[[
+        timeline_item("a.mov", 0, 900, path="/a.mov")]], audio=[
+        [],
+        [timeline_item("m.wav", 0, 900, path="/m.wav")],
+        [timeline_item("whoosh.mp3", 72, 80, path="/whoosh.mp3"),
+         timeline_item("click.wav", 251, 254, path="/click.wav")],
+    ])
+    project = FakeProject([tl], current=tl)
+    return FakeResolve(project), project, project.GetMediaPool(), tl
 
 
 def test_the_round_trip_puts_every_planned_level_on_the_new_timeline(tmp_path):
@@ -517,7 +390,8 @@ def test_the_round_trip_puts_every_planned_level_on_the_new_timeline(tmp_path):
     assert report["timeline"].GetName() == "Test_Edit"
     assert project.GetCurrentTimeline() is report["timeline"]
 
-    levels = {entry["source_file"]: entry for entry in report["timeline"].levels}
+    levels = {entry["source_file"]: entry
+              for entry in _levels(report["timeline"], tmp_path)}
     assert levels["/whoosh.mp3"]["level_db"] == -18.0
     assert levels["/m.wav"]["keyframes"], "the bed carries a curve"
 
@@ -548,77 +422,6 @@ def test_missing_media_refuses_the_trip_and_keeps_the_timeline(tmp_path):
 # (The step_6_01_render directory this file once added to sys.path here
 # now lives in tests/conftest.py; the bare `import
 # resolve_build_timeline` below reaches it by absolute package path.)
-
-
-class _BuildProject(FakeProject):
-    """A project whose media pool answers a build, not just an import."""
-
-    def __init__(self):
-        FakeProject.__init__(self, FakeTimeline("Pipeline_Edit"))
-        self.timelines = []
-        self.current = None
-        self.media_pool = _BuildMediaPool(self)
-        self._settings = {}
-
-    def GetName(self): return "Pipeline_Edit"
-    def GetTimelineCount(self): return len(self.timelines)
-    def GetTimelineByIndex(self, i): return self.timelines[i - 1]
-    def ApplyFairlightPresetToCurrentTimeline(self, name): return False
-
-    # A real settings store, because `build_timeline` now confirms the
-    # timeline SHAPE by reading it back off the PROJECT rather than
-    # trusting that SetSetting worked. The OTIO round trip this file
-    # exercises is precisely what discards a per-timeline resolution, so
-    # a double for it has to hold the project-level one.
-    def SetSetting(self, key, value):
-        self._settings[str(key)] = str(value)
-        return True
-
-    def GetSetting(self, key=None):
-        if key is None:
-            return dict(self._settings)
-        return self._settings.get(str(key), "")
-
-
-class _BuildMediaPool(FakeMediaPool):
-    def CreateEmptyTimeline(self, name):
-        tl = FakeTimeline(name)
-        self.project.timelines.append(tl)
-        self.project.current = tl
-        return tl
-
-    def SetCurrentFolder(self, folder): return True
-    def AddSubFolder(self, parent, name): return self.GetRootFolder()
-    def ImportMedia(self, paths): return list(paths)
-
-    def AppendToTimeline(self, entries):
-        placed = []
-        for entry in entries:
-            tl = self.project.current
-            kind = "audio" if entry.get("mediaType") == 2 else "video"
-            book = tl.audio if kind == "audio" else tl.video
-            index = entry.get("trackIndex", 1)
-            book.setdefault(index, [])
-            path = entry["mediaPoolItem"].GetClipProperty("File Path")
-            item = FakeItem(Path(path).name, entry.get("recordFrame", 0),
-                            entry["endFrame"] - entry["startFrame"], path)
-            book[index].append(item)
-            placed.append(item)
-        return placed
-
-
-class _PoolItem:
-    def __init__(self, path):
-        self._props = {"File Path": path, "Frames": "3000", "FPS": "30.0",
-                       "Resolution": "1080x1920",
-                       # Single-stream fixtures: the build resolves the
-                       # speech channel off this, and an unreadable one
-                       # refuses rather than defaults.
-                       "Audio Ch": "1"}
-
-    def GetName(self): return Path(self._props["File Path"]).name
-    def GetClipProperty(self, key=None):
-        return self._props if key is None else self._props.get(key, "")
 
 
 def _build_manifest(tmp_path):
@@ -666,28 +469,26 @@ def _run_build(tmp_path, manifest, media, configure=None):
     can reshape the fake scripting surface."""
     import library.steps.step_6_01_render.resolve_build_timeline as rbt
 
-    project = _BuildProject()
-    resolve = MagicMock()
-    resolve.EXPORT_OTIO = 15
-    pm = resolve.GetProjectManager.return_value
-    pm.GetCurrentProject.return_value = project
-    pm.GetProjectListInCurrentFolder.return_value = ["Pipeline_Edit"]
+    project = FakeProject("Pipeline_Edit")
+    resolve = FakeResolve(project)
 
     if configure is not None:
         configure(resolve, project)
 
-    pool_items = {p: _PoolItem(p) for p in media.values()}
-    root = MagicMock()
-    root.GetClipList.return_value = list(pool_items.values())
-    root.GetSubFolderList.return_value = []
-    project.media_pool.GetRootFolder = lambda: root
+    pool = project.GetMediaPool()
+    for path in media.values():
+        # Single-stream fixtures: the build resolves the speech channel
+        # off "Audio Ch", and an unreadable one refuses rather than
+        # defaults.
+        pool.media_properties[path] = {
+            "Frames": "3000", "FPS": "30.0", "Resolution": "1080x1920",
+            "Audio Ch": "1"}
+    pool.ImportMedia(list(media.values()))
 
     def _fusion_pass(cmd, **kwargs):
         for item in project.GetCurrentTimeline().GetItemListInTrack("video", 1):
             item.comps.append("Composition 1")
-        done = MagicMock()
-        done.returncode, done.stdout, done.stderr = 0, "", ""
-        return done
+        return subprocess.CompletedProcess(cmd, 0, "", "")
 
     with patch.object(rbt, "_connect_resolve", return_value=resolve), \
             patch.object(rbt.subprocess, "run", side_effect=_fusion_pass), \
@@ -714,8 +515,7 @@ def test_fusion_comps_survive_a_mixed_build(tmp_path):
         result["audio_mix_delivery"]["reason"]
 
     final = project.GetCurrentTimeline()
-    comps = [item.GetFusionCompNameList()
-             for item in final.GetItemListInTrack("video", 1)]
+    comps = [item.comps for item in final.GetItemListInTrack("video", 1)]
     assert comps == [["Composition 1"], ["Composition 1"]], \
         "the Fusion pass ran before the OTIO import, or its comps were lost"
 
@@ -725,7 +525,8 @@ def test_a_mixed_build_carries_the_levels_and_drops_the_markers(tmp_path):
     project, result = _run_build(tmp_path, manifest, media)
     final = project.GetCurrentTimeline()
 
-    levels = {entry["source_file"]: entry for entry in final.levels}
+    levels = {entry["source_file"]: entry
+              for entry in _levels(final, tmp_path)}
     assert levels[media["whoosh.mp3"]]["level_db"] == -18.0
     assert levels[media["bed.wav"]]["keyframes"], "the bed carries a curve"
 
@@ -774,8 +575,10 @@ def test_an_unreadable_fairlight_api_still_leaves_a_limiter_marker(tmp_path):
     manifest["audio_mix"]["master_limiter"]["threshold_db"] = threshold_db
 
     def _break_the_api(resolve, project):
-        resolve.GetFairlightPresets.side_effect = RuntimeError(
-            "no such method on this build")
+        def no_such_method():
+            raise RuntimeError("no such method on this build")
+
+        resolve.GetFairlightPresets = no_such_method
 
     project, result = _run_build(
         tmp_path, manifest, media, configure=_break_the_api)
@@ -799,10 +602,12 @@ def test_a_declined_fairlight_apply_still_leaves_a_limiter_marker(tmp_path):
         # The key is the protocol name the captain's preset must carry -
         # the same name the guard looks up - so the guard takes the
         # "preset exists" branch and reaches the apply it must survive.
-        resolve.GetFairlightPresets.return_value = {
-            "Pipeline_Master_Limiter": {}}
-        project.ApplyFairlightPresetToCurrentTimeline = MagicMock(
-            side_effect=RuntimeError("preset route declined"))
+        resolve.GetFairlightPresets = lambda: {"Pipeline_Master_Limiter": {}}
+
+        def declined(preset):
+            raise RuntimeError("preset route declined")
+
+        project.ApplyFairlightPresetToCurrentTimeline = declined
 
     project, result = _run_build(
         tmp_path, manifest, media, configure=_list_then_decline)

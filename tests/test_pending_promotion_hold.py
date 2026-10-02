@@ -29,7 +29,8 @@ has not happened yet.
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
 
 import pytest
 from tests.promotion_test_helpers import (
@@ -47,6 +48,7 @@ from library.tools.proof_cleanup import (
     plan_proof_removal,
 )
 from library.tools.resolve_organization import Artefact
+from tests.resolve_double import FakeProject, FakeTimeline, timeline_item
 
 MASTER = "GEO Podcast - Synced"
 PROJECT_ROOT = "/projects/geo-podcast"
@@ -189,124 +191,18 @@ def test_the_sweep_names_what_it_declined(project_dir):
 # --------------------------- the incident, at execution time (TOCTOU)
 
 
-class FakeFolder:
-    def __init__(self, name, uid):
-        self._name, self.uid, self.clips, self.subs = name, uid, [], []
-
-    def GetName(self): return self._name
-    def GetUniqueId(self): return self.uid
-    def GetClipList(self): return list(self.clips)
-    def GetSubFolderList(self): return list(self.subs)
-
-
-class FakeClip:
-    def __init__(self, uid, name, kind="clip", path=""):
-        self.uid, self._name, self.kind, self.path = uid, name, kind, path
-
-    def GetUniqueId(self): return self.uid
-    def GetName(self): return self._name
-
-    def GetClipProperty(self, key):
-        if key == "Type":
-            return "Timeline" if self.kind == "timeline" else "Video + Audio"
-        if key == "File Path":
-            return self.path
-        return ""
-
-    def GetMetadata(self, key=None): return ""
-
-    def SetMetadata(self, key, value):
-        return key in ("Comments", "Keywords")
-
-
-class FakeLiveTimeline:
-    def __init__(self, name, items=()):
-        self._name, self.items = name, list(items)
-
-    def GetName(self): return self._name
-    def GetTrackCount(self, kind): return 1 if kind == "video" else 0
-    def GetItemListInTrack(self, kind, index):
-        return list(self.items) if kind == "video" else []
-
-
-class FakePool:
-    def __init__(self, root):
-        self.root, self.current = root, root
-
-    def GetRootFolder(self): return self.root
-    def GetCurrentFolder(self): return self.current
-    def SetCurrentFolder(self, folder):
-        self.current = folder
-        return True
-
-    def _home(self, clip):
-        def walk(folder):
-            if clip in folder.clips:
-                return folder
-            for sub in folder.subs:
-                found = walk(sub)
-                if found is not None:
-                    return found
-            return None
-        return walk(self.root)
-
-    def DeleteClips(self, items):
-        wanted = {c.GetUniqueId() for c in items}
-
-        def walk(folder):
-            folder.clips[:] = [c for c in folder.clips
-                                if c.GetUniqueId() not in wanted]
-            for sub in folder.subs:
-                walk(sub)
-
-        walk(self.root)
-        return True
-
-    def DeleteFolders(self, folders):
-        for folder in folders:
-            if folder.GetClipList() or folder.GetSubFolderList():
-                return False
-            parent = self._parent(folder)
-            if parent is None:
-                return False
-            parent.subs.remove(folder)
-        return True
-
-    def _parent(self, folder):
-        def walk(node):
-            for sub in node.subs:
-                if sub is folder:
-                    return node
-                found = walk(sub)
-                if found is not None:
-                    return found
-            return None
-        return walk(self.root)
-
-    def DeleteTimelines(self, timelines):
-        return self.DeleteClips(timelines)
-
-
-class FakeProject:
-    def __init__(self, name, pool, timelines=()):
-        self._name, self.pool, self.timelines = name, pool, list(timelines)
-
-    def GetName(self): return self._name
-    def GetMediaPool(self): return self.pool
-    def GetTimelineCount(self): return len(self.timelines)
-    def GetTimelineByIndex(self, i): return self.timelines[i - 1]
-
-
 def live_scratch_project():
     """A live pool holding the verified fix as scratch, with no bins
     of its own - the incident's shape at 04:46Z."""
-    root = FakeFolder("Master", "root")
-    holding = FakeFolder("Unsorted", "f-u")
-    holding.clips.append(FakeClip("t-held", HELD_SCRATCH, kind="timeline"))
-    holding.clips.append(
-        FakeClip("t-abandoned", ABANDONED_SCRATCH, kind="timeline"))
-    root.subs.append(holding)
-    return FakeProject("Fake", FakePool(root), [])
+    proj = FakeProject("Fake")
+    pool = proj.GetMediaPool()
+    pool.SetCurrentFolder(pool.AddSubFolder(pool.GetRootFolder(), "Unsorted"))
+    for uid, name in (("t-held", HELD_SCRATCH),
+                      ("t-abandoned", ABANDONED_SCRATCH)):
+        pool.next_timeline = FakeTimeline(name, pool_uid=uid)
+        pool.CreateEmptyTimeline(name)
+    pool.SetCurrentFolder(pool.GetRootFolder())
+    return proj
 
 
 def pool_timeline_names(proj):
@@ -365,67 +261,7 @@ def test_ordinary_abandoned_scratch_is_still_collected(project_dir):
 # ------------------ the lifecycle: promotion releases, the guard stays
 
 
-class FakeRowItem:
-    def __init__(self, name, start, end):
-        self._name, self._start, self._end = name, start, end
-
-    def GetName(self): return self._name
-    def GetStart(self): return self._start
-    def GetEnd(self): return self._end
-    def GetDuration(self): return self._end - self._start
-    def GetClipEnabled(self): return True
-
-
-class FakeRowTimeline:
-    def __init__(self, name, video=(), audio=(), markers=None):
-        self._name = name
-        self._rows = {"video": list(video), "audio": list(audio)}
-        # Promotion reads the captain's markers off the retiring
-        # timeline before it renames anything
-        # (`library/tools/marker_carry.py`), so a fake that cannot
-        # answer for its markers is a fake of a different object.
-        self._markers = dict(markers or {})
-        self.added_markers = []
-
-    def GetName(self): return self._name
-    def SetName(self, name):
-        self._name = name
-        return True
-    def GetTrackCount(self, kind): return len(self._rows[kind])
-    def GetTrackName(self, kind, index):
-        return self._rows[kind][index - 1][0]
-    def GetItemListInTrack(self, kind, index):
-        return self._rows[kind][index - 1][1]
-    def GetStartFrame(self): return 0
-    def GetMarkers(self): return dict(self._markers)
-    def AddMarker(self, frame, color, name, note, duration, custom=""):
-        self.added_markers.append((frame, color, name, note))
-        return True
-
-
-class FakeResolveProject:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        pool.GetCurrentFolder.return_value = None
-        self._pool = pool
-        self.deleted = []
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-        return True
-
-    def GetName(self): return "Mock Project"
-    def GetMediaPool(self): return self._pool
-    def GetTimelineCount(self): return len(self.timelines)
-    def GetTimelineByIndex(self, index): return self.timelines[index - 1]
-
-
 PROMOTE_FINAL = "Reel 09 - your-website-is-only-20-percent (final)"
-
 
 def _promote(project, project_dir, staged_to_final, allow_drops=None):
     (project_dir / "pipeline_output" / "review"
@@ -443,10 +279,10 @@ def _promote(project, project_dir, staged_to_final, allow_drops=None):
 
 
 def _full_rows(extra=()):
-    visual = [FakeRowItem(f"semantic {n}", n * 100, n * 100 + 40)
+    visual = [timeline_item(f"semantic {n}", n * 100, n * 100 + 40)
               for n in range(4)]
     return [
-        ("Akshita", [FakeRowItem("Akshita A", 0, 131)]),
+        ("Akshita", [timeline_item("Akshita A", 0, 131)]),
         ("Semantic", list(visual) + list(extra)),
     ]
 
@@ -457,9 +293,9 @@ def test_promote_releases_the_hold(project_dir):
     nothing under it exists any more."""
     from library.tools.reel_build import STAGING_SUFFIX
     staging = PROMOTE_FINAL + STAGING_SUFFIX
-    retired = FakeRowTimeline(PROMOTE_FINAL, video=_full_rows())
-    staged = FakeRowTimeline(staging, video=_full_rows())
-    project = FakeResolveProject([retired, staged])
+    retired = FakeTimeline(PROMOTE_FINAL, video=_full_rows())
+    staged = FakeTimeline(staging, video=_full_rows())
+    project = FakeProject([retired, staged])
     holds.take_hold(str(project_dir), staging, awaiting=PROMOTE_FINAL,
                     reason="staged rebuild awaiting promotion",
                     taken_by="rebuild_reels_in_project")
@@ -481,10 +317,10 @@ def test_guard_still_refuses_a_held_lossy_staging_and_keeps_the_hold(project_dir
     which is the safe direction on both halves."""
     from library.tools.reel_build import ReelBuildError, STAGING_SUFFIX
     staging = PROMOTE_FINAL + STAGING_SUFFIX
-    retired = FakeRowTimeline(PROMOTE_FINAL, video=_full_rows())
-    staged = FakeRowTimeline(
+    retired = FakeTimeline(PROMOTE_FINAL, video=_full_rows())
+    staged = FakeTimeline(
         staging, video=_full_rows()[:1])  # the Semantic row is gone
-    project = FakeResolveProject([retired, staged])
+    project = FakeProject([retired, staged])
     holds.take_hold(str(project_dir), staging, awaiting=PROMOTE_FINAL)
     with pytest.raises(ReelBuildError) as refused:
         _promote(project, project_dir, {PROMOTE_FINAL: staging})
@@ -592,29 +428,6 @@ def test_concurrent_takes_keep_every_hold(project_dir):
 GHOST_FINAL = "Reel 26 - write-for-the-question-your-customer-ask"
 GHOST_MFA = GHOST_FINAL + " (MFA timings)"
 GHOST_FIXES = GHOST_FINAL + " (all three fixes)"
-
-
-class GhostFakeTimeline:
-    def __init__(self, name):
-        self._name = name
-
-    def GetName(self):
-        return self._name
-
-
-class GhostFakeProject:
-    """A live project holding exactly ONE Reel 26 timeline: the plain
-    final. Both builds are gone - plausibly a whole-batch discard -
-    and their hold records were never retired."""
-
-    def __init__(self, names):
-        self._timelines = [GhostFakeTimeline(name) for name in names]
-
-    def GetTimelineCount(self):
-        return len(self._timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self._timelines[index - 1]
 
 
 def _take_ghost_and_live_holds(project_dir):

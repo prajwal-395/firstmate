@@ -27,13 +27,12 @@ in `Reels/Current plan` and the filing assertion fails.
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from library.tools.reel_build import STAGING_SUFFIX, rebuild_reels_in_project
+from tests.resolve_double import FakeProject
 
 MASTER = "GEO Podcast - Synced"
 TARGET = "Reel 05 - the-audit-that-was-eye-opening"
@@ -46,182 +45,6 @@ def mock_dvr(stub_resolve_script):
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
     yield
-
-
-class FakePoolClip:
-    def __init__(self, uid, name, kind="clip", path=""):
-        self.uid, self._name, self.kind, self.path = uid, name, kind, path
-        self.metadata, self.color = {}, ""
-
-    def GetUniqueId(self):
-        return self.uid
-
-    def GetName(self):
-        return self._name
-
-    def GetClipProperty(self, key):
-        if key == "Type":
-            return "Timeline" if self.kind == "timeline" else "Video + Audio"
-        if key == "File Path":
-            return self.path
-        if key == "Clip Color":
-            return self.color
-        return ""
-
-    def GetMetadata(self, key=None):
-        if key is None:
-            return dict(self.metadata)
-        return self.metadata.get(key, "")
-
-    def SetMetadata(self, key, value):
-        if key not in {"Comments", "Keywords", "Description"}:
-            return False
-        self.metadata[key] = value
-        return True
-
-    def SetClipColor(self, value):
-        self.color = value
-        return True
-
-    def ClearClipColor(self):
-        self.color = ""
-        return True
-
-
-class FakeFolder:
-    def __init__(self, name, uid):
-        self._name, self.uid, self.clips, self.subs = name, uid, [], []
-
-    def GetName(self):
-        return self._name
-
-    def GetUniqueId(self):
-        return self.uid
-
-    def GetClipList(self):
-        return list(self.clips)
-
-    def GetSubFolderList(self):
-        return list(self.subs)
-
-
-class FakeResolveTimeline:
-    """What the build creates, renames and deletes."""
-
-    def __init__(self, name):
-        self._name = name
-
-    def GetName(self):
-        return self._name
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetTrackCount(self, kind):
-        return 0
-
-    def GetItemListInTrack(self, kind, index):
-        return []
-
-    def GetUniqueId(self):
-        if not getattr(self, "_uid", None):
-            type(self)._seq = getattr(type(self), "_seq", 0) + 1
-            self._uid = f"{type(self).__name__}-{type(self)._seq}"
-        return self._uid
-
-
-class FakePool:
-    def __init__(self, root, current):
-        self.root, self.current, self._n = root, root, 0
-        self._import_n = 0
-
-    def GetRootFolder(self):
-        return self.root
-
-    def GetCurrentFolder(self):
-        return self.current
-
-    def SetCurrentFolder(self, folder):
-        self.current = folder
-        return True
-
-    def AddSubFolder(self, parent, name):
-        self._n += 1
-        folder = FakeFolder(name, f"f{self._n}")
-        parent.subs.append(folder)
-        self.current = folder
-        return folder
-
-    def _home(self, clip):
-        def walk(folder):
-            if clip in folder.clips:
-                return folder
-            for sub in folder.subs:
-                found = walk(sub)
-                if found:
-                    return found
-            return None
-
-        return walk(self.root)
-
-    def MoveClips(self, clips, folder):
-        for clip in clips:
-            home = self._home(clip)
-            if home is not None:
-                home.clips.remove(clip)
-            folder.clips.append(clip)
-        return True
-
-    def ImportMedia(self, paths):
-        made = []
-        for path in paths:
-            self._import_n += 1
-            clip = FakePoolClip(f"import-{self._import_n}", Path(path).name,
-                                "clip", path)
-            self.current.clips.append(clip)
-            made.append(clip)
-        return made
-
-    def CreateEmptyTimeline(self, name):
-        # The pool item half is irrelevant to this test - the stray
-        # clip is what must be filed - so only the Resolve timeline
-        # is tracked here; the project object owns that list.
-        raise NotImplementedError  # wired per test via project
-
-    def DeleteTimelines(self, timelines):
-        return True
-
-
-class FakeProject:
-    def __init__(self, pool):
-        self._pool = pool
-        self.timelines = [FakeResolveTimeline(MASTER),
-                          FakeResolveTimeline(TARGET)]
-
-    def GetName(self):
-        return "Mock Project"
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    # A Resolve project HAS a cursor, and `resolve_lock`'s guard reads
-    # it back by unique id - a fake without one cannot model the guard.
-    def GetCurrentTimeline(self):
-        # None until something sets it: a project that has not been
-        # pointed anywhere has no cursor, and inventing one here would
-        # hand the entry-unit guard a timeline nobody opened.
-        return getattr(self, "_current", None)
-
-    def SetCurrentTimeline(self, timeline):
-        self._current = timeline
-        return True
 
 
 @pytest.fixture
@@ -251,41 +74,24 @@ def _moment():
     return moment
 
 
-def _pool_tree():
+def _project():
+    """Master and the approved reel, ImportMedia aimed at Current plan."""
     from library.tools import resolve_bin_layout as bins
-    root = FakeFolder("Master", "root")
-    reels = FakeFolder(bins.REELS_BIN, "reels")
-    current = FakeFolder(bins.REEL_STATE_BINS["current"], "cur")
-    subs = FakeFolder(bins.SUBTITLES_BIN, "subs")
-    unplaced = FakeFolder(bins.UNPLACED_BIN, "unplaced")
-    root.subs = [reels, subs]
-    reels.subs = [current]
-    subs.subs = [unplaced]
-    return root, current, unplaced
+    project = FakeProject("Mock Project", [MASTER, TARGET])
+    pool = project.GetMediaPool()
+    root = pool.GetRootFolder()
+    reels = pool.AddSubFolder(root, bins.REELS_BIN)
+    current = pool.AddSubFolder(reels, bins.REEL_STATE_BINS["current"])
+    subs = pool.AddSubFolder(root, bins.SUBTITLES_BIN)
+    unplaced = pool.AddSubFolder(subs, bins.UNPLACED_BIN)
+    pool.SetCurrentFolder(current)
+    return project, current, unplaced
 
 
 def test_refused_build_files_its_caption_imports(project_dir):
     """The defect: ImportMedia debris left in the current bin."""
-    root, current, unplaced = _pool_tree()
-    pool = FakePool(root, current)
-    resolve_project = FakeProject(pool)
-
-    # CreateEmptyTimeline tracks Resolve timelines; ImportMedia is on
-    # the pool and lands in the current folder (Current plan).
-    def _create(name):
-        timeline = FakeResolveTimeline(name)
-        resolve_project.timelines.append(timeline)
-        return timeline
-
-    pool.CreateEmptyTimeline = _create
-
-    def _delete(timelines):
-        for timeline in list(timelines):
-            if timeline in resolve_project.timelines:
-                resolve_project.timelines.remove(timeline)
-        return True
-
-    pool.DeleteTimelines = _delete
+    resolve_project, current, unplaced = _project()
+    pool = resolve_project.GetMediaPool()
 
     stray_path = str(project_dir / "pipeline_output" / "steps"
                       / "4_05_render_subtitles" / "sub_reel-05-a.mov")
@@ -343,7 +149,7 @@ def test_refused_build_files_its_caption_imports(project_dir):
         with pytest.raises(RuntimeError, match="defective timeline"):
             rebuild_reels_in_project(str(project_dir), only=[5])
 
-    names = [t.GetName() for t in resolve_project.timelines]
+    names = resolve_project.names()
     assert TARGET in names, "the approved reel must survive a refusal"
     assert STAGING not in names, "the refused staging must be gone"
     assert sorted(names) == sorted([MASTER, TARGET])

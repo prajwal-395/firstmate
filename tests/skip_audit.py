@@ -242,6 +242,16 @@ ENVIRONMENT_CONDITIONS = (
                      "has a video clip",
     ),
     EnvironmentCondition(
+        pattern=r"drives the live Resolve; runs only with REN_LIVE_RESOLVE=1",
+        false_when="REN_LIVE_RESOLVE=1 is exported for a granted "
+                   "borrow-resolve window - the one opt-in "
+                   "`resolve_session` (tests/conftest.py) accepts, so no "
+                   "default run can switch the captain's open project",
+        capability="resolve_live_opt_in",
+        install_hint="export REN_LIVE_RESOLVE=1 inside a granted "
+                     "borrow-resolve window, with Resolve running",
+    ),
+    EnvironmentCondition(
         pattern=r"node is not on PATH, so the plugin's JavaScript cannot "
                 r"be run here",
         false_when="Node.js is installed and `node` is on PATH - the same "

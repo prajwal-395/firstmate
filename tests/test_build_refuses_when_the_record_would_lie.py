@@ -17,6 +17,12 @@ from tests.promotion_test_helpers import (
     install_fake_timeline_snapshots,
     no_a_roll_track_plans,
 )
+from tests.resolve_double import (
+    FakeProject,
+    FakeResolve,
+    FakeTimeline,
+    TimelineItemSpec,
+)
 
 MASTER = "Podcast - Synced"
 REEL_01 = "Reel 01 - hook-and-promise (final)"
@@ -42,97 +48,14 @@ def project_dir(tmp_path):
     return root
 
 
-class FakeItem:
-    def __init__(self, name, start, end):
-        self._name = name
-        self._start = start
-        self._end = end
-
-    def GetName(self):
-        return self._name
-
-    def GetStart(self):
-        return self._start
-
-    def GetEnd(self):
-        return self._end
-
-    def GetDuration(self):
-        return self._end - self._start
-
-    def GetClipEnabled(self):
-        return True
-
-
-class FakeTimeline:
-    def __init__(self, name, video=(), audio=()):
-        self._name = name
-        self._rows = {"video": list(video), "audio": list(audio)}
-
-    def GetName(self):
-        return self._name
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetTrackCount(self, kind):
-        return len(self._rows[kind])
-
-    def GetTrackName(self, kind, index):
-        return self._rows[kind][index - 1][0]
-
-    def GetItemListInTrack(self, kind, index):
-        return self._rows[kind][index - 1][1]
-
-    def GetStartFrame(self):
-        return 0
-
-    def GetMarkers(self):
-        return {}
-
-
-class FakeProject:
-    def __init__(self, timelines, delete_ok=True):
-        self.timelines = list(timelines)
-        self._delete_ok = delete_ok
-        from unittest.mock import MagicMock
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        self._pool = pool
-        self.deleted = []
-
-    def _delete(self, timelines):
-        # A refused delete removes nothing - mirroring Resolve, where
-        # a falsy return means the timelines are still in the project.
-        if not self._delete_ok:
-            return False
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-        return True
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
-
-
 def _clean_reel():
     retired = FakeTimeline(REEL_01, video=[
-        ("Akshita", [FakeItem("Akshita A", 0, 131)]),
-        ("Subtitles", [FakeItem("card 1", 0, 131)]),
+        ("Akshita", [TimelineItemSpec("Akshita A", 0, 131)]),
+        ("Subtitles", [TimelineItemSpec("card 1", 0, 131)]),
     ])
     staging = FakeTimeline(STAGING_01, video=[
-        ("Akshita", [FakeItem("Akshita A", 0, 131)]),
-        ("Subtitles", [FakeItem("card 1", 0, 131)]),
+        ("Akshita", [TimelineItemSpec("Akshita A", 0, 131)]),
+        ("Subtitles", [TimelineItemSpec("card 1", 0, 131)]),
     ])
     return retired, staging
 
@@ -153,8 +76,6 @@ def _promote(project_dir, resolve, **kwargs):
         return promote_staged_reels(
             str(project_dir), "Mock Project", MASTER,
             {REEL_01: STAGING_01}, **kwargs)
-
-
 
 
 class _RecordFailure:
@@ -235,25 +156,14 @@ def test_a_pass_records_its_verdict_before_returning(project_dir):
     are read; this one measures what a pass leaves behind).
     """
     import io
-    from unittest.mock import MagicMock
 
     from library.tools.reel_conformance_verifier import ReelTimeline, run_verification
 
-    names = [MASTER, "Reel 01 - a"]
-    timelines = []
-    for name in names:
-        timeline = MagicMock()
-        timeline._name = name
-        timeline.GetName.side_effect = lambda _t=timeline: _t._name
-        timelines.append(timeline)
-    fake = MagicMock()
-    fake.GetTimelineCount.return_value = len(timelines)
-    fake.GetTimelineByIndex.side_effect = lambda i: timelines[i - 1]
-    fake.GetCurrentTimeline.return_value = timelines[0]
-    timelines[0].GetSetting.side_effect = lambda key: {
+    master = FakeTimeline(MASTER, settings={
         "timelineResolutionWidth": "1080",
         "timelineResolutionHeight": "1920",
-    }.get(key, "")
+    })
+    fake = FakeProject([master, FakeTimeline("Reel 01 - a")], current=master)
 
     fps = 24000 / 1001
 
@@ -294,7 +204,7 @@ def test_a_pass_records_its_verdict_before_returning(project_dir):
                 short_captions=0, edge_cuts=0, bad_take_cuts=0,
                 markers=0, findings=[])
         verified.side_effect = _clean
-        connect.return_value.GetProjectManager.return_value = MagicMock()
+        connect.return_value = FakeResolve()
         code = run_verification(
             project_name="Mock Project",
             master_name=MASTER,

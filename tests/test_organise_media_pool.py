@@ -1,10 +1,10 @@
 """The executor's own behaviour, against a media pool that is not Resolve.
 
-The fake here answers the way the real API was measured to answer on
-21.0.0b.28 - `AddSubFolder` makes a SECOND folder of a name that already
-exists, `SetMetadata` refuses a key Resolve does not know, `MoveClips`
-returns a bool - so a test failing here is a rule being broken and not
-the double being wrong.  What the API actually does is written down in
+The canonical double answers the way the real API was measured to answer
+on 21.0.0b.28 - `AddSubFolder` makes a SECOND folder of a name that
+already exists and becomes current, `SetMetadata` refuses a key Resolve
+does not know, `MoveClips` returns a bool - so a test failing here is a
+rule being broken and not the double being wrong.  What the API actually does is written down in
 `library/tools/execution/organise_media_pool.py`.
 """
 from __future__ import annotations
@@ -23,135 +23,7 @@ from library.tools.resolve_organization import (
     STATE_BINS,
     OrganizationError,
 )
-
-RESOLVE_METADATA_KEYS = {
-    "Comments", "Keywords", "Description", "Scene", "Shot", "Take", "Angle",
-    "Reel Number", "Move", "Day / Night", "Camera #", "Production Name",
-    "Episode Name", "Shot Type", "Environment", "Genre", "People", "Location",
-}
-
-
-class FakeClip:
-    def __init__(self, uid, name, kind="clip", path=""):
-        self.uid, self._name, self.kind, self.path = uid, name, kind, path
-        self.metadata, self.color = {}, ""
-
-    def GetUniqueId(self): return self.uid
-    def GetName(self): return self._name
-
-    def GetClipProperty(self, key):
-        if key == "Type":
-            return "Timeline" if self.kind == "timeline" else "Video + Audio"
-        if key == "File Path":
-            return self.path
-        if key == "Clip Color":
-            return self.color
-        return ""
-
-    def GetMetadata(self, key=None):
-        return dict(self.metadata) if key is None else self.metadata.get(key, "")
-
-    def SetMetadata(self, key, value):
-        if key not in RESOLVE_METADATA_KEYS:
-            return False          # measured: Resolve stores nothing
-        self.metadata[key] = value
-        return True
-
-    def SetClipColor(self, value): self.color = value; return True
-    def ClearClipColor(self): self.color = ""; return True
-
-
-class FakeFolder:
-    def __init__(self, name, uid):
-        self._name, self.uid, self.clips, self.subs = name, uid, [], []
-
-    def GetName(self): return self._name
-    def GetUniqueId(self): return self.uid
-    def GetClipList(self): return list(self.clips)
-    def GetSubFolderList(self): return list(self.subs)
-
-
-class FakePool:
-    def __init__(self, root):
-        self.root, self.current, self._n = root, root, 0
-
-    def GetRootFolder(self): return self.root
-    def GetCurrentFolder(self): return self.current
-    def SetCurrentFolder(self, folder): self.current = folder; return True
-
-    def AddSubFolder(self, parent, name):
-        # Measured: Resolve does NOT check, it makes a second one.
-        self._n += 1
-        folder = FakeFolder(name, f"f{self._n}")
-        parent.subs.append(folder)
-        self.current = folder
-        return folder
-
-    def _home(self, clip):
-        def walk(folder):
-            if clip in folder.clips:
-                return folder
-            for sub in folder.subs:
-                found = walk(sub)
-                if found:
-                    return found
-            return None
-        return walk(self.root)
-
-    def MoveClips(self, clips, folder):
-        for clip in clips:
-            home = self._home(clip)
-            if home is not None:
-                home.clips.remove(clip)
-            folder.clips.append(clip)
-        return True
-
-    def DeleteFolders(self, folders):
-        # The guard the executor proves before calling: only an empty
-        # bin is ever passed, so a non-empty one refuses here.
-        for folder in folders:
-            if folder.GetClipList() or folder.GetSubFolderList():
-                return False
-            parent = self._parent(folder)
-            if parent is None:
-                return False
-            parent.subs.remove(folder)
-        return True
-
-    def _parent(self, folder):
-        def walk(node):
-            for sub in node.subs:
-                if sub is folder:
-                    return node
-                found = walk(sub)
-                if found is not None:
-                    return found
-            return None
-        return walk(self.root)
-
-
-class FakeTimeline:
-    def __init__(self, name, items): self._name, self.items = name, items
-    def GetName(self): return self._name
-    def GetTrackCount(self, kind): return 1 if kind == "video" else 0
-    def GetItemListInTrack(self, kind, index):
-        return self.items if kind == "video" else []
-
-
-class FakeItem:
-    def __init__(self, clip): self.clip = clip
-    def GetMediaPoolItem(self): return self.clip
-
-
-class FakeProject:
-    def __init__(self, name, pool, timelines):
-        self._name, self.pool, self.timelines = name, pool, timelines
-
-    def GetName(self): return self._name
-    def GetMediaPool(self): return self.pool
-    def GetTimelineCount(self): return len(self.timelines)
-    def GetTimelineByIndex(self, i): return self.timelines[i - 1]
-
+from tests.resolve_double import FakeProject, make_pool_clip, place_clip
 
 MASTER = "Main Edit"
 
@@ -159,25 +31,19 @@ MASTER = "Main Edit"
 @pytest.fixture
 def project(tmp_path):
     """A project directory and a pool shaped like the field test's."""
-    root = FakeFolder("Master", "root")
-    master_tl = FakeClip("t-master", MASTER, "timeline")
-    live_tl = FakeClip("t-live", "Reel 01 - live", "timeline")
-    old_tl = FakeClip("t-old", "Reel 09 - old", "timeline")
-    cap = FakeClip("c-cap", "sub_a.mov",
-                   path=str(tmp_path / "pipeline_output" / "steps"
-                            / "4_05_render_subtitles" / "a.mov"))
-    orphan = FakeClip("c-orphan", "sub_b.mov",
-                      path=str(tmp_path / "pipeline_output" / "steps"
-                               / "4_05_render_subtitles" / "b.mov"))
-    source = FakeClip("c-src", "cam.mov", path="/elsewhere/cam.mov")
-    root.clips = [master_tl, live_tl, old_tl, cap, orphan, source]
-
-    timelines = [
-        FakeTimeline(MASTER, [FakeItem(source)]),
-        FakeTimeline("Reel 01 - live", [FakeItem(cap), FakeItem(source)]),
-        FakeTimeline("Reel 09 - old", []),
-    ]
-    pool = FakePool(root)
+    proj = FakeProject("Fake")
+    pool = proj.GetMediaPool()
+    master = pool.CreateEmptyTimeline(MASTER)
+    live = pool.CreateEmptyTimeline("Reel 01 - live")
+    pool.CreateEmptyTimeline("Reel 09 - old")
+    steps = tmp_path / "pipeline_output" / "steps" / "4_05_render_subtitles"
+    root = pool.GetRootFolder()
+    cap = root.add_clip(make_pool_clip("sub_a.mov", path=str(steps / "a.mov")))
+    root.add_clip(make_pool_clip("sub_b.mov", path=str(steps / "b.mov")))
+    source = root.add_clip(make_pool_clip("cam.mov", path="/elsewhere/cam.mov"))
+    place_clip(master, source, 0, 47)
+    place_clip(live, cap, 0, 47)
+    place_clip(live, source, 0, 47)
 
     review = tmp_path / "pipeline_output" / "review"
     review.mkdir(parents=True)
@@ -194,7 +60,7 @@ def project(tmp_path):
     (tmp_path / "project.yaml").write_text(
         "resolve:\n  project_name: Fake\n  timeline_name: Main Edit\n",
         encoding="utf-8")
-    return FakeProject("Fake", pool, timelines), str(tmp_path)
+    return proj, str(tmp_path)
 
 
 def bins_of(folder, path=()):
@@ -424,11 +290,11 @@ def _shell_pool(project):
     proj, _folder = project
     pool = proj.GetMediaPool()
     root = pool.GetRootFolder()
-    shells = FakeFolder("Reels", "legacy-reels")
-    shells.subs.append(FakeFolder("Unrecorded", "legacy-unrec"))
-    root.subs.append(shells)
-    root.subs.append(FakeFolder("Reel subtitles", "legacy-subs"))
-    root.subs.append(FakeFolder("My selects", "captain"))
+    shells = pool.AddSubFolder(root, "Reels")
+    pool.AddSubFolder(shells, "Unrecorded")
+    pool.AddSubFolder(root, "Reel subtitles")
+    pool.AddSubFolder(root, "My selects")
+    pool.SetCurrentFolder(root)
     return proj
 
 
@@ -481,9 +347,9 @@ def test_a_shell_holding_the_captains_tier_is_left_where_it_is(project):
     pool = proj.GetMediaPool()
     shells = next(s for s in pool.GetRootFolder().GetSubFolderList()
                   if s.GetName() == "Reels")
-    tier = FakeFolder("Fully approved", "captain-tier")
-    tier.clips.append(FakeClip("t-tier", "Reel 01 - mine", "timeline"))
-    shells.subs.append(tier)
+    pool.AddSubFolder(shells, "Fully approved")
+    pool.CreateEmptyTimeline("Reel 01 - mine")  # lands in the new bin
+    pool.SetCurrentFolder(pool.GetRootFolder())
     result = ex.organise_project(proj, folder, MASTER, apply=True)
     assert result["retirement"]["retired"] == [
         "Reels/Unrecorded", "Reel subtitles"]

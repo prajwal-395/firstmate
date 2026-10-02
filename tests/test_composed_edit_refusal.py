@@ -99,7 +99,7 @@ def test_bypass_1_no_generator_refuses_before_anything_is_destroyed(tmp_path):
     assert f"V1[{head.item_index}] 479->492" in str(refusal.value)
     # The refusal is worth nothing if it lands after the delete.
     assert timeline.delete_calls == []
-    assert pool.calls == []
+    assert pool.append_calls == []
     assert not Path(comp_dir).exists() and not Path(withheld).exists(), (
         "it captured before it checked")
     assert [i.GetDuration() for i in timeline.rows["V1"]] == [479, 186, 19]
