@@ -72,7 +72,7 @@ from library.tools.model_task import (  # noqa: F401 - re-exports
     FULL_AUTO_AGENT, FULL_AUTO_DEPRECATED_AGY, LLMError,
     generate_output_schema_text, normalize_full_auto)
 from library.tools import footage_identity, code_identity, step_ledger
-from library.tools import stable_json
+from library.tools import capability_outputs, stable_json
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import perf_ledger, provenance
 from library.tools import external_inputs, run_scope
@@ -881,7 +881,7 @@ def apply_rerun_requests(project_dir: str, state: dict, targets: list,
         if kind == "step":
             step_id = value
             step_ledger.forget(state, step_id)
-            state.get("step_outputs", {}).pop(step_id, None)
+            capability_outputs.forget(state, step_id)
             _clear_step_failure(state, step_id)
             # "Re-run the step" has to mean recompute. A per-clip step
             # reuses whatever is still on disk, so leaving the artifacts
@@ -2742,11 +2742,10 @@ def run_pipeline(
             elif verdict == "revised":
                 feedback = load_gate_feedback(project_dir, node_id)
                 if feedback:
-                    outputs = state.get("step_outputs", {})
-                    step_output = outputs.get(node_id, {})
+                    step_output = state.get("step_outputs", {}).get(
+                        node_id, {})
                     merged = apply_feedback_to_output(step_output, feedback)
-                    outputs[node_id] = merged
-                    state["step_outputs"] = outputs
+                    capability_outputs.record(state, node_id, merged)
                     save_pipeline_state(project_dir, state)
                     print(f"  ⏭  {node_id}: revised output applied", file=sys.stderr)
 
@@ -2962,7 +2961,7 @@ def run_pipeline(
                 print("     Stopping pipeline due to failure.", file=sys.stderr)
                 break
 
-            state.setdefault("step_outputs", {})[node_id] = output
+            capability_outputs.record(state, node_id, output)
             _clear_step_failure(state, node_id)
             entry = {
                 "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),

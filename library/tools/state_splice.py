@@ -146,8 +146,8 @@ def splice_step_output(project_folder: str,
     snapshot = snapshot_path(project_folder, label)
     shutil.copy2(path, snapshot)
 
-    outputs[node_id] = after
-    state["step_outputs"] = outputs
+    from library.tools import capability_outputs
+    capability_outputs.record(state, node_id, after)
 
     record = dict(report or {})
     record.update({

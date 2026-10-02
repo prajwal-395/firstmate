@@ -291,7 +291,8 @@ def reset_stage(state: dict, stage: str,
     stage_ledger = state.setdefault(LEDGER_KEY[stage], {})
     for node_id in cleared:
         stage_ledger.pop(node_id, None)
-        state.get("step_outputs", {}).pop(node_id, None)
+        from library.tools import capability_outputs
+        capability_outputs.forget(state, node_id)
         state.get("step_errors", {}).pop(node_id, None)
     failed = state.get("failed_steps")
     if failed:

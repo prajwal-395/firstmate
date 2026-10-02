@@ -189,7 +189,8 @@ def _record_completion(project: str, state: dict, cid: str, node: str,
     nodes = _edit_nodes()
     stage = step_ledger.stage_of(rp._manifest_map({node: nodes[node]})[node],
                                  node)
-    state.setdefault("step_outputs", {})[node] = payload
+    from library.tools import capability_outputs
+    capability_outputs.record(state, node, payload, capability_id=cid)
     rp._clear_step_failure(state, node)
     step_ledger.record(state, stage, node, {
         "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
