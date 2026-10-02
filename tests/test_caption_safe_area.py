@@ -1,25 +1,8 @@
 """The safe area, and the caption fitter that had never run.
 
-Two halves of one defect, and they are tested together because they are
-one number seen from two sides.
-
-`plan_subtitles.text_fits_on_screen` measured real glyph widths with PIL
-and was switched on by `audio_spine["subtitle_style"]["font_path"]`. No
-producer anywhere wrote `subtitle_style` into the spine, so `fits_fn` was
-None on every run and grouping fell back to a literal `max_chars = 18`.
-That literal was written for a 58px caption; at the 160px style the same
-step resolves from the brand template it is not close - measured on the
-shipped export, caption ink spanned **columns 0-1079 of a 1080px frame**,
-with the single word "announcement" clipped at both edges.
-
-The width it should have been fitting inside did not exist either:
-`grep -rni "safe.area"` over `library/`, `remotion-subtitles/src/` and
-`tests/` returned one comment and no code, and caption placement was the
-literal `bottom: 200px` - 10.4% of a 1920-row frame, inside the band the
-platform paints its own caption and audio bar over.
-
-So: one enumeration (`library/tools/safe_area.py`), four consumers, and a
-fitter that actually runs.
+One enumeration (`library/tools/safe_area.py`), four consumers, and a
+fitter that actually runs: no caption LINE is drawn wider than the usable
+width. History: docs/evidence/caption_safe_area.md.
 """
 import json
 import os
@@ -106,33 +89,24 @@ def test_vertical_profile_keeps_captions_off_every_apps_ui():
     assert layout.intrusions(wider)
 
 
-def test_insets_are_fractions_so_4k_vertical_needs_no_second_row():
+def test_every_format_has_a_fractional_profile_and_unknown_raises():
     """The same product in more pixels gets the same profile, scaled."""
     hd = safe_area_for_format("vertical_1080x1920")
     uhd = safe_area_for_format("vertical_2160x3840")
     assert uhd.profile == hd.profile
     for edge in ("top", "right", "bottom", "left"):
         assert abs(getattr(uhd, edge) - 2 * getattr(hd, edge)) <= 1
-
-
-
-
-def test_every_delivery_format_has_a_profile():
-    """A format with no safe area is a format whose captions are unplaced."""
+    # Every delivery format has a profile (one without has unplaced
+    # captions), and an unknown one raises rather than defaulting.
     from library.tools.delivery_format import DELIVERY_FORMATS
     assert set(DELIVERY_FORMATS) == set(SAFE_AREAS)
-
-
-def test_unknown_format_raises_rather_than_defaulting():
     with pytest.raises(UnknownSafeArea):
         safe_area_profile("vertical_9000x16000")
 
 
-
-
 # ── The fitter actually runs ──
 
-def test_fitter_is_built_from_the_resolved_style_and_measures_a_real_font():
+def test_fitter_measures_the_real_font_at_the_rendered_weight():
     """`fits_fn` used to be None on every run. Prove it is not."""
     style = resolve_subtitle_style({}, {})
     fitter = build_caption_fitter(style, resolve_safe_area())
@@ -141,23 +115,14 @@ def test_fitter_is_built_from_the_resolved_style_and_measures_a_real_font():
         f"opened the bundled font for {style['fontFamily']!r}")
     assert fitter.font_path.endswith("Montserrat-Variable.ttf")
     assert fitter.font_size == style["fontSize"]
-
-
-def test_fitter_sets_the_variable_weight_axis():
-    """Montserrat-Variable defaults to Thin (100). The render draws 800.
-
-    Measuring without setting the axis reports the width of a face
-    nobody renders, which is the same class of silent substitution
-    `library/tools/render_fonts.py` exists to refuse.
-    """
+    # Montserrat-Variable defaults to Thin (100); the render draws 800,
+    # so the weight axis must be set or it measures a face nobody renders.
     sa = resolve_safe_area()
     thin = build_caption_fitter(
         {"fontFamily": "Montserrat", "fontSize": 160, "fontWeight": 100}, sa)
     bold = build_caption_fitter(
         {"fontFamily": "Montserrat", "fontSize": 160, "fontWeight": 800}, sa)
     assert bold.text_width("announcement") > thin.text_width("announcement")
-
-
 
 
 def test_the_step_runs_the_fitter_on_a_real_invocation():
@@ -206,18 +171,10 @@ def _wrapped_lines(fitter, text):
     return lines
 
 
-def test_no_caption_line_is_wider_than_the_usable_width():
-    """The defect, pinned.
-
-    Before the fix this line grouped by `max_chars = 18` into cards like
-    'brand template and' - 1707px of ink in a 1080px frame - and left
-    'announcement' (1303px) as an unbreakable single word clipped at both
-    edges. Measured ink span across the cards was columns 0-1079.
-
-    The bound is per LINE, because the overlay's box wraps (`flexWrap`),
-    so a card wider than one line becomes two and is drawn in full. What
-    must never happen is a LINE running off the frame.
-    """
+def test_no_caption_line_or_card_overflows_the_caption_box():
+    """The defect, pinned: no LINE runs off the frame (the box wraps, so
+    the bound is per line), no card exceeds the box's lines, and one
+    unbreakable word scales its card down. Before: columns 0-1079."""
     style = resolve_subtitle_style({}, {})
     safe_area = resolve_safe_area()
     fitter = build_caption_fitter(style, safe_area)
@@ -247,39 +204,18 @@ def test_no_caption_line_is_wider_than_the_usable_width():
         f"caption ink ends at column {right_edge:.0f}, inside the "
         f"{safe_area.right}px right safe margin")
 
-
-def test_no_card_needs_more_lines_than_the_box_allows():
-    """A card is a phrase, not a paragraph.
-
-    The grouper fits the BOX rather than one line, which is what restored
-    the card length the pre-measurement `max_chars = 18` grouping had.
-    `MAX_CAPTION_LINES` is the bound on how far that goes.
-    """
-    fitter = build_caption_fitter(
-        resolve_subtitle_style({}, {}), resolve_safe_area())
-    entries = generate_subtitles(
-        _spine(CLIPPING_LINE), caption_case="lowercase",
-    )["subtitle_plan"]["subtitle_entries"]
+    # A card is a phrase, not a paragraph: the grouper fits the BOX, up to
+    # MAX_CAPTION_LINES.
     for entry in entries:
         assert fitter.line_count(entry["text"]) <= MAX_CAPTION_LINES, (
             f"card {entry['id']} {entry['text']!r} wraps onto "
             f"{fitter.line_count(entry['text'])} lines")
 
-
-def test_an_unbreakable_word_is_shrunk_rather_than_clipped():
-    """A group split cannot fix one word. The card scales; the style does not.
-
-    What size captions should be is an open captain decision. This asserts
-    only that whatever size is chosen ends up inside the frame.
-    """
-    style = resolve_subtitle_style({}, {})
-    fitter = build_caption_fitter(style, resolve_safe_area())
+    # An unbreakable word is shrunk rather than clipped: the card scales,
+    # the style does not.
     assert fitter.word_width("announcement") > fitter.usable_width, (
         "the fixture word no longer overflows; pick one that does")
 
-    entries = generate_subtitles(
-        _spine(CLIPPING_LINE), caption_case="lowercase",
-    )["subtitle_plan"]["subtitle_entries"]
     card = next(e for e in entries if "announcement" in e["text"])
     assert card["fit_scale"] < 1.0
     assert (fitter.word_width("announcement") * card["fit_scale"]
@@ -290,7 +226,7 @@ def test_an_unbreakable_word_is_shrunk_rather_than_clipped():
 
 # ── All four consumers read the one enumeration ──
 
-def test_consumer_subtitle_style_resolves_the_inset():
+def test_the_style_and_the_grouper_read_the_one_safe_area():
     props = resolve_subtitle_style({}, {})
     platform = safe_area_for_format("vertical_1080x1920").as_props()
     # Every inset is the platform's, EXCEPT the bottom: the caption row
@@ -303,47 +239,12 @@ def test_consumer_subtitle_style_resolves_the_inset():
     # `captionMaxWidth` derives from the UNLIFTED left/right insets.
     assert props["captionMaxWidth"] == 1080 - 2 * max(platform["left"],
                                                       platform["right"])
-
-
-
-
-
-
-def test_consumer_grouper_reads_the_same_width():
-    """The fourth consumer, and the one that makes this a single task.
-
-    If the safe area lived only on the render side, captions would be
-    lifted clear of the platform UI and still be clipped left and right.
-    """
+    # The grouper reads the same width - else captions lift clear of the
+    # platform UI and still clip left and right.
     safe_area = resolve_safe_area()
-    style = resolve_subtitle_style({}, {})
-    fitter = build_caption_fitter(style, safe_area)
+    fitter = build_caption_fitter(props, safe_area)
     assert fitter.usable_width == (
-        safe_area.centered_usable_width - 2 * style["outlineWidth"])
-
-
-# ── The literals are gone ──
-
-def _read(*parts):
-    with open(os.path.join(PROJECT_ROOT, *parts), encoding="utf-8") as f:
-        return f.read()
-
-
-def _code_only(source: str) -> str:
-    """The source with comments stripped.
-
-    The comments deliberately NAME the retired literals, so a grep for
-    them has to look at code or it can never pass.
-    """
-    import re
-    source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
-    source = re.sub(r"^\s*//.*$", "", source, flags=re.M)
-    source = re.sub(r"^\s*#.*$", "", source, flags=re.M)
-    return source
-
-
-
-
+        safe_area.centered_usable_width - 2 * props["outlineWidth"])
 
 
 # ── The grouper does not leave runts ──
@@ -402,10 +303,6 @@ def test_the_split_is_balanced_not_greedy():
     assert not flashing, f"cards under 0.5s: {flashing}"
 
 
-
-
-
-
 def test_a_single_word_is_always_a_legal_card():
     """The base case that guarantees a partition exists.
 
@@ -421,3 +318,64 @@ def test_a_single_word_is_always_a_legal_card():
         [{"word": "announcement", "start": 0.0, "end": 0.8}],
         fits_fn=fitter.fits_in_box, display_until=0.8)
     assert [g["text"] for g in groups] == ["announcement"]
+
+
+# ── The cascade drops no word (moved from test_subtitle_sync.py) ──
+
+def test_subtitle_cascade_drops_no_word():
+    """The tail of a block ("single day.") used to be truncated by the
+    cascade and clamping; every spoken word must reach a card."""
+    audio_spine = {
+        "structure": [
+            {
+                "position": 1,
+                "block_type": "speech",
+                "timeline_start": 20.87,
+                "timeline_end": 24.41,
+                "source_start": 63.135,
+                "source_end": 66.675,
+                "content": {"text": "and so my very, very small announcement is that i just want to post every single day."},
+                "word_timestamps": [
+                    {"word": "and", "source_start": 63.0, "source_end": 63.1},
+                    {"word": "so", "source_start": 63.1, "source_end": 63.2},
+                    {"word": "my", "source_start": 63.2, "source_end": 63.3},
+                    {"word": "very,", "source_start": 63.3, "source_end": 63.4},
+                    {"word": "very", "source_start": 63.4, "source_end": 63.5},
+                    {"word": "small", "source_start": 63.5, "source_end": 63.6},
+                    {"word": "announcement", "source_start": 63.6, "source_end": 64.0},
+                    {"word": "is", "source_start": 64.0, "source_end": 64.1},
+                    {"word": "that", "source_start": 64.1, "source_end": 64.2},
+                    {"word": "i", "source_start": 64.2, "source_end": 64.3},
+                    {"word": "just", "source_start": 64.3, "source_end": 64.4},
+                    {"word": "want", "source_start": 64.4, "source_end": 64.5},
+                    {"word": "to", "source_start": 64.5, "source_end": 65.0},
+                    {"word": "post", "source_start": 65.0, "source_end": 65.5},
+                    {"word": "every", "source_start": 65.5, "source_end": 66.0},
+                    {"word": "single", "source_start": 66.395, "source_end": 66.535},
+                    {"word": "day.", "source_start": 66.595, "source_end": 66.675},
+                ]
+            }
+        ]
+    }
+
+    result = generate_subtitles(audio_spine, caption_case="lowercase", brand_effect={}, brand_style={})
+    entries = result["subtitle_plan"]["subtitle_entries"]
+
+    # Assert that all words made it through the cascade and clamping logic.
+    # Previous behaviour truncated the tail of the block ("single day.").
+    #
+    # This asserts the WORDS survive, not which card each lands on. It used
+    # to assert the literal card "single day.", which was the grouping a
+    # `max_chars = 18` fallback produced; captions are grouped by measured
+    # width now (library/tools/safe_area.py, and step 4.01's CaptionFitter),
+    # and the split is balanced rather than greedy, so which card any given
+    # word lands on is not stable and is not the invariant here. The
+    # invariant the test is named for is that nothing is dropped.
+    texts = [e["text"] for e in entries]
+    spoken = " ".join(w["word"] for w in audio_spine["structure"][0]
+                      ["word_timestamps"]).lower()
+    assert " ".join(texts) == spoken, (
+        f"words lost or reordered.\n  got: {texts}\n  want: {spoken}")
+    # The tail of the block specifically, because that is what used to be
+    # truncated - on whichever card the split put them.
+    assert texts[-1].endswith("single day."), texts

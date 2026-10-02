@@ -128,3 +128,77 @@ middle-only stack centres on the small canvas, which is the placement.
 `placement_for_box` inverts the measured Resolve relation (see
 `tight_box.py`), so the canvas centre lands on the union centre.
 ```
+
+## The top-anchored 2592
+
+Moved from `tests/test_mg_tight_box.py::test_top_anchored_graphic_places_at_the_measured_value`.
+Measured 2026-09-11 on the captain's own Reel 26: a 920x480 graphic stored at
+Tilt 2592 is located at frame rows 72..552 in an exported still (MSE 51 against
+~40 700 five pixels either side). The halved 1296 the test used to demand draws
+it at row 396, and the 5184 that five reels carried draws it at -576, entirely
+off the top - what the captain saw on seventeen graphics. The pipeline must
+compute 2592 itself: no hand correction, no halving at the call site. Pinned as
+history at explicit gain 1.0 (the renderer drew that gain on 2026-09-11); under
+today's measured gain the same graphic stores 1296 for the identical rows
+(`tests/test_draw_gain_measured.py`).
+
+Since the layout-width floor (captain 2026-09-21) this top-centre graphic ships
+on a 966-wide canvas instead of the union-sized one: the canvas spans the
+full-frame usable width plus the pads so the copy wraps as at full frame. The
+union is centred, so the canvas stays centred - pan 0, tilt 2592 - and only the
+origin moves: the canvas edge sits at 57, one pad past the layout edge
+(540 - 870/2 - 48), instead of one pad past the union edge (348).
+
+## Layout width
+
+Moved from the module docstring of `tests/test_mg_tight_layout_width.py`.
+
+```text
+The tight motion-graphics render is the SAME DRAWING as full frame.
+
+The shipping predict-then-render-at-size path never clips (minimum
+12px slack over six element kinds) but is NOT the same drawing on
+three of the six: stat_callout drew 366x225 where the full frame drew
+540x165 and sits 177px off its intended place; quote_card drew
+986x132 against 856x193 (measured 2026-09-16). The cause is that
+motion-graphics copy reflows because its container is bounded by the
+canvas: a centre-anchored stack sets BOTH left and right insets, so
+its container is the canvas minus the insets, and on a small canvas
+the copy wraps where the full frame did not.
+
+The captain, 2026-09-21: FIX THE WRAPPING AT TIGHT SIZE - make the
+tight canvas preserve the full-frame layout width. The other two
+options on the board (render motion graphics full canvas; verify each
+graphic against a full-frame reference render) are dead and must not
+be drifted into.
+
+The contract, in two halves:
+
+- Python floors the canvas at the full-frame usable width plus the
+  pads, so the container is never NARROWER than at full frame, and
+  stamps `layoutWidth` (the full-frame usable width) on the tight
+  props.
+- the composition caps centre stacks at `maxWidth: layoutWidth`
+  with auto margins, so the container is never WIDER than at full
+  frame either.
+
+The effective tight container - `min(canvas - 2*pad, layoutWidth)` -
+therefore EQUALS the full-frame container for every centre-anchored
+copy element, whatever the copy says. Same container, same engine,
+same fonts: same wrapping, same drawing.
+
+The third kind below is identified structurally, not from the
+measurement: the scout named stat_callout and quote_card and left the
+third to the worker. Every stackable copy arm except the fixed
+geometry (`review_panel`, `beat_accent`, `pointer_annotation`) draws
+text in a plain `div`, which wraps to whatever the container is - so
+any centre-anchored copy reflows the same way. `title_lockup` is
+named as the third because it is the flagship copy element and the
+Reel-01 title lockup ("A COMPLETELY DIFFERENT SYSTEM") is the
+documented wrap-sensitive case; the parametrized test proves the
+mechanism for every centre copy kind, whichever the third was.
+
+Fixture-based only: no renders, no ffmpeg, no Resolve, no pipeline
+runs. The tight-box tools execute ffmpeg, so nothing here may touch
+them; the PR body says what is unexercised.
+```

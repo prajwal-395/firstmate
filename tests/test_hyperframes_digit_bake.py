@@ -59,15 +59,12 @@ def test_natural_duration_matches_the_reference():
         fps=24, damping=15, mass=0.8, stiffness=80) == _NATURAL_24
 
 
-@pytest.mark.parametrize("frame,duration,expected", _CURVE)
-def test_spring_matches_recorded_reference_values(frame, duration,
-                                                  expected):
-    assert hf.remotion_spring(
-        frame=frame, fps=30,
-        duration_in_frames=duration) == pytest.approx(expected, abs=1e-12)
-
-
-def test_spring_is_settled_past_the_end():
+def test_spring_matches_recorded_reference_values():
+    for frame, duration, expected in _CURVE:
+        assert hf.remotion_spring(
+            frame=frame, fps=30, duration_in_frames=duration
+        ) == pytest.approx(expected, abs=1e-12), (frame, duration)
+    # Settled past the end.
     assert hf.remotion_spring(
         frame=91, fps=30, duration_in_frames=90) == 1.0
 
@@ -96,24 +93,7 @@ def _counter_props(**overrides) -> dict:
     return props
 
 
-def test_bake_aligns_to_characters_with_statics_null():
-    baked = hf._bake_digit_springs(_counter_props(), None)
-    offsets = baked["elements"][0]["data"]["_hf_digit_offsets"]
-    # 1234 formats grouped ("1,234", like the composition's
-    # toLocaleString): four digit series of 30 frames, comma static.
-    assert len(offsets) == 5
-    assert offsets[1] is None
-    assert all(len(series) == 30 for i, series in enumerate(offsets)
-               if i != 1)
-    # Frame 0 is unrolled everywhere; the last digit's first offset is
-    # the reference's own frame-0 answer for it.
-    assert all(series[0] == pytest.approx(0.0) for series in offsets
-               if series is not None)
-    assert offsets[4][1] == pytest.approx(
-        -4 * hf.remotion_spring(frame=1, fps=30, duration_in_frames=30))
-
-
-def test_bake_needs_neither_node_nor_remotion(monkeypatch):
+def test_bake_aligns_to_characters_without_node_or_remotion(monkeypatch):
     """The independence the second renderer exists for, as a test.
 
     With node unresolvable, subprocess unusable and the Remotion tree
@@ -132,7 +112,14 @@ def test_bake_needs_neither_node_nor_remotion(monkeypatch):
 
     baked = hf._bake_digit_springs(_counter_props(), None)
     offsets = baked["elements"][0]["data"]["_hf_digit_offsets"]
+    # 1234 formats grouped ("1,234", like the composition's
+    # toLocaleString): four digit series of 30 frames, comma static.
     assert len(offsets) == 5
+    assert offsets[1] is None
+    assert all(len(series) == 30 for i, series in enumerate(offsets)
+               if i != 1)
+    assert all(series[0] == pytest.approx(0.0) for series in offsets
+               if series is not None)
     # The pinned curve, through the bake: digit 4 (last, unstaggered)
     # at local frame 1 over its 30-frame span.
     assert offsets[4][1] == pytest.approx(

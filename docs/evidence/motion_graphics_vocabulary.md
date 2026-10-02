@@ -114,3 +114,24 @@ this module knowing anything about prompts.  Nothing is shortlisted:
 nineteen entries fit, and whatever selects a shortlist becomes the chooser
 (AGENTS.md section 10.5).
 ```
+
+## The tests
+
+Moved from `tests/test_motion_graphics_vocabulary.py`. The roster answers an
+open captain decision delegated on 2026-08-29: *"which motion-graphics elements
+belong in our vocabulary"*. The failure it closes is the one the round-2
+creative audit counted nine times in twenty-eight decisions - a decision the
+model was never offered - and the failure it must not introduce is the one
+PR #310 spent an audit removing: a value reaching a frame from a table in this
+repository rather than from somebody's declaration. The engine serves a daily
+channel and client work (2026-08-25), so a channel's name, a host's name or one
+project's slug in the vocabulary is a defect. When written, eleven of fifteen
+entries could not be drawn; if that ever inverts silently, the vocabulary has
+been trimmed to fit a defect.
+
+A textual scan of the module's table source for value shapes (hex colours,
+px/ms/Hz literals, with a `CITED_VALUES` allow-list for the withdrawn cyan
+`#00D4FF`, the withdrawn `60px` corner accent and the `5 Hz` face sampling
+rate) was retired in the 2026-10 suite halving as a source-text pin; the
+structural half (no field can hold a magnitude) and `assert_no_settled_values`
+remain.

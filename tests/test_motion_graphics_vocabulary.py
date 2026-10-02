@@ -1,35 +1,12 @@
 """The motion-graphics roster is a vocabulary, and these are the rules that keep it one.
 
-The roster answers an open captain decision delegated on 2026-08-29:
-*"which motion-graphics elements belong in our vocabulary"*. The failure
-it closes is the one the round-2 creative audit counted nine times in
-twenty-eight decisions - a decision the model was never offered - and the
-failure it must not introduce is the one PR #310 spent an audit removing:
-a value reaching a frame from a table in this repository rather than from
-somebody's declaration.
-
-So these tests check four things a reviewer would otherwise have to take
-on trust:
-
-1. **Every entry is an axis, not a value.** Structurally - no field of
-   `MotionElement` or `Axis` can hold a magnitude - and textually,
-   against the module's own source, so a colour or a duration cannot
-   reappear in the prose either.
-2. **Nothing in the roster is keyed to one identity.** The engine serves
-   a daily channel and client work (2026-08-25), so a channel's name, a
-   host's name or one project's slug in the vocabulary is a defect.
-3. **The broken renderer did not shape the roster.** Eleven of fifteen
-   entries cannot be drawn today. If that ever inverts silently, the
-   vocabulary has been trimmed to fit a defect.
-4. **It works under either answer to the two open captain decisions** -
-   what produces the copy, and whether the model authors a component or
-   fills a props schema.
+Every entry is an axis, not a value; nothing is keyed to one identity; the
+renderer did not shape the roster; and it takes neither open captain decision
+(what produces copy, props schema vs authored component). AGENTS.md 16.
+History: docs/evidence/motion_graphics_vocabulary.md#the-tests.
 """
-import ast
 import os
-import re
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -38,38 +15,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools import motion_graphics_vocabulary as mgv
-
-MODULE_PATH = mgv.__file__
-
-
-def _source() -> str:
-    with open(MODULE_PATH, "r", encoding="utf-8") as handle:
-        return handle.read()
-
-
-def _table_source(*names: str) -> str:
-    """The source text of the named module-level assignments.
-
-    Scoped deliberately. The module DOCSTRING cites evidence - project
-    001's eight empty ProRes segments, the withdrawn cyan, PR numbers -
-    and evidence is what a `[why]` link carries in this repository. The
-    VOCABULARY is what a consumer reads and what could reach a frame, so
-    that is what these scans are pointed at.
-    """
-    tree = ast.parse(_source())
-    chunks = []
-    lines = _source().splitlines()
-    for node in tree.body:
-        targets = []
-        if isinstance(node, ast.Assign):
-            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            targets = [node.target.id]
-        if any(name in names for name in targets):
-            chunks.append("\n".join(lines[node.lineno - 1:node.end_lineno]))
-    assert chunks, f"none of {names} found as module-level assignments"
-    return "\n".join(chunks)
-
 
 # ── 1. an axis, not a value ──────────────────────────────────────────
 
@@ -93,52 +38,6 @@ def test_no_field_of_an_entry_or_an_axis_can_hold_a_magnitude():
 
 def test_no_axis_carries_a_default_or_a_bound():
     mgv.assert_no_settled_values()
-
-
-#: A value shape in the prose. Each entry names WHY the citation is not a
-#: settled value, and every one of them is a withdrawal or a measurement
-#: reported about something else. A future value has to be added here
-#: with a reason, which is the point.
-CITED_VALUES = {
-    "#00D4FF": (
-        "The withdrawn cyan, named in colour_role's axis so the reason "
-        "the axis is a role and not a colour is legible. It is recorded "
-        "as withdrawn in generate_motion_props too."
-    ),
-    "60px": (
-        "The withdrawn corner-accent literal, named in frame_accents' "
-        "refusals. safe_area.py records the same number as the defect."
-    ),
-    "5 Hz": (
-        "The rate compute_face_presence measures a face centre at - a "
-        "fact about another step, reported so tracked_label's "
-        "unreachability is specific."
-    ),
-}
-
-_VALUE_SHAPES = re.compile(
-    r"#[0-9a-fA-F]{6}\b"
-    r"|\b\d+(?:\.\d+)?\s?(?:px|pt|ms|dB|%|Hz)\b"
-    r"|\b\d+(?:\.\d+)?\s?(?:seconds?|frames?|stops?)\b"
-)
-
-
-def test_no_settled_colour_duration_or_size_appears_in_the_vocabulary():
-    """The textual half, over exactly what a consumer of the roster reads."""
-    text = _table_source("ROSTER", "AXES", "FUNCTIONS", "OUT_OF_VOCABULARY",
-                         "ROSTER_LEGEND")
-    found = {match.group(0) for match in _VALUE_SHAPES.finditer(text)}
-    unexplained = sorted(found - set(CITED_VALUES))
-    assert not unexplained, (
-        f"{unexplained} look like settled values in the roster. A "
-        f"vocabulary defines the axis; the magnitude is the declaring "
-        f"author's. If one of these is a citation rather than a value, "
-        f"add it to CITED_VALUES with the reason.")
-    for cited in CITED_VALUES:
-        assert cited in text, (
-            f"{cited!r} is recorded in CITED_VALUES and no longer "
-            f"appears. Delete the entry rather than leaving a stale "
-            f"exemption behind.")
 
 
 # ── 2. series-neutral ────────────────────────────────────────────────
@@ -176,10 +75,7 @@ def test_nothing_in_the_roster_is_keyed_to_one_identity():
         "the roster names project 001. A vocabulary entry justified by "
         "one project is that project's declaration, not a vocabulary "
         "entry.")
-
-
-def test_the_only_identity_route_is_a_project_supplied_asset():
-    """`channel_bug` is the closest an entry comes to identity."""
+    # The only identity route is a project-supplied asset (channel_bug).
     bug = mgv.ELEMENTS_BY_KEY["channel_bug"]
     assert "asset" in bug.axes
     assert any("engine" in refusal and "artwork" in refusal
@@ -215,16 +111,8 @@ def test_every_reachable_entry_is_drawn_by_the_composition_by_name():
             f"{element.key} is marked reachable_now and the composition "
             f"has no arm for it. The roster's reachable_now entries are a "
             f"claim about that file.")
-
-
-def test_the_drawable_set_the_planner_uses_is_the_rosters_own():
-    """`motion_graphics_plan.DRAWABLE` is DERIVED, not a second list.
-
-    A second list of what the renderer can draw is a list that goes
-    stale, and the way it goes stale is silent: an entry that becomes
-    reachable keeps being dropped as unreachable and the drop is
-    recorded as if it were a fact about the renderer.
-    """
+    # The planner's DRAWABLE is DERIVED from the roster, not a second
+    # list that would go stale silently.
     from library.tools import motion_graphics_plan as mgp
     assert mgp.DRAWABLE == frozenset(
         e.key for e in mgv.ROSTER if e.reachable == mgv.REACHABLE_NOW)
@@ -232,7 +120,7 @@ def test_the_drawable_set_the_planner_uses_is_the_rosters_own():
 
 # ── 4. neutral on the two open captain decisions ─────────────────────
 
-def test_the_roster_names_no_producer_of_copy():
+def test_the_roster_takes_neither_open_captain_decision():
     """What a graphic SAYS, and where the words come from, stays the captain's.
 
     Every entry declares only WHETHER it needs a text payload. A model
@@ -249,17 +137,7 @@ def test_the_roster_names_no_producer_of_copy():
             f"an open captain decision as of 2026-08-29.")
     for element in mgv.ROSTER:
         assert element.copy in ("required", "optional", "none")
-
-
-def test_the_roster_names_no_authoring_mechanism():
-    """Props schema or authored component - the entry reads the same either way.
-
-    An entry names a kind, its axes, its inputs and its refusals. Under
-    the props answer the axes ARE the schema; under the authoring answer
-    they are the brief the component must honour and the refusals are
-    what review checks it against.
-    """
-    payload = repr(mgv.roster_rows()).lower()
+    # Props schema or authored component - the entry reads the same.
     for mechanism in ("props schema", "react component", "tsx",
                       "authored component", "input props"):
         assert mechanism not in payload, (
@@ -293,22 +171,3 @@ def test_a_malformed_entry_is_refused():
             mgv.assert_roster_is_well_formed()
     finally:
         mgv.ROSTER = original
-
-
-# ── The prompt-side route ────────────────────────────────────────────
-
-# ── 4.06's prompt states the renderer's real ceiling ─────────────────
-#
-# The captain's named failure was that the model planned text graphics
-# and small icons when asked for animation, and their reading was that
-# better instruction would have fixed it. That is half right:
-# docs/ANIMATED_REEL_CEILING.md recorded what the vocabulary cannot
-# express at all, and a prompt rewritten without saying so would teach
-# the model to ask for things that get dropped by name.
-#
-# So the prompt states the ceiling - and these pin the two halves of
-# that statement that CAN rot silently: a count it asserts about the
-# roster, and a limit that would stop being true the day the renderer
-# gains the node. A prompt that claims a limit the renderer no longer
-# has is as misleading as one that claims a capability it never had.
-

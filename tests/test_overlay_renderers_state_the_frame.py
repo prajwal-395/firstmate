@@ -30,22 +30,7 @@ from library.steps.step_4_05_render_subtitles.generate_remotion_props import (  
 from library.steps.step_4_06_render_motion_graphics.generate_motion_props import (  # noqa: E402
     generate_motion_props,
 )
-from library.tools import full_frame_element as ffe  # noqa: E402
 from library.tools import overlay_verify  # noqa: E402
-from library.tools import reel_build  # noqa: E402
-from library.tools import speaker_identity as si  # noqa: E402
-from library.tools.bookend_render import (  # noqa: E402
-    render_bookend,
-    render_declared_bookends,
-)
-from library.tools.delivery_format import DELIVERY_FORMATS  # noqa: E402
-from library.tools.timed_text_overlay import (  # noqa: E402
-    generate_timed_text_overlay_props,
-    plan_timed_text_segments,
-)
-from library.tools.timed_text_render import (  # noqa: E402
-    render_timed_text_segments,
-)
 
 VERTICAL = (1080, 1920)
 HORIZONTAL = (1920, 1080)
@@ -65,12 +50,7 @@ def _no_frame_default(fn, *names):
             f"{params[name].default!r}; the caller must state the frame")
 
 
-@pytest.mark.parametrize("fn,names", [
-    (generate_subtitle_props_per_block, ("width", "height")),
-    (generate_motion_props, ("width", "height")),
-    (overlay_verify.verify_values, ("full_wh",)),
-])
-def test_an_overlay_renderer_defaults_no_frame(fn, names):
+def test_an_overlay_renderer_defaults_no_frame():
     """B1 collapse of the renderer and verifier variants - the same
     property twice.
 
@@ -78,19 +58,17 @@ def test_an_overlay_renderer_defaults_no_frame(fn, names):
     on a renderer - the exact shape that drew project 001 vertical -
     or restoring ``full_wh=(1080, 1920)`` on the verifier, judging a
     landscape timeline against a vertical frame."""
-    _no_frame_default(fn, *names)
-
-
-
-
-@pytest.mark.parametrize("call", [
-    lambda: generate_subtitle_props_per_block(
-        {"subtitle_entries": [], "style": {}}),
-    lambda: generate_motion_props([], {}),
-])
-def test_omitting_the_frame_is_a_type_error(call):
+    for fn, names in ((generate_subtitle_props_per_block, ("width", "height")),
+                      (generate_motion_props, ("width", "height")),
+                      (overlay_verify.verify_values, ("full_wh",))):
+        _no_frame_default(fn, *names)
+    # And omitting the frame really is a TypeError at the call.
     with pytest.raises(TypeError):
-        call()
+        generate_subtitle_props_per_block({"subtitle_entries": [], "style": {}})
+    with pytest.raises(TypeError):
+        generate_motion_props([], {})
+
+
 
 
 def _subtitle_data():
@@ -103,7 +81,7 @@ def _subtitle_data():
     }
 
 
-def test_a_horizontal_frame_reaches_the_subtitle_props():
+def test_a_horizontal_frame_reaches_the_subtitle_and_motion_props():
     """Breaks on: subtitle props carrying anything but the frame handed
     in. Input: a 1920x1080 delivery - project 001's landscape shape."""
     props = generate_subtitle_props_per_block(
@@ -111,11 +89,7 @@ def test_a_horizontal_frame_reaches_the_subtitle_props():
         width=HORIZONTAL[0], height=HORIZONTAL[1])
     assert props[0]["width"] == 1920
     assert props[0]["height"] == 1080
-
-
-def test_a_horizontal_frame_reaches_the_motion_props():
-    """Breaks on: motion props measured against anything but the frame
-    handed in. Input: a 1920x1080 delivery."""
+    # And the motion props are measured against it too.
     spine = {"structure": [{
         "block_type": "speech", "position": 1,
         "timeline_start": 0.0, "timeline_end": 4.0,

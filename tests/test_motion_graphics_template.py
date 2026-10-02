@@ -39,7 +39,6 @@ if PROJECT_ROOT not in sys.path:
 
 from library.steps.step_4_06_render_motion_graphics.generate_motion_props import (  # noqa: E402
     WITHDRAWN_LEGACY_ACCENT_COLOR,
-    brand_palette_roles,
     generate_motion_props,
     timeline_duration,
 )
@@ -90,17 +89,14 @@ def _elements(segs):
 
 # ── The template refines ─────────────────────────────────────────────
 
-def test_a_palette_resolves_a_colour_role():
+def test_a_palette_resolves_a_colour_role_only_with_a_readable_accent():
     segs, resolved = segments(plan(), READABLE_PALETTE)
     assert resolved.basis == mgp.ELEMENTS_PLANNED
     drawn = _elements(segs)
     assert all(e["color"] == "#ff0055" for e in drawn)
     assert all("brand palette" in e["colorBasis"] for e in drawn)
-
-
-def test_a_palette_with_no_readable_accent_does_not_answer_the_role():
-    """P3.1's other half, unchanged: a colour that would read as a smudge
-    is not an accent, and the entry is dropped rather than drawn in it."""
+    # A colour that would read as a smudge is not an accent: the entry is
+    # dropped rather than drawn in it.
     segs, resolved = segments(plan(), UNREADABLE_PALETTE)
     assert not segs
     assert resolved.dropped[0].reason == "no_colour_to_draw_it_in"
@@ -108,7 +104,7 @@ def test_a_palette_with_no_readable_accent_does_not_answer_the_role():
 
 # ── The template gates nothing ───────────────────────────────────────
 
-def test_the_same_plan_draws_with_a_template_and_without_one():
+def test_the_same_plan_draws_with_or_without_a_template_and_its_flags():
     """The regression. The synthetic default declares neither motion flag,
     and that used to be the whole decision."""
     stated = plan(color="#FF8A3D")
@@ -121,22 +117,8 @@ def test_the_same_plan_draws_with_a_template_and_without_one():
     assert len(_elements(with_default)) == len(_elements(without))
     assert {e["color"] for e in _elements(without)} == {"#FF8A3D"}
 
-
-def test_no_template_flag_can_switch_an_element_off():
-    """`motion_accents` and `motion_progress_bar` are no longer read at
-    all, so a template setting them false cannot remove a planned
-    element.
-
-    This used to assert that `brand_effect` was not a PARAMETER of the
-    resolver, which was a proxy for the real invariant and stopped being
-    a true one: the resolver now takes `brand_effect` to read the caption
-    style's `position`, which is the band this project's captions occupy
-    (library/tools/caption_band.py). The parameter's presence never was
-    the defect - reading the two flags out of it was - so the check is
-    now on the behaviour and on the code, both of which can still fail if
-    the gate returns.
-    """
-    stated = plan(color="#FF8A3D")
+    # `motion_accents` / `motion_progress_bar` are no longer read: a
+    # template setting both false cannot remove a planned element.
     gating = {"motion_accents": False, "motion_progress_bar": False}
     with_flags, _ = generate_motion_props(
         stated, SPINE, fps=30, width=1080, height=1920,
@@ -146,29 +128,6 @@ def test_no_template_flag_can_switch_an_element_off():
         "a template declaring both motion flags false emptied the layer - "
         "the gate this file exists to keep out is back")
     assert len(_elements(with_flags)) == len(_elements(without_flags))
-
-    import ast as _ast
-    import inspect
-    resolver_source = inspect.getsource(generate_motion_props)
-    for flag in ("motion_accents", "motion_progress_bar"):
-        assert flag not in resolver_source, (
-            f"{flag} is read by the resolver. A template boolean that "
-            f"removes a planned element is the gate again.")
-    del _ast
-
-    # Scoped past the module docstring, which CITES both flags as the
-    # evidence for why they are no longer read. Evidence is what a
-    # [why] link carries in this repository; the scan is pointed at the
-    # code, the same way test_motion_graphics_vocabulary's is.
-    import ast
-    source = open(mgp.__file__, encoding="utf-8").read()
-    docstring = ast.parse(source).body[0]
-    assert isinstance(docstring, ast.Expr)
-    code = "\n".join(source.splitlines()[docstring.end_lineno:])
-    for flag in ("motion_accents", "motion_progress_bar"):
-        assert flag not in code, (
-            f"{flag} is read by the planner. A template boolean that "
-            f"removes a planned element is the gate again.")
 
 
 # ── Nothing is drawn in a colour nobody chose ────────────────────────

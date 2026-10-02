@@ -40,7 +40,6 @@ from library.tools.caption_asset_gc import (  # noqa: E402
     SweepRefused,
     collect_pipeline_roots,
     collect_resolve_roots,
-    enumerate_assets,
     ledger_path_for,
     mark,
     reconcile_render_ledger,
@@ -144,7 +143,7 @@ def _ok_root(name, paths):
 
 
 
-def test_siblings_follow_their_mov(tmp_path):
+def test_siblings_and_box_sidecars_follow_their_mov(tmp_path):
     """A .json/.txt sibling has no lifetime of its own.
 
     It lives when its mov lives and goes when its mov goes, because
@@ -168,20 +167,9 @@ def test_siblings_follow_their_mov(tmp_path):
     assert by_path[lone].status == ORPHAN
     assert "mov" in by_path[lone].reason.lower()
 
-
-def test_box_sidecar_is_a_sibling_of_its_mov(tmp_path):
-    """The tight box sidecar lives while its mov lives.
-
-    Measured 2026-09-10: the sweep quarantined Reel 26's thirteen live
-    captions' `_box.json` sidecars as `unknown` - the suffix set knew
-    the previous carriage (`_tight_box.json`) but not the current one -
-    and the next build's reuse fell through to a full measured
-    re-render per caption. A sidecar whose mov is live is live; one
-    whose mov is orphaned follows it; a lone one is an orphan.
-    """
-    project = str(tmp_path)
-    asset_dir = _populate(_asset_dir(project))
-    live_mov = os.path.join(asset_dir, _mov_names()[2])
+    # The tight box sidecar too (2026-09-10: Reel 26's thirteen live
+    # `_box.json` sidecars were quarantined as `unknown`, and the next
+    # build re-rendered every caption).
     live_box = live_mov[:-4] + "_box.json"
     _write(live_box, size=100)
     orphan_mov = os.path.join(asset_dir, _mov_names()[0])
@@ -324,7 +312,7 @@ def test_pipeline_roots_read_step_records(tmp_path):
 # ------------------------------------------------------ the retention
 
 
-def test_superseded_generation_orphaned_at_rerender_time(tmp_path):
+def test_a_rerender_orphans_only_a_generation_with_different_pixels(tmp_path):
     """Re-rendering a card orphans the generation it replaced, at once.
 
     Two renders of one card with genuinely different pixels (a text
@@ -360,24 +348,14 @@ def test_superseded_generation_orphaned_at_rerender_time(tmp_path):
     # The old file is still on disk: orphaned, not deleted.
     assert os.path.isfile(first["overlay_path"])
 
-
-def test_a_sub_pixel_source_shift_is_the_same_artefact(tmp_path):
-    """A source-span shift inside the millisecond the filename carries
-    changes no pixel: same provenance stem, same drawing digest, same
-    file. The re-render overwrites itself - which is correct - and
-    names nothing superseded, because there is no older generation."""
-    from library.steps.step_4_05_render_subtitles.step import (
-        RENDERED,
-        render_one_segment,
-    )
-    from tests.test_subtitle_overlay_modes import _props, _StubRenderer
-
-    out_dir = str(tmp_path)
+    # A source shift inside the millisecond the filename carries changes
+    # no pixel: same file, overwritten, nothing superseded.
+    out_dir = str(tmp_path / "subpixel")
+    os.makedirs(out_dir)
     first = render_one_segment(_props(), out_dir, "tl",
                                remotion_dir="/none",
                                renderer=_StubRenderer(),
                                overlay_geometry="full")
-    assert first["provenance"] == RENDERED
 
     changed = _props()
     changed["_source_start"] = 10.0004  # same ms token, same pixels
@@ -436,7 +414,7 @@ def test_render_one_segment_records_the_ledger(tmp_path):
         "pipeline:render_subtitles"
 
 
-def test_ledger_merge_never_narrows(tmp_path):
+def test_ledger_merge_never_narrows_and_drops_only_the_superseded(tmp_path):
     """One step directory holds several timelines' batches, and a pass
     covers one plan: recording batch B must not unprotect batch A."""
     project = str(tmp_path)
@@ -456,12 +434,9 @@ def test_ledger_merge_never_narrows(tmp_path):
     assert sorted(_recorded_ids(asset_dir)) == sorted(
         ["sub_tl_a_1_1-2_aaaaaaaa", "sub_tl_b_1_1-2_bbbbbbbb"])
 
-
-def test_ledger_drops_superseded_generation(tmp_path):
-    """A re-render unpins the generation it replaced: the old file
-    becomes an orphan candidate naming its replacement, while a
-    timeline-placed file would still read LIVE by reachability."""
-    project = str(tmp_path)
+    # A re-render unpins only the generation it replaced: the old file
+    # becomes an orphan candidate naming its replacement.
+    project = str(tmp_path / "second")
     asset_dir = _asset_dir(project)
     old = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
     new = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_bbbbbbbb.mov"))

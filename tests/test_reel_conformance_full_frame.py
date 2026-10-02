@@ -89,25 +89,19 @@ def test_a_card_is_identified_by_its_render_name_not_by_a_catalog_miss():
 # ── F13, both directions ─────────────────────────────────────────────
 
 
-def test_a_declared_card_that_is_not_on_the_timeline_fails():
+def test_f13_fails_a_card_missing_undeclared_or_above_the_picture():
     findings = check_full_frame_cards(
         "Reel 07", [_card()], [_item(1, 0, 400)], 1080, 1920, FPS)
     assert [f.finding_class for f in findings] == [FindingClass.F13]
     assert "no item on the timeline is it" in findings[0].message
-
-
-def test_a_card_nobody_declared_fails():
-    """The out-of-band append `bookends` refuses on the master, caught on
-    the reels path."""
+    # The out-of-band append `bookends` refuses on the master, caught on
+    # the reels path.
     findings = check_full_frame_cards(
         "Reel 07", [], [_card_item(), _item(1, CARD_FRAMES, 400)],
         1080, 1920, FPS)
     assert [f.finding_class for f in findings] == [FindingClass.F13]
     assert "no declaration accounts for it" in findings[0].message
-
-
-def test_a_card_placed_above_the_picture_tracks_fails():
-    """The replace-versus-overlay ruling, as a gate."""
+    # The replace-versus-overlay ruling, as a gate.
     findings = check_full_frame_cards(
         "Reel 07", [_card()], [_card_item(track_index=4)], 1080, 1920, FPS)
     assert any("belongs on V1" in f.message for f in findings)
@@ -125,16 +119,13 @@ def _placements(n: int, frames: int) -> list:
             for i in range(n)]
 
 
-def test_f4_is_clean_once_the_plan_carries_the_card():
+def test_f4_counts_the_card_as_planned_and_still_catches_a_dropped_clip():
     items = [_card_item()] + [_item(1, CARD_FRAMES + i * 400, 400)
                               for i in range(2)]
     findings = check_item_count("Reel 07", _placements(2, 400), items, FPS,
                                 cards=[_card()])
     assert findings == [], [f.message for f in findings]
-
-
-def test_f4_still_catches_a_genuinely_dropped_clip_with_a_card_present():
-    """Taught to ignore the card, not taught to ignore everything."""
+    # Taught to ignore the card, not taught to ignore everything.
     items = [_card_item(), _item(1, CARD_FRAMES, 400)]
     findings = check_item_count("Reel 07", _placements(2, 400), items, FPS,
                                 cards=[_card()])
@@ -157,7 +148,7 @@ def test_a_one_frame_gap_after_the_card_is_still_a_hole():
 LETTERBOX_SIZES = {FOOTAGE: {"width": 3840, "height": 2160, "rotation": 0}}
 
 
-def test_f12_grades_a_full_frame_card_against_the_whole_frame_and_passes():
+def test_f12_grades_a_full_frame_card_against_the_whole_frame():
     """A card drawn at the delivery size with an identity transform fills
     the frame, whatever the project declares about its FOOTAGE."""
     findings = check_delivered_framing(
@@ -166,10 +157,7 @@ def test_f12_grades_a_full_frame_card_against_the_whole_frame_and_passes():
         1080, 1920, source_sizes=LETTERBOX_SIZES, declared_intent=0.0,
         cards=[_card()])
     assert findings == [], [f.message for f in findings]
-
-
-def test_f12_fails_a_card_that_does_not_fill_the_frame():
-    """The other direction: the gate is not an exemption."""
+    # The other direction: the gate is not an exemption.
     shrunk = dict(IDENTITY, ZoomX=0.5, ZoomY=0.5)
     findings = check_delivered_framing(
         "Reel 07", [_card_item(transform=shrunk)],

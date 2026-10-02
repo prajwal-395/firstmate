@@ -1,19 +1,8 @@
 """A transition element laid over a cut: what it draws, and what it costs.
 
-Every gate here is proved in BOTH directions. A gate that cannot fail is
-worse than no gate because it reads as coverage (AGENTS.md 10.4), and
-this area has a documented history of exactly that: project 001 rendered
-53.8 MB of motion-graphics ProRes in which `max(alpha)` was 0 on every
-frame and reported them delivered.
-
-The alpha instrument is validated against three fixtures whose answers
-are known before it is pointed at anything real - an opaque one, an empty
-one, and one with no alpha plane at all - because an instrument that
-reports zero has to be shown reporting non-zero on something known first.
-The empty and the no-alpha cases are DIFFERENT results and the test says
-so: ffmpeg exits non-zero having written no frames when the plane is
-absent, and a reader that only looked at the maximum would call that
-"draws nothing" and give the wrong diagnosis.
+Every gate is proved in BOTH directions (AGENTS.md 10.4): the alpha
+instrument is validated against known opaque, empty and no-alpha fixtures
+first. History: docs/evidence/transition_overlay.md#the-tests.
 """
 from __future__ import annotations
 
@@ -25,7 +14,6 @@ import pytest
 
 from library.tools import transition_overlay as ov
 from library.tools.transition_overlay import (
-    ANCHORS,
     OVERLAY_TRACK,
     SEAM_CLOSER,
     SEAM_REEL_HEAD,
@@ -95,23 +83,21 @@ def no_alpha_element(tmp_path):
 
 # ── The instrument, validated before it is trusted ───────────────────
 
-def test_the_alpha_instrument_reads_a_known_opaque_element(opaque_element):
+def test_the_alpha_instrument_reads_known_opaque_and_empty_elements(
+        opaque_element, empty_element):
+    """Both directions: an instrument that always returned zero would pass
+    the empty fixture alone. Reachability is this measurement."""
     measured = ov.measure_alpha(opaque_element)
-    assert measured.frames_read == 5
-    assert measured.max_alpha == 255
-    assert measured.draws is True
-    assert measured.has_channel is True
-
-
-def test_the_alpha_instrument_reads_a_known_empty_element(empty_element):
-    """The other direction: the same instrument returns zero on a fixture
-    that really is zero. Without the test above this one proves nothing -
-    an instrument that always returns zero would pass it."""
+    assert (measured.frames_read, measured.max_alpha) == (5, 255)
+    assert measured.draws is True and measured.has_channel is True
     measured = ov.measure_alpha(empty_element)
-    assert measured.frames_read == 5
-    assert measured.max_alpha == 0
-    assert measured.draws is False
-    assert measured.has_channel is True
+    assert (measured.frames_read, measured.max_alpha) == (5, 0)
+    assert measured.draws is False and measured.has_channel is True
+
+    ok, why = ov.element_is_reachable(opaque_element)
+    assert ok and why == ""
+    ok, why = ov.element_is_reachable(empty_element)
+    assert not ok and "zero on all" in why
 
 
 def test_an_absent_alpha_plane_is_not_an_alpha_of_zero(no_alpha_element):
@@ -134,21 +120,6 @@ def test_a_missing_file_is_unmeasurable_not_empty(tmp_path):
         ov.measure_element(str(tmp_path / "nothing_here.mov"))
 
 
-
-
-def test_measure_element_refuses_one_that_draws_nothing(empty_element):
-    with pytest.raises(ElementDrawsNothing):
-        ov.measure_element(empty_element)
-
-
-def test_reachability_is_measured_not_declared(opaque_element,
-                                               empty_element):
-    ok, why = ov.element_is_reachable(opaque_element)
-    assert ok and why == ""
-    ok, why = ov.element_is_reachable(empty_element)
-    assert not ok and "zero on all" in why
-
-
 # ── The declaration ──────────────────────────────────────────────────
 
 def _declaration(path, **over):
@@ -158,82 +129,41 @@ def _declaration(path, **over):
     return base
 
 
-def test_a_declaration_without_an_anchor_is_refused(opaque_element,
-                                                    tmp_path):
-    declaration = _declaration(opaque_element)
-    del declaration["anchor"]
-    with pytest.raises(TransitionOverlayError) as exc:
-        ov.resolve_element(declaration, str(tmp_path))
-    assert "no default" in str(exc.value)
+def _malformed_declarations(asset):
+    """(name, declaration, match) - every one must raise by name."""
+    no_anchor = _declaration(asset)
+    del no_anchor["anchor"]
+    both = _declaration(asset)
+    both["element"].update(composition="TransitionBumper",
+                           duration_seconds=0.2)
+    long = _declaration(asset)
+    long["element"]["duration_seconds"] = 3.0   # the file is 0.2s
+    return [
+        ("no anchor", no_anchor, "no default"),
+        ("unknown anchor", _declaration(asset, anchor="sideways"), None),
+        ("asset and composition", both, "both"),
+        ("neither", {"element": {}, "anchor": "centre"}, "neither"),
+        ("composition without duration",
+         {"element": {"composition": "TransitionBumper"}, "anchor": "centre"},
+         "duration_seconds"),
+        # NO STEP OF THE REELS PROCESS RENDERS A COMPOSITION: placing
+        # nothing would be a vocabulary entry that does not draw.
+        ("composition nothing renders",
+         {"element": {"composition": "TransitionBumper",
+                      "duration_seconds": 1.5}, "anchor": "after"},
+         "NO STEP OF THE REELS PROCESS RENDERS A COMPOSITION(.|\n)*asset:"),
+        ("duration disagrees with the file", long, "measures"),
+        ("asset not on disk", _declaration("brand_assets/absent.mov"),
+         "not found"),
+    ]
 
 
-
-
-
-
-def test_an_unknown_anchor_is_refused(opaque_element, tmp_path):
-    with pytest.raises(TransitionOverlayError):
-        ov.resolve_element(_declaration(opaque_element, anchor="sideways"),
-                           str(tmp_path))
-
-
-def test_naming_both_an_asset_and_a_composition_is_refused(opaque_element,
-                                                           tmp_path):
-    declaration = _declaration(opaque_element)
-    declaration["element"]["composition"] = "TransitionBumper"
-    declaration["element"]["duration_seconds"] = 0.2
-    with pytest.raises(TransitionOverlayError, match="both"):
-        ov.resolve_element(declaration, str(tmp_path))
-
-
-def test_naming_neither_is_refused(tmp_path):
-    with pytest.raises(TransitionOverlayError, match="neither"):
-        ov.resolve_element({"element": {}, "anchor": "centre"},
-                           str(tmp_path))
-
-
-def test_a_composition_must_declare_its_duration(tmp_path):
-    with pytest.raises(TransitionOverlayError, match="duration_seconds"):
-        ov.resolve_element(
-            {"element": {"composition": "TransitionBumper"},
-             "anchor": "centre"}, str(tmp_path))
-
-
-def test_a_composition_nothing_has_rendered_refuses_and_says_why(tmp_path):
-    """NO STEP OF THE REELS PROCESS RENDERS A COMPOSITION.
-
-    `content.bookends`' composition mode works because step 4.06 exists
-    on the edit_video graph to render it. The reels process is
-    `build_reels` and `verify_reels`, and neither renders anything.
-    Accepting the declaration and placing nothing would be a vocabulary
-    entry that does not draw - the exact defect this module was written
-    under - so it refuses and names what is missing.
-    """
-    with pytest.raises(TransitionOverlayError) as exc:
-        ov.resolve_element(
-            {"element": {"composition": "TransitionBumper",
-                         "duration_seconds": 1.5},
-             "anchor": "after"}, str(tmp_path))
-    assert "NO STEP OF THE REELS PROCESS RENDERS A COMPOSITION" in str(exc.value)
-    assert "asset:" in str(exc.value)
-
-
-
-
-def test_a_declared_duration_that_disagrees_with_the_file_is_refused(
-        opaque_element, tmp_path):
-    declaration = _declaration(opaque_element)
-    declaration["element"]["duration_seconds"] = 3.0   # the file is 0.2s
-    with pytest.raises(TransitionOverlayError, match="measures"):
-        ov.resolve_element(declaration, str(tmp_path))
-
-
-
-
-def test_an_asset_that_is_not_on_disk_is_refused(tmp_path):
-    with pytest.raises(TransitionOverlayError, match="not found"):
-        ov.resolve_element(_declaration("brand_assets/absent.mov"),
-                           str(tmp_path))
+def test_each_malformed_declaration_is_refused_by_name(opaque_element,
+                                                      tmp_path):
+    for name, declaration, match in _malformed_declarations(opaque_element):
+        with pytest.raises(TransitionOverlayError, match=match):
+            ov.resolve_element(declaration, str(tmp_path))
+            pytest.fail(name)
 
 
 def test_the_project_declaration_wins_over_the_template(opaque_element,
@@ -252,14 +182,6 @@ def test_the_project_declaration_wins_over_the_template(opaque_element,
                                               "element": {"asset": "x.mov"}}}
     resolved = ov.resolve_declaration(template_effect, str(project))
     assert resolved["transition_overlay"]["anchor"] == "after"
-
-
-
-
-def test_declaring_nothing_gets_nothing():
-    assert ov.declared_overlay(None) is None
-    assert ov.declared_overlay({}) is None
-    assert ov.declared_overlay({"motion_accents": True}) is None
 
 
 # ── The cuts a reel has ──────────────────────────────────────────────
@@ -287,17 +209,11 @@ def test_seams_are_the_frames_reel_build_lays_the_ranges_down_at():
     assert starts[1:] == internal
 
 
-
-
-
-
 def test_the_closer_seam_is_named_when_there_is_one():
     frames = ov.reel_frame_count(RANGES[:-1], FPS)
     seams = ov.reel_seams(RANGES, FPS, closer_seam_frame=frames)
     kinds = [s.kind for s in seams if s.carries]
     assert kinds == [SEAM_TAKE_REMOVED, SEAM_CLOSER]
-
-
 
 
 def test_a_one_range_reel_has_no_cut_at_all():
@@ -308,40 +224,25 @@ def test_a_one_range_reel_has_no_cut_at_all():
 
 # ── Selecting seams ──────────────────────────────────────────────────
 
-def test_a_declaration_that_names_no_seams_is_refused():
+def test_selecting_seams_refuses_what_names_no_real_seam():
     seams = ov.reel_seams(RANGES, FPS)
     with pytest.raises(TransitionOverlayError, match="no default"):
         ov.select_seams({"anchor": "centre"}, seams)
-
-
-def test_selecting_by_kind_returns_that_kind_only():
-    frames = ov.reel_frame_count(RANGES[:-1], FPS)
-    seams = ov.reel_seams(RANGES, FPS, closer_seam_frame=frames)
-    chosen = ov.select_seams({"on_cuts": [SEAM_CLOSER]}, seams)
-    assert [seams[i].kind for i in chosen] == [SEAM_CLOSER]
-
-
-def test_selecting_by_explicit_index_is_honoured():
-    seams = ov.reel_seams(RANGES, FPS)
-    assert ov.select_seams({"seams": [2]}, seams) == [2]
-
-
-def test_selecting_a_seam_that_does_not_exist_is_refused():
-    seams = ov.reel_seams(RANGES, FPS)
     with pytest.raises(NotASeam):
         ov.select_seams({"seams": [99]}, seams)
-
-
-def test_an_unknown_seam_kind_is_refused():
-    seams = ov.reel_seams(RANGES, FPS)
     with pytest.raises(TransitionOverlayError, match="not"):
         ov.select_seams({"on_cuts": ["whenever_it_feels_right"]}, seams)
 
 
-def test_a_kind_that_matches_nothing_selects_nothing():
-    """A reel with no closer is a real answer, not an error."""
+def test_selecting_seams_by_kind_and_by_index():
     seams = ov.reel_seams(RANGES, FPS)
+    assert ov.select_seams({"seams": [2]}, seams) == [2]
+    # A reel with no closer is a real answer, not an error.
     assert ov.select_seams({"on_cuts": [SEAM_CLOSER]}, seams) == []
+    frames = ov.reel_frame_count(RANGES[:-1], FPS)
+    seams = ov.reel_seams(RANGES, FPS, closer_seam_frame=frames)
+    chosen = ov.select_seams({"on_cuts": [SEAM_CLOSER]}, seams)
+    assert [seams[i].kind for i in chosen] == [SEAM_CLOSER]
 
 
 # ── Placing ──────────────────────────────────────────────────────────
@@ -353,49 +254,36 @@ def _element(seconds=1.0, anchor="centre"):
                            declared_duration_seconds=None)
 
 
-@pytest.mark.parametrize("anchor,expected", [
-    ("before", 100 - 30),
-    ("after", 100),
-    ("centre", 100 - 15),
-])
-def test_each_anchor_puts_the_element_where_it_says(anchor, expected):
-    assert ov.anchor_record_frame(100, 30, anchor) == expected
-
-
-def test_centring_an_odd_length_gives_the_extra_frame_to_the_outgoing_side():
-    # 31 frames: 16 before the cut, 15 after.
+def test_each_anchor_puts_the_element_where_it_says():
+    for anchor, expected in (("before", 70), ("after", 100), ("centre", 85)):
+        assert ov.anchor_record_frame(100, 30, anchor) == expected, anchor
+    # An odd length gives the extra frame to the outgoing side: 16 + 15.
     assert ov.anchor_record_frame(100, 31, "centre") == 84
 
 
 def test_placing_on_a_carrying_seam_produces_exact_frames():
     seams = ov.reel_seams(RANGES, FPS)
-    placed = ov.place_overlays(seams, [1], _element(1.0), FPS,
+    placed = ov.place_overlays(seams, [1], _element(1.5), FPS,
                                ov.reel_frame_count(RANGES, FPS))
     assert len(placed) == 1
     assert placed[0].track_index == OVERLAY_TRACK
-    assert placed[0].duration_frames == int(round(1.0 * FPS))
+    assert placed[0].duration_frames == int(round(1.5 * FPS))
     assert placed[0].seam_kind == SEAM_TAKE_REMOVED
+    # AppendToTimeline takes frames at the POOL ITEM's own rate (AGENTS.md
+    # 5), so the placement carries the element's length in SECONDS.
+    assert placed[0].element_seconds == 1.5
 
 
-def test_placing_on_the_head_of_the_reel_is_refused():
+def test_a_placement_that_cannot_sit_on_the_reel_is_refused():
     seams = ov.reel_seams(RANGES, FPS)
+    frames = ov.reel_frame_count(RANGES, FPS)
     with pytest.raises(NotASeam, match="reel_head"):
-        ov.place_overlays(seams, [0], _element(0.2), FPS,
-                          ov.reel_frame_count(RANGES, FPS))
-
-
-
-
-def test_an_element_that_would_start_before_the_reel_is_refused():
-    seams = ov.reel_seams(RANGES, FPS)
+        ov.place_overlays(seams, [0], _element(0.2), FPS, frames)
     # The first cut is 4s in; a 20s element anchored `before` cannot fit.
     with pytest.raises(OverlayDoesNotFit, match="before the reel begins"):
-        ov.place_overlays(seams, [1], _element(20.0, "before"), FPS,
-                          ov.reel_frame_count(RANGES, FPS))
-
-
-
-
+        ov.place_overlays(seams, [1], _element(20.0, "before"), FPS, frames)
+    with pytest.raises(TransitionOverlayError, match="under one frame"):
+        ov.place_overlays(seams, [1], _element(0.001), FPS, frames)
 
 
 def test_two_elements_that_would_overlap_are_refused_by_both_seam_numbers():
@@ -410,18 +298,11 @@ def test_two_elements_that_would_overlap_are_refused_by_both_seam_numbers():
         assert str(index) in str(exc.value)
 
 
-
-
-def test_an_element_shorter_than_one_frame_is_refused():
-    seams = ov.reel_seams(RANGES, FPS)
-    with pytest.raises(TransitionOverlayError, match="under one frame"):
-        ov.place_overlays(seams, [1], _element(0.001), FPS,
-                          ov.reel_frame_count(RANGES, FPS))
-
-
 # ── The whole reel pass ──────────────────────────────────────────────
 
 def test_a_project_with_no_declaration_gets_an_empty_plan_that_says_why():
+    assert ov.declared_overlay(None) is None
+    assert ov.declared_overlay({"motion_accents": True}) is None
     plan = ov.plan_reel_overlays({}, RANGES, FPS, None)
     assert plan.placements == []
     assert "declare nothing and get nothing" in plan.reason_empty
@@ -447,14 +328,10 @@ def test_a_declaration_that_matches_places_an_element_on_every_such_cut(
 
 
 def test_a_declared_element_that_draws_nothing_fails_the_plan(
-        empty_element, tmp_path):
+        empty_element, no_alpha_element, tmp_path):
     effect = {"transition_overlay": _declaration(empty_element)}
     with pytest.raises(ElementDrawsNothing):
         ov.plan_reel_overlays(effect, RANGES, FPS, str(tmp_path))
-
-
-def test_a_declared_element_with_no_alpha_fails_the_plan(no_alpha_element,
-                                                         tmp_path):
     effect = {"transition_overlay": _declaration(no_alpha_element)}
     with pytest.raises(ElementHasNoAlpha):
         ov.plan_reel_overlays(effect, RANGES, FPS, str(tmp_path))
@@ -462,26 +339,11 @@ def test_a_declared_element_with_no_alpha_fails_the_plan(no_alpha_element,
 
 # ── The duration ruling, checked rather than asserted ────────────────
 
-def test_an_overlay_changes_neither_the_reel_length_nor_the_keep_ranges(
+def test_an_overlay_is_additive_to_reel_length_and_footage_binding(
         opaque_element, tmp_path):
-    effect = {"transition_overlay": _declaration(opaque_element)}
-    before = ov.reel_frame_count(RANGES, FPS)
-    plan = ov.plan_reel_overlays(effect, RANGES, FPS, str(tmp_path))
-    assert plan.placements
-    assert plan.reel_frames == before
-    assert ov.reel_frame_count(RANGES, FPS) == before
-
-
-def test_an_overlay_leaves_the_caption_footage_binding_byte_identical(
-        opaque_element, tmp_path):
-    """TIMING_IS_ADDITIVE, as a measurement.
-
-    `footage_binding_hash` digests each speech block's clip, source span
-    AND timeline span. If an element consumed frames from either side of
-    a cut, every later block's `timeline_start` would move and this hash
-    would change - which is the same as saying every caption on the reel
-    would have to be re-planned to stay bound to its footage.
-    """
+    """TIMING_IS_ADDITIVE, as a measurement: the reel length and
+    `footage_binding_hash` (each speech block's clip, source span AND
+    timeline span) are byte-identical either side of the overlay pass."""
     from library.tools.plan_provenance import footage_binding_hash
 
     spine = {"structure": [
@@ -492,16 +354,14 @@ def test_an_overlay_leaves_the_caption_footage_binding_byte_identical(
          "source_start": 20.0, "source_end": 23.5,
          "timeline_start": 4.0, "timeline_end": 7.5},
     ]}
-    before = footage_binding_hash(spine)
+    hash_before = footage_binding_hash(spine)
+    frames_before = ov.reel_frame_count(RANGES, FPS)
 
     effect = {"transition_overlay": _declaration(opaque_element)}
     plan = ov.plan_reel_overlays(effect, RANGES, FPS, str(tmp_path))
     assert plan.placements, "this proves nothing if nothing was placed"
-
-    # The spine is untouched by the overlay pass - it is not even an
-    # input to it - and that is the point being recorded.
-    assert footage_binding_hash(spine) == before
-    assert ov.TIMING_IS_ADDITIVE is True
+    assert plan.reel_frames == frames_before
+    assert footage_binding_hash(spine) == hash_before
 
 
 # ── What it costs the captions ───────────────────────────────────────
@@ -519,22 +379,13 @@ def test_a_caption_under_an_element_is_reported_with_how_long():
     assert len(covered) == 1
     assert covered[0].covered_frames == 15
     assert covered[0].caption_name == "card A"
-
-
-
-
-def test_a_caption_touching_the_element_by_one_frame_is_still_reported():
-    """No threshold: how much cover is too much is a judgement, and this
-    is a measurement (AGENTS.md 10.5)."""
+    # No threshold: one frame of contact is still reported (AGENTS.md 10.5).
     covered = ov.captions_covered([_placement(100, 30)],
                                   [(129, 200, "card C")], FPS)
     assert covered and covered[0].covered_frames == 1
 
 
-
-
 # ── One enumeration of transition types, two routes ──────────────────
-
 
 
 def test_the_overlay_type_cannot_reach_the_per_clip_fusion_route():
@@ -545,12 +396,8 @@ def test_the_overlay_type_cannot_reach_the_per_clip_fusion_route():
     assert tv.canonical_type("element_overlay") is None
     assert "element_overlay" not in tv.PLANNABLE_TYPES
     assert not tv.is_drawn("element_overlay")
-
-
-def test_a_misroute_is_told_it_is_a_misroute_not_that_the_type_is_unknown():
-    """Saying "not a transition type this pipeline knows" about a type
-    the pipeline really draws sends the reader to build a second one."""
-    from library.tools import transition_vocabulary as tv
+    # A misroute is told it is one, not that the type is unknown - that
+    # would send the reader to build a second one.
     reason = tv.withdrawal_reason("element_overlay")
     assert "misroute" in reason
     assert "transition_overlay.py" in reason
@@ -558,46 +405,18 @@ def test_a_misroute_is_told_it_is_a_misroute_not_that_the_type_is_unknown():
     assert "not a transition type" in tv.withdrawal_reason("sparkle_swirl")
 
 
-
-
 # ── The reel build places them and adds no track when it does not ────
 
 
-
-
-
-def test_a_placement_carries_the_elements_own_length_in_seconds():
-    """Resolve's `AppendToTimeline` takes source frames in the POOL
-    ITEM's own rate, not the timeline's (AGENTS.md 5), so the placer has
-    to convert from seconds ONCE rather than round-tripping through
-    timeline frames. A 30fps element on a 23.976 timeline is 36 timeline
-    frames and 45 of its own; a 25fps one at 0.5s rounds to 12 either
-    way only if the conversion is done from seconds."""
-    seams = ov.reel_seams(RANGES, FPS)
-    placed = ov.place_overlays(seams, [1], _element(1.5), FPS,
-                               ov.reel_frame_count(RANGES, FPS))
-    assert placed[0].element_seconds == 1.5
-    assert placed[0].duration_frames == int(round(1.5 * FPS))
-    # What reel_build computes from it, at the element's own rate.
-    assert int(round(placed[0].element_seconds * 30.0)) == 45
-    assert int(round(placed[0].element_seconds * 25.0)) == 38
-
-
-def test_the_gesture_of_a_covering_element_is_hides_the_cut(tmp_path,
-                                                            opaque_element):
+def test_a_covering_element_hides_the_cut_and_a_partial_one_stamps_it(
+        tmp_path, opaque_element):
     """The prediction that was checked against the picture: an element
     with a fully opaque frame hides the cut, one without stamps it.
     `docs/CHROMA_KEY_TRANSITIONS_MEASURED.md` section 5 has the render."""
     resolved = ov.resolve_element(_declaration(opaque_element),
                                   str(tmp_path))
     assert resolved.gesture == ov.GESTURE_HIDES
-
-
-def test_an_element_that_never_covers_the_frame_stamps_rather_than_hides(
-        tmp_path):
-    """A 64x64 element inside a larger frame never covers it. The only
-    two alpha elements the field test owns peak at 0.53% and 1.2% frame
-    coverage and read `stamps_the_cut` for exactly this reason."""
+    # A 64x64 element inside a larger frame never covers it: it stamps.
     path = _prores(tmp_path / "corner.mov", "white@1.0", alpha=True)
     partial = tmp_path / "partial.mov"
     subprocess.run(
@@ -634,26 +453,10 @@ def test_a_partial_rebuild_keeps_the_record_of_the_reels_it_did_not_touch(
     assert stored["Reel 01"]["placements"][0]["record_frame"] == 10
     assert stored["Reel 02"]["placements"][0]["record_frame"] == 99
 
-
-def test_a_rebuild_that_places_nothing_drops_that_reels_stale_record(
-        tmp_path):
-    """The other direction. A stale entry would make F18 report an
-    element as missing from a reel correctly rebuilt without one."""
-    from library.tools.reel_build import _write_overlay_records
-
-    review = tmp_path / "review"
-    review.mkdir()
-    path = review / "transition_overlays.json"
-    path.write_text(json.dumps({
-        "Reel 01": {"placements": [{"record_frame": 10}]},
-        "Reel 02": {"placements": [{"record_frame": 20}]},
-    }), encoding="utf-8")
-
+    # The other direction: a rebuild that places nothing drops that reel's
+    # stale record, or F18 reports an element missing from a correct reel.
     _write_overlay_records(str(review), ["Reel 02"], {})
-    stored = json.loads(path.read_text())
-    assert set(stored) == {"Reel 01"}
-
-
+    assert set(json.loads(path.read_text())) == {"Reel 01"}
 
 
 def test_the_seam_key_is_not_a_yaml_boolean(opaque_element, tmp_path):

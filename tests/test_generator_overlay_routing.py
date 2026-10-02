@@ -11,11 +11,9 @@ The generator routing has three layers:
 These tests exercise all three layers headlessly, without Resolve.
 """
 import io
-import json
 import sys
 from pathlib import Path
 
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -27,7 +25,6 @@ from library.steps.step_4_03_plan_vfx.post_bridge import (
     resolve_vfx,
 )
 from library.tools.builtin_effect_loader import (
-    is_generator_effect,
     list_generator_effects,
 )
 
@@ -45,22 +42,23 @@ def _spine(*positions):
 class TestResolveGeneratorOverlays:
     """resolve_generator_overlays routes generators to overlay entries."""
 
-    def test_generator_produces_overlay_entry(self):
-        """A generator preset in the creative plan becomes an overlay."""
-        plan = [{"target_block_position": 1, "effect_type": "fireworks"}]
-        overlays = resolve_generator_overlays(plan, _spine(1, 2))
+    REQUIRED_KEYS = {
+        "overlay_id", "effect_name", "target_block_position",
+        "timeline_start", "timeline_end", "composite_mode",
+    }
+
+    def test_generator_produces_a_complete_overlay_entry_on_its_block(self):
+        """A generator preset in the plan becomes an overlay carrying every
+        required key and its spine block's timing."""
+        plan = [{"target_block_position": 2, "effect_type": "fireworks"}]
+        overlays = resolve_generator_overlays(plan, _spine(1, 2, 3))
         assert len(overlays) == 1
         assert overlays[0]["effect_name"] == "fireworks"
-        assert overlays[0]["timeline_start"] == 0.0
-        assert overlays[0]["timeline_end"] == 5.0
-        assert overlays[0]["target_block_position"] == 1
-        assert "overlay_id" in overlays[0]
-
-    def test_clip_effect_not_in_overlays(self):
-        """A clip effect (with image input) is not routed to overlays."""
-        plan = [{"target_block_position": 1, "effect_type": "advanced_camera_shake"}]
-        overlays = resolve_generator_overlays(plan, _spine(1, 2))
-        assert len(overlays) == 0
+        assert overlays[0]["timeline_start"] == 5.0
+        assert overlays[0]["timeline_end"] == 10.0
+        assert overlays[0]["target_block_position"] == 2
+        missing = self.REQUIRED_KEYS - set(overlays[0].keys())
+        assert not missing, f"Missing keys: {missing}"
 
     def test_mixed_plan_separates_generators(self):
         """A plan with both generators and clip effects only overlays the generators."""
@@ -83,23 +81,11 @@ class TestResolveGeneratorOverlays:
         assert "fireworks" not in vfx_names
         assert "snow" not in vfx_names
 
-    def test_overlay_respects_block_timing(self):
-        """Overlay entry inherits timeline_start/end from the spine block."""
-        plan = [{"target_block_position": 2, "effect_type": "bubbles"}]
-        spine = _spine(1, 2, 3)
-        overlays = resolve_generator_overlays(plan, spine)
-        assert len(overlays) == 1
-        assert overlays[0]["timeline_start"] == 5.0
-        assert overlays[0]["timeline_end"] == 10.0
-
-    def test_invalid_block_position_dropped(self):
-        """A generator targeting a non-existent block is dropped."""
+    def test_an_invalid_or_duplicate_block_position_is_dropped(self):
+        """A generator targeting a non-existent block is dropped, and only
+        one generator per block position is allowed."""
         plan = [{"target_block_position": 99, "effect_type": "fireworks"}]
-        overlays = resolve_generator_overlays(plan, _spine(1, 2))
-        assert len(overlays) == 0
-
-    def test_duplicate_block_position_dropped(self):
-        """Only one generator per block position is allowed."""
+        assert resolve_generator_overlays(plan, _spine(1, 2)) == []
         plan = [
             {"target_block_position": 1, "effect_type": "fireworks"},
             {"target_block_position": 1, "effect_type": "snow"},
@@ -144,25 +130,6 @@ class TestGeneratorStillRejectedFromClipEffects:
             sys.stderr = old_stderr
         assert len(result) == 0
         assert "Rejected generator preset" in captured.getvalue()
-
-
-# ── Layer 3: Data contract ────────────────────────────────────────
-
-class TestGeneratorOverlayDataContract:
-    """Generator overlay entries carry all required keys."""
-
-    REQUIRED_KEYS = {
-        "overlay_id", "effect_name", "target_block_position",
-        "timeline_start", "timeline_end", "composite_mode",
-    }
-
-    def test_overlay_entry_has_required_keys(self):
-        """Every overlay entry carries all required keys."""
-        plan = [{"target_block_position": 1, "effect_type": "fireworks"}]
-        overlays = resolve_generator_overlays(plan, _spine(1, 2))
-        assert len(overlays) == 1
-        missing = self.REQUIRED_KEYS - set(overlays[0].keys())
-        assert not missing, f"Missing keys: {missing}"
 
 
 # ── Layer 4: Manifest integration ─────────────────────────────────

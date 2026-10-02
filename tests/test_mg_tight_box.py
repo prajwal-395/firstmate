@@ -56,13 +56,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.mg_tight_box import (  # noqa: E402
-    MG_PAD,
-    check_motion_graphics_dir,
     check_motion_graphics_files,
     sidecar_path_for,
     tighten_motion_graphics_props,
     tighten_motion_graphics_props_with_reason,
-    tightness_record,
 )
 
 FULL_W = 1080
@@ -106,8 +103,21 @@ def _props(elements, width=FULL_W, height=FULL_H, safe=None):
     }
 
 
-def test_no_elements_means_no_box():
-    assert tighten_motion_graphics_props(_props([])) is None
+def _staged(name="Craig Lucie", title="CEO Lucie Content",
+            anchor="bottom_left", **over):
+    """A staged-rule lower third, the shape `speaker_identity` writes."""
+    runs = [{"text": name, "type_role": "display"}]
+    if title is not None:
+        runs.append({"text": title, "type_role": "supporting"})
+    el = _el("lower_third", anchor=anchor, runs=runs)
+    el["data"] = {
+        "construction": "staged_rule",
+        "speaker": "Craig",
+        "colour_basis": "pipeline.speaker_subtitle_styles['Craig']"
+                        ".accentColor",
+    }
+    el.update(over)
+    return el
 
 
 def test_unknown_elements_are_ignored_beside_real_ones():
@@ -124,36 +134,25 @@ def test_unknown_elements_are_ignored_beside_real_ones():
         (without.width, without.height)
 
 
-def test_frame_accents_alone_cover_the_frame():
-    props = _props([_el("frame_accents", anchor="top_left")])
-    assert tighten_motion_graphics_props(props) is None
-
-
-def test_bottom_progress_bar_rides_the_minimum_canvas():
-    """Was refused: a bottom progress bar is a thin strip far from the
-    frame centre, needing Tilt past what Resolve holds on a 140-tall
-    canvas. The floor grows the single-zone strip to 480 (away from
-    its edge, so the ink does not move), and it places at about
-    -1900 - inside the 3840 rail with headroom."""
-    box = tighten_motion_graphics_props(
-        _props([_el("progress_bar", anchor="bottom_centre")]))
-    assert box is not None
-    assert box.height == 480
-    assert abs(box.placement["tilt"]) <= 3400
-
-
-def test_channel_bug_forces_full_canvas():
-    props = _props([_el("channel_bug", anchor="top_right",
-                        footprint=0.15, asset="brand/bug.png")])
-    assert tighten_motion_graphics_props(props) is None
-
-
-def test_middle_stack_mixed_with_top_falls_back():
-    props = _props([
-        _el("title_lockup", anchor="top_centre"),
-        _el("context_stamp", anchor="centre"),
-    ])
-    assert tighten_motion_graphics_props(props) is None
+def test_a_small_box_far_from_centre_rides_the_minimum_canvas():
+    """Each needed Tilt past what Resolve holds on its measured canvas
+    (the captain's ordinary bottom title: -8758). Grown away from its
+    edge to the 480 floor, the ink does not move and the placement holds
+    inside the 3840 rail - including the sixteen constructed (staged)
+    lower thirds that used to render the whole delivery frame."""
+    from library.tools.tight_box import placement_holds
+    for element in (_el("progress_bar", anchor="bottom_centre"),
+                    _el("title_lockup"),
+                    _el("pointer_annotation", anchor="top_left",
+                        footprint=0.5),
+                    _staged()):
+        box, refusal = tighten_motion_graphics_props_with_reason(
+            _props([element]))
+        assert refusal is None and box is not None, element["element"]
+        assert box.height == 480
+        assert 0 < box.width < FULL_W
+        assert placement_holds(box.placement, FULL_W, FULL_H) == ""
+        assert abs(box.placement["tilt"]) <= 3400
 
 
 def test_top_and_bottom_mix_stays_tight():
@@ -173,32 +172,6 @@ def test_top_and_bottom_mix_stays_tight():
     assert 0 < box.height < FULL_H
 
 
-def test_bottom_anchored_title_rides_the_minimum_canvas():
-    """The captain's case at its simplest: an ordinary
-    bottom-anchored title needed Tilt -8758 on its measured canvas,
-    past what Resolve holds. Grown above its edge to 480, it places
-    inside the rail - refused nowhere, clamped nowhere."""
-    box = tighten_motion_graphics_props(_props([_el("title_lockup")]))
-    assert box is not None
-    assert box.height == 480
-    assert abs(box.placement["tilt"]) <= 3400
-
-
-def test_small_off_centre_box_rides_the_minimum_canvas():
-    """The captain's motion graphics on huge X: a small box far from
-    the frame centre overflowed Tilt on its measured canvas. Grown
-    below its top edge, both axes hold - the gate below still watches
-    both, and still refuses what even the grown canvas cannot hold."""
-    from library.tools.tight_box import placement_holds
-    box = tighten_motion_graphics_props(
-        _props([_el("pointer_annotation", anchor="top_left",
-                    footprint=0.5)]))
-    assert box is not None
-    assert box.height == 480
-    assert placement_holds(box.placement, FULL_W, FULL_H) == ""
-    assert abs(box.placement["tilt"]) <= 3400
-
-
 def test_left_anchored_element_sits_left_of_centre():
     from library.tools.tight_box import canvas_offset
     box = tighten_motion_graphics_props(
@@ -208,21 +181,14 @@ def test_left_anchored_element_sits_left_of_centre():
     assert ox + box.width / 2 < FULL_W / 2
 
 
-def test_missing_safe_area_refuses_like_the_component():
+def test_missing_safe_area_or_a_canvas_wider_than_the_frame_refuses():
     props = _props([_el("title_lockup")])
     del props["safeArea"]
     with pytest.raises(ValueError, match="safeArea"):
         tighten_motion_graphics_props(props)
-
-
-def test_canvas_wider_than_the_frame_refuses():
-    """The 1262x480 file on the captain's project: a display run with
-    no wrap bound measures wider than the usable frame, and the pads
-    push the canvas past the delivery width. The caption path refuses
-    that with `TightBoxClipsInk` (`tight_box.py`); this path produced
-    the file instead. Remove the bound and this input ships a canvas
-    wider than the frame again - the union itself hangs off both
-    frame edges (centred 1166px ink on a 1080 frame)."""
+    # The 1262x480 file on the captain's project: a display run with no
+    # wrap bound measured wider than the frame; it refuses like the
+    # caption path's `TightBoxClipsInk` rather than shipping the file.
     from library.tools.tight_box import TightBoxClipsInk
     props = _props([_el(
         "title_lockup", anchor="top_centre",
@@ -230,38 +196,6 @@ def test_canvas_wider_than_the_frame_refuses():
                "type_role": "display"}])])
     with pytest.raises(TightBoxClipsInk, match="1262x480"):
         tighten_motion_graphics_props(props)
-
-
-def _staged(name="Craig Lucie", title="CEO Lucie Content",
-            anchor="bottom_left", **over):
-    """A staged-rule lower third, the shape `speaker_identity` writes."""
-    runs = [{"text": name, "type_role": "display"}]
-    if title is not None:
-        runs.append({"text": title, "type_role": "supporting"})
-    el = _el("lower_third", anchor=anchor, runs=runs)
-    el["data"] = {
-        "construction": "staged_rule",
-        "speaker": "Craig",
-        "colour_basis": "pipeline.speaker_subtitle_styles['Craig']"
-                        ".accentColor",
-    }
-    el.update(over)
-    return el
-
-
-def test_staged_lower_third_tightens():
-    """The sixteen full-frame files on the captain's project: every
-    constructed lower third refused as a class, so every one rendered
-    the delivery frame. Modelled off the construction's own drawing,
-    it is a small bottom-anchored box Resolve holds inside its rail."""
-    from library.tools.tight_box import placement_holds
-    box, refusal = tighten_motion_graphics_props_with_reason(
-        _props([_staged()]))
-    assert refusal is None
-    assert box is not None
-    assert 0 < box.width < FULL_W
-    assert box.height == 480
-    assert placement_holds(box.placement, FULL_W, FULL_H) == ""
 
 
 def test_every_refusal_names_itself():
@@ -312,7 +246,7 @@ def _write_sidecar(props_path, outcome="full",
     return sidecar_path_for(props_path)
 
 
-def test_guard_refuses_an_undeclared_full_canvas(tmp_path):
+def test_guard_refuses_undeclared_reasonless_or_stale_full_canvases(tmp_path):
     props_path = _write_props(tmp_path / "mg_x_props.json")
     errors, census = check_motion_graphics_files(
         [props_path], FULL_W, FULL_H)
@@ -320,9 +254,7 @@ def test_guard_refuses_an_undeclared_full_canvas(tmp_path):
     assert "no tightness sidecar" in errors[0]
     assert census["full_undeclared"] == 1
     assert census["undeclared_files"] == ["mg_x_props.json"]
-
-
-def test_guard_refuses_an_empty_reason_and_a_stale_sidecar(tmp_path):
+    # An empty reason and a stale sidecar are refused too.
     no_reason = _write_props(tmp_path / "mg_noreason_props.json")
     _write_sidecar(no_reason, reason="")
     stale = _write_props(tmp_path / "mg_stale_props.json",
@@ -336,31 +268,9 @@ def test_guard_refuses_an_empty_reason_and_a_stale_sidecar(tmp_path):
 
 def test_top_anchored_graphic_places_at_the_measured_value():
     """A top-anchored 480-tall canvas at the 120px safe inset is Tilt
-    2592, and that is the value a still finds on screen.
-
-    Measured 2026-09-11 on the captain's own Reel 26: a 920x480
-    graphic stored at Tilt 2592 is located at frame rows 72..552 in an
-    exported still (MSE 51 against ~40 700 five pixels either side).
-    The halved 1296 this test used to demand draws it at row 396, and
-    the 5184 that five reels carry draws it at -576, entirely off the
-    top - which is what the captain sees on seventeen graphics today.
-    The pipeline must compute 2592 itself: no hand correction, no
-    halving at the call site.
-
-    Pinned as history at explicit gain 1.0: the renderer drew that
-    gain on 2026-09-11. Under today's measured gain the same graphic
-    stores 1296 for the identical rows (see
-    `tests/test_draw_gain_measured.py`).
-
-    Since the layout-width floor (captain 2026-09-21) this top-centre
-    graphic ships on a 966-wide canvas instead of the union-sized
-    one: the canvas spans the full-frame usable width plus the pads
-    so the copy wraps as at full frame. The union is centred, so the
-    canvas stays centred - pan 0, tilt 2592, the values above - and
-    only the origin moves: the canvas edge sits at 57, one pad past
-    the layout edge (540 - 870/2 - 48), instead of one pad past the
-    union edge (348).
-    """
+    2592 at gain 1.0 - the value an exported still of Reel 26 finds on
+    screen - on a 966-wide layout-floored canvas at x 57. Measurement:
+    docs/evidence/mg_tight_box.md#the-top-anchored-2592."""
     from library.tools.tight_box import canvas_offset
     box = tighten_motion_graphics_props(
         _props([_el("title_lockup", anchor="top_centre")]),

@@ -43,7 +43,7 @@ def _word(text, start, end, **extra):
 
 
 
-def test_a_stretched_word_is_cut_back_to_start_plus_median():
+def test_a_stretched_word_is_cut_back_to_start_plus_median_or_0_3s():
     words = [_word("and", 100.00, 100.28),
              _word("then", 100.34, 100.61),
              _word("audits", 100.67, 134.80),
@@ -56,16 +56,13 @@ def test_a_stretched_word_is_cut_back_to_start_plus_median():
     # Everything else is untouched.
     assert (out[0]["start"], out[0]["end"]) == (100.00, 100.28)
     assert (out[3]["start"], out[3]["end"]) == (141.02, 141.40)
-
-
-def test_a_lone_stretched_word_falls_back_to_three_tenths():
-    """A single-word segment has no median to read; the 0.3s fallback
-    is step 1.04's historical answer, kept so both paths agree."""
+    # A lone stretched word has no median to read: the 0.3s fallback is
+    # step 1.04's historical answer, kept so both paths agree.
     out = sanitize_word_boundaries([_word("well", 620.0, 628.0)])
     assert (out[0]["start"], out[0]["end"]) == (620.0, 620.3)
 
 
-def test_degenerate_and_overlapping_boundaries_are_fixed():
+def test_degenerate_and_overlapping_ends_are_fixed_keeping_every_key():
     out = sanitize_word_boundaries([
         _word("a", 1.0, 1.0),
         _word("b", 1.1, 1.5),
@@ -73,12 +70,8 @@ def test_degenerate_and_overlapping_boundaries_are_fixed():
     ])
     assert out[0]["end"] == 1.02
     assert out[1]["end"] == 1.4
-
-
-def test_sanitising_preserves_every_key_and_every_word():
-    """`timed` and the aligner score travel on the words; the clamp
-    moves ends, never membership - which is what the unfitted-text
-    counting below rests on."""
+    # `timed` and the aligner score travel on the words; the clamp moves
+    # ends, never membership.
     words = [_word("hi", 0.0, 9.0, timed=True, alignment_score=0.9),
              _word("there", 9.1, 9.4, timed=True, alignment_score=0.8)]
     out = sanitize_word_boundaries(words)
@@ -114,7 +107,7 @@ AUDITS_ROW = {
 }
 
 
-def test_a_stretched_word_no_longer_unbinds_its_row():
+def test_the_clamp_rebinds_a_stretched_row_and_invents_no_binding():
     """Before the fix this row split into three runs - A, unbound, B -
     because the stretched midpoint sat in the gap. Now the clamp puts
     the midpoint back on the clip the speech came from."""
@@ -123,14 +116,8 @@ def test_a_stretched_word_no_longer_unbinds_its_row():
     assert [s.resolve_item_id for s in out] == ["A", "B"]
     assert [s.text for s in out] == ["and then audits", "resume"]
     assert all(s.read_from_words for s in out)
-
-
-
-
-def test_a_word_in_a_gap_stays_unbound_after_the_clamp():
-    """Clamping must not invent a binding. "well" sits in the gap at
-    120s; cut back to 0.3s it still sits in the gap, and the honest
-    answer is still None."""
+    # Clamping must not invent a binding: "well" in the gap at 120s, cut
+    # back to 0.3s, still sits in the gap and still binds to None.
     row = {"start": 119.0, "end": 129.0, "text": "well",
            "words": [_word("well", 120.0, 128.0)]}
     out = tt.segments_for_speaker({"segments": [row]}, "Craig", CLIPS)

@@ -1,18 +1,8 @@
 """Declared overlay positions, honoured exactly or refused loudly.
 
-The Reel 09 numbers are the fixtures: 22 captions the captain pinned
-to one place, four motion graphics pinned by segment id. What is
-asserted is the MECHANISM - segment beats kind beats computed, and
-anything malformed refuses - with his values as the data, so a
-regression that drops or silently ignores a pin fails here rather
-than on his timeline.
-
-A pin names a PLACE, not a transform (version 2). The transform is
-computed from it against the canvas going down, so a correction to the
-engine's model of the Resolve transform moves nothing that was pinned.
-Version 1 held the raw Pan/Tilt and is refused: on 2026-09-11 the law
-was corrected and honouring this project's own v1 pins verbatim would
-have moved Reel 13's approved captions 108px.
+Segment beats kind beats computed; a pin names a PLACE (version 2), and a
+version 1 raw-transform file is refused. Reel 09's pins are the fixtures.
+History: docs/evidence/overlay_position.md#overlay-intent-pins.
 """
 import json
 import os
@@ -77,7 +67,7 @@ def _resolve(kind, segment_id, computed, intent, canvas=CANVAS,
                    draw_gain=HISTORY_GAIN)
 
 
-def test_kind_default_pins_every_caption_alike():
+def test_kind_default_pins_every_caption_and_a_segment_pin_beats_it():
     intent = parse_intent(REEL_09_INTENT)
     for segment_id in ("sub_akshita_x_1491914-1493721_6bdaa694",
                        "sub_craig_y_1421571-1426656_8f6f0b4c",
@@ -87,9 +77,7 @@ def test_kind_default_pins_every_caption_alike():
         assert provenance == "declared"
         assert placement == {"pan": 0.0, "tilt": -1700.0, "scaling": 1}, (
             "the place resolves to the transform the captain set")
-
-
-def test_segment_pin_beats_kind_default():
+    # A segment pin beats the kind default.
     intent = parse_intent({
         "version": 2,
         "targets": {
@@ -102,18 +90,6 @@ def test_segment_pin_beats_kind_default():
         CAPTION_KIND, "sub_special", COMPUTED_CAPTION, intent)
     assert provenance == "declared"
     assert placement["tilt"] == -1600.0
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_a_version_1_file_is_refused_and_says_how_to_migrate():
@@ -130,22 +106,8 @@ def test_a_version_1_file_is_refused_and_says_how_to_migrate():
     assert "version 2" in str(excinfo.value)
 
 
-
-
-
-
-
-
-
-
 def test_missing_project_file_is_no_intent(tmp_path):
     assert load_intent(str(tmp_path)) == {}
-
-
-
-
-
-
 
 
 class _Item:
@@ -209,8 +171,6 @@ def test_declared_intent_wins_over_computed_on_the_timeline():
     assert item.set_calls == {"Scaling": 1, "Pan": 0.0, "Tilt": -850.0}
 
 
-
-
 #: Two segments off one Craig clip on Reel 13: same speaker, same
 #: source clip, different source spans. The captain's own ids, which
 #: is the point - a re-key that merged these two would bind his pin
@@ -224,7 +184,7 @@ PIN_A = {"canvas_centre": [540.0, 1385.0], "scaling": 1}
 PIN_B = {"canvas_centre": [540.0, 960.0], "scaling": 1}
 
 
-def test_a_pin_written_under_the_old_hash_still_resolves_exact():
+def test_a_pin_binds_its_old_hash_exactly_and_survives_a_rerender():
     """Backward compatibility: where the render still stands under
     the recorded filename, the pin binds it exactly as before. No
     captain record is orphaned by the re-key."""
@@ -233,14 +193,8 @@ def test_a_pin_written_under_the_old_hash_still_resolves_exact():
         CAPTION_KIND, SPAN_A_OLD, COMPUTED_CAPTION, intent)
     assert provenance == "declared"
     assert placement["tilt"] == -1700.0
-
-
-def test_a_pin_survives_a_rerender_under_its_prefix():
-    """The 2026-09-13 wipe: the artefact re-rendered under a new
-    content hash, the provenance prefix unchanged. The pin recorded
-    against the old filename still puts the overlay where the
-    captain put it."""
-    intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
+    # The 2026-09-13 wipe: re-rendered under a new content hash, prefix
+    # unchanged - the pin still puts the overlay where the captain did.
     placement, provenance = _resolve(
         CAPTION_KIND, SPAN_A_NEW, COMPUTED_CAPTION, intent)
     assert provenance == "declared"
@@ -262,8 +216,6 @@ def test_two_same_speaker_segments_with_different_spans_stay_distinct():
     assert place_a["tilt"] == -1700.0
     assert place_b["tilt"] != place_a["tilt"], (
         "span B must resolve its own pin, never span A's")
-
-
 
 
 def test_an_mg_pin_matches_exactly_never_by_project_prefix():
@@ -303,12 +255,6 @@ def test_two_pins_claiming_one_prefix_refuse_rather_than_guess():
     assert SPAN_A_OLD in message and SPAN_A_NEW in message
 
 
-
-
-
-
-
-
 # ── A hand-set zoom rides beside the place, never in `scaling` ────────
 #
 # Reel 01's graphic, moved AND scaled down 12%: `scaling` is Resolve's
@@ -318,16 +264,6 @@ def test_two_pins_claiming_one_prefix_refuse_rather_than_guess():
 # `ZoomX`/`ZoomY`.
 
 ZOOM_PIN = {"canvas_centre": [540.0, 312.0], "scaling": 1, "zoom": 0.88}
-
-
-
-
-
-
-
-
-
-
 
 
 def test_a_declared_zoom_holds_on_the_timeline():
@@ -349,8 +285,6 @@ def test_a_declared_zoom_holds_on_the_timeline():
     assert item.set_calls["ZoomX"] == 0.88
     assert item.set_calls["ZoomY"] == 0.88
     assert item.set_calls["Tilt"] != 0.0  # the place still applied
-
-
 
 
 # ── A pin on the PLACING survives the re-render that kills the id ────
@@ -377,29 +311,6 @@ def _reel_26_label(index=0):
     from the reel and the slot, never from the render inputs."""
     from library.tools.speaker_identity import segment_name
     return segment_name(REEL_26, index)
-
-
-
-
-def test_a_label_pin_binds_both_eras_of_the_measured_pair():
-    """The proof the brief demands: a pin written for `mg_geo-podcast
-    _589d4594`'s placing resolves onto `mg_geo-podcast_c43f73d8`
-    when the only change is `timeline_start: 9.773 -> 9.75`."""
-    from library.tools.overlay_intent import resolve as mg_resolve
-
-    label = _reel_26_label(0)
-    intent = parse_intent({"version": 2, "targets": {label: dict(MG_PIN)}})
-    for segment_id in (MG_OLD, MG_NEW):
-        placement, provenance = mg_resolve(
-            "speaker lower third", segment_id,
-            {"scaling": 1, "pan": 99.0, "tilt": 9.0}, intent,
-            canvas=CANVAS, frame=FRAME, placement_label=label)
-        assert provenance == "declared", segment_id
-        assert placement["scaling"] == 1
-
-
-
-
 
 
 # ── One caption pin over several karaoke cards sharing a prefix ──────
@@ -439,10 +350,6 @@ def test_one_pin_fans_out_over_cards_sharing_its_prefix():
     assert unmatched(intent, [CARD_A, CARD_B, CARD_C]) == []
 
 
-
-
-
-
 # ── The build records which pins applied, durably ────────────────────
 
 def test_resolve_records_the_winning_pin_key():
@@ -464,16 +371,7 @@ def test_resolve_records_the_winning_pin_key():
     assert quiet == []
 
 
-
-
-
-
 # ── Re-keying digest pins onto labels drops nothing ──────────────────
-
-
-
-
-
 
 
 def test_rekeyed_pin_resolves_the_measured_pair_end_to_end():
@@ -487,14 +385,15 @@ def test_rekeyed_pin_resolves_the_measured_pair_end_to_end():
     label = _reel_26_label(0)
     new_targets, _ = rekey_targets({MG_OLD: dict(MG_PIN)}, {MG_OLD: label})
     intent = parse_intent({"version": 2, "targets": new_targets})
-    placement, provenance = mg_resolve(
-        "speaker lower third", MG_NEW,
-        {"scaling": 1, "pan": 99.0, "tilt": 9.0}, intent,
-        canvas=CANVAS, frame=FRAME, placement_label=label)
-    assert provenance == "declared"
-    assert placement["scaling"] == 1
-
-
+    # The label pin binds BOTH eras of the measured pair (timeline_start
+    # 9.773 -> 9.75 re-rendered 589d4594 as c43f73d8, zero pixels moved).
+    for segment_id in (MG_OLD, MG_NEW):
+        placement, provenance = mg_resolve(
+            "speaker lower third", segment_id,
+            {"scaling": 1, "pan": 99.0, "tilt": 9.0}, intent,
+            canvas=CANVAS, frame=FRAME, placement_label=label)
+        assert provenance == "declared", segment_id
+        assert placement["scaling"] == 1
 
 
 # ── The map behind the re-key, off the build's own records ───────────
@@ -530,10 +429,6 @@ def _write_review_records(project_folder):
                    "timeline_start": 3.0, "timeline_end": 6.0,
                    "total_frames": 72, "elements": ["lower_third"]}],
     )])
-
-
-
-
 
 
 def test_check_names_each_pin_state_and_rekey_rewrites_mapped(tmp_path,

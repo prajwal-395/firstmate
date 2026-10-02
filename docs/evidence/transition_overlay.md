@@ -179,3 +179,17 @@ spent a week removing, so nothing here claims it.
 
 ``tests/test_transition_overlay.py``.
 ```
+
+## The tests
+
+Moved from the module docstring of `tests/test_transition_overlay.py`.
+Every gate there is proved in BOTH directions. A gate that cannot fail is
+worse than no gate because it reads as coverage (AGENTS.md 10.4), and this
+area has a documented history of exactly that: project 001 rendered 53.8 MB of
+motion-graphics ProRes in which `max(alpha)` was 0 on every frame and reported
+them delivered. The alpha instrument is validated against three fixtures whose
+answers are known before it is pointed at anything real - opaque, empty, and no
+alpha plane at all. The empty and the no-alpha cases are DIFFERENT results:
+ffmpeg exits non-zero having written no frames when the plane is absent, and a
+reader that only looked at the maximum would call that "draws nothing" and give
+the wrong diagnosis.

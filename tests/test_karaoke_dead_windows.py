@@ -118,52 +118,41 @@ def _rendered_words(props):
 # ── Half 2: every planned word is drawn, the collapse is named ────
 
 class TestPileUpWindowsAreDrawnAndNamed:
-    def test_no_planned_word_is_omitted(self):
+    def test_every_planned_word_is_drawn_and_the_collapse_named(
+            self, capsys):
+        """Reel 05 frame 241 (the numbers): no planned word is omitted;
+        pile-up windows arrive collapsed (drawn unswept), never widened
+        into invented timing; healthy words keep their measured frames;
+        and every unswept word is named."""
         props = generate_subtitle_props_per_block(
             _segment_87_plan(), fps=FPS, width=904, height=480)
-        rendered = [w for w, _, _ in _rendered_words(props)]
+        rendered_words = _rendered_words(props)
         planned = [w["word"] for e in _segment_87_plan()["subtitle_entries"]
                    for w in e["words"]]
-        assert rendered == planned, (
-            "a planned word never reaches the renderer - the viewer "
-            "reads it as missing (Reel 05 frame 241: the numbers)")
+        assert [w for w, _, _ in rendered_words] == planned, (
+            "a planned word never reaches the renderer")
 
-    def test_collapsed_windows_arrive_collapsed_never_widened(self):
-        props = generate_subtitle_props_per_block(
-            _segment_87_plan(), fps=FPS, width=904, height=480)
         pile = {"10-man", "50-person", "shop,", "maybe", "you're", "a",
                 "hundred"}
         collapsed = set()
-        for word, start, end in _rendered_words(props):
+        for word, start, end in rendered_words:
             if end <= start:
                 assert word in pile, (
                     f"{word!r} renders {start} -> {end}: a collapsed "
                     f"window outside the measured pile-up")
                 collapsed.add(word)
-        assert {"10-man", "50-person", "maybe", "hundred"} <= collapsed, (
-            "the pile-up windows must arrive collapsed (drawn unswept), "
-            "never widened into invented timing")
+        assert {"10-man", "50-person", "maybe", "hundred"} <= collapsed
 
-    def test_healthy_words_keep_their_measured_frames(self):
-        props = generate_subtitle_props_per_block(
-            _segment_87_plan(), fps=FPS, width=904, height=480)
-        rendered = {(w, s, e) for w, s, e in _rendered_words(props)}
-        # 'business,' spans the card interior: clamping never touches it,
-        # so its frames are pure measurement, unchanged by the unswept.
+        # 'business,' spans the card interior: pure measurement.
         render_start = 9.24 - 0.5
         expect = (round((9.37 - render_start) * FPS),
                   round((9.94 - render_start) * FPS))
-        assert ("business,", *expect) in rendered
+        assert ("business,", *expect) in set(rendered_words)
 
-    def test_the_unswept_names_every_word_and_why(self, capsys):
-        generate_subtitle_props_per_block(
-            _segment_87_plan(), fps=FPS, width=904, height=480)
         err = capsys.readouterr().err
         for unswept in ("10-man", "50-person", "maybe", "hundred",
                         "you're", "shop,", "a"):
-            assert unswept in err, (
-                f"unswept {unswept!r} is never named - the clamp is silent "
-                f"about the window it collapsed")
+            assert unswept in err, f"unswept {unswept!r} is never named"
         assert "unswept" in err
 
 

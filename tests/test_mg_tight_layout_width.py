@@ -1,50 +1,9 @@
 """The tight motion-graphics render is the SAME DRAWING as full frame.
 
-The shipping predict-then-render-at-size path never clips (minimum
-12px slack over six element kinds) but is NOT the same drawing on
-three of the six: stat_callout drew 366x225 where the full frame drew
-540x165 and sits 177px off its intended place; quote_card drew
-986x132 against 856x193 (measured 2026-09-16). The cause is that
-motion-graphics copy reflows because its container is bounded by the
-canvas: a centre-anchored stack sets BOTH left and right insets, so
-its container is the canvas minus the insets, and on a small canvas
-the copy wraps where the full frame did not.
-
-The captain, 2026-09-21: FIX THE WRAPPING AT TIGHT SIZE - make the
-tight canvas preserve the full-frame layout width. The other two
-options on the board (render motion graphics full canvas; verify each
-graphic against a full-frame reference render) are dead and must not
-be drifted into.
-
-The contract, in two halves:
-
-- Python floors the canvas at the full-frame usable width plus the
-  pads, so the container is never NARROWER than at full frame, and
-  stamps `layoutWidth` (the full-frame usable width) on the tight
-  props.
-- the composition caps centre stacks at `maxWidth: layoutWidth`
-  with auto margins, so the container is never WIDER than at full
-  frame either.
-
-The effective tight container - `min(canvas - 2*pad, layoutWidth)` -
-therefore EQUALS the full-frame container for every centre-anchored
-copy element, whatever the copy says. Same container, same engine,
-same fonts: same wrapping, same drawing.
-
-The third kind below is identified structurally, not from the
-measurement: the scout named stat_callout and quote_card and left the
-third to the worker. Every stackable copy arm except the fixed
-geometry (`review_panel`, `beat_accent`, `pointer_annotation`) draws
-text in a plain `div`, which wraps to whatever the container is - so
-any centre-anchored copy reflows the same way. `title_lockup` is
-named as the third because it is the flagship copy element and the
-Reel-01 title lockup ("A COMPLETELY DIFFERENT SYSTEM") is the
-documented wrap-sensitive case; the parametrized test proves the
-mechanism for every centre copy kind, whichever the third was.
-
-Fixture-based only: no renders, no ffmpeg, no Resolve, no pipeline
-runs. The tight-box tools execute ffmpeg, so nothing here may touch
-them; the PR body says what is unexercised.
+Python floors the canvas at the full-frame usable width plus pads and
+stamps `layoutWidth`; the composition caps centre stacks at it - so the
+effective tight container EQUALS the full-frame one (captain 2026-09-21).
+Measurements and the ruling: docs/evidence/mg_tight_box.md#layout-width.
 """
 import os
 import sys
@@ -55,7 +14,6 @@ if PROJECT_ROOT not in sys.path:
 
 from library.tools.mg_tight_box import (  # noqa: E402
     MG_PAD,
-    _stack_needs_layout_width,
     tighten_motion_graphics_props,
 )
 from library.tools.tight_box import canvas_offset  # noqa: E402
@@ -145,20 +103,9 @@ def _wrap_copy(kind: str):
 
 # ── the two named kinds, plus the structurally identified third ──────
 
-def test_stat_callout_wraps_to_the_full_layout_width():
-    """366x225 where the full frame drew 540x165: the tight container
-    was narrower than the full one, so the copy wrapped. The
-    effective tight container now equals the full-frame 870px."""
-    box = tighten_motion_graphics_props(_props([
-        _el("stat_callout", anchor="middle_centre", runs=_wrap_copy("stat_callout"))]))
-    assert box is not None
-    assert box.width >= USABLE + 2 * MG_PAD
-    assert _effective_container(box) == USABLE
-
-
 # ── the mechanism, for every centre copy kind ─────────────────────────
 
-def test_every_centre_copy_kind_carries_the_layout_width():
+def test_every_centre_copy_kind_lays_out_at_the_full_layout_width():
     """Whichever the scout's third was, it is covered: every
     centre-anchored copy kind stamps the full usable width and lays
     out at exactly it."""
@@ -175,11 +122,17 @@ def test_every_centre_copy_kind_carries_the_layout_width():
         assert box.props["layoutWidth"] == USABLE, kind
         assert _effective_container(box) == USABLE, kind
 
+    # stat_callout drew 366x225 where the full frame drew 540x165: with
+    # the measured copy its container now equals the full-frame 870px.
+    box = tighten_motion_graphics_props(_props([
+        _el("stat_callout", anchor="middle_centre",
+            runs=_wrap_copy("stat_callout"))]))
+    assert box is not None
+    assert box.width >= USABLE + 2 * MG_PAD
+    assert _effective_container(box) == USABLE
 
-def test_short_copy_floors_at_the_layout_width_plus_pads():
-    """A small union still renders on a 966-wide canvas (870 + 2*48):
-    the size win is capped near the caption box, which is the
-    accepted cost. Losing the tight path entirely is not."""
+    # Short copy floors at 966 (870 + 2*48): the size win is capped near
+    # the caption box - the accepted cost; losing the tight path is not.
     box = tighten_motion_graphics_props(_props(
         [_el("title_lockup", anchor="middle_centre",
              runs=[{"text": "Hi", "type_role": "supporting"}])]))

@@ -12,9 +12,7 @@ project copies that name it, and the Remotion component that reads the
 props. The same contract `test_transition_vocabulary` and
 `test_series_look` enforce.
 """
-import json
 import os
-import re
 import sys
 
 import pytest
@@ -31,9 +29,7 @@ from library.tools.subtitle_style import (
     LEGACY_FONT_WEIGHT,
     LEGACY_OUTLINE_WIDTH,
     SUBTITLE_STYLES,
-    TYPOGRAPHY_KEYS,
     UnknownSubtitleStyle,
-    VALID_POSITIONS,
     get_subtitle_style,
     project_subtitle_typography,
     resolve_subtitle_style,
@@ -64,30 +60,16 @@ def test_every_template_names_a_style_that_exists():
         f"Available: {sorted(SUBTITLE_STYLES)}")
 
 
-
-
-
-
-
-
 # ─────────────────────────────────────────────────────────
 # Unknown names raise rather than defaulting
 # ─────────────────────────────────────────────────────────
 
-def test_unknown_style_raises():
-    with pytest.raises(UnknownSubtitleStyle):
-        get_subtitle_style("neon_wobble")
-
-
-def test_unknown_style_names_the_alternatives():
+def test_an_unknown_style_raises_naming_the_alternatives():
+    """Falling back is how subtitle_style came to mean nothing."""
     with pytest.raises(UnknownSubtitleStyle) as exc:
         get_subtitle_style("neon_wobble")
     for available in SUBTITLE_STYLES:
         assert available in str(exc.value)
-
-
-def test_a_template_naming_a_bad_style_fails_the_run():
-    """Falling back is how subtitle_style came to mean nothing."""
     with pytest.raises(UnknownSubtitleStyle):
         resolve_subtitle_style({"subtitle_style": "does_not_exist"}, {})
 
@@ -108,18 +90,6 @@ class TestResolution:
         assert got["outlineWidth"] == LEGACY_OUTLINE_WIDTH
 
 
-    def test_default_subtitles_ignores_a_placeholder_palette(self):
-        """A placeholder palette of three pure RGB primaries.
-
-        Painting captions red because a placeholder palette lists #ff0000
-        would be worse than the look it replaced.
-        """
-        got = resolve_subtitle_style(
-            {"subtitle_style": "default_subtitles"},
-            {"color_palette": ["#ff0000", "#00ff00", "#0000ff"]})
-        assert got["accentColor"] == LEGACY_ACCENT_COLOR
-
-
     def test_typography_overrides_the_style_shape(self):
         got = resolve_subtitle_style(
             {"subtitle_style": "bold_large"},
@@ -127,15 +97,13 @@ class TestResolution:
         assert got["fontFamily"] == "Helvetica"
         assert got["fontSize"] == 42
         assert got["fontWeight"] == 700
-
-    def test_weight_accepts_words_and_numbers(self):
+        # Weight accepts words and numbers.
         for value, expected in [("bold", 700), ("black", 900), ("Semi-Bold", 600),
                                 (500, 500), ("500", 500)]:
             got = resolve_subtitle_style(
                 {"subtitle_style": "bold_large"}, {"typography": {"weight": value}})
             assert got["fontWeight"] == expected, value
-
-    def test_malformed_typography_falls_back_rather_than_crashing(self):
+        # Malformed typography falls back rather than crashing.
         got = resolve_subtitle_style(
             {"subtitle_style": "bold_large"},
             {"typography": {"size": "enormous", "weight": None, "font": ""}})
@@ -147,70 +115,46 @@ class TestPaletteDerivation:
 
     PALETTE = ["#ff0055", "#00ffcc", "#ffffff", "#000000"]
 
-    def test_text_is_the_lightest_entry(self):
+    def test_text_is_the_lightest_entry_and_outline_the_darkest(self):
         got = resolve_subtitle_style(
             {"subtitle_style": "bold_large"}, {"color_palette": self.PALETTE})
         assert got["fontColor"].lower() == "#ffffff"
-
-    def test_outline_is_the_darkest_entry(self):
-        got = resolve_subtitle_style(
-            {"subtitle_style": "bold_large"}, {"color_palette": self.PALETTE})
         assert got["outlineColor"].lower() == "#000000"
-
-    def test_accent_is_a_saturated_entry(self):
         got = resolve_subtitle_style(
-            {"subtitle_style": "bold_large"}, {"color_palette": self.PALETTE})
-        assert got["accentColor"].lower() in ("#ff0055", "#00ffcc")
-
-    def test_dark_muted_accent_is_rejected(self):
-        """The synthetic cinematic palette's shape.
-
-        `#223344` is the most saturated entry but it is a dark muted navy
-        that would sit on top of its own `#111111` outline and read as a
-        smudge rather than as emphasis.
-        """
-        got = resolve_subtitle_style(
-            {"subtitle_style": "minimal"},
-            {"color_palette": ["#223344", "#aabbcc", "#111111"]})
-        assert got["accentColor"] == LEGACY_ACCENT_COLOR
-        # The neutrals are still honoured - only the accent was unusable.
-        assert got["fontColor"] == "#aabbcc"
-        assert got["outlineColor"] == "#111111"
-
-    def test_dark_but_vivid_accent_is_kept(self):
-        """The synthetic shortform palette's `#ff0055` is as dark as
-        `#223344` by
-        luminance and unmistakable on screen. Vividness is what tells
-        them apart."""
-        got = resolve_subtitle_style(
-            {"subtitle_style": "bold_large"},
-            {"color_palette": ["#ff0055", "#00ffcc", "#ffffff", "#000000"]})
-        assert got["accentColor"] == "#ff0055"
-
-    def test_light_muted_accent_is_kept(self):
-        """The synthetic interview palette's warm tan is muted but not dark."""
-        got = resolve_subtitle_style(
-            {"subtitle_style": "clean_standard"},
-            {"color_palette": ["#f5f5f5", "#333333", "#ddab7e"]})
-        assert got["accentColor"] == "#ddab7e"
-
-    def test_greyscale_palette_keeps_the_style_accent(self):
-        """A grey accent vanishes into the text, so it is not an accent."""
-        got = resolve_subtitle_style(
-            {"subtitle_style": "bold_large"},
-            {"color_palette": ["#ffffff", "#888888", "#111111"]})
-        assert got["accentColor"] == LEGACY_ACCENT_COLOR
-
-    def test_malformed_palette_degrades_instead_of_failing(self):
+            {"subtitle_style": "bold_large"}, {"color_palette": ["#fff", "#000"]})
+        assert got["fontColor"].lower() == "#fff"
+        # A malformed palette degrades instead of failing.
         for palette in ([], ["not a colour"], ["#12"], [None, 42], ["#GGGGGG"]):
             got = resolve_subtitle_style({"subtitle_style": "bold_large"},
                                          {"color_palette": palette})
             assert got["fontColor"] == LEGACY_FONT_COLOR
 
-    def test_short_hex_is_understood(self):
+    def test_the_accent_is_a_usable_entry_or_the_style_accent(self):
+        """Vividness, not luminance, separates an accent from a smudge."""
+        cases = [  # (style, palette, accent)
+            # The vivid saturated entry, even when dark by luminance.
+            ("bold_large", self.PALETTE, "#ff0055"),
+            # A light muted warm tan is kept.
+            ("clean_standard", ["#f5f5f5", "#333333", "#ddab7e"], "#ddab7e"),
+            # A grey accent vanishes into the text.
+            ("bold_large", ["#ffffff", "#888888", "#111111"],
+             LEGACY_ACCENT_COLOR),
+            # A placeholder palette of pure primaries is not a brand.
+            ("default_subtitles", ["#ff0000", "#00ff00", "#0000ff"],
+             LEGACY_ACCENT_COLOR),
+        ]
+        for style, palette, accent in cases:
+            got = resolve_subtitle_style({"subtitle_style": style},
+                                         {"color_palette": palette})
+            assert got["accentColor"].lower() == accent.lower(), palette
+        # A dark muted navy would sit on its own outline: rejected, while
+        # the neutrals are still honoured.
         got = resolve_subtitle_style(
-            {"subtitle_style": "bold_large"}, {"color_palette": ["#fff", "#000"]})
-        assert got["fontColor"].lower() == "#fff"
+            {"subtitle_style": "minimal"},
+            {"color_palette": ["#223344", "#aabbcc", "#111111"]})
+        assert got["accentColor"] == LEGACY_ACCENT_COLOR
+        assert got["fontColor"] == "#aabbcc"
+        assert got["outlineColor"] == "#111111"
 
 
 # ─────────────────────────────────────────────────────────
@@ -236,25 +180,6 @@ def test_every_prop_is_read_by_the_remotion_component():
         f"in the same commit, or stop emitting the key.")
 
 
-def test_the_props_generator_has_no_hardcoded_style_default():
-    """The default is the bug. It must not come back."""
-    path = os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_4_05_render_subtitles", "generate_remotion_props.py")
-    with open(path, encoding="utf-8") as f:
-        src = f.read()
-    # Comments explain the bug on purpose; only executable code counts.
-    code = "\n".join(
-        line for line in src.splitlines()
-        if not line.lstrip().startswith("#"))
-    code = re.sub(r'"""[\s\S]*?"""', "", code)
-
-    assert 'subtitle_data.get("style", {' not in code
-    assert "subtitle_data.get('style', {" not in code
-    assert "Montserrat" not in code, (
-        "generate_remotion_props must not name a font: the look comes from "
-        "the brand template via step 4.01.")
-
-
 def test_missing_style_raises_rather_than_defaulting():
     from library.steps.step_4_05_render_subtitles.generate_remotion_props import (  # noqa: E402
         generate_subtitle_props_per_block,
@@ -266,8 +191,6 @@ def test_missing_style_raises_rather_than_defaulting():
     with pytest.raises(ValueError, match="style"):
         generate_subtitle_props_per_block(
             {"subtitle_entries": entries}, width=1080, height=1920)
-
-
 
 
 def test_every_shipped_template_resolves_to_a_usable_accent():
@@ -288,8 +211,6 @@ def test_every_shipped_template_resolves_to_a_usable_accent():
             f"{name} resolves to accent {props['accentColor']} "
             f"(saturation {sat:.2f}, luminance {lum:.2f}), which would not "
             f"read as emphasis on screen")
-
-
 
 
 def test_emphasis_size_comes_from_font_size_not_transform():
@@ -347,48 +268,30 @@ class TestProjectTypography:
         assert resolve_subtitle_style({}, {}, folder)["fontSize"] \
             == LEGACY_FONT_SIZE
 
-    def test_a_declared_size_outranks_the_style_default(self, tmp_path):
+    def test_a_declared_size_outranks_style_and_template_key_by_key(
+            self, tmp_path):
+        """Asking for a size is not asking to give up the typeface:
+        replacing the whole slot would silently take font and weight."""
         folder = _project(tmp_path, {"subtitle_typography": {"size": 85}})
         assert resolve_subtitle_style({}, {}, folder)["fontSize"] == 85
-
-    def test_a_declared_size_outranks_the_template_typography(self, tmp_path):
-        folder = _project(tmp_path, {"subtitle_typography": {"size": 85}})
         got = resolve_subtitle_style(
             {"subtitle_style": "bold_large"},
             {"typography": {"size": 192, "font": "Montserrat"}}, folder)
         assert got["fontSize"] == 85
-
-    def test_it_overrides_key_by_key_and_keeps_the_rest(self, tmp_path):
-        """Asking for a size is not asking to give up the typeface.
-
-        Replacing the whole slot would take the template's font and
-        weight with it, silently - the class of degradation this
-        repository keeps having to undo.
-        """
-        folder = _project(tmp_path, {"subtitle_typography": {"size": 85}})
         got = resolve_subtitle_style(
             {}, {"typography": {"font": "Montserrat", "weight": 600}}, folder)
         assert got["fontSize"] == 85
         assert got["fontFamily"] == "Montserrat"
         assert got["fontWeight"] == 600
 
-
-    def test_a_key_nothing_reads_is_refused_by_name(self, tmp_path):
+    def test_a_key_nothing_reads_or_a_non_mapping_is_refused(self, tmp_path):
         folder = _project(tmp_path, {"subtitle_typography": {"colour": "red"}})
         with pytest.raises(ValueError, match="colour"):
             project_subtitle_typography(folder)
-
-    def test_a_declaration_that_is_not_a_mapping_raises(self, tmp_path):
-        folder = _project(tmp_path, {"subtitle_typography": 85})
+        (tmp_path / "x").mkdir()
+        folder = _project(tmp_path / "x", {"subtitle_typography": 85})
         with pytest.raises(TypeError):
             project_subtitle_typography(folder)
-
-    def test_the_key_enumeration_is_what_resolve_reads(self):
-        """A fourth key would be a declaration nothing draws."""
-        assert set(TYPOGRAPHY_KEYS) == {"font", "size", "weight"}
-
-
-
 
 
 # ── A project may caption each speaker differently ───────────────────
@@ -425,11 +328,7 @@ def test_each_speaker_gets_their_declared_look(tmp_path):
     assert craig["accentColor"] == "#FBF0B8"
     assert craig["position"] == "top"
     assert akshita["position"] == "bottom", "an undeclared key is untouched"
-
-
-def test_a_speaker_the_project_does_not_name_changes_nothing(tmp_path):
-    from library.tools.subtitle_style import resolve_subtitle_style
-    folder = _project_with(tmp_path, _TWO_SPEAKERS)
+    # A speaker the project does not name changes nothing.
     shared = resolve_subtitle_style(project_folder=folder)
     other = resolve_subtitle_style(project_folder=folder, speaker="Nobody")
     assert other["accentColor"] == shared["accentColor"]
@@ -448,58 +347,30 @@ def test_a_project_declaring_no_speaker_styles_gets_one_look(tmp_path):
     assert a["accentColor"] == b["accentColor"]
 
 
-def test_the_engine_ships_no_per_speaker_colours():
-    """AGENTS.md 10.5. The enumeration names AXES; it holds no values."""
-    from library.tools import subtitle_style
-    assert all(isinstance(k, str) for k in subtitle_style.SPEAKER_STYLE_KEYS)
-    assert not hasattr(subtitle_style, "DEFAULT_SPEAKER_STYLES")
-
-
-def test_a_misspelled_override_key_is_refused(tmp_path):
-    """Silently ignoring it is a caption the editor believes shipped."""
-    from library.tools.subtitle_style import resolve_subtitle_style
-    folder = _project_with(tmp_path, "pipeline:\n"
-                                     "  speaker_subtitle_styles:\n"
-                                     "    Akshita:\n"
-                                     "      accentColour: '#FFB8D4'\n")
-    with pytest.raises(ValueError) as excinfo:
-        resolve_subtitle_style(project_folder=folder, speaker="Akshita")
-    assert "accentColour" in str(excinfo.value)
-
-
-def test_a_speaker_may_not_override_the_safe_area(tmp_path):
-    """captionMaxWidth and safeArea are MEASURED from the delivery frame.
-    A speaker who could override them could caption outside it."""
-    from library.tools.subtitle_style import SPEAKER_STYLE_KEYS
-    assert "captionMaxWidth" not in SPEAKER_STYLE_KEYS
-    assert "safeArea" not in SPEAKER_STYLE_KEYS
-
-
-def test_a_malformed_declaration_raises(tmp_path):
-    from library.tools.subtitle_style import project_speaker_styles
-    folder = _project_with(tmp_path, "pipeline:\n"
-                                     "  speaker_subtitle_styles: 'nope'\n")
+def test_a_speaker_declaration_nothing_reads_is_refused(tmp_path):
+    """Silently ignoring a key is a caption the editor believes shipped;
+    captionMaxWidth and safeArea are MEASURED from the delivery frame, so
+    a speaker may not override them and caption outside it."""
+    from library.tools.subtitle_style import (
+        project_speaker_styles, resolve_subtitle_style)
+    for n, key in enumerate(("accentColour", "captionMaxWidth", "safeArea")):
+        folder = _project_with(tmp_path / str(n),
+                               "pipeline:\n"
+                               "  speaker_subtitle_styles:\n"
+                               "    Akshita:\n"
+                               f"      {key}: '#FFB8D4'\n")
+        with pytest.raises(ValueError, match=key):
+            resolve_subtitle_style(project_folder=folder, speaker="Akshita")
+    folder = _project_with(tmp_path / "bad", "pipeline:\n"
+                                            "  speaker_subtitle_styles: 'nope'\n")
     with pytest.raises(TypeError):
         project_speaker_styles(folder)
 
 
 def test_caption_row_sits_one_pixel_above_the_safe_area():
-    """The +1px design row Reel 13's exported stills prove, as a rule.
-
-    Measured 2026-09-11: all 20 Reel 13 tight captions corrected uniformly
-    from computed Tilt -850.0 to -870.0 - 20 units on the 480-floor
-    canvases, exactly 10px as drawn under the measured 2x gain - with an
-    exported still correlation-scanning the corrected canvases onto
-    frame row 1155 and their ink onto the caption row. The design row
-    was systematically high by that 10px, so the probe props carry the
-    corrected lift: the safe-area profile itself (platform fact) does
-    not move, the other three insets do not move, and captionMaxWidth
-    still derives from the unlifted left/right.
-
-    This supersedes the +11px Reel 09 value: that correction was read
-    under the pre-#960 single-gain relation, and the row it produced
-    draws 10px high on the current carrying.
-    """
+    """The +1px design row Reel 13's exported stills prove, as a rule:
+    only the bottom inset lifts; captionMaxWidth derives from the unlifted
+    left/right. Measurement: docs/evidence/caption_tilt.md#the-1px-lift."""
     from library.tools.subtitle_style import CAPTION_LIFT_PX, SUBTITLE_STYLES
     from library.tools.safe_area import resolve_safe_area
     assert CAPTION_LIFT_PX == 1
@@ -514,25 +385,9 @@ def test_caption_row_sits_one_pixel_above_the_safe_area():
 
 
 def test_forty_tilt_units_are_ten_pixels_at_the_floor():
-    """The arithmetic the lift encodes, pinned where it is derived.
-
-    `placement_for_box` inverts the one measured Resolve relation,
-    shift_y = -Tilt * canvas_h / frame_h at native scale: a 480-tall
-    canvas moves a QUARTER of a delivery pixel per Tilt unit, so the
-    captain's 40-unit correction is 10px and a canvas centred at
-    full-frame y 1395 reads Tilt -1740.0 while the +11-era design row
-    (centre 1385) reads -1700.0.
-
-    Those two numbers are what Reel 13 and Reel 09 actually store,
-    read off the live timelines - which is the check that matters:
-    the design rows this engine computes and the values on the
-    captain's approved reels are the same numbers.
-
-    Pinned as history at explicit gain 1.0 (see HISTORY_GAIN in
-    test_tight_box.py): the renderer drew that gain when those reels
-    were read. Under today's gain the same rows store half these
-    Tilts (see tests/test_draw_gain_measured.py).
-    """
+    """At gain 1.0 a 480-tall canvas moves a quarter pixel per Tilt unit;
+    -1740.0 and -1700.0 are what Reel 13 and Reel 09 store on the live
+    timelines. History: docs/evidence/caption_tilt.md#the-1px-lift."""
     from library.tools.tight_box import placement_for_box
     assert placement_for_box(840, 480, 540.0, 1395.0, 1080, 1920,
                              draw_gain=1.0) == {

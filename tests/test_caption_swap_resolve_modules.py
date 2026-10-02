@@ -25,16 +25,12 @@ SCRIPTING = ("/Library/Application Support/Blackmagic Design/"
 
 
 
-def test_injected_scripting_dir_gains_modules(monkeypatch):
+def test_the_scripting_dir_gains_modules_and_a_stub_imports_through_it(
+        tmp_path, monkeypatch):
     # The vep-env value: the Scripting directory, not the module.
     monkeypatch.setenv("RESOLVE_SCRIPT_API", SCRIPTING)
     assert r405._script_modules_dir() == SCRIPTING + "/Modules"
 
-
-
-
-def test_stub_module_imports_through_the_resolved_dir(
-        tmp_path, monkeypatch):
     scripting = tmp_path / "Scripting"
     modules = scripting / "Modules"
     modules.mkdir(parents=True)

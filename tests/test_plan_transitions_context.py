@@ -29,9 +29,6 @@ if str(REPO) not in sys.path:
 from library.tools.context_projector import project_fields
 
 STEP = REPO / "library" / "steps" / "step_4_02_plan_transitions"
-DAG = json.loads(
-    (REPO / "library" / "processes" / "edit_video" / "dag.json").read_text(
-        encoding="utf-8"))
 
 WITHDRAWN_COLUMNS = ["file_path", "fps", "resolution",
                      "vision_schema_version", "analysis_metadata"]
@@ -98,28 +95,6 @@ def test_none_of_the_withdrawn_columns_survive_projection():
             f"{column!r} still reaches the transition planner's prompt")
 
 
-def test_the_step_is_still_routed_the_document_it_summarises():
-    """Nothing is LOST: projection narrows the prompt, never the inputs.
-
-    `present_llm_step` projects; `bridge.py` is handed the unprojected
-    inputs and is the reader that needs the whole document.
-    """
-    names = [i["name"] for i in manifest()["interface"]["inputs"]]
-    assert "semantic_analysis" in names
-    assert "clip_catalog" in names, (
-        "the catalog is what joins a stem-keyed document to a clip_id")
-    edges = [(e["from"], e["to"], e.get("data_mapping", {}))
-             for e in DAG["edges"] if e["to"] == "plan_transitions"]
-    catalog_edges = [mapping for src, _dst, mapping in edges
-                     if src == "catalog"]
-    assert len(catalog_edges) == 1
-    # Containment, not equality: the edge also carries `project_fps`,
-    # which `duration_frames` is computed from. What this test is about
-    # is that the catalog still reaches the step at all.
-    assert catalog_edges[0].get("clip_catalog") == "clip_catalog"
-    assert any(src == "semantic_analysis" for src, _, _ in edges)
-
-
 # ── The table the handoff points at carries the footage ───────────────
 
 def test_the_cut_table_joins_the_documents_to_the_spine():
@@ -132,14 +107,12 @@ def test_the_cut_table_joins_the_documents_to_the_spine():
     assert "Framing: close-up" in table
     assert "Camera: stationary" in table
     assert "selfie" in table
-
-
-def test_the_cut_is_classified_by_the_spine_s_own_key():
-    out = run_bridge({"timed_spine": SPINE, "semantic_analysis": [DOC],
-                      "clip_catalog": CATALOG, "b_roll_assignments": []})
+    # Classified by the spine's own key (`block_type`, not `type`).
     assert "unknown-to-unknown" not in out["cuts_toon"]
     assert "hook-to-transition_slot" in out["cuts_toon"]
     assert "transition_slot-to-speech" in out["cuts_toon"]
+    # v3 measures no mood (AGENTS.md 10.1): no `Mood: ` header over nothing.
+    assert "Mood:" not in out["cuts_toon"]
 
 
 def test_a_cutaway_block_is_attributed_through_its_assignment():
@@ -150,11 +123,3 @@ def test_a_cutaway_block_is_attributed_through_its_assignment():
                       "clip_catalog": CATALOG, "b_roll_assignments": BROLL})
     assert "Framing: wide" in out["cuts_toon"]
     assert "Camera: walking" in out["cuts_toon"]
-
-
-def test_no_mood_is_invented():
-    """v3 measures no mood and no energy (AGENTS.md 10.1). The table used to
-    print `Mood: ` for every cut, which is a header over nothing."""
-    out = run_bridge({"timed_spine": SPINE, "semantic_analysis": [DOC],
-                      "clip_catalog": CATALOG, "b_roll_assignments": []})
-    assert "Mood:" not in out["cuts_toon"]

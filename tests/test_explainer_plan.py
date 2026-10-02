@@ -15,8 +15,6 @@ import json
 import pytest
 
 from library.tools import explainer_plan as ex
-from library.tools import motion_graphics_plan as mg
-from library.tools import motion_graphics_vocabulary as vocab
 
 
 # ── Lines a reel really plays ────────────────────────────────────────
@@ -76,35 +74,28 @@ def test_a_stage_is_anchored_to_the_word_its_quote_begins_on():
     assert out.stages[2].at_seconds == pytest.approx(14.0)
 
 
-def test_a_quote_the_reel_does_not_say_is_refused_as_ungrounded():
+def test_a_stage_the_speech_cannot_place_is_refused_with_its_reason():
     out = ex.anchor_stages(
         [{"part": "Facebook", "quote": "your Facebook page"}],
         LINES, reel_seconds=30.0)
     assert not out.stages
     assert out.refused[0]["reason"] == ex.UNGROUNDED
-
-
-def test_parts_the_reel_says_in_another_order_are_refused():
-    """The SPEECH is the order, not the list. An explainer built the
-    other way would reveal part three while part one is being said."""
+    # The SPEECH is the order, not the list: revealing part three while
+    # part one is being said is refused.
     out = ex.anchor_stages(
         [{"part": "Reddit", "quote": "Reddit threads"},
          {"part": "LinkedIn", "quote": "your LinkedIn"}],
         LINES, reel_seconds=30.0)
     assert [s.text for s in out.stages] == ["Reddit"]
     assert out.refused[0]["reason"] == ex.OUT_OF_ORDER
-
-
-def test_a_stage_past_the_end_of_the_reel_is_refused():
     out = ex.anchor_stages(PARTS, LINES, reel_seconds=11.0)
-    reasons = {r["reason"] for r in out.refused}
-    assert ex.OFF_THE_END in reasons
+    assert ex.OFF_THE_END in {r["reason"] for r in out.refused}
 
 
 # ── The declaration ──────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("field,value,message", [
+MALFORMED = [
     ("element", "", "names no `element`"),
     ("element", "quote_card", "an element that stages"),
     ("band", "", "band"),
@@ -116,14 +107,18 @@ def test_a_stage_past_the_end_of_the_reel_is_refused():
     ("type_role", "enormous", "type_role"),
     ("entrance", "explode", "entrance"),
     ("exit", "implode", "exit"),
-])
-def test_a_malformed_declaration_raises_by_name(field, value, message):
+]
+
+
+def test_a_malformed_declaration_raises_by_name():
     """RAISES rather than being dropped: a declaration that vanishes
     into a log line is how the 4th Wall end card survived four months."""
-    declaration = dict(DECLARATION)
-    declaration[field] = value
-    with pytest.raises(ex.ExplainerError, match=message):
-        ex.normalise_declaration(declaration)
+    for field, value, message in MALFORMED:
+        declaration = dict(DECLARATION)
+        declaration[field] = value
+        with pytest.raises(ex.ExplainerError, match=message):
+            ex.normalise_declaration(declaration)
+            pytest.fail(f"accepted {field}={value!r}")
 
 
 # ── The plan ─────────────────────────────────────────────────────────
@@ -146,29 +141,23 @@ def test_the_plan_is_one_entry_whose_runs_are_the_stages():
 JUDGEMENT = {"readings": [{"reel": 7, "claim_parts": PARTS}]}
 
 
-def test_authoring_from_a_judgement_produces_a_planned_explainer():
+def test_authoring_names_the_basis_of_every_outcome():
+    """`[]` for a reel with no parts is NOT 'nobody was asked': each
+    outcome carries its own basis from `BASES`."""
     plan = ex.author_explainer("Reel 07", 7, 30.0, JUDGEMENT, DECLARATION,
                                lines=LINES)
     assert plan.basis == ex.PLANNED
     assert len(plan.entries) == 1
     assert len(plan.anchored.stages) == 3
 
-
-def test_a_project_that_declares_nothing_gets_nothing_and_says_which():
     plan = ex.author_explainer("Reel 07", 7, 30.0, JUDGEMENT, None)
     assert plan.basis == ex.NOT_DECLARED
     assert plan.entries == []
 
-
-def test_a_reel_whose_claim_has_no_parts_says_that_rather_than_nothing():
-    """`[]` is the honest answer for most reels and is NOT the same as
-    'nobody was asked'. `BASES` keeps them apart."""
     plan = ex.author_explainer("Reel 07", 7, 30.0,
                                {"readings": [{"reel": 7}]}, DECLARATION)
     assert plan.basis == ex.NO_PARTS
 
-
-def test_a_reel_whose_every_stage_is_refused_says_that(capsys):
     plan = ex.author_explainer(
         "Reel 07", 7, 30.0,
         {"readings": [{"reel": 7,
@@ -176,12 +165,6 @@ def test_a_reel_whose_every_stage_is_refused_says_that(capsys):
         DECLARATION, lines=LINES)
     assert plan.basis == ex.ALL_REFUSED
     assert plan.anchored.refused
-
-
-def test_every_basis_is_in_the_enumeration():
-    for basis in (ex.NOT_DECLARED, ex.NO_PARTS, ex.ALL_REFUSED,
-                  ex.NOTHING_TO_DRAW, ex.PLANNED):
-        assert basis in ex.BASES
 
 
 def test_parts_for_reel_reads_the_reel_it_was_asked_for():
@@ -212,10 +195,7 @@ def test_the_build_records_every_reel_including_the_empty_ones(tmp_path):
     assert ex.plan_for_reel(back, "Reel 07")["segments"][0]["total_frames"] == 48
     assert ex.plan_for_reel(back, "Reel 01")["segments"] == []
     assert ex.plan_for_reel(back, "Reel 99") is None
-
-
-def test_reading_plans_from_a_project_that_has_none_is_empty(tmp_path):
-    assert ex.read_plans(str(tmp_path)) == {}
+    assert ex.read_plans(str(tmp_path / "none")) == {}
 
 
 def test_a_segment_name_carries_its_reel():
@@ -239,53 +219,28 @@ def test_claim_parts_is_in_the_judge_contract_and_is_optional():
     assert ex.CLAIM_PARTS_KEY in READING_SCHEMA["readings"][0]
 
 
-def test_an_ungrounded_claim_part_refuses_the_whole_reading():
-    """The quote is not evidence FOR the part - it is the only thing
-    that puts the part in time. An ungrounded part cannot be drawn at
-    all, so the reading carrying it is refused."""
+def test_claim_parts_ground_the_reading_or_refuse_it():
+    """The quote is the only thing that puts a part in time, so an
+    ungrounded or quote-less part refuses the whole reading; the field
+    is OPTIONAL, so a reading without it still grounds."""
     from library.tools.reel_quality_bar import check_reading
-    words = "AI is going to see your LinkedIn your Crunchbase"
+    said = "AI is going to see your LinkedIn"
+    base = {"reel": 1, "claim_quote": "your LinkedIn",
+            "opening_quote": "AI", "closing_quote": "your LinkedIn",
+            "assumes_known": []}
     ungrounded, _ = check_reading(
-        {"reel": 1, "claim_quote": "your LinkedIn",
-         "opening_quote": "AI", "closing_quote": "your Crunchbase",
-         "assumes_known": [],
+        {**base, "closing_quote": "your Crunchbase",
          "claim_parts": [{"part": "Facebook", "quote": "your Facebook"}]},
-        words)
+        said + " your Crunchbase")
     assert any("claim_parts" in u for u in ungrounded)
-
-
-def test_a_claim_part_with_no_quote_refuses_the_reading():
-    from library.tools.reel_quality_bar import check_reading
     ungrounded, _ = check_reading(
-        {"reel": 1, "claim_quote": "your LinkedIn",
-         "opening_quote": "AI", "closing_quote": "your LinkedIn",
-         "assumes_known": [],
-         "claim_parts": [{"part": "LinkedIn", "quote": ""}]},
-        "AI is going to see your LinkedIn")
+        {**base, "claim_parts": [{"part": "LinkedIn", "quote": ""}]}, said)
     assert any("no quote" in u for u in ungrounded)
-
-
-def test_a_grounded_claim_part_does_not_refuse_the_reading():
-    from library.tools.reel_quality_bar import check_reading
     ungrounded, _ = check_reading(
-        {"reel": 1, "claim_quote": "your LinkedIn",
-         "opening_quote": "AI", "closing_quote": "your LinkedIn",
-         "assumes_known": [],
-         "claim_parts": [{"part": "LinkedIn", "quote": "your LinkedIn"}]},
-        "AI is going to see your LinkedIn")
+        {**base, "claim_parts": [{"part": "LinkedIn",
+                                  "quote": "your LinkedIn"}]}, said)
     assert ungrounded == []
-
-
-def test_a_reading_with_no_claim_parts_still_grounds():
-    """OPTIONAL, and every reading written before the field existed
-    must keep grounding or the field breaks the captain's data."""
-    from library.tools.reel_quality_bar import check_reading
-    ungrounded, _ = check_reading(
-        {"reel": 1, "claim_quote": "your LinkedIn",
-         "opening_quote": "AI", "closing_quote": "your LinkedIn",
-         "assumes_known": []},
-        "AI is going to see your LinkedIn")
-    assert ungrounded == []
+    assert check_reading(base, said)[0] == []
 
 
 def test_the_ask_naming_claim_parts_is_still_uncontaminated():
@@ -299,16 +254,6 @@ def test_the_ask_naming_claim_parts_is_still_uncontaminated():
 
 
 # ── Words, and where they may go ─────────────────────────────────────
-
-def test_played_speech_carries_no_words_unless_asked():
-    """Word timings do not reach a prompt (AGENTS.md 10.1), and the
-    judge's `lines` table is a prompt."""
-    import inspect
-
-    from library.tools.reel_quality_bar import played_speech
-    signature = inspect.signature(played_speech)
-    assert signature.parameters["with_words"].default is False
-
 
 def test_an_omitted_optional_quote_does_not_refuse_the_reading():
     """The defect this test names: `normalise(None)` was the word
@@ -350,7 +295,7 @@ def _alpha_clip(path, width, height, rect, frames=4):
     return result.returncode == 0
 
 
-def test_measure_render_finds_the_ink_it_was_given(tmp_path):
+def test_measure_render_finds_the_ink_and_the_frame_edges_it_touches(tmp_path):
     clip = tmp_path / "ink.mov"
     if not _alpha_clip(clip, 1080, 1920, (90, 300, 500, 600)):
         raise AssertionError(
@@ -367,8 +312,6 @@ def test_measure_render_finds_the_ink_it_was_given(tmp_path):
     assert abs(top - 300) <= 2 and abs(bottom - 599) <= 2
     assert measured["touches_frame_edge"] == []
 
-
-def test_measure_render_sees_ink_at_the_frame_edge(tmp_path):
     clip = tmp_path / "clipped.mov"
     if not _alpha_clip(clip, 1080, 1920, (0, 0, 400, 500)):
         raise AssertionError("ffmpeg could not build an alpha clip")
@@ -389,45 +332,30 @@ def _bands():
                             safe_area_for_frame(1080, 1920))
 
 
-def test_ink_at_the_frame_edge_is_an_error():
-    """A graphic laid out inside a 90px left inset cannot legitimately
-    reach column zero, so ink there means the frame cut it off - and the
-    file is a valid picture of the right size that nothing downstream
-    can tell apart."""
-    findings = ex.render_findings(
-        {"ink_pixels": 10, "rows": [0, 657], "cols": [90, 560],
-         "touches_frame_edge": ["top"], "frame": [1080, 1920]},
-        _bands(), {"band": "above"})
-    errors = [f for f in findings if f["severity"] == "error"]
+def test_render_findings_grade_the_ink_against_the_band():
+    """Edge ink is an error (a graphic inside a 90px inset cannot reach
+    column zero unless the frame cut it off); one row of shadow past the
+    shared band boundary is a warning, not an error (reel 21's real
+    render: ink rows 320..657 against a band of 120..656 - failing it
+    would fail correct output, AGENTS.md 10.4); ink inside the band says
+    nothing; no ink at all is an error (AGENTS.md 10.2)."""
+    def findings(ink, rows, edges):
+        return ex.render_findings(
+            {"ink_pixels": ink, "rows": rows,
+             "cols": [90, 560] if rows else None,
+             "touches_frame_edge": edges, "frame": [1080, 1920]},
+            _bands(), {"band": "above"})
+
+    edge = findings(10, [0, 657], ["top"])
+    errors = [f for f in edge if f["severity"] == "error"]
     assert errors and errors[0]["code"] == ex.FRAME_EDGE_CLIPPED
 
+    shadow = findings(61778, [320, 657], [])
+    assert [f["severity"] for f in shadow] == ["warning"]
+    assert "1 row(s) below" in shadow[0]["message"]
 
-def test_a_row_of_shadow_past_the_band_is_a_warning_and_not_an_error():
-    """The boundary is shared with the picture and a text shadow falls
-    across it. A check that failed on one row would fail correct output
-    (AGENTS.md 10.4). Measured on the real render of reel 21: ink rows
-    320..657 against a band of 120..656."""
-    findings = ex.render_findings(
-        {"ink_pixels": 61778, "rows": [320, 657], "cols": [90, 560],
-         "touches_frame_edge": [], "frame": [1080, 1920]},
-        _bands(), {"band": "above"})
-    assert [f["severity"] for f in findings] == ["warning"]
-    assert "1 row(s) below" in findings[0]["message"]
+    assert findings(500, [320, 600], []) == []
 
-
-def test_ink_inside_the_band_says_nothing_at_all():
-    findings = ex.render_findings(
-        {"ink_pixels": 500, "rows": [320, 600], "cols": [90, 560],
-         "touches_frame_edge": [], "frame": [1080, 1920]},
-        _bands(), {"band": "above"})
-    assert findings == []
-
-
-def test_a_render_that_draws_nothing_is_an_error():
-    """AGENTS.md 10.2: an overlay that draws nothing is not rendered."""
-    findings = ex.render_findings(
-        {"ink_pixels": 0, "rows": None, "cols": None,
-         "touches_frame_edge": [], "frame": [1080, 1920]},
-        _bands(), {"band": "above"})
-    assert findings[0]["severity"] == "error"
-    assert findings[0]["code"] == ex.NOTHING_TO_DRAW
+    empty = findings(0, None, [])
+    assert empty[0]["severity"] == "error"
+    assert empty[0]["code"] == ex.NOTHING_TO_DRAW

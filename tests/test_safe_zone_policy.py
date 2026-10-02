@@ -51,7 +51,7 @@ def test_a_margin_grows_every_app_element_but_not_the_crop(tmp_path):
     assert padded.insets()["right"] == plain.insets()["right"] + 12
 
 
-@pytest.mark.parametrize("block, says", [
+UNHONOURABLE = [
     ("    platform: [tiktok]\n", "nothing reads"),
     ("    platforms: [myspace]\n", "myspace"),
     ("    devices: [Nokia 3310]\n", "Nokia"),
@@ -59,11 +59,13 @@ def test_a_margin_grows_every_app_element_but_not_the_crop(tmp_path):
     ("    keep_out:\n      - {rect: [0, 0, 10, 10]}\n", "no reason"),
     ("    keep_out:\n      - {rect: [10, 0, 5, 10], reason: x}\n",
      "x1 > x0"),
-])
-def test_a_rule_that_cannot_be_honoured_is_refused_not_dropped(
-        tmp_path, block, says):
-    with pytest.raises(szp.SafeZonePolicyError, match=says):
-        szp.project_policy(_project(tmp_path, block))
+]
+
+
+def test_a_rule_that_cannot_be_honoured_is_refused_not_dropped(tmp_path):
+    for block, says in UNHONOURABLE:
+        with pytest.raises(szp.SafeZonePolicyError, match=says):
+            szp.project_policy(_project(tmp_path, block))
 
 
 def test_fit_scale_shrinks_a_picture_inside_what_every_phone_shows():

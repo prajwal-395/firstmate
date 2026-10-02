@@ -20,17 +20,17 @@ from PIL import Image
 from library.tools import platform_safe_zones as psz
 
 
-@pytest.mark.parametrize("name", psz.OVERLAY_NAMES)
-def test_checked_in_overlay_draws_exactly_the_table(name):
-    path = psz.overlay_path(name)
-    assert os.path.isfile(path), f"regenerate: {path}"
-    with Image.open(path) as image:
-        assert image.size == psz.REFERENCE_SIZE
-        alpha = np.asarray(image.convert("RGBA"))[:, :, 3] > 0
-    expected = psz.covered_mask(name, *psz.REFERENCE_SIZE)
-    # Every covered pixel is washed, and nothing outside the bands is
-    # touched - the lines and legend are drawn inside the bands.
-    assert np.array_equal(alpha, expected)
+def test_checked_in_overlay_draws_exactly_the_table():
+    for name in psz.OVERLAY_NAMES:
+        path = psz.overlay_path(name)
+        assert os.path.isfile(path), f"regenerate: {path}"
+        with Image.open(path) as image:
+            assert image.size == psz.REFERENCE_SIZE
+            alpha = np.asarray(image.convert("RGBA"))[:, :, 3] > 0
+        expected = psz.covered_mask(name, *psz.REFERENCE_SIZE)
+        # Every covered pixel is washed, and nothing outside the bands is
+        # touched - the lines and legend are drawn inside the bands.
+        assert np.array_equal(alpha, expected)
 
 
 def test_intrusions_names_the_zone_a_box_sits_in():
@@ -41,9 +41,6 @@ def test_intrusions_names_the_zone_a_box_sits_in():
     assert {h["band"] for h in hits} == {"camera", "status-time", "tabs"}
     # The combined safe box clears every zone.
     assert psz.intrusions((130, 300, 770, 830)) == []
-
-
-def test_a_top_corner_icon_does_not_cover_the_row_beside_it():
     # The captain, 2026-09-25: the Shorts search icon and menu were drawn
     # as a band across the whole top, marking everything left of them
     # unsafe. Each is its own box, so the row beside them is clear...
@@ -53,26 +50,26 @@ def test_a_top_corner_icon_does_not_cover_the_row_beside_it():
     assert [h["band"] for h in hits] == ["search"]
 
 
-@pytest.mark.parametrize("key", sorted(psz.CAPTURES))
-def test_the_model_lays_the_screenshot_out_where_it_was_measured(key):
+def test_the_model_lays_the_screenshot_out_where_it_was_measured():
     # Laid out on the phone the screenshots came from, every element
     # lands exactly where the screenshot's own cover mapping puts it. A
     # pin read off the wrong edge, or an inset applied twice, moves a
     # box here before it moves one on a phone nobody has captured.
-    capture = psz.CAPTURES[key]
-    phone = psz.DEVICE_BY_NAME[psz.MEASURED_DEVICE]
-    s = capture.region / 1920
-    ox = (1080 * s - psz.SCREENSHOT[0]) / 2
-    laid = {z.name: z.rect for z in psz.zones_on(key, phone)}
-    for element in capture.elements:
-        x0, y0, x1, y1 = element.box
-        want = (max(0, round((x0 - psz.PAD + ox) / s)),
-                max(0, round((y0 - psz.PAD) / s)),
-                min(1080, round((x1 + psz.PAD + ox) / s)),
-                min(1920, round((y1 + psz.PAD) / s)))
-        got = laid[element.name]
-        assert all(abs(a - b) <= 1 for a, b in zip(got, want)), (
-            element.name, got, want)
+    for key in sorted(psz.CAPTURES):
+        capture = psz.CAPTURES[key]
+        phone = psz.DEVICE_BY_NAME[psz.MEASURED_DEVICE]
+        s = capture.region / 1920
+        ox = (1080 * s - psz.SCREENSHOT[0]) / 2
+        laid = {z.name: z.rect for z in psz.zones_on(key, phone)}
+        for element in capture.elements:
+            x0, y0, x1, y1 = element.box
+            want = (max(0, round((x0 - psz.PAD + ox) / s)),
+                    max(0, round((y0 - psz.PAD) / s)),
+                    min(1080, round((x1 + psz.PAD + ox) / s)),
+                    min(1920, round((y1 + psz.PAD) / s)))
+            got = laid[element.name]
+            assert all(abs(a - b) <= 1 for a, b in zip(got, want)), (
+                element.name, got, want)
 
 
 def _project(tmp_path, avatar):
@@ -84,7 +81,7 @@ def _project(tmp_path, avatar):
     return str(tmp_path)
 
 
-def test_a_reel_with_no_hook_gets_no_header(tmp_path):
+def test_a_reel_with_no_or_an_empty_hook_gets_no_header(tmp_path):
     from library.tools import reel_post_header as rph
 
     avatar = tmp_path / "a.png"
@@ -99,10 +96,15 @@ def test_a_reel_with_no_hook_gets_no_header(tmp_path):
     assert plan.basis == rph.NO_HOOK_WRITTEN
     assert plan.segments == []
 
+    # An empty hook is refused, not drawn.
+    (tmp_path / "external").mkdir()
+    (tmp_path / "external" / rph.HOOKS_FILE).write_text(
+        json.dumps({"hooks": {"1": {"hook": "  "}}}), encoding="utf-8")
+    with pytest.raises(rph.PostHeaderError):
+        rph.hook_for(folder, 1)
 
-@pytest.mark.parametrize("draw_gain", [1.0, 2.0])
-def test_the_header_is_a_tight_canvas_placed_where_it_laid_out(
-        tmp_path, draw_gain):
+
+def test_the_header_is_a_tight_canvas_placed_where_it_laid_out(tmp_path):
     # The captain, 2026-09-25: the header was placed FULL FRAME, so
     # moving it meant re-rendering. It is cut to its ink and placed by
     # Pan/Tilt - and that Pan/Tilt must draw the canvas exactly where
@@ -121,24 +123,12 @@ def test_the_header_is_a_tight_canvas_placed_where_it_laid_out(
     assert size == (canvas[2] - canvas[0], canvas[3] - canvas[1])
     assert size[0] < 1080 and size[1] >= MIN_CANVAS_HEIGHT
     assert size[0] % 2 == 0 and size[1] % 2 == 0
-    placement = rph.placement_for(canvas, (1080, 1920), draw_gain)
-    ink = rph.ink_box(tight)
-    drawn = ink_screen_box(size[0], size[1], placement, ink, 1080, 1920,
-                           draw_gain=draw_gain)
-    assert all(abs(a - b) < 0.5 for a, b in zip(drawn, (130, 275, 951, 461)))
-
-
-def test_an_empty_hook_is_refused_not_drawn(tmp_path):
-    from library.tools import reel_post_header as rph
-
-    avatar = tmp_path / "a.png"
-    Image.new("RGBA", (8, 8), (255, 0, 0, 255)).save(avatar)
-    folder = _project(tmp_path, avatar)
-    (tmp_path / "external").mkdir()
-    (tmp_path / "external" / rph.HOOKS_FILE).write_text(
-        json.dumps({"hooks": {"1": {"hook": "  "}}}), encoding="utf-8")
-    with pytest.raises(rph.PostHeaderError):
-        rph.hook_for(folder, 1)
+    for draw_gain in (1.0, 2.0):
+        placement = rph.placement_for(canvas, (1080, 1920), draw_gain)
+        ink = rph.ink_box(tight)
+        drawn = ink_screen_box(size[0], size[1], placement, ink, 1080, 1920,
+                               draw_gain=draw_gain)
+        assert all(abs(a - b) < 0.5 for a, b in zip(drawn, (130, 275, 951, 461)))
 
 
 class _Item:

@@ -1,31 +1,6 @@
 """Each graphic's Tilt is derived from ITS OWN height, never a fixed one.
 
-The captain, 2026-09-17, on Reel 01's hand-set captions: "pan and tilt
-are relative to graphic frame size and video frame size". His durable
-point: a caption row must be declared as a PLACE in pixels and each
-graphic's Tilt derived from THAT graphic's own height, because one
-stored value places two differently sized graphics in two different
-places (shift_px = value * clip_dim / frame_dim -
-`library/tools/resolve_transform.py`, measured on 16 rendered plates).
-
-Every caption graphic in the project today is 904x480, so a fixed 480
-in the derivation would look correct everywhere and be wrong the moment
-one graphic differs - which is what varying tight canvases will cause.
-Audited 2026-09-17: every placement call site already passes its own
-canvas dims - `tight_box.placement_for_box` (all four caption paths),
-`mg_tight_box`, and `overlay_intent.transform_for` (computed at
-placement time against the canvas going down) - and both builders place
-each segment's own `tight_box.placement` verbatim. No engine change was
-made; this file pins the property so the coming varying-height work
-cannot regress it silently.
-
-A test that only exercises one size proves nothing about his point, so
-this one places THREE different heights on the same declared row and
-asserts all three land on the same screen centre. A fixed-480
-derivation would miss by 100+px on the other two (shown in the second
-test), which is what makes the first one mean something.
-
-Synthetic under ``tmp_path``; nothing reaches Resolve or a real project.
+See `docs/evidence/caption_tilt.md` for the incident and invariant.
 """
 
 import os

@@ -1,31 +1,9 @@
 """Learned context: what the run writes back so it stops repeating itself.
 
-The captain: *"the LLM can record new bits of information that it learns
-like feedback into the context for the project so it doesn't run into
-making the same errors again."* The repo's law says captain inputs are
-never written to (`project_layout.Kind.INPUT`), so the write-back is a
-SEPARATE area - `learned_context/`, pipeline-owned, read alongside the
-captain's `context/` on every later run, clearly attributed so the
-captain can always tell what they said from what the pipeline concluded.
-
-What a learning IS: one of three kinds, each with a named reader -
-AGENTS.md 10.4 ("a learning nothing consumes is refused at record
-time" here, the way a declaration nothing refuses is refused elsewhere):
-
-* `correction` - the captain corrected the model (a routed timeline
-  note that overturned a decision, review feedback). Read by the step
-  that owns the overturned decision.
-* `mistake_fix` - the pipeline caught its own error and how it fixed
-  it (a QA finding answered, a retry that worked). Read by the step
-  that made the mistake.
-* `settled_decision` - a choice now fixed, asked once and never again
-  (series identity settled, a music direction confirmed, a caption
-  style approved). Read by every step deciding that thing.
-
-A learning is RETIRED or CORRECTED when wrong, never silently edited:
-an append-only pile of stale conclusions is the clutter the captain is
-complaining about. Retirement and correction are operations with a
-reason, recorded in the learning's own history.
+A SEPARATE pipeline-owned area (`learned_context/`), never the captain's
+`context/`; a learning nothing reads is refused at record time; one is
+retired or corrected with a reason, never silently edited. Background:
+docs/evidence/context_projection.md#learned-context.
 """
 
 import json

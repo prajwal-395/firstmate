@@ -154,7 +154,7 @@ measured on the real timeline before it was fixed (§6).
 footage and has no framing intent. Skipping it silently is the vacuity that
 function's own docstring refuses, so instead the card's declared rectangle is the
 WHOLE FRAME, which is what "full-frame" means. A card someone scaled to half size
-fails F12 as an error (`test_f12_fails_a_card_that_does_not_fill_the_frame`).
+fails F12 as an error (`tests/test_reel_conformance_full_frame.py::test_f12_grades_a_full_frame_card_against_the_whole_frame`).
 
 **F13 is the new class, and it fails in both directions:**
 

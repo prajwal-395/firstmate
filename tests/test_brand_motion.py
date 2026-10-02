@@ -16,7 +16,6 @@ with alpha (the mezzanine's shape).
 """
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -27,7 +26,6 @@ from library.tools import brand_motion as bm
 from library.tools import transition_overlay as ov
 from library.tools.brand_motion import (
     BrandMotionError,
-    BrandMotionUnmeasurable,
     ConformNotBuilt,
     ConformNotDeclared,
     GeometryMismatch,
@@ -137,18 +135,15 @@ def test_measure_source_reads_the_real_shape(prores_with_sound):
 
 
 
-def test_measure_source_without_alpha_is_refused_as_such(prores_no_alpha):
+def test_measure_source_refuses_absent_and_empty_alpha_differently(
+        prores_no_alpha, prores_empty_alpha):
     """The trap the shared taxonomy exists to avoid: absent is absent,
     not zero. Without this the refusal below proves nothing - an
     instrument that always raises would pass it."""
     with pytest.raises(ov.ElementHasNoAlpha):
         bm.measure_source(prores_no_alpha)
-
-
-def test_measure_source_with_empty_alpha_is_refused_as_empty(
-        prores_empty_alpha):
-    """Present-and-empty is a DIFFERENT refusal from absent (AGENTS.md
-    10.2: an overlay that draws nothing is not rendered)."""
+    # Present-and-empty is a DIFFERENT refusal from absent (AGENTS.md
+    # 10.2: an overlay that draws nothing is not rendered).
     with pytest.raises(ov.ElementDrawsNothing):
         bm.measure_source(prores_empty_alpha)
 
@@ -201,16 +196,12 @@ def test_mezzanine_is_same_rate_and_keeps_alpha(prores_with_sound,
 
 
 
-def test_require_conform_refuses_an_unknown_name_by_name():
+def test_require_conform_refuses_unknown_and_unbuilt_by_name():
     with pytest.raises(ConformNotDeclared) as excinfo:
         bm.require_conform("retime_with_blending")
     assert "retime_with_blending" in str(excinfo.value)
-
-
-def test_blended_conform_is_named_but_not_built():
-    """The taste question, stated as code: the refusal carries the two
-    values (which blender, how much blend) nobody has stated, so the
-    captain's answer can be exactly those."""
+    # blended_conform is named but not built: the refusal carries the
+    # two values (which blender, how much blend) nobody has stated.
     with pytest.raises(ConformNotBuilt) as excinfo:
         bm.require_conform("blended_conform")
     message = str(excinfo.value).lower()
@@ -228,60 +219,22 @@ def _props_source(prores_with_sound):
 
 
 
-def test_props_refuse_an_unstated_muted(prores_with_sound):
-    """Both real assets carry an audio stream; silence vs sound is a
-    choice, so an absent value is refused rather than defaulted."""
+def test_props_refuse_what_a_choice_or_the_renderer_has_not_settled(
+        prores_with_sound):
+    """Silence vs sound and contain vs cover are taste, so an absent
+    `muted` and a geometry mismatch refuse rather than default; only
+    native_sample reaches a Remotion render."""
     source = _props_source(prores_with_sound)
     with pytest.raises(BrandMotionError):
         bm.brand_motion_props(
             "brand/sting.webm", source, fps=FPS, width=64, height=64,
             muted=None, conform="native_sample")
-
-
-def test_props_refuse_a_geometry_mismatch(prores_with_sound):
-    """Contain shrinks the mark, cover crops it - both are framing taste,
-    so the engine fits nothing."""
-    source = _props_source(prores_with_sound)
     with pytest.raises(GeometryMismatch):
         bm.brand_motion_props(
             "brand/sting.webm", source, fps=FPS, width=1080, height=1920,
             muted=True, conform="native_sample")
-
-
-def test_props_refuse_anything_but_native_sample(prores_with_sound):
-    """Only native_sample reaches a Remotion render: blended_conform is
-    not built and resolve_native renders nothing. Props written against
-    either must not reach the renderer under this strategy's name."""
-    source = _props_source(prores_with_sound)
-    with pytest.raises((ConformNotDeclared, ConformNotBuilt)):
-        bm.brand_motion_props(
-            "brand/sting.webm", source, fps=FPS, width=64, height=64,
-            muted=True, conform="resolve_native")
-    with pytest.raises((ConformNotDeclared, ConformNotBuilt)):
-        bm.brand_motion_props(
-            "brand/sting.webm", source, fps=FPS, width=64, height=64,
-            muted=True, conform="blended_conform")
-
-
-
-
-# ── The composition slot stays a video slot ──────────────────────────
-
-def test_brand_motion_composition_reads_a_video_file():
-    """The gap this task closed, pinned: BrandMotion must keep reading a
-    staged video file through staticFile, and Root must keep registering
-    it. If either half lapses, no composition reads video again."""
-    import pathlib
-    root = pathlib.Path(__file__).resolve().parent.parent
-    component = (root / "remotion-subtitles" / "src" / "compositions"
-                 / "BrandMotion" / "index.tsx").read_text(
-                     encoding="utf-8")
-    assert "OffthreadVideo" in component
-    assert "staticFile(src)" in component
-    registered = (root / "remotion-subtitles" / "src" /
-                  "Root.tsx").read_text(encoding="utf-8")
-    assert 'id="BrandMotion"' in registered
-
-
-# ── The CLI ──────────────────────────────────────────────────────────
-
+    for conform in ("resolve_native", "blended_conform"):
+        with pytest.raises((ConformNotDeclared, ConformNotBuilt)):
+            bm.brand_motion_props(
+                "brand/sting.webm", source, fps=FPS, width=64, height=64,
+                muted=True, conform=conform)

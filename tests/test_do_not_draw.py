@@ -81,12 +81,10 @@ def test_a_malformed_file_refuses_rather_than_building_past(tmp_path):
 
 # ── 2. Matching: the label survives the re-render ────────────────────
 
-def test_a_label_hit_suppresses():
+def test_a_label_or_segment_id_hit_suppresses():
     held, why = do_not_draw.should_suppress([_rule()], REEL, _segment())
     assert held and "stays undrawn" in why
-
-
-def test_a_segment_id_hit_suppresses_without_a_label():
+    # A segment id hit suppresses without a label.
     held, _ = do_not_draw.should_suppress(
         [_rule(placement_label=None)], REEL,
         _segment(label=None))
@@ -214,7 +212,7 @@ def _build_once(rules, segments):
     return pool, held
 
 
-def test_a_deleted_graphic_stays_deleted_through_a_rerender():
+def test_a_deleted_graphic_stays_deleted_through_a_rerender_only_if_declared():
     """The rebuild equivalent: build 1 places the plan minus the
     deletion; build 2 re-renders (new content hash, same label) and
     the deletion holds again - by value on what Resolve was asked
@@ -234,15 +232,9 @@ def test_a_deleted_graphic_stays_deleted_through_a_rerender():
     assert len(pool2.appended) == 1
     assert held2 == ["mg_geo-podcast_bbbb2222"]
 
-
-def test_without_the_declaration_the_graphic_comes_back():
-    """The failing input the survival test above guards: the same two
-    builds with no declaration place the graphic both times - which
-    is exactly what the 2026-09-13 rebuild did."""
-    control = _segment(label="vox_reel_01_the_cta_01",
-                       segment_id="mg_geo-podcast_11111111",
-                       elements=["quote_card"],
-                       path="/renders/mg_geo-podcast_11111111.mov")
+    # The failing input this guards: the same two builds with no
+    # declaration place the graphic both times - what the 2026-09-13
+    # rebuild did.
     pool1, held1 = _build_once(None, [_segment(), control])
     pool2, held2 = _build_once(
         [], [_segment(segment_id="mg_geo-podcast_bbbb2222",

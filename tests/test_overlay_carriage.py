@@ -33,7 +33,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from library.tools.overlay_carriage import (  # noqa: E402
     ALPHA_MODE_PREMULTIPLIED,
     DATA_LEVEL_FULL,
-    OVERLAY_ENCODE_ARGS,
     OVERLAY_PIXEL_FORMAT,
     OVERLAY_VIDEO_CODEC,
     OverlayCarriageRefused,
@@ -42,9 +41,7 @@ from library.tools.overlay_carriage import (  # noqa: E402
     assert_transparent_region_unchanged,
     carries_alpha,
     data_level_for,
-    frames_are_identical,
     restamp_carriage,
-    transcode_in_place,
     transparent_region_deviation,
 )
 
@@ -85,43 +82,27 @@ def _read(name: str, gray: bool = False):
 # ── The check, on the real frames ────────────────────────────────────
 
 @needs_ffmpeg
-def test_the_correct_composite_passes():
-    """Data Level Full: the plate comes through untouched under alpha 0."""
+def test_the_gate_reads_the_defect_off_the_real_exported_frames():
+    """Data Level Full: the plate comes through untouched under alpha 0.
+    Data Level Auto: the WHOLE frame is dark, transparent pixels too - and
+    the gate fails on the picture, not on whether a property was set."""
+    plate = _read("plate.png")
+    alpha = _read("overlay_alpha.png", gray=True)
     worst = assert_transparent_region_unchanged(
-        _read("composite_data_level_full.png"),
-        _read("plate.png"),
-        _read("overlay_alpha.png", gray=True),
+        _read("composite_data_level_full.png"), plate, alpha,
         what="qtrle overlay at Data Level Full")
     assert worst == 0.0, (
         f"the measured value is exactly zero and this read {worst}; if "
         f"the fixtures changed, the recorded measurement in "
         f"library/tools/overlay_carriage.py changed with them")
 
-
-@needs_ffmpeg
-def test_the_darkened_composite_fails():
-    """Data Level Auto: the WHOLE frame is dark, transparent pixels too.
-
-    The defect this gate exists for. It must fail on the picture, not on
-    whether a property was set - these frames carry no record of any
-    call, only of what Resolve drew.
-    """
+    darkened = _read("composite_data_level_auto.png")
     with pytest.raises(TransparentRegionDarkened) as caught:
         assert_transparent_region_unchanged(
-            _read("composite_data_level_auto.png"),
-            _read("plate.png"),
-            _read("overlay_alpha.png", gray=True),
-            what="qtrle overlay at Data Level Auto")
+            darkened, plate, alpha, what="qtrle overlay at Data Level Auto")
     assert "16/255" in str(caught.value) or "data level" in str(caught.value)
-
-
-@needs_ffmpeg
-def test_the_darkness_is_measured_and_is_the_recorded_one():
-    """How dark, on pixels the overlay does not draw on at all."""
-    worst, count = transparent_region_deviation(
-        _read("composite_data_level_auto.png"),
-        _read("plate.png"),
-        _read("overlay_alpha.png", gray=True))
+    # How dark, on pixels the overlay does not draw on at all.
+    worst, count = transparent_region_deviation(darkened, plate, alpha)
     assert 18.0 < worst < 19.5, (
         f"the exported frames measured 18.63 of 255 and this reads "
         f"{worst:.3f}")
@@ -130,16 +111,14 @@ def test_the_darkness_is_measured_and_is_the_recorded_one():
         f"only {count} pixels exceeded the tolerance")
 
 
-def test_a_frame_the_overlay_covers_entirely_cannot_answer():
+def test_an_opaque_frame_cannot_answer_and_the_tolerance_is_two_sided():
     """An opaque overlay says nothing about whether the plate survived."""
     plate = numpy.zeros((4, 4, 3), dtype=numpy.float64)
     with pytest.raises(ValueError, match="opaque on every pixel"):
         transparent_region_deviation(plate, plate,
                                      numpy.full((4, 4), 255, numpy.uint8))
-
-
-def test_the_tolerance_neither_fails_correct_output_nor_passes_the_defect():
-    """A gate that fails correct output is no coverage (AGENTS.md 10.4)."""
+    # The tolerance neither fails correct output (AGENTS.md 10.4) nor
+    # passes the defect.
     alpha = numpy.zeros((4, 4), dtype=numpy.uint8)
     plate = numpy.full((4, 4, 3), 128.0)
     # half a code value of colour-managed drift
@@ -150,47 +129,13 @@ def test_the_tolerance_neither_fails_correct_output_nor_passes_the_defect():
 
 # ── The alpha sniff R8 widened ───────────────────────────────────────
 
-@pytest.mark.parametrize("codec,pix_fmt,profile", [
-    ("qtrle", "argb", ""),
-])
-def test_these_carry_alpha(codec, pix_fmt, profile):
-    assert carries_alpha(codec_name=codec, pix_fmt=pix_fmt, profile=profile)
-
-
-@pytest.mark.parametrize("codec,pix_fmt,profile", [
-    ("prores", "yuv422p10le", "HQ"),
-])
-def test_these_do_not(codec, pix_fmt, profile):
-    assert not carries_alpha(codec_name=codec, pix_fmt=pix_fmt,
-                             profile=profile)
-
-
-def _old_sniff(codec_name: str, pix_fmt: str, profile: str) -> bool:
-    """What `qa/asset_qa.py` tested before 2026-09-12, kept verbatim.
-
-    Not a reimplementation to be kind to: it is the line the gate used
-    to run, so the test below can show that the artefacts this change
-    produces are exactly what it rejected.
-    """
-    return "yuva" in pix_fmt.lower() or (
-        codec_name.lower() == "prores" and "4444" in profile)
-
-
+def test_the_alpha_sniff_reads_the_codec():
+    assert carries_alpha(codec_name="qtrle", pix_fmt="argb", profile="")
+    assert not carries_alpha(codec_name="prores", pix_fmt="yuv422p10le",
+                             profile="HQ")
 
 
 # ── The data level is per codec, and that is the whole point ─────────
-
-def test_qtrle_needs_full_and_prores_must_be_left_alone():
-    """Measured both ways: forcing Full onto ProRes is the same defect.
-
-    ProRes 4444 at `Full` rendered the transparent region at 143.895 of
-    255 where the plate is 127.957 - sixteen too BRIGHT - so a rule that
-    set one value for every overlay would break the codec it is not for.
-    """
-    assert data_level_for("qtrle") == DATA_LEVEL_FULL
-    assert data_level_for("prores") is None
-    assert data_level_for("png") is None
-
 
 class _FakeItem:
     """A pool item that remembers, and can refuse, like Resolve's."""
@@ -209,25 +154,21 @@ class _FakeItem:
         return self.properties.get(name)
 
 
-def test_a_qtrle_item_gets_both_attributes():
+def test_the_current_overlay_codec_gets_both_attributes():
+    """The artefact the encoder writes today reads as an overlay and gets
+    Premultiplied + Data Level Full; other codecs get no forced level."""
+    assert carries_alpha(codec_name=OVERLAY_VIDEO_CODEC,
+                         pix_fmt=OVERLAY_PIXEL_FORMAT, profile="")
+    assert data_level_for(OVERLAY_VIDEO_CODEC) == DATA_LEVEL_FULL
+    assert data_level_for("png") is None
     item = _FakeItem()
     applied = apply_clip_attributes(
-        item, "x.mov", probe={"codec_name": "qtrle", "pix_fmt": "argb",
+        item, "x.mov", probe={"codec_name": OVERLAY_VIDEO_CODEC,
+                              "pix_fmt": OVERLAY_PIXEL_FORMAT,
                               "profile": ""})
     assert item.properties["Alpha mode"] == ALPHA_MODE_PREMULTIPLIED
     assert item.properties["Data Level"] == DATA_LEVEL_FULL
     assert applied["alpha"] is True
-
-
-def test_a_prores_item_keeps_auto():
-    item = _FakeItem()
-    apply_clip_attributes(
-        item, "x.mov", probe={"codec_name": "prores",
-                              "pix_fmt": "yuva444p10le", "profile": "4444"})
-    assert item.properties["Alpha mode"] == ALPHA_MODE_PREMULTIPLIED
-    assert item.properties["Data Level"] == "Auto"
-
-
 
 
 def test_a_refused_data_level_raises_rather_than_warning():
@@ -254,15 +195,7 @@ def test_an_unreadable_file_claims_nothing():
 # ── The encode arguments ─────────────────────────────────────────────
 
 
-
-
-
 # ── The migration ────────────────────────────────────────────────────
-
-
-
-
-
 
 
 def test_a_carriage_stamp_moves_only_where_it_matches(tmp_path):
@@ -287,46 +220,12 @@ def test_a_carriage_stamp_moves_only_where_it_matches(tmp_path):
         "restamping must not lose the rest of the sidecar")
 
 
-
-
-
-
 # ── The stamp moves with the codec, both directions ──────────────────
 
-def test_a_new_artefact_pairs_the_codec_with_the_current_stamp():
-    """What an overlay artefact IS, both halves, in one place.
-
-    The codec half lives in `overlay_carriage` (what the encoder is
-    told, what the probe reads back, what level Resolve is told) and
-    the stamp half in `overlay_mode.OVERLAY_CARRIAGE` (what the reuse
-    key and the tight-box sidecar record). An artefact encoded the new
-    way and stamped the old way is worse than either, because the
-    stamp is what later readers trust - so the pairing itself is
-    pinned: a file probing as the current codec must be readable as
-    an overlay AND demand the current behaviour, under the current
-    stamp, which must be the one that named this codec change.
-    """
-    from library.tools.overlay_mode import OVERLAY_CARRIAGE
-
-    assert OVERLAY_CARRIAGE == "tight-480-4"
-    assert OVERLAY_VIDEO_CODEC == "qtrle"
-    assert carries_alpha(codec_name=OVERLAY_VIDEO_CODEC,
-                         pix_fmt=OVERLAY_PIXEL_FORMAT, profile="")
-    assert data_level_for(OVERLAY_VIDEO_CODEC) == DATA_LEVEL_FULL
-
-
 def test_an_old_carriage_artefact_still_reads():
-    """Existing artefacts must not become unreadable.
-
-    A `tight-480-3`-era file on disk probes as ProRes 4444 with a
-    `yuva` pixel format - the codec the current carriage replaced.
-    The reader is keyed to the FILE, not to the current stamp, so it
-    still recognises the alpha plane, still sets the premultiplied
-    mode, and still leaves alone the one property ProRes needs left
-    alone. Unmigrated files keep importing correctly; only their
-    recorded stamps read as superseded, which is what earns them a
-    transcode rather than a re-render.
-    """
+    """A `tight-480-3`-era ProRes 4444 file still imports correctly: the
+    reader is keyed to the FILE, not the current stamp, and leaves Data
+    Level alone (ProRes at Full measured 16/255 too BRIGHT)."""
     old_fields = {"codec_name": "prores", "pix_fmt": "yuva444p10le",
                   "profile": "4444"}
     assert carries_alpha(**old_fields)

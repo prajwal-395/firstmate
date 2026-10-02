@@ -1,45 +1,13 @@
 """A field a manifest does not declare cannot reach the prompt.
 
-`context_fields` is the allow-list `project_step_context` applies before
-a step's inputs are serialised into a request.  It is enforcement, not
-documentation - but only where it is READ, and where the declaration
-lives had two answers.
-
-Step 3.04 declared its allow-list under `interface`, beside the inputs
-and outputs it reads as though it belongs with.  `project_step_context`
-looks at the manifest's top level, found nothing there, and took that
-for "this step declares none" - which is a real and deliberate state
-(`render` and `validate` are in it) and therefore indistinguishable from
-the accident.  The projection never ran.  Every reel selection this
-pipeline has ever made was made from a request in which 817,317
-characters - 92% of it, 8,509 words carrying individual start/end
-timings - were the raw transcript the step's declaration had asked to
-drop.
-
-The tests here are the gate, and they are written to fail on
-`origin/main` as it stands: they read the declaration from BOTH
-locations, so they exercise the mechanism rather than the fix.
-
-- `test_a_declaration_is_where_the_projection_reads_it` fails on the
-  MISPLACED declaration.
-- `test_an_undeclared_field_cannot_reach_a_prompt` fails on the
-  CONSEQUENCE, through the real `project_step_context`.
-- `test_a_declared_field_still_reaches_the_prompt` is the other
-  direction: a gate that passed by deleting everything would be no gate.
-- `test_every_llm_step_declares_an_allow_list` derives the LLM steps
-  from the DAG, because the hand-written list in
-  `test_llm_context_routing.py` did not name `select_reels` and so had
-  never once looked at it.
-
-See library/tools/context_projector.declared_context_fields and
-AGENTS.md 10.1.
+`context_fields` is enforcement only where `project_step_context` reads it
+(the manifest's top level). History (3.04's misplaced declaration, 817,317
+characters of raw transcript): docs/evidence/context_projection.md.
 """
 
 import json
 import sys
 from pathlib import Path
-
-import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -125,8 +93,7 @@ ALL_STEP_MANIFESTS = sorted(
 # The declaration
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("step", ALL_STEP_MANIFESTS)
-def test_a_declaration_is_where_the_projection_reads_it(step):
+def test_a_declaration_is_where_the_projection_reads_it():
     """One location, and a second one is refused rather than ignored.
 
     Reading both would be two spellings of the same rule, free to
@@ -135,11 +102,14 @@ def test_a_declaration_is_where_the_projection_reads_it(step):
     dead `library/schema/manifest.schema.json` once described it too,
     but nothing ever loaded that file, so it was deleted.
     """
-    m = json.loads(
-        (STEPS / step / "manifest.json").read_text(encoding="utf-8"))
-    interface = m.get("interface") or {}
-    assert "context_fields" not in interface, (
-        f"{step} declares context_fields under `interface`, where nothing "
+    misplaced = [
+        step for step in ALL_STEP_MANIFESTS
+        if "context_fields" in (json.loads(
+            (STEPS / step / "manifest.json").read_text(encoding="utf-8")
+        ).get("interface") or {})
+    ]
+    assert not misplaced, (
+        f"{misplaced} declare context_fields under `interface`, where nothing "
         f"reads it: the projection would never run and the model would be "
         f"handed every byte the step was routed. Move it to the "
         f"manifest's top level."
@@ -152,20 +122,24 @@ def test_a_declaration_is_where_the_projection_reads_it(step):
 # The consequence
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("node_id", projecting_nodes())
-def test_an_undeclared_field_cannot_reach_a_prompt(node_id):
+def test_an_undeclared_field_cannot_reach_a_prompt():
     """Driven through the real `project_step_context`.
 
     The manifest is read whole and passed as the runner passes it, so
     this asks the question the runner asks: given what this step really
     declares, does a key it does not name survive?
     """
-    projected = project_step_context(
-        {UNDECLARED: "x" * 1000, "project_folder": "/tmp/p"},
-        manifest(node_id),
-    )
-    assert UNDECLARED not in projected, (
-        f"'{node_id}' hands the model a field its manifest does not "
+    nodes = projecting_nodes()
+    assert nodes
+    leaking = [
+        node_id for node_id in nodes
+        if UNDECLARED in project_step_context(
+            {UNDECLARED: "x" * 1000, "project_folder": "/tmp/p"},
+            manifest(node_id),
+        )
+    ]
+    assert not leaking, (
+        f"{leaking} hand the model a field its manifest does not "
         f"declare. Either the declaration is somewhere the projection "
         f"does not read, or the step is not projected at all."
     )
@@ -211,8 +185,7 @@ def _leaf_at(tree, path: str):
     return tree
 
 
-@pytest.mark.parametrize("node_id", projecting_nodes())
-def test_a_declared_field_still_reaches_the_prompt(node_id):
+def test_a_declared_field_still_reaches_the_prompt():
     """The other direction: the gate must not pass by deleting everything.
 
     A projection that dropped its own declared paths would satisfy every
@@ -220,25 +193,24 @@ def test_a_declared_field_still_reaches_the_prompt(node_id):
     tree with an undeclared sibling; the declared leaf must arrive and
     the sibling must not.
     """
-    fields = declared_anywhere(manifest(node_id))
-    keeps = [f for f in fields if not f.startswith(("-", "view:"))]
-    assert keeps, (
-        f"'{node_id}' declares no positive path, so this direction "
-        f"cannot be checked here - narrow the test, do not drop it"
-    )
-    path = keeps[0]
-    inputs = _shaped_for(path)
-    inputs["project_folder"] = "/tmp/p"
-    projected = project_step_context(inputs, manifest(node_id))
+    for node_id in projecting_nodes():
+        fields = declared_anywhere(manifest(node_id))
+        keeps = [f for f in fields if not f.startswith(("-", "view:"))]
+        assert keeps, (
+            f"'{node_id}' declares no positive path, so this direction "
+            f"cannot be checked here - narrow the test, do not drop it"
+        )
+        path = keeps[0]
+        inputs = _shaped_for(path)
+        inputs["project_folder"] = "/tmp/p"
+        projected = project_step_context(inputs, manifest(node_id))
 
-    assert _leaf_at(projected, path) == KEPT, (
-        f"'{node_id}' lost {path!r}, which its own manifest declares"
-    )
-    assert UNDECLARED not in json.dumps(projected), (
-        f"'{node_id}' kept an undeclared sibling of {path!r}"
-    )
-
-
+        assert _leaf_at(projected, path) == KEPT, (
+            f"'{node_id}' lost {path!r}, which its own manifest declares"
+        )
+        assert UNDECLARED not in json.dumps(projected), (
+            f"'{node_id}' kept an undeclared sibling of {path!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

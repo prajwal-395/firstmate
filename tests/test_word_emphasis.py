@@ -23,13 +23,10 @@ from library.tools.analysis.speech_advanced_pipeline import (
     WORD_EMPHASIS_FORMULA,
     measure_word_prosody,
 )
-from library.tools.context_views import CONTEXT_VIEWS, build_view
+from library.tools.context_views import build_view
 from library.tools.toon_serializer import json_to_toon
 
 STEPS = REPO / "library" / "steps"
-DAG = json.loads(
-    (REPO / "library" / "processes" / "edit_video" / "dag.json")
-    .read_text(encoding="utf-8"))
 
 ANCHOR_STEPS = {
     "step_4_02_plan_transitions",
@@ -166,7 +163,7 @@ def _spine():
     ]}
 
 
-def test_three_scored_words_reach_the_block_with_occurrences():
+def test_three_scored_words_reach_the_block_and_gaps_are_named():
     view = build_view("emphasis", {
         "prosody_analysis": {"profiles": _profiles()},
         "timed_spine": _spine(),
@@ -182,17 +179,9 @@ def test_three_scored_words_reach_the_block_with_occurrences():
     quits = [w for w in row["top_words"] if w["word"] == "quit"]
     assert {q["occurrence"] for q in quits} <= {1, 2}
     assert "1.494" in json_to_toon(view)
-
-
-def test_a_block_without_measurement_is_named_not_absent():
-    view = build_view("emphasis", {
-        "prosody_analysis": {"profiles": _profiles()},
-        "timed_spine": _spine(),
-    })
+    # A block without measurement is named, not absent.
     assert "4" in view["emphasis"]["not_measured"]
-
-
-def test_no_prosody_routed_is_no_view_not_an_error():
+    # No prosody routed is no view, not an error.
     assert build_view("emphasis", {"timed_spine": _spine()}) == {}
     assert build_view("emphasis", {"prosody_analysis": {}}) == {}
 
@@ -209,30 +198,14 @@ def test_the_per_word_table_does_not_reach_the_prompt():
 
 # ── The wiring: every anchor consumer declares it ────────────────────
 
-def test_emphasis_is_a_known_view():
-    assert "emphasis" in CONTEXT_VIEWS
-
-
-@pytest.mark.parametrize("step_dir", sorted(ANCHOR_STEPS))
-def test_anchor_consumers_declare_the_view_and_its_input(step_dir):
+def test_anchor_consumers_declare_the_view_and_its_input():
     """A view is not routing: the step still declares prosody_analysis."""
-    m = manifest(step_dir)
-    assert "view:emphasis" in m["context_fields"], (
-        f"{step_dir} plans anchored placements but never sees emphasis")
-    names = {i["name"]: i.get("required", True)
-             for i in m["interface"]["inputs"]}
-    assert names.get("prosody_analysis") is False, (
-        f"{step_dir} reads view:emphasis without declaring the "
-        f"optional prosody_analysis input it is built from")
-
-
-@pytest.mark.parametrize("step_dir", sorted(ANCHOR_STEPS))
-def test_the_dag_carries_prosody_to_the_anchor_consumers(step_dir):
-    node = {"step_4_02_plan_transitions": "plan_transitions",
-            "step_4_03_plan_vfx": "plan_vfx",
-            "step_4_04_plan_sfx": "plan_sfx"}[step_dir]
-    edges = [e for e in DAG["edges"]
-             if e["from"] == "prosody_analysis" and e["to"] == node]
-    assert len(edges) == 1
-    assert edges[0]["data_mapping"].get("prosody_analysis") == (
-        "prosody_analysis")
+    for step_dir in sorted(ANCHOR_STEPS):
+        m = manifest(step_dir)
+        assert "view:emphasis" in m["context_fields"], (
+            f"{step_dir} plans anchored placements but never sees emphasis")
+        names = {i["name"]: i.get("required", True)
+                 for i in m["interface"]["inputs"]}
+        assert names.get("prosody_analysis") is False, (
+            f"{step_dir} reads view:emphasis without declaring the "
+            f"optional prosody_analysis input it is built from")

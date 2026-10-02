@@ -14,8 +14,6 @@ those two classes refuse through `edit_depth` instead (proven in
 import json
 import os
 
-import pytest
-
 from library.tools import display_drift
 
 # edit_class -> a display file the pipeline writes and a rebuild eats.
@@ -42,26 +40,25 @@ def _write(root, relpath, document):
     return path
 
 
-@pytest.mark.parametrize("edit_class", sorted(DRIFT_CASES))
-def test_hand_edit_flags_with_owner_and_deep_path(tmp_path, edit_class,
-                                                  capsys):
-    root = str(tmp_path)
-    relpath = DRIFT_CASES[edit_class]
-    _write(root, relpath, {"value": "pipeline wrote this"})
-    report = display_drift.snapshot(root)
-    assert report["files"] >= 1
-    # Silence while nothing moved.
-    quiet = display_drift.check(root)
-    assert quiet["drifted"] == [] and quiet["vanished"] == []
-    assert capsys.readouterr().err == ""
-    # The shallow edit: a hand on the display file.
-    _write(root, relpath, {"value": "hand changed this"})
-    flagged = display_drift.check(root)
-    assert flagged["drifted"] == [relpath]
-    err = capsys.readouterr().err
-    assert "DISPLAY DRIFT" in err
-    assert relpath in err and edit_class in err
-    assert "deep path" in err
+def test_hand_edit_flags_with_owner_and_deep_path(tmp_path, capsys):
+    for edit_class in sorted(DRIFT_CASES):
+        root = str(tmp_path / edit_class)
+        relpath = DRIFT_CASES[edit_class]
+        _write(root, relpath, {"value": "pipeline wrote this"})
+        report = display_drift.snapshot(root)
+        assert report["files"] >= 1
+        # Silence while nothing moved.
+        quiet = display_drift.check(root)
+        assert quiet["drifted"] == [] and quiet["vanished"] == []
+        assert capsys.readouterr().err == ""
+        # The shallow edit: a hand on the display file.
+        _write(root, relpath, {"value": "hand changed this"})
+        flagged = display_drift.check(root)
+        assert flagged["drifted"] == [relpath], edit_class
+        err = capsys.readouterr().err
+        assert "DISPLAY DRIFT" in err
+        assert relpath in err and edit_class in err
+        assert "deep path" in err
 
 
 def test_vanished_file_is_named(tmp_path, capsys):

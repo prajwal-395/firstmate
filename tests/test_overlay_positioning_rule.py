@@ -1,46 +1,10 @@
 """One positioning rule, and a stored value judged against INTENT.
 
-The captain, 2026-09-11: *"to get the subtitles to the same absolute
-positioning on the y-axis in the reel, the actual y-axis value in the
-inspector tab is sometimes 0 sometimes -870. so there is something else
-at play that is affecting the positioning"*.
-
-He is right, and the rule is one sentence: **Pan/Tilt move a clip by a
-fraction of its OWN canvas, not of the frame** - the shift is
-``value * (canvas_dim / frame_dim) * base_scale``, with ``base_scale``
-1 at ``Scaling=1`` - so an overlay already rendered full-frame is in
-position at 0 while the identical caption rendered on a 480-tall tight
-canvas needs Tilt -1740 to reach the same screen row.  Both numbers are
-honest; the Inspector number is only readable with the clip's own
-resolution beside it.
-
-There is no "draw gain".  A 2.0 was briefly recorded here and it was an
-arithmetic error: it was calibrated against a CAPTURED Pan/Tilt rather
-than one it had set itself, so it paired a real still with a number
-that was by then half the value in force, and it halved every tight
-placement the engine computed.  The law now lives once, in
-``library/tools/resolve_transform.py``, measured by SETTING values and
-RENDERING - 16 plates, two builds, four processes.
-
-The measurements pinned here were read off the live project
-"Podcast (field test)" on 2026-09-11, all against exported pixels:
-
-- Reel 13 caption @854 (tight, 840x480, stored Tilt -1740.0): its ink
-  sits at canvas rows 279..432, and a correlation scan of the artefact
-  against a still EXPORTED from that timeline finds the canvas top at
-  frame row 1155 and the ink at 1434..1587.
-- Reel 13 caption @567 (full-frame, 1080x1920, stored Tilt 0.0): ink at
-  frame rows 1415..1572, drawn 1:1.
-- Reel 30's first motion graphic (tight, 724x480, stored Tilt 5184.0):
-  the rule puts its canvas at frame rows -576..-96, entirely off the
-  TOP of the frame, and a correlation scan of an exported still of that
-  frame finds the artefact nowhere in it (best MSE 17 267).  Seventeen
-  graphics across five reels carry that value and none of them is on
-  screen.
-
-The last one is why verification is against INTENT and not against a
-read-back: 5184 reads back as exactly 5184, so every gate that asks
-"did Resolve hold what I set" passes it.
+Pan/Tilt move a clip by a fraction of its OWN canvas, not of the frame
+(`library/tools/resolve_transform.py`); the numbers below are measured off
+exported stills of "Podcast (field test)" on 2026-09-11, and a value is
+verified against intent because a read-back passes an off-frame Tilt.
+History: docs/evidence/overlay_position.md#one-positioning-rule.
 """
 
 import pytest
@@ -82,7 +46,7 @@ def _p(tilt, pan=0.0):
     return {"scaling": 1, "pan": pan, "tilt": tilt}
 
 
-def test_the_rule_predicts_the_exported_still():
+def test_the_rule_predicts_the_exported_still_from_both_carriages():
     """The one relation, checked against pixels off a real timeline."""
     ox, oy = canvas_screen_origin(*TIGHT_CANVAS, _p(TIGHT_TILT), *FRAME, draw_gain=HISTORY_GAIN)
     assert oy == pytest.approx(1155.0, abs=0.5), (
@@ -91,15 +55,9 @@ def test_the_rule_predicts_the_exported_still():
     box = ink_screen_box(*TIGHT_CANVAS, _p(TIGHT_TILT), TIGHT_INK, *FRAME, draw_gain=HISTORY_GAIN)
     assert (box[1], box[3]) == pytest.approx(MEASURED_TIGHT_INK_ROWS, abs=1.0)
 
-
-
-
-def test_full_frame_needs_zero_and_tight_needs_minus_1740():
-    """Two Inspector numbers, one screen row - the captain's question.
-
-    Not a tautology: the two are computed from DIFFERENT canvases and
-    land within the tolerance of each other.
-    """
+    # Two Inspector numbers, one screen row - the captain's question:
+    # full-frame needs 0, tight needs -1740, computed from DIFFERENT
+    # canvases and landing within tolerance of each other.
     tight = ink_screen_box(*TIGHT_CANVAS, _p(TIGHT_TILT), TIGHT_INK, *FRAME, draw_gain=HISTORY_GAIN)
     full = ink_screen_box(*FRAME, None, FULL_INK, *FRAME, draw_gain=HISTORY_GAIN)
     assert full == pytest.approx(FULL_INK), (
@@ -123,7 +81,7 @@ def test_placement_for_box_and_canvas_screen_origin_round_trip():
             assert oy + canvas_h / 2.0 == pytest.approx(cy, abs=1e-6)
 
 
-def test_intent_accepts_both_carriages_and_refuses_the_off_frame_one():
+def test_intent_accepts_both_carriages_and_refuses_the_off_frame_one_a_readback_passes():
     """One intent, two carriages accepted, the off-frame value refused."""
     intent = FULL_INK  # the caption row, in frame pixels
     assert verify_ink_against_intent(*TIGHT_CANVAS, _p(TIGHT_TILT),
@@ -143,13 +101,9 @@ def test_intent_accepts_both_carriages_and_refuses_the_off_frame_one():
     assert "5184" not in reason, (
         "the reason must name the PICTURE, not re-state the number")
 
-
-def test_a_readback_cannot_see_what_intent_sees():
-    """The defect the read-back is blind to, through the placer itself.
-
-    `_intent_reason` is handed the value Resolve HELD - identical to
-    the value set, which is exactly the case a read-back passes.
-    """
+    # Through the placer itself: `_intent_reason` is handed the value
+    # Resolve HELD - identical to the value set, which is exactly the
+    # case a read-back passes.
     draw_intent = {"canvas": TIGHT_CANVAS, "frame": FRAME,
                    "ink_in_canvas": TIGHT_INK, "intent_box": FULL_INK}
     good = _intent_reason(draw_intent, _p(TIGHT_TILT),

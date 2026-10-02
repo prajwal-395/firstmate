@@ -21,6 +21,7 @@ from library.tools import graphics_renderer as engines  # noqa: E402
 
 
 def _project_with(tmp_path, value) -> str:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "project.yaml").write_text(
         f"name: Probe\nslug: probe\npipeline:\n"
         f"  graphics_renderer: {value}\n",
@@ -28,36 +29,27 @@ def _project_with(tmp_path, value) -> str:
     return str(tmp_path)
 
 
-def test_default_is_remotion_with_nothing_selected(tmp_path, monkeypatch):
+def test_the_project_wins_over_the_user_and_both_lose_to_nothing(
+        tmp_path, monkeypatch):
     monkeypatch.delenv(engines.USER_SETTING_KEY, raising=False)
     assert engines.resolve_engine(str(tmp_path)) == "remotion"
     assert engines.resolve_engine() == "remotion"
     assert not engines.is_hyperframes(str(tmp_path))
 
-
-def test_user_setting_selects_hyperframes(tmp_path, monkeypatch):
-    monkeypatch.setenv(engines.USER_SETTING_KEY, "hyperframes")
+    # The user's machine setting selects, case- and space-insensitively.
+    monkeypatch.setenv(engines.USER_SETTING_KEY, "  HyperFrames  ")
     assert engines.resolve_engine(str(tmp_path)) == "hyperframes"
     assert engines.is_hyperframes(str(tmp_path))
 
-
-def test_project_wins_over_user_hyperframes_over_remotion(
-        tmp_path, monkeypatch):
-    monkeypatch.setenv(engines.USER_SETTING_KEY, "remotion")
-    folder = _project_with(tmp_path, "hyperframes")
-    assert engines.resolve_engine(folder) == "hyperframes"
-
-
-def test_project_wins_over_user_remotion_over_hyperframes(
-        tmp_path, monkeypatch):
-    monkeypatch.setenv(engines.USER_SETTING_KEY, "hyperframes")
-    folder = _project_with(tmp_path, "remotion")
-    assert engines.resolve_engine(folder) == "remotion"
+    # The project's own declaration wins, in both directions ...
+    for user, project in (("remotion", "hyperframes"),
+                          ("hyperframes", "remotion")):
+        monkeypatch.setenv(engines.USER_SETTING_KEY, user)
+        folder = _project_with(tmp_path / project, project)
+        assert engines.resolve_engine(folder) == project
     assert not engines.is_hyperframes(folder)
 
-
-def test_project_without_declaration_falls_back_to_user(
-        tmp_path, monkeypatch):
+    # ... and a project that declares nothing falls back to the user.
     monkeypatch.setenv(engines.USER_SETTING_KEY, "hyperframes")
     (tmp_path / "project.yaml").write_text(
         "name: Probe\nslug: probe\npipeline:\n  brand_template: x\n",
@@ -65,19 +57,11 @@ def test_project_without_declaration_falls_back_to_user(
     assert engines.resolve_engine(str(tmp_path)) == "hyperframes"
 
 
-def test_unknown_user_engine_refuses(monkeypatch):
+def test_an_unknown_engine_refuses_from_either_source(tmp_path, monkeypatch):
     monkeypatch.setenv(engines.USER_SETTING_KEY, "flash")
     with pytest.raises(engines.UnknownGraphicsEngine):
         engines.resolve_engine()
-
-
-def test_unknown_project_engine_refuses(tmp_path, monkeypatch):
     monkeypatch.delenv(engines.USER_SETTING_KEY, raising=False)
     folder = _project_with(tmp_path, "flash")
     with pytest.raises(engines.UnknownGraphicsEngine):
         engines.resolve_engine(folder)
-
-
-def test_selection_is_case_and_space_insensitive(tmp_path, monkeypatch):
-    monkeypatch.setenv(engines.USER_SETTING_KEY, "  HyperFrames  ")
-    assert engines.resolve_engine(str(tmp_path)) == "hyperframes"

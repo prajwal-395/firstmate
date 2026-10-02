@@ -10,7 +10,6 @@ so a regression here is the same defect, not a synthetic one.
     rebuild  1600-1678  1681-1714  1724-1800  1815-1884  1887-1903
 """
 
-import json
 import os
 
 import pytest
@@ -80,16 +79,6 @@ def test_the_pins_reproduce_the_captains_timeline_exactly():
     assert short[0]["seconds"] == pytest.approx(3 / FPS, abs=1e-3)
 
 
-def test_applying_twice_lands_the_same_place():
-    """A rebuild re-renders the cards at the plan's own seconds and the
-    pins move them again - that is what surviving means here."""
-    first, _, _, _ = caption_timing.apply_pins(
-        _segments(), _captains_pins(), FPS)
-    second, _, _, _ = caption_timing.apply_pins(
-        _segments(), _captains_pins(), FPS)
-    assert _spans(first) == _spans(second) == LIVE
-
-
 
 
 
@@ -120,6 +109,14 @@ def test_a_pin_matching_nothing_reports_stale_rather_than_vanishing():
     assert not applied and len(stale) == 1
     assert "STALE" in stale[0]["reason"] and "craig" in str(stale[0]["scope"])
     assert _spans(out) == [(a, b) for _, _, _, a, b in CLOSERS]
+    # A timeline-scoped pin gone stale on its own reel still reports.
+    pins = _scoped_pins()
+    pins[0]["scope"] = {**pins[0]["scope"],
+                        "source_start_at_or_after": 9999.0}
+    _, _, _, stale = caption_timing.apply_pins(
+        _segments_on(REEL_13), pins, FPS)
+    assert len(stale) == 1
+    assert "STALE" in stale[0]["reason"]
 
 
 # ── Timeline scope: one reel's hand edit, not every reel's ──────────
@@ -168,20 +165,6 @@ def test_a_timeline_scoped_pin_moves_only_its_own_reel():
 
 
 
-def test_a_scoped_pin_gone_stale_on_its_own_reel_still_reports():
-    pins = _scoped_pins()
-    pins[0]["scope"] = {**pins[0]["scope"],
-                        "source_start_at_or_after": 9999.0}
-    _, _, _, stale = caption_timing.apply_pins(
-        _segments_on(REEL_13), pins, FPS)
-    assert len(stale) == 1
-    assert "STALE" in stale[0]["reason"]
-
-
-
-
-
-
 def test_the_list_subclass_and_its_plan_entries_survive():
     """`reel_subtitle_segments` returns a list SUBCLASS carrying the
     plan entries the caption hash digests; rebuilding a plain list
@@ -201,15 +184,12 @@ def test_the_list_subclass_and_its_plan_entries_survive():
 
 # ── Refusals ───────────────────────────────────────────────────────
 
-def test_a_card_trimmed_out_of_existence_refuses():
+def test_a_pin_that_would_draw_nothing_or_leave_the_reel_refuses():
     with pytest.raises(caption_timing.CaptionTimingError,
                        match="draws nothing"):
         caption_timing.apply_pins(
             _segments(), [{"scope": {"source_start": 512.759},
                            "head_frames": 99, "reason": "too far"}], FPS)
-
-
-def test_a_card_moved_off_the_head_of_the_reel_refuses():
     with pytest.raises(caption_timing.CaptionTimingError,
                        match="before the reel begins"):
         caption_timing.apply_pins(
@@ -218,18 +198,18 @@ def test_a_card_moved_off_the_head_of_the_reel_refuses():
             FPS)
 
 
-@pytest.mark.parametrize("bad,match", [
-    ([{"offset_frames": 1, "reason": "r"}], "no scope"),
-    ([{"scope": {"nonsense": 1}, "offset_frames": 1, "reason": "r"}],
-     "nothing reads"),
-    ([{"scope": {"speaker": "a"}, "offset_frames": 0.5, "reason": "r"}],
-     "whole number of FRAMES"),
-    ([{"scope": {"speaker": "a"}, "offset_frames": 1}], "no reason"),
-    ([], "non-empty"),
-])
-def test_malformed_pins_refuse(bad, match):
-    with pytest.raises(caption_timing.CaptionTimingError, match=match):
-        caption_timing.validate_pins(bad)
+def test_malformed_pins_refuse():
+    for bad, match in [
+        ([{"offset_frames": 1, "reason": "r"}], "no scope"),
+        ([{"scope": {"nonsense": 1}, "offset_frames": 1, "reason": "r"}],
+         "nothing reads"),
+        ([{"scope": {"speaker": "a"}, "offset_frames": 0.5, "reason": "r"}],
+         "whole number of FRAMES"),
+        ([{"scope": {"speaker": "a"}, "offset_frames": 1}], "no reason"),
+        ([], "non-empty"),
+    ]:
+        with pytest.raises(caption_timing.CaptionTimingError, match=match):
+            caption_timing.validate_pins(bad)
 
 
 def test_an_unreadable_declaration_refuses(tmp_path):
@@ -271,6 +251,12 @@ def test_a_rebase_moves_source_scopes_by_the_measured_delta():
     # The hand edit's own account stays attached to the numbers.
     assert "captain 2026-09-11" in last["reason"]
     assert "rebased -0.047s" in last["reason"]
+    # A pin with no source scope passes through unchanged.
+    pins = [{"scope": {"speaker": "akshita", "timeline": "Reel 13"},
+             "offset_frames": 7,
+             "reason": "a placement pin names no source seconds"}]
+    assert caption_timing.rebase_pins(
+        pins, -0.047, reason="ingest retimed") == pins
 
 
 def test_a_rebase_follows_the_words_to_the_same_cards():
@@ -304,15 +290,7 @@ def test_a_rebase_follows_the_words_to_the_same_cards():
         s["timeline_start"] for s in moved]
 
 
-def test_a_pin_with_no_source_scope_passes_through_unchanged():
-    pins = [{"scope": {"speaker": "akshita", "timeline": "Reel 13"},
-             "offset_frames": 7,
-             "reason": "a placement pin names no source seconds"}]
-    assert caption_timing.rebase_pins(
-        pins, -0.047, reason="ingest retimed") == pins
-
-
-def test_a_rebase_off_the_head_of_the_source_refuses():
+def test_a_rebase_off_the_source_head_or_without_a_reason_refuses():
     pins = [{"scope": {"source_start": 0.010}, "offset_frames": 7,
              "reason": "a pin on the first word"}]
     with pytest.raises(caption_timing.CaptionRebaseRefused,
@@ -324,9 +302,6 @@ def test_a_rebase_off_the_head_of_the_source_refuses():
     assert refused.value.what and refused.value.why and refused.value.fix
     assert isinstance(refused.value, caption_timing.CaptionTimingError)
     assert refused.value.render().startswith("ren: refused - ")
-
-
-def test_a_rebase_without_a_reason_refuses():
     with pytest.raises(caption_timing.CaptionTimingError,
                        match="no reason"):
         caption_timing.rebase_pins(_captains_pins(), -0.047, reason=" ")

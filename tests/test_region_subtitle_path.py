@@ -140,7 +140,7 @@ def test_a_region_whose_fresh_plan_is_empty_still_clears_its_block():
 
 # ── The duration-preserving refusal ──────────────────────────────────
 
-def test_a_duration_changing_splice_is_refused_naming_both_numbers(spine):
+def test_a_duration_or_block_count_changing_splice_is_refused(spine):
     """MUTATION 5: drop the duration check.
 
     mesh_spine's post_bridge lays blocks end to end from a cumulative
@@ -153,14 +153,9 @@ def test_a_duration_changing_splice_is_refused_naming_both_numbers(spine):
     assert "3.0s -> 3.5s" in str(exc.value)
     assert "every block after the change would move" in str(exc.value)
 
-
-def test_adding_or_dropping_a_block_is_refused_too(spine):
-    """MUTATION 6: compare pairwise by index instead of by position.
-
-    A count change preserves total duration while renumbering every
-    position downstream, and position is the join key for 4.01, 4.05
-    and 5.04 alike.
-    """
+    # MUTATION 6: compare pairwise by index instead of by position. A
+    # count change preserves total duration while renumbering every
+    # position downstream - the join key for 4.01, 4.05 and 5.04.
     with pytest.raises(SpliceRefused) as exc:
         assert_durations_preserved(
             spine["structure"],
@@ -213,7 +208,7 @@ def test_a_failed_render_is_REPORTED_not_dropped(tmp_path):
     assert "boom" in seg["failure"]
 
 
-def test_an_unchanged_segment_is_reused_and_says_so(tmp_path):
+def test_an_unchanged_segment_is_reused_and_a_changed_one_never_is(tmp_path):
     """MUTATION 9: mark everything `rendered`."""
     engine = _Renderer()
     first = r405.render_one_segment(_props(), str(tmp_path), "tl",
@@ -228,19 +223,9 @@ def test_an_unchanged_segment_is_reused_and_says_so(tmp_path):
     assert second["provenance"] == r405.REUSED
     assert engine.calls == 1, "the second call must not have rendered"
 
-
-def test_a_CHANGED_segment_is_never_skipped(tmp_path):
-    """MUTATION 10, and the one that matters most.
-
-    Skipping on PRESENCE would skip exactly the work an operator asked
-    for: `SEGMENT_BINDING_KEYS` carries no caption content, so a
-    text-only correction produces the identical filename - measured on
-    project 001, changing every caption in a block changed 0 of 8 names.
-    """
-    engine = _Renderer()
-    r405.render_one_segment(_props(text="before"), str(tmp_path), "tl",
-                            remotion_dir=REMOTION, renderer=engine, reuse=True,
-                            overlay_geometry="full")
+    # MUTATION 10, the one that matters most: a CHANGED segment is never
+    # skipped. Skipping on PRESENCE would skip a text-only correction
+    # (on 001, changing every caption in a block changed 0 of 8 names).
     again = r405.render_one_segment(_props(text="AFTER"), str(tmp_path), "tl",
                                     remotion_dir=REMOTION, renderer=engine,
                                     reuse=True,
@@ -287,7 +272,7 @@ def test_an_unavailable_renderer_fingerprint_refuses_reuse(tmp_path):
 
 # ── The transcript half ──────────────────────────────────────────────
 
-def test_the_transcript_splice_replaces_by_overlap_not_containment():
+def test_the_transcript_splice_replaces_by_overlap_and_rederives_word_ends():
     doc = {"speech_regions": [
         {"start": 0.0, "end": 1.5, "text": "before", "words": []},
         {"start": 1.8, "end": 4.0, "text": "straddles", "words": []},
@@ -299,6 +284,14 @@ def test_the_transcript_splice_replaces_by_overlap_not_containment():
     assert [r["text"] for r in out["speech_regions"]] == \
         ["before", "new", "after"]
 
+    # word_end_times is re-derived, not left stale.
+    doc = {"speech_regions": [{"start": 0.0, "end": 2.0, "words": [
+               {"word": "a", "start": 0.0, "end": 2.0}]}],
+           "word_end_times": [2.0]}
+    out = splice_region_index(doc, [{"start": 3.0, "end": 4.0, "words": [
+        {"word": "b", "start": 3.0, "end": 4.0}]}], 2.5, 5.0)
+    assert out["word_end_times"] == [2.0, 4.0]
+
 
 def test_a_re_measured_region_outside_its_span_is_refused():
     """Leaked padding would overwrite speech that was never re-measured."""
@@ -309,15 +302,6 @@ def test_a_re_measured_region_outside_its_span_is_refused():
     assert "padding leaked" in str(exc.value)
 
 
-def test_word_end_times_is_re_derived_not_left_stale():
-    doc = {"speech_regions": [{"start": 0.0, "end": 2.0, "words": [
-               {"word": "a", "start": 0.0, "end": 2.0}]}],
-           "word_end_times": [2.0]}
-    out = splice_region_index(doc, [{"start": 3.0, "end": 4.0, "words": [
-        {"word": "b", "start": 3.0, "end": 4.0}]}], 2.5, 5.0)
-    assert out["word_end_times"] == [2.0, 4.0]
-
-
 # ── The partial write ────────────────────────────────────────────────
 
 def _project(tmp_path, outputs):
@@ -326,7 +310,7 @@ def _project(tmp_path, outputs):
     return str(tmp_path)
 
 
-def test_a_refused_verifier_leaves_the_file_byte_identical(tmp_path):
+def test_a_refused_splice_leaves_the_file_byte_identical(tmp_path):
     project = _project(tmp_path, {"plan_subtitles": {"n": 1}})
     before = (tmp_path / "pipeline_data.json").read_bytes()
 
@@ -339,9 +323,7 @@ def test_a_refused_verifier_leaves_the_file_byte_identical(tmp_path):
             label="t", verify=boom)
     assert (tmp_path / "pipeline_data.json").read_bytes() == before
 
-
-def test_splicing_a_step_that_never_ran_is_refused(tmp_path):
-    project = _project(tmp_path, {"plan_subtitles": {}})
+    # Splicing into a step that never ran is refused.
     with pytest.raises(state_splice.StateSpliceRefused) as exc:
         state_splice.splice_step_output(
             project, "render_subtitles", lambda cur: {}, label="t")
@@ -362,20 +344,12 @@ def _runner():
     return run_pipeline
 
 
-def test_the_runner_refuses_a_region_rerun_rather_than_redoing_everything():
-    """`--rerun <step>@<span>` PARSES, and the runner cannot honour it.
-
-    What it used to do: forget the step's ledger entry and print "the
-    region scope decides what is recomputed". That sentence was not
-    true - steps run as subprocesses over JSON stdin and no step's
-    `main()` reads an address, so the step re-ran at PROJECT scope and
-    redid the whole video. For `--rerun plan_transitions@32.0-48.0` that
-    is a model re-deciding every transition in the piece, which is the
-    opposite of "leave the rest alone".
-
-    A flag that does the wrong thing while printing that it did the
-    right one is worse than one that refuses.
-    """
+def test_the_runner_refuses_a_region_rerun_and_names_what_honours_one():
+    """`--rerun <step>@<span>` PARSES, and the runner cannot honour it:
+    steps run as subprocesses and no `main()` reads an address, so it
+    used to redo the WHOLE video while printing that the region decided.
+    It refuses, naming the region operation DERIVED from the registry -
+    or saying plainly that none exists - and half-does nothing."""
     from library.tools.step_ledger import LedgerError
 
     runner = _runner()
@@ -384,39 +358,19 @@ def test_the_runner_refuses_a_region_rerun_rather_than_redoing_everything():
         runner.apply_rerun_requests(
             "/nonexistent", state, ["plan_subtitles@32.0-48.0"],
             {"plan_subtitles": "edit"}, {})
-
     message = str(exc.value)
     assert "cannot re-run part of a step" in message
-    # And it names what really does honour a region, DERIVED from the
-    # operations registry rather than written out here.
     assert "operations subtitles.plan" in message
     assert "--region 32.0-48.0" in message
-    # Nothing was half-done on the way to refusing.
     assert state == {}
 
-
-def test_the_refusal_says_so_plainly_when_no_operation_takes_a_region():
-    """`color_grade` has no region-scoped operation, so there is no
-    partial re-run of it to offer. Naming a route that does not exist is
-    worse than saying there is none."""
-    from library.tools.step_ledger import LedgerError
-
-    runner = _runner()
     with pytest.raises(LedgerError) as exc:
         runner.apply_rerun_requests(
             "/nonexistent", {}, ["color_grade@32.0-48.0"],
             {"color_grade": "edit"}, {})
-    message = str(exc.value)
-    assert "No operation on color_grade runs at a region" in message
-    assert "--rerun color_grade" in message
+    assert "No operation on color_grade runs at a region" in str(exc.value)
+    assert "--rerun color_grade" in str(exc.value)
 
-
-def test_the_refusal_names_the_region_splice_a_planner_now_offers():
-    """The mirror: `plan_transitions` gained `transitions.splice`, so a
-    region re-run of it is pointed at that operation (punch list 9)."""
-    from library.tools.step_ledger import LedgerError
-
-    runner = _runner()
     with pytest.raises(LedgerError) as exc:
         runner.apply_rerun_requests(
             "/nonexistent", {}, ["plan_transitions@32.0-48.0"],

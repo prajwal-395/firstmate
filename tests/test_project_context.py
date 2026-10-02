@@ -104,26 +104,10 @@ def test_an_image_is_listed_with_its_path_not_its_bytes(tmp_path):
     assert raw not in built
 
 
-def test_a_declaring_step_is_routed_the_map(tmp_path):
-    from library.processes.edit_video.run_pipeline import gather_step_inputs
-    project = _project_with_context(
-        tmp_path, {"note.txt": "Dusk exteriors.\n"})
-    dag = {"edges": []}
-    manifest = {"interface": {"inputs": [
-        {"name": "project_context", "type": "string", "required": False},
-        {"name": "project_folder", "type": "string", "required": False},
-    ]}}
-    state = {"project_folder": project}
-    inputs = gather_step_inputs(
-        "music_selection", dag, state, manifest=manifest, step_type="llm_only")
-    assert "project_context" in inputs
-    assert "note.txt" in inputs["project_context"]
-    assert "Dusk exteriors." in inputs["project_context"]
-
-
-def test_projection_does_not_drop_the_map(tmp_path):
-    """Restored BY NAME like creative_brief: a step's allow-list neither
-    has to list the captain's context nor can drop it."""
+def test_a_declaring_step_is_routed_the_map_through_projection(tmp_path):
+    """A step declaring `project_context` is routed the map, restored BY
+    NAME like creative_brief: its allow-list neither has to list the
+    captain's context nor can drop it."""
     from library.processes.edit_video.run_pipeline import gather_step_inputs
     project = _project_with_context(
         tmp_path, {"note.txt": "Dusk exteriors.\n"})
@@ -136,4 +120,5 @@ def test_projection_does_not_drop_the_map(tmp_path):
         {"project_folder": project, "creative_direction": {"a": 1}},
         manifest=manifest, step_type="llm_only")
     assert "note.txt" in inputs.get("project_context", "")
+    assert "Dusk exteriors." in inputs["project_context"]
 

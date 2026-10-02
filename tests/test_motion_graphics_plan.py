@@ -104,17 +104,9 @@ def test_a_span_is_read_in_timeline_seconds_and_no_block_is_consulted():
     assert moment["durationFrames"] == round(6.4 * FPS)
 
 
-def test_an_entry_with_no_timing_is_dropped_rather_than_given_a_block():
-    for missing in ("start_seconds", "duration_seconds"):
-        e = entry()
-        del e[missing]
-        resolved = resolve([e])
-        assert resolved.dropped[0].reason == "no_timing_declared", missing
-
-
 # ── 3. rows, and several graphics at once ────────────────────────────
 
-def test_two_elements_at_one_moment_get_their_own_rows_in_one_segment():
+def test_simultaneous_elements_share_a_segment_in_rows_disjoint_ones_do_not():
     """Rows are an ON-SCREEN layout, composited into one overlay clip.
 
     A second Resolve video track would have had to sit above the
@@ -135,8 +127,7 @@ def test_two_elements_at_one_moment_get_their_own_rows_in_one_segment():
     assert sorted(rows) == [0, 1]
     assert segments[0]["element_count"] == 2
 
-
-def test_overlapping_spans_are_composited_and_disjoint_ones_are_not():
+    # Overlapping spans are composited; disjoint ones are not.
     resolved = resolve([
         entry(start_seconds=0.0, duration_seconds=2.0),
         entry(start_seconds=1.0, duration_seconds=2.0, row=1),
@@ -184,27 +175,34 @@ def test_two_cards_sharing_one_row_are_reported_on_the_basis_record():
 
 # ── Refusals, all of them named ──────────────────────────────────────
 
-def test_an_element_the_renderer_cannot_draw_is_dropped_by_name():
-    """Never rendered as nothing, and never swapped for a neighbour."""
-    # Whichever entry the roster currently records as undrawable. It was
-    # `channel_bug` until its component was written; the search is over
-    # the roster so this test follows the flag rather than pinning a
-    # name that a repair makes stale.
+def test_every_entry_that_cannot_draw_is_dropped_by_name():
+    """Never rendered as nothing, never swapped for a neighbour, never
+    given a block or an emphasis nobody chose: each drop names its reason
+    out of DROP_REASONS."""
+    no_start, no_duration, no_copy = entry(), entry(), entry()
+    del no_start["start_seconds"]
+    del no_duration["duration_seconds"]
+    del no_copy["copy"]
+    cases = [
+        (no_start, "no_timing_declared"),
+        (no_duration, "no_timing_declared"),
+        (no_copy, "no_copy_for_an_element_that_needs_one"),
+        # A bare string states no tier (display vs supporting).
+        (entry(copy="A NAME"), "no_type_role_declared"),
+        (entry(anchor=mgp.ANCHOR_NEEDS_MEASUREMENT),
+         "anchor_needs_a_measurement_nothing_takes"),
+    ]
+    # Whichever roster entry is currently recorded as undrawable, if any.
     unreachable = next((e.key for e in mgv.ROSTER
                         if e.reachable != mgv.REACHABLE_NOW), None)
-    if unreachable is None:
-        pytest.skip("every roster entry is reachable; nothing to refuse. "
-                    "Runs again the moment an entry is added ahead of its "
-                    "component, which is what this test is for.")
-    resolved = resolve([entry(element=unreachable)])
-    assert resolved.dropped[0].reason == "renderer_cannot_draw_it_yet"
-    assert resolved.dropped[0].detail
-
-
-def test_an_element_that_needs_copy_and_has_none_is_dropped():
-    e = entry()
-    del e["copy"]
-    assert resolve([e]).dropped[0].reason == "no_copy_for_an_element_that_needs_one"
+    if unreachable is not None:
+        cases.append((entry(element=unreachable),
+                      "renderer_cannot_draw_it_yet"))
+    for declared, reason in cases:
+        dropped = resolve([declared]).dropped
+        assert dropped and dropped[0].reason == reason, reason
+        assert dropped[0].detail is not None
+    assert "A NAME" in resolve([entry(copy="A NAME")]).dropped[0].detail
 
 
 # ── Emphasis is declared, never assigned (AGENTS.md 10.5) ─────────────
@@ -214,12 +212,6 @@ def test_an_element_that_needs_copy_and_has_none_is_dropped():
 # mapping of role to text. A bare string, or a role the vocabulary does
 # not know, states no tier, so the entry is dropped with the reason
 # recorded rather than printed at an emphasis nobody chose.
-
-def test_a_bare_string_declares_no_tier_and_is_dropped():
-    resolved = resolve([entry(copy="A NAME")])
-    assert resolved.dropped[0].reason == "no_type_role_declared"
-    assert "A NAME" in resolved.dropped[0].detail
-
 
 def test_a_declared_mapping_of_roles_still_resolves():
     """The handoff's own shape - every run names its tier - draws."""
@@ -231,12 +223,6 @@ def test_a_declared_mapping_of_roles_still_resolves():
         ("A NAME", "display"), ("A TITLE", "supporting")]
     record = resolved.basis_record()
     assert record["resolved"] == 1
-
-
-def test_a_tracked_anchor_is_dropped_rather_than_pinned_to_a_point():
-    resolved = resolve([entry(anchor=mgp.ANCHOR_NEEDS_MEASUREMENT)])
-    assert (resolved.dropped[0].reason
-            == "anchor_needs_a_measurement_nothing_takes")
 
 
 # ── The three empty readings are spelled differently ─────────────────

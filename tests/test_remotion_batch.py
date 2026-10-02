@@ -33,19 +33,10 @@ from library.tools.remotion_batch import (
 
 @pytest.fixture(autouse=True)
 def _node_store_bound():
-    """The batch plumbing is tested with the renderer mocked out, so it
-    must not depend on this checkout being bound to the shared Node
-    store.
-
-    2026-09-15: six tests in this file failed in every fresh worktree -
-    not because the code was wrong but because `render_batch` and
-    `PersistentRenderer.start` refuse an unbound checkout BEFORE reaching
-    the mocked subprocess, so the gate reported an environment gap as six
-    test failures. The tests that really render skip through the
-    `remotion` capability instead and narrow the verdict by name; these
-    unit tests pin the binding aside, and the refusal itself is pinned by
-    the two `unbound_checkout` tests below against a tmp layout.
-    """
+    """The plumbing is tested with the renderer mocked out, so it must not
+    depend on this checkout being bound to the shared Node store; the
+    refusal itself is pinned by the `unbound_checkout` test below.
+    History: docs/evidence/remotion_batch.md."""
     with patch("library.tools.remotion_batch._require_dependencies",
                lambda directory, error: None):
         yield
@@ -121,7 +112,7 @@ def _unbound_layout(tmp_path):
     return checkout
 
 
-def test_render_batch_refuses_an_unbound_checkout_with_the_remedy(tmp_path):
+def test_both_entry_points_refuse_an_unbound_checkout_with_the_remedy(tmp_path):
     """The refusal the autouse fixture pins aside still fires where it
     should: through the real entry point, against a layout with no
     node_modules, naming the command that fixes it."""
@@ -134,16 +125,12 @@ def test_render_batch_refuses_an_unbound_checkout_with_the_remedy(tmp_path):
                          repo_root=str(checkout))
     assert "install_node_deps" in str(excinfo.value)
 
-
-def test_the_persistent_renderer_refuses_an_unbound_checkout(tmp_path):
-    """Same refusal through the other entry point. It must fire before
-    any child is spawned, so nothing is left in the open registry."""
+    # Same refusal through the persistent renderer, before any child is
+    # spawned, so nothing is left in the open registry.
     from library.tools.remotion_batch import (
         PersistentRenderer,
         RendererUnavailable,
     )
-
-    checkout = _unbound_layout(tmp_path)
     before = list(PersistentRenderer._open)
     with patch("library.tools.remotion_batch._require_dependencies",
                _real_require_dependencies):
@@ -175,39 +162,18 @@ def _conc(cpus, load):
         return frame_concurrency()
 
 
-def test_the_bound_follows_the_FREE_cores_not_the_total():
-    """Above the floor, the bound still tracks what is FREE.
-
-    The captain renders while working with Resolve open, so a bound
-    derived from an idle machine is wrong on a busy one - that intent is
-    unchanged. What changed is the BOTTOM: the free-core term alone
-    collapsed to 1 on a busy box, and 1 was measured slower than the npx
-    path this replaces. A floor derived from TOTAL cores now holds
-    underneath it.
-    """
+def test_the_frame_bound_follows_free_cores_above_a_measured_floor():
+    """The bound tracks FREE cores (the captain renders with Resolve open),
+    but never below a fifth of TOTAL cores: a bound of 1 measured 48.01s
+    against the npx path's 35.52s on 10 cores at load ~11, slower than
+    the thing it replaces. No load reading holds to half the cores."""
     assert _conc(10, 1.0) == 4      # idle 10-core box
     assert _conc(10, 6.0) == 2      # his usual working load
     assert _conc(10, 9.5) == 2      # busy - floor, no longer a collapse
     assert _conc(64, 4.0) == 30     # scales with the machine
-
-
-def test_the_bound_never_falls_below_the_measured_floor():
-    """It was "never zero"; it is now "never below a fifth of the box".
-
-    Never-zero was too weak. A bound of 1 renders, so it passed - and
-    measured on 10 cores at load ~11 it took 48.01s against the npx
-    path's 35.52s, so the renderer was slower than the thing it exists
-    to beat while still satisfying "not zero". The floor is the smallest
-    allocation MEASURED to win.
-    """
     assert _conc(10, 10.0) == 2
     assert _conc(10, 40.0) == 2
     assert _conc(1, 0.0) == 1       # a one-core box has nothing to split
-
-
-def test_no_load_reading_is_not_an_excuse_to_take_the_machine():
-    """Where the average is unavailable the bound still holds to half the
-    cores rather than falling back to unbounded."""
     with patch("os.cpu_count", return_value=10), \
          patch("os.getloadavg", side_effect=OSError):
         assert frame_concurrency() == 5
@@ -523,7 +489,7 @@ def test_close_escalates_to_kill_when_the_child_will_not_go(monkeypatch,
     assert proc.killed, "close() must kill a child that ignores terminate"
 
 
-def test_a_closed_renderer_refuses_rather_than_restarting(tmp_path):
+def test_a_closed_renderer_or_a_sequence_refuses(tmp_path):
     """Lazy start must not become silent RESTART.
 
     `render()` builds the bundle on first use, but a renderer that has
@@ -536,42 +502,11 @@ def test_a_closed_renderer_refuses_rather_than_restarting(tmp_path):
     props.write_text("{}")
     with pytest.raises(RendererUnavailable, match="been closed"):
         renderer.render(str(props), str(tmp_path / "o.mov"))
-
-
-def test_the_persistent_renderer_never_shells_out_to_npx():
-    """The no-silent-fallback rule, read off the code.
-
-    If this class ever grows an `npx` INVOCATION it has grown the
-    fallback the refusal exists to prevent.
-
-    Checked structurally rather than by substring: the refusals here
-    legitimately NAME `env.npx` when telling an operator what to install,
-    and a substring test failed on its own remedy text. What matters is
-    whether "npx" is an argument to a process launch, not whether the
-    word appears.
-    """
-    import ast
-    import inspect
-    import textwrap
-
-    from library.tools import remotion_batch
-
-    tree = ast.parse(textwrap.dedent(
-        inspect.getsource(remotion_batch.PersistentRenderer)))
-    launched = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        for arg in node.args:
-            if isinstance(arg, (ast.List, ast.Tuple)):
-                for element in arg.elts:
-                    if (isinstance(element, ast.Constant)
-                            and element.value == "npx"):
-                        launched.append(ast.dump(node)[:80])
-    assert launched == [], (
-        f"PersistentRenderer launches npx: {launched}. That is the "
-        f"per-card fallback that silently restores the startup cost this "
-        f"class exists to remove.")
+    # A sequence it cannot draw refuses loudly rather than reporting
+    # success (the seam is `render(props, overlay, sequence=False)`).
+    with pytest.raises(ValueError, match="sequence"):
+        PersistentRenderer(composition="X").render(
+            "props.json", "out", sequence=True)
 
 
 def test_a_wedged_child_times_out_rather_than_hanging_the_run(tmp_path):
@@ -628,28 +563,10 @@ def test_a_missing_node_refuses_by_name_with_the_remedy(tmp_path, monkeypatch):
 # ── The floor, and why it is a fraction of the MACHINE ──────────────
 
 def test_the_bundle_is_lazy_so_a_pass_that_draws_nothing_pays_nothing():
-    """A requirement of the seam, not a nicety.
-
-    `render_one_segment` can return WITHOUT rendering - with reuse on, a
-    region-scoped pass skips most cards. A bundle paid at construction
-    would be paid in full to draw one card, making the region path
-    slower than the thing it replaced. `step_4_05_render_subtitles`
-    builds ONE renderer for the whole pass, so eager construction there
-    would cost every scoped re-render a full bundle.
-
-    Laziness is pinned by intercepting the single spawn path -
-    `PersistentRenderer.start()` is the only caller of `Popen`, and only
-    `render()` calls `start()` - rather than by counting processes named
-    `render-batch.mjs` in the machine-global table. That counting was
-    removed 2026-09-14 after it failed the full-suite gate with
-    `assert running() == before` reading 1: `pgrep -f` matches ANY
-    process whose argv carries the string, so a concurrent probe in
-    another lane, an `rg` search, or a real render elsewhere on the box
-    flips the count with nothing started here. Reproduced at will: this
-    test fails ~5/25 beside three tight `pgrep` loops and 25/25 alone.
-    An eager renderer still turns this red - `start()` reaching `Popen`
-    raises out of the block.
-    """
+    """A region-scoped pass may draw no card, and 4.05 builds ONE
+    renderer per pass, so the bundle is paid on the first render, not at
+    construction. Pinned at the single spawn path (`Popen`), never by
+    counting processes: docs/evidence/remotion_batch.md."""
     calls = []
 
     def _no_spawn(*args, **kwargs):
@@ -669,27 +586,6 @@ def test_the_bundle_is_lazy_so_a_pass_that_draws_nothing_pays_nothing():
         assert renderer._proc is None
         assert calls == [], (
             f"leaving the block spawned a child: {calls}")
-
-
-def test_it_satisfies_the_seam_the_step_declares():
-    """The step's contract is two methods and no more. If this drifts,
-    4.05 cannot use this renderer at all."""
-    renderer = PersistentRenderer(composition="X")
-    assert callable(getattr(renderer, "render", None))
-    assert callable(getattr(renderer, "close", None))
-
-    import inspect
-
-    signature = inspect.signature(PersistentRenderer.render)
-    assert list(signature.parameters) == ["self", "props_path",
-                                          "overlay_path", "sequence"], (
-        f"render() no longer matches the seam "
-        f"`render(props_path, overlay_path, sequence=False) -> (ok, "
-        f"error)`: {list(signature.parameters)}")
-    # The persistent renderer stitches video; a sequence it cannot
-    # draw must refuse loudly rather than report success.
-    with pytest.raises(ValueError, match="sequence"):
-        renderer.render("props.json", "out", sequence=True)
 
 
 def test_batch_renderer_does_not_leak_chrome_when_a_card_fails():

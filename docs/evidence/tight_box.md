@@ -140,3 +140,37 @@ known in full-frame coordinates yields the three SetProperty values
 that put it there. Every SetProperty is still judged by its return
 value at placement time - this module computes, Resolve disposes.
 ```
+
+## Feasibility (2026-09-08)
+
+Moved from the module docstring of `tests/test_tight_box.py`.
+
+```text
+A caption card is mostly transparent canvas. Render only the ink.
+
+Today every subtitle segment renders at the full delivery frame
+(1080x1920) - two million pixels per frame to draw a caption occupying
+a few percent of them. That is slow to render, heavy on disk, and fixes
+the position at render time, so repositioning means re-rendering.
+
+A tight box renders only the drawn bounds - the union of the segment's
+cards, bottom-anchored exactly as the composition lays them out - and
+lands on the Resolve timeline as a small clip placed at an offset
+(`Scaling=1` for native pixels, then Pan/Tilt). Smaller, faster, and
+MOVABLE after the fact.
+
+Feasibility, measured 2026-09-08 on a scratch Resolve project (never
+the captain's):
+- `ImportMedia` takes a smaller-than-timeline ProRes mov and places it.
+- Per-clip `Scaling=1` draws it at native pixels, centred. 0 and 2 fit
+  the image to the frame; 3 stretches it full-frame.
+- Pan/Tilt move it in measured output pixels: shift_x = Pan *
+  (placed_W / timeline_W), shift_y = -Tilt * (placed_H / timeline_H).
+- `ImportMedia` of N PNG frames yields ONE pool item whose File Path
+  reads `seq_[0001-0005].png`, and it places with a frame duration.
+- `timeline.CreateCompoundClip` exists and returns an object.
+
+So both halves of the captain's note are real: the bounds are knowable
+at plan time (the fitter already measures every word in pixels), and
+Resolve accepts frames directly.
+```

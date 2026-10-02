@@ -18,18 +18,14 @@ from dataclasses import replace
 import pytest
 
 from library.tools import full_frame_element as ffe
-from library.tools import motion_graphics_vocabulary as mg
 
 
 # ── The roster ───────────────────────────────────────────────────────
 
 
-def test_the_roster_is_well_formed():
+def test_the_roster_is_well_formed_and_the_gate_can_fail():
+    """The gate refuses an entry stating only what a thing IS."""
     ffe.assert_roster_is_well_formed()
-
-
-def test_the_roster_gate_can_fail_on_an_entry_with_no_refusals():
-    """The gate that refuses an entry stating only what a thing IS."""
     bad = replace(ffe.ROSTER[0], never=())
     original = ffe.ROSTER
     try:
@@ -86,7 +82,7 @@ def test_the_valid_declaration_is_accepted():
     assert normalised[0]["runs"][0]["bind"] == "opening_line"
 
 
-@pytest.mark.parametrize("overrides,expect", [
+MALFORMED_DECLARATIONS = [
     ({"element": None}, "names no `element`"),
     ({"element": "intro_card"}, "bookend"),
     ({"element": "title_lockup"}, "overlay roster"),
@@ -108,13 +104,17 @@ def test_the_valid_declaration_is_accepted():
     ({"y": 1.4}, "between 0 and 1"),
     ({"y": "middle"}, "between 0 and 1"),
     ({"opening_seconds": 0}, "positive number"),
-])
-def test_a_malformed_declaration_is_refused_by_name(overrides, expect):
-    with pytest.raises(ffe.FullFrameDeclarationError, match=expect):
-        ffe.declared_elements(declare(**overrides))
+]
 
 
-@pytest.mark.parametrize("run,expect", [
+def test_a_malformed_declaration_is_refused_by_name():
+    for overrides, expect in MALFORMED_DECLARATIONS:
+        with pytest.raises(ffe.FullFrameDeclarationError, match=expect):
+            ffe.declared_elements(declare(**overrides))
+            pytest.fail(f"accepted {overrides}")
+
+
+MALFORMED_RUNS = [
     ({"text": "A", "bind": "speakers", "type_role": "display",
       "colour": "#FFF"}, "both `text` and `bind`"),
     ({"type_role": "display", "colour": "#FFF"}, "neither `text` nor `bind`"),
@@ -127,14 +127,15 @@ def test_a_malformed_declaration_is_refused_by_name(overrides, expect):
     ({"text": "A", "type_role": "display"}, "no `colour`"),
     ({"text": "A", "type_role": "display", "colour": "#FFF",
       "font_size": -4}, "positive number"),
-])
-def test_a_malformed_run_is_refused_by_name(run, expect):
-    with pytest.raises(ffe.FullFrameDeclarationError, match=expect):
-        ffe.declared_elements(declare(runs=[run]))
+]
 
 
-def test_a_run_may_state_its_own_words():
-    """The other direction: literal copy is legal and is not a binding."""
+def test_a_malformed_run_is_refused_by_name():
+    for run, expect in MALFORMED_RUNS:
+        with pytest.raises(ffe.FullFrameDeclarationError, match=expect):
+            ffe.declared_elements(declare(runs=[run]))
+            pytest.fail(f"accepted {run}")
+    # The other direction: literal copy is legal and is not a binding.
     normalised = ffe.declared_elements(declare(runs=[
         {"text": "Season two", "type_role": "supporting", "colour": "#FFF"}]))
     assert normalised[0]["runs"][0]["text"] == "Season two"
@@ -185,15 +186,12 @@ def _transcript():
     }]}
 
 
-def test_the_opening_line_is_quoted_from_the_ranges_the_reel_plays():
+def test_the_opening_line_is_quoted_from_the_ranges_the_reel_plays_or_refused():
     facts = ffe.ReelFacts.from_moment(
         _Moment(), [(10.0, 16.0)], _transcript(), opening_seconds=3.0)
     assert facts.opening_line().startswith("So ranking number one")
     assert facts.reel_number == 7
-
-
-def test_a_card_asking_for_more_opening_than_was_measured_is_refused():
-    """Never a quotation quietly shorter than the one declared."""
+    # Never a quotation quietly shorter than the one declared.
     facts = ffe.ReelFacts.from_moment(
         _Moment(), [(10.0, 16.0)], _transcript(), opening_seconds=2.0)
     with pytest.raises(ffe.FullFrameDeclarationError, match="measured over"):

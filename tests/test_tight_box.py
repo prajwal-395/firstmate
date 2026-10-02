@@ -1,34 +1,12 @@
 """A caption card is mostly transparent canvas. Render only the ink.
 
-Today every subtitle segment renders at the full delivery frame
-(1080x1920) - two million pixels per frame to draw a caption occupying
-a few percent of them. That is slow to render, heavy on disk, and fixes
-the position at render time, so repositioning means re-rendering.
-
-A tight box renders only the drawn bounds - the union of the segment's
-cards, bottom-anchored exactly as the composition lays them out - and
-lands on the Resolve timeline as a small clip placed at an offset
-(`Scaling=1` for native pixels, then Pan/Tilt). Smaller, faster, and
-MOVABLE after the fact.
-
-Feasibility, measured 2026-09-08 on a scratch Resolve project (never
-the captain's):
-- `ImportMedia` takes a smaller-than-timeline ProRes mov and places it.
-- Per-clip `Scaling=1` draws it at native pixels, centred. 0 and 2 fit
-  the image to the frame; 3 stretches it full-frame.
-- Pan/Tilt move it in measured output pixels: shift_x = Pan *
-  (placed_W / timeline_W), shift_y = -Tilt * (placed_H / timeline_H).
-- `ImportMedia` of N PNG frames yields ONE pool item whose File Path
-  reads `seq_[0001-0005].png`, and it places with a frame duration.
-- `timeline.CreateCompoundClip` exists and returns an object.
-
-So both halves of the captain's note are real: the bounds are knowable
-at plan time (the fitter already measures every word in pixels), and
-Resolve accepts frames directly.
+A tight box renders only the drawn bounds, bottom-anchored exactly as the
+composition lays them out, and lands as a small clip placed by
+`Scaling=1` plus Pan/Tilt. Feasibility measurements:
+docs/evidence/tight_box.md#feasibility-2026-09-08.
 """
 import os
 import shutil
-import subprocess
 import sys
 
 import pytest
@@ -38,21 +16,10 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.tight_box import (  # noqa: E402
-    MIN_CANVAS_HEIGHT,
-    PAD_BOTTOM,
-    PAD_TOP,
-    PAD_X,
-    RAIL_HEADROOM_FRACTION,
-    TRAILING_MARGIN_PX,
-    TightBox,
     TightBoxClipsInk,
     constant_caption_box,
-    grow_to_hold_rail,
-    grow_to_minimum,
-    ink_touches_edge,
     ink_touches_edge_frames,
     placement_for_box,
-    placement_limits,
     tighten_subtitle_props,
 )
 
@@ -124,33 +91,22 @@ def _props(style=None, cards=None):
     }
 
 
-
-
-def test_canvas_dimensions_are_even():
-    box = tighten_subtitle_props(_props())
-    assert box.width % 2 == 0
-    assert box.height % 2 == 0
-
-
-def test_wrapping_basis_is_unchanged_so_layout_matches_full_canvas():
-    """The tight render must wrap exactly like the full-canvas one.
-
-    captionMaxWidth is what the flex container wraps against. If the
-    tight props changed it, cards would break onto different lines and
-    the box would fit a layout the full render never drew.
-    """
+def test_the_box_wraps_like_the_full_canvas_on_even_dimensions():
+    """The tight render must wrap exactly like the full-canvas one:
+    captionMaxWidth is what the flex container wraps against, and the
+    canvas never narrows past it (a two-letter card would otherwise ship
+    ~100px wide and the render would rewrap taller and clip)."""
     props = _props()
     box = tighten_subtitle_props(props)
+    assert box.width % 2 == 0
+    assert box.height % 2 == 0
     assert box.props["style"]["captionMaxWidth"] == \
         props["style"]["captionMaxWidth"]
     assert box.props["width"] == box.width
     assert box.props["height"] == box.height
-
-
-
-
-
-
+    box = tighten_subtitle_props(_props(cards=[_card("hi", 0, 20)]))
+    assert box.width == 840
+    assert box.props["style"]["captionMaxWidth"] == 840
 
 
 def test_tilt_puts_canvas_bottom_where_full_canvas_put_content():
@@ -175,8 +131,6 @@ def test_tilt_puts_canvas_bottom_where_full_canvas_put_content():
         -dy * (FULL_H / box.height))
 
 
-
-
 def test_placement_for_box_uses_measured_resolve_units():
     """Pan/Tilt move a native-pixel clip by its OWN size proportion.
 
@@ -197,19 +151,11 @@ def test_placement_for_box_uses_measured_resolve_units():
     assert p["tilt"] == pytest.approx(300, abs=3)
 
 
-
-
-
-
 def test_emphasis_words_widen_the_box():
     plain = _props(cards=[_card("very small", 0, 20)])
     emph = _props(cards=[_card("very small", 0, 20, emphasis=("small",))])
     assert (tighten_subtitle_props(emph).union_w
             > tighten_subtitle_props(plain).union_w)
-
-
-
-
 
 
 def test_missing_geometry_refuses_like_the_component():
@@ -225,40 +171,6 @@ def test_missing_geometry_refuses_like_the_component():
         tighten_subtitle_props(_props(style=style))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def test_predictor_floors_canvas_to_caption_max_width():
-    """The predictor's canvas never narrows past the wrap width.
-
-    Below `captionMaxWidth` the render would rewrap onto more lines
-    than the box planned for - which is exactly the failure that
-    makes per-segment prediction unsafe. A two-letter card measures
-    far narrower than the 840px wrap, so without the floor this box
-    ships ~100px wide and the render wraps taller and clips.
-    """
-    box = tighten_subtitle_props(_props(cards=[_card("hi", 0, 20)]))
-    assert box.width == 840
-    assert box.props["style"]["captionMaxWidth"] == 840
-
-
-
-
-
-
-
-
 def test_constant_canvas_refuses_a_wrap_the_frame_cannot_hold():
     """THE input that breaks it: a project declaring `captionMaxWidth`
     2000 on a 1080-wide frame needs a 2064-wide canvas, which leaves
@@ -267,10 +179,6 @@ def test_constant_canvas_refuses_a_wrap_the_frame_cannot_hold():
     props = _props(style=_style(captionMaxWidth=2000))
     with pytest.raises(TightBoxClipsInk):
         constant_caption_box(props)
-
-
-
-
 
 
 def _guard_frames(d, size, rects):
@@ -287,7 +195,8 @@ def _guard_frames(d, size, rects):
     return sorted(os.path.join(d, f) for f in os.listdir(d))
 
 
-def test_edge_guard_passes_interior_ink(tmp_path):
+def test_edge_guard_passes_interior_ink_fires_on_edge_ink_names_empty(
+        tmp_path):
     paths = _guard_frames(str(tmp_path / "ok"), (904, 480),
                           [(302, 200, 602, 280)] * 3)
     guard = ink_touches_edge_frames(paths, 904, 480)
@@ -295,20 +204,14 @@ def test_edge_guard_passes_interior_ink(tmp_path):
     assert guard.empty is False
     assert guard.frames == 3
 
-
-def test_edge_guard_fires_on_edge_ink(tmp_path):
     paths = _guard_frames(str(tmp_path / "edge"), (904, 480),
                           [(302, 200, 602, 280), (100, 100, 904, 200)])
     guard = ink_touches_edge_frames(paths, 904, 480)
     assert guard.touches_edge is True
     assert guard.border_max >= 32
 
-
-def test_edge_guard_names_an_empty_render(tmp_path):
     paths = _guard_frames(str(tmp_path / "blank"), (904, 480),
                           [None, None])
     guard = ink_touches_edge_frames(paths, 904, 480)
     assert guard.touches_edge is False
     assert guard.empty is True
-
-

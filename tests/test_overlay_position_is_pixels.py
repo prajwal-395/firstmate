@@ -1,43 +1,6 @@
 """An overlay's position is carried on Pan/Tilt Resolve actually holds.
 
-HISTORY, kept as evidence: the captain reported the same defect twice -
-captions in the timeline carrying absurd Pan/Tilt values (they quoted
-y=-7680), some on screen and some completely off frame. Read off the
-live timeline on 2026-09-10, the rail Resolve held on that
-1080x1920 project was -3840 - HALF what the first repair gated on,
-which is why that repair refused one card and let 37 ride onto the
-clamp. That reading does not reproduce - the rail is the 4x law now
-(`tight_box.MEASURED_RAILS`: Pan 4320 / Tilt 7680 here, captain's call
-2026-09-13) - but the SHIPPED_AND_HELD table below is what that day
-actually measured, and the arithmetic it pins still explains the
-incident. The measurement below says why, and pins the numbers the
-clamp gate (`tight_box.placement_holds`) and the 480-pixel canvas
-floor (`tight_box.MIN_CANVAS_HEIGHT`) were first calibrated against.
-
-THE ROOT CAUSE, as arithmetic. Resolve's per-clip Pan/Tilt move a
-clip by a fraction of its OWN size - shift = Pan * (clip_dim /
-timeline_dim) * base_scale, the one measured law in
-`library/tools/resolve_transform.py` - while Resolve pins the property
-at a rail it does not report and refuses silently past it. On the
-captain's 1080x1920 reels every caption box was bottom-anchored with
-its lower edge at y=1636, so a 152-tall canvas asks for Tilt -7578.9
-and gets -3840. `test_the_cliff_*` below reproduces the shipped asking
-values from that arithmetic, and `test_the_floor_clears_the_cliff`
-proves the answer: a canvas floored at 480 asks for -1744, which is
-comfortably inside the rail. (A "draw gain of 2" was recorded here
-between 2026-09-11 and this file's correction; it was calibrated
-against a captured Pan/Tilt rather than one it had set, and it is
-gone.)
-
-THE CARRYING, as a property. A tight overlay renders only its drawn
-bounds and lands on the timeline in three moves: `AppendToTimeline`
-puts it down, `Scaling=1` draws it at native pixels, and Pan/Tilt move
-it onto the full-frame coordinates the box computed - every one judged
-by what Resolve RETURNS and then READ BACK, because past the rail the
-return is a lie. The tests here prove the pipeline cannot express a
-placement the gate would refuse, that a pre-carriage artefact cannot
-be reused, and that a placed overlay Resolve has moved is REPORTED BY
-NAME rather than shipped quietly.
+See `docs/evidence/overlay_position.md` for the incident and root cause analysis.
 """
 import json
 import os

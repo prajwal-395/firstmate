@@ -9,7 +9,6 @@ tight crop IS its probe's region rather than asserting it.
 Synthetic and small; the ffmpeg tests need it (CI installs it,
 AGENTS.md 9). Nothing reaches Resolve or a real project.
 """
-import json
 import os
 import shutil
 import subprocess
@@ -27,12 +26,10 @@ if PROJECT_ROOT not in sys.path:
 from library.tools import mg_tight_box as mgt  # noqa: E402
 from library.tools.tight_box import (  # noqa: E402
     InkUnion,
-    TightBox,
     TightBoxClipsInk,
     TightBoxMismatch,
     canvas_offset,
     crop_probe_to_tight,
-    placement_for_box,
 )
 
 
@@ -99,38 +96,29 @@ def test_measured_union_binds_to_padded_canvas_at_union_centre():
         "top": 48 + 262, "right": 48, "bottom": 48, "left": 48}
 
 
-def test_empty_union_is_a_refusal_not_a_box():
+def test_a_union_that_cannot_bind_is_refused_by_name():
+    """Empty ink is a refusal, not a box; a union wider than the frame,
+    one at the frame edge with no pad to give, and a timeline whose rail
+    nobody probed all refuse rather than placing against a guess."""
     box, refusal = mgt.tighten_measured_mg_with_reason(
         _props([_lower_third()]),
         InkUnion(x0=10, y0=10, x1=10, y1=10, inked_frames=0))
     assert box is None
     assert refusal.reason == "nothing_drawn"
-
-
-def test_union_bigger_than_the_frame_raises_with_a_refusal():
-    with pytest.raises(TightBoxClipsInk) as excinfo:
-        mgt.tighten_measured_mg_with_reason(
-            _props([_lower_third()]),
-            InkUnion(x0=0, y0=0, x1=2000, y1=100, inked_frames=10))
-    assert excinfo.value.refusal.reason == "canvas_larger_than_frame"
-
-
-def test_unmeasured_timeline_refuses_the_transform():
-    """A rail nobody probed is not evidence: the gate refuses rather
-    than placing against another frame's number."""
-    with pytest.raises(TightBoxMismatch) as excinfo:
-        mgt.tighten_measured_mg_with_reason(
-            _props([_lower_third()]), AKSHITA_UNION,
-            timeline_size=(640, 480))
-    assert excinfo.value.refusal.reason == "placement_unholdable"
-
-
-def test_union_at_the_frame_edge_has_no_pad_to_give():
-    with pytest.raises(TightBoxMismatch) as excinfo:
-        mgt.tighten_measured_mg_with_reason(
-            _props([_lower_third()]),
-            InkUnion(x0=0, y0=784, x1=602, y1=906, inked_frames=10))
-    assert excinfo.value.refusal.reason == "pads_leave_frame"
+    for error, union, kwargs, reason in (
+        (TightBoxClipsInk,
+         InkUnion(x0=0, y0=0, x1=2000, y1=100, inked_frames=10), {},
+         "canvas_larger_than_frame"),
+        (TightBoxMismatch, AKSHITA_UNION, {"timeline_size": (640, 480)},
+         "placement_unholdable"),
+        (TightBoxMismatch,
+         InkUnion(x0=0, y0=784, x1=602, y1=906, inked_frames=10), {},
+         "pads_leave_frame"),
+    ):
+        with pytest.raises(error) as excinfo:
+            mgt.tighten_measured_mg_with_reason(
+                _props([_lower_third()]), union, **kwargs)
+        assert excinfo.value.refusal.reason == reason
 
 
 def _encode_mov(png_paths, mov_path, width, height):

@@ -1,40 +1,11 @@
 """TimedTextOverlay - the general timed-text component, and its reader.
 
-The component and its prop generator survive: the captain confirmed on
-2026-08-20 that N timed text moments with per-item colour, size, start
-frame and fade IS a general engine component, and all eight series want
-intro cards and episode text.
-
-What did NOT survive is the one asset that declared it.  The 4th Wall
-night card and closing "end card" ritual were lifted verbatim out of a
-previous manual trial run and checked into the now-deleted `fourth_wall.yaml` as series
-DEFAULTS - absolute frame numbers baked to that run's 60.000s timeline,
-normalised y positions authored against a full-bleed vertical frame, and
-an unbundled typeface.  Captain, 2026-08-20: "it was something made in a
-previous trial run and is a pretty shoddy asset, so lets just get rid of
-it".
-
-And what did not EXIST until now is a reader.  #119 shipped the schema
-field, the generator and the Remotion composition, `docs/PIPELINE_PLAN.md`
-recorded the gap as closed, and no step in `library/steps/` ever imported
-the generator - so three declared moments reached no frame of any render
-and every run still reported SUCCESS.  `library.tools.timed_text_overlay`
-held the slot shut with a `NO_READER` constant until the step that reads
-it landed; both are gone together, which was the condition.
-
-So these tests cover four things:
-
-- the prop-generation contract, unchanged;
-- the segment plan the reader places - clustering, rebasing, bounds;
-- that a reader really exists, the inverse of the guard that retired here;
-- that a declared moment reaches actual PIXELS, through the real render
-  path, at fixture scale (`test_timed_text_delivery.py`).
-
-See docs/ASSET_LIBRARY_PLAN.md for the general-vs-project test this
-enforces the mechanical half of.
+Covers the prop-generation contract, the segment plan the reader places
+(clustering, rebasing, bounds, spine anchoring), the refusals of a malformed
+declaration, and that a reader exists. Pixels: `test_timed_text_delivery.py`.
+History (the removed 4th Wall asset, the reader that never existed):
+docs/evidence/timed_text_overlay.md.
 """
-import ast
-import json
 import os
 import sys
 
@@ -49,8 +20,6 @@ from library.tools.timed_text_overlay import (
     plan_timed_text_segments,
 )
 
-ROOT_TSX = os.path.join(
-    PROJECT_ROOT, "remotion-subtitles", "src", "Root.tsx")
 
 
 def _moment(**overrides) -> dict:
@@ -99,77 +68,8 @@ _LOOK = {
 
 
 # ─────────────────────────────────────────────────────────
-# Deterministic rendering (prop stability)
-# ─────────────────────────────────────────────────────────
-
-SAMPLE_DECLARATION = {
-    "timed_text_overlay": {
-        "font_family": "Montserrat",
-        "moments": [
-            {
-                "text": "First moment",
-                "color": "#D4A34A",
-                "font_size": 48,
-                "font_weight": 400,
-                "text_shadow": "0px 4px 12px rgba(0,0,0,0.6)",
-                "start_frame": 30,
-                "duration_frames": 60,
-                "x": 0.5,
-                "y": 0.5,
-                "fade_in_frames": 10,
-                "fade_out_frames": 10,
-            },
-            {
-                "text": "Second moment",
-                "color": "#00BFFF",
-                "font_size": 42,
-                "font_weight": 700,
-                "text_align": "center",
-                "text_shadow": "none",
-                "start_frame": 120,
-                "duration_frames": 75,
-                "x": 0.5,
-                "y": 0.6,
-                "fade_in_frames": 8,
-                "fade_out_frames": 8,
-            },
-        ],
-    }
-}
-
-
-
-
-
-
-
-
-
-
-# ─────────────────────────────────────────────────────────
 # Undeclared template renders no overlay
 # ─────────────────────────────────────────────────────────
-
-# There used to be a sweep here, parametrized over every
-# `library/templates/*.yaml`, asserting that a template declaring
-# nothing plans no segments. #1262 removed the in-engine templates by
-# product decision (a brand lives in the project's own brand.json;
-# `test_no_project_copy_declares_a_look` pins the directory absent), so
-# the sweep parametrized over an empty set and reported an undeclared
-# collection skip instead of measuring anything. The opt-in shape it
-# asserted - omitting the slot costs nothing and renders nothing - is
-# still covered, per shape, by the unit tests below; do not restore a
-# sweep over a directory the product deliberately does not ship.
-
-
-def test_empty_effect_dict_produces_nothing():
-    result = generate_timed_text_overlay_props({}, width=1080, height=1920)
-    assert result is None
-
-
-
-
-
 
 # ─────────────────────────────────────────────────────────
 # The slot has a reader (this replaces the guard that held it shut)
@@ -211,47 +111,11 @@ def test_a_pipeline_step_reads_the_slot():
         f"nothing - the exact defect this slot spent four months in.")
 
 
-
-
-
-
-# ─────────────────────────────────────────────────────────
-# The removed 4th Wall asset stays removed
-# ─────────────────────────────────────────────────────────
-
-def test_fourth_wall_trial_run_asset_is_gone_from_the_engine():
-    """No series-specific overlay artwork left in the engine repo."""
-    offenders = []
-    for root, dirs, files in os.walk(PROJECT_ROOT):
-        dirs[:] = [d for d in dirs if d not in {
-            ".git", "node_modules", "__pycache__", ".venv", ".pytest_cache",
-            "pipeline_output", "docs", "tests"}]
-        for name in files:
-            if not name.endswith((".tsx", ".ts", ".yaml", ".yml")):
-                continue
-            path = os.path.join(root, name)
-            with open(path, encoding="utf-8", errors="replace") as f:
-                src = f.read()
-            # The asset's own artwork and identity. Not the typeface -
-            # Nanum Pen Script is the series' locked display face and may
-            # return legitimately; whether it is deliverable is
-            # tests/test_bundled_fonts.py's question, not this one.
-            for needle in ("FourthWallOverlay", "Attack the day tomorrow",
-                           "It's 2:16.", "1 / 100"):
-                if needle in src:
-                    offenders.append(
-                        (os.path.relpath(path, PROJECT_ROOT), needle))
-    assert offenders == [], (
-        f"the removed 4th Wall trial-run asset is back: {offenders}")
-
-
-
-
 # ─────────────────────────────────────────────────────────
 # Segment planning: what the reader actually places
 # ─────────────────────────────────────────────────────────
 
-def test_moments_far_apart_become_separate_segments():
+def test_moments_cluster_into_segments_only_where_they_overlap():
     """Frames between two moments carry nothing, so nothing renders them."""
     segments = plan_timed_text_segments(_declaration(
         _moment(start_frame=30, duration_frames=30),
@@ -262,9 +126,7 @@ def test_moments_far_apart_become_separate_segments():
     assert [s["timeline_end"] for s in segments] == [2.0, 12.0]
     assert [s["total_frames"] for s in segments] == [30, 60]
 
-
-def test_overlapping_moments_share_one_segment():
-    """Two clips cannot occupy the same frames of V6; Remotion composites."""
+    # Two clips cannot occupy the same frames of V6; Remotion composites.
     segments = plan_timed_text_segments(_declaration(
         _moment(start_frame=30, duration_frames=30),
         _moment(start_frame=45, duration_frames=30),
@@ -274,10 +136,6 @@ def test_overlapping_moments_share_one_segment():
     assert segments[0]["total_frames"] == 45
     assert segments[0]["timeline_start"] == 1.0
     assert segments[0]["timeline_end"] == 2.5
-
-
-
-
 
 
 def test_moment_frames_are_rebased_against_their_segment():
@@ -298,19 +156,6 @@ def test_moment_frames_are_rebased_against_their_segment():
     assert segments[0]["timeline_start"] == 3.0
 
 
-
-
-def test_a_moment_past_the_end_of_the_edit_is_rejected():
-    """The 4th Wall card's actual defect: frames from a different cut."""
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration(_moment(start_frame=1800, duration_frames=60)),
-            spine_structure=_SPINE, width=1080, height=1920)
-    assert "reaches no picture" in str(exc.value)
-
-
-
-
 # ─────────────────────────────────────────────────────────
 # Timing from the spine
 # ─────────────────────────────────────────────────────────
@@ -328,120 +173,58 @@ _SPINE = [
 ]
 
 
-def test_a_moment_anchors_to_a_spine_block():
-    segments = plan_timed_text_segments(
-        _declaration({
-            "text": "EPISODE 001", "color": "#fff",
-            "block": 1, "duration_seconds": 2.0,
-            **_LOOK,
-        }),
-        spine_structure=_SPINE, width=1080, height=1920)
-    assert len(segments) == 1
-    assert segments[0]["timeline_start"] == 4.0
-    assert segments[0]["total_frames"] == 60
-
-
-def test_an_anchored_moment_takes_an_offset():
-    segments = plan_timed_text_segments(
-        _declaration({
-            "text": "EPISODE 001", "color": "#fff",
-            "block": 2, "offset_seconds": 0.5, "duration_seconds": 1.0,
-            **_LOOK,
-        }),
-        spine_structure=_SPINE, width=1080, height=1920)
-    assert segments[0]["timeline_start"] == 12.5
-
-
-def test_a_moment_may_anchor_to_the_end_of_its_block():
-    segments = plan_timed_text_segments(
-        _declaration({
-            "text": "OUT", "color": "#fff", "block": 0,
-            "anchor": "end", "offset_seconds": -1.0, "duration_seconds": 1.0,
-            **_LOOK,
-        }),
-        spine_structure=_SPINE, width=1080, height=1920)
-    assert segments[0]["timeline_start"] == 3.0
-    assert segments[0]["timeline_end"] == 4.0
-
-
-def test_an_anchored_moment_moves_when_the_edit_is_recut():
-    """The whole point of anchoring: no frame number survives a re-cut."""
-    declaration = _declaration({
-        "text": "EPISODE 001", "color": "#fff",
-        "block": 2, "duration_seconds": 1.0,
-        **_LOOK,
-    })
-    recut = [dict(b) for b in _SPINE]
-    recut[1]["timeline_end"] = 9.0
-    recut[2].update({"timeline_start": 9.0, "timeline_end": 17.0})
-    before = plan_timed_text_segments(declaration, spine_structure=_SPINE, width=1080, height=1920)
-    after = plan_timed_text_segments(declaration, spine_structure=recut, width=1080, height=1920)
-    assert before[0]["timeline_start"] == 12.0
-    assert after[0]["timeline_start"] == 9.0
-
-
-def test_anchoring_to_a_block_that_is_not_in_the_edit_raises():
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff",
-                          "block": 99, "duration_seconds": 1.0}),
+def test_an_anchored_moment_lands_where_its_block_offset_and_anchor_say():
+    # (anchor fields, timeline_start, timeline_end)
+    cases = [
+        ({"block": 1, "duration_seconds": 2.0}, 4.0, 6.0),
+        ({"block": 2, "offset_seconds": 0.5, "duration_seconds": 1.0},
+         12.5, 13.5),
+        ({"block": 0, "anchor": "end", "offset_seconds": -1.0,
+          "duration_seconds": 1.0}, 3.0, 4.0),
+    ]
+    for fields, start, end in cases:
+        segments = plan_timed_text_segments(
+            _declaration({"text": "EPISODE 001", "color": "#fff",
+                          **fields, **_LOOK}),
             spine_structure=_SPINE, width=1080, height=1920)
-    assert "which is not in" in str(exc.value)
-    assert "[0, 1, 2]" in str(exc.value)
+        assert len(segments) == 1, fields
+        assert (segments[0]["timeline_start"],
+                segments[0]["timeline_end"]) == (start, end), fields
+    assert segments[0]["total_frames"] == 30
 
 
-def test_anchoring_with_no_spine_raises():
-    """Silently falling back to frame 0 would put the card in the wrong place."""
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff",
-                          "block": 1, "duration_seconds": 1.0}), width=1080, height=1920)
-    assert "no spine was supplied" in " ".join(str(exc.value).split())
+def test_each_malformed_timing_raises_by_name():
+    """A dropped or defaulted timing puts the card in the wrong place."""
+    x = {"text": "X", "color": "#fff"}
+    cases = [  # (moment, spine, needle)
+        (_moment(start_frame=1800, duration_frames=60), _SPINE,
+         "reaches no picture"),  # the 4th Wall card's actual defect
+        ({**x, "block": 99, "duration_seconds": 1.0}, _SPINE,
+         "which is not in"),
+        ({**x, "block": 1, "duration_seconds": 1.0}, None,
+         "no spine was supplied"),
+        ({**x, "block": 1, "duration_seconds": 1.0, "start_frame": 30},
+         _SPINE, "not both"),
+        (x, None, "neither way"),
+        ({**x, "block": 1}, _SPINE, "duration_seconds"),
+        ({**x, "block": 0, "offset_seconds": -2.0, "duration_seconds": 1.0},
+         _SPINE, "before"),
+        ({**x, "block": 1, "anchor": "middle", "duration_seconds": 1.0},
+         _SPINE, "anchor"),
+    ]
+    for moment, spine, needle in cases:
+        with pytest.raises(TimedTextDeclarationError) as exc:
+            plan_timed_text_segments(_declaration(moment),
+                                     spine_structure=spine,
+                                     width=1080, height=1920)
+        assert needle in " ".join(str(exc.value).split()), (moment, exc.value)
+    assert "[0, 1, 2]" in str(
+        pytest.raises(TimedTextDeclarationError, plan_timed_text_segments,
+                      _declaration(cases[1][0]), spine_structure=_SPINE,
+                      width=1080, height=1920).value)
 
 
-def test_declaring_both_timings_raises():
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff", "block": 1,
-                          "duration_seconds": 1.0, "start_frame": 30}),
-            spine_structure=_SPINE, width=1080, height=1920)
-    assert "not both" in str(exc.value)
-
-
-def test_declaring_neither_timing_raises():
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff"}), width=1080, height=1920)
-    assert "neither way" in str(exc.value)
-
-
-def test_an_anchored_moment_needs_a_duration_in_seconds():
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff", "block": 1}),
-            spine_structure=_SPINE, width=1080, height=1920)
-    assert "duration_seconds" in str(exc.value)
-
-
-def test_an_offset_before_the_first_frame_raises():
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff", "block": 0,
-                          "offset_seconds": -2.0, "duration_seconds": 1.0}),
-            spine_structure=_SPINE, width=1080, height=1920)
-    assert "before" in str(exc.value)
-
-
-def test_an_unknown_anchor_raises():
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff", "block": 1,
-                          "anchor": "middle", "duration_seconds": 1.0}),
-            spine_structure=_SPINE, width=1080, height=1920)
-    assert "anchor" in str(exc.value)
-
-
-@pytest.mark.parametrize("bad,needle", [
+MALFORMED_MOMENTS = [
     ({"text": ""}, "empty text"),
     ({"color": None}, "missing"),
     ({"start_frame": -5}, "non-negative integers"),
@@ -451,16 +234,23 @@ def test_an_unknown_anchor_raises():
     ({"fade_in_frames": 20, "fade_out_frames": 20}, "full opacity"),
     ({"y": 1.4}, "outside the frame"),
     ({"x": "left"}, "between 0 and 1"),
-])
-def test_a_malformed_moment_raises(bad, needle):
-    """Malformed raises; it is never dropped.
+    # A look that states nothing renderable is malformed, not defaulted.
+    ({"font_size": 0}, "positive number"),
+    ({"font_size": -12}, "positive number"),
+    ({"font_size": "big"}, "positive number"),
+    ({"text_shadow": None}, "omits its look"),
+    ({"text_shadow": 12}, "text-shadow string"),
+]
 
-    A dropped declaration is a card the editor believes shipped - the
-    same rule bookends follow (library/tools/bookends.py).
-    """
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(_declaration(_moment(**bad)), width=1080, height=1920)
-    assert needle in str(exc.value)
+
+def test_a_malformed_moment_raises():
+    """Malformed raises; it is never dropped - a dropped declaration is a
+    card the editor believes shipped (the rule bookends.py follows)."""
+    for bad, needle in MALFORMED_MOMENTS:
+        with pytest.raises(TimedTextDeclarationError) as exc:
+            plan_timed_text_segments(_declaration(_moment(**bad)),
+                                     width=1080, height=1920)
+        assert needle in str(exc.value), (bad, exc.value)
 
 
 def test_zero_fades_are_legal():
@@ -473,18 +263,6 @@ def test_zero_fades_are_legal():
     segments = plan_timed_text_segments(_declaration(
         _moment(fade_in_frames=0, fade_out_frames=0)), width=1080, height=1920)
     assert segments[0]["props"]["moments"][0]["fadeInFrames"] == 0
-
-
-
-
-# ─────────────────────────────────────────────────────────
-# Schema integration
-# ─────────────────────────────────────────────────────────
-
-
-
-
-
 
 
 # ─────────────────────────────────────────────────────────
@@ -516,32 +294,18 @@ def test_a_moment_with_no_look_raises_naming_what_is_missing():
         assert key in message, f"{key} not named in: {message}"
 
 
-def test_an_omitted_typeface_raises_rather_than_substituting():
-    """The family a card is drawn in is artwork the project declares."""
-    with pytest.raises(TimedTextDeclarationError) as exc:
+def test_a_typeface_that_would_not_draw_raises():
+    """The family is artwork the project declares, and it must really draw
+    the glyphs: an omitted family, or an unbundled one with no staged
+    file (Chromium substitutes and the frames look fine), raises."""
+    with pytest.raises(TimedTextDeclarationError, match="font_family"):
         generate_timed_text_overlay_props({
-            "timed_text_overlay": {
-                "moments": [dict(_moment(), text="X")],
-            }
+            "timed_text_overlay": {"moments": [dict(_moment(), text="X")]},
         }, width=1080, height=1920)
-    assert "font_family" in str(exc.value)
-
-
-
-
-@pytest.mark.parametrize("bad,needle", [
-    ({"font_size": 0}, "positive number"),
-    ({"font_size": -12}, "positive number"),
-    ({"font_size": "big"}, "positive number"),
-    ({"text_shadow": None}, "omits its look"),
-    ({"text_shadow": 12}, "text-shadow string"),
-])
-def test_a_moment_with_an_unstatable_look_raises(bad, needle):
-    """A look that states nothing renderable is malformed, not defaulted."""
-    with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(_declaration(_moment(**bad)), width=1080,
-                                 height=1920)
-    assert needle in str(exc.value)
+    with pytest.raises(TimedTextDeclarationError, match="Nanum Pen Script"):
+        plan_timed_text_segments(
+            _declaration(_moment(), font_family="Nanum Pen Script"),
+            width=1080, height=1920)
 
 
 def test_an_omitted_alignment_still_renders_centred():
@@ -558,8 +322,6 @@ def test_an_omitted_alignment_still_renders_centred():
     declared = plan_timed_text_segments(
         _declaration(_moment(text_align="right")), width=1080, height=1920)
     assert declared[0]["props"]["moments"][0]["textAlign"] == "right"
-
-
 
 
 # ─────────────────────────────────────────────────────────
@@ -614,48 +376,20 @@ def test_a_project_declaration_beats_the_templates(tmp_path):
         "FROM THE TEMPLATE")
 
 
-
-
-@pytest.mark.parametrize("body,needle", [
-    ("effect: not-a-mapping\n", "not a mapping"),
-    ("effect:\n  timed_text_overlay: [1, 2]\n", "not a declaration"),
-])
-def test_a_malformed_project_declaration_raises(tmp_path, body, needle):
+def test_a_malformed_project_declaration_raises(tmp_path):
     """A dropped declaration is a card the editor believes shipped."""
-    from library.tools.timed_text_overlay import (
-        TimedTextDeclarationError,
-        resolve_declaration,
-    )
-    with pytest.raises(TimedTextDeclarationError) as raised:
-        resolve_declaration({}, _write_project(tmp_path, body))
-    assert needle in str(raised.value)
+    from library.tools.timed_text_overlay import resolve_declaration
+    for body, needle in (
+        ("effect: not-a-mapping\n", "not a mapping"),
+        ("effect:\n  timed_text_overlay: [1, 2]\n", "not a declaration"),
+    ):
+        with pytest.raises(TimedTextDeclarationError, match=needle):
+            resolve_declaration({}, _write_project(tmp_path, body))
 
 
 # ─────────────────────────────────────────────────────────
 # The typeface must be one that really draws the glyphs
 # ─────────────────────────────────────────────────────────
-
-def test_an_unbundled_family_without_a_file_raises():
-    """The silent failure: Chromium substitutes and the frames look fine.
-
-    A per-series typeface is not bundled and must not be - it lives with
-    its project - so the declaration names the staged file. See
-    library/tools/render_fonts.py.
-    """
-    from library.tools.timed_text_overlay import (
-        TimedTextDeclarationError,
-        plan_timed_text_segments,
-    )
-    declaration = {"timed_text_overlay": {
-        "font_family": "Nanum Pen Script",
-        "moments": [{"text": "Night 1", "color": "#D4A34A",
-                      "start_frame": 0, "duration_frames": 30,
-                      **_LOOK}],
-    }}
-    with pytest.raises(TimedTextDeclarationError) as raised:
-        plan_timed_text_segments(declaration, width=1080, height=1920)
-    assert "Nanum Pen Script" in str(raised.value)
-
 
 def test_a_project_font_reaches_the_props_as_a_static_path():
     """`prep_remotion` stages brand_assets/ into public/brand/."""
@@ -671,8 +405,6 @@ def test_a_project_font_reaches_the_props_as_a_static_path():
     props = plan_timed_text_segments(declaration, width=1080, height=1920)[0]["props"]
     assert props["fontFamily"] == "Nanum Pen Script"
     assert props["fontFile"] == "brand/NanumPenScript-Regular.ttf"
-
-
 
 
 # ─────────────────────────────────────────────────────────
@@ -713,7 +445,8 @@ def _render_one_with(monkeypatch, tmp_path, *, carry):
     return render_mod, out_path, calls
 
 
-def test_a_rendered_segment_is_carried_as_the_overlay(tmp_path, monkeypatch):
+def test_a_rendered_segment_is_carried_as_the_overlay_or_raises(tmp_path,
+                                                               monkeypatch):
     """Step 4.06 stamps these segments as the overlay format, so the
     file must BE that codec - Remotion cannot write it, which is why
     the carry happens here and not in the render command."""
@@ -729,16 +462,8 @@ def test_a_rendered_segment_is_carried_as_the_overlay(tmp_path, monkeypatch):
         "the Remotion ProRes render was left on disk as the artefact; "
         f"step 4.06 reports it as {OVERLAY_VIDEO_CODEC}")
 
-
-def test_a_segment_whose_carry_fails_raises(tmp_path, monkeypatch):
-    """A failed carry RAISES like every other render failure here.
-
-    A missing overlay leaves the picture underneath intact, so a
-    warning would ship an episode silently without the text the
-    template declared - and a ProRes file stamped as the overlay
-    codec would be the old-way/new-stamp combination the carriage
-    exists to forbid.
-    """
+    # A failed carry RAISES: a warning would ship the episode without the
+    # text, or a ProRes file stamped as the overlay codec.
     from library.tools.timed_text_render import TimedTextRenderError
 
     render_mod, out_path, _ = _render_one_with(

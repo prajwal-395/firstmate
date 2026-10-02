@@ -32,6 +32,7 @@ FRAME_W, FRAME_H = 1080, 1920
 
 
 def _project(tmp_path, body: str):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "project.yaml").write_text(textwrap.dedent(body),
                                            encoding="utf-8")
     return str(tmp_path)
@@ -62,7 +63,7 @@ def test_a_project_that_declares_nothing_keeps_the_engine_row(tmp_path):
     assert FRAME_H - props["safeArea"]["bottom"] == engine_row
 
 
-def test_a_declared_row_reaches_the_render(tmp_path):
+def test_a_declared_row_reaches_the_render_replacing_the_lift(tmp_path):
     folder = _with_pipeline(tmp_path, """\
         subtitle_position:
           caption_row: 0.71875
@@ -75,11 +76,8 @@ def test_a_declared_row_reaches_the_render(tmp_path):
     assert FRAME_H - props["safeArea"]["bottom"] == 1380
     assert props["safeArea"]["bottom"] == 540
 
-
-def test_a_declared_row_replaces_the_lift_rather_than_stacking(tmp_path):
-    """The project is naming the row. The engine's own lift is not a
-    second opinion to add on top of it."""
-    folder = _with_pipeline(tmp_path, """\
+    # The declared row REPLACES the engine's lift rather than stacking.
+    folder = _with_pipeline(tmp_path / "half", """\
         subtitle_position:
           caption_row: 0.5
           reason: half way down
@@ -99,19 +97,22 @@ def test_the_row_is_a_fraction_so_it_survives_a_format_change():
     assert subtitle_style.caption_row_px(0.71875, 1280) == 920
 
 
-@pytest.mark.parametrize("block,exc,match", [
+MALFORMED = [
     ("subtitle_position: 0.7\n", TypeError, "must be a mapping"),
     ("subtitle_position:\n  reason: no row\n", ValueError, "names no"),
     ("subtitle_position:\n  caption_row: 1380\n", ValueError, "FRACTION"),
     ("subtitle_position:\n  caption_row: 0.7\n  nudge: 3\n",
      ValueError, "nothing reads"),
-])
-def test_a_malformed_declaration_refuses(tmp_path, block, exc, match):
+]
+
+
+def test_a_malformed_declaration_refuses(tmp_path):
     """A caption position silently dropped is a caption the editor
     believes shipped - `project_subtitle_typography`'s own reasoning."""
-    folder = _with_pipeline(tmp_path, block)
-    with pytest.raises(exc, match=match):
-        subtitle_style.project_caption_row(folder)
+    for n, (block, exc, match) in enumerate(MALFORMED):
+        folder = _with_pipeline(tmp_path / str(n), block)
+        with pytest.raises(exc, match=match):
+            subtitle_style.project_caption_row(folder)
 
 
 # ── Why it is a ROW and not a number ───────────────────────────────

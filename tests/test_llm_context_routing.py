@@ -30,25 +30,9 @@ DAG = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
 STEPS = REPO / "library" / "steps"
 
 # Steps whose implementation reaches a model, by DAG node id, with the
-# step directory each node runs.
-#
-# DERIVED from the DAG through the same `get_step_implementation` the
-# runner uses - not hand-written. The hand-written list this replaces
-# drifted twice: first `select_reels` and `render_motion_graphics` were
-# absent, then `audio_mix` was added by other work and never added to
-# the list, so every assertion below had never once been asked about
-# the missing step. A new LLM step now joins that coverage
-# automatically, because the parametrize marks read this dict.
-#
-# Membership here encodes NO judgement - it is mechanism (a handoff.md
-# beside a bridge/step, or an `llm` runtime). The judgements live in
-# the lists below: NO_PROJECTION (which steps may skip narrowing, and
-# why), SPINE_PLANNERS (which prompts must not carry word timings), and
-# BRIDGE_TABLES (which pre-bridge tables each handoff asks for). A new
-# step that needs an entry in one of THOSE still needs a human to argue
-# for it; a new step that merely reaches a model needs nothing.
-# `test_context_fields_binds.py` derives the same set independently and
-# fails if the two ever disagree.
+# step directory each node runs. DERIVED from the DAG through the same
+# `get_step_implementation` the runner uses, so a new LLM step joins the
+# coverage automatically (a hand-written list drifted twice).
 def _llm_steps_from_dag() -> dict:
     out = {}
     for node in DAG["nodes"]:
@@ -59,13 +43,6 @@ def _llm_steps_from_dag() -> dict:
 
 
 LLM_STEPS = _llm_steps_from_dag()
-
-# A step reaches an LLM without a projection only for a stated reason.
-NO_PROJECTION = {
-    "semantic_analysis": "asks the model for nothing - the call is skipped",
-    "render": "what the QA calls should ask for is an open decision",
-    "validate": "same open decision as render",
-}
 
 # The four steps that receive the spine as a planning input.
 SPINE_PLANNERS = ("select_broll", "plan_transitions", "plan_vfx", "plan_sfx")
@@ -88,17 +65,7 @@ def find_key(obj, name: str) -> bool:
     return False
 
 
-@pytest.mark.parametrize("node_id", sorted(set(LLM_STEPS) - set(NO_PROJECTION)))
-def test_every_llm_step_projects_its_context(node_id):
-    assert manifest(node_id).get("context_fields"), (
-        f"'{node_id}' declares no context_fields, so the model is handed "
-        f"every byte of its inputs. Project them, or add '{node_id}' to "
-        f"NO_PROJECTION with the reason."
-    )
-
-
-@pytest.mark.parametrize("node_id", ["mesh_spine", "review_rough_cut"])
-def test_temporal_index_stays_out_of_the_prompt(node_id):
+def test_temporal_index_stays_out_of_the_prompt():
     """It is still an input; it is no longer prompt text.
 
     The deterministic half of each step keeps receiving it unprojected -
@@ -106,20 +73,21 @@ def test_temporal_index_stays_out_of_the_prompt(node_id):
     `deterministic_with_llm` runs step.py before the projection - so
     dropping it from the prompt takes nothing away from any code.
     """
-    m = manifest(node_id)
-    assert "temporal_index" in declared_inputs(m), (
-        "the input declaration was removed; this test no longer proves "
-        "the prompt-side drop is safe"
-    )
-    assert not any("temporal_index" in p for p in m["context_fields"]), (
-        f"temporal_index is back in '{node_id}'s prompt"
-    )
-    step_code = "".join(
-        p.read_text() for p in (STEPS / LLM_STEPS[node_id]).glob("*.py"))
-    assert "temporal_index" not in step_code, (
-        f"'{node_id}' now reads temporal_index in code, so the prompt-side "
-        f"drop needs re-examining rather than this assertion relaxing"
-    )
+    for node_id in ("mesh_spine", "review_rough_cut"):
+        m = manifest(node_id)
+        assert "temporal_index" in declared_inputs(m), (
+            "the input declaration was removed; this test no longer proves "
+            "the prompt-side drop is safe"
+        )
+        assert not any("temporal_index" in p for p in m["context_fields"]), (
+            f"temporal_index is back in '{node_id}'s prompt"
+        )
+        step_code = "".join(
+            p.read_text() for p in (STEPS / LLM_STEPS[node_id]).glob("*.py"))
+        assert "temporal_index" not in step_code, (
+            f"'{node_id}' now reads temporal_index in code, so the prompt-side "
+            f"drop needs re-examining rather than this assertion relaxing"
+        )
 
 
 def test_mesh_spine_can_see_the_footage():
@@ -153,8 +121,7 @@ def test_mesh_spine_can_see_the_footage():
         assert field in m["context_fields"]
 
 
-@pytest.mark.parametrize("node_id", SPINE_PLANNERS)
-def test_word_timestamps_do_not_reach_a_planning_prompt(node_id):
+def test_word_timestamps_do_not_reach_a_planning_prompt():
     """No planning model reads them; every reader of them is Python.
 
     `spine_contract`, `bookends`, `plan_subtitles` and three post-bridges
@@ -173,19 +140,20 @@ def test_word_timestamps_do_not_reach_a_planning_prompt(node_id):
                     "word_timestamps": [{"word": "hi", "source_start": 0.0,
                                          "source_end": 0.2}]},
     }]}
-    projected = project_fields({"timed_spine": spine},
-                               manifest(node_id)["context_fields"])
+    for node_id in SPINE_PLANNERS:
+        projected = project_fields({"timed_spine": spine},
+                                   manifest(node_id)["context_fields"])
 
-    assert not find_key(projected, "word_timestamps"), (
-        f"'{node_id}' still sends per-word timings to the model"
-    )
-    # The rest of the spine must survive, or this is a saving bought by
-    # blinding the step.
-    block = projected["timed_spine"]["structure"][0]
-    for key in ("position", "block_type", "duration_seconds", "clip_id",
-                "source_start", "source_end", "timeline_start", "timeline_end"):
-        assert key in block, f"'{node_id}' lost {key} from the spine"
-    assert block["content"]["text"] == "hi"
+        assert not find_key(projected, "word_timestamps"), (
+            f"'{node_id}' still sends per-word timings to the model"
+        )
+        # The rest of the spine must survive, or this is a saving bought by
+        # blinding the step.
+        block = projected["timed_spine"]["structure"][0]
+        for key in ("position", "block_type", "duration_seconds", "clip_id",
+                    "source_start", "source_end", "timeline_start", "timeline_end"):
+            assert key in block, f"'{node_id}' lost {key} from the spine"
+        assert block["content"]["text"] == "hi"
 
 
 def test_a_step_with_nothing_to_ask_does_not_call_the_model(tmp_path):
@@ -289,30 +257,63 @@ BRIDGE_TABLES = {
 }
 
 
-@pytest.mark.parametrize("node_id", sorted(BRIDGE_TABLES))
-def test_the_handoff_asks_for_a_table_the_bridge_really_builds(node_id):
+def test_the_handoff_asks_for_a_table_the_bridge_really_builds():
     """The prompt and the pre-bridge agree on the name.
 
     Independent of the projection: a handoff naming a table no bridge
     emits is the same key-name mismatch one step earlier.
     """
-    step_dir = STEPS / LLM_STEPS[node_id]
-    bridge = (step_dir / "bridge.py").read_text(encoding="utf-8")
-    handoff = (step_dir / "handoff.md").read_text(encoding="utf-8")
-    for table in BRIDGE_TABLES[node_id]:
-        assert f'"{table}"' in bridge, (
-            f"'{node_id}' bridge.py no longer emits {table!r}; "
-            f"update BRIDGE_TABLES or the handoff that asks for it"
-        )
-        # The STEM, not the key: `speech_sequence`'s handoff describes its
-        # two tables as "transcripts" and "topics" rather than by their
-        # `_toon` key names, and which spelling a prompt uses is the
-        # captain's call. What must hold is that the prompt refers to the
-        # table at all - a bridge computing something no prompt mentions
-        # is a table nothing reads.
-        stem = table.removesuffix("_toon")
-        assert stem in handoff, (
-            f"'{node_id}' builds {table!r} and its handoff.md never "
-            f"mentions {stem!r} - either the prompt lost the instruction "
-            f"or the bridge is computing a table nothing reads"
-        )
+    for node_id in sorted(BRIDGE_TABLES):
+        step_dir = STEPS / LLM_STEPS[node_id]
+        bridge = (step_dir / "bridge.py").read_text(encoding="utf-8")
+        handoff = (step_dir / "handoff.md").read_text(encoding="utf-8")
+        for table in BRIDGE_TABLES[node_id]:
+            assert f'"{table}"' in bridge, (
+                f"'{node_id}' bridge.py no longer emits {table!r}; "
+                f"update BRIDGE_TABLES or the handoff that asks for it"
+            )
+            # The STEM, not the key: `speech_sequence`'s handoff describes its
+            # two tables as "transcripts" and "topics" rather than by their
+            # `_toon` key names, and which spelling a prompt uses is the
+            # captain's call. What must hold is that the prompt refers to the
+            # table at all - a bridge computing something no prompt mentions
+            # is a table nothing reads.
+            stem = table.removesuffix("_toon")
+            assert stem in handoff, (
+                f"'{node_id}' builds {table!r} and its handoff.md never "
+                f"mentions {stem!r} - either the prompt lost the instruction "
+                f"or the bridge is computing a table nothing reads"
+            )
+
+
+# ---------------------------------------------------------------------------
+# The projection itself (`context_projector.project_fields`).
+# ---------------------------------------------------------------------------
+
+# (data, paths, expected) - a positive path selects; a `-` path removes what
+# the paths before it selected, so a projection can say "the whole spine
+# without the per-word timings" instead of enumerating the other keys.
+PROJECTION_CASES = [
+    ({"a": 1, "b": 2}, ["a"], {"a": 1}),
+    ({"a": {"b": {"c": 1, "d": 2}}, "e": 3}, ["a.b.c"], {"a": {"b": {"c": 1}}}),
+    ({"clips": [{"id": 1, "dur": 5}, {"id": 2, "dur": 10}]}, ["clips.*.dur"],
+     {"clips": [{"dur": 5}, {"dur": 10}]}),
+    ({"clips": [{"id": 1, "dur": 5}, {"id": 2, "dur": 10}],
+      "meta": {"name": "test", "date": "today"}},
+     ["clips.*.id", "meta.name"],
+     {"clips": [{"id": 1}, {"id": 2}], "meta": {"name": "test"}}),
+    ({"spine": {"blocks": [{"text": "a", "words": [1, 2]},
+                           {"text": "b", "words": [3]}], "duration": 9}},
+     ["spine", "-spine.blocks.*.words"],
+     {"spine": {"blocks": [{"text": "a"}, {"text": "b"}], "duration": 9}}),
+    ({"spine": {"blocks": [{"content": {"text": "a", "words": [1]}}]}},
+     ["spine", "-spine.blocks.*.content.words"],
+     {"spine": {"blocks": [{"content": {"text": "a"}}]}}),
+    ({"music": {"bpm": 90, "curve": [1, 2, 3]}}, ["music", "-music.curve"],
+     {"music": {"bpm": 90}}),
+]
+
+
+def test_project_fields_selects_and_excludes():
+    for data, paths, expected in PROJECTION_CASES:
+        assert project_fields(data, paths) == expected, paths

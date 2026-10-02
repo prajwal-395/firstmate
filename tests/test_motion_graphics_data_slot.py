@@ -109,19 +109,15 @@ def _transcript():
 
 # ── the refusals: the proof lane's two junk shapes ────────────────────
 
-def test_equal_pair_bars_are_dropped_by_name():
+def test_the_proof_lanes_junk_payloads_are_dropped_by_name():
     """[3,3] means nothing as a comparison and violates the roster's own
     `never` rules. Dropped, not drawn as two identical bars."""
     resolved = _resolve([_bars([3, 3])])
     assert not resolved.moments
     (dropped,) = resolved.dropped
     assert dropped.reason in mgp.DROP_REASONS
-
-
-def test_data_on_an_element_that_draws_none_is_dropped_by_name():
-    """A copy element carrying `data` is the proof lane's copy-everywhere
-    shape: the payload reaches no node in the composition and would
-    otherwise travel silently on the moment."""
+    # `data` on a copy element - the proof lane's copy-everywhere shape -
+    # reaches no node in the composition: dropped by name too.
     resolved = _resolve([_entry(data={"values": [3, 9]})])
     assert not resolved.moments
     (dropped,) = resolved.dropped
@@ -142,7 +138,19 @@ def _lower_third(**kw):
     return base
 
 
-def test_the_staged_construction_directive_resolves():
+def _staged_list(**kw):
+    base = _entry(
+        element="list_build", anchor="bottom_left",
+        copy=[{"text": "LINKEDIN", "type_role": "supporting"},
+              {"text": "CRUNCHBASE", "type_role": "supporting"},
+              {"text": "REDDIT", "type_role": "supporting"}],
+        color="#FFB8D4",
+        data={"stage_offsets": [0.0, 0.8, 2.0]})
+    base.update(kw)
+    return base
+
+
+def test_the_engines_own_data_directives_resolve():
     """PR #1258's `data_no_element_draws` drop read the roster axes as
     the whole of what the composition draws and dropped every speaker
     card the night it landed - the only motion graphics the captain
@@ -163,50 +171,25 @@ def test_the_staged_construction_directive_resolves():
     (moment,) = resolved.moments
     assert moment["data"]["construction"] == "staged_rule"
 
-
-# ── the second exception: the engine's own explainer directive ──────
-
-def _staged_list(**kw):
-    base = _entry(
-        element="list_build", anchor="bottom_left",
-        copy=[{"text": "LINKEDIN", "type_role": "supporting"},
-              {"text": "CRUNCHBASE", "type_role": "supporting"},
-              {"text": "REDDIT", "type_role": "supporting"}],
-        color="#FFB8D4",
-        data={"stage_offsets": [0.0, 0.8, 2.0]})
-    base.update(kw)
-    return base
-
-
-def test_the_explainer_stage_offsets_resolve():
-    """The same refusal caught a second deterministic producer the
-    night it landed: `explainer_plan.plan_entries` writes one
-    `list_build` entry carrying `data.stage_offsets` - the per-item
-    seconds that make a staged element an explainer - and `list_build`
-    declares no `data` axis. But the renderer's `stageStarts` reads
-    exactly that key, so the entry resolves and carries its payload.
-    The #1270 exemption covered only the lower-third directive and
-    this test stayed red until the second arm landed."""
+    # The second deterministic producer: `explainer_plan.plan_entries`
+    # writes `data.stage_offsets` on a `list_build`, which the renderer's
+    # `stageStarts` reads - it resolves and carries its payload too.
     resolved = _resolve([_staged_list()])
     assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
     (moment,) = resolved.moments
     assert moment["data"] == {"stage_offsets": [0.0, 0.8, 2.0]}
 
-def test_distinct_bars_resolve_and_carry_their_payload():
+
+def test_real_payloads_resolve_and_copy_without_data_is_untouched():
     resolved = _resolve([_bars([3, 9])])
     assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
     (moment,) = resolved.moments
     assert moment["data"] == {"values": [3, 9]}
-
-
-def test_a_roll_with_a_real_change_resolves():
     resolved = _resolve([_roll(0, 100)])
     assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
     assert resolved.moments[0]["data"] == {
         "start_value": 0, "end_value": 100}
-
-
-def test_a_copy_entry_without_data_is_untouched():
+    # A copy entry without data is untouched.
     resolved = _resolve([_entry()])
     assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
     assert resolved.moments[0]["data"] == {}

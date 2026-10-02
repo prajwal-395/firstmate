@@ -61,7 +61,7 @@ def _render_overlay(path: Path, draw_expr: str, seconds: float = 4.0) -> Path:
     return path
 
 
-def test_a_gap_is_not_sampled(tmp_path):
+def test_a_gap_is_not_sampled_where_fixed_timestamps_were(tmp_path):
     """Ink only in the last second - the probe must find it there."""
     mov = _render_overlay(tmp_path / "gappy.mov", "between(t,3.0,4.0)")
     found = find_inked_timestamps(str(mov), 4.0, count=2)
@@ -70,12 +70,9 @@ def test_a_gap_is_not_sampled(tmp_path):
         f"sampled {found}, but the only caption is after 3.0s - the gate "
         f"would be judging blank frames again"
     )
-
-
-def test_the_old_fixed_timestamps_would_have_missed_it(tmp_path):
-    """The regression, stated directly: 0.5s and 1.5s are both blank here."""
-    mov = _render_overlay(tmp_path / "gappy.mov", "between(t,3.0,4.0)")
-    from tools.qa.subtitle_qa import _probe_alpha
+    # The regression, stated directly: the old fixed 0.5s and 1.5s are
+    # both blank here.
+    from library.tools.qa.subtitle_qa import _probe_alpha
 
     assert _probe_alpha(str(mov), 0.5) < ALPHA_INK_THRESHOLD
     assert _probe_alpha(str(mov), 1.5) < ALPHA_INK_THRESHOLD
@@ -112,30 +109,21 @@ def _frame(tmp_path: Path, box: tuple, size=(1080, 1920)) -> Path:
     return path
 
 
-def test_a_normal_caption_passes_geometry(tmp_path):
-    """The real thing the model called clipped and distorted.
-
-    "casey neistat," measured at alpha bbox (288, 1694, 776, 1770) in a
-    1080x1920 frame - 150 clear rows below the type.
-    """
-    assert check_caption_geometry(str(_frame(tmp_path, (288, 1694, 776, 1770)))) == []
-
-
-def test_a_caption_clipped_at_the_bottom_fails(tmp_path):
-    problems = check_caption_geometry(str(_frame(tmp_path, (288, 1860, 776, 1919))))
-    assert any("bottom" in p for p in problems), problems
-
-
-
-
-def test_a_caption_in_the_upper_half_fails(tmp_path):
-    problems = check_caption_geometry(str(_frame(tmp_path, (288, 200, 776, 280))))
-    assert any("upper" in p for p in problems), problems
-
-
-def test_a_blank_frame_fails_geometry(tmp_path):
+def test_caption_geometry_passes_a_normal_caption_and_names_each_fault(
+        tmp_path):
+    """"casey neistat," - the real caption the model called clipped and
+    distorted - measured at alpha bbox (288, 1694, 776, 1770) in a
+    1080x1920 frame, 150 clear rows below the type, passes."""
     from PIL import Image
 
+    assert check_caption_geometry(
+        str(_frame(tmp_path, (288, 1694, 776, 1770)))) == []
+    problems = check_caption_geometry(
+        str(_frame(tmp_path, (288, 1860, 776, 1919))))
+    assert any("bottom" in p for p in problems), problems
+    problems = check_caption_geometry(
+        str(_frame(tmp_path, (288, 200, 776, 280))))
+    assert any("upper" in p for p in problems), problems
     path = tmp_path / "blank.png"
     Image.new("RGBA", (1080, 1920), (0, 0, 0, 0)).save(path)
     problems = check_caption_geometry(str(path))
@@ -150,7 +138,7 @@ def test_the_vision_verdict_does_not_block(tmp_path, monkeypatch):
     were "overlapping and distorted". Blocking a render on that is not
     coverage.
     """
-    import tools.qa.subtitle_qa as qa
+    import library.tools.qa.subtitle_qa as qa
 
     mov = _render_overlay(tmp_path / "solid.mov", "gte(t,0)")
     monkeypatch.setattr(

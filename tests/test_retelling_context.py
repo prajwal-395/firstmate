@@ -109,24 +109,26 @@ def test_the_tail_drop_reads_as_a_tail():
     assert "everywhere" in context["novel_words"]
     assert context["gap_seconds"] > 20
 
+    # The bridge carries the same context where the boundary is still open.
+    entries = bridge.repetition_inside(2424.0, 2457.0, transcript)
+    assert len(entries) == 1
+    assert entries[0].get("cuts"), "run entries must carry their cuts' context"
+    assert entries[0]["cuts"][0]["dropped_position"] == "tail"
+
 
 
 
 # ── lc-0006: the paraphrase is surfaced with its turn-crossing ──
 
-def test_the_cutter_still_misses_the_paraphrase():
-    """The deterministic floor does not move: the paraphrase scores
-    below the cut bars, so no cut is proposed."""
-    transcript = _lc0006_transcript()
-    assert reel_build.redundant_takes(889.0, 900.0, transcript) == []
-
-
 def test_the_paraphrase_is_surfaced_for_the_model():
     """But it is CAUGHT: `possible_retellings` names the pair, that it
     crosses Akshita's turn, both tellings' sentences, and what the
     second telling adds."""
-    found = reel_build.possible_retellings(889.0, 900.0,
-                                           _lc0006_transcript())
+    transcript = _lc0006_transcript()
+    # The deterministic floor does not move: no cut is proposed ...
+    assert reel_build.redundant_takes(889.0, 900.0, transcript) == []
+    # ... but the paraphrase is surfaced for the model.
+    found = reel_build.possible_retellings(889.0, 900.0, transcript)
     assert len(found) == 1
     retelling = found[0]
     assert retelling["speaker"] == "Craig"
@@ -154,18 +156,3 @@ def test_no_retelling_where_the_turn_does_not_cross():
              uid="c3"),
     ]}
     assert reel_build.possible_retellings(889.0, 900.0, transcript) == []
-
-
-# ── The bridge carries both where the boundary is still open ──
-
-def test_repetition_inside_carries_cut_context():
-    """Each reported run's cuts arrive with their sentence position,
-    so the model can tell a tail-drop from a false start."""
-    entries = bridge.repetition_inside(2424.0, 2457.0,
-                                       _lc0005_transcript())
-    assert len(entries) == 1
-    cuts = entries[0].get("cuts")
-    assert cuts, "run entries must carry their cuts' context"
-    assert cuts[0]["dropped_position"] == "tail"
-
-

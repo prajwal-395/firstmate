@@ -27,7 +27,6 @@ from library.tools.reel_conformance_verifier import (
     FindingClass,
     ReelPlan,
     ReelTimeline,
-    TimelineItem,
     check_subtitle_word_coverage,
     verify_reel,
 )
@@ -180,8 +179,7 @@ class TestPlayedNotCaptioned:
         assert len(errors) == 1
         assert "four to five" in errors[0]["message"]
         assert errors[0]["detail"]["reel_start"] == pytest.approx(7.074)
-
-    def test_covered_words_stay_silent(self):
+        # Covered words stay silent.
         captioned = [_w("It's", 7.074, 7.254, card="c.mov"),
                      _w("only", 7.254, 7.574, card="c.mov")]
         cards = [_card("c.mov", 7.0, 7.6)]
@@ -269,6 +267,12 @@ class TestEmptyWindow:
         assert len(warned) == 1
         assert warned[0]["severity"] == "warning"
         assert "twenty" in warned[0]["message"]
+        # Healthy words stay silent.
+        result = sc.check_word_coverage(
+            [_w("shop,", 11.135, 11.385)],
+            [_w("shop,", 11.135, 11.385, card="c.mov")],
+            [_card("c.mov", 11.135, 11.927)])
+        assert result["findings"] == []
 
     def test_zero_width_pile_up_word_warns_never_errors(self):
         # Reel 05 card "shop, you're a 50-person shop,": the transcript
@@ -286,13 +290,6 @@ class TestEmptyWindow:
                   if f["kind"] == "empty_window"]
         assert len(warned) == 1
         assert "50-person" in warned[0]["message"]
-
-    def test_healthy_words_stay_silent(self):
-        captioned = [_w("shop,", 11.135, 11.385, card="c.mov")]
-        played = [_w("shop,", 11.135, 11.385)]
-        result = sc.check_word_coverage(
-            played, captioned, [_card("c.mov", 11.135, 11.927)])
-        assert result["findings"] == []
 
 
 # ── pile-up timings: warn, never false-positive ──────────────────
@@ -321,8 +318,7 @@ class TestPileUpTimings:
         flagged = {words[i]["word"] for i in bad}
         assert {"50-person", "shop,", "maybe", "hundred",
                 "person"} <= flagged
-
-    def test_healthy_row_flags_nothing(self):
+        # A healthy row flags nothing.
         words = [{"word": w, "start": float(i), "end": float(i) + 0.2}
                  for i, w in enumerate(["and", "so", "it's", "gonna"])]
         assert sc.degenerate_indices(words) == set()
@@ -373,7 +369,7 @@ class TestPileUpTimings:
 # ── spine leg ────────────────────────────────────────────────────
 
 class TestSpineLeg:
-    def test_spine_drift_is_info_never_error(self):
+    def test_spine_drift_is_info_and_absence_is_said(self):
         played = [_w("hello", 0.0, 0.3), _w("world", 0.3, 0.6)]
         spine = [{"word": "hello", "norm": "hello"},
                  {"word": "there", "norm": "there"},
@@ -383,8 +379,7 @@ class TestSpineLeg:
                   if f["kind"] == "spine_drift"]
         assert len(drifts) == 1
         assert drifts[0]["severity"] == "info"
-
-    def test_absent_spine_says_so_in_meta(self):
+        # An absent spine says so in meta.
         word = _w("hi", 0.0, 0.2, card="c.mov")
         result = sc.check_word_coverage([word], [word],
                                         [_card("c.mov", 0.0, 1.0)])
@@ -398,12 +393,11 @@ class TestTranscriptCurrency:
     DOC = {"derived_from": {"fps": FPS, "duration_seconds": 2656.57,
                             "picture_holes": [[2469.967, 2494.409]]}}
 
-    def test_current_transcript_passes(self):
+    def test_current_passes_and_recut_master_is_stale(self):
         out = sc.transcript_currency(
             self.DOC, FPS, 2656.60, [[2469.967, 2494.409]])
         assert out == {"current": True, "mismatches": []}
-
-    def test_recut_master_is_stale(self):
+        # A recut master is stale.
         out = sc.transcript_currency(
             self.DOC, FPS, 2700.0, [[2469.967, 2494.409]])
         assert out["current"] is False
@@ -413,7 +407,7 @@ class TestTranscriptCurrency:
 # ── derivation off artefacts ─────────────────────────────────────
 
 class TestDerivation:
-    def test_played_words_map_source_to_reel(self):
+    def test_played_words_map_source_to_reel_and_unbound_are_undetermined(self):
         segments = [{
             "speaker": "Craig", "text": "But now",
             "timeline_start": 2330.0, "timeline_end": 2331.0,
@@ -435,7 +429,7 @@ class TestDerivation:
         assert out["words"][0]["reel_start"] == pytest.approx(0.0)
         assert out["words"][0]["reel_end"] == pytest.approx(0.14)
 
-    def test_unbound_rows_are_undetermined_never_played(self):
+        # Unbound rows are undetermined, never played.
         segments = [{
             "speaker": "Craig", "text": "unbound",
             "timeline_start": 1.0, "timeline_end": 2.0,
@@ -450,7 +444,8 @@ class TestDerivation:
         assert out["words"] == []
         assert len(out["undetermined"]) == 1
 
-    def test_captioned_words_read_the_props_artefact(self, tmp_path):
+    def test_captioned_words_read_the_props_artefact_or_say_unreadable(
+            self, tmp_path):
         # Frozen excerpt of Reel 12's mistimed card props
         # (sub_craig_..._1774344-1780764_9c0ba988): words AND their
         # render-relative frames are what the check reads.
@@ -475,8 +470,7 @@ class TestDerivation:
                                                     "percent."]
         assert out["words"][0]["reel_end"] < out["words"][0]["reel_start"]
         assert out["unreadable"] == []
-
-    def test_missing_props_is_unreadable_never_silent(self, tmp_path):
+        # Missing props are unreadable, never silent.
         out = sc.captioned_words_from_placed_cards(
             [{"clip_path": "/p/gone.mov", "reel_start_frame": 0,
               "reel_end_frame": 10, "source_in_frame": 0}],
@@ -495,20 +489,19 @@ def _coverage(played, captioned, cards, spine=None):
 
 
 class TestVerifierWiring:
-    def test_gap_becomes_f25_error(self):
+    def test_gap_becomes_f25_error_and_clean_reel_draws_none(self):
         cov = _coverage(
             [_w("five", 8.404, 8.784)], [], [_card("c.mov", 0.0, 1.0)])
         findings = check_subtitle_word_coverage("Reel 29 - x", cov)
         assert findings
         assert {f.finding_class for f in findings} == {FindingClass.F25}
         assert any(f.severity == "error" for f in findings)
-
-    def test_clean_reel_draws_no_f25(self):
+        # A clean reel draws no F25.
         word = _w("hi", 0.1, 0.3, card="c.mov")
         cov = _coverage([word], [word], [_card("c.mov", 0.0, 1.0)])
         assert check_subtitle_word_coverage("Reel 29 - x", cov) == []
 
-    def test_stale_transcript_warns_does_not_fail(self):
+    def test_stale_transcript_and_new_basis_reports_warn_never_fail(self):
         word = _w("hi", 0.1, 0.3, card="c.mov")
         cov = _coverage([word], [word], [_card("c.mov", 0.0, 1.0)])
         cov["currency"] = {"current": False, "mismatches": [
@@ -517,8 +510,19 @@ class TestVerifierWiring:
         findings = check_subtitle_word_coverage("Reel 29 - x", cov)
         assert findings
         assert {f.severity for f in findings} == {"warning"}
+        # The new basis reports (slivers, serialized) warn, never fail.
+        cov = _coverage([word], [word], [_card("c.mov", 0.0, 1.0)])
+        cov["slivers"] = [{"word": "because", "overlap_seconds": 0.005,
+                           "timeline_start": 268.6}]
+        cov["serialized"] = [{"word": "website.", "reel_start": 24.03,
+                              "was_end": 24.6, "now_end": 24.26,
+                              "overlaps": "Also"}]
+        findings = check_subtitle_word_coverage("Reel 04 - x", cov)
+        assert {f.severity for f in findings} == {"warning"}
+        assert {f.detail["kind"] for f in findings} == {"slivers",
+                                                        "serialized"}
 
-    def test_verify_reel_runs_f25(self):
+    def test_verify_reel_runs_f25_only_with_a_basis(self):
         plan = ReelPlan(
             reel_name="Reel 29 - x", reel_number=29,
             plan_seconds=10.0, plan_frames=round(10.0 * FPS, 1),
@@ -533,16 +537,7 @@ class TestVerifierWiring:
         assert any(f.finding_class == FindingClass.F25
                    and f.severity == "error"
                    for f in result.findings)
-
-    def test_verify_reel_without_basis_runs_no_f25(self):
-        plan = ReelPlan(
-            reel_name="Reel 29 - x", reel_number=29,
-            plan_seconds=10.0, plan_frames=round(10.0 * FPS, 1),
-            span_start=0.0, span_end=10.0, placements=(),
-            keep_ranges=((0.0, 10.0),))
-        timeline = ReelTimeline(
-            reel_name="Reel 29 - x", fps=FPS, total_frames=240,
-            video_items=(), audio_items=(), caption_items=())
+        # Without a basis, no F25 runs.
         result = verify_reel(plan, timeline, word_coverage=None)
         assert [f for f in result.findings
                 if f.finding_class == FindingClass.F25] == []
@@ -569,7 +564,7 @@ class TestSpanEdgeSliver:
                        "timed": True}],
         }]
 
-    def test_five_millisecond_touch_is_not_played(self):
+    def test_a_five_ms_touch_is_dust_and_thirty_ms_still_plays(self):
         spans = [{"source_file": "/m/LCATL0013.MXF",
                   "source_start": 268.935, "source_end": 300.0,
                   "reel_start": 0.0}]
@@ -578,7 +573,6 @@ class TestSpanEdgeSliver:
         assert len(out["slivers"]) == 1
         assert out["slivers"][0]["word"] == "because"
 
-    def test_thirty_millisecond_overlap_still_plays(self):
         # The Reel-12 "That" precedent (50ms surviving a cut counts)
         # stays above the sub-half-frame floor.
         spans = [{"source_file": "/m/LCATL0013.MXF",
@@ -597,7 +591,7 @@ class TestSpanEdgeSliver:
 # space before they meet.
 
 class TestCaptionReadingComparison:
-    def test_numeral_reads_equal(self):
+    def test_numeral_reads_equal_and_real_divergence_fails(self):
         played = [dict(_w("three", 14.0, 14.5), source_file="/m/a.MXF")]
         read = sc.read_words_for_comparison(played)
         assert [w["word"] for w in read] == ["3"]
@@ -606,6 +600,15 @@ class TestCaptionReadingComparison:
             read, captioned, [_card("c.mov", 13.5, 15.0)])
         assert [f for f in result["findings"]
                 if f["severity"] == "error"] == []
+        # A real divergence still fails.
+        read = sc.read_words_for_comparison(
+            [dict(_w("hello", 14.0, 14.5), source_file="/m/a.MXF")])
+        result = sc.check_word_coverage(
+            read, [_w("goodbye", 14.0, 14.5, card="c.mov")],
+            [_card("c.mov", 13.5, 15.0)])
+        assert any(f["kind"] == "word_mismatch"
+                   and f["severity"] == "error"
+                   for f in result["findings"])
 
     def test_recorded_respells_merge_both_sides(self):
         corrections = [{"id": "t",
@@ -624,16 +627,6 @@ class TestCaptionReadingComparison:
             read, captioned, [_card("c.mov", 0.5, 2.5)])
         assert [f for f in result["findings"]
                 if f["severity"] == "error"] == []
-
-    def test_real_divergence_still_fails(self):
-        played = [dict(_w("hello", 14.0, 14.5), source_file="/m/a.MXF")]
-        read = sc.read_words_for_comparison(played)
-        captioned = [_w("goodbye", 14.0, 14.5, card="c.mov")]
-        result = sc.check_word_coverage(
-            read, captioned, [_card("c.mov", 13.5, 15.0)])
-        assert any(f["kind"] == "word_mismatch"
-                   and f["severity"] == "error"
-                   for f in result["findings"])
 
 
 # ── one file is one mouth ──────────────────────────────────────────
@@ -655,21 +648,20 @@ class TestSameFileSerialization:
              "source_file": f"/m/{file_b}"},
         ]
 
-    def test_same_file_overlap_clips_sequential(self):
+    def test_same_file_overlap_clips_sequential_other_files_keep_it(self):
         words = self._played()
         serialized = sc._serialize_same_file_overlaps(words)
         assert words[0]["reel_end"] == pytest.approx(24.26)
         assert words[1]["reel_start"] == pytest.approx(24.26)
         assert len(serialized) == 1
         assert serialized[0]["word"] == "website."
-
-    def test_different_files_keep_their_overlap(self):
+        # Different files are different mics and keep their overlap.
         words = self._played(file_b="LC4932.MXF")
         serialized = sc._serialize_same_file_overlaps(words)
         assert words[0]["reel_end"] == pytest.approx(24.60)
         assert serialized == []
 
-    def test_serialized_overlap_passes_the_diff(self):
+    def test_serialized_overlap_passes_the_diff_coincident_stays_loud(self):
         words = self._played()
         sc._serialize_same_file_overlaps(words)
         captioned = [_w("website.", 23.98, 24.27, card="a.mov"),
@@ -680,7 +672,7 @@ class TestSameFileSerialization:
         assert [f for f in result["findings"]
                 if f["severity"] == "error"] == []
 
-    def test_coincident_words_stay_loud_not_silent(self):
+        # Coincident words stay loud, not silent.
         words = [
             {"word": "x", "norm": "x", "reel_start": 1.0, "reel_end": 2.0,
              "source_file": "/m/a.MXF"},
@@ -690,20 +682,3 @@ class TestSameFileSerialization:
         serialized = sc._serialize_same_file_overlaps(words)
         assert words[0]["reel_end"] == pytest.approx(2.0)
         assert serialized and serialized[0].get("unresolved") is True
-
-
-# ── the new basis reports warn, never fail ─────────────────────────
-
-class TestNewBasisReports:
-    def test_slivers_and_serialized_warn(self):
-        word = _w("hi", 0.1, 0.3, card="c.mov")
-        cov = _coverage([word], [word], [_card("c.mov", 0.0, 1.0)])
-        cov["slivers"] = [{"word": "because", "overlap_seconds": 0.005,
-                           "timeline_start": 268.6}]
-        cov["serialized"] = [{"word": "website.", "reel_start": 24.03,
-                              "was_end": 24.6, "now_end": 24.26,
-                              "overlaps": "Also"}]
-        findings = check_subtitle_word_coverage("Reel 04 - x", cov)
-        assert {f.severity for f in findings} == {"warning"}
-        assert {f.detail["kind"] for f in findings} == {"slivers",
-                                                        "serialized"}

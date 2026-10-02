@@ -54,15 +54,15 @@ _PLACEMENT = {"scaling": 1, "pan": 0.0, "tilt": -870.0}
 
 # ── the build guard ──────────────────────────────────────────────
 
-def test_tight_segment_with_placement_rides_it():
+def test_the_build_guard_never_centres_a_caption_silently():
+    """Finding 21's shape - a tight canvas with no placement - is refused
+    by name rather than shipped at a silent Tilt 0; full canvas rides
+    untransformed; a segment too old to declare its geometry rides its
+    placement if it has one and is refused if it has none."""
     placement, refusal = caption_segment_placement(
         _seg(placement=_PLACEMENT), 0, 3)
-    assert refusal == ""
-    assert placement == _PLACEMENT
+    assert (placement, refusal) == (_PLACEMENT, "")
 
-
-def test_tight_segment_without_placement_is_refused_by_name():
-    """Finding 21's shape: no placement means no silent Tilt 0."""
     seg = _seg(segment_id="sub_today_is_march_9f2c", placement=None)
     assert seg.get("tight_box") is None
     placement, refusal = caption_segment_placement(seg, 7, 3)
@@ -70,23 +70,13 @@ def test_tight_segment_without_placement_is_refused_by_name():
     assert "sub_today_is_march_9f2c" in refusal
     assert "Tilt 0" in refusal
 
-
-def test_full_canvas_segment_rides_untransformed():
     placement, refusal = caption_segment_placement(
         _seg(geometry="full", placement=None), 0, 3)
-    assert placement is None
-    assert refusal == ""
+    assert (placement, refusal) == (None, "")
 
-
-def test_undeclared_geometry_with_placement_rides_it():
     seg = _seg(placement=_PLACEMENT)
     del seg["geometry"]
-    placement, refusal = caption_segment_placement(seg, 0, 3)
-    assert refusal == "" and placement == _PLACEMENT
-
-
-def test_undeclared_geometry_without_placement_is_refused():
-    """Too old to prove full canvas: refused rather than assumed."""
+    assert caption_segment_placement(seg, 0, 3) == (_PLACEMENT, "")
     seg = _seg(placement=None)
     del seg["geometry"]
     seg.pop("tight_box", None)
@@ -104,18 +94,12 @@ def _manifest(*segments):
             "subtitle_overlay": {"segments": list(segments)}}
 
 
-def test_compile_refuses_a_tight_segment_with_no_placement():
+def test_compile_refuses_only_a_tight_segment_with_no_placement():
     import pytest
     seg = _seg(segment_id="sub_today_is_march_9f2c", placement=None)
     with pytest.raises(ValueError, match="sub_today_is_march_9f2c"):
         _assert_subtitle_overlay_matches_plan(_manifest(seg))
-
-
-def test_compile_passes_full_canvas_without_placement():
     _assert_subtitle_overlay_matches_plan(
         _manifest(_seg(geometry="full", placement=None)))
-
-
-def test_compile_passes_tight_with_placement():
     _assert_subtitle_overlay_matches_plan(
         _manifest(_seg(placement=_PLACEMENT)))
