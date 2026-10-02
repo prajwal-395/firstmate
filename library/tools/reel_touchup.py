@@ -2533,10 +2533,20 @@ def _promote(project_folder: str, project: Any, pool: Any,
         _provenance.assert_not_editor_timeline(
             os.path.join(project_folder, "pipeline_output", "review"),
             originals[final])
+        # The staging is a copy of the live timeline, so the editor's
+        # edits are on it already: they are filed as carried edits, not
+        # re-applied over what this touch changes on purpose.
+        from library.tools import editor_edit_carry as _editor_carry
+        detection = _guard.detect_editor_changes(
+            project_folder, final, live_full, live_full)
+        edits, superseded = _editor_carry.edits_in_force(
+            project_folder, final, detection["pending"])
         receipt["editor_changes"] = _guard.protect_editor_changes(
             project_folder, final, live_full, live_full, staged_full,
             accept=_guard.accepts_editor_changes(
-                final, accept_editor_changes))
+                final, accept_editor_changes), detection=detection,
+            carried_edits={"edits": edits, "superseded": superseded,
+                           "written": [], "already_held": []})
     except _guard.EditorChangeRefused as refused:
         raise TouchupError(str(refused)) from refused
 
@@ -2656,6 +2666,12 @@ def _promote(project_folder: str, project: Any, pool: Any,
                          after_timeline=staged_found[staging],
                          rows=incoming_rows, project=project)
     receipt["version"] = journal["version"]
+    if journal.get("preservation_after") is not None:
+        from library.tools import editor_edit_carry as _editor_carry
+        receipt["carried_edits"] = _editor_carry.record_after_promotion(
+            project_folder, final,
+            receipt["editor_changes"].get("carried_edits"),
+            journal["preservation_after"], act=f"touch {journal['id']}")
     ren_owned_ids = set()
     for timeline in (originals[final], staged_found[staging]):
         try:

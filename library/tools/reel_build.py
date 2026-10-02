@@ -9665,6 +9665,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 _guard.timeline_inventory(project))
             raise ReelBuildError(str(changed)) from changed
 
+    from library.tools import editor_edit_carry as _editor_carry
     from library.tools import reel_disabled_clip_carry as _disabled
     try:
         declared = _guard.parse_specs(allow_drops, finals)
@@ -9884,13 +9885,33 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 marker_entry["clip_declined"] = (
                     _markers.place_clip_markers(
                         staged_found[staging], clip_keep))
+            # The editor's carried edits (cuts, enabled state,
+            # transforms) land on staging before the after read, and
+            # are judged on that read in source ranges
+            # (`library/tools/editor_edit_carry.py`).
+            accept_editor = _guard.accepts_editor_changes(
+                final, accept_editor_changes)
+            detection = _guard.detect_editor_changes(
+                project_folder, final, live_snapshot,
+                staged_initial_snapshot)
+            carry_report = _editor_carry.carry_editor_edits(
+                project_folder, final, project, staged_found[staging],
+                lambda timeline=staged_found[staging]:
+                    _guard.full_timeline_snapshot(
+                        timeline, project, project_folder),
+                detection, accept=accept_editor)
             staged_after_snapshot = _guard.full_timeline_snapshot(
                 staged_found[staging], project, project_folder)
+            _editor_carry.verify_carried_edits(
+                carry_report, staged_after_snapshot, final)
+            for line in _editor_carry.describe(carry_report):
+                print(f"  {final}: carried editor edit - {line}",
+                      flush=True)
             editor_report = _guard.protect_editor_changes(
                 project_folder, final, live_snapshot,
                 staged_initial_snapshot, staged_after_snapshot,
-                accept=_guard.accepts_editor_changes(
-                    final, accept_editor_changes))
+                accept=accept_editor, detection=detection,
+                carried_edits=carry_report)
             editor_override_rows = _guard.accepted_editor_drop_rows(
                 editor_report)
             allowed_rows = (set(declared.get(final, ()))
@@ -10170,6 +10191,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 action_journal=f"timeline_inventory:{inventory_operation}")
             editor_report = (replace_reports.get(final) or {}).get(
                 "editor_changes") or {}
+            _editor_carry.record_after_promotion(
+                project_folder, final, editor_report.get("carried_edits"),
+                snapshot, act="build promotion")
             for record_id in editor_report.get("carried", ()):
                 _provenance.resolve_editor_change(
                     review_dir, final, record_id, status="carried")

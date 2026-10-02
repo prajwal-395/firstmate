@@ -190,6 +190,11 @@ promotion time - the only moment "what the live timeline holds" and
 rather than grading a stale file.
 """
 
+CARRIED_EDITS_KEY = "carried_editor_edits"
+"""Per final timeline name: the editor's timeline edits every rebuild,
+swap and variant choice re-applies (`library/tools/editor_edit_carry.py`).
+"""
+
 
 def caption_content_hash(cards) -> str:
     """A stable digest of the caption cards a build actually placed.
@@ -456,6 +461,7 @@ def _write_provenance_unlocked(
     editor_changes = dict(existing.get(EDITOR_CHANGES_KEY) or {})
     inventory_history = list(existing.get(TIMELINE_INVENTORY_KEY) or [])
     editor_timelines = dict(existing.get(EDITOR_TIMELINES_KEY) or {})
+    carried_edits = dict(existing.get(CARRIED_EDITS_KEY) or {})
 
     doc = {
         "plan_path": os.path.abspath(plan_path),
@@ -497,6 +503,7 @@ def _write_provenance_unlocked(
         EDITOR_CHANGES_KEY: editor_changes,
         TIMELINE_INVENTORY_KEY: inventory_history,
         EDITOR_TIMELINES_KEY: editor_timelines,
+        CARRIED_EDITS_KEY: carried_edits,
     }
     if superseded:
         doc["superseded_plan_hash"] = superseded
@@ -1071,6 +1078,49 @@ def resolve_editor_change(review_dir: str, timeline_name: str,
                     entry["superseded_by"] = str(superseded_by)
         table[str(timeline_name)] = entries
         doc[EDITOR_CHANGES_KEY] = table
+
+    _mutate_preservation(review_dir, update)
+
+
+def carried_editor_edits(review_dir: str, timeline_name: str) -> list[dict]:
+    """The edits in force on `timeline_name`, oldest first."""
+    doc = read_provenance(review_dir) or {}
+    edits = ((doc.get(CARRIED_EDITS_KEY) or {}).get(
+        str(timeline_name)) or [])
+    return [dict(edit) for edit in edits if edit.get("status") == "active"]
+
+
+def record_carried_edits(review_dir: str, timeline_name: str,
+                         edits: list[dict], *,
+                         superseded: dict | None = None) -> None:
+    """Add `edits` and retire `superseded` (`{edit id: why}`) in one write.
+
+    An edit whose id is already recorded is replaced in place: the id
+    names the item and the property, so a re-ruling of the same thing
+    is one entry, not two that disagree.
+    """
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def update(doc):
+        table = dict(doc.get(CARRIED_EDITS_KEY) or {})
+        entries = list(table.get(str(timeline_name)) or [])
+        index = {entry.get("id"): position
+                 for position, entry in enumerate(entries)}
+        for edit in edits:
+            if edit["id"] in index:
+                entries[index[edit["id"]]] = dict(edit)
+            else:
+                index[edit["id"]] = len(entries)
+                entries.append(dict(edit))
+        for edit_id, why in (superseded or {}).items():
+            for entry in entries:
+                if entry.get("id") == edit_id and \
+                        entry.get("status") == "active":
+                    entry["status"] = "superseded"
+                    entry["superseded_at"] = now
+                    entry["superseded_by"] = str(why)
+        table[str(timeline_name)] = entries
+        doc[CARRIED_EDITS_KEY] = table
 
     _mutate_preservation(review_dir, update)
 

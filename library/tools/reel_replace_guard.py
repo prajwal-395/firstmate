@@ -83,6 +83,14 @@ guard that fails open reads as protection. So does an incoming staging
 that cannot be read: promoting what cannot be judged is the defect.
 Fresh builds (no timeline under the final name yet) skip the diff for
 that reel - there is nothing being replaced.
+
+Editor changes: carried before they are refused
+-----------------------------------------------
+`detect_editor_changes` records what the editor changed since Ren's
+last read; `library/tools/editor_edit_carry.py` applies the changes it
+can state in source ranges (cuts, enabled state, transforms) to staging
+and verifies them; `protect_editor_changes` then refuses whatever the
+re-read staging still does not carry.
 """
 
 from __future__ import annotations
@@ -498,10 +506,14 @@ def accepted_editor_drop_rows(editor_report: dict) -> set[str]:
     return rows
 
 
-def protect_editor_changes(project_folder: str, final: str, live: dict,
-                           staged_initial: dict, staged_after: dict,
-                           *, accept=False) -> dict:
-    """Record deltas and refuse edits the staged timeline does not carry."""
+def detect_editor_changes(project_folder: str, final: str, live: dict,
+                          staged_initial: dict) -> dict:
+    """Record the live timeline's unattributed deltas; return what is pending.
+
+    Idempotent: a record's id is the digest of its two sides, so a
+    second call over the same reads adds nothing. Returns
+    `{"first_contact", "detected", "pending"}`.
+    """
     from library.tools import plan_provenance
 
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
@@ -549,7 +561,28 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
         }]
         plan_provenance.record_editor_changes(review_dir, final, detected)
 
-    pending = plan_provenance.pending_editor_changes(review_dir, final)
+    return {"first_contact": first_contact, "detected": detected,
+            "pending": plan_provenance.pending_editor_changes(
+                review_dir, final)}
+
+
+def protect_editor_changes(project_folder: str, final: str, live: dict,
+                           staged_initial: dict, staged_after: dict,
+                           *, accept=False, detection=None,
+                           carried_edits=None) -> dict:
+    """Record deltas and refuse edits the staged timeline does not carry.
+
+    `detection` is an earlier `detect_editor_changes` over the same
+    reads, taken before the carried edits were applied to staging
+    (`library/tools/editor_edit_carry.py`); `carried_edits` is that
+    carry's report, kept on this one so the promotion records both.
+    """
+    if detection is None:
+        detection = detect_editor_changes(
+            project_folder, final, live, staged_initial)
+    first_contact = detection["first_contact"]
+    detected = detection["detected"]
+    pending = detection["pending"]
     carried, uncarried = [], []
     for record in pending:
         remaining = [change for change in record.get("changes", ())
@@ -569,6 +602,7 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
             f"\nTo accept this loss deliberately, pass "
             f"--accept-editor-changes {final!r}.")
     return {"first_contact": first_contact, "detected": detected,
+            "carried_edits": carried_edits,
             "carried": [record["id"] for record in carried],
             "superseded": (sorted({record["id"] for record, _ in uncarried})
                            if accept else []),

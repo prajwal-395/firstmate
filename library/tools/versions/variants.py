@@ -1223,11 +1223,28 @@ def choose(project, pool, project_folder, reel_number: int,
             review_dir, base_final, incumbent_snapshot,
             action="before_variant_choice", last_known=False)
         try:
+            # The incumbent's carried edits land on the chosen variant
+            # before it takes the name (`editor_edit_carry`).
+            from library.tools import editor_edit_carry
+            accept_editor = reel_replace_guard.accepts_editor_changes(
+                base_final, accept_editor_changes)
+            detection = reel_replace_guard.detect_editor_changes(
+                str(project_folder), base_final, incumbent_snapshot,
+                chosen_snapshot)
+            carry_report = editor_edit_carry.carry_editor_edits(
+                str(project_folder), base_final, project, live[chosen],
+                lambda: reel_replace_guard.full_timeline_snapshot(
+                    live[chosen], project, project_folder),
+                detection, accept=accept_editor)
+            if carry_report["written"]:
+                chosen_snapshot = reel_replace_guard.full_timeline_snapshot(
+                    live[chosen], project, project_folder)
+            editor_edit_carry.verify_carried_edits(
+                carry_report, chosen_snapshot, base_final)
             editor_report = reel_replace_guard.protect_editor_changes(
                 str(project_folder), base_final, incumbent_snapshot,
-                chosen_snapshot, chosen_snapshot,
-                accept=reel_replace_guard.accepts_editor_changes(
-                    base_final, accept_editor_changes))
+                chosen_snapshot, chosen_snapshot, accept=accept_editor,
+                detection=detection, carried_edits=carry_report)
         except reel_replace_guard.EditorChangeRefused:
             plan_provenance.finish_timeline_inventory(
                 review_dir, inventory_operation,
@@ -1284,6 +1301,11 @@ def choose(project, pool, project_folder, reel_number: int,
     plan_provenance.record_timeline_snapshot(
         review_dir, base_final, chosen_after, action="variant_choice",
         action_journal=f"variant:{chosen}->{base_final}:{why}")
+    from library.tools import editor_edit_carry
+    editor_edit_carry.record_after_promotion(
+        str(project_folder), base_final,
+        (editor_report or {}).get("carried_edits"), chosen_after,
+        act=f"variant choice {chosen!r}")
     ren_owned_ids = set()
     for timeline in (live[chosen], live.get(base_final)):
         if timeline is None:
