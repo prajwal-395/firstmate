@@ -25,231 +25,37 @@ import pytest
 from library.tools.reel_build import (
     ReelBuildError,
     build_reel_timeline,
-    link_reel_groups,
     reel_angles,
     resolve_reel_program_channels,
 )
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 from library.tools.timeline_conformance import (
-    CHECKS,
     verify_timeline,
 )
 from library.tools.timeline_ingest import TimelineClip
-from library.tools.timeline_layout import plan_layout
-from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+from tests.resolve_double import (
+    FakeMediaPoolItem,
+    FakeTimeline,
+    make_project,
+)
 
 
-# ── Faithful fakes ─────────────────────────────────────────────
-# The link fake emulates MEASURED Resolve semantics (2026-09-09):
-# SetClipsLinked with three items forms one three-group; linking a
-# pair afterwards BREAKS the group rather than adding to it. DeleteTrack
-# shifts every row above the deletion down, the way Resolve does.
-
-class FakeItem:
-    _ids = iter(range(200000, 2000000))
-
-    def __init__(self, name, start, end, pool_path="", channel=1):
-        self._name = name
-        self._start = start
-        self._end = end
-        self._pool_path = pool_path
-        self._channel = channel
-        self._uid = f"ritem-{next(FakeItem._ids)}"
-        self._group = {self._uid}
-        self._transform = {"ZoomX": 1.0, "ZoomY": 1.0,
-                           "Pan": 0.0, "Tilt": 0.0}
-
-    def GetName(self): return self._name
-    def GetStart(self): return self._start
-    def GetEnd(self): return self._end
-    def GetDuration(self): return self._end - self._start
-    def GetUniqueId(self): return self._uid
-    def GetMediaPoolItem(self):
-        class _P:
-            def __init__(self, p): self._p = p
-            def GetClipProperty(self, k):
-                if k == "File Path": return self._p
-                if k == "Resolution":
-                    return ("1920x1080" if any(
-                        name in self._p for name in
-                        ("LCATL0013", "LC4932", "reel_freeze_"))
-                        else "3840x2160")
-                if k == "FPS": return "23.976"
-                return ""
-        return _P(self._pool_path)
-    def GetLinkedItems(self):
-        return [i for i in FakeTimeline._registry.values()
-                if i._uid in self._group and i._uid != self._uid]
-    def GetSourceAudioChannelMapping(self):
-        return json.dumps({
-            "embedded_audio_channels": 4, "linked_audio": {},
-            "track_mapping": {"1": {"channel_idx": [self._channel],
-                                    "mute": False, "type": "mono"}}})
-    def GetProperty(self, prop=None):
-        return (dict(self._transform) if prop is None
-                else self._transform.get(prop))
-    def SetProperty(self, prop, value):
-        self._transform[prop] = value
-        return True
+def _media_properties(path):
+    low_resolution_sources = ("LCATL0013", "LC4932", "reel_freeze_")
+    resolution = (
+        "1920x1080"
+        if any(name in path for name in low_resolution_sources)
+        else "3840x2160"
+    )
+    return {"Resolution": resolution, "FPS": "23.976"}
 
 
-class FakeTimeline:
-    _registry = {}
-
-    def __init__(self):
-        self.tracks = {("video", 1): [], ("audio", 1): []}
-        self.names = {("video", 1): "Video 1", ("audio", 1): "Audio 1"}
-        self.link_calls = []
-        self.deleted_items = []
-        self.deleted_tracks = []
-
-    def GetTrackCount(self, mt): return max(
-        (i for (t, i) in self.tracks if t == mt), default=0)
-    def AddTrack(self, mt, *a):
-        n = self.GetTrackCount(mt) + 1
-        self.tracks[(mt, n)] = []
-        self.names[(mt, n)] = f"{mt.capitalize()} {n}"
-        return True
-    def DeleteTrack(self, mt, idx):
-        self.deleted_tracks.append((mt, idx))
-        self.tracks.pop((mt, idx), None)
-        self.names.pop((mt, idx), None)
-        # Resolve shifts every row above the deletion down.
-        higher = sorted(k for k in self.tracks
-                        if k[0] == mt and k[1] > idx)
-        for (t, i) in higher:
-            self.tracks[(t, i - 1)] = self.tracks.pop((t, i))
-            if (t, i) in self.names:
-                self.names[(t, i - 1)] = self.names.pop((t, i))
-        return True
-    def GetItemListInTrack(self, mt, idx):
-        return list(self.tracks.get((mt, idx), []))
-    def GetTrackName(self, mt, idx): return self.names.get((mt, idx), "")
-    def SetTrackName(self, mt, idx, name):
-        self.names[(mt, idx)] = name
-        return True
-    def SetClipsLinked(self, items, link):
-        self.link_calls.append((list(items), link))
-        if link:
-            group = {i.GetUniqueId() for i in items}
-            for i in items:
-                i._group = set(group)
-        else:
-            for i in items:
-                i._group = {i.GetUniqueId()}
-        return True
-    def DeleteClips(self, items, ripple=False):
-        for it in items:
-            self.deleted_items.append(it.GetUniqueId())
-            for key, lst in self.tracks.items():
-                if it in lst:
-                    lst.remove(it)
-        return True
-    def SetSetting(self, k, v): return True
-    def GetUniqueId(self): return "fake-reel-timeline"
-    def GetName(self): return "Fake Reel"
-    def GetSetting(self, key):
-        return {"timelineResolutionWidth": "1080",
-                "timelineResolutionHeight": "1920",
-                "timelineFrameRate": "23.976"}.get(key, "")
-
-
-class FakePoolItem:
-    def __init__(self, path):
-        self._path = path
-    def GetClipProperty(self, k):
-        if k == "File Path": return self._path
-        if k == "FPS": return "23.976"
-        if k == "Resolution":
-            return ("1920x1080" if any(
-                name in self._path for name in
-                ("LCATL0013", "LC4932", "reel_freeze_"))
-                else "3840x2160")
-        return ""
-
-
-class FakeFolder:
-    def __init__(self, name="Master"):
-        self._name = name
-        self.clips = []
-        self.subs = []
-    def GetName(self): return self._name
-    def GetClipList(self): return list(self.clips)
-    def GetSubFolderList(self): return list(self.subs)
-
-
-class FakePool:
-    """Measured live Resolve behavior for an MXF audio append: the call
-    RETURNS one item and PLACES two - the program stream on the named
-    row plus a non-program spill on the next audio row that exists.
-    The sweep, not the return value, is what finds the spill."""
-
-    def __init__(self, timeline, paths, audio_channels=(1,),
-                 fail_paths=()):
-        self.timeline = timeline
-        self.root = FakeFolder()
-        self._items = {p: FakePoolItem(p) for p in paths}
-        self._channels = tuple(audio_channels)
-        self._fail = set(fail_paths)
-        for item in self._items.values():
-            self.root.clips.append(item)
-
-    def GetRootFolder(self): return self.root
-    def GetCurrentFolder(self): return self.root
-    def SetCurrentFolder(self, folder): return True
-    def AddSubFolder(self, parent, name):
-        folder = FakeFolder(name)
-        parent.subs.append(folder)
-        return folder
-    def ImportMedia(self, paths):
-        out = []
-        for p in paths:
-            if p in self._fail:
-                continue
-            item = self._items.get(p, FakePoolItem(p))
-            self._items[p] = item
-            self.root.clips.append(item)
-            out.append(item)
-        return out
-    def CreateEmptyTimeline(self, name):
-        self.created_name = name
-        return self.timeline
-    def AppendToTimeline(self, clip_infos):
-        out = []
-        for info in clip_infos:
-            item = info["mediaPoolItem"]
-            path = (item._path if isinstance(item, FakePoolItem) else "")
-            start, end = info["startFrame"], info["endFrame"]
-            rec = info["recordFrame"]
-            dur = end - start
-            media_type = info.get("mediaType", 1)
-            if media_type == 2:
-                returned = []
-                others = [i for (t, i) in self.timeline.tracks
-                          if t == "audio" and i != info["trackIndex"]]
-                for n, channel in enumerate(self._channels):
-                    placed = FakeItem(path.split("/")[-1], rec, rec + dur,
-                                      pool_path=path, channel=channel)
-                    FakeTimeline._registry[placed.GetUniqueId()] = placed
-                    if n == 0:
-                        self.timeline.tracks.setdefault(
-                            ("audio", info["trackIndex"]), []).append(placed)
-                        returned.append(placed)
-                    elif others:
-                        # The spill: a non-program stream on the next
-                        # audio row that exists. Returned never includes
-                        # it - only a row read-back finds it.
-                        self.timeline.tracks.setdefault(
-                            ("audio", others[(n - 1) % len(others)]),
-                            []).append(placed)
-                out.extend(returned)
-            else:
-                placed = FakeItem(path.split("/")[-1], rec, rec + dur,
-                                  pool_path=path)
-                FakeTimeline._registry[placed.GetUniqueId()] = placed
-                self.timeline.tracks.setdefault(
-                    ("video", info["trackIndex"]), []).append(placed)
-                out.append(placed)
-        return out
+def _pool_item(path):
+    item = FakeMediaPoolItem(path.rsplit("/", 1)[-1])
+    item.SetClipProperty("File Path", path)
+    item.SetClipProperty("FPS", "23.976")
+    item.SetClipProperty("Resolution", _media_properties(path)["Resolution"])
+    return item
 
 
 class FakeMoment:
@@ -260,39 +66,46 @@ class FakeMoment:
     call_to_action = None
 
 
-def _clip(track_type, index, track_name, speaker, source, tl_start,
-          tl_end, src_in=100.0):
+def _clip(
+    track_type, index, track_name, speaker, source, tl_start, tl_end, src_in=100.0
+):
     return TimelineClip(
-        resolve_item_id=f"{track_name}-{tl_start}", track_type=track_type,
-        track_index=index, track_name=track_name, speaker=speaker,
-        source_file=source, source_in=src_in,
+        resolve_item_id=f"{track_name}-{tl_start}",
+        track_type=track_type,
+        track_index=index,
+        track_name=track_name,
+        speaker=speaker,
+        source_file=source,
+        source_in=src_in,
         source_out=src_in + (tl_end - tl_start),
-        source_in_frame=int(src_in * 24), source_out_frame=int(src_in * 24) + 1,
-        source_frames=100000, timeline_start=tl_start, timeline_end=tl_end,
-        name="clip")
+        source_in_frame=int(src_in * 24),
+        source_out_frame=int(src_in * 24) + 1,
+        source_frames=100000,
+        timeline_start=tl_start,
+        timeline_end=tl_end,
+        name="clip",
+    )
 
 
 def _master_clips():
     return [
         _clip("video", 1, "Akshita", "Akshita", "/m/akshita.MXF", 0.0, 10.0),
         _clip("video", 2, "Craig", "Craig", "/m/craig.MXF", 10.0, 20.0),
-        _clip("audio", 1, "Akshita CH1", "Akshita", "/m/akshita.MXF",
-              0.0, 10.0),
+        _clip("audio", 1, "Akshita CH1", "Akshita", "/m/akshita.MXF", 0.0, 10.0),
         _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF", 10.0, 20.0),
     ]
 
 
 def _world(audio_channels=(1,), fail_paths=()):
-    FakeTimeline._registry = {}
     timeline = FakeTimeline()
-    paths = ["/m/akshita.MXF", "/m/craig.MXF", "/m/cap.mov",
-             "/m/sem.mov"]
-    pool = FakePool(timeline, paths, audio_channels=audio_channels,
-                    fail_paths=fail_paths)
-    project = type("P", (), {})()
-    project.GetMediaPool = lambda: pool
-    project.SetCurrentTimeline = lambda tl: True
-    project.GetCurrentTimeline = lambda: timeline
+    paths = ["/m/akshita.MXF", "/m/craig.MXF", "/m/cap.mov", "/m/sem.mov"]
+    project = make_project(width=1080, height=1920, frame_rate=23.976)
+    pool = project.GetMediaPool()
+    pool.next_timeline = timeline
+    pool.audio_channels = tuple(audio_channels)
+    pool.import_failures = set(fail_paths)
+    pool.media_properties = {path: _media_properties(path) for path in paths}
+    pool.ImportMedia([path for path in paths if path not in pool.import_failures])
     return timeline, pool, project
 
 
@@ -301,29 +114,57 @@ def _transcript():
 
 
 def _caption(start, end, name="cap"):
-    return {"overlay_path": "/m/cap.mov", "timeline_start": start,
-            "timeline_end": end, "source_in_frame": 0,
-            "segment_id": name}
+    return {
+        "overlay_path": "/m/cap.mov",
+        "timeline_start": start,
+        "timeline_end": end,
+        "source_in_frame": 0,
+        "segment_id": name,
+    }
 
 
 def _semantic(start, total, name="sem"):
-    return {"overlay_path": "/m/sem.mov", "timeline_start": start,
-            "total_frames": total}
+    return {
+        "overlay_path": "/m/sem.mov",
+        "timeline_start": start,
+        "total_frames": total,
+    }
 
 
-def _build(timeline, pool, project, clips, captions=(), semantic=(),
-           look=None, program_channels=None, edit_ledger_rows=None,
-           draw_gain=FALLBACK_DRAW_GAIN):
+def _build(
+    timeline,
+    pool,
+    project,
+    clips,
+    captions=(),
+    semantic=(),
+    look=None,
+    program_channels=None,
+    edit_ledger_rows=None,
+    draw_gain=FALLBACK_DRAW_GAIN,
+):
     return build_reel_timeline(
-        project, FakeMoment(), clips, list(captions),
-        23.976, 1080, 1920, "/tmp/no-such-project", _transcript(),
-        look=look, semantic_segments=list(semantic) or None,
-        master_timeline=None, program_channels=program_channels,
-        edit_ledger_rows=edit_ledger_rows, draw_gain=draw_gain)
+        project,
+        FakeMoment(),
+        clips,
+        list(captions),
+        23.976,
+        1080,
+        1920,
+        "/tmp/no-such-project",
+        _transcript(),
+        look=look,
+        semantic_segments=list(semantic) or None,
+        master_timeline=None,
+        program_channels=program_channels,
+        edit_ledger_rows=edit_ledger_rows,
+        draw_gain=draw_gain,
+    )
 
 
 def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
-        tmp_path, monkeypatch):
+    tmp_path, monkeypatch
+):
     """The real timeline builder proves Reel 24 transforms offline.
 
     The opening two-shot has no automatic face aim, so its word-anchored
@@ -340,34 +181,47 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
     reel = "Reel 24 - why-ai-trusts-youtube"
     source = "/media/LCATL0013.MXF"
     window = (56.106, 530.6365, 1022.967, 1829.827)
-    monkeypatch.setattr(tv_frame, "screen_window_rect",
-                        lambda *_args, **_kwargs: window)
-    monkeypatch.setattr(reel_look, "frame_overlay_segments",
-                        lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(reel_look, "frame_properties",
-                        lambda *_args, **_kwargs: {"ZoomX": 1.0})
+    monkeypatch.setattr(
+        tv_frame, "screen_window_rect", lambda *_args, **_kwargs: window
+    )
+    monkeypatch.setattr(
+        reel_look, "frame_overlay_segments", lambda *_args, **_kwargs: []
+    )
+    monkeypatch.setattr(
+        reel_look, "frame_properties", lambda *_args, **_kwargs: {"ZoomX": 1.0}
+    )
     monkeypatch.setattr(
         "library.tools.reel_post_header.plan_for_reel",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            segments=[], as_dict=lambda: {}))
+        lambda *_args, **_kwargs: SimpleNamespace(segments=[], as_dict=dict),
+    )
 
-    subject = SimpleNamespace(center_x=0.518, center_y=0.325,
-                              others=0, detected=12, samples=12)
+    subject = SimpleNamespace(
+        center_x=0.518, center_y=0.325, others=0, detected=12, samples=12
+    )
     monkeypatch.setattr(
         "library.tools.reel_build._recorded_first_measure",
-        lambda _project: lambda _source, source_in, _source_out: (
-            None if source_in < 3944.0 else subject))
+        lambda _project: (
+            lambda _source, source_in, _source_out: (
+                None if source_in < 3944.0 else subject
+            )
+        ),
+    )
 
     def _segment(text, start):
         words = []
         cursor = start
         for token in text.split():
-            words.append({"word": token, "start": cursor,
-                          "end": cursor + 0.2, "timed": True})
+            words.append(
+                {"word": token, "start": cursor, "end": cursor + 0.2, "timed": True}
+            )
             cursor += 0.25
-        return {"speaker": "Craig", "text": text,
-                "timeline_start": start,
-                "timeline_end": start + 4.0, "words": words}
+        return {
+            "speaker": "Craig",
+            "text": text,
+            "timeline_start": start,
+            "timeline_end": start + 4.0,
+            "words": words,
+        }
 
     phrases = [
         "why do ai platforms love video content",
@@ -377,9 +231,9 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
         "later shot five carries a different thought",
         "later shot six finishes the thought",
     ]
-    transcript = {"segments": [
-        _segment(text, index * 4.0)
-        for index, text in enumerate(phrases)]}
+    transcript = {
+        "segments": [_segment(text, index * 4.0) for index, text in enumerate(phrases)]
+    }
     master_clips = []
     source_files = [
         source,
@@ -392,17 +246,38 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
     for index, source_file in enumerate(source_files):
         start, end = index * 4.0, (index + 1) * 4.0
         source_in = 3943.372 + index * 4.0
-        master_clips.extend([
-            _clip("video", 1, "Craig", "Craig", source_file,
-                  start, end, src_in=source_in),
-            _clip("audio", 1, "Craig CH1", "Craig", source_file,
-                  start, end, src_in=source_in),
-        ])
+        master_clips.extend(
+            [
+                _clip(
+                    "video",
+                    1,
+                    "Craig",
+                    "Craig",
+                    source_file,
+                    start,
+                    end,
+                    src_in=source_in,
+                ),
+                _clip(
+                    "audio",
+                    1,
+                    "Craig CH1",
+                    "Craig",
+                    source_file,
+                    start,
+                    end,
+                    src_in=source_in,
+                ),
+            ]
+        )
     moment = SimpleNamespace(
-        number=24, slug="why-ai-trusts-youtube",
+        number=24,
+        slug="why-ai-trusts-youtube",
         timeline_name=reel + " (rebuild staging)",
-        timeline_start=0.0, timeline_end=24.0,
-        call_to_action=None)
+        timeline_start=0.0,
+        timeline_end=24.0,
+        call_to_action=None,
+    )
 
     def _build(gain, suffix):
         project_folder = tmp_path / suffix
@@ -411,36 +286,63 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
         edit_path = project_folder / "external" / "captain_edits.json"
         edit_path.parent.mkdir(parents=True, exist_ok=True)
         edits = [
-            {"kind": "transform_override",
-             "anchor_phrase": phrases[0], "property": prop,
-             "value": value, "reason": "offline Reel 24 regression",
-             "reel": reel}
-            for prop, value in (("Pan", 39.263), ("Tilt", -696.041),
-                                ("ZoomX", 2.1386),
-                                ("ZoomY", 2.1386))]
-        edit_path.write_text(json.dumps({
-            "key": "captain_edits", "source": "test", "value": edits}),
-            encoding="utf-8")
+            {
+                "kind": "transform_override",
+                "anchor_phrase": phrases[0],
+                "property": prop,
+                "value": value,
+                "reason": "offline Reel 24 regression",
+                "reel": reel,
+            }
+            for prop, value in (
+                ("Pan", 39.263),
+                ("Tilt", -696.041),
+                ("ZoomX", 2.1386),
+                ("ZoomY", 2.1386),
+            )
+        ]
+        edit_path.write_text(
+            json.dumps({"key": "captain_edits", "source": "test", "value": edits}),
+            encoding="utf-8",
+        )
 
-        timeline = FakeTimeline()
-        pool = FakePool(timeline, source_files)
-        project = SimpleNamespace(
-            GetMediaPool=lambda: pool,
-            GetCurrentTimeline=lambda: timeline,
-            SetCurrentTimeline=lambda _timeline: True)
-        return (build_reel_timeline(
-            project, moment, master_clips, [], 23.976, 1080, 1920,
-            str(project_folder), transcript,
-            look={"asset": "frame.png", "punch_in": 2.3,
-                  "scale": 2.1386 / 2.3, "power": {},
-                  "origin": "offline regression"},
-            program_channels={"1": 1}, ranges=[(0.0, 24.0)],
-            edit_ledger_rows=[], draw_gain=gain), timeline)
+        timeline = FakeTimeline(frame_rate="23.976")
+        project = make_project(width=1080, height=1920, frame_rate=23.976)
+        pool = project.GetMediaPool()
+        pool.next_timeline = timeline
+        pool.media_properties = {
+            path: _media_properties(path) for path in set(source_files)
+        }
+        pool.ImportMedia(sorted(set(source_files)))
+        return (
+            build_reel_timeline(
+                project,
+                moment,
+                master_clips,
+                [],
+                23.976,
+                1080,
+                1920,
+                str(project_folder),
+                transcript,
+                look={
+                    "asset": "frame.png",
+                    "punch_in": 2.3,
+                    "scale": 2.1386 / 2.3,
+                    "power": {},
+                    "origin": "offline regression",
+                },
+                program_channels={"1": 1},
+                ranges=[(0.0, 24.0)],
+                edit_ledger_rows=[],
+                draw_gain=gain,
+            ),
+            timeline,
+        )
 
     built = {}
     for gain in (1.0, 4.0):
-        record, timeline = _build(
-            gain, f"reel24-legacy-override-gain-{gain:g}")
+        record, timeline = _build(gain, f"reel24-legacy-override-gain-{gain:g}")
         picture_items = timeline.GetItemListInTrack("video", 1)
         assert len(picture_items) == 6
         built[gain] = [dict(item.GetProperty()) for item in picture_items]
@@ -461,22 +363,26 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
 
 # ── Angles come from the master's own picture rows ──
 
+
 def test_angles_are_read_off_the_master_not_assumed():
     angles = reel_angles(_master_clips())
     assert [(a["key"], a["label"]) for a in angles] == [
-        ("1", "Akshita"), ("2", "Craig")]
+        ("1", "Akshita"),
+        ("2", "Craig"),
+    ]
 
 
 def test_an_unresolvable_program_stream_refuses_before_creating():
     timeline, pool, project = _world()
     with pytest.raises(ReelBuildError, match="no recorded program stream"):
         _build(timeline, pool, project, _master_clips())
-    assert not hasattr(pool, "created_name"), \
+    assert project.GetTimelineCount() == 0, (
         "the refusal must fire before a timeline exists"
+    )
+    assert pool.next_timeline is timeline
 
 
-def test_caption_import_failure_refuses_instead_of_dropping_the_card(
-        monkeypatch):
+def test_caption_import_failure_refuses_instead_of_dropping_the_card(monkeypatch):
     """A rendered caption with no pool item must stop the reel build.
 
     Reel 17's staging build rendered the cards, but Resolve returned no
@@ -494,54 +400,68 @@ def test_caption_import_failure_refuses_instead_of_dropping_the_card(
 
     with pytest.raises(ReelBuildError, match="would not import.*new-caption"):
         _build(
-            timeline, pool, project, _master_clips(),
-            captions=[{
-                "overlay_path": caption_path,
-                "timeline_start": 0.0,
-                "timeline_end": 1.0,
-                "source_in_frame": 0,
-                "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
-            }],
-            program_channels={"1": 1, "2": 1})
+            timeline,
+            pool,
+            project,
+            _master_clips(),
+            captions=[
+                {
+                    "overlay_path": caption_path,
+                    "timeline_start": 0.0,
+                    "timeline_end": 1.0,
+                    "source_in_frame": 0,
+                    "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
+                }
+            ],
+            program_channels={"1": 1, "2": 1},
+        )
 
 
-def test_caption_placement_failure_refuses_instead_of_dropping_the_card(
-        monkeypatch):
-    import library.tools.overlay_placement as overlay_placement
-    import library.tools.reel_build as reel_build
+def test_caption_placement_failure_refuses_instead_of_dropping_the_card(monkeypatch):
     import library.tools.reel_placed_assets as placed_assets
+    from library.tools import overlay_placement, reel_build
 
     caption_path = "/m/caption.mov"
     timeline, pool, project = _world()
     monkeypatch.setattr(placed_assets, "assert_placeable", lambda *_: None)
     monkeypatch.setattr(
-        reel_build, "import_pool_item",
-        lambda _pool, path, *_args, **_kwargs: FakePoolItem(path))
+        reel_build,
+        "import_pool_item",
+        lambda _pool, path, *_args, **_kwargs: _pool_item(path),
+    )
     monkeypatch.setattr(
-        overlay_placement, "place_overlay_segment",
-        lambda *_args, **_kwargs: (False, "stub placement refusal"))
+        overlay_placement,
+        "place_overlay_segment",
+        lambda *_args, **_kwargs: (False, "stub placement refusal"),
+    )
 
     with pytest.raises(ReelBuildError, match="stub placement refusal"):
         _build(
-            timeline, pool, project, _master_clips(),
-            captions=[{
-                "overlay_path": caption_path,
-                "timeline_start": 0.0,
-                "timeline_end": 1.0,
-                "source_in_frame": 0,
-                "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
-            }],
-            program_channels={"1": 1, "2": 1})
+            timeline,
+            pool,
+            project,
+            _master_clips(),
+            captions=[
+                {
+                    "overlay_path": caption_path,
+                    "timeline_start": 0.0,
+                    "timeline_end": 1.0,
+                    "source_in_frame": 0,
+                    "segment_id": "sub_akshita_source-clip_0-1000_abcdef12",
+                }
+            ],
+            program_channels={"1": 1, "2": 1},
+        )
 
 
 # ── The three defects ──
+
 
 def test_two_angles_get_two_picture_rows_and_two_named_speech_rows():
     """Defect 3: each speaker their own video AND audio row, named from
     the master - never "Video 1" / "Audio 2"."""
     timeline, pool, project = _world()
-    record = _build(timeline, pool, project, _master_clips(),
-                    program_channels={"1": 1, "2": 1})
+    _build(timeline, pool, project, _master_clips(), program_channels={"1": 1, "2": 1})
     assert timeline.GetTrackCount("video") == 2
     assert timeline.GetTrackCount("audio") == 2
     assert timeline.GetTrackName("video", 1) == "Akshita"
@@ -550,8 +470,7 @@ def test_two_angles_get_two_picture_rows_and_two_named_speech_rows():
     assert timeline.GetTrackName("audio", 2) == "Craig CH1"
 
 
-def test_captain_override_window_check_uses_the_builds_measured_draw_gain(
-        monkeypatch):
+def test_captain_override_window_check_uses_the_builds_measured_draw_gain(monkeypatch):
     """The override recheck must use the same 1.0 gain as the placed aim.
 
     Geo Podcast measured 1.0 while the machine fallback is 2.0. Using
@@ -559,7 +478,7 @@ def test_captain_override_window_check_uses_the_builds_measured_draw_gain(
     predicted vertical shift and falsely refuses a picture that covers
     the TV window at the measured gain.
     """
-    import library.tools.reel_build as reel_build
+    from library.tools import reel_build
 
     received = {}
 
@@ -567,12 +486,19 @@ def test_captain_override_window_check_uses_the_builds_measured_draw_gain(
         received.update(kwargs)
         return 0
 
-    monkeypatch.setattr(reel_build, "apply_transform_overrides",
-                        capture_override_recheck)
+    monkeypatch.setattr(
+        reel_build, "apply_transform_overrides", capture_override_recheck
+    )
     timeline, pool, project = _world()
 
-    record = _build(timeline, pool, project, _master_clips(),
-                    program_channels={"1": 1, "2": 1}, draw_gain=1.0)
+    record = _build(
+        timeline,
+        pool,
+        project,
+        _master_clips(),
+        program_channels={"1": 1, "2": 1},
+        draw_gain=1.0,
+    )
 
     assert received["draw_gain"] == pytest.approx(1.0)
     v1 = timeline.GetItemListInTrack("video", 1)
@@ -590,23 +516,27 @@ def test_declared_angle_plan_limits_picture_rows_but_keeps_all_speech():
     speech placement, or the reel keeps copying every master camera row."""
     timeline, pool, project = _world()
     clips = [
-        _clip("video", 1, "Akshita", "Akshita", "/m/akshita.MXF",
-              0.0, 20.0),
-        _clip("video", 2, "Craig", "Craig", "/m/craig.MXF",
-              0.0, 20.0),
-        _clip("audio", 1, "Akshita CH1", "Akshita", "/m/akshita.MXF",
-              0.0, 20.0),
-        _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF",
-              0.0, 20.0),
+        _clip("video", 1, "Akshita", "Akshita", "/m/akshita.MXF", 0.0, 20.0),
+        _clip("video", 2, "Craig", "Craig", "/m/craig.MXF", 0.0, 20.0),
+        _clip("audio", 1, "Akshita CH1", "Akshita", "/m/akshita.MXF", 0.0, 20.0),
+        _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF", 0.0, 20.0),
     ]
-    row = {"op": "angle_plan", "anchor": {"kind": "reel"},
-           "reel": FakeMoment.timeline_name,
-           "params": {"camera": "Akshita", "min_shot_seconds": 3,
-                      "lead_frames": 0},
-           "stated_by": "requester", "reason": "stay on the host"}
-    record = _build(timeline, pool, project, clips,
-                    program_channels={"1": 1, "2": 1},
-                    edit_ledger_rows=[row])
+    row = {
+        "op": "angle_plan",
+        "anchor": {"kind": "reel"},
+        "reel": FakeMoment.timeline_name,
+        "params": {"camera": "Akshita", "min_shot_seconds": 3, "lead_frames": 0},
+        "stated_by": "requester",
+        "reason": "stay on the host",
+    }
+    record = _build(
+        timeline,
+        pool,
+        project,
+        clips,
+        program_channels={"1": 1, "2": 1},
+        edit_ledger_rows=[row],
+    )
     assert timeline.GetTrackCount("video") == 1
     assert timeline.GetTrackCount("audio") == 2
     assert timeline.GetTrackName("video", 1) == "Akshita"
@@ -620,20 +550,34 @@ def test_missing_ledger_powergrade_refuses_before_timeline_creation():
     """A grade row whose declared asset vanished must not leave a
     half-built reel behind without that look."""
     timeline, pool, project = _world()
-    grade = {"op": "grade", "anchor": {"kind": "reel"},
-             "params": {
-                 "drx": "missing.drx",
-                 "provenance": {"source": "Resolve export",
-                                "authorised_by": "captain",
-                                "licence": "captain's own asset"}},
-             "stated_by": "requester", "reason": "apply the look"}
+    grade = {
+        "op": "grade",
+        "anchor": {"kind": "reel"},
+        "params": {
+            "drx": "missing.drx",
+            "provenance": {
+                "source": "Resolve export",
+                "authorised_by": "captain",
+                "licence": "captain's own asset",
+            },
+        },
+        "stated_by": "requester",
+        "reason": "apply the look",
+    }
 
-    with pytest.raises(ReelBuildError,
-                       match="grade cannot be resolved before the timeline"):
-        _build(timeline, pool, project, _master_clips(),
-               program_channels={"1": 1, "2": 1},
-               edit_ledger_rows=[grade])
-    assert not hasattr(pool, "created_name")
+    with pytest.raises(
+        ReelBuildError, match="grade cannot be resolved before the timeline"
+    ):
+        _build(
+            timeline,
+            pool,
+            project,
+            _master_clips(),
+            program_channels={"1": 1, "2": 1},
+            edit_ledger_rows=[grade],
+        )
+    assert project.GetTimelineCount() == 0
+    assert pool.next_timeline is timeline
 
 
 def test_non_program_streams_are_deleted_on_the_spot_and_recorded():
@@ -645,38 +589,48 @@ def test_non_program_streams_are_deleted_on_the_spot_and_recorded():
     next audio row. Enforcement reads the rows back, so the copy is
     found whatever the call admitted to."""
     timeline, pool, project = _world(audio_channels=(1, 2, 3, 4))
-    record = _build(timeline, pool, project, _master_clips(),
-                    program_channels={"1": 1, "2": 1})
+    record = _build(
+        timeline, pool, project, _master_clips(), program_channels={"1": 1, "2": 1}
+    )
     enforcement = record["stream_enforcement"]
     assert enforcement["checked"] == 8, "four streams over two placements"
     assert len(enforcement["deleted"]) == 6
-    assert {d["row"] for d in enforcement["deleted"]} == {1, 2}, \
+    assert {d["row"] for d in enforcement["deleted"]} == {1, 2}, (
         "strays land on both rows and both are swept"
-    assert {tuple(sorted(d["placed_channels"])) for d in
-            enforcement["deleted"]} == {(2,), (3,), (4,)}
+    )
+    assert {tuple(sorted(d["placed_channels"])) for d in enforcement["deleted"]} == {
+        (2,),
+        (3,),
+        (4,),
+    }
     for index in (1, 2):
         items = timeline.GetItemListInTrack("audio", index)
         assert len(items) == 1
         import json as _json
+
         mapping = _json.loads(items[0].GetSourceAudioChannelMapping())
-        assert (mapping["track_mapping"]["1"]["channel_idx"] == [1]), \
+        assert mapping["track_mapping"]["1"]["channel_idx"] == [1], (
             "no stray stream survives on a speech row"
+        )
 
 
 def test_picture_links_to_speech_in_one_call_per_pair():
     """Defect 2: picture and speech travel together - one link call per
     pair, read back."""
     timeline, pool, project = _world()
-    record = _build(timeline, pool, project, _master_clips(),
-                    program_channels={"1": 1, "2": 1})
+    record = _build(
+        timeline, pool, project, _master_clips(), program_channels={"1": 1, "2": 1}
+    )
     pair_calls = [c for c in timeline.link_calls if len(c[0]) == 2 and c[1]]
     assert len(pair_calls) == 2
     assert len(record["link_groups"]) == 2
     for row in (1, 2):
-        for item in (timeline.GetItemListInTrack("video", row)
-                     + timeline.GetItemListInTrack("audio", row)):
-            assert item.GetLinkedItems(), \
+        for item in timeline.GetItemListInTrack(
+            "video", row
+        ) + timeline.GetItemListInTrack("audio", row):
+            assert item.GetLinkedItems(), (
                 f"every a-roll item is linked, found {item.GetName()} alone"
+            )
 
 
 def test_seven_frame_audio_lead_links_same_angle_a_roll():
@@ -690,15 +644,14 @@ def test_seven_frame_audio_lead_links_same_angle_a_roll():
 
     timeline, pool, project = _world()
     clips = _master_clips()
-    clips[-1] = _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF",
-                      9.7, 20.0)
-    record = _build(timeline, pool, project, clips,
-                    program_channels={"1": 1, "2": 1})
+    clips[-1] = _clip("audio", 2, "Craig CH1", "Craig", "/m/craig.MXF", 9.7, 20.0)
+    record = _build(timeline, pool, project, clips, program_channels={"1": 1, "2": 1})
     raw = record["track_plan"]
     plan = TrackPlan(
         video_tracks=[TrackSpec(**row) for row in raw["video_tracks"]],
         audio_tracks=[TrackSpec(**row) for row in raw["audio_tracks"]],
-        material=raw.get("material", {}))
+        material=raw.get("material", {}),
+    )
 
     picture = timeline.GetItemListInTrack("video", 2)[0]
     speech = timeline.GetItemListInTrack("audio", 2)[0]
@@ -709,25 +662,31 @@ def test_seven_frame_audio_lead_links_same_angle_a_roll():
     report = verify_timeline(timeline, plan=plan)
     assert report["passed"]
     assert "aroll_linked" in report["checks_run"]
-    assert not [v for v in report["violations"]
-                if v["check"] == "aroll_unlinked"]
+    assert not [v for v in report["violations"] if v["check"] == "aroll_unlinked"]
 
 
 def test_caption_inside_speech_joins_one_three_group():
     """Defect 2 (captions): picture, speech and caption link in a single
     call - a later pair-call would break the group."""
     timeline, pool, project = _world()
-    record = _build(timeline, pool, project, _master_clips(),
-                    captions=[_caption(2.0, 4.0)],
-                    program_channels={"1": 1, "2": 1})
+    record = _build(
+        timeline,
+        pool,
+        project,
+        _master_clips(),
+        captions=[_caption(2.0, 4.0)],
+        program_channels={"1": 1, "2": 1},
+    )
     assert timeline.GetTrackName("video", 3) == "Subtitles"
     triples = [c for c in timeline.link_calls if len(c[0]) == 3 and c[1]]
     assert len(triples) == 1, (
-        f"expected one three-group link call, saw {timeline.link_calls}")
+        f"expected one three-group link call, saw {timeline.link_calls}"
+    )
     assert len(record["caption_links"]) == 1
     cap = timeline.GetItemListInTrack("video", 3)[0]
-    assert len(cap.GetLinkedItems()) == 2, \
+    assert len(cap.GetLinkedItems()) == 2, (
         "the group holds: nothing re-linked afterwards to break it"
+    )
 
 
 def test_sparse_overlay_rows_pack_with_no_empty_row_left():
@@ -735,33 +694,42 @@ def test_sparse_overlay_rows_pack_with_no_empty_row_left():
     transitions or explainer above it packs onto V4 - no blank V4/V5
     kept, and every surviving row named."""
     timeline, pool, project = _world()
-    record = _build(timeline, pool, project, _master_clips(),
-                    captions=[_caption(2.0, 4.0)],
-                    semantic=[_semantic(0.0, 48)],
-                    program_channels={"1": 1, "2": 1})
+    record = _build(
+        timeline,
+        pool,
+        project,
+        _master_clips(),
+        captions=[_caption(2.0, 4.0)],
+        semantic=[_semantic(0.0, 48)],
+        program_channels={"1": 1, "2": 1},
+    )
     assert timeline.GetTrackCount("video") == 4
     assert timeline.GetTrackName("video", 4) == "Semantic"
     for index in range(1, 5):
-        assert timeline.GetItemListInTrack("video", index), \
+        assert timeline.GetItemListInTrack("video", index), (
             f"V{index} is empty and must have been deleted"
-    assert record["deleted_empty_tracks"] == [], \
+        )
+    assert record["deleted_empty_tracks"] == [], (
         "packing means no empty row is ever created, so none is deleted"
+    )
 
 
 def test_a_caption_row_with_a_failed_import_refuses_the_build():
     """A planned caption is not converted into an empty row when its
     media fails to import; the build refuses at the missing segment."""
     timeline, pool, project = _world(fail_paths=("/m/cap.mov",))
-    # The caption file is not already pooled, so the failed import is
-    # really exercised rather than short-circuited by the lookup.
-    pool.root.clips = [c for c in pool.root.clips
-                       if c.GetClipProperty("File Path") != "/m/cap.mov"]
-    pool._items.pop("/m/cap.mov", None)
+    # The caption is absent from the pool because the configured import
+    # failure prevents it from being preloaded above.
     with pytest.raises(ReelBuildError, match="would not import rendered caption"):
-        _build(timeline, pool, project, _master_clips(),
-               captions=[_caption(2.0, 4.0)],
-               semantic=[_semantic(0.0, 48)],
-               program_channels={"1": 1, "2": 1})
+        _build(
+            timeline,
+            pool,
+            project,
+            _master_clips(),
+            captions=[_caption(2.0, 4.0)],
+            semantic=[_semantic(0.0, 48)],
+            program_channels={"1": 1, "2": 1},
+        )
 
 
 # ── The look keeps one picture row per speaker ──
@@ -771,10 +739,10 @@ def test_program_channels_prefer_the_catalog_then_the_master():
     """Known unknown, answered: the reel path reaches the recorded
     program stream through the catalog first and the live master's own
     speech rows second - and refuses when neither names one."""
-    clips = [_clip("audio", 1, "Akshita CH1", "Akshita", "/m/a.MXF",
-                   0.0, 10.0)]
+    clips = [_clip("audio", 1, "Akshita CH1", "Akshita", "/m/a.MXF", 0.0, 10.0)]
     angles = [{"key": "1", "label": "Akshita", "track_index": 1}]
-    assert resolve_reel_program_channels(
-        angles, clips, "", explicit={"1": 3}) == {"1": 3}
+    assert resolve_reel_program_channels(angles, clips, "", explicit={"1": 3}) == {
+        "1": 3
+    }
     with pytest.raises(ReelBuildError, match="no recorded program stream"):
         resolve_reel_program_channels(angles, clips, "/tmp/no-such-project")

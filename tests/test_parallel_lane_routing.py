@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RESOLVE_DRIVING = {
     "tests/test_marker_capture_against_resolve.py",
     "tests/test_marker_feedback_against_resolve.py",
+    "tests/test_resolve_qualification.py",
 }
 
 

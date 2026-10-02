@@ -36,9 +36,9 @@ real export plus Resolve open on the built timeline, answered through
 the agent harness. The attribution here is cleaner for it: both halves
 pass and only the receipt differs.
 """
+
 import json
 import sys
-from itertools import count
 from pathlib import Path
 
 import pytest
@@ -48,109 +48,81 @@ sys.path.insert(0, str(REPO))
 # No step_6_01_render insert here: tests/conftest.py already owns that
 # entry (for step.py:21's bare sibling import), deterministically.
 
-from library.skills.verify_timeline import skill  # noqa: E402
-from library.steps.step_6_02_validate_output import post_bridge  # noqa: E402
-from library.steps.step_6_01_render import step as render_step  # noqa: E402
-from library.tools import pipeline_skills  # noqa: E402
-from library.tools.timeline_layout import (  # noqa: E402
+from library.skills.verify_timeline import skill
+from library.steps.step_6_01_render import step as render_step
+from library.steps.step_6_02_validate_output import post_bridge
+from library.tools.timeline_layout import (
     A_ROLL,
     SPEECH,
     TrackPlan,
     TrackSpec,
 )
+from tests.resolve_double import FakeTimeline, TimelineItemSpec
 
 STEP_DIR = REPO / "library" / "steps" / "step_6_02_validate_output"
 MANIFEST = json.loads((STEP_DIR / "manifest.json").read_text(encoding="utf-8"))
 
-_ids = count(900000)
-
-
-class FakeItem:
-    def __init__(self, start, end, channel=1):
-        self._uid = f"item-{next(_ids)}"
-        self._start = start
-        self._end = end
-        self._channel = channel
-        self._group = {self._uid}
-
-    def GetStart(self): return self._start
-    def GetEnd(self): return self._end
-    def GetUniqueId(self): return self._uid
-    def GetLinkedItems(self):
-        return [i for i in FakeTimeline._registry.values()
-                if i._uid in self._group and i._uid != self._uid]
-
-    def GetMediaPoolItem(self):
-        class _P:
-            def GetClipProperty(self, k): return ""
-        return _P()
-
-    def GetSourceAudioChannelMapping(self):
-        return json.dumps({
-            "embedded_audio_channels": 4, "linked_audio": {},
-            "track_mapping": {"1": {"channel_idx": [self._channel],
-                                    "mute": False, "type": "mono"}}})
-
-
-def link(*items):
-    group = {i.GetUniqueId() for i in items}
-    for i in items:
-        i._group = set(group)
-
-
-class FakeTimeline:
-    _registry = {}
-
-    def __init__(self):
-        self.tracks = {}
-        self.names = {}
-
-    def GetTrackCount(self, media_type):
-        return max((i for (t, i) in self.tracks if t == media_type),
-                   default=0)
-
-    def GetTrackName(self, media_type, index):
-        return self.names.get((media_type, index), "")
-
-    def GetItemListInTrack(self, media_type, index):
-        return list(self.tracks.get((media_type, index), []))
-
 
 def _plan():
     return TrackPlan(
-        video_tracks=[TrackSpec(index=1, media_type="video", role=A_ROLL,
-                                name="A-Roll Cam A", occupant="a")],
-        audio_tracks=[TrackSpec(index=1, media_type="audio", role=SPEECH,
-                                name="Speech Cam A", occupant="a")],
+        video_tracks=[
+            TrackSpec(
+                index=1,
+                media_type="video",
+                role=A_ROLL,
+                name="A-Roll Cam A",
+                occupant="a",
+            )
+        ],
+        audio_tracks=[
+            TrackSpec(
+                index=1,
+                media_type="audio",
+                role=SPEECH,
+                name="Speech Cam A",
+                occupant="a",
+            )
+        ],
         material={"angles": [{"key": "a", "program_channel": 1}]},
     )
 
 
 def _conforming_timeline():
-    FakeTimeline._registry = {}
-    timeline = FakeTimeline()
-    timeline.tracks[("video", 1)] = []
-    timeline.tracks[("audio", 1)] = []
-    timeline.names[("video", 1)] = "A-Roll Cam A"
-    timeline.names[("audio", 1)] = "Speech Cam A"
-    picture = FakeItem(0, 100)
-    speech = FakeItem(0, 100)
-    link(picture, speech)
-    for item in (picture, speech):
-        FakeTimeline._registry[item.GetUniqueId()] = item
-    timeline.tracks[("video", 1)].append(picture)
-    timeline.tracks[("audio", 1)].append(speech)
+    mapping = json.dumps(
+        {
+            "embedded_audio_channels": 4,
+            "linked_audio": {},
+            "track_mapping": {"1": {"channel_idx": [1], "mute": False, "type": "mono"}},
+        }
+    )
+    timeline = FakeTimeline(
+        "Reel 09",
+        video=[("A-Roll Cam A", [TimelineItemSpec("picture", 0, 100)])],
+        audio=[
+            (
+                "Speech Cam A",
+                [
+                    TimelineItemSpec(
+                        "speech", 0, 100, source_audio_channel_mapping=mapping
+                    )
+                ],
+            )
+        ],
+    )
+    picture = timeline.GetItemListInTrack("video", 1)[0]
+    speech = timeline.GetItemListInTrack("audio", 1)[0]
+    timeline.SetClipsLinked([picture, speech], True)
     return timeline
 
 
 @pytest.fixture()
 def live_conforming_timeline(monkeypatch):
-    monkeypatch.setattr(skill, "open_timeline",
-                        lambda project, name: _conforming_timeline())
+    monkeypatch.setattr(
+        skill, "open_timeline", lambda project, name: _conforming_timeline()
+    )
 
 
-def _merge_data(project_folder, det_status="pass", llm_status="pass",
-                with_plan=True):
+def _merge_data(project_folder, det_status="pass", llm_status="pass", with_plan=True):
     rendered = {"timeline_name": "Base_20260101_000000_10s"}
     if with_plan:
         rendered["track_plan"] = _plan().serializable()
@@ -159,32 +131,32 @@ def _merge_data(project_folder, det_status="pass", llm_status="pass",
         "rendered_output": rendered,
         "assembly_manifest": {"project": {"name": "Exact Project"}},
         "deterministic_validation": {
-            "status": det_status, "summary": "det",
-            "checks": {}, "all_issues": [],
+            "status": det_status,
+            "summary": "det",
+            "checks": {},
+            "all_issues": [],
             "critical_checks_passed": True,
-            "qa_report_path": "", "qa_report": []},
+            "qa_report_path": "",
+            "qa_report": [],
+        },
         "validation_result": {
-            "status": llm_status, "summary": "llm",
-            "checks": {}, "all_issues": []},
+            "status": llm_status,
+            "summary": "llm",
+            "checks": {},
+            "all_issues": [],
+        },
     }
 
 
 # ── The declaration, in the verify_treatment shape ──────────────────
 
 
-
-
-
-
-
-
-
-
-
 # ── The verdict, through the step's own post-bridge ─────────────────
 
+
 def test_violating_timeline_stops_the_step(
-        tmp_path, live_conforming_timeline, monkeypatch):
+    tmp_path, live_conforming_timeline, monkeypatch
+):
     """Both halves say pass; only the timeline gate can stop this build.
 
     The fake timeline gains an empty row, the REAL skill entry point
@@ -193,13 +165,16 @@ def test_violating_timeline_stops_the_step(
     exactly this shape.
     """
     timeline = _conforming_timeline()
-    timeline.tracks[("video", 2)] = []
-    timeline.names[("video", 2)] = "Overlay Still"
-    monkeypatch.setattr(skill, "open_timeline",
-                        lambda project, name: timeline)
-    verdict = skill.run("Reel 09", str(tmp_path), "validate",
-                        project="Exact Project",
-                        plan=_plan().serializable())
+    row = timeline.AddTrack("video")
+    timeline.SetTrackName("video", row, "Overlay Still")
+    monkeypatch.setattr(skill, "open_timeline", lambda project, name: timeline)
+    verdict = skill.run(
+        "Reel 09",
+        str(tmp_path),
+        "validate",
+        project="Exact Project",
+        plan=_plan().serializable(),
+    )
     assert verdict["passed"] is False
 
     out = post_bridge.resolve_validation(_merge_data(tmp_path))
@@ -207,15 +182,17 @@ def test_violating_timeline_stops_the_step(
     assert final["status"] == "fail"
     assert final["distribution_ready"] is False
     assert final["checks"]["timeline_sop"]["pass"] is False
-    assert any("Empty row" in i for i in final["all_issues"]), (
-        final["all_issues"])
+    assert any("Empty row" in i for i in final["all_issues"]), final["all_issues"]
 
 
-def test_conforming_timeline_passes_the_step(
-        tmp_path, live_conforming_timeline):
-    verdict = skill.run("Reel 09", str(tmp_path), "validate",
-                        project="Exact Project",
-                        plan=_plan().serializable())
+def test_conforming_timeline_passes_the_step(tmp_path, live_conforming_timeline):
+    verdict = skill.run(
+        "Reel 09",
+        str(tmp_path),
+        "validate",
+        project="Exact Project",
+        plan=_plan().serializable(),
+    )
     assert verdict["passed"] is True
 
     out = post_bridge.resolve_validation(_merge_data(tmp_path))
@@ -229,27 +206,28 @@ def test_refusal_stops_the_step(tmp_path, monkeypatch):
     """Resolve down is a receipted failed verdict, never a pass - and a
     timeline that could not be read back is not approved."""
     monkeypatch.setattr(
-        skill, "open_timeline",
+        skill,
+        "open_timeline",
         lambda project, name: (_ for _ in ()).throw(
-            skill.TimelineUnreachable("Resolve is not running.")))
-    verdict = skill.run("Reel 09", str(tmp_path), "validate",
-                        project="Exact Project")
+            skill.TimelineUnreachable("Resolve is not running.")
+        ),
+    )
+    verdict = skill.run("Reel 09", str(tmp_path), "validate", project="Exact Project")
     assert verdict["passed"] is False
 
     out = post_bridge.resolve_validation(_merge_data(tmp_path))
     final = out["validation_result"]
     assert final["status"] == "fail"
     assert final["distribution_ready"] is False
-    assert any("Resolve is not running" in i
-               for i in final["all_issues"])
+    assert any("Resolve is not running" in i for i in final["all_issues"])
 
 
 def test_skipped_link_checks_stop_when_the_plan_was_available(
-        tmp_path, live_conforming_timeline):
+    tmp_path, live_conforming_timeline
+):
     """A pass that openly skipped half the SOP is not a pass when the
     whole SOP was answerable: the plan sat in this step's inputs."""
-    verdict = skill.run("Reel 09", str(tmp_path), "validate",
-                        project="Exact Project")
+    verdict = skill.run("Reel 09", str(tmp_path), "validate", project="Exact Project")
     assert verdict["passed"] is True
     assert verdict["checks_skipped"] != []
 
@@ -261,15 +239,14 @@ def test_skipped_link_checks_stop_when_the_plan_was_available(
 
 
 def test_skipped_link_checks_stand_when_no_plan_exists(
-        tmp_path, live_conforming_timeline):
+    tmp_path, live_conforming_timeline
+):
     """An old build recorded no plan, so the structural half is the whole
     gate that run could answer - the pipeline's gap, not the model's."""
-    verdict = skill.run("Reel 09", str(tmp_path), "validate",
-                        project="Exact Project")
+    verdict = skill.run("Reel 09", str(tmp_path), "validate", project="Exact Project")
     assert verdict["passed"] is True
 
-    out = post_bridge.resolve_validation(
-        _merge_data(tmp_path, with_plan=False))
+    out = post_bridge.resolve_validation(_merge_data(tmp_path, with_plan=False))
     final = out["validation_result"]
     assert final["status"] == "pass"
     assert final["distribution_ready"] is True
@@ -287,6 +264,7 @@ def test_no_receipt_leaves_the_verdict_untouched(tmp_path):
 
 # ── The plan reaches the step that must pass it ─────────────────────
 
+
 def test_render_payload_forwards_the_builds_track_plan():
     """6.01 recorded the plan but dropped it before the ledger saw it;
     6.02's model cannot pass `--plan-json` it was never given. The exact
@@ -295,11 +273,21 @@ def test_render_payload_forwards_the_builds_track_plan():
     record too."""
     plan = _plan().serializable()
     payload = render_step._render_output_payload(
-        {"timeline_name": "Base_20260101_000000_10s", "success": True,
-         "track_plan": plan},
-        {"output_path": "o.mp4", "size_bytes": 1, "job_id": "j",
-         "job_status": "s", "format": "f", "codec": "c"},
-        resolve_project_name="Exact Project")
+        {
+            "timeline_name": "Base_20260101_000000_10s",
+            "success": True,
+            "track_plan": plan,
+        },
+        {
+            "output_path": "o.mp4",
+            "size_bytes": 1,
+            "job_id": "j",
+            "job_status": "s",
+            "format": "f",
+            "codec": "c",
+        },
+        resolve_project_name="Exact Project",
+    )
     assert payload["timeline_name"] == "Base_20260101_000000_10s"
     assert payload["resolve_project_name"] == "Exact Project"
     assert payload["track_plan"] == plan
@@ -314,12 +302,15 @@ def test_render_payload_keeps_measured_master_delivery_values():
     }
     payload = render_step._render_output_payload(
         {"timeline_name": "Base_20260101_000000_10s", "success": True},
-        {"output_path": "delivery.mp4", "size_bytes": 2,
-         "raw_output_path": "scratch/pre_master.mp4",
-         "mastering": measured_master},
-        resolve_project_name="Exact Project")
+        {
+            "output_path": "delivery.mp4",
+            "size_bytes": 2,
+            "raw_output_path": "scratch/pre_master.mp4",
+            "mastering": measured_master,
+        },
+        resolve_project_name="Exact Project",
+    )
 
     assert payload["output_path"] == "delivery.mp4"
     assert payload["raw_output_path"] == "scratch/pre_master.mp4"
     assert payload["mastering"] == measured_master
-

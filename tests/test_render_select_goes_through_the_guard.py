@@ -7,6 +7,7 @@ lane's Fusion pass - so the select goes through
 `assert_current_timeline` (lease refusal plus read-back), while
 `_find_timeline` names a handle without moving anything at all.
 """
+
 import pytest
 
 from library.tools import resolve_lock
@@ -15,6 +16,7 @@ from library.tools.execution.resolve_render import (
     _find_timeline,
     _select_timeline,
 )
+from tests.resolve_double import FakeTimeline, make_project
 
 
 @pytest.fixture
@@ -23,42 +25,11 @@ def unguarded(monkeypatch):
     monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
 
 
-class FakeTimeline:
-    def __init__(self, name):
-        self._name = name
-
-    def GetName(self):
-        return self._name
-
-    def GetUniqueId(self):
-        return f"uid-{self._name}"
-
-
-class FakeProject:
-    def __init__(self, timelines, current=None):
-        self._timelines = list(timelines)
-        self._current = current if current is not None else self._timelines[0]
-        self.set_calls = []
-
-    def GetTimelineCount(self):
-        return len(self._timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self._timelines[index - 1]
-
-    def GetCurrentTimeline(self):
-        return self._current
-
-    def SetCurrentTimeline(self, timeline):
-        self.set_calls.append(timeline.GetName())
-        self._current = timeline
-        return True
-
-
 def _project():
     mine = FakeTimeline("Pipeline_Edit")
     sibling = FakeTimeline("Reel 05 - final")
-    return FakeProject([mine, sibling], current=sibling), mine, sibling
+    project = make_project(timelines=[mine, sibling], current=sibling)
+    return project, mine, sibling
 
 
 def test_find_names_a_handle_without_moving_the_cursor(unguarded):
@@ -88,9 +59,9 @@ def test_select_without_a_lease_is_refused_before_moving(unguarded):
 def test_select_under_a_lease_asserts_the_cursor():
     """Leased: the cursor is established and read back."""
     from library.tools.resolve_lock import assume_sole_writer
-    project, mine, sibling = _project()
-    with assume_sole_writer(
-            "test: fake project has no instance to contend for"):
+
+    project, mine, _sibling = _project()
+    with assume_sole_writer("test: fake project has no instance to contend for"):
         assert _select_timeline(project, mine.GetName()) is mine
     assert project.GetCurrentTimeline() is mine
     assert project.set_calls == [mine.GetName()]

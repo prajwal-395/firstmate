@@ -106,13 +106,14 @@ if ! "${PYTHON}" -m library.tools.static_check --check; then
   exit 1
 fi
 
-# These two drive the RUNNING DaVinci Resolve and switch the current
+# These three drive the RUNNING DaVinci Resolve and switch the current
 # timeline out from under whoever is using the app.  CI has no Resolve,
 # so they skip there and excluding them costs no coverage - but a local
 # gate has to remember it, every time.  Named in the verdict.
 RESOLVE_DRIVING=(
   tests/test_marker_capture_against_resolve.py
   tests/test_marker_feedback_against_resolve.py
+  tests/test_resolve_qualification.py
 )
 
 RUN_REAL_MODEL=1

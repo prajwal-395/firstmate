@@ -21,16 +21,17 @@ the way retirement's two do:
 
 Every test fails if its mechanism is removed.
 """
+
 import json
 import pathlib
-from unittest.mock import MagicMock
 
 import pytest
 
-from library.tools import reel_retirement as retire
 from library.tools import reel_replace_guard
+from library.tools import reel_retirement as retire
 from library.tools.versions import variants as choice
 from tests.promotion_test_helpers import record_ren_owned_inventory
+from tests.resolve_double import FakeProject, FakeTimeline
 
 REEL = "Reel 09 - your-website-is-only-20-percent (final)"
 JCUT = f"{REEL} (j-cut)"
@@ -38,11 +39,24 @@ CUTAWAY = f"{REEL} (reaction-cutaway)"
 
 
 def rows(count=2, frames=100, name="clip"):
-    return {"video:V1": {"media_type": "video", "index": 1, "name": "V1",
-                         "items": [{"name": f"{name}-{i}", "start": i * 10,
-                                    "end": i * 10 + 5, "duration": 5}
-                                   for i in range(count)],
-                         "count": count, "frames": frames}}
+    return {
+        "video:V1": {
+            "media_type": "video",
+            "index": 1,
+            "name": "V1",
+            "items": [
+                {
+                    "name": f"{name}-{i}",
+                    "start": i * 10,
+                    "end": i * 10 + 5,
+                    "duration": 5,
+                }
+                for i in range(count)
+            ],
+            "count": count,
+            "frames": frames,
+        }
+    }
 
 
 @pytest.fixture()
@@ -55,29 +69,42 @@ def project_folder(tmp_path):
 @pytest.fixture(autouse=True)
 def fake_preservation_snapshots(monkeypatch):
     monkeypatch.setattr(
-        reel_replace_guard, "full_timeline_snapshot",
+        reel_replace_guard,
+        "full_timeline_snapshot",
         lambda timeline, _project, _folder=None: {
-            "timeline": {"name": timeline.GetName(),
-                         "unique_id": timeline.GetUniqueId(),
-                         "settings": {}, "start_frame": 0,
-                         "end_frame": 0},
-            "items": [], "markers": []})
+            "timeline": {
+                "name": timeline.GetName(),
+                "unique_id": timeline.GetUniqueId(),
+                "settings": {},
+                "start_frame": 0,
+                "end_frame": 0,
+            },
+            "items": [],
+            "markers": [],
+        },
+    )
 
 
 # ── What is alive ────────────────────────────────────────────────
 
+
 def test_a_built_variant_records_what_it_contains(project_folder):
     """The rows are the payload that makes the comparison free, and
     that outlives the timeline they describe."""
-    choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2),
-                        watch="the join under the question")
+    choice.record_build(
+        project_folder,
+        9,
+        REEL,
+        " (j-cut)",
+        rows(2),
+        watch="the join under the question",
+    )
     entry = choice.build_for(project_folder, 9, " (j-cut)")
     assert entry["timeline"] == JCUT
     assert entry["watch"] == "the join under the question"
     assert entry["rows"]["video:V1"]["count"] == 2
     written = pathlib.Path(choice.builds_path_for(project_folder))
-    assert json.loads(written.read_text(
-        encoding="utf-8"))["builds"][JCUT]["reel"] == 9
+    assert json.loads(written.read_text(encoding="utf-8"))["builds"][JCUT]["reel"] == 9
 
 
 def test_rebuilding_a_variant_replaces_its_record(project_folder):
@@ -86,19 +113,26 @@ def test_rebuilding_a_variant_replaces_its_record(project_folder):
     choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2))
     choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(7))
     assert len(choice.builds_for_reel(project_folder, 9)) == 1
-    assert choice.build_for(
-        project_folder, 9, " (j-cut)")["rows"]["video:V1"]["count"] == 7
+    assert (
+        choice.build_for(project_folder, 9, " (j-cut)")["rows"]["video:V1"]["count"]
+        == 7
+    )
 
 
 # ── COMPARED, off disk ───────────────────────────────────────────
 
+
 def test_two_variants_are_compared_without_resolve(project_folder):
-    choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2),
-                        watch="the join")
-    choice.record_build(project_folder, 9, REEL, " (reaction-cutaway)",
-                        rows(4), watch="Akshita's reaction")
-    diff = choice.compare(project_folder, 9, " (j-cut)",
-                          " (reaction-cutaway)")
+    choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2), watch="the join")
+    choice.record_build(
+        project_folder,
+        9,
+        REEL,
+        " (reaction-cutaway)",
+        rows(4),
+        watch="Akshita's reaction",
+    )
+    diff = choice.compare(project_folder, 9, " (j-cut)", " (reaction-cutaway)")
     assert diff["earlier"] == JCUT and diff["later"] == CUTAWAY
     assert diff["changed"], "four items against two is a change"
     text = choice.render_comparison(diff)
@@ -116,9 +150,11 @@ def test_comparing_against_a_variant_nobody_built_refuses(project_folder):
 
 # ── The choice, planned ──────────────────────────────────────────
 
+
 def test_the_chosen_variant_takes_the_reels_name_and_the_rest_is_archived():
-    plan = choice.plan_choice([REEL, JCUT, CUTAWAY], REEL,
-                              {JCUT, CUTAWAY}, CUTAWAY, [JCUT], 4)
+    plan = choice.plan_choice(
+        [REEL, JCUT, CUTAWAY], REEL, {JCUT, CUTAWAY}, CUTAWAY, [JCUT], 4
+    )
     assert plan["promote"] == (CUTAWAY, REEL)
     # The version that held the name is RETIRED, never deleted.
     assert plan["retire"][1] == f"{REEL} (archived round 004)"
@@ -131,11 +167,11 @@ def test_the_chosen_variant_takes_the_reels_name_and_the_rest_is_archived():
 
 def test_choosing_something_that_was_never_built_refuses():
     with pytest.raises(choice.ChoiceRefused):
-        choice.plan_choice([REEL, JCUT], REEL, {JCUT, CUTAWAY}, CUTAWAY,
-                           [JCUT], 4)
+        choice.plan_choice([REEL, JCUT], REEL, {JCUT, CUTAWAY}, CUTAWAY, [JCUT], 4)
 
 
 # ── The bound: variants may not accumulate ───────────────────────
+
 
 def test_the_archive_holds_one_unchosen_variant_per_REEL_not_per_suffix():
     """THE constraint. Every comparison invents a new suffix, so a bound
@@ -147,15 +183,14 @@ def test_the_archive_holds_one_unchosen_variant_per_REEL_not_per_suffix():
     tight = f"{REEL} (tight)"
     loose = f"{REEL} (loose)"
     existing = [REEL, f"{JCUT} (archived round 004)", tight, loose]
-    plan = choice.plan_choice(existing, REEL,
-                              {JCUT, CUTAWAY, tight, loose}, loose,
-                              [tight], 5)
+    plan = choice.plan_choice(
+        existing, REEL, {JCUT, CUTAWAY, tight, loose}, loose, [tight], 5
+    )
     assert plan["archive"][tight] == f"{tight} (archived round 005)"
     # The previous comparison's runner-up goes: one per reel, and the
     # one kept is the newest.
     assert plan["collect"] == [f"{JCUT} (archived round 004)"]
-    assert f"{tight} (archived round 005)" in [
-        k["name"] for k in plan["kept"]]
+    assert f"{tight} (archived round 005)" in [k["name"] for k in plan["kept"]]
 
 
 def test_the_bound_is_a_retention_not_a_timeout():
@@ -166,13 +201,14 @@ def test_the_bound_is_a_retention_not_a_timeout():
     assert choice.RETAINED_UNCHOSEN == 1
     existing = [REEL, f"{JCUT} (archived round 004)", CUTAWAY]
     for round_number in (5, 50, 500):
-        plan = choice.plan_choice(existing, REEL, {JCUT, CUTAWAY},
-                                  CUTAWAY, [], round_number)
+        plan = choice.plan_choice(
+            existing, REEL, {JCUT, CUTAWAY}, CUTAWAY, [], round_number
+        )
         assert plan["collect"] == [], (
             f"round {round_number} collected the runner-up with no new "
-            f"comparison - the bound has become a timeout")
-        assert f"{JCUT} (archived round 004)" in [
-            k["name"] for k in plan["kept"]]
+            f"comparison - the bound has become a timeout"
+        )
+        assert f"{JCUT} (archived round 004)" in [k["name"] for k in plan["kept"]]
 
 
 def test_the_reels_OWN_retired_generations_are_bounded_too():
@@ -183,20 +219,24 @@ def test_the_reels_OWN_retired_generations_are_bounded_too():
     `(archived round 001)` and `(archived round 001.2)` standing."""
     first = f"{REEL} (archived round 001)"
     existing = [REEL, first, CUTAWAY]
-    plan = choice.plan_choice(existing, REEL, {JCUT, CUTAWAY}, CUTAWAY,
-                              [], 1)
+    plan = choice.plan_choice(existing, REEL, {JCUT, CUTAWAY}, CUTAWAY, [], 1)
     # The one retired by THIS choice is kept; the one before it goes.
     assert plan["retire"][1] == f"{REEL} (archived round 001.2)"
     assert first in plan["collect"]
-    assert f"{REEL} (archived round 001.2)" in [
-        k["name"] for k in plan["kept"]]
+    assert f"{REEL} (archived round 001.2)" in [k["name"] for k in plan["kept"]]
 
 
 def test_a_signed_off_generation_of_the_reel_itself_is_never_collected():
     first = f"{REEL} (archived round 001)"
-    plan = choice.plan_choice([REEL, first, CUTAWAY], REEL,
-                              {JCUT, CUTAWAY}, CUTAWAY, [], 1,
-                              signed_off_reels={REEL})
+    plan = choice.plan_choice(
+        [REEL, first, CUTAWAY],
+        REEL,
+        {JCUT, CUTAWAY},
+        CUTAWAY,
+        [],
+        1,
+        signed_off_reels={REEL},
+    )
     assert plan["collect"] == []
 
 
@@ -205,12 +245,17 @@ def test_a_signed_off_unchosen_variant_is_never_collected():
     only copy of the thing they approved."""
     tight = f"{REEL} (tight)"
     existing = [REEL, f"{JCUT} (archived round 004)", tight, CUTAWAY]
-    plan = choice.plan_choice(existing, REEL, {JCUT, CUTAWAY, tight},
-                              CUTAWAY, [tight], 5,
-                              signed_off_reels={JCUT})
+    plan = choice.plan_choice(
+        existing,
+        REEL,
+        {JCUT, CUTAWAY, tight},
+        CUTAWAY,
+        [tight],
+        5,
+        signed_off_reels={JCUT},
+    )
     assert plan["collect"] == []
-    assert any(JCUT in k["why"] and "sign-off" in k["why"]
-               for k in plan["kept"])
+    assert any(JCUT in k["why"] and "sign-off" in k["why"] for k in plan["kept"])
 
 
 def test_a_timeline_that_is_not_this_reels_variant_is_never_touched():
@@ -219,87 +264,23 @@ def test_a_timeline_that_is_not_this_reels_variant_is_never_touched():
     other = "Reel 13 - the-accounting-firm (final) (tight)"
     plan = choice.plan_choice(
         [REEL, JCUT, CUTAWAY, f"{other} (archived round 001)"],
-        REEL, {JCUT, CUTAWAY}, CUTAWAY, [JCUT], 4)
+        REEL,
+        {JCUT, CUTAWAY},
+        CUTAWAY,
+        [JCUT],
+        4,
+    )
     assert plan["collect"] == []
     assert other not in json.dumps(plan)
 
 
 # ── The Resolve half ─────────────────────────────────────────────
 
-class FakeTimeline:
-    def __init__(self, name):
-        self._name = name
-        self._unique_id = f"fake:{name}"
 
-    def GetName(self):
-        return self._name
-
-    def GetUniqueId(self):
-        return self._unique_id
-
-    def GetSetting(self, key=None):
-        settings = {
-            "timelineFrameRate": "23.976",
-            "timelineResolutionWidth": "1080",
-            "timelineResolutionHeight": "1920",
-        }
-        return settings if key is None else settings.get(key, "")
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetMediaPoolItem(self):
-        return f"pool:{self._name}"
-
-
-class RefusingRename(FakeTimeline):
-    def SetName(self, name):
-        return False
-
-
-class FakeProject:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        self.pool = MagicMock()
-        self.pool.DeleteTimelines.side_effect = self._delete
-        self.deleted = []
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-        return True
-
-    def GetMediaPool(self):
-        return self.pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
-
-
-class DeletedTimeline(FakeTimeline):
-    """Resolve's own behaviour: a deleted timeline answers GetName()
-    with None. Measured 2026-09-12 against a real Resolve, and this is
-    the shape that caught it."""
-
-    def deleted(self):
-        self._name = None
-
-
-class RealisticDeleteProject(FakeProject):
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-            timeline.deleted()
-        return True
+def _project(timelines, *, delete_ok=True):
+    project = FakeProject(timelines, delete_ok=delete_ok)
+    project.SetSettings({"timelineFrameRate": "23.976"})
+    return project
 
 
 def test_the_collected_names_are_read_before_the_delete(project_folder):
@@ -313,26 +294,32 @@ def test_the_collected_names_are_read_before_the_delete(project_folder):
     older = f"{JCUT} (archived round 001)"
     choice.record_build(project_folder, 9, REEL, " (tight)", rows(1))
     choice.record_build(project_folder, 9, REEL, " (loose)", rows(1))
-    project = RealisticDeleteProject([
-        DeletedTimeline(REEL), DeletedTimeline(older),
-        DeletedTimeline(tight), DeletedTimeline(loose)])
+    project = _project(
+        [
+            FakeTimeline(REEL),
+            FakeTimeline(older),
+            FakeTimeline(tight),
+            FakeTimeline(loose),
+        ]
+    )
     record_ren_owned_inventory(project_folder, project)
-    report = choice.choose(project, project.pool, project_folder, 9, REEL,
-                           " (loose)", "the loose framing breathes",
-                           variant_names={JCUT, CUTAWAY, tight, loose})
+    report = choice.choose(
+        project,
+        project.GetMediaPool(),
+        project_folder,
+        9,
+        REEL,
+        " (loose)",
+        "the loose framing breathes",
+        variant_names={JCUT, CUTAWAY, tight, loose},
+    )
     # The first comparison's runner-up goes; this one's is kept.
     assert report["collected"] == [older]
     assert older in choice.render_choice(report)
     assert None not in report["collected"]
 
 
-class DecliningDeleteProject(FakeProject):
-    def _delete(self, timelines):
-        return False
-
-
-def test_a_delete_resolve_declines_is_refused_not_reported_collected(
-        project_folder):
+def test_a_delete_resolve_declines_is_refused_not_reported_collected(project_folder):
     """The live-demo defect's sibling: PR 1149 settled this exact shape
     for `reel_retirement.collect_superseded`, and `choose` carries its
     own copy - `DeleteTimelines` returns falsy and the names are kept
@@ -346,14 +333,27 @@ def test_a_delete_resolve_declines_is_refused_not_reported_collected(
     older = f"{JCUT} (archived round 001)"
     choice.record_build(project_folder, 9, REEL, " (tight)", rows(1))
     choice.record_build(project_folder, 9, REEL, " (loose)", rows(1))
-    project = DecliningDeleteProject([
-        FakeTimeline(REEL), FakeTimeline(older),
-        FakeTimeline(tight), FakeTimeline(loose)])
+    project = _project(
+        [
+            FakeTimeline(REEL),
+            FakeTimeline(older),
+            FakeTimeline(tight),
+            FakeTimeline(loose),
+        ],
+        delete_ok=False,
+    )
     record_ren_owned_inventory(project_folder, project)
     with pytest.raises(choice.ChoiceRefused) as refusal:
-        choice.choose(project, project.pool, project_folder, 9, REEL,
-                      " (loose)", "the loose framing breathes",
-                      variant_names={JCUT, CUTAWAY, tight, loose})
+        choice.choose(
+            project,
+            project.GetMediaPool(),
+            project_folder,
+            9,
+            REEL,
+            " (loose)",
+            "the loose framing breathes",
+            variant_names={JCUT, CUTAWAY, tight, loose},
+        )
     assert older in str(refusal.value)
     assert "nothing was reported collected" in str(refusal.value)
     assert older in project.names()
@@ -361,20 +361,23 @@ def test_a_delete_resolve_declines_is_refused_not_reported_collected(
 
 def _built(project_folder):
     choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2))
-    choice.record_build(project_folder, 9, REEL, " (reaction-cutaway)",
-                        rows(4))
+    choice.record_build(project_folder, 9, REEL, " (reaction-cutaway)", rows(4))
 
 
 def test_choosing_renames_retires_archives_and_records(project_folder):
     _built(project_folder)
     incumbent = FakeTimeline(REEL)
-    project = FakeProject([incumbent, FakeTimeline(JCUT),
-                           FakeTimeline(CUTAWAY)])
-    report = choice.choose(project, project.pool, project_folder, 9,
-                           REEL, " (reaction-cutaway)",
-                           "her reaction lands the joke; the J-cut "
-                           "reads as a mistake",
-                           variant_names={JCUT, CUTAWAY})
+    project = _project([incumbent, FakeTimeline(JCUT), FakeTimeline(CUTAWAY)])
+    report = choice.choose(
+        project,
+        project.GetMediaPool(),
+        project_folder,
+        9,
+        REEL,
+        " (reaction-cutaway)",
+        "her reaction lands the joke; the J-cut reads as a mistake",
+        variant_names={JCUT, CUTAWAY},
+    )
     names = project.names()
     # The chosen variant IS the reel now - the same timeline, renamed.
     assert REEL in names
@@ -388,6 +391,7 @@ def test_choosing_renames_retires_archives_and_records(project_folder):
     assert project.deleted == []
     # And the round says which won and why.
     from library.tools.versions import rounds
+
     recorded = rounds.read_rounds(project_folder)
     entry = recorded["rounds"][-1]["reels"][REEL]
     assert entry["choice"]["chosen"] == " (reaction-cutaway)"
@@ -401,33 +405,51 @@ def test_choosing_renames_retires_archives_and_records(project_folder):
 
 def test_a_choice_with_no_reason_is_refused(project_folder):
     _built(project_folder)
-    project = FakeProject([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
+    project = _project([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
     with pytest.raises(choice.ChoiceRefused) as refusal:
-        choice.choose(project, project.pool, project_folder, 9, REEL,
-                      " (reaction-cutaway)", "   ")
+        choice.choose(
+            project,
+            project.GetMediaPool(),
+            project_folder,
+            9,
+            REEL,
+            " (reaction-cutaway)",
+            "   ",
+        )
     assert "no reason" in str(refusal.value)
     assert project.names() == [REEL, CUTAWAY], "nothing moved"
 
 
-def test_the_build_record_stops_claiming_what_is_no_longer_alive(
-        project_folder):
+def test_the_build_record_stops_claiming_what_is_no_longer_alive(project_folder):
     _built(project_folder)
-    project = FakeProject([FakeTimeline(REEL), FakeTimeline(JCUT),
-                           FakeTimeline(CUTAWAY)])
-    choice.choose(project, project.pool, project_folder, 9, REEL,
-                  " (reaction-cutaway)", "chose the cutaway",
-                  variant_names={JCUT, CUTAWAY})
+    project = _project([FakeTimeline(REEL), FakeTimeline(JCUT), FakeTimeline(CUTAWAY)])
+    choice.choose(
+        project,
+        project.GetMediaPool(),
+        project_folder,
+        9,
+        REEL,
+        " (reaction-cutaway)",
+        "chose the cutaway",
+        variant_names={JCUT, CUTAWAY},
+    )
     assert choice.builds_for_reel(project_folder, 9) == []
 
 
-def test_a_rename_resolve_refuses_leaves_everything_recoverable(
-        project_folder):
+def test_a_rename_resolve_refuses_leaves_everything_recoverable(project_folder):
     _built(project_folder)
-    project = FakeProject([FakeTimeline(REEL), RefusingRename(CUTAWAY)])
+    project = _project([FakeTimeline(REEL), FakeTimeline(CUTAWAY, rename_ok=False)])
     with pytest.raises(choice.ChoiceRefused) as refusal:
-        choice.choose(project, project.pool, project_folder, 9, REEL,
-                      " (reaction-cutaway)", "chose the cutaway",
-                      variant_names={JCUT, CUTAWAY})
+        choice.choose(
+            project,
+            project.GetMediaPool(),
+            project_folder,
+            9,
+            REEL,
+            " (reaction-cutaway)",
+            "chose the cutaway",
+            variant_names={JCUT, CUTAWAY},
+        )
     assert "Nothing was deleted" in str(refusal.value)
     assert project.deleted == []
     # The incumbent is safe under its archived name and the variant is
@@ -437,17 +459,24 @@ def test_a_rename_resolve_refuses_leaves_everything_recoverable(
 
 # ── The sign-off, and what a variant does to it ──────────────────
 
+
 def test_choosing_over_a_signed_off_reel_refuses_by_name(project_folder):
     from library.tools import reel_signoff
 
     _built(project_folder)
-    reel_signoff.sign_off(project_folder, REEL,
-                          note="this is the one, do not touch it")
-    project = FakeProject([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
+    reel_signoff.sign_off(project_folder, REEL, note="this is the one, do not touch it")
+    project = _project([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
     with pytest.raises(reel_signoff.SignOffNotDeclared) as refusal:
-        choice.choose(project, project.pool, project_folder, 9, REEL,
-                      " (reaction-cutaway)", "chose the cutaway",
-                      variant_names={JCUT, CUTAWAY})
+        choice.choose(
+            project,
+            project.GetMediaPool(),
+            project_folder,
+            9,
+            REEL,
+            " (reaction-cutaway)",
+            "chose the cutaway",
+            variant_names={JCUT, CUTAWAY},
+        )
     assert "do not touch it" in str(refusal.value)
     assert project.names() == [REEL, CUTAWAY], "nothing moved"
 
@@ -457,21 +486,26 @@ def test_a_declared_supersession_proceeds_and_is_recorded(project_folder):
 
     _built(project_folder)
     reel_signoff.sign_off(project_folder, REEL, note="the old one")
-    project = FakeProject([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
-    report = choice.choose(project, project.pool, project_folder, 9, REEL,
-                           " (reaction-cutaway)", "the cutaway is better",
-                           variant_names={JCUT, CUTAWAY},
-                           supersede_declared=[REEL])
+    project = _project([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
+    report = choice.choose(
+        project,
+        project.GetMediaPool(),
+        project_folder,
+        9,
+        REEL,
+        " (reaction-cutaway)",
+        "the cutaway is better",
+        variant_names={JCUT, CUTAWAY},
+        supersede_declared=[REEL],
+    )
     assert report["superseded_signoff"]["note"] == "the old one"
     # Recorded, never deleted.
     document = reel_signoff.read_signoffs(project_folder)
     assert reel_signoff.signoff_for(project_folder, REEL) is None
-    assert any(entry["note"] == "the old one"
-               for entry in document["superseded"])
+    assert any(entry["note"] == "the old one" for entry in document["superseded"])
 
 
-def test_a_signed_off_variant_carries_its_approval_onto_the_reel(
-        project_folder):
+def test_a_signed_off_variant_carries_its_approval_onto_the_reel(project_folder):
     """A variant IS built, so it can be signed off (the captain's own
     ruling). When it wins, the cut the captain approved did not change -
     its container did - and an approval the machine dropped because of a
@@ -479,15 +513,21 @@ def test_a_signed_off_variant_carries_its_approval_onto_the_reel(
     from library.tools import reel_signoff
 
     _built(project_folder)
-    reel_signoff.sign_off(project_folder, CUTAWAY,
-                          note="her reaction is the whole thing",
-                          by="captain")
-    project = FakeProject([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
-    report = choice.choose(project, project.pool, project_folder, 9, REEL,
-                           " (reaction-cutaway)", "chose the cutaway",
-                           variant_names={JCUT, CUTAWAY})
-    assert report["carried_signoff"]["note"] == "her reaction is the " \
-                                                "whole thing"
+    reel_signoff.sign_off(
+        project_folder, CUTAWAY, note="her reaction is the whole thing", by="captain"
+    )
+    project = _project([FakeTimeline(REEL), FakeTimeline(CUTAWAY)])
+    report = choice.choose(
+        project,
+        project.GetMediaPool(),
+        project_folder,
+        9,
+        REEL,
+        " (reaction-cutaway)",
+        "chose the cutaway",
+        variant_names={JCUT, CUTAWAY},
+    )
+    assert report["carried_signoff"]["note"] == "her reaction is the whole thing"
     carried = reel_signoff.signoff_for(project_folder, REEL)
     assert carried is not None
     assert carried["note"] == "her reaction is the whole thing"

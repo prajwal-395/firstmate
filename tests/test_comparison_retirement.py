@@ -13,15 +13,16 @@ a new allowance), ordering is newest-first off the version record the
 round diff itself reads, and the census test below proves the count
 stays bounded across two rounds instead of growing with them.
 """
+
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import comparison_retirement as comp
-from library.tools import reel_retirement as retire
 from library.tools import reel_replace_guard
-from library.tools import resolve_bin_layout as bins
+from library.tools import reel_retirement as retire
+from tests.promotion_test_helpers import no_a_roll_track_plans
+from tests.resolve_double import FakeProject, FakeTimeline, TimelineItemSpec
 
 REEL = "Reel 13 - the-accounting-firm-ai-called-healthcare"
 OTHER = "Reel 28 - the-nail-salon-query-google-cant-answer"
@@ -37,27 +38,31 @@ PLAN = (REEL, OTHER)
 @pytest.fixture(autouse=True)
 def fake_preservation_snapshots(monkeypatch):
     monkeypatch.setattr(
-        reel_replace_guard, "full_timeline_snapshot",
+        reel_replace_guard,
+        "full_timeline_snapshot",
         lambda timeline, _project, _folder=None: {
-            "timeline": {"name": timeline.GetName(), "unique_id": None,
-                         "settings": {}, "start_frame": 0,
-                         "end_frame": 0},
-            "items": [], "markers": []})
+            "timeline": {
+                "name": timeline.GetName(),
+                "unique_id": None,
+                "settings": {},
+                "start_frame": 0,
+                "end_frame": 0,
+            },
+            "items": [],
+            "markers": [],
+        },
+    )
 
 
 def rounds(*entries):
     """A `discover`-shaped version record: (round, names...)."""
-    return [{"round": number, "reels": {name: {"rows": {}}
-                                       for name in names}}
-            for number, names in entries]
+    return [
+        {"round": number, "reels": {name: {"rows": {}} for name in names}}
+        for number, names in entries
+    ]
 
 
 # ── The family ───────────────────────────────────────────────────
-
-
-
-
-
 
 
 def test_a_retired_comparison_is_not_graded_as_a_deliverable():
@@ -73,8 +78,8 @@ def test_a_retired_comparison_is_not_graded_as_a_deliverable():
 # ── The ordering ─────────────────────────────────────────────────
 
 
-
 # ── The lifecycle ────────────────────────────────────────────────
+
 
 def test_one_live_and_one_archived_per_reel_not_per_round():
     """The whole answer to the clutter question, stated twice: live
@@ -85,29 +90,37 @@ def test_one_live_and_one_archived_per_reel_not_per_round():
     by_round = {BASELINE: 1, BATCH: 2}
     archived = [retire.archived_name(BASELINE, n) for n in (1, 2, 3)]
     plan = comp.plan_collection(
-        live + archived + [REEL], [REEL], plan_finals=PLAN,
-        rounds_by_name=by_round)
+        live + archived + [REEL], [REEL], plan_finals=PLAN, rounds_by_name=by_round
+    )
     assert [entry["name"] for entry in plan["retire"]] == [BASELINE]
     assert f"{BATCH!r}" in plan["retire"][0]["why"]
-    assert plan["collect"] == [retire.archived_name(BASELINE, 2),
-                               retire.archived_name(BASELINE, 1)]
+    assert plan["collect"] == [
+        retire.archived_name(BASELINE, 2),
+        retire.archived_name(BASELINE, 1),
+    ]
     kept = {entry["name"] for entry in plan["kept"]}
     assert kept == {BATCH, retire.archived_name(BASELINE, 3)}
     # And another reel's generations are not this one's business.
     scoped = comp.plan_collection(
-        [OTHER_BASELINE], [REEL], plan_finals=PLAN,
-        rounds_by_name={OTHER_BASELINE: 2})
+        [OTHER_BASELINE], [REEL], plan_finals=PLAN, rounds_by_name={OTHER_BASELINE: 2}
+    )
     assert scoped["retire"] == [] and scoped["collect"] == []
 
 
 def test_a_signed_off_comparison_is_never_collected_or_retired():
-    names = [BASELINE, BATCH,
-             retire.archived_name(BASELINE, 2),
-             retire.archived_name(BASELINE, 1)]
+    names = [
+        BASELINE,
+        BATCH,
+        retire.archived_name(BASELINE, 2),
+        retire.archived_name(BASELINE, 1),
+    ]
     plan = comp.plan_collection(
-        names, [REEL], plan_finals=PLAN,
+        names,
+        [REEL],
+        plan_finals=PLAN,
         rounds_by_name={BASELINE: 1, BATCH: 2},
-        signed_identities={BASELINE})
+        signed_identities={BASELINE},
+    )
     assert plan["retire"] == []
     assert plan["collect"] == []
     whys = " ".join(entry["why"] for entry in plan["kept"])
@@ -122,9 +135,12 @@ def test_a_sign_off_on_the_base_does_not_protect_comparisons():
     approvals begin."""
     names = [BASELINE, BATCH]
     plan = comp.plan_collection(
-        names, [REEL], plan_finals=PLAN,
+        names,
+        [REEL],
+        plan_finals=PLAN,
         rounds_by_name={BASELINE: 1, BATCH: 2},
-        signed_identities={REEL})
+        signed_identities={REEL},
+    )
     assert [entry["name"] for entry in plan["retire"]] == [BASELINE]
 
 
@@ -134,21 +150,26 @@ def test_a_held_comparison_is_never_retired():
     the held one already superseded. That one retires like any
     other: still openable, in the archive, named."""
     plan = comp.plan_collection(
-        [BASELINE, BATCH], [REEL], plan_finals=PLAN,
+        [BASELINE, BATCH],
+        [REEL],
+        plan_finals=PLAN,
         rounds_by_name={BASELINE: 2, BATCH: 1},
-        held_names={BASELINE})
+        held_names={BASELINE},
+    )
     assert [entry["name"] for entry in plan["retire"]] == [BATCH]
     kept = {entry["name"]: entry["why"] for entry in plan["kept"]}
     assert set(kept) == {BASELINE}
     assert "hold" in kept[BASELINE]
 
     older_held = comp.plan_collection(
-        [BASELINE, BATCH], [REEL], plan_finals=PLAN,
+        [BASELINE, BATCH],
+        [REEL],
+        plan_finals=PLAN,
         rounds_by_name={BASELINE: 1, BATCH: 2},
-        held_names={BASELINE})
+        held_names={BASELINE},
+    )
     assert older_held["retire"] == []
-    assert {entry["name"] for entry in older_held["kept"]} == {
-        BASELINE, BATCH}
+    assert {entry["name"] for entry in older_held["kept"]} == {BASELINE, BATCH}
 
 
 def test_an_unrecorded_comparison_is_always_kept():
@@ -157,85 +178,27 @@ def test_an_unrecorded_comparison_is_always_kept():
     reported where it happened). Either way it stays, and says why
     every round so a human can act."""
     plan = comp.plan_collection(
-        [BASELINE, BATCH], [REEL], plan_finals=PLAN,
-        rounds_by_name={BATCH: 2})
+        [BASELINE, BATCH], [REEL], plan_finals=PLAN, rounds_by_name={BATCH: 2}
+    )
     assert plan["retire"] == []
-    why = next(entry["why"] for entry in plan["kept"]
-               if entry["name"] == BASELINE)
+    why = next(entry["why"] for entry in plan["kept"] if entry["name"] == BASELINE)
     assert "no landed round" in why
-
-
 
 
 # ── The Resolve half ─────────────────────────────────────────────
 
-class FakeTimeline:
-    def __init__(self, name):
-        self._name = name
-        self._unique_id = f"fake:{id(self)}"
 
-    def GetName(self):
-        return self._name
-
-    def GetUniqueId(self):
-        return self._unique_id
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetMediaPoolItem(self):
-        return f"pool:{self._name}"
-
-    def GetMarkers(self):
-        return {}
-
-
-class FakeProject:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        self.current_timeline = self.timelines[0] if self.timelines else None
-        self.pool = MagicMock()
-        self.pool.DeleteTimelines.side_effect = self._delete
-        self.deleted = []
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-        return True
-
-    def GetMediaPool(self):
-        return self.pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def GetCurrentTimeline(self):
-        return self.current_timeline
-
-    def SetCurrentTimeline(self, timeline):
-        self.current_timeline = timeline
-        return True
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
-
-
-def _drive(project, project_folder, promoted, monkeypatch,
-           recorded):
+def _drive(project, project_folder, promoted, monkeypatch, recorded):
     monkeypatch.setattr(comp, "_plan_finals", lambda _folder: PLAN)
-    monkeypatch.setattr("library.tools.versions.rounds.discover",
-                        lambda _folder, *extra: recorded)
-    return comp.collect_for_bases(project, project.pool,
-                                  project_folder, promoted, MASTER)
+    monkeypatch.setattr(
+        "library.tools.versions.rounds.discover", lambda _folder, *extra: recorded
+    )
+    return comp.collect_for_bases(
+        project, project.GetMediaPool(), project_folder, promoted, MASTER
+    )
 
 
-def test_the_census_is_bounded_across_two_rounds(tmp_path,
-                                                 monkeypatch):
+def test_the_census_is_bounded_across_two_rounds(tmp_path, monkeypatch):
     """The demonstration: round one lands a comparison per reel,
     round two lands the next generation, and the census after round
     two shows one live and one archived per reel - bounded, not
@@ -244,52 +207,62 @@ def test_the_census_is_bounded_across_two_rounds(tmp_path,
     first = f"{REEL} (round-1 comparison)"
     first_other = f"{OTHER} (round-1 comparison)"
     second = f"{REEL} (round-2 comparison)"
-    project = FakeProject([FakeTimeline(MASTER),
-                           FakeTimeline(REEL), FakeTimeline(OTHER),
-                           FakeTimeline(first),
-                           FakeTimeline(first_other)])
+    project = FakeProject(
+        [
+            FakeTimeline(MASTER),
+            FakeTimeline(REEL),
+            FakeTimeline(OTHER),
+            FakeTimeline(first),
+            FakeTimeline(first_other),
+        ]
+    )
 
-    round_one = _drive(project, str(tmp_path), [first, first_other],
-                       monkeypatch,
-                       rounds((1, (first, first_other))))
+    round_one = _drive(
+        project,
+        str(tmp_path),
+        [first, first_other],
+        monkeypatch,
+        rounds((1, (first, first_other))),
+    )
     assert round_one["refused"] == ""
     # Each reel's only comparison is its newest: nothing retires yet.
     assert round_one["retired"] == {}
     assert project.deleted == []
 
     project.timelines.append(FakeTimeline(second))
-    round_two = _drive(project, str(tmp_path), [second],
-                       monkeypatch,
-                       rounds((1, (first, first_other)),
-                              (2, (second,))))
+    round_two = _drive(
+        project,
+        str(tmp_path),
+        [second],
+        monkeypatch,
+        rounds((1, (first, first_other)), (2, (second,))),
+    )
     assert round_two["refused"] == ""
-    assert round_two["retired"] == {
-        first: retire.archived_name(first, 1)}
+    assert round_two["retired"] == {first: retire.archived_name(first, 1)}
     assert project.deleted == []
 
-    live = [name for name in project.names()
-            if comp.is_comparison_timeline(name, PLAN)]
+    live = [name for name in project.names() if comp.is_comparison_timeline(name, PLAN)]
     assert live == [first_other, second]
-    archived = [name for name in project.names()
-                if retire.is_archived_timeline(name)]
+    archived = [name for name in project.names() if retire.is_archived_timeline(name)]
     assert archived == [retire.archived_name(first, 1)]
 
     third = f"{REEL} (round-3 comparison)"
     project.timelines.append(FakeTimeline(third))
-    round_three = _drive(project, str(tmp_path), [third],
-                         monkeypatch,
-                         rounds((1, (first, first_other)),
-                                (2, (second,)),
-                                (3, (third,))))
+    round_three = _drive(
+        project,
+        str(tmp_path),
+        [third],
+        monkeypatch,
+        rounds((1, (first, first_other)), (2, (second,)), (3, (third,))),
+    )
     assert round_three["refused"] == ""
-    assert round_three["collected"] == [
-        retire.archived_name(first, 1)]
+    assert round_three["collected"] == [retire.archived_name(first, 1)]
     assert retire.archived_name(second, 2) in project.names()
     # Bounded: one live and one archived comparison of the reel, no
     # matter how many rounds landed.
-    assert [name for name in project.names()
-            if comp.is_comparison_timeline(name, PLAN)] == [
-               first_other, third]
+    assert [
+        name for name in project.names() if comp.is_comparison_timeline(name, PLAN)
+    ] == [first_other, third]
 
 
 def test_a_guard_refusal_stops_and_reports(tmp_path, monkeypatch):
@@ -311,8 +284,8 @@ def test_a_guard_refusal_stops_and_reports(tmp_path, monkeypatch):
     monkeypatch.setattr(reel_build, "timelines_to_replace", smuggled)
     with pytest.raises(reel_build.ReelBuildError):
         comp._collect_archived(
-            project, project.pool,
-            [retire.archived_name(BASELINE, 1)])
+            project, project.GetMediaPool(), [retire.archived_name(BASELINE, 1)]
+        )
     assert project.deleted == []
 
 
@@ -323,40 +296,37 @@ def test_a_delete_resolve_declines_is_refused_not_reported_collected():
     the census still showed it present. Fails on the old shape (no
     raise, name reported collected); passes on the new (refused, the
     timeline still present for the next build to plan again)."""
-    class DecliningProject(FakeProject):
-        def _delete(self, timelines):
-            return False
-
     old = FakeTimeline(retire.archived_name(BASELINE, 1))
     new = FakeTimeline(retire.archived_name(BASELINE, 2))
-    project = DecliningProject([FakeTimeline(BASELINE), new, old])
+    project = FakeProject([FakeTimeline(BASELINE), new, old], delete_ok=False)
     with pytest.raises(comp.ComparisonRefused):
         comp._collect_archived(
-            project, project.pool,
-            [retire.archived_name(BASELINE, 1)])
+            project, project.GetMediaPool(), [retire.archived_name(BASELINE, 1)]
+        )
     assert retire.archived_name(BASELINE, 1) in project.names()
 
 
-def test_a_failed_read_is_a_refusal_not_an_empty_answer(tmp_path,
-                                                        monkeypatch):
+def test_a_failed_read_is_a_refusal_not_an_empty_answer(tmp_path, monkeypatch):
     """An unreadable holds file reads exactly like "nothing is
     protected" - so judging against it would condemn every held
     comparison, and the driver refuses instead."""
     monkeypatch.setattr(comp, "_plan_finals", lambda _folder: PLAN)
     monkeypatch.setattr(
         "library.tools.staging_holds.read_holds",
-        MagicMock(side_effect=RuntimeError("torn write")))
-    project = FakeProject([FakeTimeline(MASTER),
-                           FakeTimeline(REEL), FakeTimeline(BASELINE)])
-    report = comp.collect_for_bases(project, project.pool,
-                                    str(tmp_path), [REEL], MASTER)
+        MagicMock(side_effect=RuntimeError("torn write")),
+    )
+    project = FakeProject(
+        [FakeTimeline(MASTER), FakeTimeline(REEL), FakeTimeline(BASELINE)]
+    )
+    report = comp.collect_for_bases(
+        project, project.GetMediaPool(), str(tmp_path), [REEL], MASTER
+    )
     assert "Nothing was moved" in report["refused"]
     assert project.names() == [MASTER, REEL, BASELINE]
 
 
-
-
 # ── The promotion wiring ─────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def mock_dvr(stub_resolve_script):
@@ -372,49 +342,17 @@ def project_dir(tmp_path):
     return root
 
 
-class FakeItem:
-    def __init__(self, name, start, end):
-        self._name = name
-        self._start = start
-        self._end = end
-
-    def GetName(self):
-        return self._name
-
-    def GetStart(self):
-        return self._start
-
-    def GetEnd(self):
-        return self._end
-
-    def GetDuration(self):
-        return self._end - self._start
-
-    def GetClipEnabled(self):
-        return True
+def _row_timeline(name):
+    return FakeTimeline(
+        name,
+        video=[
+            ("Akshita", [TimelineItemSpec("clip", 0, 131)]),
+            ("Subtitles", [TimelineItemSpec("card", 0, 131)]),
+        ],
+    )
 
 
-class RowTimeline(FakeTimeline):
-    def __init__(self, name):
-        super().__init__(name)
-        self._rows = {"video": [("Akshita",
-                                 [FakeItem("clip", 0, 131)]),
-                                ("Subtitles",
-                                 [FakeItem("card", 0, 131)])],
-                      "audio": []}
-
-    def GetTrackCount(self, kind):
-        return len(self._rows[kind])
-
-    def GetTrackName(self, kind, index):
-        return self._rows[kind][index - 1][0]
-
-    def GetItemListInTrack(self, kind, index):
-        return list(self._rows[kind][index - 1][1])
-
-
-def test_promotion_retires_the_comparison_it_supersedes(project_dir,
-                                                        monkeypatch):
+def test_promotion_retires_the_comparison_it_supersedes(project_dir, monkeypatch):
     """End to end through `promote_staged_reels`: a suffix build
     promotes its new comparison, the older recorded comparison of
     the same reel retires to the archive under the round it was
@@ -425,45 +363,60 @@ def test_promotion_retires_the_comparison_it_supersedes(project_dir,
     from library.tools.reel_build import promote_staged_reels
 
     fresh = f"{REEL} (round-2 comparison)"
-    staging = RowTimeline(f"{fresh} (rebuild staging)")
-    old = RowTimeline(BASELINE)
-    other_old = RowTimeline(OTHER_BASELINE)
-    resolve = FakeProject([RowTimeline(MASTER), RowTimeline(REEL),
-                           RowTimeline(OTHER), staging, old,
-                           other_old])
+    staging = _row_timeline(f"{fresh} (rebuild staging)")
+    old = _row_timeline(BASELINE)
+    other_old = _row_timeline(OTHER_BASELINE)
+    resolve = FakeProject(
+        [
+            _row_timeline(MASTER),
+            _row_timeline(REEL),
+            _row_timeline(OTHER),
+            staging,
+            old,
+            other_old,
+        ]
+    )
     staged_to_final = {fresh: staging.GetName()}
-    (project_dir / "pipeline_output" / "review"
-     / "plan_provenance.json").write_text(json.dumps(
-         {"built_reels": sorted(staged_to_final.values())}),
-        encoding="utf-8")
+    (project_dir / "pipeline_output" / "review" / "plan_provenance.json").write_text(
+        json.dumps({"built_reels": sorted(staged_to_final.values())}), encoding="utf-8"
+    )
     from library.tools import plan_provenance
 
     inventory = reel_replace_guard.timeline_inventory(resolve)
     operation = plan_provenance.begin_timeline_inventory(
         str(project_dir / "pipeline_output" / "review"),
-        "prior test build", inventory,
-        ren_created_names={entry["name"] for entry in inventory})
+        "prior test build",
+        inventory,
+        ren_created_names={entry["name"] for entry in inventory},
+    )
     plan_provenance.finish_timeline_inventory(
-        str(project_dir / "pipeline_output" / "review"), operation,
-        inventory)
+        str(project_dir / "pipeline_output" / "review"), operation, inventory
+    )
     monkeypatch.setattr(comp, "_plan_finals", lambda _folder: PLAN)
     monkeypatch.setattr(
         "library.tools.versions.rounds.discover",
-        lambda _folder, *extra: rounds((1, (BASELINE,
-                                           OTHER_BASELINE)),))
+        lambda _folder, *extra: rounds(
+            (1, (BASELINE, OTHER_BASELINE)),
+        ),
+    )
 
-    with patch("library.tools.resolve_locale."
-               "scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=resolve):
+    with (
+        patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
+        patch("library.tools.reel_build.resolve_project_exactly", return_value=resolve),
+    ):
         result = promote_staged_reels(
-            str(project_dir), "Mock Project", MASTER,
-            staged_to_final, organise=False,
-            track_plans=no_a_roll_track_plans(staged_to_final))
+            str(project_dir),
+            "Mock Project",
+            MASTER,
+            staged_to_final,
+            organise=False,
+            track_plans=no_a_roll_track_plans(staged_to_final),
+        )
 
     assert result["comparison_retirement"]["refused"] == ""
     assert result["comparison_retirement"]["retired"] == {
-        BASELINE: retire.archived_name(BASELINE, 1)}
+        BASELINE: retire.archived_name(BASELINE, 1)
+    }
     assert retire.archived_name(BASELINE, 1) in resolve.names()
     assert BASELINE not in resolve.names()
     assert fresh in resolve.names()

@@ -27,84 +27,28 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from library.tools import marker_resolution as mr  # noqa: E402
-
-
-# ── Fakes: the deletion contract only ─────────────────────────────
-
-class FakeTimeline:
-    """A timeline's marker surface, with Resolve's return semantics."""
-
-    def __init__(self, markers, start_frame=108000):
-        self._markers = dict(markers)
-        self._start = start_frame
-        self.delete_calls = []
-
-    def GetMarkers(self):
-        return dict(self._markers)
-
-    def GetStartFrame(self):
-        return self._start
-
-    def DeleteMarkerAtFrame(self, frame):
-        self.delete_calls.append(int(frame))
-        if int(frame) in self._markers:
-            del self._markers[int(frame)]
-            return True
-        return False
-
-
-class RefusingTimeline(FakeTimeline):
-    """Resolve refusing the deletion: falsy return, marker stays."""
-
-    def DeleteMarkerAtFrame(self, frame):
-        self.delete_calls.append(int(frame))
-        return False
-
-
-class ExplodingTimeline(FakeTimeline):
-    """The call must never happen: fail loudly if it does."""
-
-    def DeleteMarkerAtFrame(self, frame):  # noqa: ARG002
-        raise AssertionError("DeleteMarkerAtFrame must not be called")
-
-
-class FakeClipItem:
-    """A clip item's marker surface. Keys are SOURCE frames."""
-
-    def __init__(self, markers):
-        self._markers = dict(markers)
-        self.delete_calls = []
-
-    def GetMarkers(self):
-        return dict(self._markers)
-
-    def DeleteMarkerAtFrame(self, frame):
-        self.delete_calls.append(int(frame))
-        if int(frame) in self._markers:
-            del self._markers[int(frame)]
-            return True
-        return False
-
+from library.tools import marker_resolution as mr
+from tests.resolve_double import FakeTimeline
 
 # ── Notes ─────────────────────────────────────────────────────────
 
+
 def _timeline_note(**kw):
-    note = dict(
-        note_id="reel-09:timeline_marker:1674",
-        source="timeline_marker",
-        name="Marker 2",
-        note="the a-roll row needs to be 2 rows, one for akshita and one for craig",
-        text="Marker 2\n\nthe a-roll row needs to be 2 rows, one for akshita and one for craig",
-        frame=108000 + 1674,
-        frame_in_timeline_space=1674,
-        timecode="01:00:55:24",
-        timeline="reel-09",
-        pull_file="reel-09.json",
-        collected_at="2026-09-09T00:00:00+00:00",
-        outcome="routed",
-        steps=["render"],
-    )
+    note = {
+        "note_id": "reel-09:timeline_marker:1674",
+        "source": "timeline_marker",
+        "name": "Marker 2",
+        "note": "the a-roll row needs to be 2 rows, one for akshita and one for craig",
+        "text": "Marker 2\n\nthe a-roll row needs to be 2 rows, one for akshita and one for craig",
+        "frame": 108000 + 1674,
+        "frame_in_timeline_space": 1674,
+        "timecode": "01:00:55:24",
+        "timeline": "reel-09",
+        "pull_file": "reel-09.json",
+        "collected_at": "2026-09-09T00:00:00+00:00",
+        "outcome": "routed",
+        "steps": ["render"],
+    }
     note.update(kw)
     return note
 
@@ -127,18 +71,35 @@ def _taste_note(**kw):
 
 def _timeline_with(note):
     key = note["frame_in_timeline_space"]
-    return FakeTimeline({key: {"name": note["name"], "note": note["note"],
-                               "color": "Red", "duration": 1}})
+    timeline = FakeTimeline("Reel 09", start_frame=108000)
+    timeline.AddMarker(key, "Red", note["name"], note["note"], 1, "")
+    return timeline
+
+
+def _timeline_with_forbidden_delete(note):
+    timeline = _timeline_with(note)
+    timeline.explode_marker_delete_frames.add(note["frame_in_timeline_space"])
+    return timeline
+
+
+def _timeline_with_refused_delete(note):
+    timeline = _timeline_with(note)
+    timeline.refuse_marker_delete_frames.add(note["frame_in_timeline_space"])
+    return timeline
 
 
 # ── The record ────────────────────────────────────────────────────
 
+
 def test_record_preserves_the_captains_words_verbatim(tmp_path):
     note = _timeline_note()
     record = mr.record_resolution(
-        str(tmp_path), note, mr.STATUS_DECLINED,
+        str(tmp_path),
+        note,
+        mr.STATUS_DECLINED,
         action="decline: the row split is the captain's call",
-        rationale="one row is what the build produced; not changing it unseen")
+        rationale="one row is what the build produced; not changing it unseen",
+    )
     assert record["name"] == note["name"]
     assert record["note"] == note["note"]
     assert record["text"] == note["text"]
@@ -150,6 +111,7 @@ def test_record_preserves_the_captains_words_verbatim(tmp_path):
 
 # ── The checks carry a verdict ────────────────────────────────────
 
+
 def test_unknown_check_is_refused():
     with pytest.raises(mr.UnknownCheck):
         mr.verify("framing_looks_fine", {"a_roll_video_rows": 2})
@@ -157,14 +119,19 @@ def test_unknown_check_is_refused():
 
 # ── Verified fixes clear; everything else stays ───────────────────
 
+
 def test_verified_fix_clears_the_timeline_marker(tmp_path):
     note = _timeline_note()
     timeline = _timeline_with(note)
     result = mr.resolve_note(
-        str(tmp_path), note, action="split the a-roll onto two rows",
+        str(tmp_path),
+        note,
+        action="split the a-roll onto two rows",
         rationale="rebuilt with one row per angle",
-        check=mr.CHECK_A_ROLL_ROWS, measured={"a_roll_video_rows": 2},
-        timeline=timeline)
+        check=mr.CHECK_A_ROLL_ROWS,
+        measured={"a_roll_video_rows": 2},
+        timeline=timeline,
+    )
     record = result["record"]
     assert result["marker_touched"] is True
     assert record["status"] == mr.STATUS_RESOLVED_VERIFIED
@@ -181,14 +148,16 @@ def test_verified_fix_clears_the_timeline_marker(tmp_path):
 
 def test_decline_never_clears_even_beside_a_passing_check(tmp_path):
     note = _timeline_note()
-    timeline = ExplodingTimeline(
-        {1674: {"name": note["name"], "note": note["note"]}})
+    timeline = _timeline_with_forbidden_delete(note)
     result = mr.resolve_note(
-        str(tmp_path), note,
+        str(tmp_path),
+        note,
         action="decline: the single row is deliberate for this reel",
         rationale="the captain's layout note is about the series template",
-        check=mr.CHECK_A_ROLL_ROWS, measured={"a_roll_video_rows": 2},
-        timeline=timeline)
+        check=mr.CHECK_A_ROLL_ROWS,
+        measured={"a_roll_video_rows": 2},
+        timeline=timeline,
+    )
     record = result["record"]
     assert record["status"] == mr.STATUS_DECLINED
     assert result["marker_touched"] is False
@@ -199,11 +168,13 @@ def test_decline_never_clears_even_beside_a_passing_check(tmp_path):
 
 def test_taste_note_is_unverifiable_and_keeps_its_marker(tmp_path):
     note = _taste_note()
-    timeline = ExplodingTimeline(
-        {528: {"name": note["name"], "note": note["note"]}})
+    timeline = _timeline_with_forbidden_delete(note)
     result = mr.resolve_note(
-        str(tmp_path), note, action="recut the segment tighter",
-        rationale="removed the choppy passage")
+        str(tmp_path),
+        note,
+        action="recut the segment tighter",
+        rationale="removed the choppy passage",
+    )
     record = result["record"]
     assert record["status"] == mr.STATUS_UNVERIFIABLE
     assert result["marker_touched"] is False
@@ -213,12 +184,16 @@ def test_taste_note_is_unverifiable_and_keeps_its_marker(tmp_path):
 
 def test_failed_check_keeps_its_marker(tmp_path):
     note = _timeline_note()
-    timeline = ExplodingTimeline(
-        {1674: {"name": note["name"], "note": note["note"]}})
+    timeline = _timeline_with_forbidden_delete(note)
     result = mr.resolve_note(
-        str(tmp_path), note, action="split the a-roll onto two rows",
-        rationale="rebuilt", check=mr.CHECK_A_ROLL_ROWS,
-        measured={"a_roll_video_rows": 1}, timeline=timeline)
+        str(tmp_path),
+        note,
+        action="split the a-roll onto two rows",
+        rationale="rebuilt",
+        check=mr.CHECK_A_ROLL_ROWS,
+        measured={"a_roll_video_rows": 1},
+        timeline=timeline,
+    )
     record = result["record"]
     assert record["status"] == mr.STATUS_ADDRESSED_UNVERIFIED
     assert record["evidence"]["a_roll_video_rows"] == 1
@@ -228,16 +203,19 @@ def test_failed_check_keeps_its_marker(tmp_path):
 
 # ── Failure keeps the words ───────────────────────────────────────
 
-def test_failed_removal_keeps_the_words_and_says_the_marker_is_there(
-        tmp_path):
+
+def test_failed_removal_keeps_the_words_and_says_the_marker_is_there(tmp_path):
     note = _timeline_note()
-    timeline = RefusingTimeline(
-        {1674: {"name": note["name"], "note": note["note"]}})
+    timeline = _timeline_with_refused_delete(note)
     result = mr.resolve_note(
-        str(tmp_path), note, action="split the a-roll onto two rows",
+        str(tmp_path),
+        note,
+        action="split the a-roll onto two rows",
         rationale="rebuilt with one row per angle",
-        check=mr.CHECK_A_ROLL_ROWS, measured={"a_roll_video_rows": 2},
-        timeline=timeline)
+        check=mr.CHECK_A_ROLL_ROWS,
+        measured={"a_roll_video_rows": 2},
+        timeline=timeline,
+    )
     record = result["record"]
     assert record["status"] == mr.STATUS_RESOLVED_VERIFIED
     assert record["text"] == note["text"]
@@ -253,12 +231,20 @@ def test_failed_removal_keeps_the_words_and_says_the_marker_is_there(
 def test_stale_frame_refuses_the_deletion(tmp_path):
     note = _timeline_note()
     # The timeline was rebuilt since: another note sits at that frame now.
-    timeline = ExplodingTimeline(
-        {1674: {"name": "Marker 9", "note": "something the captain typed since"}})
+    timeline = FakeTimeline("Reel 09", start_frame=108000)
+    timeline.AddMarker(
+        1674, "Red", "Marker 9", "something the captain typed since", 1, ""
+    )
+    timeline.explode_marker_delete_frames.add(1674)
     result = mr.resolve_note(
-        str(tmp_path), note, action="split the a-roll onto two rows",
-        rationale="rebuilt", check=mr.CHECK_A_ROLL_ROWS,
-        measured={"a_roll_video_rows": 2}, timeline=timeline)
+        str(tmp_path),
+        note,
+        action="split the a-roll onto two rows",
+        rationale="rebuilt",
+        check=mr.CHECK_A_ROLL_ROWS,
+        measured={"a_roll_video_rows": 2},
+        timeline=timeline,
+    )
     record = result["record"]
     assert record["status"] == mr.STATUS_RESOLVED_VERIFIED
     assert record["marker_removed"] is False
@@ -277,6 +263,7 @@ def test_stale_frame_refuses_the_deletion(tmp_path):
 # has no mechanical proof at all, so `verifiability_of` returns False
 # and a worker's assertion is the only thing on offer.
 
+
 def _survey(tmp_path, **reels):
     """A real `reel_divergence` survey over fake reel snapshots."""
     from library.tools import reel_divergence as rd
@@ -287,7 +274,9 @@ def _survey(tmp_path, **reels):
         "    - element: full_frame_clip\n"
         "      placement: tail\n"
         "      asset: /shared/logo_reveal.mov\n"
-        "      reason: captain\n", encoding="utf-8")
+        "      reason: captain\n",
+        encoding="utf-8",
+    )
 
     class Clip:
         def __init__(self, name):
@@ -300,22 +289,30 @@ def _survey(tmp_path, **reels):
         def __init__(self, names):
             self.clips = [Clip(n) for n in names]
 
-    return rd.survey(str(tmp_path),
-                     {reel: Snap(names) for reel, names in reels.items()})
+    return rd.survey(
+        str(tmp_path), {reel: Snap(names) for reel, names in reels.items()}
+    )
 
 
 def test_a_declaration_absent_from_one_reel_FAILS(tmp_path):
-    passed, evidence = mr.verify(mr.CHECK_DECLARATION_REACHES, {
-        "divergence": _survey(tmp_path, **{"Reel 01": ["a.mxf"],
-                                           "Reel 26": ["logo_reveal.mov"]}),
-        "declaration": "full_frame_elements"})
+    passed, evidence = mr.verify(
+        mr.CHECK_DECLARATION_REACHES,
+        {
+            "divergence": _survey(
+                tmp_path, **{"Reel 01": ["a.mxf"], "Reel 26": ["logo_reveal.mov"]}
+            ),
+            "declaration": "full_frame_elements",
+        },
+    )
     assert passed is False
     assert "Reel 01" in evidence["reason"]
 
 
 def test_the_check_refuses_a_measurement_that_never_looked(tmp_path):
-    for missing in ({"declaration": "full_frame_elements"},
-                    {"divergence": _survey(tmp_path)}):
+    for missing in (
+        {"declaration": "full_frame_elements"},
+        {"divergence": _survey(tmp_path)},
+    ):
         passed, evidence = mr.verify(mr.CHECK_DECLARATION_REACHES, missing)
         assert passed is False
         assert "never read" in evidence["reason"]
@@ -326,13 +323,17 @@ def test_a_marker_is_NOT_cleared_when_the_reels_do_not_back_the_claim(tmp_path):
     note = _timeline_note()
     timeline = _timeline_with(note)
     result = mr.resolve_note(
-        str(tmp_path), note, action="declared the card for every reel",
+        str(tmp_path),
+        note,
+        action="declared the card for every reel",
         rationale="PR 995 landed the mechanism",
         check=mr.CHECK_DECLARATION_REACHES,
-        measured={"divergence": _survey(tmp_path,
-                                        **{"Reel 01": ["a.mxf"]}),
-                  "declaration": "full_frame_elements"},
-        timeline=timeline)
+        measured={
+            "divergence": _survey(tmp_path, **{"Reel 01": ["a.mxf"]}),
+            "declaration": "full_frame_elements",
+        },
+        timeline=timeline,
+    )
     assert result["record"]["status"] == mr.STATUS_ADDRESSED_UNVERIFIED
     assert result["marker_touched"] is False
     assert len(timeline.GetMarkers()) == 1

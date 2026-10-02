@@ -11,18 +11,26 @@ Proven here on fixtures carrying the round's real names: four reels
 promote together, one with the cutaway loss shape, and the other
 three land while the refusal names just the one.
 """
+
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from tests.promotion_test_helpers import (
-    install_fake_timeline_snapshots,
-    no_a_roll_track_plans,
-)
 
 from library.tools.reel_build import (
     ReelBuildError,
     promote_staged_reels,
+)
+from tests.promotion_test_helpers import (
+    install_fake_timeline_snapshots,
+    no_a_roll_track_plans,
+)
+from tests.resolve_double import (
+    FakeProject,
+    FakeTimeline,
+)
+from tests.resolve_double import (
+    TimelineItemSpec as FakeItem,
 )
 
 MASTER = "Podcast - Synced"
@@ -55,117 +63,49 @@ def project_dir(tmp_path):
     return root
 
 
-class FakeItem:
-    def __init__(self, name, start, end):
-        self._name = name
-        self._start = start
-        self._end = end
-
-    def GetName(self):
-        return self._name
-
-    def GetStart(self):
-        return self._start
-
-    def GetEnd(self):
-        return self._end
-
-    def GetDuration(self):
-        return self._end - self._start
-
-    def GetClipEnabled(self):
-        return True
-
-
-class FakeTimeline:
-    def __init__(self, name, video=(), audio=()):
-        self._name = name
-        self._rows = {"video": list(video), "audio": list(audio)}
-
-    def GetName(self):
-        return self._name
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetTrackCount(self, kind):
-        return len(self._rows[kind])
-
-    def GetTrackName(self, kind, index):
-        return self._rows[kind][index - 1][0]
-
-    def GetItemListInTrack(self, kind, index):
-        return self._rows[kind][index - 1][1]
-
-    def GetStartFrame(self):
-        return 0
-
-    def GetMarkers(self):
-        return dict(getattr(self, "_markers", {}))
-
-    def AddMarker(self, frame, color, name, note, duration, custom=""):
-        self.added_markers = getattr(self, "added_markers", [])
-        self.added_markers.append((frame, color, name, note))
-        return True
-
-
-class FakeProject:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        self._pool = pool
-        self.deleted = []
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-        return True
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
-
-
 def _clean_reel(final):
     """A reel whose rebuild changes nothing the guard cares about."""
-    retired = FakeTimeline(final, video=[
-        ("Akshita", [FakeItem("Akshita A", 0, 131)]),
-        ("Subtitles", [FakeItem("card 1", 0, 131)]),
-    ])
-    staging = FakeTimeline(final + " (rebuild staging)", video=[
-        ("Akshita", [FakeItem("Akshita A", 0, 131)]),
-        ("Subtitles", [FakeItem("card 1", 0, 131)]),
-    ])
+    retired = FakeTimeline(
+        final,
+        video=[
+            ("Akshita", [FakeItem("Akshita A", 0, 131)]),
+            ("Subtitles", [FakeItem("card 1", 0, 131)]),
+        ],
+    )
+    staging = FakeTimeline(
+        final + " (rebuild staging)",
+        video=[
+            ("Akshita", [FakeItem("Akshita A", 0, 131)]),
+            ("Subtitles", [FakeItem("card 1", 0, 131)]),
+        ],
+    )
     return retired, staging
 
 
 def _refused_reel():
     """Reel 31 with the cutaway loss shape: V1 3 items to 2, the cover
     gone and nothing declaring it."""
-    retired = FakeTimeline(REEL_31, video=[
-        ("Akshita", [FakeItem("Craig A", 0, 55),
-                      FakeItem("LC4932 cover", 574, 598),
-                      FakeItem("Craig B", 598, 657)]),
-        ("Subtitles", [FakeItem("card 1", 0, 60),
-                        FakeItem("card 2", 60, 131)]),
-    ])
-    staging = FakeTimeline(REEL_31 + " (rebuild staging)", video=[
-        ("Akshita", [FakeItem("Craig A", 0, 67),
-                      FakeItem("Craig B", 67, 138)]),
-        ("Subtitles", [FakeItem("card 1", 0, 60),
-                        FakeItem("card 2", 60, 131)]),
-    ])
+    retired = FakeTimeline(
+        REEL_31,
+        video=[
+            (
+                "Akshita",
+                [
+                    FakeItem("Craig A", 0, 55),
+                    FakeItem("LC4932 cover", 574, 598),
+                    FakeItem("Craig B", 598, 657),
+                ],
+            ),
+            ("Subtitles", [FakeItem("card 1", 0, 60), FakeItem("card 2", 60, 131)]),
+        ],
+    )
+    staging = FakeTimeline(
+        REEL_31 + " (rebuild staging)",
+        video=[
+            ("Akshita", [FakeItem("Craig A", 0, 67), FakeItem("Craig B", 67, 138)]),
+            ("Subtitles", [FakeItem("card 1", 0, 60), FakeItem("card 2", 60, 131)]),
+        ],
+    )
     return retired, staging
 
 
@@ -174,35 +114,50 @@ def test_one_refusal_promotes_its_siblings(project_dir):
     retired_23, staging_23 = _clean_reel(REEL_23)
     retired_30, staging_30 = _clean_reel(REEL_30)
     retired_31, staging_31 = _refused_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired_01, retired_23,
-                           retired_30, retired_31, staging_01, staging_23,
-                           staging_30, staging_31])
+    resolve = FakeProject(
+        [
+            FakeTimeline(MASTER),
+            retired_01,
+            retired_23,
+            retired_30,
+            retired_31,
+            staging_01,
+            staging_23,
+            staging_30,
+            staging_31,
+        ]
+    )
     staged_to_final = {
         REEL_01: staging_01.GetName(),
         REEL_23: staging_23.GetName(),
         REEL_30: staging_30.GetName(),
         REEL_31: staging_31.GetName(),
     }
-    (project_dir / "pipeline_output" / "review"
-     / "plan_provenance.json").write_text(json.dumps(
-         {"built_reels": sorted(staged_to_final.values())}),
-        encoding="utf-8")
+    (project_dir / "pipeline_output" / "review" / "plan_provenance.json").write_text(
+        json.dumps({"built_reels": sorted(staged_to_final.values())}), encoding="utf-8"
+    )
 
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=resolve):
-        with pytest.raises(ReelBuildError) as refused:
-            promote_staged_reels(
-                str(project_dir), "Mock Project", MASTER,
-                staged_to_final, organise=False,
-                track_plans=no_a_roll_track_plans(staged_to_final))
+    with (
+        patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
+        patch("library.tools.reel_build.resolve_project_exactly", return_value=resolve),
+        pytest.raises(ReelBuildError) as refused,
+    ):
+        promote_staged_reels(
+            str(project_dir),
+            "Mock Project",
+            MASTER,
+            staged_to_final,
+            organise=False,
+            track_plans=no_a_roll_track_plans(staged_to_final),
+        )
 
     message = str(refused.value)
     # The promoted line says what landed; the refusal body names only
     # itself - no sibling is implicated in another reel's refusal.
     assert f"Promoted 3 reel(s): {[REEL_01, REEL_23, REEL_30]}" in message
     _header, refusal_body = message.split(
-        f"REFUSING to promote 1 reel(s): {[REEL_31]}.")
+        f"REFUSING to promote 1 reel(s): {[REEL_31]}."
+    )
     assert REEL_31 in refusal_body
     assert "video:Akshita" in refusal_body
     assert "LC4932 cover" in refusal_body
@@ -219,10 +174,12 @@ def test_one_refusal_promotes_its_siblings(project_dir):
     assert names.count(REEL_01) == 1
     assert names.count(REEL_23) == 1
     assert names.count(REEL_30) == 1
-    assert not [name for name in names
-                if name.endswith(("(rebuild staging)",
-                                   "(pre-rebuild backup)"))
-                and name != staging_31.GetName()]
+    assert not [
+        name
+        for name in names
+        if name.endswith(("(rebuild staging)", "(pre-rebuild backup)"))
+        and name != staging_31.GetName()
+    ]
     # ...and the refused reel is exactly as it was: approved timeline
     # untouched, staging still in the project for a deliberate re-run.
     assert retired_31 in resolve.timelines
@@ -233,12 +190,15 @@ def test_one_refusal_promotes_its_siblings(project_dir):
     # (the captain, 2026-09-18: no leftovers by default; there is no
     # earlier generation here, so nothing is collected either).
     assert sorted(resolve.deleted) == sorted(
-        [f"{REEL_01} (pre-rebuild backup)",
-         f"{REEL_23} (pre-rebuild backup)",
-         f"{REEL_30} (pre-rebuild backup)"])
+        [
+            f"{REEL_01} (pre-rebuild backup)",
+            f"{REEL_23} (pre-rebuild backup)",
+            f"{REEL_30} (pre-rebuild backup)",
+        ]
+    )
     from library.tools import reel_retirement
-    archived = [name for name in names
-                if reel_retirement.is_archived_timeline(name)]
+
+    archived = [name for name in names if reel_retirement.is_archived_timeline(name)]
     assert archived == []
 
 
@@ -248,35 +208,45 @@ def test_unlinked_aroll_staging_is_refused_before_promotion(project_dir):
 
     final = "Reel 11 - your-website-is-your-resume"
     staging_name = final + " (rebuild staging)"
-    retired = FakeTimeline(final, video=[
-        ("Craig", [FakeItem("LCATL0013.MXF", 0, 138)]),
-    ], audio=[
-        ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
-    ])
-    staging = FakeTimeline(staging_name, video=[
-        ("Craig", [FakeItem("LCATL0013.MXF", 7, 138)]),
-    ], audio=[
-        ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
-    ])
+    retired = FakeTimeline(
+        final,
+        video=[
+            ("Craig", [FakeItem("LCATL0013.MXF", 0, 138)]),
+        ],
+        audio=[
+            ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
+        ],
+    )
+    staging = FakeTimeline(
+        staging_name,
+        video=[
+            ("Craig", [FakeItem("LCATL0013.MXF", 7, 138)]),
+        ],
+        audio=[
+            ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
+        ],
+    )
     resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
     staged_to_final = {final: staging_name}
     raw_plan = {
-        "video_tracks": [vars(TrackSpec(
-            1, "video", A_ROLL, "Craig", "2"))],
-        "audio_tracks": [vars(TrackSpec(
-            1, "audio", SPEECH, "Craig CH1", "2"))],
+        "video_tracks": [vars(TrackSpec(1, "video", A_ROLL, "Craig", "2"))],
+        "audio_tracks": [vars(TrackSpec(1, "audio", SPEECH, "Craig CH1", "2"))],
         "material": {},
     }
 
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=resolve), \
-            pytest.raises(ReelBuildError,
-                          match="failed `aroll_linked`"):
+    with (
+        patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
+        patch("library.tools.reel_build.resolve_project_exactly", return_value=resolve),
+        pytest.raises(ReelBuildError, match="failed `aroll_linked`"),
+    ):
         promote_staged_reels(
-            str(project_dir), "Mock Project", MASTER,
-            staged_to_final, organise=False,
-            track_plans={staging_name: raw_plan})
+            str(project_dir),
+            "Mock Project",
+            MASTER,
+            staged_to_final,
+            organise=False,
+            track_plans={staging_name: raw_plan},
+        )
 
     assert retired.GetName() == final
     assert staging.GetName() == staging_name
@@ -291,13 +261,18 @@ def test_promotion_refuses_when_staging_track_plan_is_missing(project_dir):
     staging._name = staging_name
     resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
 
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=resolve), \
-            pytest.raises(ReelBuildError, match="has no track plan"):
+    with (
+        patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
+        patch("library.tools.reel_build.resolve_project_exactly", return_value=resolve),
+        pytest.raises(ReelBuildError, match="has no track plan"),
+    ):
         promote_staged_reels(
-            str(project_dir), "Mock Project", MASTER,
-            {final: staging_name}, organise=False)
+            str(project_dir),
+            "Mock Project",
+            MASTER,
+            {final: staging_name},
+            organise=False,
+        )
 
     assert retired.GetName() == final
     assert staging.GetName() == staging_name

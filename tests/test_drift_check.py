@@ -27,13 +27,8 @@ import pytest
 from library.tools import drift_check, reel_build
 from library.tools.drift_check import (
     compare_documents,
-    find_live_timeline,
-    keyed_transforms,
-    newest_snapshots,
-    per_reel_factor,
-    summarize,
 )
-from library.tools.transform_drift import TransformDriftError
+from tests.resolve_double import FakeTimeline, make_project
 
 
 def doc(name, *clips):
@@ -44,24 +39,36 @@ def doc(name, *clips):
     tracks = {}
     for track, start, clip_name, pan, tilt in clips:
         tracks.setdefault(track, []).append(
-            {"record_in": start, "name": clip_name,
-             "transform": {"Pan": pan, "Tilt": tilt, "ZoomX": 2.307}})
-    return {"metadata": {"name": name},
-            "tracks": [{"type": "video", "index": index, "clips": clips_}
-                       for index, clips_ in sorted(tracks.items())]}
+            {
+                "record_in": start,
+                "name": clip_name,
+                "transform": {"Pan": pan, "Tilt": tilt, "ZoomX": 2.307},
+            }
+        )
+    return {
+        "metadata": {"name": name},
+        "tracks": [
+            {"type": "video", "index": index, "clips": clips_}
+            for index, clips_ in sorted(tracks.items())
+        ],
+    }
 
 
 #: Reel 26 as the 2026-09-17 measurement found it: the captain's
 #: hand-set Pan -77.644 reading -38.822, the caption row at Tilt -864
 #: reading -432, the emblem at 1167.568 reading 583.784.
-BUILT = doc("Reel 26",
-            (1, 100, "akshita.MXF", -77.644, -0.79),
-            (4, 100, "caption.mov", 0.0, -864.0),
-            (6, 100, "emblem.mov", 1167.568, 0.0))
-HALVED = doc("Reel 26",
-             (1, 100, "akshita.MXF", -38.822, -0.395),
-             (4, 100, "caption.mov", 0.0, -432.0),
-             (6, 100, "emblem.mov", 583.784, 0.0))
+BUILT = doc(
+    "Reel 26",
+    (1, 100, "akshita.MXF", -77.644, -0.79),
+    (4, 100, "caption.mov", 0.0, -864.0),
+    (6, 100, "emblem.mov", 1167.568, 0.0),
+)
+HALVED = doc(
+    "Reel 26",
+    (1, 100, "akshita.MXF", -38.822, -0.395),
+    (4, 100, "caption.mov", 0.0, -432.0),
+    (6, 100, "emblem.mov", 583.784, 0.0),
+)
 
 
 def test_the_measured_halving_reads_as_one_factor_of_a_half():
@@ -96,10 +103,8 @@ def test_zero_placements_are_undefined_never_one():
     that can move.
     """
     compared = compare_documents("Reel 26", BUILT, HALVED)
-    zero_rows = [row for row in compared["rows"]
-                 if row["built"]["Pan"] == 0.0]
-    assert zero_rows and all(
-        row["factors"]["Pan"] is None for row in zero_rows)
+    zero_rows = [row for row in compared["rows"] if row["built"]["Pan"] == 0.0]
+    assert zero_rows and all(row["factors"]["Pan"] is None for row in zero_rows)
     assert compared["factor"] == pytest.approx(0.5)
 
 
@@ -126,12 +131,10 @@ def test_a_replaced_clip_reads_as_missing_never_as_a_factor():
 def test_two_different_factors_refuse_to_read_as_one():
     """A non-uniform move is a DIFFERENT fault and must not borrow
     this one's name - the tolerance is for rounding, not for causes."""
-    built = doc("Reel 01",
-                (1, 590, "a.MXF", 10.0, 0.25),
-                (1, 1069, "b.MXF", 10.0, 0.25))
-    live = doc("Reel 01",
-               (1, 590, "a.MXF", 5.0, 0.125),
-               (1, 1069, "b.MXF", 20.0, 0.5))
+    built = doc(
+        "Reel 01", (1, 590, "a.MXF", 10.0, 0.25), (1, 1069, "b.MXF", 10.0, 0.25)
+    )
+    live = doc("Reel 01", (1, 590, "a.MXF", 5.0, 0.125), (1, 1069, "b.MXF", 20.0, 0.5))
     compared = compare_documents("Reel 01", built, live)
     assert compared["factor"] is None
     assert "by NO single factor" in compared["line"]
@@ -139,27 +142,36 @@ def test_two_different_factors_refuse_to_read_as_one():
 
 # ── A factor across a project-resolution change is the UNIT ─────────
 
+
 def _at(document, transform_unit_resolution):
-    return {**document, "metadata": {**document["metadata"],
-                                     "transform_unit_resolution":
-                                         transform_unit_resolution}}
+    return {
+        **document,
+        "metadata": {
+            **document["metadata"],
+            "transform_unit_resolution": transform_unit_resolution,
+        },
+    }
 
 
 #: geo-podcast Reel 01, 2026-10-02: the as-built snapshot (written under
 #: the old project resolution) holds x4 what the correctly framed live
 #: timeline stores. A repair that matched live to it broke 25 reels.
-AS_BUILT_OLD_EPOCH = doc("Reel 01",
-                         (1, 591, "LC4930.MXF", -20.54, -696.041),
-                         (3, 0, "tv_frame.mov", 0.0, -220.0))
-LIVE_FRAMED = doc("Reel 01",
-                  (1, 591, "LC4930.MXF", -5.135, -174.01025),
-                  (3, 0, "tv_frame.mov", 0.0, -55.0))
+AS_BUILT_OLD_EPOCH = doc(
+    "Reel 01",
+    (1, 591, "LC4930.MXF", -20.54, -696.041),
+    (3, 0, "tv_frame.mov", 0.0, -220.0),
+)
+LIVE_FRAMED = doc(
+    "Reel 01",
+    (1, 591, "LC4930.MXF", -5.135, -174.01025),
+    (3, 0, "tv_frame.mov", 0.0, -55.0),
+)
 
 
 def test_a_factor_across_a_resolution_change_is_the_unit():
     compared = compare_documents(
-        "Reel 01", _at(AS_BUILT_OLD_EPOCH, [1920, 1080]),
-        _at(LIVE_FRAMED, [3840, 2160]))
+        "Reel 01", _at(AS_BUILT_OLD_EPOCH, [1920, 1080]), _at(LIVE_FRAMED, [3840, 2160])
+    )
     assert compared["factor"] == pytest.approx(0.25)
     assert compared["drifted"] is False
     assert "1920x1080" in compared["unit_epoch"]
@@ -170,7 +182,8 @@ def test_a_snapshot_with_no_recorded_epoch_cannot_prove_a_drift():
     """Every snapshot before 2026-10-02 lacks the field - the exact
     records the broken repair trusted."""
     compared = compare_documents(
-        "Reel 01", AS_BUILT_OLD_EPOCH, _at(LIVE_FRAMED, [3840, 2160]))
+        "Reel 01", AS_BUILT_OLD_EPOCH, _at(LIVE_FRAMED, [3840, 2160])
+    )
     assert compared["drifted"] is False
     assert "did not record the project resolution" in compared["unit_epoch"]
     assert "NOT a drift" in compared["line"]
@@ -178,7 +191,8 @@ def test_a_snapshot_with_no_recorded_epoch_cannot_prove_a_drift():
 
 def test_a_move_within_one_epoch_is_still_a_drift():
     compared = compare_documents(
-        "Reel 26", _at(BUILT, [3840, 2160]), _at(HALVED, [3840, 2160]))
+        "Reel 26", _at(BUILT, [3840, 2160]), _at(HALVED, [3840, 2160])
+    )
     assert compared["unit_epoch"] == ""
     assert compared["drifted"] is True
     assert "NOT a drift" not in compared["line"]
@@ -189,8 +203,10 @@ def test_the_serializer_records_the_transform_unit_resolution():
 
     class _Project:
         def GetSetting(self, key):
-            return {"timelineResolutionWidth": "3840",
-                    "timelineResolutionHeight": "2160"}[key]
+            return {
+                "timelineResolutionWidth": "3840",
+                "timelineResolutionHeight": "2160",
+            }[key]
 
     class _Resolve:
         def GetProjectManager(self):
@@ -205,60 +221,26 @@ def test_the_serializer_records_the_transform_unit_resolution():
 
 # ── The self-read: current for its own read, cursor back ─────────────
 
-class _FakeTimeline:
-    def __init__(self, name, uid):
-        self._name = name
-        self._uid = uid
-
-    def GetName(self):
-        return self._name
-
-    def GetUniqueId(self):
-        return self._uid
-
-
-class _FakeProject:
-    def __init__(self, name, timelines):
-        self._name = name
-        self._timelines = timelines
-        self._current = timelines[0]
-
-    def GetName(self):
-        return self._name
-
-    def GetCurrentTimeline(self):
-        return self._current
-
-    def SetCurrentTimeline(self, timeline):
-        self._current = timeline
-        return True
-
-    def GetTimelineCount(self):
-        return len(self._timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self._timelines[index - 1]
-
 
 def _project_folder(tmp_path, resolve_name):
     root = tmp_path / "project"
     review = root / "pipeline_output" / "review"
     review.mkdir(parents=True)
     (root / "project.yaml").write_text(
-        f"resolve:\n  project_name: {resolve_name}\n",
-        encoding="utf-8")
-    (review / "Reel_26.timeline.json").write_text(
-        json.dumps(BUILT), encoding="utf-8")
+        f"resolve:\n  project_name: {resolve_name}\n", encoding="utf-8"
+    )
+    (review / "Reel_26.timeline.json").write_text(json.dumps(BUILT), encoding="utf-8")
     return str(root)
 
 
 def test_the_read_happens_with_the_reel_current_and_restores(
-        tmp_path, monkeypatch, capsys):
+    tmp_path, monkeypatch, capsys
+):
     """Load-bearing half: the live values are read while Reel 26 is
     current, and afterwards the cursor sits where the sweep found it."""
-    reel = _FakeTimeline("Reel 26", "uid-reel")
-    other = _FakeTimeline("GEO Podcast - Synced", "uid-master")
-    project = _FakeProject("field test", [other, reel])
+    reel = FakeTimeline("Reel 26", uid="uid-reel")
+    other = FakeTimeline("GEO Podcast - Synced", uid="uid-master")
+    project = make_project("field test", timelines=[other, reel], current=other)
     seen_current = []
 
     def fake_serialize(*args, **kwargs):
@@ -266,15 +248,14 @@ def test_the_read_happens_with_the_reel_current_and_restores(
         return json.loads(json.dumps(HALVED))
 
     monkeypatch.setattr(
-        "library.tools.timeline_serializer.serialize_timeline_state",
-        fake_serialize)
+        "library.tools.timeline_serializer.serialize_timeline_state", fake_serialize
+    )
     folder = _project_folder(tmp_path, "field test")
     report = drift_check.check_project(folder, project=project)
 
     assert seen_current == ["Reel 26"]
     assert project.GetCurrentTimeline().GetName() == "GEO Podcast - Synced"
-    assert "entered on 'GEO Podcast - Synced', read back on " in \
-        report["cursor"]
+    assert "entered on 'GEO Podcast - Synced', read back on " in report["cursor"]
     assert report["reels"]["Reel 26"]["factor"] == pytest.approx(0.5)
     out = capsys.readouterr().out
     assert "drift: Reel 26: 3 of 3 placement(s) moved since the build" in out
@@ -283,7 +264,7 @@ def test_the_read_happens_with_the_reel_current_and_restores(
 # ── The build runs it twice, and neither run can fail the build ──────
 
 _SOURCE = inspect.getsource(reel_build)
-_BODY = _SOURCE[_SOURCE.index("def rebuild_reels_in_project"):]
+_BODY = _SOURCE[_SOURCE.index("def rebuild_reels_in_project") :]
 
 
 def _function(name):

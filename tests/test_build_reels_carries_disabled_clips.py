@@ -44,139 +44,34 @@ def fake_preservation_snapshots(monkeypatch):
             "items": [], "markers": []})
 
 
-class _Media:
-    def __init__(self, path):
-        self.path = path
-
-    def GetClipProperty(self, name):
-        return self.path if name == "File Path" else ""
-
-    def GetMediaId(self):
-        return Path(self.path).stem
+from tests.resolve_double import (
+    FakeMediaPoolItem,
+    FakeTimelineItem,
+    make_project,
+)
 
 
-class _Clip:
-    def __init__(self, name, path, start, enabled, duration=48):
-        self.name = name
-        self.path = path
-        self.start = start
-        self.enabled = enabled
-        self.duration = duration
-
-    def GetName(self):
-        return self.name
-
-    def GetStart(self):
-        return self.start
-
-    def GetEnd(self):
-        return self.start + self.duration
-
-    def GetDuration(self):
-        return self.duration
-
-    def GetMediaPoolItem(self):
-        return _Media(self.path)
-
-    def GetClipEnabled(self):
-        return self.enabled
-
-    def SetClipEnabled(self, enabled):
-        # Resolve writes enabled state only on the CURRENT timeline: off
-        # it the call returns False and the clip keeps its state
-        # (measured on Reel 09's staging, 2026-10-02).
-        timeline = getattr(self, "timeline", None)
-        project = getattr(timeline, "project", None)
-        if project is not None and project.current is not timeline:
-            return False
-        self.enabled = bool(enabled)
-        return True
-
-    def GetMarkers(self):
-        return {}
-
-    def GetUniqueId(self):
-        return self.name
+def _clip_spec(name, path, start, enabled, duration=48):
+    """One graphic placement: the pool item carries the File Path the
+    carry matches on, the timeline item its span and enabled state."""
+    pool = FakeMediaPoolItem(Path(path).name)
+    pool.SetClipProperty("File Path", path)
+    return (pool, name, start, enabled, duration)
 
 
-class _Timeline:
-    def __init__(self, name, clip, semantic_index=1):
-        self.name = name
-        self.unique_id = f"timeline:{name}"
-        clips = clip if isinstance(clip, list) else [clip]
-        video = [(f"Video {index}", [])
-                 for index in range(1, semantic_index)]
-        video.append(("Semantic", clips))
-        self.rows = {"video": video, "audio": []}
-        self.project = None
-        for item in clips:
-            item.timeline = self
-
-    def GetName(self):
-        return self.name
-
-    def SetName(self, name):
-        self.name = name
-        return True
-
-    def GetTrackCount(self, kind):
-        return len(self.rows[kind])
-
-    def GetTrackName(self, kind, index):
-        return self.rows[kind][index - 1][0]
-
-    def GetItemListInTrack(self, kind, index):
-        return self.rows[kind][index - 1][1]
-
-    def GetStartFrame(self):
-        return 0
-
-    def GetMarkers(self):
-        return {}
-
-    def AddMarker(self, *_args):
-        return True
-
-    def GetUniqueId(self):
-        return self.unique_id
-
-
-class _Pool:
-    def __init__(self, project):
-        self.project = project
-
-    def DeleteTimelines(self, timelines):
-        for timeline in timelines:
-            self.project.timelines.remove(timeline)
-        return True
-
-
-class _Project:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        self.pool = _Pool(self)
-        self.current = None
-        for timeline in self.timelines:
-            timeline.project = self
-
-    def GetName(self):
-        return "Fixture Project"
-
-    def GetMediaPool(self):
-        return self.pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def GetCurrentTimeline(self):
-        return self.current
-
-    def SetCurrentTimeline(self, timeline):
-        self.current = timeline
-        return True
+def _reel_timeline(project, name, specs, semantic_index=1):
+    """A reel timeline off the canonical double: `Video 1..N` rows with
+    the `Semantic` row last, carrying the given placements."""
+    timeline = project.GetMediaPool().CreateEmptyTimeline(name)
+    for index in range(1, semantic_index):
+        timeline.add_track("video", f"Video {index}")
+    timeline.add_track("video", "Semantic")
+    row = timeline.GetItemListInTrack("video", semantic_index)
+    for pool, clip_name, start, enabled, duration in specs:
+        row.append(FakeTimelineItem(
+            clip_name, timeline, start=start, duration=duration,
+            left_offset=start, pool_item=pool, enabled=enabled))
+    return timeline
 
 
 def _ready_project(root: Path) -> str:
@@ -345,18 +240,15 @@ def test_build_reels_carries_or_refuses_disabled_semantic_graphic(
         new_display, should_promote):
     """A shifted rerender carries a match; changed content refuses."""
     folder = _ready_project(tmp_path)
-    original = _Timeline(
-        FINAL, _Clip("old-render-name", f"/fixture/{OLD_SEGMENT}.mov", 480,
-                     enabled=False))
-    staged = _Timeline(
-        STAGING, _Clip("new-render-name", f"/fixture/{NEW_SEGMENT}.mov",
-                       624 if new_display == "Launch plan" else 480,
-                       enabled=True))
-    project = _Project([
-        _Timeline("Fixture Timeline", _Clip("master", "/fixture/master.mov",
-                                             0, True)),
-        original, staged,
-    ])
+    project = make_project()
+    _reel_timeline(project, "Fixture Timeline", [
+        _clip_spec("master", "/fixture/master.mov", 0, True)])
+    original = _reel_timeline(project, FINAL, [
+        _clip_spec("old-render-name", f"/fixture/{OLD_SEGMENT}.mov", 480,
+                   False)])
+    staged = _reel_timeline(project, STAGING, [
+        _clip_spec("new-render-name", f"/fixture/{NEW_SEGMENT}.mov",
+                   624 if new_display == "Launch plan" else 480, True)])
     review = tmp_path / "pipeline_output" / "review"
     review.mkdir(parents=True, exist_ok=True)
     (review / "plan_provenance.json").write_text(
@@ -451,18 +343,18 @@ def test_reel24_carries_type_change_and_refuses_different_copy(
         approval=Approval.APPROVED)],
         {"derived_from": {"duration_seconds": 60.0}})
 
-    original = _Timeline(
-        final, _Clip(f"{old_id}.mov", f"/fixture/{old_id}.mov", 1256,
-                     enabled=False, duration=144), semantic_index=5)
-    staged_clip = ([] if staged_enabled is None else _Clip(
-        f"{new_id}.mov", f"/fixture/{new_id}.mov", 1256,
-        enabled=staged_enabled, duration=144))
-    staged = _Timeline(staging, staged_clip, semantic_index=5)
-    project = _Project([
-        _Timeline("Fixture Timeline", _Clip("master", "/fixture/master.mov",
-                                             0, True)),
-        original, staged,
-    ])
+    project = make_project()
+    _reel_timeline(project, "Fixture Timeline", [
+        _clip_spec("master", "/fixture/master.mov", 0, True)])
+    original = _reel_timeline(project, final, [
+        _clip_spec(f"{old_id}.mov", f"/fixture/{old_id}.mov", 1256, False,
+                   144)], semantic_index=5)
+    staged = _reel_timeline(
+        project, staging,
+        [] if staged_enabled is None else [
+            _clip_spec(f"{new_id}.mov", f"/fixture/{new_id}.mov", 1256,
+                       staged_enabled, 144)],
+        semantic_index=5)
     review = Path(folder) / "pipeline_output" / "review"
     review.mkdir(parents=True, exist_ok=True)
     (review / "plan_provenance.json").write_text(json.dumps({
@@ -637,22 +529,22 @@ def test_build_reels_carries_reel15_rerenders_and_refuses_changes(
     folder = _ready_project(tmp_path)
     graphics = _write_reel15_semantic_case(
         folder, case_final, case_staging, changed=changed)
-    old_clips, new_clips = [], []
+    old_specs, new_specs = [], []
     for index, (old_id, new_id, _copy, start, duration) in enumerate(graphics):
-        old_clips.append(_Clip(
+        old_specs.append(_clip_spec(
             f"{old_id}.mov", f"/fixture/{old_id}.mov", start, False,
             duration))
         stage_start = start + (1 if index == 1 else 0)
-        new_clips.append(_Clip(
+        new_specs.append(_clip_spec(
             f"{new_id}.mov", f"/fixture/{new_id}.mov", stage_start, True,
             duration))
-    original = _Timeline(case_final, old_clips, semantic_index=5)
-    staged = _Timeline(case_staging, new_clips, semantic_index=5)
-    project = _Project([
-        _Timeline("Fixture Timeline", _Clip("master", "/fixture/master.mov",
-                                             0, True)),
-        original, staged,
-    ])
+    project = make_project()
+    _reel_timeline(project, "Fixture Timeline", [
+        _clip_spec("master", "/fixture/master.mov", 0, True)])
+    original = _reel_timeline(project, case_final, old_specs,
+                              semantic_index=5)
+    staged = _reel_timeline(project, case_staging, new_specs,
+                            semantic_index=5)
     review = Path(folder) / "pipeline_output" / "review"
     (review / "plan_provenance.json").write_text(json.dumps({
         "built_reels": [case_final, case_staging]}), encoding="utf-8")
@@ -704,4 +596,5 @@ def test_build_reels_carries_reel15_rerenders_and_refuses_changes(
         assert not promotion_results
         assert original in project.timelines
         assert staged in project.timelines
-        assert [clip.GetClipEnabled() for clip in new_clips] == [True] * 3
+        assert [clip.GetClipEnabled() for clip in
+                staged.GetItemListInTrack("video", 5)] == [True] * 3

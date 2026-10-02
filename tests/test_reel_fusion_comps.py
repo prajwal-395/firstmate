@@ -14,74 +14,33 @@ whose exporter writes caller-supplied Lua text. What is asserted is
 what the build recorded on disk, not that the exporter can be called.
 """
 
-import os
-
 from library.tools import reel_fusion_comps as comps
+from tests.resolve_double import (
+    FakeProject,
+    FakeTimeline,
+    TimelineItemSpec,
+)
 
 REEL = "Reel 01 - moment-1"
 LUA_A = "-- Fusion comp A\nComposition {\n\tTools = {}\n}\n"
 LUA_B = "-- Fusion comp B\nComposition {\n\tTools = { Blur1 = Blur {} }\n}\n"
 
 
-class FakeItem:
-    """An item carrying `texts`: one Lua export per comp, 1-based."""
-
-    def __init__(self, *texts):
-        self._texts = list(texts)
-        self.export_calls = []
-
-    def GetFusionCompCount(self):
-        return len(self._texts)
-
-    def ExportFusionComp(self, path, index):
-        self.export_calls.append((path, index))
-        text = self._texts[index - 1]
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8", newline="") as handle:
-            handle.write(text)
-        return True
-
-    def GetName(self):
-        return "clip"
-
-
-class FakeTimeline:
-    def __init__(self, name, rows):
-        """`rows` is `{track_index: [FakeItem, ...]}` for video."""
-        self._name = name
-        self._rows = dict(rows)
-
-    def GetName(self):
-        return self._name
-
-    def GetTrackCount(self, kind):
-        assert kind == "video"
-        return len(self._rows)
-
-    def GetItemListInTrack(self, kind, index):
-        assert kind == "video"
-        return list(self._rows.get(index, []))
-
-
-class FakeProject:
-    def __init__(self, *timelines):
-        self._timelines = list(timelines)
-
-    def GetTimelineCount(self):
-        return len(self._timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self._timelines[index - 1]
+def _item(*texts):
+    return TimelineItemSpec("clip", 0, 1, fusion_comps=texts)
 
 
 def test_build_records_the_comps_it_had(tmp_path):
-    timeline = FakeTimeline(REEL, {1: [FakeItem(LUA_A, LUA_B)],
-                                   2: [FakeItem(LUA_A)]})
-    project = FakeProject(timeline)
+    timeline = FakeTimeline(
+        REEL,
+        video={1: [_item(LUA_A, LUA_B)], 2: [_item(LUA_A)]},
+    )
+    project = FakeProject(timelines=[timeline])
     out = comps.export_built_reels(project, [REEL], str(tmp_path))
 
-    want_dir = (tmp_path / "pipeline_output" / "steps"
-                / "7_01_build_reels" / "fusion_comps")
+    want_dir = (
+        tmp_path / "pipeline_output" / "steps" / "7_01_build_reels" / "fusion_comps"
+    )
     assert want_dir.is_dir()
     files = sorted(p.name for p in want_dir.iterdir())
     assert len(files) == 3
@@ -93,23 +52,24 @@ def test_build_records_the_comps_it_had(tmp_path):
     # Verbatim: the bytes on disk are exactly what the exporter wrote -
     # never compressed, re-encoded, summarised or normalised.
     bodies = sorted((want_dir / name).read_bytes() for name in files)
-    assert bodies == sorted([LUA_A.encode("utf-8"), LUA_A.encode("utf-8"),
-                             LUA_B.encode("utf-8")])
+    assert bodies == sorted(
+        [LUA_A.encode("utf-8"), LUA_A.encode("utf-8"), LUA_B.encode("utf-8")]
+    )
     report = out["reels"][REEL]
     assert report["comp_count"] == 3
     assert report["items_with_comps"] == 2
     assert report["errors"] == []
-    assert sorted(out["files"]) == sorted(str(want_dir / name)
-                                          for name in files)
+    assert sorted(out["files"]) == sorted(str(want_dir / name) for name in files)
 
 
 def test_build_with_none_records_none(tmp_path):
-    timeline = FakeTimeline(REEL, {1: [FakeItem()], 2: []})
-    project = FakeProject(timeline)
+    timeline = FakeTimeline(REEL, video={1: [_item()], 2: []})
+    project = FakeProject(timelines=[timeline])
     # A ghost from a previous build carrying comps: a rebuild with
     # none must not leave it reading as still live.
     stale = comps.fusion_comps_dir(str(tmp_path)) / (
-        comps.safe_stem(REEL) + "__V01_item000_c1.comp")
+        comps.safe_stem(REEL) + "__V01_item000_c1.comp"
+    )
     stale.write_text(LUA_A, encoding="utf-8")
 
     out = comps.export_built_reels(project, [REEL], str(tmp_path))

@@ -18,16 +18,24 @@ Each test fails if its mechanism is removed:
 - an unreadable sign-off file refusing rather than reading as "nobody
   approved anything".
 """
-from unittest.mock import MagicMock, patch
+
+from unittest.mock import patch
 
 import pytest
+
+from library.tools import reel_signoff as signoff
+from library.tools.reel_build import ReelBuildError, promote_staged_reels
 from tests.promotion_test_helpers import (
     install_fake_timeline_snapshots,
     no_a_roll_track_plans,
 )
-
-from library.tools import reel_signoff as signoff
-from library.tools.reel_build import ReelBuildError, promote_staged_reels
+from tests.resolve_double import (
+    FakeProject,
+    FakeTimeline,
+)
+from tests.resolve_double import (
+    TimelineItemSpec as FakeItem,
+)
 
 REEL = "Reel 09 - your-website-is-only-20-percent"
 OTHER = "Reel 13 - the-accounting-firm"
@@ -52,116 +60,54 @@ def project(tmp_path):
 
 # ── The store ────────────────────────────────────────────────────
 
+
 def test_a_signoff_survives_the_containers_a_build_puts_a_reel_in(project):
     """A reel is staged, backed up and promoted - three names for one
     reel. A sign-off keyed on the container name would evaporate the
     moment the build touched it."""
     signoff.sign_off(str(project), REEL, note="this one ships")
-    for container in (REEL, f"{REEL} (rebuild staging)",
-                      f"{REEL} (pre-rebuild backup)"):
+    for container in (
+        REEL,
+        f"{REEL} (rebuild staging)",
+        f"{REEL} (pre-rebuild backup)",
+    ):
         assert signoff.signoff_for(str(project), container) is not None
 
 
 def test_a_signoff_records_which_build_was_approved(project):
     """A bare "approved" flag cannot answer whether the timeline in
     front of you is still the one that was signed off."""
-    rows = {"video:A": {"media_type": "video", "index": 1, "name": "A",
-                        "items": [], "count": 0, "frames": 0}}
+    rows = {
+        "video:A": {
+            "media_type": "video",
+            "index": 1,
+            "name": "A",
+            "items": [],
+            "count": 0,
+            "frames": 0,
+        }
+    }
     signoff.sign_off(str(project), REEL, rows=rows)
-    assert "still carries the rows that were approved" in \
-        signoff.describe(str(project), REEL, rows)
+    assert "still carries the rows that were approved" in signoff.describe(
+        str(project), REEL, rows
+    )
     moved = {"video:A": {**rows["video:A"], "count": 1, "frames": 10}}
-    assert "a later build has taken this name" in \
-        signoff.describe(str(project), REEL, moved)
+    assert "a later build has taken this name" in signoff.describe(
+        str(project), REEL, moved
+    )
 
 
 def test_an_unreadable_signoff_file_refuses(project):
     """An unreadable approval reads exactly like no approval, and
     promotion would then overwrite the reel the captain signed off."""
-    (project / "pipeline_output" / "review"
-     / signoff.SIGNOFF_FILENAME).write_text("{broken", encoding="utf-8")
+    (project / "pipeline_output" / "review" / signoff.SIGNOFF_FILENAME).write_text(
+        "{broken", encoding="utf-8"
+    )
     with pytest.raises(signoff.SignOffsUnreadable):
         signoff.read_signoffs(str(project))
 
 
 # ── The promotion ────────────────────────────────────────────────
-
-class FakeItem:
-    def __init__(self, name, start, end):
-        self._n, self._s, self._e = name, start, end
-
-    def GetName(self):
-        return self._n
-
-    def GetStart(self):
-        return self._s
-
-    def GetEnd(self):
-        return self._e
-
-    def GetDuration(self):
-        return self._e - self._s
-
-    def GetClipEnabled(self):
-        return True
-
-
-class FakeTimeline:
-    def __init__(self, name, video=()):
-        self._name = name
-        self._rows = {"video": list(video), "audio": []}
-
-    def GetName(self):
-        return self._name
-
-    def SetName(self, name):
-        self._name = name
-        return True
-
-    def GetTrackCount(self, kind):
-        return len(self._rows[kind])
-
-    def GetTrackName(self, kind, index):
-        return self._rows[kind][index - 1][0]
-
-    def GetItemListInTrack(self, kind, index):
-        return self._rows[kind][index - 1][1]
-
-    def GetStartFrame(self):
-        return 0
-
-    def GetMarkers(self):
-        return {}
-
-    def AddMarker(self, *args, **kwargs):
-        return True
-
-
-class FakeProject:
-    def __init__(self, timelines):
-        self.timelines = list(timelines)
-        pool = MagicMock()
-        pool.DeleteTimelines.side_effect = self._delete
-        self._pool = pool
-        self.deleted = []
-
-    def _delete(self, timelines):
-        for timeline in timelines:
-            self.deleted.append(timeline.GetName())
-            self.timelines.remove(timeline)
-        return True
-
-    def GetMediaPool(self):
-        return self._pool
-
-    def GetTimelineCount(self):
-        return len(self.timelines)
-
-    def GetTimelineByIndex(self, index):
-        return self.timelines[index - 1]
-
-    def names(self):
-        return [t.GetName() for t in self.timelines]
 
 
 def _rows(name):
@@ -169,23 +115,31 @@ def _rows(name):
 
 
 def _pair(final):
-    return (FakeTimeline(final, video=_rows(final)),
-            FakeTimeline(f"{final} (rebuild staging)", video=_rows(final)))
+    return (
+        FakeTimeline(final, video=_rows(final)),
+        FakeTimeline(f"{final} (rebuild staging)", video=_rows(final)),
+    )
 
 
 def _promote(resolve, project, staged_to_final, supersede=None):
     import json
-    (project / "pipeline_output" / "review"
-     / "plan_provenance.json").write_text(
-        json.dumps({"built_reels": sorted(staged_to_final.values())}),
-        encoding="utf-8")
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=resolve):
+
+    (project / "pipeline_output" / "review" / "plan_provenance.json").write_text(
+        json.dumps({"built_reels": sorted(staged_to_final.values())}), encoding="utf-8"
+    )
+    with (
+        patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
+        patch("library.tools.reel_build.resolve_project_exactly", return_value=resolve),
+    ):
         return promote_staged_reels(
-            str(project), "Mock Project", MASTER, staged_to_final,
-            organise=False, supersede=supersede,
-            track_plans=no_a_roll_track_plans(staged_to_final))
+            str(project),
+            "Mock Project",
+            MASTER,
+            staged_to_final,
+            organise=False,
+            supersede=supersede,
+            track_plans=no_a_roll_track_plans(staged_to_final),
+        )
 
 
 def test_promotion_refuses_over_an_undeclared_signoff(project):
@@ -218,8 +172,7 @@ def test_the_declaration_the_refusal_prints_proceeds(project):
     original, staging = _pair(REEL)
     resolve = FakeProject([FakeTimeline(MASTER), original, staging])
 
-    promoted = _promote(resolve, project, {REEL: staging.GetName()},
-                        supersede=[REEL])
+    promoted = _promote(resolve, project, {REEL: staging.GetName()}, supersede=[REEL])
 
     assert promoted["promoted"] == [REEL]
     assert REEL in promoted["superseded_signoffs"]
@@ -238,13 +191,16 @@ def test_a_signed_off_reel_never_holds_back_a_sibling(project):
     signoff.sign_off(str(project), REEL)
     signed, signed_staging = _pair(REEL)
     other, other_staging = _pair(OTHER)
-    resolve = FakeProject([FakeTimeline(MASTER), signed, signed_staging,
-                           other, other_staging])
+    resolve = FakeProject(
+        [FakeTimeline(MASTER), signed, signed_staging, other, other_staging]
+    )
 
     with pytest.raises(ReelBuildError) as refused:
-        _promote(resolve, project,
-                 {REEL: signed_staging.GetName(),
-                  OTHER: other_staging.GetName()})
+        _promote(
+            resolve,
+            project,
+            {REEL: signed_staging.GetName(), OTHER: other_staging.GetName()},
+        )
 
     message = str(refused.value)
     assert f"Promoted 1 reel(s): {[OTHER]}" in message
