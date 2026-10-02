@@ -350,6 +350,72 @@ def test_build_source_identity_reuses_a_matching_face_measurement(
     assert person_entity.read_identity(digest, memory_root)["faces"] == faces
 
 
+def test_voice_cache_key_tracks_audio_device_parameters_and_model(monkeypatch):
+    from library.tools import shared_environment
+    from library.tools import single_track_diarization as std
+
+    original = person_entity._voice_cache_key("pcm", 2, "mps")
+    changed = {
+        "pcm": person_entity._voice_cache_key("other-pcm", 2, "mps"),
+        "speakers": person_entity._voice_cache_key("pcm", None, "mps"),
+        "device": person_entity._voice_cache_key("pcm", 2, "cpu"),
+    }
+    monkeypatch.setattr(std, "VAD_DB_BELOW_PEAK", std.VAD_DB_BELOW_PEAK + 1)
+    changed["vad"] = person_entity._voice_cache_key("pcm", 2, "mps")
+    monkeypatch.undo()
+    monkeypatch.setattr(shared_environment, "ECAPA_REVISION", "another")
+    changed["model"] = person_entity._voice_cache_key("pcm", 2, "mps")
+
+    assert all(key != original for key in changed.values()), changed
+    assert person_entity._voice_cache_key(None, 2, "mps") is None
+    assert person_entity._voice_cache_key("pcm", 2, None) is None
+
+
+def test_build_source_identity_reuses_voices_but_never_a_refusal(
+        tmp_path, memory_root, monkeypatch):
+    from library.tools import shared_environment, source_primitives
+    from library.tools import single_track_diarization as std
+
+    media = _media(tmp_path, "A.MXF", b"source-a")
+    digest = footage_identity.fingerprint(str(media))["content_digest"]
+    m0 = {"video_streams": [{"width": 3840, "height": 2160}],
+          "duration_seconds": 10.0, "program_track": {"channel": 1}}
+    primitives = {"content_digest": digest, "m0": m0,
+                  "program_wav": str(tmp_path / "program.16k.wav"),
+                  "program_pcm_sha256": "pcm"}
+    monkeypatch.setattr(source_primitives, "ensure",
+                        lambda *_args, **_kwargs: primitives)
+
+    def no_insightface():
+        raise shared_environment.InsightfaceEnvironmentMissing("absent")
+
+    monkeypatch.setattr(shared_environment, "require_insightface",
+                        no_insightface)
+    monkeypatch.setattr(std, "embedding_device", lambda: "cpu")
+    voices = [{"track_id": "voice_001", "embedding": [1.0, 0.0],
+               "spans": [[0.0, 4.0]]}]
+    answers = [([], "speechbrain is not installed"), (voices, None)]
+    calls = []
+
+    def measure(*args):
+        calls.append(args)
+        return answers[len(calls) - 1]
+
+    monkeypatch.setattr(person_entity, "measure_voice_tracks", measure)
+
+    refused = person_entity.build_source_identity(str(media), root=memory_root)
+    measured = person_entity.build_source_identity(str(media), root=memory_root)
+    reused = person_entity.build_source_identity(str(media), root=memory_root)
+
+    assert [refused["voice_measurement_reused"],
+            measured["voice_measurement_reused"],
+            reused["voice_measurement_reused"]] == [False, False, True]
+    assert len(calls) == 2
+    record = person_entity.read_identity(digest, memory_root)
+    assert record["voices"] == voices
+    assert record["instrument"]["voice_device"] == "cpu"
+
+
 # ── cluster_face_observations ─────────────────────────────────────────
 
 

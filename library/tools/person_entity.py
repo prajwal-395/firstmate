@@ -44,6 +44,7 @@ never on their own cosine distance to another source's voice track.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import subprocess
@@ -245,6 +246,46 @@ def _resolved_frame_times(source_file: str, digest: str,
     return timestamps, FRAME_SOURCE_OWN_DECODE
 
 
+def _voice_cache_key(program_pcm_sha256: Optional[str],
+                     declared_speaker_count: Optional[int],
+                     device: Optional[str]) -> Optional[str]:
+    """Stable key for the voice tracks saved in one M3b record, or None
+    when nothing may be cached.
+
+    Keyed on the exact PCM the diarizer hears (not the container digest:
+    the program-track decision can change under one digest), the speaker
+    count, the source of the reduction below, and
+    `single_track_diarization.measurement_identity` - its code, every
+    parameter, the model revision and checkpoint bytes, the device and
+    the measuring libraries' versions. Any of them changing re-measures.
+    """
+    if program_pcm_sha256 is None or device is None:
+        return None
+    payload = {
+        "program_pcm_sha256": program_pcm_sha256,
+        "declared_speaker_count": declared_speaker_count,
+        "reduction_sha256": hashlib.sha256(
+            inspect.getsource(measure_voice_tracks).encode("utf-8")
+        ).hexdigest(),
+        "diarization": diarization.measurement_identity(device),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _cached_voice_record(identity: Optional[dict],
+                         cache_key: Optional[str]) -> bool:
+    """Whether a prior voice measurement exactly fits this one. A
+    refusal is never reused: a missing model or library is fixed by an
+    install, and serving the old reason would hide that fix."""
+    if cache_key is None or not identity:
+        return False
+    instrument = identity.get("instrument") or {}
+    return (instrument.get("voice_cache_key") == cache_key
+            and instrument.get("voice_unavailable_reason") is None
+            and isinstance(identity.get("voices"), list))
+
+
 def _face_cache_key(digest: str, frame_source: str,
                     timestamps: List[float], interval_s: float,
                     max_samples: int) -> str:
@@ -429,7 +470,8 @@ def cluster_face_observations(observations: List[FaceObservation],
 
 
 def measure_voice_tracks(wav_path: str,
-                         num_speakers: Optional[int] = None
+                         num_speakers: Optional[int] = None,
+                         device: Optional[str] = None
                          ) -> Tuple[List[dict], Optional[str]]:
     """Per-cluster voice tracks for one source's program-track audio,
     and why there are none when there are none.
@@ -440,10 +482,12 @@ def measure_voice_tracks(wav_path: str,
     VAD gate keeps nothing to cluster (silence). The reason is recorded
     as `instrument.voice_unavailable_reason`: every geo-podcast source
     once built with `voices: []` and nothing saying speechbrain was
-    missing, which reads exactly like "nobody spoke".
+    missing, which reads exactly like "nobody spoke". `device` None
+    lets the diarizer choose (`single_track_diarization.embedding_device`).
     """
     try:
-        result = diarization.diarize_track(wav_path, num_speakers=num_speakers)
+        result = diarization.diarize_track(
+            wav_path, num_speakers=num_speakers, device=device)
     except diarization.DiarizationUnavailable as refused:
         return [], str(refused)
     out = []
@@ -560,11 +604,25 @@ def build_source_identity(source_file: str,
         else:
             face_tracks = []
 
-    voice_tracks: List[dict] = []
+    voice_device = voice_cache_key = None
     if primitives["program_wav"] is not None:
+        try:
+            voice_device = diarization.embedding_device()
+        except ImportError:
+            pass  # measure_voice_tracks records the refusal below
+        voice_cache_key = _voice_cache_key(
+            primitives["program_pcm_sha256"], declared_speaker_count,
+            voice_device)
+    voice_measurement_reused = _cached_voice_record(previous, voice_cache_key)
+
+    voice_unavailable_reason = None
+    if voice_measurement_reused:
+        voice_tracks = previous["voices"]
+    elif primitives["program_wav"] is not None:
         voice_tracks, voice_unavailable_reason = measure_voice_tracks(
-            primitives["program_wav"], declared_speaker_count)
+            primitives["program_wav"], declared_speaker_count, voice_device)
     else:
+        voice_tracks = []
         voice_unavailable_reason = (m0["program_track"].get("basis")
                                     or "no-live-track")
 
@@ -605,6 +663,10 @@ def build_source_identity(source_file: str,
                                 if face_unavailable_reason is None else None),
             "face_cache_key": (face_cache_key
                                if face_unavailable_reason is None else None),
+            "voice_device": (voice_device
+                             if voice_unavailable_reason is None else None),
+            "voice_cache_key": (voice_cache_key
+                                if voice_unavailable_reason is None else None),
         },
     }
     source_memory.write_json(target / source_memory.SLOT_IDENTITY, record)
@@ -612,7 +674,8 @@ def build_source_identity(source_file: str,
            "content_digest": digest, "status": status,
            "faces": len(face_tracks), "voices": len(voice_tracks),
            "links": len(links),
-           "face_measurement_reused": face_measurement_reused}
+           "face_measurement_reused": face_measurement_reused,
+           "voice_measurement_reused": voice_measurement_reused}
 
 
 def build_project_identity(project_folder: str,

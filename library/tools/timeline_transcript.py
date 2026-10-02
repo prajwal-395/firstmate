@@ -1493,7 +1493,8 @@ def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
         method=diarization.method,
         speakers_estimated=diarization.speakers_estimated,
         inference_seconds=diarization.inference_seconds,
-        weights=diarization.weights).as_dict()
+        weights=diarization.weights,
+        device=diarization.device).as_dict()
 
 
 # ── CLI ──────────────────────────────────────────────────────────────

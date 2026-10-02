@@ -46,10 +46,12 @@ run anywhere and only the embed path refuses without it.
 
 from __future__ import annotations
 
+import functools
 import os
 import time
 import wave
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -94,6 +96,18 @@ cleared 1x realtime with margin, so eligible single-track timelines
 diarize by default; `--no-diarize-single-track` opts a run out. Had it
 measured under 1x, this would read False and the flag side would flip.
 """
+
+PREFER_MPS = True
+"""Whether ECAPA runs on the Apple GPU when torch can reach it (else CPU).
+
+Measured 2026-10-02 (fm/vep-voice-matching-cost): the embed phase is
+the whole cost - on a loaded machine a 225 s geo-podcast source embedded
+in 411.8 s on CPU and 1.0 s on MPS. Output does not move: on all seven
+geo-podcast sources MPS reproduced the CPU turns and speech-face links
+exactly with the same k, and the DER eval (E3 overlap 0.0807, E4
+44-minute episode 0.0945, E5 three speakers 0.6510) scored the same on
+both with the same k. The device is recorded on every result and keys
+every cache of one."""
 
 SPEAKER_LABEL_FORMAT = "speaker_{:02d}"
 """Cluster labels, 1-based in first-appearance order. Generic on
@@ -143,6 +157,8 @@ class Diarization:
     inference_seconds: float
     method: str
     weights: str
+    device: str = "cpu"
+    """The torch device the embeddings were measured on."""
 
 
 def _read_wav16_mono(path: str) -> tuple[int, np.ndarray]:
@@ -275,8 +291,85 @@ def estimate_speaker_count(embeddings: np.ndarray,
     return best_k, scores
 
 
-def _embedder(model_dir: str | None = None):
-    """The ECAPA encoder, or a refusal naming the install that fixes it.
+def embedding_device() -> str:
+    """"mps" when `PREFER_MPS` and torch can reach the Apple GPU, else
+    "cpu". CPU is the fallback, never a refusal: a machine without the
+    GPU (or a torch built without MPS) diarizes exactly as before."""
+    import torch
+
+    if PREFER_MPS and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+_PACKAGES_THAT_MEASURE = ("torch", "speechbrain", "scikit-learn", "numpy")
+"""The installed libraries whose version can change an embedding or a
+cluster. Named in `measurement_identity`, read off package metadata
+(no import)."""
+
+
+@functools.lru_cache(maxsize=8)
+def _file_sha256(path: str, size: int, mtime_ns: int) -> str | None:
+    """SHA-256 of a file's bytes, memoised on (path, size, mtime) so a
+    build hashing the 83 MB ECAPA checkpoint per source pays it once."""
+    from library.tools import code_identity
+
+    return code_identity.hash_asset_file(path)
+
+
+def _hash_if_present(path: Path) -> str | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return _file_sha256(os.fspath(path), stat.st_size, stat.st_mtime_ns)
+
+
+def measurement_identity(device: str,
+                         model_dir: str | None = None) -> dict:
+    """Everything that decides what `diarize_track` returns for a given
+    wav and speaker count: this module's source, every parameter, the
+    model (pinned revision AND the bytes of the checkout actually
+    loaded), the device and the measuring libraries' versions.
+
+    A cache of diarization results keys on this (person_entity's voice
+    tracks). Any change to any of it is a different measurement, so a
+    stale cached result is never served for a changed method.
+    """
+    from importlib import metadata
+
+    weights = shared_environment.ecapa_model_dir(model_dir)
+    versions = {}
+    for package in _PACKAGES_THAT_MEASURE:
+        try:
+            versions[package] = metadata.version(package)
+        except metadata.PackageNotFoundError:
+            versions[package] = None
+    return {
+        "code_sha256": _hash_if_present(Path(__file__)),
+        "parameters": {
+            "sample_rate": SAMPLE_RATE, "win_s": WIN_S, "hop_s": HOP_S,
+            "frame_s": FRAME_S, "frame_hop_s": FRAME_HOP_S,
+            "vad_db_below_peak": VAD_DB_BELOW_PEAK,
+            "vad_window_thresh": VAD_WINDOW_THRESH,
+            "estimate_k_max": ESTIMATE_K_MAX,
+            "embedding_dim": EMBEDDING_DIM,
+        },
+        "model": {
+            "repo": shared_environment.ECAPA_REPO,
+            "revision": shared_environment.ECAPA_REVISION,
+            "files_sha256": {
+                name: _hash_if_present(weights / name)
+                for name in shared_environment.ECAPA_REQUIRED_FILES},
+        },
+        "device": device,
+        "versions": versions,
+    }
+
+
+def _embedder(model_dir: str | None = None, device: str = "cpu"):
+    """The ECAPA encoder on `device`, or a refusal naming the install
+    that fixes it.
 
     `model_dir` overrides the machine resolution (tests, eval harnesses).
     speechbrain and sklearn import here, not at module top: routing and
@@ -295,7 +388,8 @@ def _embedder(model_dir: str | None = None):
         raise DiarizationUnavailable(str(exc)) from exc
     try:
         encoder = SpeakerRecognition.from_hparams(
-            source=os.fspath(resolved), savedir=os.fspath(resolved))
+            source=os.fspath(resolved), savedir=os.fspath(resolved),
+            run_opts={"device": device})
     except Exception as exc:
         raise DiarizationUnavailable(
             f"the ECAPA checkout at {resolved} did not load: {exc}") from exc
@@ -305,19 +399,23 @@ def _embedder(model_dir: str | None = None):
 
 def embed_windows(audio: np.ndarray, rate: int, starts: np.ndarray,
                   model_dir: str | None = None,
-                  checkpoint_path: str | None = None) -> np.ndarray:
+                  checkpoint_path: str | None = None,
+                  device: str = "cpu") -> np.ndarray:
     """L2-normalized ECAPA embeddings for window starts. Deterministic:
-    same windows, same weights, same vectors - so a killed run resumes
-    from its checkpoint rather than re-embedding."""
+    same windows, same weights, same device, same vectors - so a killed
+    run resumes from its checkpoint rather than re-embedding. A
+    checkpoint measured on another device is not resumed: two devices
+    agree to rounding, not bit for bit."""
     import torch
 
-    encoder = _embedder(model_dir)
+    encoder = _embedder(model_dir, device)
     window_len = int(WIN_S * rate)
     done, parts = 0, []
     if checkpoint_path and os.path.exists(checkpoint_path):
         try:
             previous = np.load(checkpoint_path)
             if (len(previous["starts"]) > 0
+                    and str(previous.get("device", "cpu")) == device
                     and np.allclose(previous["starts"],
                                     starts[:len(previous["starts"])])):
                 parts.append(previous["embeddings"])
@@ -339,20 +437,30 @@ def embed_windows(audio: np.ndarray, rate: int, starts: np.ndarray,
             if checkpoint_path:
                 stacked = np.vstack(parts)
                 np.savez(checkpoint_path, embeddings=stacked,
-                         starts=starts[:len(stacked)])
+                         starts=starts[:len(stacked)], device=device)
     embeddings = np.vstack(parts)
     return embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
 
 
 def diarize_track(wav_path: str, num_speakers: int | None = None,
                   model_dir: str | None = None,
-                  checkpoint_path: str | None = None) -> Diarization:
+                  checkpoint_path: str | None = None,
+                  device: str | None = None) -> Diarization:
     """Diarize one mixed track. `num_speakers` given skips the k search
     (a declared roster, or eval replication); None estimates it. Raises
     `DiarizationUnavailable` rather than returning an empty result - an
     empty cluster list would read as "one voice throughout" downstream.
+    `device` None takes `embedding_device()`.
     """
     from sklearn.cluster import AgglomerativeClustering
+
+    if device is None:
+        try:
+            device = embedding_device()
+        except ImportError as exc:
+            raise DiarizationUnavailable(
+                f"torch is not installed, so no voice embedding can be "
+                f"measured: {exc}") from exc
 
     _, audio = _read_wav16_mono(wav_path)
     duration_s = len(audio) / SAMPLE_RATE
@@ -364,7 +472,7 @@ def diarize_track(wav_path: str, num_speakers: int | None = None,
         raise DiarizationUnavailable(
             f"{wav_path}: the VAD gate kept no window; nothing to cluster")
     embeddings = embed_windows(audio, SAMPLE_RATE, starts[keep],
-                               model_dir, checkpoint_path)
+                               model_dir, checkpoint_path, device)
     if num_speakers is not None:
         # A declared count cannot ask for more clusters than windows.
         speakers = max(1, min(num_speakers, len(embeddings)))
@@ -411,7 +519,8 @@ def diarize_track(wav_path: str, num_speakers: int | None = None,
         method=("speechbrain/spkrec-ecapa-voxceleb ECAPA 1.5s/0.5s + "
                 "energy VAD(peak-20dB,>=30%) + agglomerative-cosine "
                 "silhouette-k"),
-        weights=weights)
+        weights=weights,
+        device=device)
 
 
 def segment_voice_embeddings(segment_spans: list[tuple[float, float]],
@@ -497,6 +606,7 @@ class DiarizationRecord:
     speakers_estimated: int | None = None
     inference_seconds: float | None = None
     weights: str = ""
+    device: str = ""
 
     def as_dict(self) -> dict:
         body = {"path": self.path, "reason": self.reason}
@@ -508,4 +618,6 @@ class DiarizationRecord:
             body["inference_seconds"] = self.inference_seconds
         if self.weights:
             body["weights"] = self.weights
+        if self.device:
+            body["device"] = self.device
         return body
