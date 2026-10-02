@@ -125,6 +125,8 @@ PRESERVATION_FIELDS = (
     "duration", "enabled", "transform", "composite", "fusion", "color",
     "clip_color", "flags", "markers",
 )
+#: The transform properties stored in the project resolution's unit.
+UNIT_EPOCH_KEYS = ("Pan", "Tilt")
 TIMELINE_SETTING_KEYS = (
     "timelineFrameRate", "timelineResolutionWidth",
     "timelineResolutionHeight", "timelineStartTimecode",
@@ -546,8 +548,9 @@ def journaled_touch_snapshot(project_folder: str, final: str,
     only a touch: a build promotion records no full read. The journal
     reads items, not the timeline's settings or markers, so those come
     from `live` and first contact cannot see an editor change to them
-    (`marker_carry` owns markers either way). None when there is no
-    such record.
+    (`marker_carry` owns markers either way); nor can it see a Pan/Tilt
+    change, because a journal records no unit epoch (below). None when
+    there is no such record.
     """
     from library.tools import undo_journal
     from library.tools.versions import reel_versions
@@ -560,8 +563,30 @@ def journaled_touch_snapshot(project_folder: str, final: str,
     if (entry.get("final") != final or entry.get("status") != "applied"
             or not (entry.get("after") or {}).get("tracks")):
         return None
+    items = snapshot_items(entry["after"]["tracks"])
+    # Pan and Tilt are stored in the PROJECT resolution's unit, and
+    # Resolve rescales every stored value when that changes while the
+    # picture stays put (`drift_check.unit_epoch_mismatch`). A journal
+    # records no unit epoch, so its Pan/Tilt cannot be compared with
+    # live: they are taken from the live item that plays the same
+    # passage. Every other field is still compared. Measured on Reel 09,
+    # 2026-10-02: 69 Pan/Tilt reads exactly x4 its touch journal, and
+    # nothing else moved but a pass-through Fusion comp.
+    live_by_key = {}
+    for item in live.get("items", ()):
+        live_by_key.setdefault(_stable_item_key(item), []).append(item)
+    for item in items:
+        paired = live_by_key.get(_stable_item_key(item))
+        if not paired:
+            continue
+        live_transform = paired.pop(0).get("transform") or {}
+        transform = dict(item.get("transform") or {})
+        for key in UNIT_EPOCH_KEYS:
+            if key in live_transform:
+                transform[key] = live_transform[key]
+        item["transform"] = transform
     return {"timeline": dict(live.get("timeline") or {}),
-            "items": snapshot_items(entry["after"]["tracks"]),
+            "items": items,
             "markers": list(live.get("markers") or ()),
             "journal": act["journal"]}
 

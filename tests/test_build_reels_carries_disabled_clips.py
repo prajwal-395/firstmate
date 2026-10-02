@@ -82,6 +82,13 @@ class _Clip:
         return self.enabled
 
     def SetClipEnabled(self, enabled):
+        # Resolve writes enabled state only on the CURRENT timeline: off
+        # it the call returns False and the clip keeps its state
+        # (measured on Reel 09's staging, 2026-10-02).
+        timeline = getattr(self, "timeline", None)
+        project = getattr(timeline, "project", None)
+        if project is not None and project.current is not timeline:
+            return False
         self.enabled = bool(enabled)
         return True
 
@@ -101,6 +108,9 @@ class _Timeline:
                  for index in range(1, semantic_index)]
         video.append(("Semantic", clips))
         self.rows = {"video": video, "audio": []}
+        self.project = None
+        for item in clips:
+            item.timeline = self
 
     def GetName(self):
         return self.name
@@ -145,6 +155,9 @@ class _Project:
     def __init__(self, timelines):
         self.timelines = list(timelines)
         self.pool = _Pool(self)
+        self.current = None
+        for timeline in self.timelines:
+            timeline.project = self
 
     def GetName(self):
         return "Fixture Project"
@@ -159,7 +172,11 @@ class _Project:
         return self.timelines[index - 1]
 
     def GetCurrentTimeline(self):
-        return None
+        return self.current
+
+    def SetCurrentTimeline(self, timeline):
+        self.current = timeline
+        return True
 
 
 def _ready_project(root: Path) -> str:

@@ -9890,9 +9890,20 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 *disabled_preview["unchanged_unmatched"],
                 *disabled_preview["safe_replacements"],
             ]
-            disabled_state = _disabled.carry_disabled_state(
-                project_folder, final, staging,
-                originals[final], staged_found[staging])
+            # `SetClipEnabled` writes only to the CURRENT timeline: off
+            # it, Resolve returns False and leaves the clip enabled
+            # (measured on Reel 09's staging, 2026-10-02). A staging the
+            # build left current carried by luck; one it did not (a
+            # promoted variant) refused. The cursor moves only when the
+            # preview has a state to write.
+            from contextlib import nullcontext
+            from library.tools.resolve_lock import cursor_excursion
+            with (cursor_excursion(project, staged_found[staging],
+                                   f"carry disabled state onto {staging}")
+                  if disabled_preview["carried"] else nullcontext()):
+                disabled_state = _disabled.carry_disabled_state(
+                    project_folder, final, staging,
+                    originals[final], staged_found[staging])
             carry_safe_drops = [
                 *disabled_state["unchanged_unmatched"],
                 *disabled_state["safe_replacements"],
@@ -10150,8 +10161,29 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             if final in refused:
                 lines.append(refused[final])
         raise ReelBuildError("\n".join(lines))
-    from library.tools.plan_provenance import rename_reel_entries
-    rename_reel_entries(review_dir, promoted_claimed)
+    from library.tools.plan_provenance import (
+        drop_reel_entries, read_provenance, rename_reel_entries)
+    # A staging no build recorded in provenance - a promoted variant
+    # (`build_reel_variants` writes no plan provenance) - has no
+    # baseline to rename onto its final name, and the final's own entry
+    # describes the build this promotion just replaced. Leaving it would
+    # be a wrong record, so it is DROPPED and said: the next build finds
+    # no signature and places the reel rather than assume
+    # (`reel_rebuild_need`), and the verifier reports the absence.
+    _recorded = set((read_provenance(review_dir) or {}).get(
+        "built_reels") or [])
+    _unrecorded = {staging: final
+                   for staging, final in promoted_claimed.items()
+                   if staging not in _recorded}
+    if _unrecorded:
+        drop_reel_entries(review_dir, sorted(_unrecorded.values()))
+        print(f"  no build provenance for {sorted(_unrecorded)}: the "
+              f"replaced build's entries for "
+              f"{sorted(_unrecorded.values())} are dropped, so the next "
+              f"build places the reel rather than assume", flush=True)
+    rename_reel_entries(review_dir, {
+        staging: final for staging, final in promoted_claimed.items()
+        if staging not in _unrecorded})
     _rename_overlay_records(review_dir, promoted_claimed)
     from library.tools.explainer_plan import rename_plan_reels
     rename_plan_reels(project_folder, promoted_claimed)
@@ -14178,9 +14210,15 @@ def build_reel_variants(project_slug: str, reel_number: int,
             f"reel {reel_number}: not approved - variants compare "
             f"treatments of an approved reel, not alternative selections.")
 
-    from library.tools.timeline_transcript import transcript_path
+    from library.tools.timeline_transcript import (
+        resolve_document_mic_bleed,
+        transcript_path,
+    )
     with open(transcript_path(project_folder)) as f:
         transcript = json.load(f)
+    # The same measured ISO mic choice the rebuild reads its words
+    # through: a variant differs from the reel at its seam, nowhere else.
+    transcript = resolve_document_mic_bleed(transcript, project_folder)
     from library.tools.reel_proposal import snap_moment_to_speech
     from library.tools.tail_extend_authorization import (
         AuthorizationError as _TailAuthError,
@@ -14740,6 +14778,13 @@ def build_reel_variants(project_slug: str, reel_number: int,
             from library.tools import reel_replace_guard as _vguard
             rows = _vguard.snapshot_timeline(placed, final,
                                              side="variant")
+            # The semantic record under the variant's own timeline
+            # name, as the rebuild files its staging's: promotion reads
+            # it to know which placed graphic is which
+            # (`reel_disabled_clip_carry`), so a variant without one
+            # could never carry a graphic the captain disabled.
+            _write_reel_record(project_folder, sem_vis.write_records,
+                               project_folder, [_semantic_record])
             built[final] = {"build_record": build_result,
                             "conformance": report,
                             "suffix": str(spec.get("suffix", "")),

@@ -122,3 +122,24 @@ def test_a_rebuild_after_the_touch_is_not_judged_against_the_touch(
         str(tmp_path), FINAL, live, rebuilt_staging())
 
     assert detection["baseline"] == "first_contact_staging"
+
+
+def test_a_unit_epoch_rescale_since_the_touch_is_not_an_editor_change(
+        tmp_path):
+    """Reel 09, 2026-10-02: a project-resolution change rescaled every
+    stored Pan/Tilt x4 after its touch, picture unmoved. A journal records
+    no unit epoch, so its Pan/Tilt are not compared - read as edits, the
+    carry would have written the old unit's values over the rebuild."""
+    journal_a_touch(tmp_path, touched_tracks())
+    rescaled = copy.deepcopy(touched_tracks())
+    for track in rescaled:
+        for clip in track["clips"]:
+            clip["transform"]["Pan"] *= 4
+            clip["transform"]["Tilt"] = clip["transform"]["Tilt"] * 4 - 696.0
+    live = snapshot(rescaled)
+
+    detection = guard.detect_editor_changes(
+        str(tmp_path), FINAL, live, rebuilt_staging())
+
+    assert detection["baseline"] == "first_contact_journaled_touch"
+    assert detection["detected"] == []

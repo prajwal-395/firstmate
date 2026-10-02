@@ -144,6 +144,7 @@ class FakeProject:
         pool.DeleteTimelines.side_effect = self._delete
         self._pool = pool
         self.deleted = []
+        self.current = None
 
     def _delete(self, timelines):
         for timeline in timelines:
@@ -159,6 +160,13 @@ class FakeProject:
 
     def GetTimelineByIndex(self, index):
         return self.timelines[index - 1]
+
+    def GetCurrentTimeline(self):
+        return self.current
+
+    def SetCurrentTimeline(self, timeline):
+        self.current = timeline
+        return True
 
     def names(self):
         return [t.GetName() for t in self.timelines]
@@ -196,7 +204,7 @@ def _full_snapshot(timeline):
 
 def _promote(project, project_dir, staged_to_final, allow_drops=None,
              full_snapshots=None, baseline_snapshot=True,
-             timeline_inventory_before=None):
+             timeline_inventory_before=None, built_reels=None):
     import json
     from contextlib import ExitStack
 
@@ -207,7 +215,8 @@ def _promote(project, project_dir, staged_to_final, allow_drops=None,
         id(timeline): _full_snapshot(timeline)
         for timeline in project.timelines
     }
-    provenance = {"built_reels": sorted(staged_to_final.values())}
+    provenance = {"built_reels": sorted(
+        staged_to_final.values() if built_reels is None else built_reels)}
     if baseline_snapshot:
         final = next(iter(staged_to_final))
         live = next(t for t in project.timelines if t.GetName() == final)
@@ -644,3 +653,29 @@ def test_a_float_read_of_an_int_is_the_same_value_not_a_change():
     moved = {**reread, "transform": {"AudioPitchSemiTones": 1.0,
                                      "AudioVolume": 0.0}}
     assert not guard._change_is_carried(added, {"items": [moved]})
+
+
+def test_a_staging_no_build_recorded_drops_the_replaced_provenance(
+        project_dir):
+    """Reel 09, 2026-10-02: a promoted VARIANT has no provenance entry
+    (`build_reel_variants` writes none), so promotion renamed both
+    timelines and then raised at `rename_reel_entries`, leaving every
+    step after it undone. The final's entry describes the build just
+    replaced, so it is dropped rather than left as a wrong record."""
+    def reel(name):
+        return FakeTimeline(name, video=[
+            ("Akshita", [FakeItem("Akshita A", 0, 131)]),
+            ("Subtitles", [FakeItem("card 1", 0, 131)])])
+
+    retired, staging = reel(FINAL), reel(FINAL + " (rebuild staging)")
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    promoted = _promote(resolve, project_dir, {FINAL: staging.GetName()},
+                        built_reels=[FINAL])
+
+    assert promoted["promoted"] == [FINAL]
+    provenance = json.loads((project_dir / "pipeline_output" / "review"
+                             / "plan_provenance.json").read_text(
+                                 encoding="utf-8"))
+    assert FINAL not in provenance["built_reels"]
+    assert staging.GetName() not in provenance["built_reels"]

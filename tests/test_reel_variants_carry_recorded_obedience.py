@@ -49,6 +49,7 @@ RECORDED_OBEDIENCE = {
     "resolve_power_grade",    # the declared Color page grade
     "resolve_grade_cdl",      # the declared CDL half
     "resolve_look",           # the declared series look
+    "resolve_document_mic_bleed",  # the measured ISO mic choice
 }
 
 
@@ -132,3 +133,20 @@ def test_variant_carries_every_obedience_the_rebuild_carries(call):
         f"the one he asked for - and conformance passes it, because a "
         f"dropped obedience is structurally perfect. Read it in "
         f"build_reel_variants the same way the rebuild does.")
+
+
+def test_a_variant_files_its_semantic_record_for_promotion():
+    """Reel 09, 2026-10-02: the variant's graphics matched the three the
+    captain disabled copy for copy, and promotion still refused - the
+    variant had filed no semantic record, so nothing said which placed
+    graphic was which (`reel_disabled_clip_carry`). The rebuild files
+    its staging's record through `_write_reel_record`; so must a
+    variant."""
+    func = _function("build_reel_variants")
+    filed = [node for node in ast.walk(func)
+             if isinstance(node, ast.Call)
+             and getattr(node.func, "id", None) == "_write_reel_record"
+             and any(isinstance(arg, ast.Attribute)
+                     and arg.attr == "write_records" for arg in node.args)]
+    assert filed, ("build_reel_variants files no semantic record, so a "
+                   "promoted variant cannot carry a disabled graphic")
