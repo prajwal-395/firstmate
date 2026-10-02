@@ -995,3 +995,51 @@ def test_the_overlay_name_shape_matches_shared_and_legacy_renders():
     ]
     found = reel_look.frame_overlay_items(items, {"punch_in": 2.3})
     assert len(found) == 2
+
+
+def _reel_09_pictures():
+    """Reel 09 at 24 fps, base and with its one-second Akshita cover
+    over the Craig-to-Craig join: the cover splits Craig's shot and
+    every later shot moves up the picture."""
+    base = [_placement("/craig.mxf", 0, 5.5),
+            _placement("/akshita.mxf", 132, 16.0),
+            _placement("/craig.mxf", 516, 4.5),
+            _placement("/akshita.mxf", 624, 33.0)]
+    offset = [_placement("/craig.mxf", 0, 5.5),
+              _placement("/akshita.mxf", 132, 16.0),
+              _placement("/craig.mxf", 516, 1.0),
+              _placement("/akshita.mxf", 540, 1.0),
+              _placement("/craig.mxf", 564, 2.5),
+              _placement("/akshita.mxf", 624, 33.0)]
+    return base, offset
+
+
+def test_a_motion_plan_follows_its_shot_across_a_cutaway():
+    """Reel 09, 2026-10-02: the motion answer named base shot 4 (Akshita's
+    long take) and the variant's offset picture put the Craig piece the
+    cutaway left there, so the build refused a window "27.100-30.970s
+    ... inside picture shot 4 at 24.358s"."""
+    base, offset = _reel_09_pictures()
+    move = {"target_block_position": 3, "effect_type": "slow_zoom_in",
+            "timeline_start": 27.1, "timeline_end": 30.97,
+            "params": {"zoom_start": 1.0, "zoom_end": 1.025}}
+
+    remapped, locked = reel_look.remap_motion_positions(
+        [move], base, offset, 24.0, locked_closing_positions=[1])
+
+    assert [entry["target_block_position"] for entry in remapped] == [5]
+    assert remapped[0]["timeline_start"] == 27.1
+    assert locked == [1]
+
+
+def test_a_move_across_the_cutaway_seam_refuses_by_shot():
+    base, offset = _reel_09_pictures()
+    straddles = {"target_block_position": 2, "effect_type": "slow_zoom_in",
+                 "timeline_start": 21.6, "timeline_end": 24.5,
+                 "params": {"zoom_start": 1.0, "zoom_end": 1.02}}
+
+    with pytest.raises(reel_look.ReelLookRefused, match="straddles"):
+        reel_look.remap_motion_positions([straddles], base, offset, 24.0)
+    with pytest.raises(reel_look.ReelLookRefused, match="2 piece"):
+        reel_look.remap_motion_positions(
+            [], base, offset, 24.0, locked_closing_positions=[2])

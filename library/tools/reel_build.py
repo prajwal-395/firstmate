@@ -3903,8 +3903,30 @@ def _apply_ledger_retimes(timeline, placements_list, fps: float,
     return report["applied"]
 
 
+def _angle_people(master_clips, placements_list) -> Dict[str, str]:
+    """The person each angle's picture names, keyed by `_angle_key`.
+
+    A master audio row is named for its stream ("Akshita CH1"), and the
+    transcript names the PERSON ("Akshita") - the picture row's speaker.
+    A speech row joins its angle by track index (`reel_angles`), so its
+    person is that angle's picture speaker: from the master's picture
+    clips first, else the placed picture."""
+    people: Dict[str, str] = {}
+    pictures = list(master_clips or ())
+    pictures += [placement["clip"] for placement in placements_list]
+    for clip in pictures:
+        if getattr(clip, "track_type", "video") != "video":
+            continue
+        speaker = getattr(clip, "speaker", "") or ""
+        key = _angle_key(clip)
+        if speaker and key and key not in people:
+            people[key] = str(speaker)
+    return people
+
+
 def suppress_mic_bleed_audio(placements_list: Sequence[dict],
-                             transcript: dict, fps: float
+                             transcript: dict, fps: float,
+                             master_clips=None,
                              ) -> tuple[list[dict], list[dict]]:
     """Mute a microphone while another speaker owns the dialogue.
 
@@ -3916,6 +3938,8 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
     from captions while leaving that mic audible as an echo. Split a
     placement at each such master-time window so valid audio on either
     side remains intact. Genuine overlapping turns keep both microphones.
+    An audio placement speaks for its ANGLE's person (`_angle_people`),
+    never for its row's stream name.
     """
     spoken = [
         (str(segment["speaker"]), float(segment["timeline_start"]),
@@ -3926,6 +3950,7 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
     if not spoken:
         return list(placements_list), []
 
+    people = _angle_people(master_clips, placements_list)
     out: list[dict] = []
     suppressions: list[dict] = []
     for placement in placements_list:
@@ -3933,7 +3958,7 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
         if getattr(clip, "track_type", "video") != "audio":
             out.append(placement)
             continue
-        speaker = placement["speaker"]
+        speaker = people.get(_angle_key(clip)) or placement["speaker"]
         if not speaker:
             out.append(placement)
             continue
@@ -7954,7 +7979,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # so every split keeps its actual reel record position, and before
     # any Resolve placement occurs.
     placements_list, mic_bleed_suppressions = suppress_mic_bleed_audio(
-        placements_list, transcript, fps)
+        placements_list, transcript, fps, master_clips=master_clips)
     if angle_plan_record["declared"]:
         print(f"  {name}: angle plan - "
               + " | ".join(f"{shot['camera']} {shot['start_frame']}-"
@@ -14520,12 +14545,13 @@ def build_reel_variants(project_slug: str, reel_number: int,
             if reel_look_decl is not None:
                 # The shots the declared angle plan will place, as the
                 # rebuild's ask describes them (`write_visual_asks`).
-                spine = _reel_look.motion_spine(plan_reel_picture(
+                base_picture = plan_reel_picture(
                     base_placements, project_folder, final, master_clips,
                     ranges, transcript, fps,
                     lead_in_frames=lead_frames(cards, fps),
-                    rows=edit_ledger_rows), fps,
-                    transcript.get("segments") or [])
+                    rows=edit_ledger_rows)
+                spine = _reel_look.motion_spine(
+                    base_picture, fps, transcript.get("segments") or [])
                 _reel_look.write_motion_request(
                     moment.number, final, spine,
                     transcript.get("segments") or [], project_folder,
@@ -14537,6 +14563,26 @@ def build_reel_variants(project_slug: str, reel_number: int,
                     _reel_look.locked_closing_positions(
                         project_folder, moment.number))
                 motion_record["reel"] = final
+                if (spec.get("j_cut") is not None
+                        or spec.get("cutaway") is not None):
+                    # The answer addresses the BASE picture's shots; the
+                    # seam renumbers them, and both joins below
+                    # (`verify_motion_screen_coverage`, `fusion_manifest`)
+                    # are by position on the offset picture.
+                    offset_picture = plan_reel_picture(
+                        apply_offset_specs(
+                            placements(ranges, clips, fps,
+                                       lead_frames=lead_frames(cards, fps)),
+                            fps, None, spec.get("j_cut"),
+                            spec.get("cutaway"))[0],
+                        project_folder, final, clips, ranges, transcript,
+                        fps, lead_in_frames=lead_frames(cards, fps),
+                        rows=edit_ledger_rows)
+                    (reel_motion,
+                     motion_record["locked_closing_positions"]) = (
+                        _reel_look.remap_motion_positions(
+                            reel_motion, base_picture, offset_picture, fps,
+                            motion_record["locked_closing_positions"]))
                 if motion_record["basis"] == _reel_look.MOTION_AWAITING_ANSWER:
                     print(f"  {final}: NO PICTURE MOTION - no model "
                           f"answer on file, every shot plays still",

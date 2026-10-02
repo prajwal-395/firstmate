@@ -562,6 +562,88 @@ def _picture(placements: Sequence[dict]) -> List[dict]:
     return out
 
 
+def _record_span(placement: dict, fps: float) -> Tuple[int, int]:
+    start = int(placement["snapped_record"])
+    return start, start + int(round(
+        (placement["source_out"] - placement["source_in"]) * fps))
+
+
+def remap_motion_positions(motion: Sequence[dict],
+                           base_placements: Sequence[dict],
+                           offset_placements: Sequence[dict], fps: float,
+                           locked_closing_positions: Sequence[int] = (),
+                           ) -> Tuple[List[dict], List[int]]:
+    """Re-key a motion plan from the base picture to an offset picture.
+
+    The motion ask and its answer address shots by position in the
+    BASE picture (`target_block_position`), but a cutaway splits a shot
+    and inserts its cover, so every later position moves. Positions are
+    the join (`fusion_manifest`, `verify_motion_screen_coverage`), so a
+    plan read against the offset picture lands on the wrong shot - the
+    variant build that refused "Ken Burns window 27.100-30.970s does not
+    fit inside picture shot 4 at 24.358s" (Reel 09, 2026-09-29 and
+    2026-10-02) was aiming Akshita's move at the Craig piece the
+    cutaway left behind.
+
+    Each entry follows the shot it was written for: the offset piece
+    playing the same source over the same record frames. An anchored
+    entry goes to the piece holding its whole window; a whole-shot
+    entry or a locked closing position needs the shot to survive
+    unsplit. Anything else REFUSES by shot, never guesses a piece.
+    """
+    base = _picture(base_placements)
+    offset = _picture(offset_placements)
+
+    def pieces(position: int) -> List[int]:
+        if not 0 <= position < len(base):
+            return []
+        shot = base[position]
+        start, end = _record_span(shot, fps)
+        return [index for index, piece in enumerate(offset)
+                if piece["clip"].source_file == shot["clip"].source_file
+                and _record_span(piece, fps)[0] < end
+                and start < _record_span(piece, fps)[1]]
+
+    def whole(position: int, what: str) -> int:
+        found = pieces(position)
+        if len(found) != 1:
+            raise ReelLookRefused(
+                f"{what} on picture shot {position} cannot follow the "
+                f"offset: the shot plays as {len(found)} piece(s) on the "
+                f"offset picture.",
+                "A whole-shot treatment has no single piece to ride once "
+                "the seam splits or removes its shot.",
+                "Anchor the move to words inside one piece, or move the "
+                "seam off this shot, and rebuild.")
+        return found[0]
+
+    remapped = []
+    for spec in motion or ():
+        position = int(spec["target_block_position"])
+        if "timeline_start" in spec and "timeline_end" in spec:
+            first = int(round(float(spec["timeline_start"]) * fps))
+            last = int(round(float(spec["timeline_end"]) * fps))
+            holding = [index for index in pieces(position)
+                       if _record_span(offset[index], fps)[0] <= first
+                       and last <= _record_span(offset[index], fps)[1]]
+            if len(holding) != 1:
+                raise ReelLookRefused(
+                    f"Ken Burns window {float(spec['timeline_start']):.3f}-"
+                    f"{float(spec['timeline_end']):.3f}s on picture shot "
+                    f"{position} straddles the offset seam.",
+                    "The seam splits this shot inside the anchored span, "
+                    "so no single offset piece plays the whole move.",
+                    "Anchor the move to words on one side of the seam and "
+                    "rebuild.")
+            new_position = holding[0]
+        else:
+            new_position = whole(position, "A whole-shot move")
+        remapped.append(dict(spec, target_block_position=new_position))
+    locked = [whole(int(position), "The locked closing move")
+              for position in locked_closing_positions or ()]
+    return remapped, sorted(locked)
+
+
 def frame_runs(placements: Sequence[dict], fps: float) -> List[Tuple[int, int]]:
     """Contiguous (start_frame, end_frame) runs of picture on the reel.
 

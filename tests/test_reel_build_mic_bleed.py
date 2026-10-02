@@ -105,3 +105,31 @@ def test_mic_bleed_decision_does_not_change_picture_placement():
 
     assert kept == [original]
     assert suppressed == []
+
+
+def test_a_speech_row_named_for_its_stream_speaks_for_its_angle():
+    """Reel 09, 2026-10-02: the master's speech rows are "Akshita CH1"
+    and "Craig CH1" while the transcript names "Akshita" and "Craig", so
+    reading the row name as the person muted both microphones through
+    every turn and left 4-7 frame scraps between segments. A speech row
+    joins its picture's angle by track index, and speaks for that
+    angle's person."""
+    def row(person, index, track_type):
+        name = person if track_type == "video" else f"{person} CH1"
+        clip = SimpleNamespace(track_type=track_type, track_index=index,
+                               track_name=name, speaker=name,
+                               source_file=f"/{person}.MXF")
+        return {**_placement(name, track_type=track_type), "clip": clip}
+
+    akshita_speech = row("Akshita", 1, "audio")
+    craig_speech = row("Craig", 2, "audio")
+    pictures = [row("Akshita", 1, "video")["clip"],
+                row("Craig", 2, "video")["clip"]]
+
+    kept, suppressed = suppress_mic_bleed_audio(
+        [akshita_speech, craig_speech],
+        _transcript(("Akshita", 100.0, 109.0, "Akshita holds the turn")),
+        FPS, master_clips=pictures)
+
+    assert akshita_speech in kept
+    assert [entry["speaker"] for entry in suppressed] == ["Craig"]

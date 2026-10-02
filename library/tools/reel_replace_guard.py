@@ -242,6 +242,28 @@ def item_source_identity(detail: dict) -> str:
             f"{detail['track_name']}:{detail['name']}")
 
 
+def snapshot_items(tracks) -> list[dict]:
+    """The snapshot's items from `reel_read.read_tracks` rows."""
+    items = []
+    for track in tracks:
+        for detail in track["clips"]:
+            if not isinstance(detail["enabled"], bool):
+                raise ValueError(
+                    f"enabled state for {detail['name']!r} is unreadable")
+            item = {key: detail.get(key) for key in
+                    PRESERVATION_FIELDS if key in detail}
+            item["source_identity"] = item_source_identity(detail)
+            item["unique_id"] = str(detail.get("unique_id") or "")
+            transform = detail.get("transform") or {}
+            item["composite"] = {
+                key: transform.get(key)
+                for key in ("Opacity", "CompositeMode")
+                if key in transform
+            }
+            items.append(item)
+    return items
+
+
 def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
     """Capture editable state through the shared reel reader."""
     from library.tools import marker_feedback, reel_read
@@ -289,24 +311,7 @@ def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
                 unique_id = timeline.GetUniqueId()
             except Exception:  # noqa: BLE001
                 unique_id = None
-            items = []
-            for track in tracks:
-                for detail in track["clips"]:
-                    if not isinstance(detail["enabled"], bool):
-                        raise ValueError(
-                            f"enabled state for {detail['name']!r} is unreadable")
-                    source_identity = item_source_identity(detail)
-                    item = {key: detail.get(key) for key in
-                            PRESERVATION_FIELDS if key in detail}
-                    item["source_identity"] = source_identity
-                    item["unique_id"] = str(detail.get("unique_id") or "")
-                    transform = detail.get("transform") or {}
-                    item["composite"] = {
-                        key: transform.get(key)
-                        for key in ("Opacity", "CompositeMode")
-                        if key in transform
-                    }
-                    items.append(item)
+            items = snapshot_items(tracks)
             return {
                 "timeline": {
                     "name": timeline.GetName(),
@@ -528,13 +533,52 @@ def accepted_editor_drop_rows(editor_report: dict) -> set[str]:
     return rows
 
 
+def journaled_touch_snapshot(project_folder: str, final: str,
+                             live: dict) -> dict | None:
+    """Ren's own last write of `final`, when its newest act is a touch.
+
+    A reel Ren touched before snapshots were recorded
+    (`ren_timeline_snapshots`) still has a record of what Ren left on
+    it: the touch's undo journal `after` read
+    (`library/tools/undo_journal.py`), taken by the same reader as a
+    snapshot. Only the NEWEST live act counts - an older touch under a
+    later rebuild describes a timeline that no longer exists - and
+    only a touch: a build promotion records no full read. The journal
+    reads items, not the timeline's settings or markers, so those come
+    from `live` and first contact cannot see an editor change to them
+    (`marker_carry` owns markers either way). None when there is no
+    such record.
+    """
+    from library.tools import undo_journal
+    from library.tools.versions import reel_versions
+
+    act = reel_versions.latest_act(project_folder, final)
+    if (not act or act.get("kind") != reel_versions.KIND_TOUCH
+            or not act.get("journal")):
+        return None
+    entry = undo_journal.read_entry(project_folder, act["journal"])
+    if (entry.get("final") != final or entry.get("status") != "applied"
+            or not (entry.get("after") or {}).get("tracks")):
+        return None
+    return {"timeline": dict(live.get("timeline") or {}),
+            "items": snapshot_items(entry["after"]["tracks"]),
+            "markers": list(live.get("markers") or ()),
+            "journal": act["journal"]}
+
+
 def detect_editor_changes(project_folder: str, final: str, live: dict,
                           staged_initial: dict) -> dict:
     """Record the live timeline's unattributed deltas; return what is pending.
 
+    The baseline is Ren's last known snapshot of `final`. On first
+    contact (none recorded) it is Ren's last journaled touch where one
+    exists (`journaled_touch_snapshot`), and only otherwise the incoming
+    staging - which makes every difference the rebuild itself brings
+    read as an editor change, so it is the last resort.
+
     Idempotent: a record's id is the digest of its two sides, so a
     second call over the same reads adds nothing. Returns
-    `{"first_contact", "detected", "pending"}`.
+    `{"first_contact", "baseline", "detected", "pending"}`.
     """
     from library.tools import plan_provenance
 
@@ -544,8 +588,18 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
     if baseline_entry and not baseline_entry.get("snapshot"):
         baseline_entry = None
     first_contact = baseline_entry is None
-    changes = snapshot_diff(
-        staged_initial if first_contact else baseline_entry["snapshot"], live)
+    journaled = (journaled_touch_snapshot(project_folder, final, live)
+                 if first_contact else None)
+    if not first_contact:
+        before_snapshot = baseline_entry["snapshot"]
+        baseline = "ren_last_known_snapshot"
+    elif journaled is not None:
+        before_snapshot = journaled
+        baseline = "first_contact_journaled_touch"
+    else:
+        before_snapshot = staged_initial
+        baseline = "first_contact_staging"
+    changes = snapshot_diff(before_snapshot, live)
     if first_contact:
         # The staging container necessarily has its own name and timeline
         # id; first contact compares its contents with the editor's live
@@ -554,12 +608,11 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
                    if change["kind"] != "timeline_identity"]
     if first_contact:
         plan_provenance.record_timeline_snapshot(
-            review_dir, final, live, action="first_contact_baseline")
+            review_dir, final, live, action="first_contact_baseline",
+            action_journal=(journaled or {}).get("journal"))
 
     detected = []
     if changes:
-        before_snapshot = (staged_initial if first_contact
-                           else baseline_entry["snapshot"])
         before_digest = _snapshot_digest(before_snapshot)
         after_digest = _snapshot_digest(live)
         record_id = sha256(
@@ -570,10 +623,10 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
             "recorded_at": datetime.now(timezone.utc).isoformat(
                 timespec="microseconds"),
             "timeline": final,
-            "baseline": ("first_contact_staging" if first_contact else
-                         "ren_last_known_snapshot"),
-            "ren_action_journal": (None if first_contact else
-                                   baseline_entry.get("action_journal")),
+            "baseline": baseline,
+            "ren_action_journal": (
+                baseline_entry.get("action_journal") if not first_contact
+                else (journaled or {}).get("journal")),
             "before_digest": before_digest,
             "after_digest": after_digest,
             "before_snapshot": before_snapshot,
@@ -583,7 +636,8 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
         }]
         plan_provenance.record_editor_changes(review_dir, final, detected)
 
-    return {"first_contact": first_contact, "detected": detected,
+    return {"first_contact": first_contact, "baseline": baseline,
+            "detected": detected,
             "pending": plan_provenance.pending_editor_changes(
                 review_dir, final)}
 
