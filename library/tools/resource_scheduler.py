@@ -24,9 +24,9 @@ The resources
 `disk`            I/O weight (capacity `DISK_CAPACITY`).
 
 `PROFILES` is the declared demand of each kind of heavy work. Its numbers
-are DECLARED, not measured: they encode which pairs may coexist (written
-beside the table), and they are the table to tune once the KPI
-instrumentation measures real contention. `machine` - every resource at
+encode which pairs may coexist (written beside the table); where a
+number has been MEASURED the table says so and from what, and the rest
+are declared until a measurement replaces them. `machine` - every resource at
 capacity - is the default and the old mutex exactly: a caller that
 declares nothing excludes everything.
 
@@ -118,25 +118,40 @@ def profiles() -> Dict[str, Dict[str, int]]:
 
     Which pairs coexist (on the 10-core, 24 GB machine: cpu 10, ram 16):
       * gate + gate              no  - each takes more than half the cpu
-      * gate + local_vlm         no  - ram 10 + 10 > 16
+      * gate + local_vlm         yes - ram 6 + 8 <= 16, cpu 8 + 2 <= 10
       * gate + resolve_placement yes - a placement is Resolve seconds
       * gate + resolve_render    no  - cpu 8 + 4 > 10
       * local_vlm + placement    yes
       * local_vlm + render       no  - both take the gpu
       * placement + anything holding the cursor: no (and the Resolve
         lease already serialises them first)
+
+    Measured, 2026-10-02:
+      * full_suite_gate ram 6: a whole gate's process tree, sampled with
+        `ps` every 2 s from outside, peaked at 5.30 GB resident summed
+        (243 samples, up to 24 processes). Its cpu stays
+        DECLARED: it starts `-n auto` workers, and the run measured
+        (peak 4.4 cores) shared a machine at load 40-48, so it shows
+        what the gate got, not what it asks for.
+      * local_vlm ram 8: Gemma 4 12B 4-bit held 7.3-7.9 GB resident
+        loaded and under requests (docs/GEMMA_SERVER.md 5). Its cpu
+        stays declared.
+      * resolve_placement, resolve_render: DECLARED, not measured.
+        Resolve's own use is outside a grant's process tree and needs a
+        placement and a render run in a scratch project, with the
+        Resolve process sampled while they hold the cursor.
     """
     cap = capacity()
     return {
         "machine": dict(cap),
         "full_suite_gate": {
             "cpu": max(cap["cpu"] - 2, cap["cpu"] // 2 + 1),
-            "ram_gb": min(10, cap["ram_gb"]),
+            "ram_gb": min(6, cap["ram_gb"]),
             "disk": 2,
         },
         "local_vlm": {
             "gpu": 1,
-            "ram_gb": min(10, cap["ram_gb"]),
+            "ram_gb": min(8, cap["ram_gb"]),
             "cpu": min(2, cap["cpu"]),
         },
         "resolve_placement": {

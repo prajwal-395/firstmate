@@ -178,18 +178,18 @@ def test_old_code_lock_dir_and_scheduler_exclude_each_other(scheduler):
 
 
 def test_a_queued_large_job_is_not_starved_by_later_small_ones(scheduler):
-    """Catches: placements arriving back to back keeping a gate queued
-    forever while each one fits beside the running local model."""
+    """Catches: placements arriving back to back keeping a second model
+    run queued forever while each one fits beside the running one."""
     vlm = scheduler.acquire("gemma", resource_scheduler.demand_for(
         "local_vlm"))
-    gate, _ = _acquire_in_thread(scheduler, "gate", "full_suite_gate")
-    time.sleep(0.1)  # the gate queues first
+    second, _ = _acquire_in_thread(scheduler, "gemma 2", "local_vlm")
+    time.sleep(0.1)  # the second model run queues first, on the gpu
     placement, box = _acquire_in_thread(scheduler, "placement",
                                         "resolve_placement")
 
     assert not placement.wait(0.3)
     scheduler.release(vlm)
-    assert gate.wait(5)
+    assert second.wait(5)
 
 
 def test_a_dead_holder_is_reaped(scheduler):
