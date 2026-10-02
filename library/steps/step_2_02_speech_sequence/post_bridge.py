@@ -26,6 +26,7 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from library.tools import capability_outputs
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.plan_keys import refuse_unknown_keys
 
@@ -1043,7 +1044,8 @@ def main():
             if os.path.exists(state_file):
                 with open(state_file, "r", encoding="utf-8") as f:
                     state_data = json.load(f)
-                    ti_dir = state_data.get("step_outputs", {}).get("temporal_index", {}).get("index_dir", "")
+                    ti_dir = capability_outputs.value(
+                        state_data, "temporal.index", "index_dir") or ""
             if not ti_dir or not os.path.isdir(ti_dir):
                 ti_dir = str(layout.read_dir(Area.TEMPORAL_INDEX))
 

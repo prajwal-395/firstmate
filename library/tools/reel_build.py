@@ -327,8 +327,9 @@ def catalog_program_channels(project_folder: str,
             state = _json.load(handle)
     except (OSError, ValueError):
         return channels, refusals
-    entries = (((state.get("step_outputs") or {}).get("catalog") or {})
-               .get("clip_catalog") or [])
+    from library.tools import capability_outputs
+    entries = capability_outputs.value(
+        state, "footage.catalog", "clip_catalog") or []
     for entry in entries:
         if not isinstance(entry, dict):
             continue

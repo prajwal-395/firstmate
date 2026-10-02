@@ -3,6 +3,7 @@ import sys
 import json
 import os
 from library.tools.pipeline_validation import require_keys
+from library.tools import capability_outputs
 from library.tools.project_layout import Area, ProjectLayout
 
 def format_toon(headers, rows):
@@ -55,7 +56,8 @@ def main():
         if os.path.exists(state_file):
             with open(state_file, "r", encoding="utf-8") as f:
                 state_data = json.load(f)
-                ti_dir = state_data.get("step_outputs", {}).get("temporal_index", {}).get("index_dir", "")
+                ti_dir = capability_outputs.value(
+                    state_data, "temporal.index", "index_dir") or ""
         # A run that predates the recorded index_dir still has the files;
         # the layout knows where they are.
         if not ti_dir or not os.path.isdir(ti_dir):

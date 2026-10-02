@@ -1579,8 +1579,9 @@ def _separation_inputs(project_dir: str) -> dict:
         compiled = outputs.get("compile_manifest", {}).get(
             "assembly_manifest", {})
         mix = compiled.get("audio_mix", {})
-        selection = outputs.get("music_selection", {}).get(
-            "music_selection", {})
+        from library.tools import capability_outputs
+        selection = capability_outputs.value(
+            state, "music.resolve", "music_selection") or {}
     except (OSError, ValueError, TypeError) as exc:
         return {"reason": f"could not read mix state: {exc}"}
 

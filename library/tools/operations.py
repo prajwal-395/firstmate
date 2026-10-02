@@ -1130,7 +1130,15 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="temporal_index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="index_project",
-        produces=("temporal_event_indices",),
+        produces=(
+            "temporal_event_indices",
+            "total_indexed",
+            "total_failed",
+            "total_reused",
+            "index_dir",
+            "audio_indices",
+            "source",
+        ),
         consumes=(
             "raw_footage_files",
             "semantic_analysis_documents",

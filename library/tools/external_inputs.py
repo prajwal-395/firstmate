@@ -169,8 +169,9 @@ def _existing_file(path, label: str) -> Path:
 
 
 def _catalog_durations(context: Context) -> Dict[str, float]:
-    catalog = ((context.state.get("step_outputs") or {})
-               .get("catalog") or {}).get("clip_catalog") or []
+    from library.tools import capability_outputs
+    catalog = capability_outputs.value(
+        context.state, "footage.catalog", "clip_catalog") or []
     out = {}
     for clip in catalog:
         if isinstance(clip, dict) and clip.get("clip_id"):
@@ -705,19 +706,20 @@ def _speech_texts(context: Context) -> Optional[str]:
     a captain's anchor may name words in either; `compile_manifest`
     reads `pipeline_data.json` the same way rather than one file.
     """
-    outputs = (context.state.get("step_outputs") or {})
+    from library.tools import capability_outputs
     parts = []
-    for producer in ("mesh_spine", "assign_aroll", "speech_sequence",
-                     "catalog"):
-        payload = outputs.get(producer) or {}
+    for producer in ("spine.mesh", "aroll.assign", "speech.enrich",
+                     "footage.catalog"):
         for key in ("audio_spine", "timed_spine"):
-            spine = payload.get(key) or {}
+            spine = capability_outputs.value(
+                context.state, producer, key) or {}
             for block in spine.get("structure") or []:
                 content = (block or {}).get("content") or {}
                 text = content.get("text")
                 if isinstance(text, str) and text.strip():
                     parts.append(text)
-        sequence = payload.get("body_sequence") or []
+        sequence = capability_outputs.value(
+            context.state, producer, "body_sequence") or []
         for passage in sequence:
             if isinstance(passage, dict):
                 text = passage.get("text")

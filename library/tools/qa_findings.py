@@ -426,8 +426,9 @@ def load_findings(project_folder: str = "",
     finding read off disk is a finding about a PREVIOUS render and the
     summary says so.
     """
-    outputs = ((state or {}).get("step_outputs") or {}).get("validate") or {}
-    rows = outputs.get("qa_report")
+    from library.tools import capability_outputs
+    rows = capability_outputs.value(state or {}, "validation.resolve",
+                                    "qa_report")
     if isinstance(rows, list) and rows:
         return read_qa_report(rows, SOURCE_STATE,
                               "this run's validate step (6.02)")

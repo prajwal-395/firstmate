@@ -4812,8 +4812,9 @@ def _catalog_source_sizes(project_folder: Optional[str]) -> dict:
             state = json.load(handle)
     except (OSError, ValueError):
         return {}
-    catalog = (((state.get("step_outputs") or {}).get("catalog") or {})
-               .get("clip_catalog") or [])
+    from library.tools import capability_outputs
+    catalog = capability_outputs.value(
+        state, "footage.catalog", "clip_catalog") or []
     sizes = {}
     for entry in catalog:
         source = entry.get("source_file") or entry.get("path") or ""

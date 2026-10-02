@@ -269,11 +269,12 @@ def catalogue_project_audio(inputs: dict, target_duration: float,
             if os.path.isfile(state_file):
                 with open(state_file, encoding="utf-8") as handle:
                     state_data = json.load(handle) or {}
-                outputs = state_data.get("step_outputs", {})
-                audio_catalog = (outputs.get("catalog", {}).get(
-                    "audio_catalog"))
-                for entry in (outputs.get("temporal_index", {}).get(
-                        "audio_indices") or []):
+                from library.tools import capability_outputs
+                audio_catalog = capability_outputs.value(
+                    state_data, "footage.catalog", "audio_catalog")
+                for entry in (capability_outputs.value(
+                        state_data, "temporal.index", "audio_indices")
+                        or []):
                     if (isinstance(entry, dict)
                             and entry.get("audio_id")):
                         speech_by_id[entry["audio_id"]] = entry
