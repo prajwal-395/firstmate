@@ -1,31 +1,6 @@
-"""One model of Resolve's Pan/Tilt, and a test that fails if it splits.
+"""Resolve's shared Pan/Tilt law matches the rendered measurements.
 
-The engine held TWO models of one Resolve behaviour and neither had
-ever been checked against a picture it had produced:
-
-- `tight_box` carried a `DRAW_GAIN_1080x1920 = 2.0` that does not
-  exist, halving every tight overlay placement it computed;
-- `reel_framing.delivered_picture` and `reel_look.punch_in_properties`
-  read the SAME property as frame pixels, which is right on Pan at the
-  reels' geometry by coincidence, wrong on Tilt by 3.16x, and wrong in
-  SIGN on Tilt as well.
-
-Correcting either constant on its own would have left the structural
-fault standing, so both paths now call
-`library/tools/resolve_transform.py` and this module is the gate on
-that. Four things are pinned here:
-
-1. the law reproduces every case that was MEASURED on rendered pixels,
-   rather than restating the formula;
-2. the overlay path and the picture path agree, where their geometries
-   coincide, to the pixel;
-3. no call site re-implements the arithmetic - each is driven and
-   compared against the law called directly.
-4. the 2026-09-11 calibration is pinned at explicit `draw_gain=1.0`
-   (history - the renderer drew that gain then), and the 2026-09-17
-   calibration is pinned at the default gain (today's truth -
-   `tests/test_draw_gain_measured.py` derives it from rendered
-   pixels rather than restating it).
+Calibration history is in `docs/evidence/pan_tilt_units.md`.
 """
 
 import pytest
@@ -41,14 +16,12 @@ from library.tools.resolve_transform import (
     fit_base_scale,
     pan_tilt_for_centre,
     shift_px,
-    units_for_shift,
 )
 from library.tools.tight_box import (
     canvas_offset,
     canvas_screen_origin,
     placement_for_box,
 )
-
 
 # ── 1. The law is DERIVED from the measurements, not asserted ────────
 

@@ -1,58 +1,21 @@
-"""A build refuses to report success when its own record would be wrong.
+"""Promotion record failures remain visible after a timeline lands.
 
-Captain's 2026-09-18 ruling, option a: "Refuse only when the record
-would be wrong; report everything else." The case that made it real:
-a build produced a CORRECT TIMELINE and a FALSE RECORD - promotion
-completed, filing bookkeeping refused, the node failed, and the reel
-was right while its record was not. Every downstream check trusts the
-record, which is why that shape is the one ruled against.
-
-What refuses (each established FROM THE CODE - a fix covering only
-the prompting case would look complete and quietly leave the rest):
-
-- a failed retirement (`promote_staged_reels` used to swallow it and
-  report success with the replaced timelines still standing under
-  their backup names - which the NEXT build then refuses on loudly);
-- a failed comparison retirement (same family: superseded comparison
-  timelines silently accumulating while the build reads as settled);
-- a declared sign-off supersession that did not land (the replaced
-  cut keeps carrying a live approval, and the next promotion refuses
-  demanding a declaration the operator already gave);
-- an unstamped round (the version record misses the promotion, and
-  the hole never heals: an unchanged reel is left alone, so no later
-  build re-stamps this one);
-- carried build signatures that will not close (the provenance half
-  of the promotion never lands);
-- render-ledger bindings that cannot be re-pointed (entries keep
-  naming staging timelines that no longer exist, and the sweep reads
-  the ledger as a reference root);
-- a conformance PASS with no report on disk: established from the
-  code that `run_verification` writes the report before it returns 0
-  and a write failure raises rather than returning, so there is no
-  pass-without-record path - pinned below at the verifier level
-  rather than re-checked at every call site.
-
-What still REPORTS and finishes (deliberately not widened):
-
-- a refused media-pool filing (carried honestly as
-  `{"refused": ...}` on the record with the retry named);
-- an unreadable carried digest (the signature stays open, which
-  reads as REBUILD - fail-closed, no reader misled);
-- a vacuous `--supersede` (no sign-off was ever live: nothing to
-  end, nothing to refuse).
+The incident history and failure matrix live in
+`docs/evidence/promotion_record_consistency.md`.
 """
 import json
+from contextlib import ExitStack
 from unittest.mock import patch
 
 import pytest
-from tests.promotion_test_helpers import (
-    install_fake_timeline_snapshots,
-    no_a_roll_track_plans,
-)
 
 from library.tools.reel_build import (
     ReelBuildError,
     promote_staged_reels,
+)
+from tests.promotion_test_helpers import (
+    install_fake_timeline_snapshots,
+    no_a_roll_track_plans,
 )
 
 MASTER = "Podcast - Synced"
@@ -194,119 +157,71 @@ def _promote(project_dir, resolve, **kwargs):
 
 
 
-def test_a_failed_retirement_refuses_the_promotion(project_dir):
-    """Resolve declines the backup delete: the replaced timeline is
-    still standing under its backup name, so success would trade a
-    named failure now for a confusing stale-backup refusal later."""
+class _RecordFailure:
+    def __init__(self, patch_target, message, *, supersede=False,
+                 sign_off=False, returns_none=False, retirement=False):
+        self.patch_target = patch_target
+        self.message = message
+        self.supersede = supersede
+        self.sign_off = sign_off
+        self.returns_none = returns_none
+        self.retirement = retirement
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(_RecordFailure(None, "retirement failed",
+                                    retirement=True),
+                     id="declined-backup-retirement"),
+        pytest.param(_RecordFailure(
+            "library.tools.comparison_retirement.collect_for_bases",
+            "comparison timelines"), id="comparison-retirement"),
+        pytest.param(_RecordFailure(
+            "library.tools.reel_signoff.supersede", "supersession",
+            supersede=True), id="declared-signoff-supersession"),
+        pytest.param(_RecordFailure(
+            "library.tools.reel_signoff.supersede", "mid-promotion",
+            supersede=True, sign_off=True, returns_none=True),
+            id="signoff-disappears-mid-promotion"),
+        pytest.param(_RecordFailure(
+            "library.tools.versions.rounds.stamp_promotion", "not stamped"),
+            id="round-stamp"),
+        pytest.param(_RecordFailure(
+            "library.tools.plan_provenance.record_carried_digests",
+            "signatures did not"), id="carried-signatures"),
+        pytest.param(_RecordFailure(
+            "library.tools.caption_asset_gc.rename_ledger_timelines",
+            "render-ledger"), id="render-ledger-binding"),
+    ],
+)
+def test_post_promotion_record_failures_raise_after_the_reel_lands(
+        project_dir, failure):
+    """Each row exercises a post-promotion record boundary; see the evidence table."""
     retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging],
-                          delete_ok=False)
+    resolve = FakeProject(
+        [FakeTimeline(MASTER), retired, staging],
+        delete_ok=not failure.retirement)
     _seed_provenance(project_dir)
+    if failure.sign_off:
+        from library.tools import reel_signoff as signoff
 
-    with pytest.raises(ReelBuildError, match="retirement failed"):
-        _promote(project_dir, resolve)
+        signoff.sign_off(str(project_dir), REEL_01, note="ships")
 
-    # The reels already landed - the raise says so rather than rolling
-    # back - and nothing was deleted.
-    assert REEL_01 in resolve.names()
-    assert resolve.deleted == []
-
-
-def test_a_failed_comparison_retirement_refuses_the_promotion(
-        project_dir):
-    """The comparison lifecycle is the same retirement family: a skip
-    that reports success re-opens the accumulation the bound exists
-    to stop."""
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-
-    with patch("library.tools.comparison_retirement.collect_for_bases",
-               side_effect=RuntimeError("Resolve is busy")), \
-            pytest.raises(ReelBuildError,
-                          match="comparison timelines"):
-        _promote(project_dir, resolve)
-
-    assert REEL_01 in resolve.names()
-
-
-def test_a_failed_signoff_supersession_refuses_the_promotion(
-        project_dir):
-    """A declared supersession the record cannot take: the replaced
-    cut would keep carrying a live approval it was never given."""
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-
-    with patch("library.tools.reel_signoff.supersede",
-               side_effect=OSError("disk full")), \
-            pytest.raises(ReelBuildError, match="supersession"):
-        _promote(project_dir, resolve, supersede=[REEL_01])
-
-    assert REEL_01 in resolve.names()
-
-
-
-
-def test_a_vanished_signoff_refuses_the_promotion(project_dir):
-    """Live and declared before the rename, gone after it: something
-    edited the sign-off record mid-promotion, so the reel's approval
-    state cannot be vouched."""
-    from library.tools import reel_signoff as signoff
-
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-    signoff.sign_off(str(project_dir), REEL_01, note="ships")
-
-    with patch("library.tools.reel_signoff.supersede",
-               return_value=None), \
-            pytest.raises(ReelBuildError, match="mid-promotion"):
-        _promote(project_dir, resolve, supersede=[REEL_01])
+    promotion_args = {"supersede": [REEL_01]} if failure.supersede else {}
+    with ExitStack() as stack:
+        if failure.patch_target:
+            patch_args = ({"return_value": None} if failure.returns_none
+                          else {"side_effect": OSError("disk full")})
+            stack.enter_context(patch(failure.patch_target, **patch_args))
+        with pytest.raises(ReelBuildError, match=failure.message):
+            _promote(project_dir, resolve, **promotion_args)
 
     assert REEL_01 in resolve.names()
-
-
-def test_an_unstamped_round_refuses_the_promotion(project_dir):
-    """The version record misses the promotion - and the hole never
-    heals, because an unchanged reel is left alone rather than
-    re-stamped."""
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-
-    with patch("library.tools.versions.rounds.stamp_promotion",
-               side_effect=OSError("disk full")), \
-            pytest.raises(ReelBuildError, match="not stamped"):
-        _promote(project_dir, resolve)
-
-
-def test_an_unclosable_signature_refuses_the_promotion(project_dir):
-    """The carried digests were read but cannot be written: the
-    provenance half of this promotion did not land."""
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-
-    with patch("library.tools.plan_provenance.record_carried_digests",
-               side_effect=OSError("disk full")), \
-            pytest.raises(ReelBuildError, match="signatures did not"):
-        _promote(project_dir, resolve)
-
-
-def test_an_unrepointable_ledger_refuses_the_promotion(project_dir):
-    """Ledger bindings keep naming staging timelines that no longer
-    exist - a wrong record the sweep reads as its reference root."""
-    retired, staging = _clean_reel()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    _seed_provenance(project_dir)
-
-    with patch("library.tools.caption_asset_gc.rename_ledger_timelines",
-               side_effect=OSError("disk full")), \
-            pytest.raises(ReelBuildError, match="render-ledger"):
-        _promote(project_dir, resolve)
-
-    assert REEL_01 in resolve.names()
+    assert STAGING_01 not in resolve.names()
+    assert staging.GetName() == REEL_01
+    if failure.retirement:
+        assert resolve.deleted == []
 
 
 def test_a_pass_records_its_verdict_before_returning(project_dir):
@@ -322,8 +237,7 @@ def test_a_pass_records_its_verdict_before_returning(project_dir):
     import io
     from unittest.mock import MagicMock
 
-    from library.tools.reel_conformance_verifier import (
-        ReelTimeline, run_verification)
+    from library.tools.reel_conformance_verifier import ReelTimeline, run_verification
 
     names = [MASTER, "Reel 01 - a"]
     timelines = []
@@ -390,5 +304,6 @@ def test_a_pass_records_its_verdict_before_returning(project_dir):
             out=io.StringIO())
 
     assert code == 0
-    report = json.loads(open(json_path, encoding="utf-8").read())
+    with open(json_path, encoding="utf-8") as handle:
+        report = json.load(handle)
     assert [row["reel_name"] for row in report["reels"]] == ["Reel 01 - a"]

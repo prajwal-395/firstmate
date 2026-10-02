@@ -1,36 +1,6 @@
-"""The draw gain measured 2026-09-17 on rendered pixels.
+"""The fallback draw gain matches rendered-pixel measurements.
 
-On 2026-09-11 the renderer drew gain 1.0 (sixteen synthetic plates,
-`resolve_transform.MEASURED_OVERLAY_CASES`, pinned at explicit
-`draw_gain=1.0` in `tests/test_resolve_transform.py`). On 2026-09-17
-the same build (Studio 21.1.0.14) on the captain's machine drew gain
-2.0 on every timeline class measured - 1080x1920 custom reels,
-1080x1920 custom scratch, 3840x2160 custom scratch, 3840x2160
-project-default scratch - both axes, four content classes. This file
-derives that gain from the measurements rather than restating it,
-and pins the ground truth the rebuild gate checks: declared row
-0.8451 converts to stored Tilt -917, the captain's own hand value.
-
-How each cell was measured (all "set a known value and render" -
-never a captured value; see `resolve_transform`'s module docstring
-for the full table):
-
-- captions: Tilt -888 rendered canvas centre y 1404 and hand-set
-  Tilt -917 rendered y 1418.5 (gallery stills of Reel 01 frame 20,
-  row-profile correlation 1.0000 at the predicted shift);
-- motion graphics: live stored Tilt 1296 on a 920x480 canvas and Pan
-  583.7838 on a 296x480 canvas drawing the pinned centres [540, 312]
-  and [860, 960] (the captain's own pins, read off Reel 26);
-- picture: 3840x2160 footage at fit on a scratch 1080x1920 timeline,
-  Tilt 100 moving 63 px, Tilt 200 moving 127 px, Pan 100 moving
-  200 px (gallery stills, cross-correlation 0.9997 / 0.91);
-- 3840x2160: native 3840x2160 plate at Tilt -400 moving 800 px, and
-  a 904x480 caption drawing at 2x the law's shift, on a
-  project-default scratch timeline.
-
-If the renderer ever draws gain 1.0 again, THESE tests fail - that
-is the alarm, and the repair is a fresh rendered-pixel calibration
-of `resolve_transform.FALLBACK_DRAW_GAIN`, never arithmetic.
+Calibration evidence is in `docs/evidence/pan_tilt_units.md`.
 """
 
 import pytest
@@ -38,7 +8,6 @@ import pytest
 from library.tools.resolve_transform import (
     FALLBACK_DRAW_GAIN,
     drawn_centre,
-    fit_base_scale,
     shift_px,
     units_for_shift,
 )

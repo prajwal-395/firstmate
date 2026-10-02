@@ -1,43 +1,19 @@
-"""A replace is a diff, and the diff refuses (issue #925).
+"""Replacement diffs refuse unexplained losses before changing names.
 
-`promote_staged_reels` is the ONE place a captain-visible reel timeline
-is replaced, and it renamed without ever reading what it retired. Two
-rebuilds proved the shape in one day, reconstructed here against fake
-timelines whose rows really hold items:
-
-1. the cutaway: a `--only-reel` rebuild over a cutaway-bearing timeline
-   must refuse - V1 goes 3 items to 2 and the 24-frame Akshita cover at
-   record frame 574 is named as missing;
-2. the semantic visuals: a build whose overlay renders failed leaves
-   the V5 'Semantic' row absent, and the promote must refuse naming
-   the whole feature class gone.
-
-Plus the two halves that keep the guard from becoming a nuisance:
-
-3. a DECLARED reduction passes silently and names what it declared;
-4. growth (a cutaway ADDED) and a shortened cut (same items, fewer
-   frames) pass with nothing declared.
-
-And the fail-closed half: a retiring timeline that cannot be read
-refuses rather than passing. Every refusal asserts NOTHING was
-renamed - the check runs before the first rename, so the approved
-timeline is still in the project afterwards.
-
-A guard nobody has watched fire is not a guard: cases 1, 2 and the
-unreadable half assert the raise, not just the report.
+Incident context and the preserved outcome table live in
+`docs/evidence/promotion_replace_guard.md`.
 """
 import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import reel_replace_guard as guard
 from library.tools.reel_build import (
     ReelBuildError,
     promote_staged_reels,
 )
-
+from tests.promotion_test_helpers import no_a_roll_track_plans
 
 FINAL = "Reel 09 - your-website-is-only-20-percent (final)"
 MASTER = "Podcast - Synced"
@@ -657,11 +633,7 @@ def test_a_float_read_of_an_int_is_the_same_value_not_a_change():
 
 def test_a_staging_no_build_recorded_drops_the_replaced_provenance(
         project_dir):
-    """Reel 09, 2026-10-02: a promoted VARIANT has no provenance entry
-    (`build_reel_variants` writes none), so promotion renamed both
-    timelines and then raised at `rename_reel_entries`, leaving every
-    step after it undone. The final's entry describes the build just
-    replaced, so it is dropped rather than left as a wrong record."""
+    """An unrecorded variant replaces stale provenance; see the evidence file."""
     def reel(name):
         return FakeTimeline(name, video=[
             ("Akshita", [FakeItem("Akshita A", 0, 131)]),

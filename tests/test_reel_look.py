@@ -1,12 +1,4 @@
-"""The reels-path look: what it refuses, and what it places.
-
-`library/tools/reel_look.py` is the reels path's route to the declared
-TV-frame look.  These cover the two things that cost real time on
-2026-09-09: a frame asset whose aspect cannot frame the delivery
-reaching a render, and the frame's own track under per-speaker picture
-rows (captain's ruling on Reel 09: two picture rows, the set above
-them, no collapse).
-"""
+"""Tests for reel-look framing, motion mapping, and treatment limits."""
 from __future__ import annotations
 
 import json
@@ -18,8 +10,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from library.tools import reel_look
-from library.tools import tv_frame
+from library.tools import reel_look, tv_frame
 from library.tools.sub_block_anchor import AnchorRefused
 
 
@@ -299,7 +290,7 @@ def test_no_ken_burns_moves_outside_cta_sections(tmp_path):
     assert answer == [body_in, body_out, closer]
     assert reel_look.locked_closing_positions(project_folder, 42) == {1}
 
-    resolved, record = reel_look.resolve_motion(answer, spine, 24.0)
+    _resolved, record = reel_look.resolve_motion(answer, spine, 24.0)
     assert record["resolved"] == 3
     assert [move["effect_type"] for move in record["moves"]] == [
         "slow_zoom_in", "slow_zoom_out", "slow_zoom_out"]
@@ -889,7 +880,7 @@ def test_a_partial_turn_is_refused():
 
 def _window(look_rotate, asset=(3840, 2160)):
     """The screen window of the captain's asset at a given rotation."""
-    import unittest.mock as mock
+    from unittest import mock
     look = {"asset": "TV 4k.png", "rotate": look_rotate}
     with mock.patch.object(tv_frame, "screen_window",
                            return_value=(519, 37, 3322, 2123)):
@@ -1014,32 +1005,32 @@ def _reel_09_pictures():
     return base, offset
 
 
-def test_a_motion_plan_follows_its_shot_across_a_cutaway():
-    """Reel 09, 2026-10-02: the motion answer named base shot 4 (Akshita's
-    long take) and the variant's offset picture put the Craig piece the
-    cutaway left there, so the build refused a window "27.100-30.970s
-    ... inside picture shot 4 at 24.358s"."""
+@pytest.mark.parametrize("case", [
+    pytest.param("anchored-shot-follows-cutaway", id="remap-to-same-shot"),
+    pytest.param("anchored-window-crosses-seam", id="refuse-split-window"),
+    pytest.param("whole-shot-move-on-split-shot", id="refuse-split-lock"),
+])
+def test_motion_mapping_follows_the_shot_and_refuses_ambiguous_spans(case):
+    """See `docs/evidence/variant_motion_remap.md` for the incident."""
     base, offset = _reel_09_pictures()
-    move = {"target_block_position": 3, "effect_type": "slow_zoom_in",
-            "timeline_start": 27.1, "timeline_end": 30.97,
-            "params": {"zoom_start": 1.0, "zoom_end": 1.025}}
 
-    remapped, locked = reel_look.remap_motion_positions(
-        [move], base, offset, 24.0, locked_closing_positions=[1])
+    if case == "anchored-shot-follows-cutaway":
+        move = {"target_block_position": 3, "effect_type": "slow_zoom_in",
+                "timeline_start": 27.1, "timeline_end": 30.97,
+                "params": {"zoom_start": 1.0, "zoom_end": 1.025}}
+        remapped, locked = reel_look.remap_motion_positions(
+            [move], base, offset, 24.0, locked_closing_positions=[1])
 
-    assert [entry["target_block_position"] for entry in remapped] == [5]
-    assert remapped[0]["timeline_start"] == 27.1
-    assert locked == [1]
-
-
-def test_a_move_across_the_cutaway_seam_refuses_by_shot():
-    base, offset = _reel_09_pictures()
-    straddles = {"target_block_position": 2, "effect_type": "slow_zoom_in",
-                 "timeline_start": 21.6, "timeline_end": 24.5,
-                 "params": {"zoom_start": 1.0, "zoom_end": 1.02}}
-
-    with pytest.raises(reel_look.ReelLookRefused, match="straddles"):
-        reel_look.remap_motion_positions([straddles], base, offset, 24.0)
-    with pytest.raises(reel_look.ReelLookRefused, match="2 piece"):
-        reel_look.remap_motion_positions(
-            [], base, offset, 24.0, locked_closing_positions=[2])
+        assert [entry["target_block_position"] for entry in remapped] == [5]
+        assert remapped[0]["timeline_start"] == 27.1
+        assert locked == [1]
+    elif case == "anchored-window-crosses-seam":
+        move = {"target_block_position": 2, "effect_type": "slow_zoom_in",
+                "timeline_start": 21.6, "timeline_end": 24.5,
+                "params": {"zoom_start": 1.0, "zoom_end": 1.02}}
+        with pytest.raises(reel_look.ReelLookRefused, match="straddles"):
+            reel_look.remap_motion_positions([move], base, offset, 24.0)
+    else:
+        with pytest.raises(reel_look.ReelLookRefused, match="2 piece"):
+            reel_look.remap_motion_positions(
+                [], base, offset, 24.0, locked_closing_positions=[2])

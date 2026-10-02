@@ -1,24 +1,11 @@
-"""The captain's hand move survives the rebuild that would throw it away.
+"""The captain's hand-set Pan/Tilt survives the rebuild.
 
-The captain, 2026-09-10: Akshita's clip moved by hand in Resolve to
-Pan -35 from the pipeline's 14 - *"i want you to really investigate
-if any of these changes actually persist and are saved"*. And earlier,
-still standing: *"if i ask to remove a piece of the video and replace
-it with something else, and then ask you to rebuild the timeline,
-those changes should persist"*.
-
-The store, the reader and the CTA redraw all exist
-(`library/tools/captain_edits.py`, PR #857); what was missing was the
-WRITE side and a placement-shaped entry. A `transform_override` is
-that entry, in the SAME store - the anchor is the same stable thing
-every other kind anchors to (the spoken words), only the payload
-differs (a number held, not a range redrawn). The "x" the captain
-moved is the API property `Pan` (the Inspector's Position X;
-`PositionX` is not an API property - measured live on Reel 09).
-
-Fail-before: `validate_edits` knows no `transform_override` kind and
-`captain_edits` has no `match_transform_overrides` - every test here
-errors on the kind or the attribute, not on an assertion.
+Invariant: a recorded `transform_override` holds the captain's number
+on the span speaking its anchor, on every rebuild, on the reels its
+scope names - and says LOST when its words are gone. The incident
+history behind this contract lives in
+`docs/evidence/transform_override.md`; this module pins only the
+behaviour.
 """
 
 from __future__ import annotations
@@ -198,42 +185,47 @@ def test_a_transform_override_validates():
     assert len(captain_edits.validate_edits([_override()])) == 1
 
 
-def test_an_unknown_property_is_refused():
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.validate_edits([_override(prop="PositionX")])
-    assert "PositionX" in str(exc.value)
+def _refusal_case(name):
+    """One invalid override per refusal guard (see `validate_edits`).
+
+    Each row kills exactly its guard's mutant and no other
+    (mutation probe 2026-10-02: six guards, six 1:1 kills) - the table
+    is the consolidation of six one-assert tests, not a weaker one.
+    """
+    if name == "unknown-property":
+        return _override(prop="PositionX"), "PositionX"
+    if name == "non-numeric":
+        edit = _override()
+        edit["value"] = "left a bit"
+        return edit, "number"
+    if name == "nan":
+        return _override(value=float("nan")), "number"
+    if name == "non-positive-zoom":
+        return _override(prop="ZoomX", value=0), "zoom"
+    if name == "past-the-rail":
+        return _override(value=5000), "3840"
+    if name == "frame-field":
+        edit = _override()
+        edit["timeline_start"] = 5.38
+        return edit, "timeline_start"
+    assert name == "reasonless"
+    return _override(reason="  "), "reason"
 
 
-def test_a_non_numeric_value_is_refused():
-    edit = _override()
-    edit["value"] = "left a bit"
+@pytest.mark.parametrize("name", [
+    "unknown-property",
+    "non-numeric",
+    "nan",
+    "non-positive-zoom",
+    "past-the-rail",
+    "frame-field",
+    "reasonless",
+])
+def test_a_refused_override_names_what_refused_it(name):
+    edit, fragment = _refusal_case(name)
     with pytest.raises(captain_edits.CaptainEditError) as exc:
         captain_edits.validate_edits([edit])
-    assert "number" in str(exc.value).lower()
-
-
-def test_a_non_positive_zoom_is_refused():
-    with pytest.raises(captain_edits.CaptainEditError):
-        captain_edits.validate_edits([_override(prop="ZoomX", value=0)])
-
-
-def test_a_pan_past_what_resolve_holds_is_refused():
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.validate_edits([_override(value=5000)])
-    assert "3840" in str(exc.value)
-
-
-def test_a_frame_field_is_refused_like_every_other_kind():
-    edit = _override()
-    edit["timeline_start"] = 5.38
-    with pytest.raises(captain_edits.CaptainEditError):
-        captain_edits.validate_edits([edit])
-
-
-def test_a_reasonless_override_is_refused():
-    edit = _override(reason="  ")
-    with pytest.raises(captain_edits.CaptainEditError):
-        captain_edits.validate_edits([edit])
+    assert fragment in str(exc.value).lower() or fragment in str(exc.value)
 
 
 # ── 2. Matching: words to placed spans ──────────────────────────────
@@ -258,14 +250,8 @@ def test_an_override_matching_no_span_reports_stale():
 
 
 def test_a_stale_override_says_which_kind_of_stale_it_is():
-    """Measured 2026-09-12 on `geo-podcast`: ten recorded overrides,
-    every one of them matched against every reel, so a Reel 09 build
-    prints EIGHT stale lines for decisions that belong to Reels 01,
-    13, 26 and 28 and are working perfectly. A captain's value whose
-    words were reworded away prints the ninth, in the same sentence.
-    The two are opposite: one is routine, the other is the hand-set
-    value gone for every future build of every reel. This is the
-    separation."""
+    """Routine (another reel's words) versus LOST (words gone everywhere);
+    history in `docs/evidence/transform_override.md`."""
     spans = [_span((20.0, 24.0), speaker="Craig")]
     matched, stale = captain_edits.match_transform_overrides(
         spans, _tx(), [_override(anchor="explains the number"),
@@ -283,10 +269,7 @@ def test_a_stale_override_says_which_kind_of_stale_it_is():
 
 def test_a_rebuild_that_would_overwrite_a_lost_override_says_so(
         tmp_path, capsys):
-    """A rebuild whose anchor no longer exists plays the engine's own
-    aim over the captain's number. It must SAY the number is lost -
-    not print the sentence it prints for the eight overrides that
-    simply belong to other reels."""
+    """The LOST case must reach the lost channel (counterweight below)."""
     from library.tools import reel_build
     project = _project(tmp_path)
     _write_edits_file(project, [_override(anchor="zebras on mars",
@@ -303,9 +286,7 @@ def test_a_rebuild_that_would_overwrite_a_lost_override_says_so(
 
 def test_an_override_for_another_reel_is_not_called_lost(
         tmp_path, capsys):
-    """The counterweight, and the reason this is not just a louder
-    print: the routine case must NOT reach the lost channel, or the
-    new line is eight-ninths noise and gets ignored like the old one."""
+    """The routine case must NOT reach the lost channel."""
     from library.tools import reel_build
     project = _project(tmp_path)
     _write_edits_file(project, [_override(anchor="explains the number")])
@@ -329,9 +310,7 @@ def test_an_override_matching_two_spans_names_both():
 # ── 3. The rebuild holds the recorded value, not the aim ────────────
 
 def test_a_rebuild_reproduces_minus_35_rather_than_14(tmp_path):
-    """The placement-survives-rebuild case: the item sits at the
-    punch-in aim (Pan 14) and the recorded override holds -35 after
-    the build pass, judged by return AND read-back."""
+    """The placement-survives-rebuild case, by return AND read-back."""
     from library.tools import reel_build
     project = _project(tmp_path)
     _write_edits_file(project, [_override()])
@@ -637,29 +616,45 @@ def test_record_creates_the_store_where_none_was_ever_written(tmp_path):
     assert captain_edits.load_edits(str(project)) == [edit]
 
 
-def test_record_refuses_an_exact_duplicate(tmp_path):
+@pytest.mark.parametrize("first,second,action,count", [
+    # An exact duplicate is refused; a re-ruling supersedes in place;
+    # a different property - or a different reel scope - is a different
+    # decision and both stay in force.
+    ("same", "same", "refused", 1),
+    ("pan-35", "pan-40", "superseded", 1),
+    ("pan", "tilt", "recorded", 2),
+    ("scoped-r1", "scoped-r2", "recorded", 2),
+    ("scoped", "scoped-reruled", "superseded", 1),
+])
+def test_record_identity_is_decided_by_property_scope_and_value(
+        tmp_path, first, second, action, count):
+    edits = {
+        "same": _override(),
+        "pan-35": _override(value=-35.0),
+        "pan-40": _override(value=-40.0),
+        "pan": _override(prop="Pan"),
+        "tilt": _override(prop="Tilt", value=1.5),
+        "scoped": _scoped(),
+        "scoped-r1": _scoped(),
+        "scoped-reruled": _scoped(value=-12.0,
+                                  reason="captain: further left"),
+        "scoped-r2": _scoped(value=-12.0, reel="Reel 02 - something-else",
+                             reason="captain: reel 02 sits her right"),
+    }
     project = _project(tmp_path)
-    captain_edits.record_edit(str(project), _override())
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.record_edit(str(project), _override())
-    assert "already in force" in str(exc.value)
-
-
-def test_a_re_ruling_supersedes_in_place(tmp_path):
-    project = _project(tmp_path)
-    captain_edits.record_edit(str(project), _override(value=-35.0))
-    edit, action = captain_edits.record_edit(
-        str(project), _override(value=-40.0))
-    assert action == "superseded"
-    assert captain_edits.load_edits(str(project)) == [edit]
-
-
-def test_a_different_property_is_a_different_edit(tmp_path):
-    project = _project(tmp_path)
-    captain_edits.record_edit(str(project), _override(prop="Pan"))
-    captain_edits.record_edit(str(project), _override(prop="Tilt",
-                                                       value=1.5))
-    assert len(captain_edits.load_edits(str(project))) == 2
+    captain_edits.record_edit(str(project), edits[first])
+    if action == "refused":
+        with pytest.raises(captain_edits.CaptainEditError) as exc:
+            captain_edits.record_edit(str(project), edits[second])
+        assert "already in force" in str(exc.value)
+    else:
+        edit, seen = captain_edits.record_edit(str(project), edits[second])
+        assert seen == action
+    stored = captain_edits.load_edits(str(project))
+    assert len(stored) == count
+    if action == "superseded":
+        assert stored == [edit]
+        assert stored[0]["value"] == edits[second]["value"]
 
 
 def test_record_checks_the_anchor_against_measured_speech(tmp_path):
@@ -722,10 +717,8 @@ def test_describe_names_the_hold_in_plain_language(capsys):
 
 
 def test_a_recorded_override_survives_the_read_and_the_rebuild(tmp_path):
-    """The whole loop through the dormant store: record (the write
-    side) -> load (the reader the build uses) -> match -> apply over
-    a 14 aim. What the captain settled is what the rebuild holds -
-    and a second rebuild holds it again rather than drifting."""
+    """The whole loop twice through the dormant store - record, load,
+    match, apply - holding on every rebuild rather than drifting."""
     from library.tools import reel_build
     project = _project(tmp_path)
     captain_edits.record_edit(str(project), _override(), "captain, test")
@@ -796,7 +789,8 @@ def test_cli_capture_without_proposal_is_refused(tmp_path, capsys):
 #
 # A shot four reels share speaks one anchor on all four; the captain's
 # Pan for ONE of them is the same words with a `reel` scope. No scope
-# holds everywhere, exactly as before.
+# holds everywhere, exactly as before. History in
+# `docs/evidence/transform_override.md`.
 
 def _scoped(anchor="explains the number", prop="Pan", value=-35.0,
             reel="Reel 01 - the-cta",
@@ -818,83 +812,49 @@ def test_an_empty_reel_scope_is_refused():
         captain_edits.validate_edits([bad])
 
 
-def test_a_scoped_override_holds_on_its_reel_only():
+@pytest.mark.parametrize("edits_key,reel,values,stale_scope", [
+    # A scoped hold lands on its reel only (naming it in the stale
+    # reason elsewhere); a staging suffix is the same reel; no scope
+    # holds everywhere; where both would hold the scope wins.
+    ("scoped", "Reel 01 - the-cta", [-35.0], None),
+    ("scoped", "Reel 02 - something-else", [], "reel"),
+    ("scoped", "Reel 01 - the-cta (scratch 7) (rebuild staging)",
+     [-35.0], None),
+    ("unscoped", "Reel 01 - the-cta", [-35.0], None),
+    ("unscoped", "Reel 02 - something-else", [-35.0], None),
+    ("both", "Reel 01 - the-cta", [-35.0], "reel"),
+    ("both", "Reel 02 - something-else", [-20.0], "reel"),
+])
+def test_scope_decides_which_reel_a_hold_lands_on(
+        edits_key, reel, values, stale_scope):
+    edits = {
+        "scoped": [_scoped()],
+        "unscoped": [_override()],
+        "both": [_override(value=-20.0, reason="captain: everywhere"),
+                 _scoped(value=-35.0)],
+    }[edits_key]
     spans = [_span((10.0, 14.0))]
     matched, stale = captain_edits.match_transform_overrides(
-        spans, _tx(), [_scoped()], reel_name="Reel 01 - the-cta")
-    assert len(matched) == 1 and stale == []
-    matched, stale = captain_edits.match_transform_overrides(
-        spans, _tx(), [_scoped()], reel_name="Reel 02 - something-else")
-    assert matched == [] and len(stale) == 1
-    assert stale[0]["scope"] == "reel"
-    assert "Reel 01 - the-cta" in stale[0]["reason"]
-
-
-def test_a_staging_suffix_is_the_same_reel():
-    spans = [_span((10.0, 14.0))]
-    matched, stale = captain_edits.match_transform_overrides(
-        spans, _tx(), [_scoped()],
-        reel_name="Reel 01 - the-cta (scratch 7) (rebuild staging)")
-    assert len(matched) == 1 and stale == []
-
-
-def test_an_unscoped_override_still_holds_everywhere():
-    """The failing input the scope exists to end: the same anchor
-    with no `reel` matches on both reels' builds - which is why one
-    reel's Pan was inexpressible before the scope."""
-    spans = [_span((10.0, 14.0))]
-    for reel in ("Reel 01 - the-cta", "Reel 02 - something-else"):
-        matched, stale = captain_edits.match_transform_overrides(
-            spans, _tx(), [_override()], reel_name=reel)
-        assert len(matched) == 1 and stale == []
-
-
-def test_the_scope_wins_where_both_would_hold():
-    """A scoped narrowing and the general decision coexist: on the
-    scoped reel only the narrowing holds that property on that span;
-    on every other reel the general one still does."""
-    edits = [_override(value=-20.0, reason="captain: everywhere"),
-             _scoped(value=-35.0)]
-    spans = [_span((10.0, 14.0))]
-    matched, _ = captain_edits.match_transform_overrides(
-        spans, _tx(), edits, reel_name="Reel 01 - the-cta")
-    assert [m["value"] for m in matched] == [-35.0]
-    matched, _ = captain_edits.match_transform_overrides(
-        spans, _tx(), edits, reel_name="Reel 02 - something-else")
-    assert [m["value"] for m in matched] == [-20.0]
+        spans, _tx(), edits, reel_name=reel)
+    assert [m["value"] for m in matched] == values
+    if stale_scope is None:
+        assert stale == []
+    else:
+        assert len(stale) == 1 and stale[0]["scope"] == stale_scope
+        if edits_key == "scoped":
+            assert "Reel 01 - the-cta" in stale[0]["reason"]
 
 
 
 
-def test_two_reels_rulings_are_two_edits(tmp_path):
-    """Reel 02's Pan for the shared shot must not supersede Reel
-    01's: different scopes are different decisions, and both stay in
-    force."""
-    project = _project(tmp_path)
-    captain_edits.record_edit(str(project), _scoped(), "captain, test")
-    other = _scoped(value=-12.0, reel="Reel 02 - something-else",
-                    reason="captain: reel 02 sits her right")
-    edit, action = captain_edits.record_edit(
-        str(project), other, "captain, test")
-    assert action == "recorded"
-    assert len(captain_edits.load_edits(str(project))) == 2
-
-
-def test_a_same_reel_reruling_supersedes_in_place(tmp_path):
-    project = _project(tmp_path)
-    captain_edits.record_edit(str(project), _scoped(), "captain, test")
-    edit, action = captain_edits.record_edit(
-        str(project), _scoped(value=-12.0,
-                              reason="captain: further left"),
-        "captain, test")
-    assert action == "superseded"
-    assert captain_edits.load_edits(str(project))[0]["value"] == -12.0
+# (record-identity rows above cover the scoped store cases too:
+# different scopes are different decisions, a same-reel re-ruling
+# supersedes - so the two per-scope store tests live in that table.)
 
 
 def test_a_scoped_hold_survives_two_rebuilds(tmp_path):
-    """The whole loop twice: the scoped hold lands on its reel's
-    build and stays off the other's, on every rebuild - by value on
-    the placed item, not asserted."""
+    """The scoped hold lands on its reel and stays off the other's, on
+    every rebuild - by value on the placed item, not asserted."""
     from library.tools import reel_build
     project = _project(tmp_path)
     captain_edits.record_edit(str(project), _scoped(), "captain, test")
@@ -962,15 +922,10 @@ def _freeze(held_master):
 
 
 def test_a_hand_declared_speaker_value_reaches_the_freeze_built_from_that_clip():
-    """Reels 30 and 31, 2026-09-17: the live speaker moved to Pan -26
-    while the freeze held the engine aim (-12.00, -2.24) - the held
-    frame jumped against the live picture in front of it. A freeze
-    speaks nothing, so its own master span is empty and no word anchor
-    could name it; the value arrived only through the build-time copy
-    from whatever played before it. The freeze placement now carries
-    the tail span it was held from (`held_master`), and the match reads
-    the anchor against that - the declaration names the hold directly,
-    on top of the copy that already runs."""
+    """Reels 30/31 2026-09-17: the freeze held the engine aim while the
+    live picture moved; history in `docs/evidence/transform_override.md`.
+    The freeze carries its tail span (`held_master`) and the match reads
+    the anchor against it."""
     shot = _span((10.0, 14.0))
     hold = _freeze((10.0, 14.0))
     matched, stale = captain_edits.match_transform_overrides(

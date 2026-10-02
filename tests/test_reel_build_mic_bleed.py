@@ -1,10 +1,10 @@
 import math
+from collections import Counter
 from types import SimpleNamespace
 
 import pytest
 
 from library.tools.reel_build import suppress_mic_bleed_audio
-
 
 FPS = 24000 / 1001
 
@@ -43,93 +43,100 @@ def _transcript(*speakers):
     ]}
 
 
-def test_measured_bleed_splits_only_the_losing_mic_placement():
+def _stream_row(person, index, track_type):
+    name = person if track_type == "video" else f"{person} CH1"
+    clip = SimpleNamespace(track_type=track_type, track_index=index,
+                           track_name=name, speaker=name,
+                           source_file=f"/{person}.MXF")
+    return {**_placement(name, track_type=track_type), "clip": clip}
+
+
+def _mic_bleed_cases():
     craig = _placement("Craig")
     akshita = _placement("Akshita")
+    measured = _transcript(("Akshita", 103.0, 106.0,
+                            "the clearer microphone owns this line"))
+    measured["mic_bleed_resolution"] = [_decision()]
 
-    transcript = _transcript(("Akshita", 103.0, 106.0,
-                              "the clearer microphone owns this line"))
-    transcript["mic_bleed_resolution"] = [_decision()]
+    channel_akshita = _stream_row("Akshita", 1, "audio")
+    channel_craig = _stream_row("Craig", 2, "audio")
+    pictures = [_stream_row("Akshita", 1, "video")["clip"],
+                _stream_row("Craig", 2, "video")["clip"]]
+
+    return [
+        pytest.param(
+            [craig, akshita], measured, None,
+            {"/Craig.MXF": 2, "/Akshita.MXF": 1},
+            [("Craig", ["Akshita"], int(3 * FPS), round(6 * FPS))],
+            id="split-only-the-losing-mic"),
+        pytest.param(
+            [craig], _transcript(
+                ("Craig", 103.0, 106.0, "a distinct Craig sentence"),
+                ("Akshita", 103.0, 106.0,
+                 "a distinct Akshita sentence")), None,
+            {"/Craig.MXF": 1}, [], id="keep-genuine-overlap"),
+        pytest.param(
+            [_placement("Craig", track_type="video")],
+            _transcript(("Akshita", 103.0, 106.0, "Akshita speaks")),
+            None, {"/Craig.MXF": 1}, [], id="never-mute-picture"),
+        pytest.param(
+            [channel_akshita, channel_craig],
+            _transcript(("Akshita", 100.0, 109.0,
+                         "Akshita holds the turn")), pictures,
+            {"/Akshita.MXF": 1, "/Craig.MXF": 1},
+            [("Craig", ["Akshita"], 0, math.ceil(9 * FPS))],
+            id="resolve-channel-row-through-its-picture-angle"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("placements", "transcript", "master_clips", "kept_counts",
+     "expected_suppressions"),
+    _mic_bleed_cases(),
+)
+def test_mic_bleed_only_suppresses_the_losing_audio_angle(
+        placements, transcript, master_clips, kept_counts,
+        expected_suppressions):
+    """See `docs/evidence/mic_bleed_audio.md` for the measured incident."""
     kept, suppressed = suppress_mic_bleed_audio(
-        [craig, akshita], transcript, FPS)
+        placements, transcript, FPS, master_clips=master_clips)
 
-    craig_parts = [part for part in kept if part["speaker"] == "Craig"]
-    akshita_parts = [part for part in kept if part["speaker"] == "Akshita"]
-    assert len(craig_parts) == 2
-    assert craig_parts[0]["master"][0] == pytest.approx(100.0)
-    assert craig_parts[0]["master"][1] <= 103.0
-    assert craig_parts[0]["source_in"] == pytest.approx(10.0)
-    assert craig_parts[0]["source_out"] == pytest.approx(
-        craig_parts[0]["master"][1] - 90.0)
-    assert craig_parts[1]["master"][0] >= 106.0
-    assert craig_parts[1]["master"][1] == pytest.approx(
-        craig["master"][1])
-    assert craig_parts[1]["source_in"] == pytest.approx(
-        craig_parts[1]["master"][0] - 90.0)
-    assert craig_parts[1]["source_out"] == pytest.approx(
-        craig["source_out"])
-    assert craig_parts[1]["snapped_record"] == round(6 * FPS)
-    assert akshita_parts == [akshita]
-    assert suppressed == [{
-        "speaker": "Craig",
-        "speaking_speakers": ["Akshita"],
-        "source_file": "/Craig.MXF",
-        "passage": "the clearer microphone owns this line",
-        "master_start": 100 + int(3 * FPS) / FPS,
-        "master_end": 100 + math.ceil(6 * FPS) / FPS,
-        "record_start_frame": int(3 * FPS),
-        "record_end_frame": round(6 * FPS),
-    }]
+    kept_by_source = Counter(item["clip"].source_file for item in kept)
+    assert dict(kept_by_source) == kept_counts
+    assert [(entry["speaker"], entry["speaking_speakers"],
+             entry["record_start_frame"], entry["record_end_frame"])
+            for entry in suppressed] == expected_suppressions
 
-
-def test_overlapping_speakers_keep_both_microphones():
-    original = _placement("Craig")
-
-    kept, suppressed = suppress_mic_bleed_audio(
-        [original],
-        _transcript(
-            ("Craig", 103.0, 106.0, "a distinct Craig sentence"),
-            ("Akshita", 103.0, 106.0, "a distinct Akshita sentence")),
-        FPS)
-
-    assert kept == [original]
-    assert suppressed == []
-
-
-def test_mic_bleed_decision_does_not_change_picture_placement():
-    original = _placement("Craig", track_type="video")
-
-    kept, suppressed = suppress_mic_bleed_audio(
-        [original],
-        _transcript(("Akshita", 103.0, 106.0, "Akshita speaks")), FPS)
-
-    assert kept == [original]
-    assert suppressed == []
-
-
-def test_a_speech_row_named_for_its_stream_speaks_for_its_angle():
-    """Reel 09, 2026-10-02: the master's speech rows are "Akshita CH1"
-    and "Craig CH1" while the transcript names "Akshita" and "Craig", so
-    reading the row name as the person muted both microphones through
-    every turn and left 4-7 frame scraps between segments. A speech row
-    joins its picture's angle by track index, and speaks for that
-    angle's person."""
-    def row(person, index, track_type):
-        name = person if track_type == "video" else f"{person} CH1"
-        clip = SimpleNamespace(track_type=track_type, track_index=index,
-                               track_name=name, speaker=name,
-                               source_file=f"/{person}.MXF")
-        return {**_placement(name, track_type=track_type), "clip": clip}
-
-    akshita_speech = row("Akshita", 1, "audio")
-    craig_speech = row("Craig", 2, "audio")
-    pictures = [row("Akshita", 1, "video")["clip"],
-                row("Craig", 2, "video")["clip"]]
-
-    kept, suppressed = suppress_mic_bleed_audio(
-        [akshita_speech, craig_speech],
-        _transcript(("Akshita", 100.0, 109.0, "Akshita holds the turn")),
-        FPS, master_clips=pictures)
-
-    assert akshita_speech in kept
-    assert [entry["speaker"] for entry in suppressed] == ["Craig"]
+    if expected_suppressions and expected_suppressions[0][2] == int(3 * FPS):
+        craig_parts = [part for part in kept if part["speaker"] == "Craig"]
+        [craig] = [item for item in placements if item["speaker"] == "Craig"]
+        akshita = next(item for item in placements
+                       if item["speaker"] == "Akshita")
+        assert len(craig_parts) == 2
+        assert craig_parts[0]["master"][0] == pytest.approx(100.0)
+        assert craig_parts[0]["master"][1] <= 103.0
+        assert craig_parts[0]["source_in"] == pytest.approx(10.0)
+        assert craig_parts[0]["source_out"] == pytest.approx(
+            craig_parts[0]["master"][1] - 90.0)
+        assert craig_parts[1]["master"][0] >= 106.0
+        assert craig_parts[1]["master"][1] == pytest.approx(
+            craig["master"][1])
+        assert craig_parts[1]["source_in"] == pytest.approx(
+            craig_parts[1]["master"][0] - 90.0)
+        assert craig_parts[1]["source_out"] == pytest.approx(
+            craig["source_out"])
+        assert craig_parts[1]["snapped_record"] == round(6 * FPS)
+        assert akshita in kept
+        assert suppressed == [{
+            "speaker": "Craig",
+            "speaking_speakers": ["Akshita"],
+            "source_file": "/Craig.MXF",
+            "passage": "the clearer microphone owns this line",
+            "master_start": 100 + int(3 * FPS) / FPS,
+            "master_end": 100 + math.ceil(6 * FPS) / FPS,
+            "record_start_frame": int(3 * FPS),
+            "record_end_frame": round(6 * FPS),
+        }]
+    elif master_clips:
+        assert next(item for item in placements
+                    if item["speaker"] == "Akshita CH1") in kept

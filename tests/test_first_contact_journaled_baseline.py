@@ -1,19 +1,11 @@
-"""First contact reads the editor's changes off Ren's last journaled touch.
+"""First-contact edit preservation uses the best known Ren baseline.
 
-Edit preservation compares the live reel with Ren's last known snapshot
-(`reel_replace_guard.detect_editor_changes`). A reel last written by a
-touch before snapshots were recorded has none, and first contact fell
-back to the incoming STAGING - so every difference the rebuild itself
-brings (re-split captions, un-halved framing, a new ending) was filed as
-an "editor change" and then refused or, worse, carried back onto the
-rebuild. Reel 09 was the case: live matched its 2026-10-01 touch's
-journal `after` exactly, while its staging differed on most rows.
-
-The touch's journal `after` is Ren's own read of what it left, so it is
-the baseline: what the editor changed since is detected, and what the
-rebuild changes is not.
+The incident history and preservation contract live in
+`docs/evidence/edit_preservation.md`.
 """
 import copy
+
+import pytest
 
 from library.tools import reel_replace_guard as guard
 from library.tools import undo_journal
@@ -79,67 +71,59 @@ def rebuilt_staging():
                     unique_id="staging")
 
 
-def test_a_reel_untouched_since_its_journaled_touch_has_no_editor_change(
-        tmp_path):
-    journal_a_touch(tmp_path, touched_tracks())
-    live = snapshot(touched_tracks())
+@pytest.mark.parametrize(
+    ("case", "editor_change", "later_build", "rescaled_units",
+     "expected_baseline", "expected_change"),
+    [
+        pytest.param("untouched", None, False, False,
+                     "first_contact_journaled_touch", None,
+                     id="journaled-touch-is-baseline"),
+        pytest.param("editor-change", "enabled", False, False,
+                     "first_contact_journaled_touch", "enabled",
+                     id="detect-only-the-edit-after-touch"),
+        pytest.param("later-build", None, True, False,
+                     "first_contact_staging", None,
+                     id="newer-build-supersedes-touch"),
+        pytest.param("unit-rescale", None, False, True,
+                     "first_contact_journaled_touch", None,
+                     id="resolution-unit-change-is-not-an-edit"),
+    ],
+)
+def test_first_contact_preserves_edits_against_the_right_baseline(
+        tmp_path, case, editor_change, later_build, rescaled_units,
+        expected_baseline, expected_change):
+    """See the scenario table and pointer in `docs/evidence/edit_preservation.md`."""
+    tracks = touched_tracks()
+    journal_a_touch(tmp_path, tracks)
+    if later_build:
+        reel_versions.record(tmp_path, FINAL, kind=reel_versions.KIND_BUILD,
+                             rows={})
+
+    live_tracks = copy.deepcopy(tracks)
+    if editor_change == "enabled":
+        live_tracks[0]["clips"][0]["enabled"] = False
+    if rescaled_units:
+        for track in live_tracks:
+            for clip in track["clips"]:
+                clip["transform"]["Pan"] *= 4
+                clip["transform"]["Tilt"] = (
+                    clip["transform"]["Tilt"] * 4 - 696.0)
 
     detection = guard.detect_editor_changes(
-        str(tmp_path), FINAL, live, rebuilt_staging())
+        str(tmp_path), FINAL, snapshot(live_tracks), rebuilt_staging())
 
     assert detection["first_contact"] is True
-    assert detection["baseline"] == "first_contact_journaled_touch"
-    assert detection["detected"] == []
-    assert detection["pending"] == []
-
-
-def test_only_what_the_editor_changed_after_the_touch_is_detected(tmp_path):
-    journal_a_touch(tmp_path, touched_tracks())
-    edited = copy.deepcopy(touched_tracks())
-    edited[0]["clips"][0]["enabled"] = False
-    live = snapshot(edited)
-
-    detection = guard.detect_editor_changes(
-        str(tmp_path), FINAL, live, rebuilt_staging())
-
-    [record] = detection["detected"]
-    assert record["baseline"] == "first_contact_journaled_touch"
-    assert record["ren_action_journal"] == JOURNAL
-    [change] = record["changes"]
-    assert change["kind"] == "item_changed"
-    assert change["after"]["name"] == "LC4932.MXF"
-    assert set(change["changed"]) == {"enabled"}
-
-
-def test_a_rebuild_after_the_touch_is_not_judged_against_the_touch(
-        tmp_path):
-    journal_a_touch(tmp_path, touched_tracks())
-    reel_versions.record(tmp_path, FINAL, kind=reel_versions.KIND_BUILD,
-                         rows={})
-    live = snapshot(touched_tracks())
-
-    detection = guard.detect_editor_changes(
-        str(tmp_path), FINAL, live, rebuilt_staging())
-
-    assert detection["baseline"] == "first_contact_staging"
-
-
-def test_a_unit_epoch_rescale_since_the_touch_is_not_an_editor_change(
-        tmp_path):
-    """Reel 09, 2026-10-02: a project-resolution change rescaled every
-    stored Pan/Tilt x4 after its touch, picture unmoved. A journal records
-    no unit epoch, so its Pan/Tilt are not compared - read as edits, the
-    carry would have written the old unit's values over the rebuild."""
-    journal_a_touch(tmp_path, touched_tracks())
-    rescaled = copy.deepcopy(touched_tracks())
-    for track in rescaled:
-        for clip in track["clips"]:
-            clip["transform"]["Pan"] *= 4
-            clip["transform"]["Tilt"] = clip["transform"]["Tilt"] * 4 - 696.0
-    live = snapshot(rescaled)
-
-    detection = guard.detect_editor_changes(
-        str(tmp_path), FINAL, live, rebuilt_staging())
-
-    assert detection["baseline"] == "first_contact_journaled_touch"
-    assert detection["detected"] == []
+    assert detection["baseline"] == expected_baseline
+    if (expected_change is None
+            and expected_baseline != "first_contact_staging"):
+        assert detection["detected"] == []
+    elif expected_change is not None:
+        [record] = detection["detected"]
+        assert record["baseline"] == expected_baseline
+        assert record["ren_action_journal"] == JOURNAL
+        [change] = record["changes"]
+        assert change["kind"] == "item_changed"
+        assert change["after"]["name"] == "LC4932.MXF"
+        assert set(change["changed"]) == {expected_change}
+    if case == "untouched":
+        assert detection["pending"] == []
