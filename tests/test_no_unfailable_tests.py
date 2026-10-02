@@ -47,7 +47,6 @@ from tests.skip_audit import (  # noqa: E402
 # ── The check, run against this repository ────────────────────────────
 
 
-@pytest.mark.heavy
 def test_no_test_in_this_repo_is_unfailable():
     """Every finding here is a test reporting coverage it does not have.
 

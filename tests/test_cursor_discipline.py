@@ -133,7 +133,6 @@ class _CursorWriterVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-@pytest.mark.heavy
 def test_every_cursor_setter_is_registered():
     """No shipped file sets the cursor without a registry row."""
     seen = {}

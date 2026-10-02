@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Tests for the Fusion node graph object model (Layer 1).
 
@@ -13,6 +12,10 @@ Verifies:
 import os
 import sys
 import unittest
+
+import pytest
+
+pytestmark = pytest.mark.unit
 
 # Add the tools directory to path
 sys.path.insert(

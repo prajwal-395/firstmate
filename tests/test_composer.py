@@ -303,7 +303,6 @@ def test_validation_verdict_goal_closes_through_the_manifest_compile():
 
 # ── The blindness, pinned ─────────────────────────────────────────────
 
-@pytest.mark.heavy
 def test_no_plan_names_a_blind_capability():
     """Across every requirement in the registry, no completed plan names
     one of the five deliberately empty-effect operations.
@@ -428,4 +427,3 @@ def test_fallback_producer_tried_after_strand():
 
 
 # ── CLI ───────────────────────────────────────────────────────────────
-

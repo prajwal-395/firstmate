@@ -107,7 +107,6 @@ def _drive(tmp_path, fail_attempts, answer_count):
     return project, step, manifest, seen, stop_answerer
 
 
-@pytest.mark.heavy
 def test_the_second_context_carries_the_violation(tmp_path):
     """The 29 Aug defect, from the other side: attempt two now differs."""
     project, step, manifest, seen, stop_answerer = _drive(
@@ -136,7 +135,6 @@ def test_the_second_context_carries_the_violation(tmp_path):
     )
 
 
-@pytest.mark.heavy
 def test_the_retry_is_bounded_and_fails_carrying_the_last_violation(tmp_path):
     project, step, manifest, seen, stop_answerer = _drive(
         tmp_path, fail_attempts=99,
@@ -156,7 +154,6 @@ def test_the_retry_is_bounded_and_fails_carrying_the_last_violation(tmp_path):
     assert str(post_bridge_retry.MAX_ATTEMPTS) in str(exc.value)
 
 
-@pytest.mark.heavy
 def test_the_feedback_blocks_accumulate_and_stay_bounded(tmp_path):
     """What happens at the bound: the context grows by a fixed, small
     amount and no more - one elided block per failed attempt."""

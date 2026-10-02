@@ -41,9 +41,9 @@ graph - measured, nearly every step reaches `reel_build` transitively
 through pure helpers - so `HEAVY_LOCK_SITES` CITES the site each heavy
 capability reaches, and `problems()` fails when a lock site in
 `library/` is cited by neither a capability nor `UNCAPABLE_LOCK_SITES`,
-so a new heavy path cannot read LIGHT by omission.  The test tiers
-(`heavy`, `heavy_ml` in `pyproject.toml`) measure TESTS, not
-capabilities, and are not evidence here.
+so a new heavy path cannot read LIGHT by omission. The semantic test
+markers (`unit`, `scenario`, `resolve_live`, and `real_model` in
+`pyproject.toml`) classify tests, not capabilities, and are not evidence here.
 
 The DAG is reached ONLY through `library/tools/dag_adapter.py`.  The
 invariants a registry must hold are `problems()`, pinned by
@@ -57,7 +57,7 @@ import argparse
 import ast
 import json
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 
 from library.tools import dag_adapter
@@ -348,7 +348,7 @@ def unregistered_step_dirs() -> tuple:
     return tuple(sorted(on_disk - reached - explained))
 
 
-@lru_cache(maxsize=None)
+@cache
 def _manifest_outputs(owning_dir: str) -> frozenset:
     path = STEPS_ROOT / owning_dir / "manifest.json"
     try:

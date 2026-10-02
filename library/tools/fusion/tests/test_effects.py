@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Tests for composable effect blocks (Layer 2) and CompEngine (Layer 3).
 
@@ -13,10 +12,14 @@ import os
 import sys
 import unittest
 
+import pytest
+
+pytestmark = pytest.mark.unit
+
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..", "..")
 )
-from fusion.effects import EffectBlock, _reset_counters, fx
+from fusion.effects import _reset_counters, fx
 from fusion.engine import CompEngine
 from fusion.nodes import BezierSpline, FusionNode
 
@@ -49,7 +52,7 @@ class TestEffectBlocks(unittest.TestCase):
         self.assertTrue(len(block.nodes) > 0)
 
         # Find the transform and check it has Center
-        transform = [n for n in block.nodes if isinstance(n, FusionNode)][0]
+        transform = next(n for n in block.nodes if isinstance(n, FusionNode))
         self.assertIn("Center", transform.inputs)
 
     def test_zoom_neutral_skips(self):
@@ -301,4 +304,3 @@ class TestCompEngine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

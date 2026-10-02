@@ -23,6 +23,8 @@ import uuid
 
 import pytest
 
+pytestmark = pytest.mark.resolve_live
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from library.tools.marker_capture import (  # noqa: E402

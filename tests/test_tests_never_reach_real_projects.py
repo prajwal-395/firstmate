@@ -169,7 +169,6 @@ def test_no_test_module_reads_the_projects_root_constant():
     )
 
 
-@pytest.mark.heavy
 def test_no_test_module_hardcodes_a_path_under_a_users_home():
     offenders = []
     for path in _test_sources():
@@ -251,7 +250,6 @@ def _build_decoy(root: Path) -> Path:
     return project
 
 
-@pytest.mark.heavy
 def test_collecting_the_suite_binds_nothing_under_a_populated_projects_root(
         tmp_path):
     decoy_root = tmp_path / "video_projects"

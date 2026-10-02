@@ -279,7 +279,6 @@ _SYNCHRONIZED_WAITER = textwrap.dedent("""
 """)
 
 
-@pytest.mark.heavy
 def test_a_waiter_waits(lock_dir):
     """Two processes, one guarded operation, and the second one waits.
 
@@ -537,7 +536,6 @@ def test_an_excursion_inside_a_fence_is_not_reported_as_drift(lock_dir):
 # bypasses it because a human-initiated action never queues behind its
 # own owner's hold.
 
-@pytest.mark.heavy
 def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir,
                                                                unguarded):
     """Set signal, acquire in a thread, prove it waits, clear it, proceed.
@@ -575,7 +573,6 @@ def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir,
         waiter.join(timeout=30)
 
 
-@pytest.mark.heavy
 def test_a_signal_that_never_clears_raises_instead_of_wedging(lock_dir,
                                                                unguarded):
     """The stale decision: bounded wait, then a refusal that names the hold.

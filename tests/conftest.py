@@ -33,7 +33,7 @@ import pytest
 # disable_telemetry_events() stops ORT telemetry EVENT collection, not
 # the 1DS SDK's own upload/debug-event path - and the eager import was
 # itself the ONLY thing loading onnxruntime_pybind11_state.so into the
-# test process (no test imports it; the heavy_ml test measures with
+# test process (no test imports it; the real_model test measures with
 # parselmouth only), queueing the session-start upload whose response
 # handler crashes at exit.
 #
@@ -51,11 +51,29 @@ def pytest_configure(config):
     loads the native library into every test process and arms the
     shutdown race this block exists to prevent (2026-09-23 SIGABRT).
     """
+    marker_names = {
+        marker.split(":", maxsplit=1)[0]
+        for marker in config.getini("markers")
+    }
+    if "unit" not in marker_names:
+        config.addinivalue_line(
+            "markers",
+            "unit: the default unit-test category for standalone test sessions",
+        )
+
     ort = sys.modules.get("onnxruntime")
     if ort is not None:
         disable = getattr(ort, "disable_telemetry_events", None)
         if disable is not None:
             disable()
+
+
+def pytest_collection_modifyitems(items):
+    """Give otherwise-unmarked tests their semantic default category."""
+    categories = ("unit", "scenario", "resolve_live", "real_model")
+    for item in items:
+        if not any(item.get_closest_marker(name) for name in categories):
+            item.add_marker(pytest.mark.unit)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -161,7 +179,7 @@ if not os.environ.get(SANDBOX_ESCAPE_HATCH_ENV):
 # The env var covers the subprocesses a test spawns (the gate-shim tests
 # run `scripts/full_suite_gate.sh`, which takes the lock); the rebind
 # covers this process, where the module may already have been imported.
-import library.tools.heavy_work_lock as _heavy_work_lock  # noqa: E402
+import library.tools.heavy_work_lock as _heavy_work_lock
 
 _heavy_sandbox = tempfile.mkdtemp(prefix="pipeline-heavy-work-sandbox-")
 os.environ[_heavy_work_lock.LOCK_DIR_ENV] = os.path.join(

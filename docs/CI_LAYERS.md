@@ -58,23 +58,22 @@ Two test files are excluded by name because they drive the **running** DaVinci R
 and switch the current timeline out from under whoever is using the app. CI has no
 Resolve, so they skip there and the exclusion costs no coverage.
 
-The `not heavy_ml and not heavy` selection (the default lane) and the
-`heavy` selection (the slow tier - docs/HEAVY_TIER.md) EACH run in two lanes: a parallel lane (`pytest -n
-<workers> --dist loadfile`) over everything the boundary routes parallel, and a
-serial lane over exactly the files it routes serial. The boundary is executable
-code run fresh on every invocation (`library/tools/lane_routing.py`), and the two
-lane reports merge into one the verdict reads unchanged - same vocabulary, same
-failure directions. `scripts/full_suite_gate.sh --no-parallel` runs the legacy
-single-process selection instead: the control a parallel result is compared
-against, on the same commit, by executed count and pass/fail/skip set.
+Unit and scenario tests run together through a parallel lane
+(`pytest -n <workers> --dist loadfile`) and a serial lane for files the boundary
+routes serial. Previous full-run timings only order files for sharding; they never
+change which tests run. The boundary is executable code run fresh on every
+invocation (`library/tools/lane_routing.py`), and the lane reports merge into one
+verdict. `scripts/full_suite_gate.sh --no-parallel` runs the same selection in one
+process as a control for the parallel result.
 
-The `heavy_ml` selection needs an interpreter carrying the ML stack **at the versions
+The `real_model` selection needs an interpreter carrying the ML stack **at the versions
 `requirements.txt` declares** - importable is not enough, and a wrong version reports
 success while measuring nothing. Building that interpreter, verifying it, and pointing
 `FULL_SUITE_GATE_PYTHON` at it are in [`ML_ENVIRONMENT.md`](ML_ENVIRONMENT.md). When the
-heavy_ml tier cannot run, it is reported through the **same capability mechanism** as every
-other environment gap rather than as a special case. A skipped `heavy` tier narrows the
-run the same way, by name - see [`HEAVY_TIER.md`](HEAVY_TIER.md).
+real_model category cannot run, it narrows the verdict by name through the same capability
+mechanism as other environment gaps. Resolve-live tests carry their own marker and remain
+excluded because they control the running application. See [`HEAVY_TIER.md`](HEAVY_TIER.md)
+for the verified history and current role of timing data.
 
 ### Why layer 2 cannot be replaced by layer 1
 

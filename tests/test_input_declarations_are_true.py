@@ -227,7 +227,6 @@ def test_one_use_anywhere_keeps_a_key_out_of_the_finding(tmp_path):
     assert dead == {}
 
 
-@pytest.mark.heavy
 def test_the_new_findings_report_and_do_not_fail(rows):
     """Out of scope for this change: making a pre-existing finding fail
     the build. `disagreements` - the failing set - is unchanged."""

@@ -288,7 +288,6 @@ def _build_touches_generated(project, stamp):
 
 # ── merge: the captain's real case ───────────────────────────────────
 
-@pytest.mark.heavy
 def test_merge_cutaway_with_cta_and_grade(tmp_path):
     """One variation carries the cutaway, another the CTA redraw (and
     the grade route, which lives outside versioned declarations - see

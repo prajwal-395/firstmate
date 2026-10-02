@@ -1,7 +1,7 @@
 # The ML environment layer 1 needs, and how to rebuild it
 
 `scripts/full_suite_gate.sh` is layer 1 of [the three-layer CI design](CI_LAYERS.md), and
-part of what makes it layer 1 rather than a copy of layer 2 is the `heavy_ml` selection:
+part of what makes it layer 1 rather than a copy of layer 2 is the `real_model` selection:
 those tests exercise the real Apple-Silicon dependencies, which no GitHub runner has. They
 can only run against an interpreter that carries the ML stack **at the versions
 `requirements.txt` declares**.
@@ -127,7 +127,7 @@ Then the real proof, which is the only one that distinguishes a *usable* stack f
 importable one:
 
 ```sh
-$VENV/bin/python3 -m pytest tests/ -m heavy_ml -rs
+$VENV/bin/python3 -m pytest tests/ -m real_model -rs
 # expected: 2 passed
 ```
 
@@ -153,9 +153,9 @@ FULL_SUITE_GATE_PYTHON=~/.local/share/vep/venv-py312/bin/python3 \
     scripts/full_suite_gate.sh
 ```
 
-**If this is not set, and the ambient `python3` lacks the ML stack, the heavy tier is not
+**If this is not set, and the ambient `python3` lacks the ML stack, the real_model category is not
 measured.** The gate is fail-closed and says so in its verdict line rather than passing
-quietly - `heavy_ml` is named as not measured - but a verdict that names an omission is still
+quietly - `real_model` is named as not measured - but a verdict that names an omission is still
 a verdict with an omission in it. Set the variable.
 
 ## A harmless warning you will see
@@ -170,4 +170,4 @@ directly. Do not "fix" it by pinning ffmpeg.
 - `requirements.txt` - its header carries the full 3.14 failure chain, and is the source of
   every version here.
 - `manage_project.py` - `_noncompliant_ml_packages` is the check whose remedy this page is.
-- [`CI_LAYERS.md`](CI_LAYERS.md) - why the heavy tier is local rather than on GitHub.
+- [`CI_LAYERS.md`](CI_LAYERS.md) - why real-model qualification is local rather than on GitHub.

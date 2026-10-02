@@ -10,8 +10,10 @@ testpaths = [
     "library/tools/fusion/tests",
 ]
 markers = [
-    "heavy_ml: marks tests that require heavy ml dependencies like parselmouth",
-    "heavy: marks tests whose worst observed duration across repeated full-suite runs is >= 1.0s (docs/HEAVY_TIER.md) - the slow tier the default lane deselects; NOT optional, the batch gate runs it before anything merges",
+    "unit: marks the default unit-test category (assigned to tests without another semantic marker)",
+    "scenario: marks a multi-component workflow or captured production scenario",
+    "resolve_live: marks tests that drive the running DaVinci Resolve instance",
+    "real_model: marks tests that load and measure with real ML models or dependencies",
     "serial: marks tests that must run in the gate's serial lane (library/tools/lane_routing.py clause 6); takes a reason",
 ]
 

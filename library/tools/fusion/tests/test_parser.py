@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Tests for the .comp / .setting parser (Layer 0).
 
@@ -17,12 +16,15 @@ import sys
 import tempfile
 import unittest
 
+import pytest
+
+pytestmark = pytest.mark.unit
+
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..", "..")
 )
-from fusion.parser import parse_comp, parse_comp_file, parse_setting
 from fusion.nodes import BezierSpline, FusionNode
-
+from fusion.parser import parse_comp, parse_comp_file, parse_setting
 
 # Navigate: tests/ → fusion/ → tools/ → library/ → (workspace root)
 _WORKSPACE = os.path.abspath(os.path.join(
@@ -355,6 +357,7 @@ class TestParseSetting(unittest.TestCase):
         result = subprocess.run(
             ["unzip", "-p", drfx, "Fusion/Tools/Chromatic Aberration.setting"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False,
         )
         if result.returncode != 0:
             self.skipTest("Could not extract setting from drfx")
@@ -378,6 +381,7 @@ class TestParseSetting(unittest.TestCase):
         result = subprocess.run(
             ["unzip", "-p", drfx, "Edit/Transitions/Cross Dissolve.setting"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False,
         )
         if result.returncode != 0:
             self.skipTest("Could not extract setting from drfx")

@@ -3,9 +3,8 @@
 pytest
 
 # Test-gate parallelism
-# scripts/full_suite_gate.sh shards each marker selection (`not heavy_ml
-# and not heavy`, `heavy`) across
+# scripts/full_suite_gate.sh shards the unit/scenario selection across
 # xdist workers (`pytest -n <workers> --dist loadfile`); the serial
-# control (`--no-parallel`) and the heavy_ml tier run without it.
+# control (`--no-parallel`) and real_model phase run without it.
 # Measured basis: data/vep-parallelise-the-test-gate/report.md.
 pytest-xdist>=3.6

@@ -353,7 +353,7 @@ Detail: `tests/test_tests_never_reach_real_projects.py`.
 - **A deferral is per FILE with its count, and that is weaker than it reads**: a listed file is wholly exempt, so a NEW violation in one still passes. Fixing a file means DELETING its line - a line no longer needed is a lie about what is still owed.
 - **The runner installs ffmpeg**, because 27 library files shell out to it and every audio/video measurement path skipped without it. The suite skipped HONESTLY, which is what made it invisible.
 - **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
-- `tests/test_ci_can_fail.py` reads the workflow and fails the moment either hole reopens.
+- `tests/test_gate_smoke.py` checks the workflow and proves a false gate PASS is refused.
 
 **CI is THREE LAYERS, and only the last is on GitHub.**
 Detail: `docs/CI_LAYERS.md`. No push/dispatch/PR fires anything: one

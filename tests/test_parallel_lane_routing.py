@@ -1,202 +1,107 @@
-"""The parallel/serial boundary routes every file to exactly one lane.
+"""Smoke checks for the gate's computed parallel/serial boundary."""
 
-The boundary is executable code run fresh on every gate invocation
-(`library/tools/lane_routing.py`), never a checked-in list.  These
-tests pin it from both directions: synthetic files prove each clause
-fires on the real shape and stays quiet on the known-safe shapes
-(ephemeral ports, stubbed transports, fake modules, docstring examples),
-and whole-tree tests prove every file lands in exactly one lane with
-the measured unsafe set routing serial.
-
-A future test that matches an unsafe shape without the marker fails
-here with the clause reason, and the fix is the marker.
-"""
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-import pytest
+from library.tools.lane_routing import PARALLEL, SERIAL, classify_file, route_suite
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from library.tools.lane_routing import (  # noqa: E402
-    PARALLEL,
-    SERIAL,
-    classify_file,
-    route_suite,
-)
-
 RESOLVE_DRIVING = {
     "tests/test_marker_capture_against_resolve.py",
     "tests/test_marker_feedback_against_resolve.py",
 }
-HEAVY_ML_FILE = "tests/test_ml_dependencies_real.py"
-
-# Files the measurement (data/vep-parallelise-the-test-gate/report.md)
-# verified safe by reading: ephemeral ports, stubbed transports, fake
-# modules.  If any of these routes serial, the boundary is wider than
-# measured and the parallel prize shrinks for no reason.
-KNOWN_SAFE = [
-    "tests/test_gemma_shim.py",  # own servers on ephemeral ports
-    "tests/test_cli_ml_preflight.py",  # blocked-import child interpreters
-    "tests/test_transcript_corrections.py",  # /tmp path to a fake backend
-    "tests/test_brief_reference.py",  # agent-clock patch
-    "tests/test_full_auto.py",  # patch(...generate)
-    "tests/test_qa_feedback_loop_integration.py",  # patched LLM seams
-    "tests/test_vision_model_server.py",  # urlopen stubbed
-    "tests/test_video_segment_analyzer.py",  # generate/load mocked
-    "tests/test_pipeline_skills.py",  # analyze_image[s] monkeypatched
-]
 
 
-def _route_source(tmp_path, name: str, source: str):
-    path = tmp_path / name
+def _route(tmp_path: Path, source: str):
+    path = tmp_path / "test_sample.py"
     path.write_text(source, encoding="utf-8")
     return classify_file(path)
 
 
-class TestClause1LiveProviderCalls:
-    def test_bare_provider_call_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_live():\n"
-            "    assert analyze_image('frame.jpg', 'prompt') != ''\n",
-        )
-        assert route.lane == SERIAL
-        assert "analyze_image" in route.reason
-
-    def test_patched_provider_call_stays_parallel(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "from unittest.mock import patch\n"
-            "\n"
-            "def test_faked():\n"
-            "    with patch('library.tools.vision_model.analyze_image'):\n"
-            "        assert analyze_image('frame.jpg', 'prompt') is not None\n",
-        )
-        assert route.lane == PARALLEL, route.reason
-
-
-class TestClause2WeightLoads:
-    def test_sentence_transformer_construction_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_embed():\n"
-            "    model = SentenceTransformer('all-MiniLM-L6-v2')\n"
-            "    assert model is not None\n",
-        )
-        assert route.lane == SERIAL
-
-    def test_heavy_ml_marker_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
+def test_risky_sources_route_serial(tmp_path):
+    cases = {
+        "live provider": (
+            "def test_live():\n    analyze_image('frame.jpg', 'prompt')\n",
+            "live provider call",
+        ),
+        "weight load": (
+            "def test_model():\n    SentenceTransformer('model')\n",
+            "weight load",
+        ),
+        "fixed port": (
+            "def test_server():\n    serve(port=8080)\n",
+            "fixed port",
+        ),
+        "fixed path": (
+            "def test_file():\n    open('/tmp/fixture.wav')\n",
+            "fixed path",
+        ),
+        "live Resolve": (
+            "def test_resolve(resolve_session):\n    assert resolve_session\n",
+            "resolve_session",
+        ),
+        "declared opt-out": (
             "import pytest\n"
-            "\n"
-            "@pytest.mark.heavy_ml\n"
-            "def test_real_measurement():\n"
-            "    assert True\n",
-        )
-        assert route.lane == SERIAL
-
-
-class TestClause3FixedPorts:
-    def test_fixed_port_keyword_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_server():\n"
-            "    config = serve(host='127.0.0.1', port=8080)\n"
-            "    assert config is not None\n",
-        )
-        assert route.lane == SERIAL
-
-    def test_ephemeral_port_keyword_stays_parallel(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_server():\n"
-            "    config = serve(host='127.0.0.1', port=0)\n"
-            "    assert config is not None\n",
-        )
-        assert route.lane == PARALLEL, route.reason
-
-
-class TestClause4FixedPaths:
-    def test_open_on_tmp_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_file():\n"
-            "    fh = open('/tmp/fixture.wav', 'rb')\n"
-            "    assert fh is not None\n",
-        )
-        assert route.lane == SERIAL
-
-    def test_tmp_path_open_stays_parallel(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_file(tmp_path):\n"
-            "    p = tmp_path / 'out.wav'\n"
-            "    p.write_bytes(b'data')\n"
-            "    assert p.exists()\n",
-        )
-        assert route.lane == PARALLEL, route.reason
-
-
-class TestClause5LiveResolve:
-    def test_resolve_session_fixture_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
-            "def test_drives_app(resolve_session):\n"
-            "    assert resolve_session is not None\n",
-        )
-        assert route.lane == SERIAL
-
-
-class TestClause6ExplicitOptOut:
-    def test_serial_marker_with_reason_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py",
+            "@pytest.mark.serial('shared lock')\n"
+            "def test_shared():\n    pass\n",
+            "mark.serial",
+        ),
+        "reasonless opt-out": (
             "import pytest\n"
-            "\n"
-            "@pytest.mark.serial('shares the hand-rolled lock file')\n"
-            "def test_opted_out():\n"
-            "    assert True\n",
+            "@pytest.mark.serial\n"
+            "def test_shared():\n    pass\n",
+            "without a reason",
+        ),
+    }
+
+    for label, (source, reason) in cases.items():
+        route = _route(tmp_path, source)
+        assert route.lane == SERIAL, f"{label}: {route.reason}"
+        assert reason in route.reason, f"{label}: {route.reason}"
+
+
+def test_stubbed_ephemeral_and_fixture_paths_stay_parallel(tmp_path):
+    cases = (
+        "from unittest.mock import patch\n"
+        "def test_fake():\n"
+        "    with patch('library.tools.vision_model.analyze_image'):\n"
+        "        analyze_image('frame.jpg', 'prompt')\n",
+        "def test_server():\n    serve(host='127.0.0.1', port=0)\n",
+        "def test_file(tmp_path):\n"
+        "    (tmp_path / 'fixture.wav').write_bytes(b'data')\n",
+    )
+
+    for source in cases:
+        route = _route(tmp_path, source)
+        assert route.lane == PARALLEL, route.reason
+
+
+def test_unreadable_and_unparseable_files_fail_closed(tmp_path):
+    malformed = tmp_path / "test_malformed.py"
+    malformed.write_text("def broken(:\n", encoding="utf-8")
+
+    assert "unparseable" in classify_file(malformed).reason
+    assert classify_file(tmp_path / "test_missing.py").lane == SERIAL
+
+
+def test_current_tree_routes_each_file_once_and_declares_its_serial_files():
+    routes = route_suite(REPO_ROOT)
+    files = [route.path for route in routes]
+    assert len(files) == len(set(files))
+
+    by_rel = {route.path.relative_to(REPO_ROOT).as_posix(): route for route in routes}
+    for relative in RESOLVE_DRIVING | {"tests/test_ml_dependencies_real.py"}:
+        assert relative in by_rel, f"{relative} is missing from the test tree"
+        assert by_rel[relative].lane == SERIAL, (
+            f"{relative}: {by_rel[relative].reason}"
         )
-        assert route.lane == SERIAL
-
-
-class TestFailClosed:
-    def test_unparseable_is_serial(self, tmp_path):
-        route = _route_source(
-            tmp_path, "test_x.py", "def broken(:\n  ???\n")
-        assert route.lane == SERIAL
-        assert "unparseable" in route.reason
-
-    def test_missing_file_is_serial(self, tmp_path):
-        route = classify_file(tmp_path / "test_gone.py")
-        assert route.lane == SERIAL
-
-
-class TestWholeTreePinning:
-    def test_measured_unsafe_set_routes_serial(self):
-        by_rel = {
-            str(r.path.relative_to(REPO_ROOT)): r for r in route_suite(REPO_ROOT)
-        }
-        for rel in RESOLVE_DRIVING | {HEAVY_ML_FILE}:
-            assert rel in by_rel, f"{rel} is gone from the tree"
-            assert by_rel[rel].lane == SERIAL, (
-                f"{rel} routes {by_rel[rel].lane}: {by_rel[rel].reason}")
-
-    @pytest.mark.heavy
-    def test_serial_lane_holds_nothing_undeclared(self):
-        """A new serial file must be a Resolve driver, the heavy_ml
-        tier, or an explicit opt-out - never an accidental match."""
-        serial = [r for r in route_suite(REPO_ROOT) if r.lane == SERIAL]
-        for route in serial:
-            rel = str(route.path.relative_to(REPO_ROOT))
-            assert (
-                rel in RESOLVE_DRIVING
-                or "heavy_ml" in route.reason
-                or "mark.serial" in route.reason
-            ), f"{rel} routes serial with no declaration: {route.reason}"
+    for route in routes:
+        if route.lane != SERIAL:
+            continue
+        relative = route.path.relative_to(REPO_ROOT).as_posix()
+        assert (
+            relative in RESOLVE_DRIVING
+            or "real_model" in route.reason
+            or "mark.serial" in route.reason
+        ), f"{relative} has no serial declaration: {route.reason}"

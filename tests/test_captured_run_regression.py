@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.scenario
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -412,7 +414,6 @@ def test_repeated_source_audio_is_rejected(broken_manifest):
     assert len(errors) == 1, errors
     assert "speech_7_seg0" in errors[0] and "0.741s" in errors[0]
     assert "IMG_1816.MOV" in errors[0]
-
 
 
 

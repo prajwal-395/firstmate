@@ -212,7 +212,6 @@ def _bridge_steps():
                   if (p / "bridge.py").is_file())
 
 
-@pytest.mark.heavy
 def test_every_bridge_key_is_declared(tmp_path):
     """Each bridge's emissions are a subset of its manifest's names.
 
@@ -244,7 +243,6 @@ def test_every_bridge_key_is_declared(tmp_path):
         f"fields: {problems}")
 
 
-@pytest.mark.heavy
 def test_no_bridge_key_is_an_unexpected_extra_field(tmp_path):
     """D8's reproduction, generalised to every hybrid step.
 

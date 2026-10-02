@@ -120,7 +120,6 @@ def _answer_when_asked(project: Path, node_id: str, answer: dict):
     return t
 
 
-@pytest.mark.heavy
 def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
     """End to end, through the runner, in the mode this pipeline runs in.
 
@@ -174,7 +173,6 @@ def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
     assert "hard_cut" in request["prompt"]
 
 
-@pytest.mark.heavy
 def test_a_project_that_selected_no_brand_contributes_no_brand_text(tmp_path):
     """The other half, and the point of the change.
 

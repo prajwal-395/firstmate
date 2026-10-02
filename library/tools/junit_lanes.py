@@ -1,7 +1,6 @@
 """Lane-report plumbing for the parallel full-suite gate.
 
-The gate runs each marker selection (``not heavy_ml and not heavy``,
-``heavy``) in two lanes (parallel over
+The gate runs the unit and scenario selection in two lanes (parallel over
 xdist, serial single-process) and merges the lane JUnit XMLs into ONE
 report that the existing verdict logic reads unchanged.  Four helpers,
 each executable from the gate script:
@@ -40,7 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tests import skip_audit  # noqa: E402
+from tests import skip_audit
 
 # A rate-limit refusal names itself; a race does not.  Keep the throttle
 # patterns narrow (numeric codes and explicit quota language) so a
@@ -82,7 +81,7 @@ def read_counts(xml_path: str) -> LaneCounts | None:
     """Executed/skipped counts from one lane XML, or None when unreadable."""
     try:
         root = ET.parse(xml_path).getroot()
-    except Exception:
+    except (ET.ParseError, OSError):
         return None
     suites = _suites(root)
     if not suites:
@@ -116,7 +115,7 @@ def merge_reports(inputs: list[str], output: str) -> tuple[bool, str]:
     for path in inputs:
         try:
             parsed.append(ET.parse(path).getroot())
-        except Exception as exc:
+        except (ET.ParseError, OSError) as exc:
             return False, f"{path} did not parse ({exc.__class__.__name__})"
     if not parsed:
         return False, "no lane report to merge"
@@ -161,7 +160,7 @@ def undeclared_skips(xml_path: str) -> list[tuple[str, str]]:
     """(nodeid, reason) for skips no EnvironmentCondition declares."""
     try:
         root = ET.parse(xml_path).getroot()
-    except Exception:
+    except (ET.ParseError, OSError):
         return []
     found: list[tuple[str, str]] = []
     for case in root.iter("testcase"):
@@ -185,7 +184,7 @@ def triage_failures(xml_path: str) -> list[tuple[str, str, str]]:
     """
     try:
         root = ET.parse(xml_path).getroot()
-    except Exception:
+    except (ET.ParseError, OSError):
         return []
     out: list[tuple[str, str, str]] = []
     for case in root.iter("testcase"):

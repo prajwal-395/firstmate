@@ -87,7 +87,6 @@ def _keys_read_off(name_set, tree):
 
 # ── ENFORCING: the creative direction ────────────────────────────────
 
-@pytest.mark.heavy
 def test_no_code_reads_a_creative_direction_key_that_cannot_exist():
     """The defect this change closes, made unrepeatable.
 

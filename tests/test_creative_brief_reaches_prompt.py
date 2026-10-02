@@ -216,7 +216,6 @@ def _answer_when_asked(project: Path, node_id: str, answer: dict):
     return t
 
 
-@pytest.mark.heavy
 def test_the_brief_reaches_the_text_handed_to_the_model(tmp_path):
     """The end-to-end assertion: the words are in the request.
 
@@ -258,7 +257,6 @@ def test_the_brief_reaches_the_text_handed_to_the_model(tmp_path):
     assert "Minimal cuts" in haystack
 
 
-@pytest.mark.heavy
 def test_context_field_projection_does_not_drop_the_brief(tmp_path):
     """`context_fields` deletes every key it does not name.
 
@@ -330,7 +328,6 @@ def test_a_project_declaring_none_stays_declaring_none(tmp_path):
     assert not state.get("creative_brief")
 
 
-@pytest.mark.heavy
 def test_a_brief_in_a_read_only_planning_tree_reaches_the_request(tmp_path, request):
     """The whole path, from the declaration to the file the model is given.
 

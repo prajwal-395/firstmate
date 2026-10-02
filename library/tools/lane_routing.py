@@ -19,9 +19,8 @@ match):
 2. WEIGHT LOADS: a real ``SentenceTransformer(...)``,
    ``load_align_model`` or ``WhisperModel(...)``
    construction.  N workers loading gigabytes contend for RAM and the
-   hub download.  (``load_audio`` merely decodes.  ``heavy_ml`` is this
-   clause's existing name for the heaviest cases, and any file carrying
-   the ``heavy_ml`` marker routes serial with the tier it belongs to.)
+   hub download.  (``load_audio`` merely decodes.  Files marked
+   ``real_model`` route serial because they load real weights.)
 3. FIXED PORTS: a real ``bind()`` with a nonzero constant port, or a
    nonzero constant ``port=`` keyword.  ``port=0`` is ephemeral and
    exempt.
@@ -39,7 +38,7 @@ serial (costs wall clock, never correctness).
 
 Measured basis: data/vep-parallelise-the-test-gate/report.md - 3 files
 serial out of 600, all already handled (two Resolve drivers, one
-heavy_ml tier), so the serial lane of the sharded selection is empty
+real_model tier), so the serial lane of the sharded selection is empty
 today.  ``tests/test_parallel_lane_routing.py`` pins every file to
 exactly one lane, the known-unsafe shapes to serial, and the known-safe
 shapes (ephemeral ports, stubbed transports, fake modules, docstring
@@ -267,8 +266,17 @@ def _clause_6_explicit_opt_out(tree: ast.Module) -> str:
     return ""
 
 
-def _has_heavy_ml_marker(tree: ast.Module) -> bool:
+def _has_real_model_marker(tree: ast.Module) -> bool:
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(target, ast.Name) and target.id == "pytestmark"
+                   for target in targets):
+                value = node.value
+                if value is not None and any(isinstance(part, ast.Attribute)
+                       and part.attr == "real_model"
+                       for part in ast.walk(value)):
+                    return True
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
@@ -279,7 +287,7 @@ def _has_heavy_ml_marker(tree: ast.Module) -> bool:
                 target = target.value
             if isinstance(target, ast.Name):
                 names.append(target.id)
-            if "heavy_ml" in names:
+            if "real_model" in names:
                 return True
     return False
 
@@ -305,8 +313,8 @@ def classify_file(path: Path) -> LaneRoute:
     ):
         if clause:
             return LaneRoute(path, SERIAL, clause)
-    if _has_heavy_ml_marker(tree):
-        return LaneRoute(path, SERIAL, "heavy_ml marker - the tier runs serial")
+    if _has_real_model_marker(tree):
+        return LaneRoute(path, SERIAL, "real_model marker - real model loads run serial")
     return LaneRoute(path, PARALLEL, "matches no serial clause")
 
 

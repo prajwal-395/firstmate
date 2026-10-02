@@ -313,7 +313,6 @@ def test_tight_video_renders_natively_at_the_constant_canvas(tmp_path):
         OVERLAY_VIDEO_CODEC
 
 
-@pytest.mark.heavy
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
 def test_tight_video_edge_touch_falls_back_to_full_canvas(tmp_path):
     """Ink on the canvas edge is clipped pixels no repositioning can
@@ -355,7 +354,6 @@ def test_tight_video_edge_touch_falls_back_to_full_canvas(tmp_path):
     assert _probe_leftovers(str(tmp_path)) == []
 
 
-@pytest.mark.heavy
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
 def test_tight_render_drawing_nothing_records_full_geometry(tmp_path):
     """A card with nothing to bound is full canvas IN THE RECORD too.

@@ -574,7 +574,6 @@ def test_the_persistent_renderer_never_shells_out_to_npx():
         f"class exists to remove.")
 
 
-@pytest.mark.heavy
 def test_a_wedged_child_times_out_rather_than_hanging_the_run(tmp_path):
     """ALIVE but not answering - which `poll()` cannot see.
 

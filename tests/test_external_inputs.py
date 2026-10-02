@@ -215,7 +215,6 @@ def test_the_verified_value_reaches_the_step(tmp_path):
     assert inputs["assembly_manifest"] == manifest
 
 
-@pytest.mark.heavy
 def test_a_whole_pipeline_collapses_to_the_step_that_still_has_work(
         tmp_path):
     """The captain's case end to end: the cut and the master both exist
@@ -407,7 +406,6 @@ def test_a_music_selection_naming_a_missing_file_is_refused(tmp_path):
     assert "does not exist" in str(exc.value) or "not a file" in str(exc.value)
 
 
-@pytest.mark.heavy
 def test_a_music_selection_whose_file_carries_no_audio_is_refused(tmp_path):
     """A path that exists is not a bed. The one check here that is not
     about JSON."""

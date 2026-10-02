@@ -127,7 +127,6 @@ def _global_time_patches(tree: ast.AST):
     return offenders
 
 
-@pytest.mark.heavy
 def test_no_test_patches_the_global_sleep_or_clock():
     """The amplifier stays shut: no test stubs `time` itself.
 

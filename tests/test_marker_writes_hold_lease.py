@@ -332,7 +332,6 @@ def _probe_main(argv):
     raise SystemExit(f"unknown probe {argv!r}")
 
 
-@pytest.mark.heavy
 def test_contended_marker_write_refuses_then_lands(tmp_path):
     """While EXCLUSIVE is held elsewhere the write refuses; after, it
     lands - and a SEPARATE process reads back its TEXT and colour."""

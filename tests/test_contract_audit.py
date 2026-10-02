@@ -25,7 +25,6 @@ def test_the_graph_is_sound():
     assert contract_audit.problems() == []
 
 
-@pytest.mark.heavy
 def test_the_surveys_agree():
     assert contract_audit.survey_problems() == []
 
