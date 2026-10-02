@@ -1,15 +1,10 @@
 """Tests that reasoning traces and LLM archives survive across runs.
 
 The core assertion: a second run cannot silently overwrite the first
-run's reasoning traces.  This is tested against a scratch project, not
-a fixture, because the task explicitly requires real-data verification
-and the repo has a history of fixes that pass their own test and change
-nothing on real data.
+run's reasoning traces, and a retry with the same run id is idempotent.
 """
 
 import json
-import os
-import shutil
 from pathlib import Path
 
 import pytest
@@ -115,38 +110,8 @@ def test_archive_preserves_first_run(scratch_project):
         encoding="utf-8"
     )
 
-
-def test_archive_idempotent_on_retry(scratch_project):
-    """Re-archiving with the same run_id does not overwrite."""
-    project = scratch_project
-    layout = ProjectLayout(project)
-    reasoning_dir = layout.read_dir(Area.REASONING)
-
-    run_id = provenance.new_run_id()
-    first = archive_previous_run(str(project), run_id)
-    assert first is not None
-
-    # Overwrite reasoning to simulate a partial retry
-    (reasoning_dir / "creative_direction.md").write_text(
-        "CHANGED AFTER ARCHIVE", encoding="utf-8"
-    )
-
-    # Second call with same run_id returns the existing archive
-    second = archive_previous_run(str(project), run_id)
-    assert second == first
-
-    # Archive content is still from the FIRST call
-    content = (first / "reasoning" / "creative_direction.md").read_text(
-        encoding="utf-8"
-    )
-    assert "CHANGED AFTER ARCHIVE" not in content
-
-
-
-
-
-
-
-
-
-
+    # A retry with the same run_id returns the existing archive and does
+    # not overwrite it with the changed traces.
+    assert archive_previous_run(str(project), run_id_2) == archived
+    assert archived_after == (archived / "reasoning" / "creative_direction.md"
+                              ).read_text(encoding="utf-8")

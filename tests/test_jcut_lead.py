@@ -1,30 +1,8 @@
-"""Sound may LEAD picture: a J-cut lead is declarable and bounded.
+"""Sound may LEAD picture: `lead_seconds` on an `sfx_creative` entry starts
+the whole sound earlier, bounded by the previous cut and the top of the
+reel; a lead outside those bounds is refused.
 
-Captain's ruling 2026-09-08: a riser can swell BEFORE the cut it belongs
-to rather than starting on it. Today SFX are anchored strictly to cut
-boundaries. The declaration is `lead_seconds` on an `sfx_creative` entry:
-the whole sound starts that many seconds earlier, at the same duration,
-so a build arrives early instead of landing on the cut.
-
-Two boundaries refuse it, and both are about not reaching into a moment
-the plan did not name:
-
-  * past the previous cut - the lead start must not be earlier than the
-    timeline start of the nearest preceding spine block. A sound that
-    starts before the previous cut spans two boundaries and belongs to
-    neither block.
-  * off the top of the reel - the lead start must not be negative. The
-    first block has no previous cut, so zero is its only boundary.
-
-A non-numeric or negative lead is refused the same way: a lead that is
-not a positive number of seconds states no timing.
-
-This is purely a placement offset - `compile_manifest` reads
-`timeline_in` / `timeline_out` / `source_in` whatever produced them, so
-the mix step needs to know nothing. And it composes with the atmospheric
-layer: a reasoned `role: "layer"` with a lead is the riser swelling
-before the cut, under the previous block's tail, unmoved by speech
-avoidance.
+History: docs/evidence/jl_cuts.md.
 """
 import json
 import os
@@ -111,29 +89,41 @@ def _run(payload, env_lib):
 
 def test_lead_starts_the_sound_before_the_cut(tmp_path):
     """Block 2 starts at 6.0; a 1.5s lead starts the 8s drone at 4.5
-    and the duration is preserved, not re-anchored."""
+    and the duration is preserved, not re-anchored. The boundary is
+    inclusive: block 3's hit led 6.0s lands exactly ON the previous cut
+    and reaches into no earlier moment."""
     lib = _library(tmp_path)
     proc = _run(_payload([
         {"spine_block_position": 2, "sfx_id": DRONE, "volume_db": -16,
          "lead_seconds": 1.5,
          "rationale": "the riser swells before the cut it belongs to"},
+        {"spine_block_position": 3, "sfx_id": IMPACT, "volume_db": -8,
+         "lead_seconds": 6.0, "rationale": "a hit across the whole tail"},
     ], _blocks()), lib)
     assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
-    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
-    assert len(placed) == 1
-    assert placed[0]["timeline_in"] == 4.5
-    assert placed[0]["timeline_out"] == 12.5
-    assert placed[0]["duration_seconds"] == 8.0
-    assert placed[0]["lead_seconds"] == 1.5
+    placed = {s["sfx_id"]: s
+              for s in json.loads(proc.stdout)["sfx_spec"]["sfx_list"]}
+    assert set(placed) == {DRONE, IMPACT}
+    assert placed[DRONE]["timeline_in"] == 4.5
+    assert placed[DRONE]["timeline_out"] == 12.5
+    assert placed[DRONE]["duration_seconds"] == 8.0
+    assert placed[DRONE]["lead_seconds"] == 1.5
+    assert placed[IMPACT]["timeline_in"] == 6.0
 
 
-def test_lead_past_the_previous_cut_is_refused(tmp_path):
-    """Block 2 starts at 6.0 and the previous cut is 0.0; an 8s lead
-    would start at -2.0, past it. The entry goes and the run survives."""
+def test_a_lead_reaching_outside_its_block_is_refused(tmp_path):
+    """Past the previous cut (block 2 at 6.0 led 8s starts at -2.0),
+    off the top of the reel (block 1 has no previous cut), and a
+    negative lead each drop their entry by name; the run survives and
+    an unled hit still lands."""
     lib = _library(tmp_path)
     proc = _run(_payload([
         {"spine_block_position": 2, "sfx_id": DRONE, "volume_db": -16,
          "lead_seconds": 8.0, "rationale": "too early a swell"},
+        {"spine_block_position": 1, "sfx_id": DRONE, "volume_db": -16,
+         "lead_seconds": 1.0, "rationale": "a swell with nowhere early"},
+        {"spine_block_position": 2, "sfx_id": DRONE, "volume_db": -16,
+         "lead_seconds": -1.0, "rationale": "a lead backwards"},
         {"spine_block_position": 3, "sfx_id": IMPACT, "volume_db": -8,
          "rationale": "the hit that still lands"},
     ], _blocks()), lib)
@@ -141,45 +131,7 @@ def test_lead_past_the_previous_cut_is_refused(tmp_path):
     placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
     assert [s["sfx_id"] for s in placed] == [IMPACT]
     assert "previous cut" in proc.stderr
-
-
-def test_lead_off_the_top_of_the_reel_is_refused(tmp_path):
-    """Block 1 starts at 0.0 and has no previous cut; any lead runs off
-    the top."""
-    lib = _library(tmp_path)
-    proc = _run(_payload([
-        {"spine_block_position": 1, "sfx_id": DRONE, "volume_db": -16,
-         "lead_seconds": 1.0, "rationale": "a swell with nowhere early"},
-    ], _blocks()), lib)
-    assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
-    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
-    assert placed == []
     assert "top of the reel" in proc.stderr
-
-
-def test_lead_landing_exactly_on_the_previous_cut_is_allowed(tmp_path):
-    """The boundary is inclusive: starting AT the previous cut reaches
-    into no earlier moment."""
-    lib = _library(tmp_path)
-    proc = _run(_payload([
-        {"spine_block_position": 2, "sfx_id": DRONE, "volume_db": -16,
-         "lead_seconds": 6.0, "rationale": "a swell across the whole tail"},
-    ], _blocks()), lib)
-    assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
-    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
-    assert len(placed) == 1
-    assert placed[0]["timeline_in"] == 0.0
-
-
-def test_negative_lead_is_refused(tmp_path):
-    lib = _library(tmp_path)
-    proc = _run(_payload([
-        {"spine_block_position": 2, "sfx_id": DRONE, "volume_db": -16,
-         "lead_seconds": -1.0, "rationale": "a lead backwards"},
-    ], _blocks()), lib)
-    assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
-    placed = json.loads(proc.stdout)["sfx_spec"]["sfx_list"]
-    assert placed == []
 
 
 def test_layer_with_a_lead_swells_early_and_under_speech(tmp_path):

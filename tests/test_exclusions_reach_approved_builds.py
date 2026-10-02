@@ -1,23 +1,7 @@
-"""A recorded exclusion reaches an approved moment's build.
+"""A recorded keep exclusion cuts an APPROVED moment's build ranges - one
+reel in, one reel out, fewer seconds.
 
-The captain struck "so what do they" (lc-0002, 653.42-654.35s) on
-APPROVED Reel 09 three times, and the build played it every time.
-Selection enforces strikes on NEW proposals only
-(`select_reels/post_bridge.py`), and `rebuild_reels_in_project` never
-read the store - so the guard meant to stop the ENGINE re-deciding an
-approved range also stopped the CAPTAIN's own strikes on exactly the
-reels they annotated. These tests pin the fix:
-
-- a strike cuts the approved build's ranges (`reel_ranges(extra_cuts)`):
-  one reel in, one reel out, fewer seconds - never two;
-- the selection-time trim-or-drop (`apply_keep_exclusions`) is UNCHANGED,
-  so the no-split rule still holds where proposals are drawn;
-- a strike the build cannot honour (whole body gone, edge through a
-  word) is refused or dropped WITH its reason, never placed silently.
-
-Fail-before: `reel_ranges` takes no `extra_cuts`, and
-`transcript_corrections` has no `exclusion_cuts_for_span` - the first
-two tests error on import/call, not on assertion.
+History: docs/evidence/reel_take_cuts.md.
 """
 
 from __future__ import annotations
@@ -80,33 +64,21 @@ def test_a_mid_moment_strike_cuts_the_builds_ranges_not_the_reel():
     unreachable at build time (selection drops such moments, and the
     build never read the store), so approved Reel 09 kept playing the
     struck false start. Now it cuts the ranges - the reel stays ONE
-    reel with a hole where the struck seconds were."""
-    from library.tools.reel_build import reel_ranges
-    ranges = reel_ranges(
-        _moment(0.0, 40.0), _false_start_tx(),
-        extra_cuts=[(10.0, 10.9, "lc-0002")])
-    assert ranges == [(0.0, 10.0), (10.9, 40.0)]
-
-
-def test_struck_words_are_absent_from_what_plays():
-    """The captain's proof, at unit level: the built timeline's OWN
-    speech (`played_speech` over the cut ranges, word entries) carries
+    reel with a hole where the struck seconds were - and the built
+    timeline's OWN speech (`played_speech` over the cut ranges) carries
     the kept 'so what else' and none of the struck 'so what do they'."""
+    from library.tools.reel_build import reel_ranges
     from library.tools.reel_quality_bar import played_speech
     tx = _false_start_tx()
     moment = _moment(0.0, 40.0)
+    strike = [(10.0, 10.9, "lc-0002")]
+    assert reel_ranges(moment, tx, extra_cuts=strike) == [
+        (0.0, 10.0), (10.9, 40.0)]
     before = [w["word"] for line in played_speech(moment, tx, with_words=True)
               for w in line.get("words", [])]
     assert before.count("so") == 2  # false start AND kept opening
     after = [w["word"] for line in played_speech(
-        moment, tx, with_words=True, extra_cuts=[(10.0, 10.9, "lc-0002")])
+        moment, tx, with_words=True, extra_cuts=strike)
         for w in line.get("words", [])]
     assert "else" in after  # the kept continuation still plays
-    first_so = [w for w in after if w == "so"]
-    assert len(first_so) == 1  # only the kept one
-
-
-# ── The neighbouring rule still holds ────────────────────────────────
-
-
-# ── Durability: the store, twice ─────────────────────────────────────
+    assert after.count("so") == 1  # only the kept one

@@ -126,3 +126,63 @@ A look is delivered in two halves, because that is what the mechanisms can expre
 - **Exposure is MEASURED, and normalised only onto a reference the declaration carries.** A clip nothing measured carries `null` and a reason, never `0.0`. `exposure_reference` is the declared target. [why](docs/RULE_EVIDENCE.md#the-exposure-probe-measured-nothing)
 - `tests/test_series_look.py`, `tests/test_color_grade_delivery.py`.
 ```
+
+## `tests/test_reel_grade_cdl.py` module docstring (moved 2026-10-02)
+
+```text
+The declared CDL reaches reel picture clips, CDL-first.
+
+PR 881 delivered the Fusion four (pivot contrast, glow, grain, vignette)
+onto every reel picture clip. The CDL half - slope/offset/power/saturation,
+which carries the warm-skin-over-teal-shadows split itself - never reached
+a reel: step 6.01's master path applies it through `TimelineItem.SetCDL`
+and `reel_build` has no SetCDL call at all.
+
+Three things have to be true for the split to reach the picture:
+
+1. The CDL half resolves from the same declaration the Fusion half reads -
+   the project's own `style.series_look` winning whole-slot over its brand
+   template's (`effective_series_look`) - in the key names the renderer
+   reads (`slope_r`...`saturation`, the names step 6.01 formats).
+2. Every footage picture item on the reel gets `SetCDL` on Color page
+   node 1 (PR 870: that is where SetCDL lands on the master), and nothing
+   else does - not rendered cards sharing the picture rows, not the frame
+   overlay, not the captions.
+3. The full look proves in decoded pixels against
+   `data/vep-grade-variants-to-choose-from/v04_teal_split.jpg` in the
+   firstmate home: the Fusion four alone
+   reach the still's luminance, and the CDL moves the COLOUR statistics
+   toward the still's - warm skin (R-B) over teal shadows (B-R).
+   The CDL-versus-Fusion ordering is CDL first, established from PR 866's
+   recipe (`data/vep-grade-variants-to-choose-from/report.md` in the
+   firstmate home, section 2: "Grade order:
+   CDL first (as SetCDL on the timeline item), then the Fusion chain in
+   node order") - not assumed.
+```
+
+## `tests/test_reel_grade_through_fusion.py` (moved from its module docstring, 2026-10-02)
+
+A declared look through Fusion on the reels path, at declared values.
+
+The captain approved the Fusion route for the four nodes no scriptable
+Color page call can reach (pivot contrast, glow, grain, vignette), and
+their numbers live in a project's own `project.yaml` under
+`style.series_look` - contrast 0.12, glow 0.20/0.72/3.5, grain 0.35/1.5,
+vignette 0.35/0.30.
+
+Two things have to be true for those numbers to reach the picture:
+
+1. The comp must carry what Fusion's own tool means by them. The
+   declaration says contrast in pivot-gain units (0 is neutral, the same
+   units the reference stills were rendered in) and Fusion's
+   `BrightnessContrast.Contrast` is neutral at 0.0 as well, so it is
+   emitted VERBATIM. This file asserted `1.12` for a day, from the
+   grade-variant report's PREDICTION that Fusion's neutral was 1.0;
+   probing the tool says its default is 0.0, and a still off the live
+   Reel 09 says `Contrast = 0.0` is byte-identical to having no node at
+   all while `1.12` crushes the mean luma from 45.39 to 19.74 where the
+   declared 0.12 takes it to 39.97 (see `fusion/effects.fx.grade`).
+2. The reels path must merge the look onto every picture clip. Step
+   5.04 merges `fusion_look` onto every V1/V2 clip of the master, but
+   the reel manifest (`reel_look.fusion_manifest`) carried only the
+   switch animation and the drift - the grade never reached a reel.

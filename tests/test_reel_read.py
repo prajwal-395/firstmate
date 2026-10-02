@@ -8,15 +8,12 @@ marker alongside the timeline-level ones, because its marker half IS
 """
 
 import ast
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from library.tools import reel_read
 from library.tools import reel_replace_guard as guard
-from library.tools.timeline_serializer import serialize_timeline_state
 
 REEL = "Reel 09 - moment"
 
@@ -192,7 +189,7 @@ class _Project:
         return self.current
 
 
-def test_the_reader_sees_the_clip_marker_alongside_timeline_ones(tmp_path):
+def test_one_read_carries_every_marker_level_and_the_clips(tmp_path):
     timeline, project_folder = _reel(tmp_path)
     result = reel_read.read_reel(timeline, "Pipeline_Edit",
                                  project_folder=project_folder,
@@ -211,12 +208,6 @@ def test_the_reader_sees_the_clip_marker_alongside_timeline_ones(tmp_path):
     assert clip_notes[0]["attached_clip"]["name"] == "craig-take"
     assert by_source["timeline_marker"][0]["frame"] == 108000 + 50
 
-
-def test_clips_carry_ranges_source_ranges_and_transforms(tmp_path):
-    timeline, project_folder = _reel(tmp_path)
-    result = reel_read.read_reel(timeline, "Pipeline_Edit",
-                                 project_folder=project_folder,
-                                 resolve_project=_Project(timeline))
     clips = reel_read.clips_of(result)
     assert len(clips) == 1
     clip = clips[0]
@@ -224,10 +215,6 @@ def test_clips_carry_ranges_source_ranges_and_transforms(tmp_path):
     assert clip["source_file"] == "/footage/craig.mov"
     assert clip["transform"]["ZoomX"] == 1.0
     assert clip["fusion"] == {"comp_count": 0, "comp_names": [],
-                              # Where each comp's MediaIn reads from, and
-                              # whether it covers the frames the item
-                              # plays (`library/tools/comp_media_window.py`).
-                              # No comps here, so no rows.
                               "media_windows": []}
     assert result["fps"] == 24
     assert (result["width"], result["height"]) == (1080, 1920)
@@ -328,29 +315,6 @@ def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
                                "TightBoxMismatch"}, tight_box_names
 
 
-NEEDS_FFMPEG = shutil.which("ffmpeg") is None
-FFMPEG_REASON = "needs ffmpeg; runs in CI, which installs it (AGENTS.md 9)"
-
-
-def _encode_mov(frame_paths, mov_path):
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-framerate", "24",
-         "-i", str(frame_paths[0].parent / "movshot-%04d.png"),
-         "-c:v", "qtrle", "-pix_fmt", "argb", str(mov_path)],
-        check=True)
-
-
-def _ink_frame(path, box):
-    from PIL import Image
-
-    frame = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
-    pixels = frame.load()
-    for x in range(box[0], box[2]):
-        for y in range(box[1], box[3]):
-            pixels[x, y] = (255, 255, 255, 255)
-    frame.save(path)
-
-
 # ── The currency check: a scaled reading refuses ───────────────────
 #
 # Measured 2026-09-15 on Resolve Studio 21.1.0.14: Pan/Tilt read
@@ -414,11 +378,10 @@ def _measured_world():
     return project, master, reel13, reel26
 
 
-    # Nothing on the reading marks its condition: this is the defect -
-    # a scaled number in the exact shape a measurement arrives in.
-
-
-def test_the_new_shape_refuses_a_timeline_that_is_not_current(tmp_path):
+def test_a_read_refuses_unless_the_reel_is_current(tmp_path):
+    """Through a non-current handle Pan/Tilt come back scaled with
+    nothing marking it, so the read refuses; with the reel current it
+    returns the true values."""
     project, _master, reel13, _reel26 = _measured_world()
     with pytest.raises(reel_read.ReelReadError) as exc:
         reel_read.read_reel(reel13, "Pipeline_Edit",
@@ -428,9 +391,6 @@ def test_the_new_shape_refuses_a_timeline_that_is_not_current(tmp_path):
     assert "not current" in message
     assert "Reel 13" in message and "Master" in message
 
-
-def test_the_new_shape_reads_true_values_with_the_reel_current(tmp_path):
-    project, _master, reel13, _reel26 = _measured_world()
     project.current = reel13
     result = reel_read.read_reel(reel13, "Pipeline_Edit",
                                  project_folder=str(tmp_path),
@@ -456,69 +416,3 @@ def test_the_same_resolution_control_reads_unscaled_yet_still_refuses(
         reel_read.read_reel(reel26, "Pipeline_Edit",
                             project_folder=str(tmp_path),
                             resolve_project=project)
-
-
-# ── The enforceable half: no new probe ────────────────────────────
-#
-# A rule nobody can check loses to whatever is quicker, which is exactly
-# what happened. A direct `GetMarkers` / `GetItemListInTrack` call outside
-# the modules below is a new probe by another name: take a slice of
-# `reel_read` instead. `reel_replace_guard` is deliberately ABSENT - it
-# takes its rows from the one reader, and this test proves it.
-#
-# Deferred by name (a full migration is too large for this task): every
-# other module below still reads Resolve objects directly.
-# Write-path confirmation reads (`marker_resolution`, `mark_master`)
-# re-resolve a single key before deleting, which is not a probe.
-#
-# Three more modules read directly and stay listed, because a
-# `reel_read` slice cannot serve them:
-# - `resolve_axi` IS the sanctioned read surface: its `GetMarkers` /
-#   `GetItemListInTrack` calls are the reads agents are given, covered
-#   by their own AST and cursor tests.
-# - `caption_swap` and `reel_fusion_comps` are writers that need LIVE
-#   item handles (`ReplaceClip` plus read-back; per-item
-#   `ExportFusionComp`) off a timeline the caller already holds. A
-#   snapshot slice carries data, never handles, so routing them would
-#   take a new handle-carrying API - a bigger change for no gain.
-READER_MODULES = {
-    "library/tools/reel_read.py",
-    "library/tools/marker_feedback.py",
-    "library/tools/marker_resolution.py",
-    "library/tools/timeline_ingest.py",
-    "library/tools/timeline_serializer.py",
-    "library/tools/marker_capture.py",
-    "library/tools/marker_carry.py",
-    "library/tools/timeline_decisions.py",
-    "library/tools/timeline_conformance.py",
-    "library/tools/timeline_qa.py",
-    "library/tools/captain_edits.py",
-    "library/tools/overlay_placement.py",
-    "library/tools/reel_build.py",
-    "library/tools/reel_look.py",
-    "library/tools/resolve_axi.py",
-    "library/tools/caption_swap.py",
-    "library/tools/reel_fusion_comps.py",
-    "library/tools/qa/timeline_sync_qa.py",
-    "library/tools/execution/apply_fusion_comps.py",
-    "library/tools/execution/mark_master.py",
-    "library/tools/execution/organise_media_pool.py",
-    "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-}
-
-_WATCHED = ("GetMarkers", "GetItemListInTrack")
-
-
-def _direct_reads(path: Path) -> set:
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except Exception:
-        return set()
-    return {
-        node.func.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in _WATCHED
-    }

@@ -1,18 +1,7 @@
-"""A beat snap may adjust a cut. It may not move it somewhere else.
+"""A beat snap may adjust a cut to the last word (or just behind it); it
+may not move the cut to an earlier word and truncate speech.
 
-On project 001 the transition planned for the end of the 2.4s hook was
-placed at **0.196s** - the end of that block's FIRST word - and the cut
-planned for 18.37s moved to 11.33s, which would have dropped seven
-seconds of speech. `resolve_cut_point` scanned each block's word ends
-from the beginning and took whichever one happened to land on a beat.
-
-Two things made it survive: the record said `snap_delta_seconds: 0.0`
-throughout (that field only measures the `snap_to_beat` path, not
-word-end matching), and it only ever affected the transitions that get a
-Fusion comp, so a run with nothing but hard cuts looked fine. It was
-caught by `compile_manifest` refusing the manifest - "Transition
-trans_001 at 0.196s does not sit at the end of any V1 clip" - one step
-before the render.
+History: docs/evidence/transition_placement.md.
 """
 
 import sys
@@ -58,80 +47,53 @@ def non_speech(start, end):
             "word_timestamps": [], "alignment_method": None, "content": {}}
 
 
-def test_a_beat_on_an_early_word_cannot_pull_the_cut_to_the_start():
-    """The exact 001 failure: hook 0.0-2.4, first word ends on a beat."""
-    outgoing = speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.35])
-    incoming = non_speech(2.4, 5.4)
-    # 0.196 sits exactly on a beat; 2.35 does not.
-    beats = [0.196, 0.72, 1.25, 1.79]
-
-    info = resolve_cut_point(incoming=incoming, outgoing=outgoing,
-                             beat_grid=beats)
-
-    assert info["cut_time"] > 2.0, (
-        f"cut was relocated to {info['cut_time']} - this is the 001 bug")
-    assert info["cut_time"] <= 2.4
-
-
-def test_a_mid_block_beat_cannot_truncate_speech():
-    """The 18.37 -> 11.33 case: seven seconds of speech dropped."""
-    outgoing = speech_block(8.38, 18.37, word_ends=[11.33, 15.0, 18.3])
-    incoming = non_speech(18.37, 20.87)
-    beats = [11.33, 12.0, 13.0]   # only the early word end is on a beat
-
-    info = resolve_cut_point(incoming=incoming, outgoing=outgoing,
-                             beat_grid=beats)
-
-    assert info["cut_time"] > 18.0, (
-        f"cut moved to {info['cut_time']}, truncating speech")
+def test_a_beat_on_an_earlier_word_cannot_move_the_cut():
+    """The exact 001 failures: the hook 0.0-2.4 whose first word ends on
+    a beat (cut relocated to 0.196s), and the 18.37 -> 11.33 case that
+    would have dropped seven seconds of speech."""
+    cases = [
+        (speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.35]),
+         non_speech(2.4, 5.4), [0.196, 0.72, 1.25, 1.79], 2.0, 2.4),
+        (speech_block(8.38, 18.37, word_ends=[11.33, 15.0, 18.3]),
+         non_speech(18.37, 20.87), [11.33, 12.0, 13.0], 18.0, 18.37),
+    ]
+    for outgoing, incoming, beats, floor, ceiling in cases:
+        info = resolve_cut_point(incoming=incoming, outgoing=outgoing,
+                                 beat_grid=beats)
+        assert floor < info["cut_time"] <= ceiling, (
+            f"cut relocated to {info['cut_time']}, truncating speech")
 
 
-def test_a_beat_on_the_last_word_is_still_used():
-    """The feature itself must survive the fix."""
-    outgoing = speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3])
-    incoming = non_speech(2.4, 5.4)
-    beats = [0.196, 2.3]   # the LAST word end is also on a beat
-
-    info = resolve_cut_point(incoming=incoming, outgoing=outgoing,
-                             beat_grid=beats)
-
-    assert info["word_beat_coincidence"] is True
-    assert abs(info["cut_time"] - 2.3) < 1e-6
-
-
-def test_a_beat_just_behind_the_last_word_is_used():
-    """Within the backtrack window, the later coincidence wins."""
+def test_a_beat_on_or_just_behind_the_last_word_is_used():
+    """The feature itself survives the fix: a beat on the last word end,
+    or within the backtrack window behind it, is the cut."""
     last = 2.30
     earlier = last - (MAX_WORD_END_BACKTRACK / 2)
-    outgoing = speech_block(0.0, 2.4, word_ends=[0.196, earlier, last])
-    incoming = non_speech(2.4, 5.4)
-    beats = [0.196, earlier]      # last word end is NOT on a beat
-
-    info = resolve_cut_point(incoming=incoming, outgoing=outgoing,
-                             beat_grid=beats)
-
-    assert info["word_beat_coincidence"] is True
-    assert abs(info["cut_time"] - earlier) < 1e-6
-
-
-def test_a_beat_further_back_than_the_window_is_ignored():
-    outgoing = speech_block(0.0, 6.0, word_ends=[1.0, 5.9])
-    incoming = non_speech(6.0, 8.0)
-    beats = [1.0]                 # far outside the backtrack window
-
-    info = resolve_cut_point(incoming=incoming, outgoing=outgoing,
-                             beat_grid=beats)
-
-    assert info["word_beat_coincidence"] is False
-    assert info["cut_time"] > 5.0
+    cases = [
+        ([0.196, 1.1, 2.3], [0.196, 2.3], 2.3),
+        ([0.196, earlier, last], [0.196, earlier], earlier),
+    ]
+    for word_ends, beats, expected in cases:
+        info = resolve_cut_point(
+            incoming=non_speech(2.4, 5.4),
+            outgoing=speech_block(0.0, 2.4, word_ends=word_ends),
+            beat_grid=beats)
+        assert info["word_beat_coincidence"] is True
+        assert abs(info["cut_time"] - expected) < 1e-6
 
 
-def test_no_beat_grid_still_cuts_at_the_last_word():
-    outgoing = speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3])
-    incoming = non_speech(2.4, 5.4)
-
-    info = resolve_cut_point(incoming=incoming, outgoing=outgoing,
-                             beat_grid=[])
-
-    assert abs(info["cut_time"] - 2.3) < 1e-6
-    assert info["word_beat_coincidence"] is False
+def test_no_usable_beat_cuts_at_the_last_word():
+    """A beat further back than the window is ignored, and no beat grid
+    at all still cuts at the last word."""
+    far = resolve_cut_point(
+        incoming=non_speech(6.0, 8.0),
+        outgoing=speech_block(0.0, 6.0, word_ends=[1.0, 5.9]),
+        beat_grid=[1.0])
+    assert far["word_beat_coincidence"] is False
+    assert far["cut_time"] > 5.0
+    none = resolve_cut_point(
+        incoming=non_speech(2.4, 5.4),
+        outgoing=speech_block(0.0, 2.4, word_ends=[0.196, 1.1, 2.3]),
+        beat_grid=[])
+    assert abs(none["cut_time"] - 2.3) < 1e-6
+    assert none["word_beat_coincidence"] is False

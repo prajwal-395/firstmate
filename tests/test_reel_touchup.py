@@ -1,32 +1,8 @@
 """The touchup gate: what routes, what pays, what refuses.
 
-`library/tools/reel_touchup.py` is the path from a structured change
-to `composed_edit.apply_composed_edit`.  These tests drive the
-QUALIFICATION - the gate the whole task turns on - plus the composed
-path end to end, against the same fake Resolve the composed-edit
-tests use (`tests/composed_edit_harness.py`).  Nothing here reaches a
-real project or a real Resolve.
-
-What is pinned:
-
-- the five ops qualify to the right class: move / swap_pixels /
-  add_overlay / remove_overlay are `composed`; retime is
-  `composed_with_rederivation`;
-- two structural exclusions: adds to a comp-bearing row (V1/V2)
-  refuse, and a move across rows refuses - both name what to state
-  instead, before anything is staged;
-- the cost statements carry the measured numbers and never the old
-  spike ratio: no "50x", no "~112s rebuild";
-- anything unclassifiable refuses with its reason: unknown ops,
-  vacating continuous rows, undeclared treatments, collisions,
-  graded swaps, comp-carrying swaps, manifest mismatches;
-- every producer of a refused comp is accounted for: a drawing comp
-  refuses the swap, Resolve's own empty auto composition still
-  qualifies, an unreadable graph refuses fail-closed;
-- grades ride from the approved timeline: a graded retime or move
-  keeps its nodes through the composition;
-- the `composed` class runs through `apply_composed_edit` with the
-  null rederiver and verifies by re-reading the track.
+Drives `reel_touchup.qualify` and the composed path end to end against the
+fake Resolve in `tests/composed_edit_harness.py`; nothing reaches a real
+project. What each group pins: docs/evidence/reel_touchup.md.
 """
 
 from __future__ import annotations
@@ -145,113 +121,34 @@ def test_live_touchup_read_holds_lease_and_makes_reel_current(monkeypatch):
 # ── The composed class ───────────────────────────────────────────────
 
 
-def test_move_overlay_qualifies_composed(tmp_path):
+def test_a_caption_whose_source_trim_is_unknown_is_never_re_placed(tmp_path):
+    """Every edit that would re-place a Subtitles item whose `left_offset`
+    was unreadable (or an add that declares none) refuses by name."""
+    rows = [
+        (0, {"op": "move", "row": "V4", "item": 0, "to_record": 1300},
+         "was unreadable"),
+        (0, {"op": "retime", "row": "V1", "item": 0, "duration": 480},
+         "would move a subtitle item whose source trim"),
+        (1, {"op": "remove_overlay", "row": "V4", "item": 0},
+         r"would re-place caption V4\[1\]"),
+        (None, {"op": "add_overlay", "row": "V4", "media": "/lab/new.mov",
+                "record": 1300, "duration": 40, "properties": {}},
+         "without an explicit `left_offset`"),
+    ]
     timeline, _pool, _media = build_reel(tmp_path)
-    spec = {"reel": 1, "edits": [
-        {"op": "move", "row": "V4", "item": 0, "to_row": "V4",
-         "to_record": 1300}]}
-    qualification = tu.qualify(_tracks(timeline), spec)
-    assert qualification.gate_class == tu.COMPOSED
-    assert len(qualification.changes) == 1
-    change = qualification.changes[0]
-    assert change.record_frame == 1300
-    assert not change.played_length_changes
-    assert qualification.moves[0]["from_row"] == "V4"
+    for unreadable, edit, match in rows:
+        tracks = _tracks(timeline)
+        subtitles = next(track for track in tracks if track["index"] == 4)
+        subtitles["name"] = "Subtitles"
+        if unreadable is not None:
+            subtitles["clips"][unreadable]["left_offset"] = None
+        with pytest.raises(tu.TouchupRefused, match=match):
+            tu.qualify(tracks, {"reel": 1, "edits": [edit]})
 
 
-def test_move_caption_refuses_when_its_source_trim_was_not_read(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    tracks = _tracks(timeline)
-    subtitles = next(track for track in tracks if track["index"] == 4)
-    subtitles["name"] = "Subtitles"
-    subtitles["clips"][0]["left_offset"] = None
-
-    with pytest.raises(tu.TouchupRefused, match="was unreadable"):
-        tu.qualify(tracks, {"reel": 1, "edits": [{
-            "op": "move", "row": "V4", "item": 0, "to_record": 1300,
-        }]})
-
-
-def test_retime_ripple_refuses_to_zero_a_caption_source_trim(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    tracks = _tracks(timeline)
-    subtitles = next(track for track in tracks if track["index"] == 4)
-    subtitles["name"] = "Subtitles"
-    subtitles["clips"][0]["left_offset"] = None
-
-    with pytest.raises(tu.TouchupRefused,
-                       match="would move a subtitle item whose source trim"):
-        tu.qualify(tracks, {"reel": 1, "edits": [{
-            "op": "retime", "row": "V1", "item": 0, "duration": 480,
-        }]})
-
-
-# ── The length-changing class ────────────────────────────────────────
-
-
-def test_retime_qualifies_with_rederivation_and_says_so(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    spec = {"reel": 1, "edits": [
-        {"op": "retime", "row": "V1", "item": 0, "duration": 492}]}
-    qualification = tu.qualify(_tracks(timeline), spec)
-    assert qualification.gate_class == tu.COMPOSED_WITH_REDERIVATION
-    assert "NOT a quick refresh" in qualification.cost_statement
-    assert any(c.played_length_changes
-               for c in qualification.changes)
-
-
-# ── The cost statements carry measurements, never the old ratio ──────
-
-
-# ── Refusals ─────────────────────────────────────────────────────────
-
-
-def test_move_from_a_continuous_row_refuses(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    for row in ("V1", "V2", "A1"):
-        with pytest.raises(tu.TouchupRefused) as refusal:
-            tu.qualify(_tracks(timeline),
-                       {"reel": 1, "edits": [
-                           {"op": "move", "row": row, "item": 0,
-                            "to_row": "V4", "to_record": 1300}]})
-        assert "continuous program" in str(refusal.value)
-
-
-def test_move_onto_an_occupied_span_refuses_before_anything(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    first = _v4_first_record(timeline)
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.qualify(_tracks(timeline),
-                   {"reel": 1, "edits": [
-                       {"op": "move", "row": "V4", "item": 0,
-                        "to_row": "V4", "to_record": first + 100}]})
-    assert "collides" in str(refusal.value)
-
-
-def test_add_overlay_without_properties_refuses(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.qualify(_tracks(timeline),
-                   {"reel": 1, "edits": [
-                       {"op": "add_overlay", "row": "V4",
-                        "media": "/lab/card.mov", "record": 1300,
-                        "duration": 40}]})
-    assert "declares no `properties`" in str(refusal.value)
-
-
-def test_add_overlay_on_subtitles_requires_an_explicit_source_trim(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    tracks = _tracks(timeline)
-    next(track for track in tracks if track["index"] == 4)["name"] = "Subtitles"
-    with pytest.raises(tu.TouchupRefused,
-                       match="without an explicit `left_offset`"):
-        tu.qualify(tracks, {"reel": 1, "edits": [{
-            "op": "add_overlay", "row": "V4", "media": "/lab/new.mov",
-            "record": 1300, "duration": 40, "properties": {},
-        }]})
-
-
-def test_add_overlay_on_subtitles_keeps_the_declared_source_trim(tmp_path):
+def test_a_known_source_trim_rides_into_the_insertion(tmp_path):
+    """A declared `left_offset` wins; a swap with none keeps the live
+    trim, so it never exposes the render's 12-frame head handle."""
     timeline, _pool, _media = build_reel(tmp_path)
     tracks = _tracks(timeline)
     next(track for track in tracks if track["index"] == 4)["name"] = "Subtitles"
@@ -262,45 +159,56 @@ def test_add_overlay_on_subtitles_keeps_the_declared_source_trim(tmp_path):
     }]})
     assert qualification.insertions[0].left_offset == 12
 
-
-def test_remove_overlay_refuses_to_replace_a_caption_with_unknown_trim(
-        tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    tracks = _tracks(timeline)
-    subtitles = next(track for track in tracks if track["index"] == 4)
-    subtitles["name"] = "Subtitles"
-    subtitles["clips"][1]["left_offset"] = None
-    with pytest.raises(tu.TouchupRefused,
-                       match=r"would re-place caption V4\[1\]"):
-        tu.qualify(tracks, {"reel": 1, "edits": [{
-            "op": "remove_overlay", "row": "V4", "item": 0,
-        }]})
+    timeline.rows["V4"][0]._left_offset = 12
+    overlay = tmp_path / "caption-with-head-handle.mov"
+    overlay.write_bytes(b"fake-rendered-overlay")
+    for declared, expected in ((None, 12), (0, 0)):
+        edit = {"op": "swap_pixels", "row": "V4", "item": 0,
+                "media": str(overlay)}
+        if declared is not None:
+            edit["left_offset"] = declared
+        qualification = tu.qualify(_tracks(timeline),
+                                   {"reel": 1, "edits": [edit]})
+        assert qualification.insertions[0].left_offset == expected
 
 
-def test_swap_on_a_comp_carrying_item_refuses(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.qualify(_tracks(timeline),
-                   {"reel": 1, "edits": [
-                       {"op": "swap_pixels", "row": "V1", "item": 0,
-                        "media": "/lab/opener.mov"}]})
-    assert "drawing" in str(refusal.value)
+# ── Refusals ─────────────────────────────────────────────────────────
 
 
-def test_overlapping_plan_refuses(tmp_path):
+def test_each_unclassifiable_spec_refuses_by_name(tmp_path):
     timeline, _pool, _media = build_reel(tmp_path)
     first = _v4_first_record(timeline)
-    # Two adds at the same free span: each is free against the live
-    # read, but together they collide.
-    spec = {"reel": 1, "edits": [
-        {"op": "add_overlay", "row": "V4", "media": "/lab/card.mov",
-         "record": 1300, "duration": 40, "properties": {}},
-        {"op": "add_overlay", "row": "V4", "media": "/lab/card.mov",
-         "record": 1310, "duration": 40, "properties": {}}]}
-    assert first  # the fixture still carries V4; silence unused warnings
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.qualify(_tracks(timeline), spec)
-    assert "overlaps on V4" in str(refusal.value)
+    card = {"op": "add_overlay", "row": "V4", "media": "/lab/card.mov",
+            "duration": 40, "properties": {}}
+    rows = [
+        ([{"op": "move", "row": row, "item": 0, "to_row": "V4",
+           "to_record": 1300}], "continuous program")
+        for row in ("V1", "V2", "A1")
+    ] + [
+        ([{"op": "move", "row": "V4", "item": 0, "to_row": "V4",
+           "to_record": first + 100}], "collides"),
+        ([{"op": "add_overlay", "row": "V4", "media": "/lab/card.mov",
+           "record": 1300, "duration": 40}], "declares no `properties`"),
+        ([{"op": "swap_pixels", "row": "V1", "item": 0,
+           "media": "/lab/opener.mov"}], "drawing"),
+        # Each add is free against the live read; together they collide.
+        ([dict(card, record=1300), dict(card, record=1310)],
+         "overlaps on V4"),
+        # Retime V4[0] ripples a SHIFT onto V4[2]; removing V4[1]
+        # rewrites V4[2] too - a double place.
+        ([{"op": "retime", "row": "V4", "item": 0, "duration": 50},
+          {"op": "remove_overlay", "row": "V4", "item": 1}], "same item"),
+    ]
+    for edits, needle in rows:
+        with pytest.raises(tu.TouchupRefused) as refusal:
+            tu.qualify(_tracks(timeline), {"reel": 1, "edits": edits})
+        assert needle in str(refusal.value), edits
+    # Fail closed: an unreadable comp graph is not evidence of an empty one.
+    timeline.rows["V4"][0].comps = [object()]  # answers no getter
+    with pytest.raises(tu.TouchupRefused, match="drawing"):
+        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
+            {"op": "swap_pixels", "row": "V4", "item": 0,
+             "media": "/lab/card.mov"}]})
 
 
 # ── The manifest check, for the length-changing class ────────────────
@@ -405,7 +313,7 @@ def test_remove_plus_move_on_one_row_rekeys_and_verifies(tmp_path):
     # re-seated it to 1, and the rekey says so.
     moved = [c for c in changes if c.record_frame == 1300]
     assert len(moved) == 1 and moved[0].item_index == 1
-    receipt = ce.apply_composed_edit(
+    ce.apply_composed_edit(
         timeline=timeline, media_pool=pool, changes=changes,
         comp_dir=str(tmp_path / "c"),
         withheld_dir=str(tmp_path / "w"), rederiver=_null(tmp_path))
@@ -414,21 +322,6 @@ def test_remove_plus_move_on_one_row_rekeys_and_verifies(tmp_path):
               if t["type"] == "video" and int(t["index"]) == 4)
     assert len(v4["clips"]) == 2
     assert 1300 in [c["record_in"] for c in v4["clips"]]
-
-
-def test_two_edits_on_one_item_refuse(tmp_path):
-    """A rewrite and a ripple shift of one item is a double place."""
-    timeline, _pool, _media = build_reel(tmp_path)
-    # Retime V4[0] (+10f) ripples a SHIFT onto V4[1..2]; removing
-    # V4[1] in the same spec rewrites V4[2] back to its old span.
-    # Both plans claim V4[2] - the gate refuses rather than placing
-    # it twice.
-    spec = {"reel": 1, "edits": [
-        {"op": "retime", "row": "V4", "item": 0, "duration": 50},
-        {"op": "remove_overlay", "row": "V4", "item": 1}]}
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.qualify(_tracks(timeline), spec)
-    assert "same item" in str(refusal.value)
 
 
 # ── Structural exclusions: named, before anything is staged ───────────
@@ -517,18 +410,6 @@ def test_swap_on_an_empty_auto_comp_still_qualifies(tmp_path):
     assert qualification.gate_class == tu.COMPOSED
 
 
-def test_swap_on_an_unreadable_comp_refuses(tmp_path):
-    """Fail closed: an unreadable graph is not evidence of an empty one."""
-    timeline, _pool, _media = build_reel(tmp_path)
-    timeline.rows["V4"][0].comps = [object()]  # answers no getter
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu.qualify(_tracks(timeline),
-                   {"reel": 1, "edits": [
-                       {"op": "swap_pixels", "row": "V4", "item": 0,
-                        "media": "/lab/card.mov"}]})
-    assert "drawing" in str(refusal.value)
-
-
 def test_graded_swap_refuses_at_resolve(tmp_path):
     """An Insertion cannot take a grade from an item being deleted.
 
@@ -566,39 +447,6 @@ def _overlay_swap(tmp_path):
     return overlay, pending, pending[0].left_offset + pending[0].duration
 
 
-def test_swap_pixels_preserves_trimmed_caption_preroll(tmp_path):
-    """Replacing pixels must not expose the render's 12-frame head handle."""
-    timeline, _pool, _media = build_reel(tmp_path)
-    timeline.rows["V4"][0]._left_offset = 12
-    overlay = tmp_path / "caption-with-head-handle.mov"
-    overlay.write_bytes(b"fake-rendered-overlay")
-
-    qualification = tu.qualify(
-        _tracks(timeline),
-        {"reel": 1, "edits": [{
-            "op": "swap_pixels", "row": "V4", "item": 0,
-            "media": str(overlay),
-        }]})
-
-    assert qualification.insertions[0].left_offset == 12
-
-
-def test_swap_pixels_honors_an_explicit_source_trim(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    timeline.rows["V4"][0]._left_offset = 12
-    overlay = tmp_path / "caption-starting-at-frame-zero.mov"
-    overlay.write_bytes(b"fake-rendered-overlay")
-
-    qualification = tu.qualify(
-        _tracks(timeline),
-        {"reel": 1, "edits": [{
-            "op": "swap_pixels", "row": "V4", "item": 0,
-            "media": str(overlay), "left_offset": 0,
-        }]})
-
-    assert qualification.insertions[0].left_offset == 0
-
-
 def test_swap_pixels_names_the_replacement_file(tmp_path):
 
     timeline, _pool, _media = build_reel(tmp_path)
@@ -619,7 +467,7 @@ def test_swap_pixels_names_the_replacement_file(tmp_path):
     assert insertion.name == "logo_bulb_lines_23976.mov"
 
 
-def test_an_overlay_rendered_longer_at_its_path_is_reread_not_refused(
+def test_source_length_check_rereads_a_stale_pool_and_refuses_a_short_file(
         tmp_path):
     """The geo-podcast fit-picture run, 2026-09-25: the TV overlay was
     imported at 969 frames for a preview, then re-rendered at 2307 under
@@ -627,14 +475,10 @@ def test_an_overlay_rendered_longer_at_its_path_is_reread_not_refused(
 
     overlay, pending, needed = _overlay_swap(tmp_path)
     stale = pool_clip(str(overlay), frames=needed - 1,
-                              on_disk=needed + 100)
+                      on_disk=needed + 100)
     tu.check_source_lengths(_pool_holding([stale]), pending)
     assert frames_of(stale) == needed + 100
 
-
-def test_a_file_too_short_for_its_span_still_refuses(tmp_path):
-
-    overlay, pending, needed = _overlay_swap(tmp_path)
     short = pool_clip(str(overlay), frames=needed - 1)
     with pytest.raises(tu.TouchupRefused) as refusal:
         tu.check_source_lengths(_pool_holding([short]), pending)

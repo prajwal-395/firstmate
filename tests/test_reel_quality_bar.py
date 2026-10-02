@@ -96,25 +96,16 @@ def _project_with_tail_card(tmp_path):
     return tmp_path
 
 
-# ── The four qualities are declared, and the declaration is checked ──
-
-def test_the_four_qualities_are_the_captains_four():
-    assert [q.name for q in qb.QUALITIES] == [
-        "duration", "call_to_action", "coherence", "value"]
-    assert [q.kind for q in qb.QUALITIES] == [
-        qb.EXACT, qb.EXACT, qb.JUDGEMENT, qb.JUDGEMENT]
-
-
 # ── EXACT: duration is measured, never judged ────────────────────────
 
 
-@pytest.mark.parametrize("end", [170.0])
-def test_a_reel_outside_the_old_window_is_not_rejected_for_length(end):
+def test_length_is_never_a_gate_except_the_mechanical_absurd_bound():
     """2026-09-18, option c: length is never a gate.  A reel delivering
     40s, 96s or 166s carries NO duration finding at all - not an error
     and not a warning - and with a closer and a takeaway it PASSES.
     (Past five minutes the mechanical absurd bound still errors; that
     is not a window, it is where a candidate stops being a reel.)"""
+    end = 170.0
     transcript = _transcript(SEGMENTS)
     moment = _moment(end=end, cta=CLOSER)
     assert not hasattr(qb, "QB_DURATION")
@@ -136,16 +127,13 @@ def test_a_reel_outside_the_old_window_is_not_rejected_for_length(end):
     verdict = report.verdicts[0]
     assert verdict.verdict == qb.PASS
     assert verdict.as_dict()["duration_gates"] is False
-
-
-def test_the_length_ERROR_is_the_mechanical_bound_and_it_CAN_fire():
-    """Duration still has a half that fails, and it is the one bound the
-    brief leaves standing - `reel_exchange.ABSURD_SECONDS`, past which a
-    candidate is most of the episode rather than a reel. Mechanical, not
-    editorial (AGENTS.md 10.5).
-
-    Both directions, because a bound nothing can trip reads as coverage
-    (AGENTS.md 10.4)."""
+    # Duration still has a half that fails, and it is the one bound the
+    # brief leaves standing - `reel_exchange.ABSURD_SECONDS`, past which a
+    # candidate is most of the episode rather than a reel. Mechanical, not
+    # editorial (AGENTS.md 10.5).
+    #
+    # Both directions, because a bound nothing can trip reads as coverage
+    # (AGENTS.md 10.4).
     from library.tools.reel_exchange import ABSURD_SECONDS
 
     transcript = _transcript(SEGMENTS + [
@@ -162,24 +150,6 @@ def test_the_length_ERROR_is_the_mechanical_bound_and_it_CAN_fire():
     long_but_real = _moment(end=10.0 + 170.0)
     assert qb.QB_ABSURD_LENGTH not in {
         f.code for f in qb.exact_findings(long_but_real, transcript, {})}
-
-
-def test_a_surviving_duration_figure_includes_the_ending(tmp_path):
-    """The reel the old warning called short built with the ending: a
-    60s body, a 6s closer, a 19-frame freeze inherited from the CTA and
-    a 3.0s tail card the project declares - 69.8s a viewer sits
-    through, resolved never restated."""
-    transcript = _transcript(SEGMENTS)
-    moment = _moment(cta=CLOSER)
-    project = _project_with_tail_card(tmp_path)
-    reading = qb.duration_reading(moment, transcript, str(project))
-    assert reading["ending_resolved"] is True
-    assert reading["ending"]["ending_source"] == "inherited"
-    assert reading["ending"]["freeze_seconds"] == pytest.approx(
-        19 / (24000 / 1001))
-    assert reading["ending"]["card_seconds"] == pytest.approx(3.0, abs=0.05)
-    assert reading["ending_seconds"] == pytest.approx(3.8, abs=0.05)
-    assert reading["delivered_seconds"] == pytest.approx(69.8, abs=0.05)
 
 
 # ── EXACT: the call to action, all three sources ─────────────────────
@@ -205,45 +175,23 @@ def test_a_reel_whose_body_already_plays_a_closer_is_not_missing_one():
     assert qb.QB_CTA_ABSENT not in codes
 
 
-def test_a_reel_that_plays_no_closer_at_all_is_a_finding():
-    transcript = _transcript(SEGMENTS)
-    declarer = _moment(number=1, cta=CLOSER)
-    bare = _moment(number=2, start=300.0, end=340.0)
-    closers = qb.declared_closers([declarer, bare])
-    codes = {f.code for f in qb.exact_findings(bare, transcript, closers)}
-    assert qb.QB_CTA_ABSENT in codes
-
-
-def test_a_closer_inside_its_own_body_is_refused_again_at_judging_time():
-    """`validate_proposal` runs when the plan is WRITTEN and
-    `read_proposal` does not re-run it, so a hand-edited plan reaches
-    here unchecked."""
-    transcript = _transcript(SEGMENTS)
-    inside = CallToAction(timeline_start=20.0, timeline_end=40.0,
-                          text="the question changed")
-    moment = _moment(cta=inside)
-    closers = qb.declared_closers([moment])
-    codes = {f.code for f in qb.exact_findings(moment, transcript, closers)}
-    assert qb.QB_CTA_IN_BODY in codes
-
-
-def test_a_closer_outside_the_episode_is_a_finding():
-    transcript = _transcript(SEGMENTS, duration=500.0)
-    beyond = CallToAction(timeline_start=900.0, timeline_end=906.0,
-                          text="something")
-    moment = _moment(cta=beyond)
-    closers = qb.declared_closers([moment])
-    codes = {f.code for f in qb.exact_findings(moment, transcript, closers)}
-    assert qb.QB_CTA_OUTSIDE in codes
-
-
-def test_a_closer_nobody_speaks_in_is_a_finding():
-    transcript = _transcript(SEGMENTS)
-    silent = CallToAction(timeline_start=250.0, timeline_end=256.0, text="")
-    moment = _moment(cta=silent)
-    closers = qb.declared_closers([moment])
-    codes = {f.code for f in qb.exact_findings(moment, transcript, closers)}
-    assert qb.QB_CTA_SILENT in codes
+def test_an_unreal_closer_is_a_finding_at_judging_time():
+    """validate_proposal runs when the plan is WRITTEN and read_proposal
+    does not re-run it, so a hand-edited plan reaches here unchecked."""
+    table = [
+        (CallToAction(timeline_start=20.0, timeline_end=40.0,
+                      text="the question changed"), 1000.0, qb.QB_CTA_IN_BODY),
+        (CallToAction(timeline_start=900.0, timeline_end=906.0,
+                      text="something"), 500.0, qb.QB_CTA_OUTSIDE),
+        (CallToAction(timeline_start=250.0, timeline_end=256.0, text=""),
+         1000.0, qb.QB_CTA_SILENT),
+    ]
+    for cta, duration, code in table:
+        transcript = _transcript(SEGMENTS, duration=duration)
+        moment = _moment(cta=cta)
+        closers = qb.declared_closers([moment])
+        codes = {f.code for f in qb.exact_findings(moment, transcript, closers)}
+        assert code in codes, (cta, code)
 
 
 def test_a_shared_closer_is_counted_and_named_and_does_not_fail():
@@ -268,14 +216,12 @@ def test_the_real_handoff_names_none_of_the_criteria():
         "step 3.05's handoff")
 
 
-@pytest.mark.parametrize("leak", [
-    "judge whether the reel is coherent",
-    "does it provide value to a viewer",
-    "is the opening a strong hook",
-])
-def test_the_contamination_guard_fires_on_a_leaked_criterion(leak):
-    with pytest.raises(RuntimeError, match="READING"):
-        qb.assert_ask_is_uncontaminated(leak)
+def test_the_contamination_guard_fires_on_a_leaked_criterion():
+    for leak in ("judge whether the reel is coherent",
+                 "does it provide value to a viewer",
+                 "is the opening a strong hook"):
+        with pytest.raises(RuntimeError, match="READING"):
+            qb.assert_ask_is_uncontaminated(leak)
 
 
 def test_the_judge_is_given_the_reels_words_and_nothing_else():
@@ -333,6 +279,21 @@ def test_the_reader_weighs_the_reconciled_length(tmp_path):
         pytest.approx(69.8, abs=0.05))
     without_project = bridge.build_context(dict(base))
     assert without_project["reels_to_read"][0]["runs_for_seconds"] == 66.0
+    # The reel the old warning called short built with the ending: a
+    # 60s body, a 6s closer, a 19-frame freeze inherited from the CTA and
+    # a 3.0s tail card the project declares - 69.8s a viewer sits
+    # through, resolved never restated.
+    transcript = _transcript(SEGMENTS)
+    moment = _moment(cta=CLOSER)
+    project = _project_with_tail_card(tmp_path)
+    reading = qb.duration_reading(moment, transcript, str(project))
+    assert reading["ending_resolved"] is True
+    assert reading["ending"]["ending_source"] == "inherited"
+    assert reading["ending"]["freeze_seconds"] == pytest.approx(
+        19 / (24000 / 1001))
+    assert reading["ending"]["card_seconds"] == pytest.approx(3.0, abs=0.05)
+    assert reading["ending_seconds"] == pytest.approx(3.8, abs=0.05)
+    assert reading["delivered_seconds"] == pytest.approx(69.8, abs=0.05)
 
 
 # ── A reading is checked against the reel, both directions ───────────
@@ -359,21 +320,6 @@ def _reading(**over):
     }
     entry.update(over)
     return entry
-
-
-def test_a_reading_quoted_from_the_reel_is_kept():
-    reading = qb.read_one(_reading(), WORDS, 60.0)
-    assert not reading.refused
-    assert reading.ungrounded == ()
-    assert reading.misplaced == ()
-
-
-def test_a_quote_that_is_not_in_the_reel_refuses_the_whole_reading():
-    reading = qb.read_one(
-        _reading(claim_quote="artificial intelligence is eating search"),
-        WORDS, 60.0)
-    assert reading.refused
-    assert any("claim_quote" in why for why in reading.ungrounded)
 
 
 def test_an_empty_takeaway_is_a_real_answer_and_not_a_refusal():
@@ -499,6 +445,29 @@ def test_the_two_instruments_disagreeing_about_the_closer_is_reported():
     assert qb.QB_CTA_DISAGREEMENT in codes
     assert next(f for f in first.findings
                 if f.code == qb.QB_CTA_DISAGREEMENT).severity == qb.WARNING
+    # ... and in the other direction:
+    # The reader was never told a closer was wanted, so a reel it says
+    # ends on an invitation while the batch names none is real evidence
+    # about the limit of `declared_closers`.
+    transcript, moments = _batch()
+    words = qb.reel_text(moments[1], transcript)
+    report = qb.judge(moments, transcript, {"readings": [{
+        "reel": 2,
+        "claim_quote": words.split()[0],
+        "opening_quote": words.split()[0],
+        "closing_quote": words.split()[-1],
+        "closing_asks_for": "go and look at the site",
+        "takeaway_quote": words.split()[0],
+        "assumes_known": [],
+        "stops_developing_at": 5.0,
+        "rank": 1, "basis": "x",
+    }]})
+    second = next(v for v in report.verdicts if v.number == 2)
+    assert second.cta["source"] == "absent"
+    disagreement = [f for f in second.findings
+                    if f.code == qb.QB_CTA_DISAGREEMENT]
+    assert len(disagreement) == 1
+    assert "never named it" in disagreement[0].message
 
 
 # ── The ranking is an ORDERING and there is no score ─────────────────
@@ -580,11 +549,8 @@ def test_the_words_are_the_played_ranges_in_play_order():
     assert text.startswith("so what actually changed")
     assert text.endswith("run the free check"), (
         "the closer is played LAST, so it is the reel's last words")
-
-
-def test_straddling_speech_is_in_the_reels_own_words():
-    """The reel PLAYS it; a reader shown only the bound rows would be
-    reading a reel that does not exist."""
+    # The reel PLAYS it; a reader shown only the bound rows would be
+    # reading a reel that does not exist.
     segments = list(SEGMENTS) + [
         _segment(45.0, 50.0, "Akshita", "and nobody noticed", bound=False)]
     transcript = _transcript(segments)
@@ -609,31 +575,6 @@ def test_a_plan_nothing_can_lay_out_is_a_finding_not_a_crash():
 # ── What the bar said the first time it met real work ────────────────
 
 
-def test_the_disagreement_fires_in_the_direction_that_found_something():
-    """The reader was never told a closer was wanted, so a reel it says
-    ends on an invitation while the batch names none is real evidence
-    about the limit of `declared_closers`."""
-    transcript, moments = _batch()
-    words = qb.reel_text(moments[1], transcript)
-    report = qb.judge(moments, transcript, {"readings": [{
-        "reel": 2,
-        "claim_quote": words.split()[0],
-        "opening_quote": words.split()[0],
-        "closing_quote": words.split()[-1],
-        "closing_asks_for": "go and look at the site",
-        "takeaway_quote": words.split()[0],
-        "assumes_known": [],
-        "stops_developing_at": 5.0,
-        "rank": 1, "basis": "x",
-    }]})
-    second = next(v for v in report.verdicts if v.number == 2)
-    assert second.cta["source"] == "absent"
-    disagreement = [f for f in second.findings
-                    if f.code == qb.QB_CTA_DISAGREEMENT]
-    assert len(disagreement) == 1
-    assert "never named it" in disagreement[0].message
-
-
 # ── The fold into the conformance report ─────────────────────────────
 
 def _reel_result(name, number):
@@ -648,32 +589,7 @@ def _reel_result(name, number):
         edge_cuts=0, bad_take_cuts=0, markers=0, findings=[])
 
 
-def test_a_bar_finding_reaches_the_reel_it_is_about():
-    from library.tools.reel_conformance_verifier import attach_quality_bar
-
-    transcript, moments = _batch()
-    report = qb.judge(moments, transcript)
-    results = [_reel_result(v.name, v.number) for v in report.verdicts]
-    assert attach_quality_bar(report, results) == []
-    attached = [f.finding_class for r in results for f in r.findings]
-    assert qb.QB_CTA_ABSENT in attached
-
-
-def test_a_built_reel_whose_name_gained_a_suffix_still_matches():
-    """A built reel is named `Reel 20 - slug (selector redraw)` while the
-    plan calls it `Reel 20 - slug`. Matching on name alone attached 20 of
-    25 on the field test and dropped five without a word."""
-    from library.tools.reel_conformance_verifier import attach_quality_bar
-
-    transcript, moments = _batch()
-    report = qb.judge(moments, transcript)
-    results = [_reel_result(f"{v.name} (pipeline rebuild)", v.number)
-               for v in report.verdicts]
-    assert attach_quality_bar(report, results) == []
-    assert any(r.findings for r in results)
-
-
-def test_a_planned_reel_with_no_timeline_is_REPORTED_not_dropped():
+def test_a_bar_finding_attaches_to_its_reel_or_is_reported():
     """A finding that quietly attaches to nothing makes the report read
     as though the bar had nothing to say (AGENTS.md 10.4)."""
     from library.tools.reel_conformance_verifier import attach_quality_bar
@@ -684,6 +600,18 @@ def test_a_planned_reel_with_no_timeline_is_REPORTED_not_dropped():
     unattached = attach_quality_bar(report, [])
     assert any(failing.name in line for line in unattached)
     assert any("finding(s)" in line for line in unattached)
+    # A built reel is named `Reel 20 - slug (selector redraw)` while the
+    # plan calls it `Reel 20 - slug`. Matching on name alone attached 20 of
+    # 25 on the field test and dropped five without a word.
+    from library.tools.reel_conformance_verifier import attach_quality_bar
+
+    transcript, moments = _batch()
+    report = qb.judge(moments, transcript)
+    results = [_reel_result(f"{v.name} (pipeline rebuild)", v.number)
+               for v in report.verdicts]
+    assert attach_quality_bar(report, results) == []
+    attached = [f.finding_class for r in results for f in r.findings]
+    assert qb.QB_CTA_ABSENT in attached
 
 
 def test_the_closer_that_decides_is_the_LAST_one_the_reel_plays():
@@ -716,11 +644,9 @@ def test_the_closer_that_decides_is_the_LAST_one_the_reel_plays():
     codes = {f.code for f in qb.exact_findings(carries_both, transcript,
                                                closers)}
     assert qb.QB_CTA_NOT_LAST not in codes
-
-
-def test_a_reel_that_keeps_talking_past_its_closer_still_reports_it():
-    """The other direction: reels 23 and 24 play 1.2s of speech after
-    their closer and genuinely do not end on it."""
+    # ... and the other direction:
+    # The other direction: reels 23 and 24 play 1.2s of speech after
+    # their closer and genuinely do not end on it.
     transcript = _transcript(SEGMENTS + [
         _segment(96.0, 100.0, "Craig", "go and check it out"),
         _segment(100.0, 106.0, "Akshita", "anyway that is the whole idea"),

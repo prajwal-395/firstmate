@@ -202,79 +202,95 @@ def test_one_refusal_promotes_its_siblings(project_dir):
     assert archived == []
 
 
-def test_unlinked_aroll_staging_is_refused_before_promotion(project_dir):
-    """Promotion reads the same a-roll link verdict as verify_timeline."""
+def test_a_staging_without_a_passing_track_plan_is_refused_untouched(project_dir):
+    """Promotion reads the same a-roll link verdict as verify_timeline,
+    and a staging with no track plan at all refuses too. Either way
+    nothing is renamed."""
     from library.tools.timeline_layout import A_ROLL, SPEECH, TrackSpec
 
     final = "Reel 11 - your-website-is-your-resume"
     staging_name = final + " (rebuild staging)"
-    retired = FakeTimeline(
-        final,
-        video=[
-            ("Craig", [FakeItem("LCATL0013.MXF", 0, 138)]),
-        ],
-        audio=[
-            ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
-        ],
-    )
-    staging = FakeTimeline(
-        staging_name,
-        video=[
-            ("Craig", [FakeItem("LCATL0013.MXF", 7, 138)]),
-        ],
-        audio=[
-            ("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)]),
-        ],
-    )
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-    staged_to_final = {final: staging_name}
     raw_plan = {
         "video_tracks": [vars(TrackSpec(1, "video", A_ROLL, "Craig", "2"))],
         "audio_tracks": [vars(TrackSpec(1, "audio", SPEECH, "Craig CH1", "2"))],
         "material": {},
     }
+    for track_plans, refusal in (
+        ({staging_name: raw_plan}, "failed `aroll_linked`"),
+        (None, "has no track plan"),
+    ):
+        retired = FakeTimeline(
+            final,
+            video=[("Craig", [FakeItem("LCATL0013.MXF", 0, 138)])],
+            audio=[("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)])],
+        )
+        # The picture slipped 7 frames off its speech: unlinked.
+        staging = FakeTimeline(
+            staging_name,
+            video=[("Craig", [FakeItem("LCATL0013.MXF", 7, 138)])],
+            audio=[("Craig CH1", [FakeItem("LCATL0013.MXF", 0, 138)])],
+        )
+        resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
 
+        with (
+            patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
+            patch(
+                "library.tools.reel_build.resolve_project_exactly",
+                return_value=resolve,
+            ),
+            pytest.raises(ReelBuildError, match=refusal),
+        ):
+            promote_staged_reels(
+                str(project_dir),
+                "Mock Project",
+                MASTER,
+                {final: staging_name},
+                organise=False,
+                track_plans=track_plans,
+            )
+
+        assert retired.GetName() == final
+        assert staging.GetName() == staging_name
+        assert retired in resolve.timelines
+        assert staging in resolve.timelines
+
+
+def test_filing_refusal_never_fails_promotion(project_dir, capsys):
+    """`promote_staged_reels(organise=True)` files the media pool after
+    the renames land; a filing pass that errors is said, recorded, and
+    does not take the promoted reels down with it."""
+    final = "Reel 31 - is-there-a-way-to-game-ai"
+    retired, staging = _clean_reel(final)
+    project = FakeProject([FakeTimeline(MASTER), retired, staging])
+    staged_to_final = {final: staging.GetName()}
+    (project_dir / "pipeline_output" / "review" / "plan_provenance.json").write_text(
+        json.dumps({"built_reels": sorted(staged_to_final.values())}), encoding="utf-8"
+    )
+    swept = {
+        "applied": True,
+        "pool": {"removed": 0, "counts": {}},
+        "files": {"areas": []},
+        "bins": {},
+        "refused": [],
+        "journal_path": "",
+    }
     with (
         patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
-        patch("library.tools.reel_build.resolve_project_exactly", return_value=resolve),
-        pytest.raises(ReelBuildError, match="failed `aroll_linked`"),
+        patch("library.tools.reel_build.resolve_project_exactly", return_value=project),
+        patch(
+            "library.tools.execution.organise_media_pool.organise_project",
+            side_effect=RuntimeError("MoveClips returned False"),
+        ),
+        patch("library.tools.build_sweep.sweep_build", return_value=swept),
     ):
-        promote_staged_reels(
+        result = promote_staged_reels(
             str(project_dir),
             "Mock Project",
             MASTER,
             staged_to_final,
-            organise=False,
-            track_plans={staging_name: raw_plan},
+            track_plans=no_a_roll_track_plans(staged_to_final),
         )
-
-    assert retired.GetName() == final
-    assert staging.GetName() == staging_name
-    assert retired in resolve.timelines
-    assert staging in resolve.timelines
-
-
-def test_promotion_refuses_when_staging_track_plan_is_missing(project_dir):
-    final = "Reel 11 - your-website-is-your-resume"
-    staging_name = final + " (rebuild staging)"
-    retired, staging = _clean_reel(final)
-    staging._name = staging_name
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-
-    with (
-        patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
-        patch("library.tools.reel_build.resolve_project_exactly", return_value=resolve),
-        pytest.raises(ReelBuildError, match="has no track plan"),
-    ):
-        promote_staged_reels(
-            str(project_dir),
-            "Mock Project",
-            MASTER,
-            {final: staging_name},
-            organise=False,
-        )
-
-    assert retired.GetName() == final
-    assert staging.GetName() == staging_name
-    assert retired in resolve.timelines
-    assert staging in resolve.timelines
+    assert result["promoted"] == [final]
+    assert result["organised"] == {"refused": "MoveClips returned False"}
+    assert "media-pool filing refused" in capsys.readouterr().err
+    assert final in [t.GetName() for t in project.timelines]

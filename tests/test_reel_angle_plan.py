@@ -41,25 +41,17 @@ def _place(track, start=0, end=10, *, media="video"):
             "track_index": track, "speaker": "speaker"}
 
 
-def test_switch_uses_word_anchor_lead_and_declared_minimum():
-    plan = reel_angle_plan.resolve(
-        [_row("reel", "", "Wide"),
-         _row("words", "guest speaks", "Close", lead=10)],
-        _angles(), [(0.0, 10.0)], _transcript(), 10.0,
-        "Reel 09 - hook")
-
-    assert [(shot["start_frame"], shot["end_frame"], shot["camera_key"])
-            for shot in plan["shots"]] == [(0, 30, "1"), (30, 100, "2")]
-    assert plan["shots"][0]["min_shot_frames"] == 20
-    assert plan["shots"][1]["lead_frames"] == 10
-
-
 def test_picture_switch_keeps_audio_and_splits_the_chosen_camera():
     plan = reel_angle_plan.resolve(
         [_row("reel", "", "Wide"),
          _row("words", "guest speaks", "Close", lead=10)],
         _angles(), [(0.0, 10.0)], _transcript(), 10.0,
         "Reel 09 - hook")
+    # The word anchor, its lead and the declared minimum resolve to frames.
+    assert [(shot["start_frame"], shot["end_frame"], shot["camera_key"])
+            for shot in plan["shots"]] == [(0, 30, "1"), (30, 100, "2")]
+    assert plan["shots"][0]["min_shot_frames"] == 20
+    assert plan["shots"][1]["lead_frames"] == 10
     audio = _place(1, media="audio")
     result, record = reel_angle_plan.select_picture_placements(
         [_place(1), _place(2), audio], plan, 10.0)
@@ -113,30 +105,18 @@ def test_same_camera_overlapping_placements_cannot_fake_full_coverage():
             [first, duplicate], plan, 10.0)
 
 
-def test_camera_plan_requires_a_positive_minimum_shot_length():
-    row = _row("reel", "", "Wide", min_shot=0)
-
-    with pytest.raises(edit_ledger.EditLedgerError,
-                       match="positive minimum"):
-        edit_ledger.validate_rows([row])
-
-
-def test_camera_plan_requires_an_explicit_lead_value():
-    row = _row("reel", "", "Wide")
-    del row["params"]["lead_frames"]
-
-    with pytest.raises(edit_ledger.EditLedgerError,
-                       match="lead_frames"):
-        edit_ledger.validate_rows([row])
-
-
-def test_camera_plan_refuses_an_unread_parameter():
-    row = _row("reel", "", "Wide")
-    row["params"]["cut_style"] = "whip"
-
-    with pytest.raises(edit_ledger.EditLedgerError,
-                       match="does not read"):
-        edit_ledger.validate_rows([row])
+def test_camera_plan_declaration_refuses_by_name():
+    """A non-positive minimum, an omitted lead and an unread parameter."""
+    zero_min = _row("reel", "", "Wide", min_shot=0)
+    no_lead = _row("reel", "", "Wide")
+    del no_lead["params"]["lead_frames"]
+    unread = _row("reel", "", "Wide")
+    unread["params"]["cut_style"] = "whip"
+    for row, match in ((zero_min, "positive minimum"),
+                       (no_lead, "lead_frames"),
+                       (unread, "does not read")):
+        with pytest.raises(edit_ledger.EditLedgerError, match=match):
+            edit_ledger.validate_rows([row])
 
 
 # ── A podcast master places each camera only while its person speaks ──
@@ -179,17 +159,13 @@ def _podcast_master():
 
 
 def test_camera_sync_is_what_a_majority_of_gapless_cuts_agree_on():
+    """Cuts that disagree give no sync rather than an average."""
     from library.tools import camera_sync
 
     measured = camera_sync.measure(_podcast_master(), 10.0,
                                    angle_key=lambda c: str(c.track_index))
     assert measured["offsets"][("camera-1.mov", "camera-2.mov")] == 50
     assert measured["offsets"][("camera-2.mov", "camera-1.mov")] == -50
-
-
-def test_cuts_that_disagree_give_no_sync_rather_than_an_average():
-    from library.tools import camera_sync
-
     assert camera_sync.agreed_offset([50, 50, 51, 400, -30]) == 50
     assert camera_sync.agreed_offset([50, 400]) is None
     assert camera_sync.agreed_offset([50, 50, 400, 400]) is None

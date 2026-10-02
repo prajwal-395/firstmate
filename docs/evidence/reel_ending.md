@@ -169,3 +169,30 @@ freeze is a refusal here.
 
 `tests/test_reel_ending.py`, `tests/test_orphan_wiring.py`.
 ```
+
+## `tests/test_reel_ending_cta_default.py` module docstring (moved 2026-10-02)
+
+```text
+A reel INHERITS its freeze ending from the call to action it closes on.
+
+The captain, 2026-09-11, on Reels 01 and 23: *"this change needs to be
+applied to all other reels that currently also use this CTA **or will
+be using this CTA**"*.  The second half of that sentence is what these
+tests are for.  Four hand-written entries in `external/reel_ending.json`
+would have satisfied the four reels he named and failed the
+instruction, because a reel planned tomorrow would have closed the old
+way with nothing to say so.
+
+So the freeze hangs on `reel_proposal.CallToAction` - the thing a reel
+closes ON - and `test_a_reel_nobody_declared_anything_for_inherits_the_
+freeze` is the gate: it fails the moment a newly planned reel stops
+inheriting it.
+
+Measured on the field test's own plan and stated here because it is why
+this cannot hang on a passage or a speaker: the four reels complained
+about close on THREE different call-to-action passages and Reel 13 on a
+fourth, and Reel 28's closer is CRAIG.
+
+Synthetic under `tmp_path` (AGENTS.md 8); nothing here reaches Resolve
+or a real project.
+```

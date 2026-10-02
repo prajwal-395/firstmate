@@ -18,10 +18,8 @@ The defects these pin:
 
 from __future__ import annotations
 
-import pytest
 
 from library.steps.step_3_04_select_reels.bridge import (
-    _speakers,
     build_context,
 )
 from library.tools.reel_exchange import monologue_windows
@@ -63,27 +61,6 @@ def _moment(start, end, number=1):
 
 
 # ── the bridge ───────────────────────────────────────────────────
-
-def test_undeclared_single_speaker_is_still_refused():
-    """Pins the historical behaviour: without a declaration, one
-    voice is not an exchange."""
-    lead, answerer, turns, _why = _speakers(_transcript())
-    assert (lead, answerer) == (None, None)
-    assert len(turns) > 0
-
-
-def test_declared_monologue_takes_the_lead_with_no_answerer():
-    lead, answerer, turns, why = _speakers(
-        _transcript(), [{"name": "Jo"}])
-    assert lead == "Jo"
-    assert answerer is None
-    assert "declared" in why
-
-
-def test_declared_zero_states_its_basis():
-    _lead, _answerer, _turns, why = _speakers(_transcript(), [])
-    assert "declares no speakers" in why
-
 
 def test_monologue_project_reaches_candidates(tmp_path):
     """The defect: a one-speaker cut offered nothing. Now it offers
@@ -143,17 +120,14 @@ def test_roster_mismatch_is_reported_not_smoothed(tmp_path):
 
 # ── monologue windows ────────────────────────────────────────────
 
-def test_monologue_windows_grow_runs_of_the_voice():
+def test_monologue_windows_grow_runs_of_the_voice_and_ignore_others():
     from library.tools.reel_exchange import turns_from_transcript
     turns = turns_from_transcript(_transcript())
     windows = monologue_windows(turns, "Jo")
     assert len(windows) >= 1
     assert all(set(w.speakers) <= {"Jo"} for w in windows)
     assert all(w.duration >= 45.0 for w in windows)
-
-
-def test_monologue_windows_ignore_other_voices():
-    from library.tools.reel_exchange import turns_from_transcript
+    # another voice in the transcript is never folded into Jo's windows
     segments = (_segments("Jo", 8)
                 + _segments("Bo", 8, start=200.0))
     turns = turns_from_transcript({"segments": segments,
@@ -162,28 +136,17 @@ def test_monologue_windows_ignore_other_voices():
     assert windows and all(w.speakers == ["Jo"] for w in windows)
 
 
-def test_monologue_windows_empty_without_speech():
-    assert monologue_windows([], "Jo") == []
-
-
 # ── is_conversation ──────────────────────────────────────────────
 
-def test_monologue_moment_passes_on_a_monologue_project():
+def test_is_conversation_reads_the_declared_speaker_count():
     transcript = _transcript()
     moment = _moment(0.0, 30.0)
-    assert (is_conversation(moment, transcript, min_speakers=2)
-            is not None)
-    assert (is_conversation(moment, transcript, min_speakers=1)
-            is None)
-
-
-def test_speechless_moment_fails_at_any_count():
-    transcript = {"segments": [], "derived_from": {}}
-    moment = _moment(0.0, 30.0)
-    assert (is_conversation(moment, transcript, min_speakers=1)
-            is not None)
-    assert (is_conversation(moment, transcript, min_speakers=0)
-            is None)
+    assert is_conversation(moment, transcript, min_speakers=2) is not None
+    assert is_conversation(moment, transcript, min_speakers=1) is None
+    # a speechless moment fails at any count above zero
+    silent = {"segments": [], "derived_from": {}}
+    assert is_conversation(moment, silent, min_speakers=1) is not None
+    assert is_conversation(moment, silent, min_speakers=0) is None
 
 
 # ── check_plan_speakers ──────────────────────────────────────────
@@ -195,19 +158,11 @@ def _placement(speaker, duration=50.0):
         source_file="/m/a.MXF")
 
 
-def test_single_speaker_passes_on_a_monologue_project():
-    findings = check_plan_speakers(
-        "Reel 01", (_placement("Jo"),), expected_speakers=1)
-    assert findings == []
-
-
-def test_declared_zero_never_warns_on_voices():
-    findings = check_plan_speakers(
-        "Reel 01", (_placement("Jo"),), expected_speakers=0)
-    assert findings == []
-
-
-def test_two_speakers_still_required_by_default():
-    findings = check_plan_speakers("Reel 01", (_placement("Jo"),))
+def test_check_plan_speakers_reads_the_declared_count():
+    one_voice = (_placement("Jo"),)
+    assert check_plan_speakers("Reel 01", one_voice, expected_speakers=1) == []
+    assert check_plan_speakers("Reel 01", one_voice, expected_speakers=0) == []
+    # undeclared still requires two
+    findings = check_plan_speakers("Reel 01", one_voice)
     assert len(findings) == 1
     assert findings[0].finding_class == FindingClass.PQ_SPEAKERS

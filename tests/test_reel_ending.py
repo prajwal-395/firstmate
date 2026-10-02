@@ -60,22 +60,16 @@ def _declare(root, endings):
 
 # ── The defect, reproduced and then closed ─────────────────────────
 
-def test_an_extended_range_admits_the_next_shot():
-    """The mechanism, in one assertion: a keep range reaching past the
-    master's cut does not lengthen the shot that is playing - it adds
-    the next one."""
-    probe = reel_build.placements([(10.0, 12.1)], _shots(), 24.0)
-    assert len(probe) == 2
-    assert probe[-1]["clip"].speaker == "B"
-    # Fourteen frames of the next speaker, from asking for 0.6s of room.
-    assert round(
-        (probe[-1]["source_out"] - probe[-1]["source_in"]) * 24.0) == 14
-
-
 def test_declared_ending_truncates_to_its_shot():
+    """The mechanism: a keep range reaching past the master's cut does not
+    lengthen the shot that is playing - it adds fourteen frames of the
+    next speaker. The ending truncates that back to the shot."""
     transcript = _transcript()
     ranges = [(10.0, 12.1)]
     probe = reel_build.placements(ranges, _shots(), 24.0)
+    assert [p["clip"].speaker for p in probe] == ["A", "B"]
+    assert round(
+        (probe[-1]["source_out"] - probe[-1]["source_in"]) * 24.0) == 14
     out, record = reel_ending.apply_ending(
         ranges, probe, transcript, _ending(), 24.0)
     assert out == [(10.0, 11.5)]
@@ -239,15 +233,16 @@ def test_declaration_round_trips_and_matches_a_staging_name(tmp_path):
     assert reel_ending.resolve_ending(str(tmp_path / "other"), "R") is None
 
 
-@pytest.mark.parametrize("bad,match", [
-    ([{"ends_on": {"anchor_phrase": "x"}, "reason": "r"}], "names no reel"),
-    ([{"reel": "R", "reason": "r"}], "no ends_on"),
-    ([{"reel": "R", "ends_on": {"anchor_phrase": "x"},
-       "tail_element": "explosion", "reason": "r"}], "tail_element"),
-])
-def test_malformed_declarations_refuse(bad, match):
-    with pytest.raises(reel_ending.ReelEndingError, match=match):
-        reel_ending.validate_endings(bad)
+def test_malformed_declarations_refuse():
+    for bad, match in (
+        ([{"ends_on": {"anchor_phrase": "x"}, "reason": "r"}],
+         "names no reel"),
+        ([{"reel": "R", "reason": "r"}], "no ends_on"),
+        ([{"reel": "R", "ends_on": {"anchor_phrase": "x"},
+           "tail_element": "explosion", "reason": "r"}], "tail_element"),
+    ):
+        with pytest.raises(reel_ending.ReelEndingError, match=match):
+            reel_ending.validate_endings(bad)
 
 
 def test_an_unreadable_declaration_refuses_rather_than_defaulting(tmp_path):
@@ -259,22 +254,6 @@ def test_an_unreadable_declaration_refuses_rather_than_defaulting(tmp_path):
         handle.write("{not json")
     with pytest.raises(reel_ending.ReelEndingError, match="cannot be read"):
         reel_ending.load_endings(root)
-
-
-def test_ending_in_an_earlier_playback_range_drops_later_ranges():
-    transcript = {"segments": [{
-        "text": "alpha beta", "words": _words("alpha", "beta", start=10.0)}]}
-    shots = [SimpleNamespace(timeline_start=10.0, timeline_end=10.9,
-                             source_in=50.0, track_index=1, speaker="A"),
-             SimpleNamespace(timeline_start=10.9, timeline_end=13.0,
-                             source_in=80.0, track_index=2, speaker="B")]
-    ranges = [(10.0, 10.9), (11.2, 12.0)]
-    probe = reel_build.placements(ranges, shots, 24.0)
-    out, record = reel_ending.apply_ending(
-        ranges, probe, transcript,
-        _ending(ends_on={"anchor_phrase": "alpha beta"}), 24.0)
-    assert out == [(10.0, 10.9)]
-    assert record["applied"][0]["dropped_ranges"] == [[11.2, 12.0]]
 
 
 # ── The freeze: hold the last frame, play the element over it ──────

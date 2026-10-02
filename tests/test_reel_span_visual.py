@@ -102,44 +102,28 @@ def test_a_noun_anchored_event_with_a_lead_resolves():
 
 # ── ... and refuses what it cannot ───────────────────────────────────
 
-def test_an_event_whose_noun_is_not_spoken_is_refused():
-    resolved = span.resolve_span_plan(
-        [{"segment": 1, "shows": "a goalkeeper",
-          "anchor_phrase": "goalkeeper", "why": "not in the speech"}],
-        segment_words=_words(), ranges=_ranges())
-    assert resolved.moments == []
-    assert resolved.basis == span.SPAN_EVERY_EVENT_DROPPED
-    assert [d.reason for d in resolved.dropped] == [
-        "anchor_phrase_not_found"]
-
-
-def test_a_beat_landing_outside_its_segment_is_refused():
-    resolved = span.resolve_span_plan(
-        [{"segment": 1, "shows": "a whistle on the first word",
+def test_an_event_the_resolver_cannot_bind_is_refused_by_name():
+    table = [
+        ({"segment": 1, "shows": "a goalkeeper",
+          "anchor_phrase": "goalkeeper", "why": "not in the speech"},
+         "anchor_phrase_not_found"),
+        ({"segment": 1, "shows": "a whistle on the first word",
           "anchor_phrase": "he", "lead_seconds": 1.0,
-          "why": "a lead longer than the anchor's distance to the edge"}],
-        segment_words=_words(), ranges=_ranges())
-    assert resolved.moments == []
-    assert [d.reason for d in resolved.dropped] == ["beat_outside_segment"]
-
-
-def test_an_event_carrying_look_values_is_refused():
-    resolved = span.resolve_span_plan(
-        [{"segment": 1, "shows": "a mind", "anchor_phrase": "mind",
+          "why": "a lead longer than the anchor's distance to the edge"},
+         "beat_outside_segment"),
+        ({"segment": 1, "shows": "a mind", "anchor_phrase": "mind",
           "color": "#123456", "font_size": 96, "entrance": "scale",
-          "why": "taste smuggled into a picture plan"}],
-        segment_words=_words(), ranges=_ranges())
-    assert resolved.moments == []
-    assert [d.reason for d in resolved.dropped] == [
-        "look_value_in_picture_plan"]
-
-
-def test_an_unanchored_event_is_refused():
-    resolved = span.resolve_span_plan(
-        [{"segment": 1, "shows": "a mind", "why": "no anchor at all"}],
-        segment_words=_words(), ranges=_ranges())
-    assert resolved.moments == []
-    assert [d.reason for d in resolved.dropped] == ["no_anchor_declared"]
+          "why": "taste smuggled into a picture plan"},
+         "look_value_in_picture_plan"),
+        ({"segment": 1, "shows": "a mind", "why": "no anchor at all"},
+         "no_anchor_declared"),
+    ]
+    for beat, reason in table:
+        resolved = span.resolve_span_plan(
+            [beat], segment_words=_words(), ranges=_ranges())
+        assert resolved.moments == [], reason
+        assert resolved.basis == span.SPAN_EVERY_EVENT_DROPPED, reason
+        assert [d.reason for d in resolved.dropped] == [reason]
 
 
 # ── The answer file reads like the V6 one ────────────────────────────

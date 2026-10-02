@@ -150,16 +150,14 @@ def test_reel03_shared_edge_excludes_prior_sentence_and_resolves_if_anchor():
     assert 0 <= anchor["timeline_seconds"] < block["timeline_end"]
 
 
-@pytest.mark.parametrize("changes", [
-    {"previous_end": 212.89},
-    {"previous_item": "different-resolve-item"},
-    {"current_item": None},
-    {"current_source_start": EDGE + 0.001},
-])
-def test_opening_still_snaps_to_the_whole_first_word_when_rows_differ(changes):
-    transcript = _transcript(**changes)
-    start, end = snap_to_speech(213.26, 218.26, transcript)
-    assert (start, end) == pytest.approx((212.9, 218.26))
+def test_opening_still_snaps_to_the_whole_first_word_when_rows_differ():
+    for changes in ({"previous_end": 212.89},
+                    {"previous_item": "different-resolve-item"},
+                    {"current_item": None},
+                    {"current_source_start": EDGE + 0.001}):
+        transcript = _transcript(**changes)
+        start, end = snap_to_speech(213.26, 218.26, transcript)
+        assert (start, end) == pytest.approx((212.9, 218.26)), changes
 
 
 def test_boundary_guard_does_not_leave_a_cut_inside_the_first_word():

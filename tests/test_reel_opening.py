@@ -16,8 +16,6 @@ from __future__ import annotations
 import pytest
 
 from library.tools.reel_opening import (
-    OPENING_SECONDS,
-    concern_lines,
     observations,
     opening_words,
 )
@@ -39,10 +37,10 @@ def test_a_back_reference_is_reported():
     assert observed[0]["matched"] == "earlier"
     assert "outside this reel" in observed[0]["why"]
     assert observed[0]["the_fix"]
-
-
-def test_an_answer_with_no_question_before_it_is_reported():
-    """Reel 07 opened on 'Absolutely', answering nothing the viewer heard."""
+    # taste is the model's: an observation, never a score or a verdict
+    assert set(observed[0]) == {"observation", "opening", "matched",
+                                "why", "the_fix"}
+    # Reel 07 opened on 'Absolutely', answering nothing the viewer heard.
     observed = observations(
         _words("Absolutely. And just like a hiring manager would check both"),
         span_text="Absolutely. And just like a hiring manager would check "
@@ -54,34 +52,21 @@ def test_an_answer_with_no_question_before_it_is_reported():
 
 # ── What it does NOT report, which is the harder half ────────────────
 
-def test_an_answer_that_really_follows_a_question_is_left_alone():
+def test_a_good_or_merely_plain_opening_produces_nothing():
     """The check must be able to pass, or it is not a check.
 
-    An acknowledgement is only a defect when the viewer never heard what
-    it acknowledges. Inside a reel that opens on Craig's question it is
-    ordinary conversation.
+    An acknowledgement inside a reel that opens on the question it answers
+    is ordinary conversation; a question opening is the hook; and
+    throat-clearing (reel 01, "okay so i'm hearing...") is deliberately
+    NOT matched - that is a judgement about writing, and taste belongs to
+    the model, so the omission is a decision rather than a miss.
     """
     assert observations(
         _words("Absolutely. So they're completely different systems"),
         span_text="So what do marketing directors get wrong about geo? "
                   "Absolutely. So they're completely different systems.",
     ) == []
-
-
-def test_a_question_opening_produces_nothing():
     assert observations(_words("Why do AI platforms love video content?")) == []
-
-
-def test_throat_clearing_is_deliberately_not_matched():
-    """Reel 01 opens "okay so i'm hearing just from a lot of different
-    marketing directors", and this module does NOT report it.
-
-    That is a judgement about writing, not a fact about the span, and the
-    captain's ruling is that taste belongs to the model and no threshold
-    may be invented for it. Reporting it would make this module the
-    chooser. It is named here so the omission reads as a decision rather
-    than as a miss.
-    """
     assert observations(
         _words("okay so i'm hearing just from a lot of different "
                "marketing directors")) == []
@@ -132,20 +117,6 @@ def test_untimed_words_never_reach_the_opening():
     got = opening_words([(0.0, 30.0)], tx)
 
     assert [w["word"] for w in got][0] == "Why"
-
-
-# ── How it reaches a reader ──────────────────────────────────────────
-
-
-def test_nothing_here_scores_or_rejects():
-    """The captain's ruling: taste is the model's and no threshold may be
-    invented for it. This module returns observations or nothing."""
-    observed = observations(_words("earlier it doesn't even matter"))
-
-    assert set(observed[0]) == {"observation", "opening", "matched",
-                                "why", "the_fix"}
-    for key in ("score", "severity", "rejected", "verdict", "pass"):
-        assert key not in observed[0]
 
 
 @pytest.mark.parametrize("opener", ["Yes"])

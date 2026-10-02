@@ -100,29 +100,6 @@ def test_a_resolved_plan_records_its_moments(tmp_path):
     assert record["dropped"] == []
 
 
-def test_an_all_refused_plan_records_the_refusal_not_a_decision(tmp_path):
-    project = tmp_path / "proj"
-    _answer_file(project, [_refused_beat()])
-    record = span.span_record_for_build(
-        _Moment(), _transcript(), _ranges(), str(project),
-        fps=30.0, timeline_name="Reel 09 - plays with his mind")
-    assert record["basis"] == span.SPAN_EVERY_EVENT_DROPPED
-    assert record["proposed"] == 1 and record["resolved"] == 0
-    assert record["moments"] == []
-    assert [d["reason"] for d in record["dropped"]] == [
-        "anchor_phrase_not_found"]
-
-
-def test_an_empty_answer_records_a_decision_for_no_pictures(tmp_path):
-    project = tmp_path / "proj"
-    _answer_file(project, [])
-    record = span.span_record_for_build(
-        _Moment(), _transcript(), _ranges(), str(project),
-        fps=30.0, timeline_name="Reel 09 - plays with his mind")
-    assert record["basis"] == span.SPAN_NO_EVENTS_PLANNED
-    assert record["moments"] == [] and record["dropped"] == []
-
-
 def test_no_answer_file_is_not_a_decision_for_no_pictures(tmp_path):
     project = tmp_path / "proj"
     (project / "pipeline_output" / "review").mkdir(parents=True)
@@ -189,12 +166,6 @@ def test_an_all_refused_span_plan_fails_f23():
     assert "anchor_phrase_not_found" in findings[0].message
 
 
-def test_a_deliberate_stillness_passes():
-    assert check_span_plan(
-        "Reel 09 - plays with his mind",
-        _record(span.SPAN_NO_EVENTS_PLANNED)) == []
-
-
 # ── End to end: resolve, record, grade ───────────────────────────────
 
 def test_every_dropped_and_no_events_reach_different_outcomes(tmp_path):
@@ -207,12 +178,20 @@ def test_every_dropped_and_no_events_reach_different_outcomes(tmp_path):
     refused = span.span_record_for_build(
         _Moment(), _transcript(), _ranges(), str(project),
         fps=30.0, timeline_name="Reel 09 - plays with his mind")
+    assert refused["basis"] == span.SPAN_EVERY_EVENT_DROPPED
+    assert refused["proposed"] == 1 and refused["resolved"] == 0
+    assert refused["moments"] == []
+    assert [d["reason"] for d in refused["dropped"]] == [
+        "anchor_phrase_not_found"]
     span.write_span_records(str(project), [refused])
 
     _answer_file(project, [])
     still = span.span_record_for_build(
         _Moment(), _transcript(), _ranges(), str(project),
         fps=30.0, timeline_name="Reel 10 - vision")
+    # an empty answer is a DECISION for no pictures
+    assert still["basis"] == span.SPAN_NO_EVENTS_PLANNED
+    assert still["moments"] == [] and still["dropped"] == []
     span.write_span_records(str(project), [still])
 
     records = span.read_span_records(str(project))

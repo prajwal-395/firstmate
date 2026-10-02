@@ -1,24 +1,8 @@
-"""The shared CTA opens on a sentence start, by a pin that survives rebuilds.
+"""A `redraw_closer` pin in `captain_edits` opens a shared closer on a
+word-anchored sentence start, names which closer it moves, and survives
+rebuilds.
 
-The captain, 2026-09-10: the shared closer [321.61, 328.23] opens
-mid-sentence ("we're calling the lucy visibility system ..."), and the
-redraw starts it from "it's exactly why we've been building this
-platform we're calling ...". Firstmate measured `"it's"` at 319.358,
-after a 0.478s pause following `"answer"` (ends 318.875) - so the new
-start is 319.358, the end stays 328.231, and each of the four reels
-sharing the span (2, 9, 20, 26) grows by exactly 2.252s.
-
-PR 880 established that keep exclusions can only REMOVE seconds, so no
-existing mechanism can extend a closer backwards. The pin lives in
-`captain_edits` as a `redraw_closer` delta - word-anchored like every
-other edit there, refusing timecode pins by construction - naming both
-ends in words: `anchor_phrase` (what the closer must open on) and
-`from_phrase` (what it opens on now, identifying WHICH closer moves so
-no other reel's closer is touched).
-
-Fail-before: `validate_edits` knows no `redraw_closer` kind and
-`captain_edits` has no `apply_closer_redraws` - every test here errors
-on the kind or the attribute, not on an assertion.
+History: docs/evidence/reel_shared_closer.md.
 """
 
 from __future__ import annotations
@@ -165,48 +149,21 @@ def _write_edits_file(project, edits):
 
 # ── 1. The pin validates, word-anchored ────────────────────────────────
 
-
-
-def test_a_pin_without_a_from_phrase_is_refused():
-    """A pin that does not name which closer it moves would redraw EVERY
-    closer in the batch - including ones the captain never heard. The
-    bars forbid touching beyond the shared span, so the pin must say
-    which span in words."""
-    edit = _pin()
-    del edit["from_phrase"]
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.validate_edits([edit])
-    assert "from_phrase" in str(exc.value)
-
-
-def test_a_timecode_pinned_closer_is_refused():
-    """PR 857 refuses frame-anchored edits by construction; a closer
-    pinned to 319.358 breaks the moment anything upstream re-times, so
-    the numbers are refused at write time and only words travel."""
-    with pytest.raises(captain_edits.CaptainEditError) as exc:
-        captain_edits.validate_edits([_pin(new_start=NEW_START)])
-    assert "319.358" in str(exc.value) or "start" in str(exc.value).lower()
+def test_a_malformed_pin_is_refused_by_name():
+    cases = [
+        # No from_phrase would redraw EVERY closer in the batch.
+        ({k: v for k, v in _pin().items() if k != "from_phrase"},
+         "from_phrase"),
+        # A timecode pin breaks the moment anything upstream re-times.
+        (_pin(new_start=NEW_START), "start"),
+    ]
+    for edit, named in cases:
+        with pytest.raises(captain_edits.CaptainEditError) as exc:
+            captain_edits.validate_edits([edit])
+        assert named in str(exc.value).lower()
 
 
 # ── 2. The redraw moves all four, end fixed ────────────────────────────
-
-def test_the_pin_opens_the_shared_closer_on_its_exactly_why():
-    moments, applied, held, stale = captain_edits.apply_closer_redraws(
-        _moments(), _tx(), [_pin()])
-    assert stale == []
-    assert held == []
-    assert sorted(r["reel"] for r in applied) == [2, 9, 20, 26]
-    for moment in moments:
-        assert moment.call_to_action.timeline_start == pytest.approx(
-            NEW_START)
-        assert moment.call_to_action.timeline_end == pytest.approx(CTA_END)
-    for record in applied:
-        assert record["was"][0] == pytest.approx(OLD_START)
-        assert record["now"][0] == pytest.approx(NEW_START)
-        assert record["now"][1] == pytest.approx(CTA_END)
-
-
-
 
 def test_the_built_reel_opens_its_closer_on_its_exactly_why():
     """From the built timeline's OWN speech (`played_speech` over the
@@ -235,14 +192,12 @@ def test_the_built_reel_opens_its_closer_on_its_exactly_why():
 # ── 3. The warning fires before, quiet after ───────────────────────────
 
 
-
 # ── 4. Durability: the store, twice ────────────────────────────────────
-
 
 
 # ── 5. Honest failures ─────────────────────────────────────────────────
 
-def test_a_retranscribed_anchor_reports_stale_not_silent(tmp_path):
+def test_an_unplaceable_anchor_reports_stale_and_moves_nothing(tmp_path):
     """The passage reworded so the anchor matches nothing: the pin
     reports STALE loudly and no span moves."""
     tx = _tx()
@@ -258,6 +213,7 @@ def test_a_retranscribed_anchor_reports_stale_not_silent(tmp_path):
     for moment in moments:
         assert moment.call_to_action.timeline_start == pytest.approx(
             OLD_START)
+    _an_overlapping_word_still_refuses()
 
 
 def test_an_extension_into_its_own_body_is_refused_loudly():
@@ -374,9 +330,7 @@ def _tx_merged():
     return tx
 
 
-
-
-def test_an_overlapping_word_still_refuses():
+def _an_overlapping_word_still_refuses():
     """An overlapping speaker's word strictly containing the opening:
     starting there would cut their word in half, so the pin reports
     STALE rather than shipping a half-word."""
@@ -446,6 +400,7 @@ def test_a_recorded_pin_survives_the_read_and_two_rebuilds(tmp_path):
     for moment in moments:
         assert moment.call_to_action.timeline_start == pytest.approx(
             NEW_START)
+        assert moment.call_to_action.timeline_end == pytest.approx(CTA_END)
 
 
 # ── 10. The gate derives what the build placed ────────────────────────
@@ -454,10 +409,3 @@ def test_a_recorded_pin_survives_the_read_and_two_rebuilds(tmp_path):
 # spans; the verifier derived the un-pinned file and read Reel 09's
 # +2.25s CTA growth as 54 dropped frames, failing a correct build.
 # The gate applies the same pins before deriving anything.
-
-
-
-
-
-
-

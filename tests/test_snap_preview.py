@@ -1,28 +1,15 @@
-"""The snap preview: cascades become a line of output beforehand.
+"""The snap preview reports, per moment, how far each boundary would move
+and what words that pulls in, flagging moves over the decision bar.
 
-D2: `snap_to_speech` widens outward to whole segments in a fixed-point
-loop, and transcript segments overlap by ASR jitter - so a snap walks
-from one segment into the next and keeps going.  The canary found a
-9.1s closer move by looking at a finished 61s timeline.  This suite
-pins the preview that reports, per moment, how far each boundary would
-move and what words that pulls in or drops, flagging moves over about
-two seconds as needing a decision BEFORE the build.
-
-The snap itself is untouched: repair is still outward, still silent
-where small, still idempotent (`test_reel_proposal_build_time_snap`).
-A pin, when one is decided, goes through the captain's declaration
-store (`captain_edits.record_edit`) with its provenance - the loop
-the last test walks end to end.
+History: docs/evidence/reel_boundary_snap.md.
 """
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from library.tools.reel_proposal import (
-    SNAP_DECISION_SECONDS,
     Approval,
     CallToAction,
     ReelMoment,
@@ -92,6 +79,10 @@ def test_a_snap_cascade_is_flagged_with_its_pulled_in_words():
     assert end["needs_decision"]
     assert [w["word"] for w in end["pulled_in"]] == [
         "epsilon", "zeta"]
+    # The bar is tunable: the same moves under a 20s bar flag nothing.
+    relaxed = preview_snap([_moment(16, 19.7, 25.0)],
+                           _cascade_transcript(), threshold=20.0)
+    assert (relaxed["moved"], relaxed["flagged"]) == (2, 0)
 
 
 # --------------------------------------- small moves stay quiet
@@ -120,20 +111,13 @@ def test_a_word_edge_nudge_is_reported_never_flagged():
     text = render_snap_preview(report)
     assert "NEEDS DECISION" not in text
     assert "0 need(s) a decision" in text
-
-
-def test_the_threshold_is_two_seconds_and_tunable():
-    assert SNAP_DECISION_SECONDS == 2.0
-    report = preview_snap([_moment(16, 19.7, 25.0)],
-                          _cascade_transcript(), threshold=20.0)
-    assert report["moved"] == 2
-    assert report["flagged"] == 0
+    _decision_lines_derive_from_a_raw_build_loop_move()
 
 
 # --------------------------------- the build loop reads one spelling
 
 
-def test_decision_lines_derive_from_a_raw_build_loop_move():
+def _decision_lines_derive_from_a_raw_build_loop_move():
     """The build loop hands `decision_lines` the raw move (no word
     lists, no phrases): a flagged cascade still reads loud, a nudge
     still reads as nothing - so the beforehand report and the build
@@ -149,34 +133,6 @@ def test_decision_lines_derive_from_a_raw_build_loop_move():
                                "was": 413.851, "now": 414.03,
                                "through": "about"}, tx)
     assert quiet == []
-
-
-def test_a_flagged_closer_names_its_pin_route():
-    """A closer start the snap would drag gets the record-closer
-    command with both phrases, not a proposal pointer."""
-    tx = {"segments": [
-        _seg("here is the thing", 90.0, 101.0,
-             [_w("here", 90.1, 90.4), _w("is", 90.5, 90.7),
-              _w("the", 90.8, 91.0), _w("thing", 91.1, 91.5)]),
-        _seg("welcome back everyone today we have words", 100.0, 120.0,
-             [_w("welcome", 100.5, 100.9), _w("back", 101.0, 101.4),
-              _w("everyone", 101.5, 102.0), _w("today", 103.0, 103.5),
-              _w("we", 104.0, 104.3), _w("have", 104.4, 104.8),
-              _w("words", 105.0, 105.4)]),
-    ]}
-    moment = _moment(6, 50.0, 80.0, cta=(100.0, 120.0))
-    report = preview_snap([moment], tx)
-    moves = {m["boundary"]: m for m in report["moments"][0]["moves"]}
-    assert set(moves) == {"cta_start"}
-    closer = moves["cta_start"]
-    assert (closer["was"], closer["now"]) == (100.0, 90.0)
-    assert closer["needs_decision"]
-    assert closer["anchor_phrase"].startswith("welcome back")
-    assert closer["snapped_phrase"].startswith("here is the thing")
-    lines = decision_lines(6, closer, tx, "/projects/demo")
-    assert any("record-closer" in line for line in lines)
-    assert any(repr(closer["anchor_phrase"]) in line for line in lines)
-    assert any(repr(closer["snapped_phrase"]) in line for line in lines)
 
 
 # ----------------- the pin, recorded with provenance, applied
@@ -199,10 +155,11 @@ def _pin_transcript():
 
 
 def test_a_decided_pin_is_recorded_with_provenance_and_applied(tmp_path):
-    """The canary's M6 loop, closed: the preview's phrases become a
-    `redraw_closer` declaration in the project store (with its
-    `source`), and the build's pin pass redraws the snapped closer
-    onto the ruled opening."""
+    """The canary's M6 loop, closed: a closer start the snap would drag
+    is flagged with the record-closer command and both phrases (not a
+    proposal pointer); those phrases become a `redraw_closer`
+    declaration in the project store (with its `source`), and the
+    build's pin pass redraws the snapped closer onto the ruled opening."""
     from library.tools import captain_edits
     from library.tools.project_layout import ProjectLayout
 
@@ -217,9 +174,17 @@ def test_a_decided_pin_is_recorded_with_provenance_and_applied(tmp_path):
 
     moment = _moment(6, 50.0, 80.0, cta=(100.0, 120.0))
     report = preview_snap([moment], tx)
-    closer = {m["boundary"]: m
-              for m in report["moments"][0]["moves"]}["cta_start"]
+    moves = {m["boundary"]: m for m in report["moments"][0]["moves"]}
+    assert set(moves) == {"cta_start"}
+    closer = moves["cta_start"]
+    assert (closer["was"], closer["now"]) == (100.0, 90.0)
     assert closer["needs_decision"]
+    assert closer["anchor_phrase"].startswith("welcome back")
+    assert closer["snapped_phrase"].startswith("here is the thing")
+    lines = decision_lines(6, closer, tx, "/projects/demo")
+    assert any("record-closer" in line for line in lines)
+    assert any(repr(closer["anchor_phrase"]) in line for line in lines)
+    assert any(repr(closer["snapped_phrase"]) in line for line in lines)
 
     edit, action = captain_edits.record_edit(
         str(project),

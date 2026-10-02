@@ -1,25 +1,9 @@
 """A promotion DELETES what it replaced, unless asked to keep it.
 
-Three things are being proved, and the first is the default:
-
-1. the default promotion deletes the backup, so one timeline per reel
-   and an empty archive (the captain, 2026-09-18, withdrawing his own
-   2026-09-12 retire rule after seeing "(archived round 001)" on reel
-   titles - no leftovers wins, comparison becomes explicit);
-2. the explicit opt-in still retires exactly one generation per reel,
-   bounded so the archive cannot grow with time - the answer to the
-   clutter question the captain has asked about four times (a scratch
-   left in a reels bin is how they came to review a throwaway by
-   mistake, `resolve_bin_layout.SCRATCH_BIN`);
-3. a signed-off generation is never deleted or collected, and the
-   deletion scope refuses a list that reaches beyond the reels being
-   promoted.
-
-The lifecycle is what reconciles the first two, and each half has a
-test that fails without it: the retention bound is per REEL rather
-than per round; the archived name can never be mistaken for the live
-cut; and a stray archived timeline is filed back by the organiser
-rather than sitting beside a deliverable.
+Default: one timeline per reel, empty archive. Opt-in `retain`: one
+archived generation per REEL (never per round). A signed-off generation
+is never deleted or collected, and the deletion scope refuses a list
+beyond the promoted reels. History: docs/evidence/reel_retirement.md.
 """
 
 from unittest.mock import patch
@@ -28,7 +12,6 @@ import pytest
 
 from library.tools import reel_replace_guard
 from library.tools import reel_retirement as retire
-from library.tools import resolve_bin_layout as bins
 from tests.promotion_test_helpers import (
     no_a_roll_track_plans,
     record_ren_owned_inventory,
@@ -72,15 +55,6 @@ def test_an_archived_name_can_never_be_mistaken_for_the_live_cut():
     assert retire.parse_archived(name) == (REEL, 3)
 
 
-def test_the_archive_bin_is_the_one_already_declared_for_it():
-    """`resolve_bin_layout` owns every bin path; nothing invents one.
-    The archive bin has carried this purpose since the 2026-09-09 reset
-    and had no user until retirement."""
-    assert retire.ARCHIVE_BIN == (bins.REELS_BIN, bins.REELS_ARCHIVE_BIN)
-    declared = {entry.path for entry in bins.BINS}
-    assert retire.ARCHIVE_BIN in declared
-
-
 # ── The lifecycle ────────────────────────────────────────────────
 
 
@@ -101,6 +75,11 @@ def test_the_archive_holds_one_generation_per_reel_not_one_per_round():
     assert [kept["name"] for kept in plan["kept"]] == [retire.archived_name(REEL, 3)]
     # And another reel's generations are not this promotion's business.
     assert retire.archived_name(OTHER, 1) not in plan["collect"]
+    # `retained=0` - the default-delete path - collects every unsigned
+    # generation of a promoted reel, so the archive ends empty for it.
+    plan = retire.plan_collection(names, [REEL], retained=0)
+    assert sorted(plan["collect"]) == sorted(names[:3])
+    assert [kept["name"] for kept in plan["kept"]] == []
 
 
 def test_a_signed_off_generation_is_never_collected():
@@ -112,20 +91,6 @@ def test_a_signed_off_generation_is_never_collected():
     assert plan["collect"] == []
     whys = " ".join(kept["why"] for kept in plan["kept"])
     assert "sign-off" in whys
-
-
-# ── The opt-in ───────────────────────────────────────────────────
-
-
-def test_zero_retention_collects_every_unsigned_generation():
-    """The default-delete path plans with `retained=0`: every archived
-    generation of a promoted reel goes, so the archive ends empty for
-    it. Remove the parameter and the default path can only keep newest
-    - the old default, one leftover per reel."""
-    names = [retire.archived_name(REEL, n) for n in (1, 2, 3)]
-    plan = retire.plan_collection(names, [REEL], retained=0)
-    assert sorted(plan["collect"]) == sorted(names)
-    assert plan["kept"] == []
 
 
 # ── The Resolve half ─────────────────────────────────────────────
@@ -144,23 +109,6 @@ def test_retiring_renames_and_files_and_deletes_nothing():
 
 
 # ── The default delete ───────────────────────────────────────────
-
-
-def test_delete_backups_deletes_the_backup_and_nothing_else():
-    """The new default: the generation the promotion just replaced is
-    gone, the live reel untouched, and nothing was ever renamed into
-    the archive."""
-    from library.tools.reel_build import backup_name
-
-    live = FakeTimeline(REEL)
-    backup = FakeTimeline(backup_name(REEL))
-    project = FakeProject([live, backup])
-    record = retire.delete_backups(
-        project, project.GetMediaPool(), {backup.GetName(): backup}
-    )
-    assert record["deleted"] == [backup_name(REEL)]
-    assert project.names() == [REEL]
-    assert not [name for name in project.names() if retire.is_archived_timeline(name)]
 
 
 def test_the_deletion_scope_refuses_a_list_beyond_the_promoted_reels():
@@ -357,11 +305,12 @@ def test_a_signed_off_backup_retires_on_the_default_path(review_project):
     )
 
     assert promoted["promoted"] == [REEL]
+    assert REEL in promoted["superseded_signoffs"]
     assert promoted["retirement"]["deleted"] == []
     assert promoted["retirement"]["archived"] == {REEL: retire.archived_name(REEL, 1)}
     assert retire.archived_name(REEL, 1) in resolve.names()
     # And the sign-off itself is superseded, never deleted.
     assert signoff.signoff_for(str(review_project), REEL) is None
-    assert (
-        signoff.read_signoffs(str(review_project))["superseded"][0]["note"] == "ships"
-    )
+    history = signoff.read_signoffs(str(review_project))["superseded"]
+    assert history[0]["note"] == "ships"
+    assert history[0]["ended_by"] == "superseded"

@@ -1,28 +1,8 @@
-"""A repeated take is removed WHOLE or not at all.
+"""A repeated take is removed WHOLE or not at all (`redundant_runs`,
+`refused_take_groups`, `assert_takes_are_whole`); a withheld cut is
+reported, never silent. Reel 03's real segments travel as data.
 
-The defect, measured on the pipeline's rebuild of the captain's reel 03
-(master 301.241-341.270s, approved 2026-09-05):
-
-Akshita says one sentence three times.  The transcript segments the
-first take as three consecutive lines.  Two of them paired with the
-second take at containment 1.000 and Jaccard 1.000 and were CUT; the
-third paired just as confidently and was refused, because 2.851s against
-0.600s is a duration ratio of 4.75 and `DURATION_RATIO` is 2.0.  So two
-thirds of a take were removed and its TAIL was left - and because the
-take was at the head of the span, that orphaned tail became the reel's
-first line.  The rebuild opened on "And whoever AI best understands,
-gets the answer", the answer before the question, and the model's own
-written hook did not arrive until 3.41 seconds in.  2.348s of repetition
-really did go, and the reel was worse at the open than the timeline it
-replaced.
-
-The segments below are the captain's real ones, copied verbatim from
-`pipeline_output/scratch/timeline_transcript/transcript.json` on the
-field-test project.  No test here reads that project (AGENTS.md 8): the
-measurement travels as data so the case can be run anywhere.
-
-`library/tools/reel_build.py` - `redundant_runs`, `refused_take_groups`,
-`assert_takes_are_whole`.
+History: docs/evidence/reel_take_cuts.md.
 """
 
 from __future__ import annotations
@@ -34,8 +14,6 @@ from library.tools.reel_build import (
     DURATION_RATIO,
     ReelBuildError,
     assert_takes_are_whole,
-    keep_ranges,
-    redundant_runs,
     redundant_takes,
     refused_take_groups,
 )
@@ -120,7 +98,7 @@ THE_PARTIAL_CUT = [
 
 # ── The coherent outcome happens ─────────────────────────────────────
 
-def test_reel_03s_first_take_is_not_partly_cut():
+def test_a_take_is_cut_whole_or_not_at_all():
     """Neither of take one's first two lines goes on its own.
 
     Before the rule this returned three cuts, two of them here.  The
@@ -130,9 +108,10 @@ def test_reel_03s_first_take_is_not_partly_cut():
     dropped = sorted(round(cut.dropped_start, 3) for cut in cuts)
     assert 301.241 not in dropped, cuts
     assert 302.626 not in dropped, cuts
+    _a_repeated_run_that_can_go_whole_still_goes()
 
 
-def test_a_repeated_run_that_can_go_whole_still_goes():
+def _a_repeated_run_that_can_go_whole_still_goes():
     """The rule withholds partial cuts, not cutting.
 
     Both lines of this take pair safely, so both are removed - the same
@@ -188,50 +167,16 @@ def test_the_refused_run_names_what_stopped_it_and_what_it_kept_in():
     assert stopper["duration_ratio"] == 4.75
     assert f"DURATION_RATIO={DURATION_RATIO}" in stopper["refused_by"]
     assert "still in the reel" in group["why_nothing_was_cut"]
-
-
-def test_a_lone_pair_the_duration_test_refuses_is_not_a_withheld_cut():
-    """Only a run where a cut was actually taken away is reported.
-
-    Reels 07, 17 and 18 each have a pair the duration test refuses on
-    its own, with no cut anywhere in the run.  Nothing is being withheld
-    there and nothing changed for them, so calling those refusals would
-    make the report describe a difference the rule does not make.
-    """
+    # Only a run where a cut was actually taken away is reported: a lone
+    # pair the duration test refuses on its own (Reels 07, 17, 18) has
+    # nothing withheld, and calling it a refusal would describe a
+    # difference the rule does not make.
     long_line = ("it is going to start hallucinating because it is confused "
                  "about what you actually do")
-    transcript = {"segments": [
+    lone = {"segments": [
         _seg("Akshita", long_line, 10.0, 14.3, "a"),
         _seg("Akshita", "confused about what you actually do hallucinating",
              15.0, 15.5, "b"),
     ]}
-    assert redundant_takes(0.0, 60.0, transcript) == []
-    assert refused_take_groups(0.0, 60.0, transcript) == []
-
-
-# ── The same defect away from the head of a reel ─────────────────────
-
-REEL_16_SEGMENTS = [
-    _seg("Akshita", "and that's a very specific query.", 2246.070, 2247.249,
-         "r16"),
-    _seg("Akshita", "Those queries don't work for Google,", 2247.351,
-         2248.509, "r16"),
-    _seg("Akshita", "but they work for AI.", 2248.570, 2249.344, "r16"),
-    _seg("Akshita", "And because I typed that in,", 2249.971, 2251.188,
-         "r16"),
-    _seg("Akshita", "I got some,", 2251.833, 2252.366, "r16"),
-    _seg("Akshita", "you know,", 2252.653, 2252.904, "r16"),
-    _seg("Akshita", "I'm going to get companies recommended and I chose the "
-                    "first one I saw.", 2253.191, 2255.809, "r16"),
-    _seg("Akshita", "So I am using AI a lot.", 2256.051, 2258.350, "r16"),
-    _seg("Akshita", "And I do think a lot of our audience will be as well.",
-         2258.450, 2260.989, "r16"),
-    _seg("Akshita", "And they're typing in very specific queries that don't "
-                    "work for Google,", 2261.471, 2264.329, "r16"),
-    _seg("Akshita", "but work for AI.", 2264.511, 2265.144, "r16"),
-    _seg("Akshita", "So make sure that you're,", 2265.692, 2267.329, "r16"),
-]
-
-REEL_16 = {"segments": REEL_16_SEGMENTS}
-
-
+    assert redundant_takes(0.0, 60.0, lone) == []
+    assert refused_take_groups(0.0, 60.0, lone) == []

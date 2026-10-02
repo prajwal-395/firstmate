@@ -1,15 +1,8 @@
 """Measure before you build: the census runs first, prints, never refuses.
 
-The 2026-09-11 round decided the caption row from a census that
-existed only after a four-reel build, a refusal and a discard: four
-reels at tilt -425..-436 against one at -870. The pre-build census
-reads that same state before anything is placed - same kind of
-element, materially different places - prints it, and lets the build
-proceed either way.
-
-Proven here three ways: the round's own numbers flag (and agreement
-does not), unreadable and fresh reels degrade to notes rather than
-refusals, and the rebuild calls the census on a multi-reel build.
+Disagreement flags, unreadable and fresh reels degrade to notes, and the
+rebuild calls it on a multi-reel build. The 2026-09-11 round behind it:
+docs/evidence/reel_prebuild_census.md.
 """
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -46,18 +39,14 @@ def test_the_round_s_numbers_disagree(capsys):
     print(text)
 
 
-def test_characteristics_read_the_median_not_one_card():
-    """One odd card must not move a reel: the row's characteristic is
-    the median over its readable clips."""
+def test_characteristics_read_the_median_of_caption_rows_only():
+    """One odd card must not move a reel (the median over readable clips),
+    and picture/b-roll rows are dropped before anything is compared - they
+    legitimately differ per reel, even by 800 units."""
     clips = [_clip("Subtitles", -430.0), _clip("Subtitles", -432.0),
              _clip("Subtitles", -870.0)]
     assert census.row_characteristics(clips)["Subtitles"]["tilt"] == -432.0
 
-
-def test_picture_and_broll_rows_are_not_compared():
-    """A-roll conforms and b-roll cutaways legitimately differ per
-    reel - comparing them would flag every build, so the read drops
-    them before anything is compared (even an 800-unit spread)."""
     per_reel = {
         REELS[0]: census.row_characteristics(
             [_clip("Craig", -100.0), _clip("Craig", -102.0),
@@ -67,7 +56,6 @@ def test_picture_and_broll_rows_are_not_compared():
              _clip("B-Roll", -500.0)]),
     }
     report = census.compare_reel_rows(per_reel)
-
     assert report["disagreements"] == []
     assert report["rows"] == {}
 

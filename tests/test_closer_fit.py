@@ -53,36 +53,18 @@ def _transcript(*segments):
 
 # ── Reuse is grouped, never judged ───────────────────────────────────
 
-def test_exact_duplicate_closers_group():
-    moments = [_moment(1, (0.0, 10.0), (100.0, 107.0)),
-               _moment(2, (20.0, 30.0), (100.0, 107.0))]
-    groups = fit.reuse_groups(moments)
-
-    assert len(groups) == 1
-    assert groups[0]["reels"] == [1, 2]
-    assert groups[0]["count"] == 2
-
-
-def test_snapped_boundaries_still_group():
-    """A shared clip re-snapped by fractions of a second is one group.
-
-    The live plan carries 328.61-341.27 and 328.61-342.03 as the same
-    ending; exact equality would count them as two clips.
-    """
-    moments = [_moment(3, (0.0, 10.0), (328.61, 341.27)),
-               _moment(13, (20.0, 30.0), (328.61, 342.03))]
-    groups = fit.reuse_groups(moments)
-
-    assert len(groups) == 1
-    assert groups[0]["reels"] == [3, 13]
-
-
-
-
-
-
-
-
+def test_shared_closers_group():
+    cases = [
+        (((1, (100.0, 107.0)), (2, (100.0, 107.0))), [1, 2]),
+        # A shared clip re-snapped by fractions of a second is one group:
+        # the live plan carries 328.61-341.27 and 328.61-342.03 as one.
+        (((3, (328.61, 341.27)), (13, (328.61, 342.03))), [3, 13]),
+    ]
+    for closers, reels in cases:
+        moments = [_moment(n, (20.0 * i, 20.0 * i + 10.0), c)
+                   for i, (n, c) in enumerate(closers)]
+        groups = fit.reuse_groups(moments)
+        assert [(g["reels"], g["count"]) for g in groups] == [(reels, 2)]
 
 
 # ── The context is the reel's own kept words ─────────────────────────
@@ -94,10 +76,6 @@ def _body_and_closer():
     transcript = _transcript(body, closer)
     moment = _moment(27, (0.0, 2.8), (100.0, 102.8))
     return moment, transcript
-
-
-
-
 
 
 def test_closer_cutting_into_a_sentence_is_said():
@@ -113,77 +91,44 @@ def test_closer_cutting_into_a_sentence_is_said():
         "so check it out on our website today"
 
 
-
-
 # ── The reader takes verdicts, never magnitudes ──────────────────────
 
-def test_a_verdict_with_a_reason_is_read():
-    read = fit.read_fit_answer({"verdict": "misfit",
-                                "reason": "the closer answers a question "
-                                          "the reel never asked"})
-
-    assert read == {"verdict": "misfit",
-                    "reason": "the closer answers a question the reel "
-                              "never asked"}
-
-
-def test_a_numeric_beside_a_verdict_is_dropped_unread():
-    """There is no magnitude in this judgement, so none is read."""
-    read = fit.read_fit_answer({"verdict": "follows", "reason": "lands it",
-                                "score": 0.92, "confidence": 0.99})
-
-    assert read == {"verdict": "follows", "reason": "lands it"}
-
-
-def test_an_unknown_verdict_is_unjudged_not_a_verdict():
-    read = fit.read_fit_answer({"verdict": "somewhat", "reason": "maybe"})
-
-    assert read["verdict"] == "unjudged"
-    assert read["reason"]
-
-
-def test_a_verdict_without_a_reason_is_unjudged():
-    """A verdict nobody can show the captain is not a verdict."""
-    assert fit.read_fit_answer(
-        {"verdict": "misfit", "reason": "  "})["verdict"] == "unjudged"
-    assert fit.read_fit_answer({"verdict": "misfit"})["verdict"] == \
-        "unjudged"
-
-
+def test_the_reader_takes_a_reasoned_verdict_only():
+    cases = [
+    ({"verdict": "misfit", "reason": "answers what the reel never asked"},
+     {"verdict": "misfit", "reason": "answers what the reel never asked"}),
+    # There is no magnitude in this judgement, so none is read.
+    ({"verdict": "follows", "reason": "lands it", "score": 0.92,
+      "confidence": 0.99},
+     {"verdict": "follows", "reason": "lands it"}),
+    # An unknown verdict, or one nobody can show the captain, is unjudged.
+    ({"verdict": "somewhat", "reason": "maybe"}, "unjudged"),
+    ({"verdict": "misfit", "reason": "  "}, "unjudged"),
+    ({"verdict": "misfit"}, "unjudged"),
+    ]
+    for answer, expected in cases:
+        read = fit.read_fit_answer(answer)
+        if expected == "unjudged":
+            assert read["verdict"] == "unjudged" and read["reason"], answer
+        else:
+            assert read == expected
 
 
 # ── The prompt asks fit, and only fit ────────────────────────────────
 
 
-
 # ── The build-time lines report, never gate ──────────────────────────
 
 
-
-
-
-def test_a_misfit_is_named_with_its_reason():
+def test_a_verdict_line_names_a_misfit_and_flags_moved_words_stale():
     moment, transcript = _body_and_closer()
     context = fit.fit_context(moment, transcript, None)
-    verdict = {"verdict": "misfit", "reason": "answers nothing asked",
-               "content_hash": context["content_hash"]}
-
-    lines = fit.verdict_lines(27, context, verdict)
-
+    misfit = fit.verdict_lines(27, context, {
+        "verdict": "misfit", "reason": "answers nothing asked",
+        "content_hash": context["content_hash"]})
     assert any("MISFIT" in line and "answers nothing asked" in line
-               for line in lines)
-
-
-def test_a_verdict_over_moved_words_reads_as_stale():
-    moment, transcript = _body_and_closer()
-    context = fit.fit_context(moment, transcript, None)
-    verdict = {"verdict": "follows", "reason": "lands it",
-               "content_hash": "movedwords00"}
-
-    lines = fit.verdict_lines(27, context, verdict)
-
-    assert any("STALE" in line for line in lines)
-
-
-
-
+               for line in misfit)
+    stale = fit.verdict_lines(27, context, {
+        "verdict": "follows", "reason": "lands it",
+        "content_hash": "movedwords00"})
+    assert any("STALE" in line for line in stale)

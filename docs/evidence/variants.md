@@ -232,3 +232,22 @@ What it MEANS is decided here:
 
 `tests/test_version_variants.py`, `tests/test_version_variant_choice.py`.
 ```
+
+## Test history moved out of the suite (2026-10-02)
+
+- `tests/test_variant_spec_vocabulary.py` and `tests/test_variants_are_routine.py`
+  were folded into `tests/test_version_variants.py` (spec vocabulary, declared
+  variants, sweep exclusion, branch requirement, `--why`) and
+  `tests/test_reel_variants_carry_recorded_obedience.py` (the AST obedience
+  and declaration checks).
+- Measured before the widened spec landed: `build_reel_variants` read NONE of
+  the per-reel declaration readers (`load_intent`, `load_pins`,
+  `resolve_ending`, `apply_ending`, `apply_pins`), so every variant was built
+  with no declared ending, no pinned overlay positions and no caption-timing
+  pins - three differences from the approved reel on top of the one it was
+  built to show, all structurally perfect, so conformance passed them.
+- Seam-only (`SPEC_KEYS = ("suffix", "j_cut", "cutaway", "cover", "watch")`)
+  had no way to say "the same reel with the other ending", which is what a
+  creative A/B actually is; widening it made `declares` derive from
+  `external_inputs.DECLARATIONS` and named the near misses (`series_look`)
+  with the module that owns each.

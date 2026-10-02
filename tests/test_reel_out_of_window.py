@@ -14,13 +14,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from library.tools import reel_ledger
 from library.tools.reel_ledger import (
     OutOfWindowRange,
     audit_ranges,
-    file_reel_ledger,
-    read_reel_ledger,
-    stored_windows,
 )
 
 
@@ -47,7 +43,7 @@ SIBLINGS = {
 }
 
 
-def test_clean_ranges_pass_silently():
+def test_clean_ranges_and_small_word_edge_cover_pass_silently():
     ledger = audit_ranges(
         number=13, staging="s", final="f",
         stored_body=R13_BODY, stored_closer=R13_CLOSER,
@@ -57,6 +53,18 @@ def test_clean_ranges_pass_silently():
     assert all(row["overhang_seconds"] == {"before": 0.0, "after": 0.0}
                for row in ledger["ranges"])
     assert [row["origin"] for row in ledger["ranges"]] == ["body", "closer"]
+    # Reel 02's measured cover (closer end +0.22s over "bio.") reads
+    # as a small overhang into nobody's pool - kept, unattributed.
+    ledger = audit_ranges(
+        number=2, staging="s", final="f",
+        stored_body=(127.84, 160.83), stored_closer=(319.28, 328.231),
+        ranges=[(127.84, 160.83), (319.28, 328.45)],
+        sibling_windows={2: {"body": (127.84, 160.83),
+                             "closer": (319.28, 328.231)}})
+    assert ledger["disjoint"] == []
+    assert ledger["ranges"][1]["overhang_seconds"]["after"] == (
+        pytest.approx(0.219))
+    assert ledger["ranges"][1]["invades"] == []
 
 
 def test_reel_13_overextension_is_kept_named_and_attributed():
@@ -82,21 +90,6 @@ def test_reel_13_overextension_is_kept_named_and_attributed():
     assert invaded[0]["seconds"] == pytest.approx([342.038, 349.54])
     # The repair move that did it is on the record.
     assert ledger["repaired"]["moves"][0]["boundary"] == "cta_end"
-
-
-def test_small_word_edge_cover_is_not_an_invasion():
-    """Reel 02's measured cover (closer end +0.22s over "bio.") reads
-    as a small overhang into nobody's pool - kept, unattributed."""
-    ledger = audit_ranges(
-        number=2, staging="s", final="f",
-        stored_body=(127.84, 160.83), stored_closer=(319.28, 328.231),
-        ranges=[(127.84, 160.83), (319.28, 328.45)],
-        sibling_windows={2: {"body": (127.84, 160.83),
-                             "closer": (319.28, 328.231)}})
-    assert ledger["disjoint"] == []
-    assert ledger["ranges"][1]["overhang_seconds"]["after"] == (
-        pytest.approx(0.219))
-    assert ledger["ranges"][1]["invades"] == []
 
 
 def test_wholly_foreign_range_refuses_with_ledger_attached():

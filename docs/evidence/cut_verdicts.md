@@ -158,3 +158,28 @@ One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#th
   then 3.03 under `--full-auto agent` (10.1). Closing that needs a different answerer, not an edge.**
 - `tests/test_cut_decisions_reach_a_reader.py`.
 ```
+
+## `tests/test_cut_decisions_reach_a_reader.py` (moved from its module docstring, 2026-10-02)
+
+The rough-cut review's narrative answer goes somewhere, and it arrives.
+
+Step 3.03 is asked for `cut_decisions` on every run of this pipeline.
+Before this change, `grep -rn cut_decisions library/ tests/` returned the field's
+own declaration in `step_3_03_review_rough_cut/manifest.json` and nothing
+else - no DAG edge carried it, no manifest declared it as an input, and no
+line of Python indexed it.  The model answered and the answer was dropped.
+
+This file holds the wiring together in both directions:
+
+  * the DAG carries it from the producer to the reader,
+  * the reader DECLARES it, so `gather_step_inputs` will hand it over,
+  * the reader's own bridge - run as a real subprocess over JSON stdin,
+    the way the runner runs it - puts the verdict in the table the
+    handoff tells the model to read, and
+  * the verdict never invents itself: a cut the review did not judge
+    reads `unjudged`, and the mild end of the scale is not borrowed for
+    it (AGENTS.md 10.5).
+
+The bridge is DRIVEN rather than modelled: a table this step builds in
+code is exactly where the last two defects of this class hid. This test
+drives the bridge subprocess and asserts its observable output.

@@ -1,26 +1,12 @@
 """A reel nothing changed about is not placed again - and the decision
-is never a guess.
-
-`library/tools/reel_rebuild_need.py` is what stops a build paying a
-full Resolve pass per reel per build.  The measured stake, from the
-composed-edit spike already in the tree (`docs/RULE_EVIDENCE.md`, "what
-it costs"): one reel's Resolve pass is 19.4-67.1 s, of which the Fusion
-comp pass is 17.0-63.7 s of FIXED overhead.
-
-The whole risk is in one direction.  A digest that misses an input
-SKIPS A REEL THAT NEEDED REBUILDING, and nothing downstream would say
-so - the reel would simply be last week's.  A digest that covers too
-much rebuilds a reel that did not need it and costs a minute.  So
-these tests are mostly about the first: every REBUILD answer, the
-absence of any partial answer, and a mechanical check that the engine
-trees really do cover the modules the reel build reaches.
+is fail-closed: a digest that misses an input silently ships last week's
+reel, so these tests pin every REBUILD answer and that the engine trees
+cover every module the reel build reaches. History:
+docs/evidence/reel_rebuild_need.md ("The test suite's account").
 """
 
 import ast
-import hashlib
 from pathlib import Path
-
-import pytest
 
 from library.tools import reel_rebuild_need as need
 
@@ -39,21 +25,21 @@ def test_both_halves_matching_is_the_only_way_to_be_left_alone():
     assert "match" in decision.reason
 
 
-@pytest.mark.parametrize("fresh,live,recorded,because", [
-    (None, "c" * 64, MATCH, "this build could not digest its own"),
-    ("d" * 64, "c" * 64, None, "no build signature on record"),
-    ("d" * 64, "c" * 64, {"carried": "c" * 64}, "no derivation digest"),
-    ("d" * 64, "c" * 64, {"derivation": "d" * 64}, "no carried"),
-    ("d" * 64, None, MATCH, "could not be read"),
-    ("x" * 64, "c" * 64, MATCH, "derivation changed"),
-    ("d" * 64, "x" * 64, MATCH, "not the one that build placed"),
-])
-def test_every_other_answer_is_rebuild_and_says_why(
-        fresh, live, recorded, because):
-    decision = need.decide("Reel 01", fresh, live, recorded)
-    assert decision.action == need.REBUILD
-    assert because in decision.reason
-    assert not decision.leave_alone
+def test_every_other_answer_is_rebuild_and_says_why():
+    rows = [
+        (None, "c" * 64, MATCH, "this build could not digest its own"),
+        ("d" * 64, "c" * 64, None, "no build signature on record"),
+        ("d" * 64, "c" * 64, {"carried": "c" * 64}, "no derivation digest"),
+        ("d" * 64, "c" * 64, {"derivation": "d" * 64}, "no carried"),
+        ("d" * 64, None, MATCH, "could not be read"),
+        ("x" * 64, "c" * 64, MATCH, "derivation changed"),
+        ("d" * 64, "x" * 64, MATCH, "not the one that build placed"),
+    ]
+    for fresh, live, recorded, because in rows:
+        decision = need.decide("Reel 01", fresh, live, recorded)
+        assert decision.action == need.REBUILD, because
+        assert because in decision.reason
+        assert not decision.leave_alone
 
 
 def test_a_signature_written_at_build_time_has_an_open_carried_half():
@@ -123,42 +109,31 @@ def test_the_engine_digest_covers_every_module_the_reel_build_reaches():
 
 
 def test_a_changed_source_file_changes_the_engine_digest(tmp_path):
-    tools = tmp_path / "library" / "tools"
-    tools.mkdir(parents=True)
-    (tools / "thing.py").write_text("x = 1\n", encoding="utf-8")
-    first = need.engine_code_digest(tmp_path)
-    (tools / "thing.py").write_text("x = 2\n", encoding="utf-8")
-    assert need.engine_code_digest(tmp_path) != first
-
-
-def test_a_nested_source_file_is_covered_too(tmp_path):
-    """`code_identity.step_code_hash` skips directories, so a digest
-    built on it would miss `library/tools/fusion/` entirely."""
-    nested = tmp_path / "library" / "tools" / "fusion"
-    nested.mkdir(parents=True)
-    (nested / "comp_builder.py").write_text("x = 1\n", encoding="utf-8")
-    first = need.engine_code_digest(tmp_path)
-    (nested / "comp_builder.py").write_text("x = 2\n", encoding="utf-8")
-    assert need.engine_code_digest(tmp_path) != first
+    """Top-level and nested: `code_identity.step_code_hash` skips
+    directories, so a digest built on it would miss `library/tools/fusion/`."""
+    for rel in ("library/tools/thing.py",
+                "library/tools/fusion/comp_builder.py"):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x = 1\n", encoding="utf-8")
+        first = need.engine_code_digest(tmp_path)
+        path.write_text("x = 2\n", encoding="utf-8")
+        assert need.engine_code_digest(tmp_path) != first, rel
 
 
 # ── The declaration half ─────────────────────────────────────────────
 
 
-def test_a_changed_project_yaml_changes_the_project_wide_digest(tmp_path):
-    """`project.yaml` carries `style.subtitle.caption_row`, which decides
-    where every caption card is PLACED - inside `build_reel_timeline`,
-    where no derivation digest can see it. So it has to be wholesale."""
+def test_every_project_wide_input_changes_the_project_wide_digest(tmp_path):
+    """`project.yaml` (caption_row is decided inside the build, where no
+    derivation sees it), the brand template and named assets (outside
+    the project folder), and an unclassified external declaration
+    (fail-closed: over-covers from the day it lands)."""
     (tmp_path / "project.yaml").write_text("a: 1\n", encoding="utf-8")
     first = need.project_wide_digest(tmp_path)
     (tmp_path / "project.yaml").write_text("a: 2\n", encoding="utf-8")
     assert need.project_wide_digest(tmp_path) != first
 
-
-def test_the_brand_template_and_the_named_assets_are_covered(tmp_path):
-    """Neither lives under the project folder, and both decide what
-    reaches a reel - so walking the folder would miss them."""
-    (tmp_path / "project.yaml").write_text("a: 1\n", encoding="utf-8")
     base = need.project_wide_digest(tmp_path, brand_template={"x": 1},
                                     asset_hashes={"/a.png": "aa"})
     assert base != need.project_wide_digest(
@@ -166,13 +141,6 @@ def test_the_brand_template_and_the_named_assets_are_covered(tmp_path):
     assert base != need.project_wide_digest(
         tmp_path, brand_template={"x": 1}, asset_hashes={"/a.png": "bb"})
 
-
-def test_an_unknown_external_declaration_is_treated_as_project_wide(
-        tmp_path):
-    """The fail-closed direction for a declaration nobody has
-    classified: it over-covers from the day it lands rather than being
-    silently ignored."""
-    (tmp_path / "project.yaml").write_text("a: 1\n", encoding="utf-8")
     external = tmp_path / "external"
     external.mkdir()
     first = need.project_wide_digest(tmp_path)
@@ -184,24 +152,18 @@ def test_an_unknown_external_declaration_is_treated_as_project_wide(
     assert need.project_wide_digest(tmp_path) != second
 
 
-@pytest.mark.parametrize("stem", ["captain_edits", "reel_ending"])
-def test_a_per_reel_pin_store_is_not_in_the_project_wide_digest(
-        tmp_path, stem):
-    """A pin on Reel 13 must not rebuild Reel 23.
-
-    Every store here is keyed by reel and its per-reel effect is
-    carried by that reel's own derivation, so folding the file into the
-    project-wide half would be the saving gone in exactly the case the
-    profile priced.
-    """
+def test_a_per_reel_pin_store_is_not_in_the_project_wide_digest(tmp_path):
+    """A pin on Reel 13 must not rebuild Reel 23: each store is keyed by
+    reel and carried by that reel's own derivation."""
     (tmp_path / "project.yaml").write_text("a: 1\n", encoding="utf-8")
     external = tmp_path / "external"
     external.mkdir()
-    (external / f"{stem}.json").write_text("[]", encoding="utf-8")
-    first = need.project_wide_digest(tmp_path)
-    (external / f"{stem}.json").write_text(
-        '[{"reel": 13}]', encoding="utf-8")
-    assert need.project_wide_digest(tmp_path) == first
+    for stem in ("captain_edits", "reel_ending"):
+        (external / f"{stem}.json").write_text("[]", encoding="utf-8")
+        first = need.project_wide_digest(tmp_path)
+        (external / f"{stem}.json").write_text(
+            '[{"reel": 13}]', encoding="utf-8")
+        assert need.project_wide_digest(tmp_path) == first, stem
 
 
 # ── The carried half ─────────────────────────────────────────────────
@@ -240,15 +202,13 @@ def test_the_carried_digest_ignores_the_timeline_name_and_the_item_id():
     assert base == renamed == reidentified
 
 
-@pytest.mark.parametrize("change", [
-    {"transform": {"Pan": 1.0, "ZoomX": 2.307}},
-    {"source_in_frame": 11},
-    {"timeline_start": 0.5},
-    {"track_name": "Lucie"},
-])
-def test_a_changed_picture_changes_the_carried_digest(change):
+def test_a_changed_picture_changes_the_carried_digest():
     base = need.carried_digest(FakeSnapshot([FakeClip()]))
-    assert need.carried_digest(FakeSnapshot([FakeClip(**change)])) != base
+    for change in ({"transform": {"Pan": 1.0, "ZoomX": 2.307}},
+                   {"source_in_frame": 11}, {"timeline_start": 0.5},
+                   {"track_name": "Lucie"}):
+        assert need.carried_digest(
+            FakeSnapshot([FakeClip(**change)])) != base, change
 
 
 def test_the_carried_digest_survives_float_noise_it_should_ignore():
@@ -290,31 +250,32 @@ def _derivation(**overrides):
     return need.derivation_digest(**body)
 
 
-@pytest.mark.parametrize("half", ["engine_code", "project_wide"])
-def test_a_derivation_with_a_wholesale_half_missing_is_no_answer(half):
+def test_a_derivation_with_a_wholesale_half_missing_is_no_answer():
     """Not a weaker match - not a match. A digest computed without
     knowing the engine would leave a reel unplaced across a code
     change."""
-    assert _derivation(**{half: None}) is None
-    assert _derivation(**{half: ""}) is None
+    for half in ("engine_code", "project_wide"):
+        assert _derivation(**{half: None}) is None
+        assert _derivation(**{half: ""}) is None
 
 
-@pytest.mark.parametrize("change", [
-    {"reel_number": 2},
-    {"engine_code": "z" * 64},
-    {"plan_content_hash": "z" * 64},
-    {"master_digest": "z" * 64},
-    {"ranges": [(1.0, 3.0)]},
-    {"ending": {"tail_element": "logo_reveal"}},
-    {"look": {"punch_in": 1.1}},
-    {"grade_cdl": {"slope_r": 1.0}},
-    {"grade_look": {"glow": 1}},
-    {"power_grade": {"path": "/g.drx"}},
-    {"motion_record": {"basis": "answered"}},
-    {"extra": {"skip_captions": True}},
-])
-def test_every_input_the_derivation_reads_changes_it(change):
-    assert _derivation(**change) != _derivation()
+def test_every_input_the_derivation_reads_changes_it():
+    base = _derivation()
+    for change in (
+        {"reel_number": 2},
+        {"engine_code": "z" * 64},
+        {"plan_content_hash": "z" * 64},
+        {"master_digest": "z" * 64},
+        {"ranges": [(1.0, 3.0)]},
+        {"ending": {"tail_element": "logo_reveal"}},
+        {"look": {"punch_in": 1.1}},
+        {"grade_cdl": {"slope_r": 1.0}},
+        {"grade_look": {"glow": 1}},
+        {"power_grade": {"path": "/g.drx"}},
+        {"motion_record": {"basis": "answered"}},
+        {"extra": {"skip_captions": True}},
+    ):
+        assert _derivation(**change) != base, change
 
 
 def test_a_rendered_segment_that_changed_pixels_changes_the_derivation(

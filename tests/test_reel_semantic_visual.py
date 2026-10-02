@@ -47,28 +47,29 @@ def _record(*segments, basis=sem.PLANNED):
 
 # ── F22 passes what is right ─────────────────────────────────────────
 
-def test_a_placed_visual_matching_its_record_passes():
+# ── F22 fails what is wrong, in both directions ──────────────────────
+
+def test_f22_fails_what_is_wrong_in_both_directions():
+    start = int(round(4.901 * FPS))
+    table = [
+        # planned, but the timeline does not carry it
+        ([], _record((4.901, 75)), "no item"),
+        # an item no record accounts for: the out-of-band append
+        ([_item(100, 50)], _record(basis=sem.AWAITING_MODEL_ANSWER), None),
+        ([_item(start, 74)], _record((4.901, 75)), "74 frames"),
+        ([_item(start, 75), _item(start + 10, 75)],
+         _record((4.901, 75), (5.5, 75)), "overlap"),
+    ]
+    for items, record, says in table:
+        findings = check_semantic_visuals("Reel 09", items, record, FPS)
+        assert FindingClass.F22 in [f.finding_class for f in findings], says
+        if says:
+            assert any(says in f.message for f in findings), says
+    # ... and passes what is right
     start = int(round(4.901 * FPS))
     findings = check_semantic_visuals(
         "Reel 09", [_item(start, 75)], _record((4.901, 75)), FPS)
     assert findings == []
-
-
-# ── F22 fails what is wrong, in both directions ──────────────────────
-
-def test_a_planned_visual_the_timeline_does_not_carry_fails():
-    findings = check_semantic_visuals("Reel 09", [], _record((4.901, 75)),
-                                      FPS)
-    assert [f.finding_class for f in findings] == [FindingClass.F22]
-    assert "no item" in findings[0].message
-
-
-def test_an_item_no_record_accounts_for_fails():
-    """The out-of-band append."""
-    findings = check_semantic_visuals(
-        "Reel 09", [_item(100, 50)],
-        _record(basis=sem.AWAITING_MODEL_ANSWER), FPS)
-    assert findings and findings[0].finding_class == FindingClass.F22
 
 
 def test_promotion_replaces_the_previous_final_record(tmp_path):
@@ -79,7 +80,6 @@ def test_promotion_replaces_the_previous_final_record(tmp_path):
     beside the new `planned`), and `record_for_reel` reads the first,
     so the next verifier grades the promoted timeline against the
     absence. Promotion replaces; it does not shelve beside."""
-    from library.tools.project_layout import Area, ProjectLayout
 
     project = tmp_path / "proj"
     review = project / "pipeline_output" / "review"
@@ -100,26 +100,6 @@ def test_promotion_replaces_the_previous_final_record(tmp_path):
     kept = [p for p in stored["plans"] if p["reel"] == final]
     assert len(kept) == 1
     assert kept[0]["basis"] == sem.PLANNED
-
-
-def test_a_visual_of_the_wrong_length_fails():
-    start = int(round(4.901 * FPS))
-    findings = check_semantic_visuals(
-        "Reel 09", [_item(start, 74)], _record((4.901, 75)), FPS)
-    assert [f.finding_class for f in findings] == [FindingClass.F22]
-    assert "74 frames" in findings[0].message
-
-
-def test_two_overlapping_visuals_fail():
-    start = int(round(4.901 * FPS))
-    findings = check_semantic_visuals(
-        "Reel 09", [_item(start, 75), _item(start + 10, 75)],
-        _record((4.901, 75), (5.5, 75)), FPS)
-    assert FindingClass.F22 in [f.finding_class for f in findings]
-    assert any("overlap" in f.message for f in findings)
-
-
-# ── The track is named once ──────────────────────────────────────────
 
 
 # ── An unanswered ask builds nothing and says so ─────────────────────

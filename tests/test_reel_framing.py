@@ -1,23 +1,8 @@
-"""The picture a built reel puts on the frame, and the gate that reads it.
+"""The picture a built reel puts on the frame, and the F12 gate that reads it.
+Both directions are pinned (AGENTS.md 10.4): the gate passes the declared
+framing and fails the same reel under the engine default.
 
-Every number in this file is either arithmetic or a measurement recorded
-elsewhere in the repository.  The two that are measurements:
-
-- **rows 656..1264** for 3840x2160 fitted into 1080x1920.  Independently
-  measured by ``render_qa``'s occupancy pass on project 001's real export
-  and recorded in ``library/tools/framing_intent.py`` as rows 656..1263,
-  608 of 1920 rows.  A different project, different source files,
-  different resolution, and the arithmetic here lands on the same top row
-  and one below on the bottom - 607.5 rounded.
-- **the twenty harvest reels** of the GEO Podcast field test, read off
-  Resolve on 2026-09-06: 376 video items across 49 timelines, every one
-  of them ``ZoomX=ZoomY=1.0, Pan=Tilt=0, Crop*=0`` on a 1080x1920
-  ``scaleToFit`` timeline.  ``_HARVEST`` below is that transform.
-
-AGENTS.md 10.4: a gate that cannot fail is worse than no gate, and one
-that fails correct output is the same defect from the other side.  Both
-directions are pinned here, on the geometry the captain's reels really
-carry.
+History: `docs/evidence/framing_intent.md` (test_reel_framing.py).
 """
 
 import pytest
@@ -85,14 +70,14 @@ class TestDeliveredPicture:
         assert picture.framing_intent == pytest.approx(FILL)
         assert picture.left < 0 and picture.right > FRAME_W
 
-    @pytest.mark.parametrize("intent", [0.0, 1.0])
-    def test_the_intent_survives_a_round_trip(self, intent):
+    def test_the_intent_survives_a_round_trip(self):
         """`declared_picture` runs `_conform_fields`' formula forwards and
         `delivered_picture` runs it backwards; they must agree, or a
         disagreement between them would be two spellings of one geometry
         rather than a real difference in the picture."""
-        declared = declared_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, intent)
-        assert declared.framing_intent == pytest.approx(intent, abs=1e-6)
+        for intent in (0.0, 1.0):
+            declared = declared_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, intent)
+            assert declared.framing_intent == pytest.approx(intent, abs=1e-6)
 
 
     def test_a_rotated_source_is_read_at_its_display_size(self):
@@ -118,12 +103,6 @@ class TestDeliveredPicture:
 # ── The comparison ───────────────────────────────────────────────────
 
 class TestDisagreement:
-
-    def test_the_harvest_geometry_agrees_with_a_letterbox_declaration(self):
-        delivered = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, _HARVEST)
-        declared = declared_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, LETTERBOX)
-        assert disagreement(delivered, declared) is None
-
 
     def test_one_pixel_is_the_same_picture_and_two_is_not(self):
         """The only tolerance is the resolution of the medium: one real

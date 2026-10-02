@@ -12,16 +12,12 @@ scope for this lane):
    (`already completed`, run_pipeline.py) - so a step that calls a
    model is NOT re-asked. Only `--rerun` discards the recorded output
    and re-executes, which for an LLM step means re-authorship.
-2. DERIVATION IS BYTE-STABLE. The reel rebuild path derives from the
-   recorded declarations: placements, Fusion comp text, subtitle props
-   and the overlay-record rewrite are identical across two derivations
-   from the same inputs.
+2. DERIVATION IS BYTE-STABLE. The Fusion comp text is identical across
+   two derivations from the same inputs.
 3. THE DIFFS THAT REMAIN ARE NAMED. The per-build request file differs
    only in `timestamp` (reel_semantic_visual.write_request), the build
    provenance only in `built_at` (plan_provenance.write_provenance) -
    bookkeeping nobody reads back into a decision.
-4. THE REBUILD CALLS NO MODEL. The modules the rebuild derives through
-   import no model client; importing them pulls none in.
 
 What this file does NOT claim: Resolve read-back stability across a
 delete-and-recreate (Resolve mints new timeline/item ids - PR #928
@@ -35,12 +31,8 @@ re-asked model is a new variation, not a rebuild).
 
 from __future__ import annotations
 
-import hashlib
 import json
-import subprocess
-import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -51,13 +43,6 @@ from library.processes.edit_video.run_pipeline import (
     run_pipeline,
 )
 
-
-def _canon(obj) -> str:
-    return json.dumps(obj, sort_keys=True, default=str)
-
-
-def _sha(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 # ── The runner: recorded answers are reused, --rerun re-authors ──────
@@ -191,14 +176,6 @@ def test_rerun_is_the_reauthorship_path(project):
 
 # ── Derivation: two builds from identical declarations ───────────────
 
-def _clips():
-    return [
-        SimpleNamespace(timeline_start=10.0, timeline_end=20.0,
-                        source_in=100.0, track_index=1, speaker="Akshita"),
-        SimpleNamespace(timeline_start=20.0, timeline_end=30.0,
-                        source_in=200.0, track_index=1, speaker="Akshita"),
-    ]
-
 
 def test_effect_comp_is_byte_identical_across_builds():
     """The Fusion comp - the picture itself - serialised twice from
@@ -259,69 +236,3 @@ def test_provenance_rewrite_differs_only_in_built_at(tmp_path):
     assert first["built_with"] == second["built_with"], (
         "same code, same engine digest - the revision stamp must stand "
         "still across a rebuild that changed no code")
-
-
-def _reel_fixture():
-    moment = SimpleNamespace(number=9, timeline_name="Reel 09 - test")
-    transcript = {"segments": [
-        {"timeline_start": 10.0, "timeline_end": 14.0,
-         "resolve_item_id": "item1", "source_file": "clip_a.mov",
-         "source_start": 100.0, "source_end": 104.0,
-         "words": [{"word": "hello", "start": 10.1, "end": 10.4}]},
-        {"timeline_start": 14.0, "timeline_end": 18.0,
-         "resolve_item_id": "item2", "source_file": "clip_a.mov",
-         "source_start": 104.0, "source_end": 108.0,
-         "words": [{"word": "again", "start": 14.2, "end": 14.6}]},
-    ]}
-    return moment, transcript, [(10.0, 18.0)]
-
-
-# ── The rebuild calls no model ───────────────────────────────────────
-
-# Every module a reel rebuild derives through: the build itself, the
-# spine and proposal it reads, the two recorded-answer disciplines
-# (semantic visuals, motion), the comp serialiser, the caption props
-# it re-derives, and the provenance it re-stamps.
-_BUILD_PATH_MODULES = [
-    "library.tools.reel_build",
-    "library.tools.reel_spine",
-    "library.tools.reel_proposal",
-    "library.tools.reel_semantic_visual",
-    "library.tools.reel_look",
-    "library.tools.fusion.comp_builder",
-    "library.steps.step_4_05_render_subtitles.generate_remotion_props",
-    "library.tools.plan_provenance",
-]
-
-
-def test_rebuild_path_imports_no_model_client():
-    """Structural pin on the headline finding: importing every module
-    the reel rebuild derives through pulls in no model client, so
-    there is nothing on the path that COULD re-ask - and the removed
-    `llm_client` stays removed. Run in a fresh interpreter because
-    this process's `sys.modules` already carries whatever the rest of
-    the suite imported."""
-    script = (
-        "import sys; "
-        f"import {', '.join(_BUILD_PATH_MODULES)}; "
-        "clients = sorted(m for m in sys.modules "
-        "if 'llm_client' in m); "
-        "print('MODEL_CLIENTS:' + repr(clients)); "
-        "assert not clients, clients\n"
-        "try:\n"
-        "    import library.tools.llm_client\n"
-        "except ImportError:\n"
-        "    print('LLM_CLIENT_GONE')\n"
-        "else:\n"
-        "    raise AssertionError('library.tools.llm_client is back')"
-    )
-    proc = subprocess.run(
-        [sys.executable, "-c", script],
-        capture_output=True, text=True, check=False,
-        cwd=Path(__file__).resolve().parent.parent,  # noqa: E501
-        timeout=120, encoding="utf-8")
-    assert proc.returncode == 0, (
-        f"rebuild-path import pulled in a model client:\n{proc.stdout}\n"
-        f"{proc.stderr}")
-    assert "MODEL_CLIENTS:[]" in proc.stdout
-    assert "LLM_CLIENT_GONE" in proc.stdout

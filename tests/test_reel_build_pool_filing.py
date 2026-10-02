@@ -1,24 +1,13 @@
 """A build files where it imports; the organiser has nothing to repair.
 
-The captain's field-test project held timelines in motion-graphics bins
-and caption clips beside them, plus duplicate pool entries for the same
-file - because `CreateEmptyTimeline` and `ImportMedia` land in whatever
-bin is CURRENT, and because re-importing a path already pooled makes a
-second item rather than returning the existing one. The build now
-decides every destination up front through `resolve_bin_layout` (the
-one owner of bin paths) and looks every path up before importing it, so
-a timeline lands in the reels bin and a subtitle clip in the subtitles
-bin because the code cannot put them anywhere else - not because a
-cleanup pass moved them afterwards.
+Every destination is decided up front through `resolve_bin_layout`, and every
+path is looked up before importing it. History: docs/evidence/reel_build.md.
 """
 from __future__ import annotations
 
 import os
-import re
-from pathlib import Path
 
 from library.tools import resolve_bin_layout as bins
-from library.tools import resolve_organization as org
 from library.tools.project_layout import AREAS, Area
 
 
@@ -124,7 +113,8 @@ def test_a_rebuild_imports_nothing_for_a_path_already_in_the_pool():
 
 def test_a_new_subtitle_import_lands_in_the_subtitles_bin():
     """The destination is decided by the file, never inherited from
-    the current folder - even when current is a motion-graphics bin."""
+    the current folder - even when current is a motion-graphics bin -
+    and an existing destination bin is never forked."""
     from library.tools.reel_build import import_pool_item
 
     import tempfile
@@ -140,20 +130,15 @@ def test_a_new_subtitle_import_lands_in_the_subtitles_bin():
         assert folder == bins.SUBTITLES_BIN
         assert pool.GetCurrentFolder() is mg
 
+        # `AddSubFolder` makes a second same-named bin rather than
+        # refusing, so the build looks the name up first: a bin that
+        # already exists is reused, never forked.
+        assert pool.created_bins == [bins.SUBTITLES_BIN]
+        again = _FakePool()
+        again.root._subs.append(_FakeFolder(bins.SUBTITLES_BIN))
+        import_pool_item(again, path, str(tmp))
+        assert again.created_bins == []
 
-def test_an_import_never_forks_a_bin_that_already_exists():
-    """`AddSubFolder` makes a second same-named bin rather than
-    refusing, so the build looks the name up first - one import, no
-    new bin."""
-    from library.tools.reel_build import import_pool_item
-
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
-        pool = _FakePool()
-        pool.root._subs.append(_FakeFolder(bins.SUBTITLES_BIN))
-        path = _area_path(tmp, Area.SUBTITLE_SEGMENTS, "sub_a.mov")
-        import_pool_item(pool, path, str(tmp))
-        assert pool.created_bins == []
 
 
 def test_a_pooled_frame_sequence_is_reused_not_reimported():

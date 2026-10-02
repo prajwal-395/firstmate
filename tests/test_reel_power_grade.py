@@ -1,37 +1,8 @@
 """The declared PowerGrade is THE grade on a reel, and the CDL rides inside it.
 
-Measured on the captain's `Podcast (field test)` / `Reel 09 -
-your-website-is-only-20-percent`, 2026-09-10, with stills exported off
-the live timeline (task `vep-fusion-grade-check-the-frame`):
-
-* Every picture item read `GetNumNodes() == 1` with an empty label, and
-  Resolve's own grade export for those clips decompressed to a 171-byte
-  node body carrying no named node at all. NOTHING had ever been
-  applied - the reels predate the CDL route (#885).
-* The declared `v04_teal_split` CDL, pushed through the exact `SetCDL`
-  call `reel_look.apply_cdl` and step 6.01 both make, returned True on
-  all six clips and rendered a still BYTE-IDENTICAL to no grade: 0 of
-  2,073,600 pixels moved, max delta 0. Reproduced six times including a
-  six-second settle and a re-grab, with `SetCDL(saturation 0)`
-  immediately before and after as a positive control (601,760 pixels,
-  max delta 154), so the clip demonstrably responded. Each of the four
-  terms moves the picture on its own; the declared combination does not.
-* `GetNodeGraph().ApplyGradeFromDRX(path, 0)` returned True and a
-  re-fetched graph read back 8 nodes - `Input`, `BAL/EXP`, `CONTRAST`,
-  `SAT`, `W&B`, `Output`, `FLC`, `Corrections` - matching the `.drx`'s
-  own compressed node body exactly, and moved 599,583 pixels (28.9% of
-  the frame, which is the whole picture area under the bezel).
-* `SetCDL({"NodeIndex": "2", ...})` onto that graph's own `BAL/EXP`
-  node moved picture luma 46.91 -> 84.17 across 533,240 pixels, and
-  putting the node back to unity returned the frame byte-identical to
-  the DRX-only still.
-
-So the two routes are not two strengths of one grade, they are one that
-delivers and one that does not, and the pixel evidence is what settles
-it rather than either call's return value. What is CHECKABLE here is
-the routing, the values that reach the calls, and the refusals. Whether
-the resulting picture is the look the captain wants is WATCHABLE, not
-checkable, and stays the captain's call.
+`SetCDL` returns True and can change nothing; a DRX applied and read back
+by node is the route that delivers. The pixel measurements behind this:
+docs/evidence/reel_look.md.
 """
 from __future__ import annotations
 
@@ -43,7 +14,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from library.tools import color_page_grade, reel_look
+from library.tools import reel_look
 from library.tools.color_page_grade import ColorPageGradeError
 
 TEST_CDL = {
@@ -142,11 +113,11 @@ def _declare(tmp_path, **extra):
 # ── 1. the declaration ───────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("bad", [2, ["BAL/EXP"]])
-def test_a_cdl_node_that_is_not_a_label_is_refused(tmp_path, bad):
-    _declare(tmp_path, cdl_node=bad)
-    with pytest.raises(ColorPageGradeError, match="cdl_node"):
-        reel_look.resolve_power_grade(str(tmp_path))
+def test_a_cdl_node_that_is_not_a_label_is_refused(tmp_path):
+    for bad in (2, ["BAL/EXP"]):
+        _declare(tmp_path, cdl_node=bad)
+        with pytest.raises(ColorPageGradeError, match="cdl_node"):
+            reel_look.resolve_power_grade(str(tmp_path))
 
 
 # ── 2. the routing: a DRX REPLACES the CDL route, never joins it ─────────
@@ -166,7 +137,11 @@ def test_a_declared_drx_is_the_route_and_the_bare_cdl_is_not_applied():
     assert item.drx_calls == [("/look.drx", 0)]
     assert item.cdl_calls == []
     assert record["applied"] == ["a.mxf"]
+    # verified by a node readback: a re-fetched graph carries the nodes
+    # the file builds, which is the whole reason this is the route
     assert record["nodes"]["a.mxf"] == 8
+    assert record["verified"] is True
+    assert record["warnings"] == []
 
 
 # ── 3. the CDL lands INSIDE the applied grade, on the named node ─────────
@@ -188,12 +163,9 @@ def test_the_cdl_lands_on_the_named_node_of_the_applied_graph():
     assert call["Offset"] == "-0.0100 0.0050 0.0200"
     assert call["Saturation"] == "1.1200"
     assert record["cdl_landed_on"]["a.mxf"]["landed"] is True
-
-
-def test_the_node_is_found_by_label_never_by_index():
-    """A grade whose nodes sit in a different order still gets the CDL
-    on the node that MEANS exposure, because the label is what is
-    matched."""
+    # A grade whose nodes sit in a different order still gets the CDL
+    # on the node that MEANS exposure, because the label is what is
+    # matched.
     item = _FakeItem("/footage/a.mxf")
     reordered = ("Input", "FLC", "CONTRAST", "BAL/EXP", "Output")
 
@@ -230,9 +202,6 @@ def test_a_missing_label_refuses_the_cdl_rather_than_guessing_node_1():
     assert any("cdl_node_missing" in w for w in record["warnings"])
 
 
-# ── 4. what gets graded is unchanged by the route ────────────────────────
-
-
 # ── 5. a refusal is recorded, never raised, and never silent ─────────────
 
 def test_a_clip_resolve_refuses_is_recorded_and_the_reel_continues():
@@ -246,9 +215,7 @@ def test_a_clip_resolve_refuses_is_recorded_and_the_reel_continues():
     assert record["applied"] == ["b.mxf"]
     assert any("a.mxf" in w and "ApplyGradeFromDRX" in w
                for w in record["warnings"])
-
-
-def test_a_setcdl_refusal_inside_the_graph_is_recorded_by_name():
+    # a SetCDL refusal inside the graph is recorded by name
     item = _FakeItem("/footage/a.mxf", cdl_result=False)
     record = reel_look.apply_grade(
         _FakeTimeline({1: [item]}), _plan(), dict(TEST_CDL),
@@ -262,15 +229,8 @@ def test_a_setcdl_refusal_inside_the_graph_is_recorded_by_name():
 
 # ── 6. SetCDL RETURNS TRUE AND CHANGES NOTHING ───────────────────────────
 #
-# The regression this whole module exists for. Measured on the
-# captain's Reel 09, 2026-09-10: the declared CDL returned True on all
-# six picture clips and the exported still was byte-identical to no
-# grade - 0 of 2,073,600 pixels moved - with SetCDL(saturation 0)
-# either side as a positive control that moved 601,760. There is no
-# GetCDL and a `.drx` exported from a SetCDL-graded clip does not carry
-# the CDL, so NOTHING readable back distinguishes the two cases. The
-# rule that falls out is not "check harder", it is "do not report a
-# grade this route claims to have applied".
+# The regression this module exists for (docs/evidence/reel_look.md):
+# do not report a grade this route claims to have applied.
 
 def test_setcdl_true_is_not_evidence_the_grade_landed():
     """A clip whose `SetCDL` returns True but whose picture never
@@ -315,20 +275,6 @@ def test_declaring_no_look_at_all_is_not_a_refusal():
         footage_sources={"/footage/a.mxf"})
     assert record["route"] == "none"
     assert record["verified"] is False
-
-
-def test_the_drx_route_is_verified_by_a_node_readback():
-    """The DRX route CAN be verified and that is the whole reason it is
-    the route: a re-fetched graph carries the nodes the file builds."""
-    a, b = _FakeItem("/footage/a.mxf"), _FakeItem("/footage/b.mxf")
-    record = reel_look.apply_grade(
-        _FakeTimeline({1: [a], 2: [b]}), _plan(), dict(TEST_CDL),
-        power_grade={"path": "/look.drx", "provenance": PROVENANCE,
-                     "cdl_node": None},
-        footage_sources={"/footage/a.mxf", "/footage/b.mxf"})
-    assert record["verified"] is True
-    assert record["nodes"] == {"a.mxf": 8, "b.mxf": 8}
-    assert record["warnings"] == []
 
 
 def test_a_drx_that_says_yes_and_lands_no_nodes_is_not_verified():

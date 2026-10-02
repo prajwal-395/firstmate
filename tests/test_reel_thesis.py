@@ -1,31 +1,12 @@
-"""The thesis check separates the five incoherent reels from their fixes.
-
-Gap G1: reels 04, 10, 13, 14 and 27 failed on thesis and every gate
-passed them. `library/tools/reel_thesis.py` reads each reel's kept
-word sequence with three questions and refuses promotion on a fresh
-recorded incoherent. The acceptance test is not that the check runs -
-it is that it would have caught those five while passing what is
-fine.
-
-Fixtures below are built from the scout report's verbatim quotes
-(`data/vep-ft-structural-reels/report.md` in the firstmate home):
-each failing reel's kept words, and the same reel's fixed kept words
-("after fix the reel says"). The readings are the model's half,
-hand-written as the survey would record them; the VERDICTS are
-derived by the engine and asserted here. Five read incoherent, five
-read coherent - the separation the removed coherence warning never
-showed.
-
-These tests pin what is measured, what is deliberately NOT decided
-(no score, no threshold, no count anywhere), and that an answer that
-cannot be checked reads as unjudged rather than as a verdict.
-"""
+"""The thesis check separates the five incoherent reels (04, 10, 13, 14,
+27) from their fixes; verdicts are derived, never scored, and an answer
+that cannot be checked reads as unjudged. History and fixture provenance:
+docs/evidence/reel_thesis.md ("The acceptance tests")."""
 
 from __future__ import annotations
 
 import json
 
-import pytest
 
 from library.tools import reel_thesis as thesis
 from library.tools.reel_proposal import ReelMoment
@@ -94,28 +75,6 @@ def _reel_04_failing():
     return moment, transcript
 
 
-def test_reel_04_failing_reads_incoherent():
-    moment, transcript = _reel_04_failing()
-    siblings = [moment, _sibling_five()]
-    context = _ctx(moment, transcript, siblings)
-    assert R04_POINT not in context["kept_text"]
-    answer = {
-        "point": "the reel sets up a side by side test but never says "
-                 "which tool won or why it matters",
-        "point_quote": "",
-        "last_follows": "does_not_follow",
-        "closing_quote": R04_CLOSER,
-        "closing_reason": "the last words ask the viewer to check "
-                          "something out that the test above never set up",
-        "foreign_spans": [],
-        "reason": "the reel runs a test with no takeaway and closes on "
-                  "an unrelated checkout ask",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "incoherent"
-    assert read["decided_by"] == ["point", "ending"]
-
-
 # ── Reel 10: the answer skipped for a sales pitch ──────────────────
 
 R10_BODY = "the audit found everything else was broken"
@@ -130,27 +89,6 @@ def _reel_10_failing():
     moment = _moment(10, (200.0, body["timeline_end"]),
                      (800.0, closer["timeline_end"]))
     return moment, transcript
-
-
-def test_reel_10_failing_reads_incoherent():
-    moment, transcript = _reel_10_failing()
-    siblings = [moment, _sibling_five()]
-    assert R10_ANSWER not in _ctx(moment, transcript, siblings)["kept_text"]
-    answer = {
-        "point": "the reel tells an audit horror story but never says "
-                 "what the audit means",
-        "point_quote": "",
-        "last_follows": "does_not_follow",
-        "closing_quote": R10_CLOSER,
-        "closing_reason": "the last words pitch a score call the audit "
-                          "story never asked for",
-        "foreign_spans": [],
-        "reason": "verdict without the answer, then a pitch from "
-                  "another conversation",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "incoherent"
-    assert read["decided_by"] == ["point", "ending"]
 
 
 # ── Reel 13: moment 5's opener playing after the closer ────────────
@@ -168,7 +106,7 @@ def _reel_13_pieces():
     return body, cta, tail, transcript
 
 
-def test_reel_13_explicitly_approved_tail_reads_incoherent():
+def test_reel_13_reads_incoherent_with_the_tail_and_coherent_fixed():
     body, cta, tail, transcript = _reel_13_pieces()
     # This fixture explicitly approves a closer through Craig's whole
     # sentence. The build's large-snap guard prevents that cascade from
@@ -194,9 +132,7 @@ def test_reel_13_explicitly_approved_tail_reads_incoherent():
     read = _check(moment, transcript, siblings, answer)
     assert read["verdict"] == "incoherent"
     assert read["decided_by"] == ["ending"]
-
-
-def test_reel_13_fixed_reads_coherent():
+    # the fix - the closer ends on its own words - reads coherent
     body, cta, tail, transcript = _reel_13_pieces()
     moment = _moment(13, (889.0, body["timeline_end"]),
                      (320.0, cta["timeline_end"]))
@@ -247,28 +183,46 @@ R14_CLOSER = "content heavy seo strategy lucie visibility system"
 R14_MIDDLE = "the biggest geo mistake is keyword stuffing it rewards understanding and niche unique content"
 
 
-def test_reel_14_failing_reads_incoherent():
+def _reel_14_failing():
     body = _segment(200.0, R14_SETUP)
     closer = _segment(600.0, R14_CLOSER)
     transcript = _transcript(body, closer)
     moment = _moment(14, (200.0, body["timeline_end"]),
                      (600.0, closer["timeline_end"]))
-    siblings = [moment, _sibling_five()]
-    assert "keyword stuffing" not in _ctx(moment, transcript, siblings)["kept_text"]
-    answer = {
-        "point": "the reel agrees things are brutal and then pitches, "
-                 "with no substance between",
-        "point_quote": "",
-        "last_follows": "does_not_follow",
-        "closing_quote": R14_CLOSER,
-        "closing_reason": "the last words pitch a system for a mistake "
-                          "the reel never names",
-        "foreign_spans": [],
-        "reason": "setup and ask with nothing between them",
-    }
-    read = _check(moment, transcript, siblings, answer)
-    assert read["verdict"] == "incoherent"
-    assert read["decided_by"] == ["point", "ending"]
+    return moment, transcript
+
+
+def test_a_reel_missing_its_point_and_ending_reads_incoherent():
+    """Reels 04, 10 and 14: the point is cut out of the kept words and the
+    closer follows nothing the reel set up."""
+    table = [
+        (_reel_04_failing, R04_POINT, R04_CLOSER,
+         "the reel sets up a side by side test but never says which tool "
+         "won or why it matters"),
+        (_reel_10_failing, R10_ANSWER, R10_CLOSER,
+         "the reel tells an audit horror story but never says what the "
+         "audit means"),
+        (_reel_14_failing, "keyword stuffing", R14_CLOSER,
+         "the reel agrees things are brutal and then pitches, with no "
+         "substance between"),
+    ]
+    for build, missing, closer, point in table:
+        moment, transcript = build()
+        siblings = [moment, _sibling_five()]
+        assert missing not in _ctx(moment, transcript, siblings)["kept_text"]
+        answer = {
+            "point": point,
+            "point_quote": "",
+            "last_follows": "does_not_follow",
+            "closing_quote": closer,
+            "closing_reason": "the last words ask for something the reel "
+                              "never set up",
+            "foreign_spans": [],
+            "reason": "no takeaway, then an unrelated ask",
+        }
+        read = _check(moment, transcript, siblings, answer)
+        assert read["verdict"] == "incoherent", moment.number
+        assert read["decided_by"] == ["point", "ending"], moment.number
 
 
 # ── Reel 27: the closer answers a question never asked ─────────────
@@ -330,18 +284,12 @@ def _good_answer_for_04():
     }
 
 
-def test_no_answer_is_unjudged():
+def test_an_uncheckable_answer_is_unjudged():
     moment, transcript = _reel_04_failing()
     siblings = [moment, _sibling_five()]
-    read = _check(moment, transcript, siblings, None)
-    assert read["verdict"] == "unjudged"
-
-
-def test_invented_point_quote_is_unjudged():
-    moment, transcript = _reel_04_failing()
-    siblings = [moment, _sibling_five()]
+    assert _check(moment, transcript, siblings, None)["verdict"] == "unjudged"
     answer = _good_answer_for_04()
-    answer["point_quote"] = "decision engine"
+    answer["point_quote"] = "decision engine"     # invented: not in the reel
     read = _check(moment, transcript, siblings, answer)
     assert read["verdict"] == "unjudged"
     assert "not in what this reel says" in read["reason"]
@@ -358,7 +306,6 @@ def test_numeric_fields_beside_a_reading_are_dropped_unread():
     answer["rating"] = 5
     read = _check(moment, transcript, siblings, answer)
     assert read["verdict"] == "coherent"
-    assert "score" not in json.dumps(read).lower() or True
     assert read["decided_by"] == []
 
 

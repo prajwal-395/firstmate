@@ -124,44 +124,29 @@ def _write_project(tmp_path, moments, transcript=None):
     return project
 
 
-# ------------------------------------------------- the shared bar
-
-
-def test_the_threshold_default_is_the_snap_bar():
-    """The spelled default cannot drift from `SNAP_DECISION_SECONDS`:
-    two bars for one decision would flag in one surface what the
-    other calls quiet."""
-    assert THRESHOLD_DEFAULT == SNAP_DECISION_SECONDS == 2.0
-
-
 # ------------------------------------------------- reuse, not rewrite
 
 
 def test_the_snap_section_is_the_builds_own_preview(tmp_path):
     """`preview_take` narrows `preview_snap` to one moment rather than
-    reimplementing it: the section is byte-equal to the build's own
-    call, so the report and the build agree word for word."""
+    reimplementing it (byte-equal to the build's own call, at the snap
+    bar), and its candidate cuts are `redundant_takes` over this reel's
+    body - what the build will cut, not a second scan with its own bars."""
+    from library.tools.reel_build import redundant_takes
+
     project = _write_project(tmp_path, [_moment(), _moment(8, 40.0, 45.0, "other")])
     report = preview_take(str(project), "7")
+    assert THRESHOLD_DEFAULT == SNAP_DECISION_SECONDS
     assert report["snap"] == preview_snap(
         [_moment()], _transcript(), THRESHOLD_DEFAULT, tail_extend_authorizations={}
     )
     assert {m["reel"] for m in report["snap"]["moments"]} == {7}
-
-
-def test_the_takes_section_is_the_builds_own_scan(tmp_path):
-    """The candidate cuts are `redundant_takes` over this reel's body -
-    what the build will cut, not a second scan with its own bars."""
-    from library.tools.reel_build import redundant_takes
-
-    project = _write_project(tmp_path, [_moment()])
-    report = preview_take(str(project), "7")
     expected = redundant_takes(19.7, 33.6, _transcript())
+    assert expected, "the fixture must hold a take or this pins nothing"
     assert [
         (t["dropped_start"], t["dropped_end"], t["kept_start"], t["kept_end"])
         for t in report["takes"]
     ] == [(c.dropped_start, c.dropped_end, c.kept_start, c.kept_end) for c in expected]
-    assert expected, "the fixture must hold a take or this pins nothing"
 
 
 # ------------------------------------------------- addressing
@@ -177,21 +162,20 @@ def test_a_reel_answers_to_number_slug_and_timeline_name(tmp_path):
         preview_take(str(project), "Reel 07 - rocket-take")["slug"]
         == (by_number["slug"])
     )
+    _an_unknown_reel_refuses_rather_than_previewing_a_neighbour(tmp_path / "second")
 
 
-def test_an_unknown_reel_refuses_rather_than_previewing_a_neighbour(tmp_path):
+def _an_unknown_reel_refuses_rather_than_previewing_a_neighbour(tmp_path):
     """A take-pick answered for the wrong reel is confidently wrong -
     worse than no answer - so an unknown reel is a refusal, and the
     CLI exits 2 rather than printing a neighbour's report."""
+    tmp_path.mkdir()
     project = _write_project(tmp_path, [_moment()])
     with pytest.raises(TakePickPreviewError):
         resolve_moment([_moment()], "99")
     assert main([str(project), "--reel", "99"]) == 2
-
-
-def test_a_missing_proposal_refuses_instead_of_reporting_clean(tmp_path):
-    """No proposal is not a reel with no takes, no drift and no snap:
-    an empty report would read as a clean one, so this refuses."""
+    # No proposal is not a reel with no takes, no drift and no snap: an
+    # empty report would read as a clean one, so this refuses too.
     assert main([str(tmp_path / "empty"), "--reel", "7"]) == 2
 
 
@@ -242,12 +226,8 @@ def test_a_quiet_edge_still_names_its_words(tmp_path):
     ]
     text = render_take_preview(report)
     assert "words:" in text
-
-
-def test_boundary_words_come_from_one_transcript_pass():
-    """The pivot walks a single word stream: words at or before the
-    edge land before it, words after it land after it, nothing is
-    read twice and nothing is dropped at the joint."""
+    # The pivot walks one word stream: words at or before the edge land
+    # before it, words after land after, nothing dropped at the joint.
     words = boundary_words(_transcript(), 20.0)
     assert [t["word"] for t in words["before"]][-3:] == ["alpha", "beta", "we"]
     assert [t["word"] for t in words["after"]][:2] == ["launched", "the"]

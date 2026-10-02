@@ -105,53 +105,34 @@ def test_a_closing_pitch_is_measured_and_never_a_concern():
     body = window.measurements()
     assert body["pitch_share"] > 0, "it is REPORTED"
     assert body["closes_on_pitch"] is True
+    # Nothing is scored: which conversation matters is taste (AGENTS.md 10.5).
+    assert "score" not in body and "rank" not in body
 
 
-def test_a_one_sided_window_is_flagged():
-    turns = [_turn("Craig", 0.0, 4.0, "what about that"),
-             _turn("Akshita", 5.0, 60.0, "a very long answer indeed " * 5)]
-    windows = exchange_windows(turns, "Craig", "Akshita")
-    assert any("speaks once" in c for c in windows[0].concerns)
-
-
-def test_a_low_share_window_is_NOT_flagged_when_the_lead_returns():
+def test_one_sided_is_the_conjunction_of_low_share_and_speaking_once():
     """1:52-2:59 is one of the captain's own good examples and Craig
     holds only 9% of it - because he contributes twice, a real question
     and a real reaction. Alternation count alone discriminates nothing,
     so the concern is the CONJUNCTION."""
-    turns = [_turn("Craig", 0.0, 3.0, "so give me an example of that"),
-             _turn("Akshita", 4.0, 35.0, "the audit example " * 6),
-             _turn("Craig", 36.0, 41.0, "they used to call that keyword stuffing"),
-             _turn("Akshita", 42.0, 60.0, "and it works against you " * 4)]
-    windows = exchange_windows(turns, "Craig", "Akshita")
+    once = [_turn("Craig", 0.0, 4.0, "what about that"),
+            _turn("Akshita", 5.0, 60.0, "a very long answer indeed " * 5)]
+    windows = exchange_windows(once, "Craig", "Akshita")
+    assert any("speaks once" in c for c in windows[0].concerns)
+
+    returns = [_turn("Craig", 0.0, 3.0, "so give me an example of that"),
+               _turn("Akshita", 4.0, 35.0, "the audit example " * 6),
+               _turn("Craig", 36.0, 41.0,
+                     "they used to call that keyword stuffing"),
+               _turn("Akshita", 42.0, 60.0, "and it works against you " * 4)]
+    windows = exchange_windows(returns, "Craig", "Akshita")
     assert windows[0].share_for("Craig") < 0.25
     assert windows[0].alternations >= 3
     assert not any("speaks once" in c for c in windows[0].concerns)
 
 
-def test_nothing_is_scored():
-    """AGENTS.md 10.5 - choosing which conversation matters is taste."""
-    turns = [_turn("Craig", 0.0, 20.0), _turn("Akshita", 21.0, 50.0)]
-    body = exchange_windows(turns, "Craig", "Akshita")[0].measurements()
-    assert "score" not in body and "rank" not in body
-    assert "concerns" in body
-
-
 # ── Same stretch versus recorded twice ───────────────────────────────
 
-def test_overlapping_windows_are_one_stretch_not_many_takes():
-    """Measured at 27:34, where five windows of one conversation scored
-    containment 1.00 against each other. Calling that five takes is a
-    different error from missing a real second take."""
-    a = Exchange(0.0, 60.0, (_turn("Craig", 0.0, 20.0),
-                             _turn("Akshita", 21.0, 60.0)))
-    b = Exchange(10.0, 70.0, (_turn("Craig", 10.0, 20.0),
-                              _turn("Akshita", 21.0, 70.0)))
-    groups = collapse_overlapping([a, b])
-    assert len(groups) == 1
-
-
-def test_a_conversation_recorded_twice_collapses():
+def test_a_conversation_recorded_twice_collapses_and_two_different_do_not():
     words = "seo convinces an algorithm to rank pages geo makes ai comprehend"
     a = Exchange(0.0, 55.0, (_turn("Craig", 0.0, 20.0, words),
                              _turn("Akshita", 21.0, 55.0, words)))
@@ -161,13 +142,11 @@ def test_a_conversation_recorded_twice_collapses():
     assert len(groups) == 1
     assert groups[0][1].retake_band == "same"
 
-
-def test_two_different_conversations_do_not_collapse():
-    a = Exchange(0.0, 55.0, (_turn("Craig", 0.0, 20.0, "seo algorithm ranking pages google"),
+    c = Exchange(0.0, 55.0, (_turn("Craig", 0.0, 20.0, "seo algorithm ranking pages google"),
                              _turn("Akshita", 21.0, 55.0, "position versus comprehension")))
-    b = Exchange(60.0, 118.0, (_turn("Craig", 60.0, 80.0, "competitors nine times visibility report"),
+    d = Exchange(60.0, 118.0, (_turn("Craig", 60.0, 80.0, "competitors nine times visibility report"),
                                _turn("Akshita", 81.0, 118.0, "modules citations directories")))
-    assert len(collapse_retakes([a, b])) == 2
+    assert len(collapse_retakes([c, d])) == 2
 
 
 def test_containment_not_jaccard():
@@ -207,6 +186,7 @@ def test_overlap_groups_do_not_chain():
     c = Exchange(80.0, 130.0, (_turn("Craig", 80.0, 100.0),
                                _turn("Akshita", 101.0, 130.0)))
     groups = collapse_overlapping([a, b, c])
+    # A and B overlap: one stretch, not two takes. C is its own group.
     assert [(g[0].start, g[0].end) for g in groups] == [(0.0, 50.0), (80.0, 130.0)]
 
 

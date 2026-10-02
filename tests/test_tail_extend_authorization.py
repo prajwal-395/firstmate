@@ -45,13 +45,8 @@ def _entry(**overrides):
     return base
 
 
-def test_no_file_is_no_authorisation(tmp_path):
-    assert load_authorizations(str(tmp_path / "absent")) == {}
-
-
-
-
 def test_a_reel_answers_only_its_own_entry(tmp_path):
+    assert load_authorizations(str(tmp_path / "absent")) == {}
     project = _write(tmp_path, {"authorizations": [_entry()]})
     auths = load_authorizations(project)
     assert authorized_for(auths, 28)["reason"].startswith("captain")
@@ -59,33 +54,25 @@ def test_a_reel_answers_only_its_own_entry(tmp_path):
     assert authorized_for(auths, "28")["reel"] == 28
 
 
-def test_a_ruling_without_a_reason_refuses(tmp_path):
-    project = _write(tmp_path, {"authorizations": [_entry(reason=" ")]})
-    with pytest.raises(AuthorizationError):
-        load_authorizations(project)
-
-
-def test_a_ruling_without_measured_seconds_refuses(tmp_path):
-    payload = _entry()
-    del payload["measured_tail_end"]
-    project = _write(tmp_path, {"authorizations": [payload]})
-    with pytest.raises(AuthorizationError):
-        load_authorizations(project)
-
-
-def test_a_garbled_file_refuses(tmp_path):
-    project = Path(tmp_path) / "project"
-    (project / "external").mkdir(parents=True)
-    (project / "external" / "tail_extend_authorizations.json").write_text(
-        "{not json", encoding="utf-8")
-    with pytest.raises(AuthorizationError):
-        load_authorizations(str(project))
-
-
-def test_a_double_ruling_on_one_reel_refuses(tmp_path):
-    project = _write(tmp_path, {"authorizations": [_entry(), _entry()]})
-    with pytest.raises(AuthorizationError):
-        load_authorizations(project)
+def test_a_malformed_ruling_file_refuses(tmp_path):
+    """No reason, no measured seconds, a double ruling on one reel, and
+    a file that is not JSON each refuse."""
+    no_seconds = _entry()
+    del no_seconds["measured_tail_end"]
+    payloads = [
+        {"authorizations": [_entry(reason=" ")]},
+        {"authorizations": [no_seconds]},
+        {"authorizations": [_entry(), _entry()]},
+        "{not json",
+    ]
+    for i, payload in enumerate(payloads):
+        project = tmp_path / f"p{i}" / "project"
+        (project / "external").mkdir(parents=True)
+        (project / "external" / "tail_extend_authorizations.json").write_text(
+            payload if isinstance(payload, str) else json.dumps(payload),
+            encoding="utf-8")
+        with pytest.raises(AuthorizationError):
+            load_authorizations(str(project))
 
 
 def test_the_applied_seconds_are_weighed_against_the_ruling():

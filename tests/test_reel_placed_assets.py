@@ -1,19 +1,8 @@
 """Scratch holds no file a live timeline points at.
 
-Measured 2026-09-09 on `lucie/geo-podcast`: five TV-frame overlays
-(1.5 GB) rendered into `scratch/reel_look/frame_overlays/` sat on V2
-of live reel timelines - read off the live Resolve database's
-`Sm2TiItem.MediaFilePath`, not off filenames - while `Kind.SCRATCH`
-declares the whole tree safe to discard at any moment. Full-frame
-cards rendered into `scratch/reel_cards/` are the same shape: placed
-on V1, deletable by declaration.
-
-The fix under test: the builder promotes both into step-owned OUTPUT
-areas (`Area.REEL_FRAME_OVERLAYS` / `Area.REEL_CARDS`) before anything
-is imported, and every placement site refuses a scratch path
-(`reel_placed_assets.assert_placeable`). These tests fail on a tree
-where the promotion does not exist - importing the helper raises - and
-pass where it does.
+The builder promotes placed overlays and cards into step-owned OUTPUT
+areas, and every placement site refuses a scratch path. The measured
+incident is in `library/tools/reel_placed_assets.py`'s docstring.
 """
 
 import dataclasses
@@ -21,16 +10,14 @@ import os
 
 import pytest
 
-from library.tools.project_layout import Area, Kind, ProjectLayout
+from library.tools.project_layout import Area
 from library.tools.reel_placed_assets import (
     PlacedAssetInScratch,
     assert_placeable,
-    durable_copy_exists,
     is_under_scratch,
     promote_cards,
     promote_frame_overlays,
     promote_to_durable,
-    scratch_dir_for,
 )
 
 
@@ -55,17 +42,13 @@ def _project(tmp_path):
     return project, src
 
 
-def test_a_scratch_path_is_not_placeable(tmp_path):
+def test_only_a_scratch_path_is_refused_placement(tmp_path):
+    """The guard refuses scratch, not everything: the promoted copy
+    passes, and so does footage from outside the project entirely."""
     project, src = _project(tmp_path)
     assert is_under_scratch(src, project)
     with pytest.raises(PlacedAssetInScratch, match="scratch"):
         assert_placeable(src, project)
-
-
-def test_a_durable_path_and_footage_pass_through(tmp_path):
-    """The guard refuses scratch, not everything: the promoted copy
-    passes, and so does footage from outside the project entirely."""
-    project, src = _project(tmp_path)
     dest = promote_to_durable(src, project, Area.REEL_FRAME_OVERLAYS)
     assert assert_placeable(dest, project) == dest
     assert assert_placeable("/footage/clip_001.mxf", project) == "/footage/clip_001.mxf"
@@ -131,12 +114,8 @@ def test_cards_promote_to_the_card_area(tmp_path):
         assert os.path.join("7_01_build_reels", "reel_cards") in promoted
         with open(promoted, "rb") as handle:
             assert handle.read() == b"card-bytes"
-
-
-def test_a_card_with_no_file_passes_through_to_the_builder(tmp_path):
-    """Promotion re-points; it does not report. A card with no file
-    is the builder's own missing-file refusal, unchanged."""
-    project, _ = _project(tmp_path)
+    # Promotion re-points; it does not report. A card with no file
+    # is the builder's own missing-file refusal, unchanged.
     (card,) = promote_cards([{"render_name": "x", "rendered_path": ""}], project)
     assert card["rendered_path"] == ""
 

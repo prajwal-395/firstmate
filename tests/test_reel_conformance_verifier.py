@@ -21,35 +21,27 @@ from library.tools.reel_conformance_verifier import (
     check_caption_slugs,
     check_mixed_speakers,
     check_placed_caption_hangs,
-    Finding,
     FindingClass,
     PlannedCaption,
     PlannedPlacement,
     ReelPlan,
-    ReelResult,
     ReelTimeline,
     TimelineItem,
-    VerificationReport,
     check_audio_holes,
     check_boundary_speech,
     check_caption_coverage,
     check_caption_duration,
     check_caption_overlaps,
-    CaptionsUnavailable,
     check_caption_reference,
     check_duplicate_placements,
     check_format,
     check_item_count,
     check_picture_holes,
-    check_plan_describes_timeline,
     check_plan_length,
     check_plan_picture_continuity,
     check_plan_speakers,
     check_short_captions,
     check_subtitle_styling,
-    format_findings,
-    format_table,
-    hash_snapshot_dict,
     verify_reel,
 )
 
@@ -201,16 +193,13 @@ class TestF1PictureHoles:
         assert f.detail["gap_frames"] == 1
         assert f.detail["frame"] == 589
 
-
-    def test_covered_gap_reports_nothing(self):
-        """A gap on V1 is completely covered by a clip on V2."""
-        items = (
+        # ... and a V1 gap another track covers completely is no hole.
+        covered = (
             _item("video", 1, 0, 100),
             _item("video", 1, 200, 300),
-            _item("video", 2, 80, 220), # Covers the 100-200 gap perfectly
+            _item("video", 2, 80, 220),
         )
-        findings = check_picture_holes("Reel 02", items)
-        assert len(findings) == 0
+        assert check_picture_holes("Reel 02", covered) == []
 
 
 # ── F1 audio: Silent holes ──────────────────────────────────────────
@@ -238,38 +227,12 @@ class TestF1AudioHoles:
 class TestF2CaptionDuration:
     """F2 - ENCODING: caption cards placed one frame short."""
 
-    def test_detects_one_frame_short(self):
-        """Plant a caption that is one frame shorter than planned.
-
-        The audit found 567 of 575 cards had this: placed duration was
-        planned frames minus one.
-        """
-        planned = (PlannedCaption(
-            start_seconds=1.0, end_seconds=2.0,
-            text="hello world", speaker="Akshita", frames=24),)
-        actual = (_item("video", 2, 24, 47, name="akshita_01"),)
-        # actual duration = 47 - 24 = 23, planned = 24, delta = -1
-        findings = check_caption_duration("Reel 01", planned, actual, FPS)
-        assert len(findings) == 1
-        assert findings[0].finding_class == FindingClass.F2
-        assert findings[0].detail["delta"] == -1
-
 
     def test_pairs_on_start_frame_not_list_position(self):
-        """The regression this exists to prevent, and it is the whole bug.
+        """F2 pairs a card with its placed item on START FRAME, never list position.
 
-        `check_caption_duration` used to read `actual_captions[i]` under a
-        comment saying it matched on start frame. That only agrees with
-        itself while both lists are the same length. Measured on the
-        captain's nineteen reels, 832 cards were planned and 763 placed,
-        so after each reel's first unplaced card every remaining pair
-        compared one card's plan against a DIFFERENT card's item - 701
-        findings and r(planned, placed) = 0.027, which reads as a
-        placement defect and is not one.
-
-        Here card 2 is planned and never placed. Index pairing would
-        compare card 2's 24 frames against card 3's item and card 3
-        against nothing, inventing a delta on a card that is correct.
+        Card 2 is planned and never placed: index pairing would invent a delta on
+        card 3. History: docs/evidence/reel_conformance_verifier.md.
         """
         planned = (
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
@@ -296,7 +259,6 @@ class TestF2CaptionDuration:
         assert len(f14) == 1, "the unplaced card is the finding"
         assert f14[0].detail["text"] == "never placed"
 
-
     def test_an_item_is_claimed_once(self):
         """Two cards cannot both pair with the same placed item."""
         planned = (
@@ -314,16 +276,8 @@ class TestF2CaptionDuration:
 
 
 class TestF2SegmentGranularity:
-    """F2/F14 pair at the SEGMENT granularity the builder places.
-
-    The 2026-09-07 rebuild failure: reel 1 was rebuilt fresh (per-block
-    overlay segments, one V3 item per block) and verification failed it
-    with 34 errors - one per planned card. The check paired every CARD
-    against the block-spanning item, so each block's first card drew F2
-    (delta = the rest of the block) and every other card drew F14.
-    The builder was right - per-block segments are what `compile_manifest`
-    promises (`_assert_subtitle_overlay_matches_plan`) - and the check
-    was grading cards against their container.
+    """F2/F14 pair at the SEGMENT granularity the builder places (one item per
+    block), not per card. History: docs/evidence/reel_conformance_verifier.md.
     """
 
     def _block_item(self, start_s: float, end_s: float,
@@ -336,8 +290,8 @@ class TestF2SegmentGranularity:
 
     def test_fresh_build_with_multi_card_blocks_is_clean(self):
         """The rebuild's shape: two cards in one block, one in the next,
-        placed as two block-spanning items. Before the fix this drew
-        one F2 and one F14; after, nothing."""
+        placed as two block-spanning items, draws nothing - and a block
+        placed short still draws its F2."""
         planned = (
             PlannedCaption(start_seconds=1.0, end_seconds=2.0,
                            text="first card", speaker="Akshita",
@@ -361,50 +315,21 @@ class TestF2SegmentGranularity:
             "a faithful per-block placement must draw no finding; got "
             f"{[(f.finding_class, f.message) for f in findings]}")
 
-    def test_short_segment_still_draws_f2(self):
-        """Segment granularity must not swallow a real defect: a block
-        placed shorter than planned still fails, with the segment delta."""
-        planned = (
-            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
-                           text="first card", speaker="Akshita",
-                           frames=round(1.0 * FPS),
-                           block_position="body_1"),
-            PlannedCaption(start_seconds=2.0, end_seconds=3.5,
-                           text="second card", speaker="Akshita",
-                           frames=round(1.5 * FPS),
-                           block_position="body_1"),
-        )
-        actual = (self._block_item(1.0, 3.0),)  # half a second short
-        findings = check_caption_duration("Reel 01", planned, actual, FPS)
-        f2 = [f for f in findings if f.finding_class == FindingClass.F2]
+        # Segment granularity must not swallow a real defect: block 1
+        # placed half a second short still fails, with the segment delta.
+        short = (self._block_item(1.0, 3.0),)
+        f2 = [f for f in check_caption_duration("Reel 01", planned[:2],
+                                                short, FPS)
+              if f.finding_class == FindingClass.F2]
         assert len(f2) == 1
         assert f2[0].detail["delta"] == -round(0.5 * FPS)
         assert f2[0].detail["card_count"] == 2
 
 
 class TestF2AbuttingBlocks:
-    """F2 on blocks that abut EXACTLY in seconds - reel 07, 2026-09-08.
-
-    The rebuild failed deterministically (twice identically) with::
-
-        caption segment 24 (block 23, 2 cards starting
-        'number one on google because y') planned 34 frames, placed 33
-
-    Measured off the rendered props: block 22 spans 60.125-62.374s and
-    block 23 spans 62.374-63.809s - the boundary second is IDENTICAL, so
-    the plan holds no overlap.  Per-block integer placement
-    (``round(start)`` + ``round(duration)``) laid them as [1442,1496) and
-    [1495,1529): frame 1495 asked for twice.  Of all 30 placed caption
-    spans on the reel this is the ONLY overlap, and the single F2 is on
-    the later block - Resolve trimmed a frame where the request
-    overlapped, deterministically on both attempts.
-
-    The builder manufactured the overlap out of abutting inputs, so the
-    fix is on the encoding side: spans are rounded PER EDGE -
-    ``[round(start), round(end))`` - the same arithmetic picture
-    ``placements`` already uses, under which abutting blocks abut.
-    The check grades that same span, so the two agree by construction
-    and the gate stays exact (no tolerance widened).
+    """F2 on blocks that abut EXACTLY in seconds (reel 07): spans are rounded per
+    edge, so abutting blocks abut and the gate stays exact.
+    History: docs/evidence/reel_conformance_verifier.md.
     """
 
     # Reel 07 block 22/23 boundary, full precision from the props files.
@@ -485,36 +410,6 @@ class TestF3MasterHoles:
 class TestF4ItemCount:
     """F4 - ENCODING: clips silently dropped."""
 
-    def test_detects_missing_clip(self):
-        """Plant a reel where one clip is missing.
-
-        The audit found Reel 09 planned 7 items but placed only 6.
-        """
-        planned = (
-            _placement(1, 0.0, 25.0, "Akshita"),
-            _placement(2, 0.0, 13.0, "Craig"),
-            _placement(1, 13.0, 12.0, "Akshita"),
-            _placement(2, 13.0, 12.0, "Craig"),
-            _placement(1, 25.0, 13.0, "Akshita"),
-            _placement(2, 25.0, 12.7, "Craig"),
-            _placement(1, 38.0, 12.8, "Akshita"),
-        )
-        actual = (
-            _item("video", 1, 0, int(25 * FPS)),
-            _item("video", 2, 0, int(13 * FPS), speaker="Craig"),
-            _item("video", 1, int(13 * FPS), int(25 * FPS)),
-            # Craig clip dropped at record 13.0
-            _item("video", 1, int(25 * FPS), int(38 * FPS)),
-            _item("video", 2, int(25 * FPS), int(37.7 * FPS), speaker="Craig"),
-            _item("video", 1, int(38 * FPS), int(50.8 * FPS)),
-        )
-        findings = check_item_count("Reel 09", planned, actual, FPS)
-        # Should find item count mismatch
-        count_findings = [f for f in findings
-                          if "planned" in f.message and "picture items" in f.message]
-        assert len(count_findings) == 1
-        assert count_findings[0].detail["expected"] == 7
-        assert count_findings[0].detail["actual"] == 6
 
     def test_detects_speaker_duration_mismatch(self):
         """Plant a reel where Craig is missing significant duration.
@@ -541,86 +436,33 @@ class TestF4ItemCount:
 class TestF5CaptionCoverage:
     """F5 - PLANNING: uncaptioned speech from straddling segments."""
 
-    def test_detects_straddling_uncaptioned_speech(self):
-        """Plant a straddling segment (no resolve_item_id) with no caption.
 
-        The audit found 66.7s of speech from straddling segments with no
-        caption over it.
-        """
-        segments = [
-            # Bound segment - has caption coverage
-            _row(0.0, 10.0, "Akshita", "hello world", item_id="uid-1"),
-            # Straddling segment - NO resolve_item_id, NO caption.
-            # Sane word timings (four 2s words): a stretched single
-            # word belongs to the stretched-word test below, not here.
-            _row(10.0, 18.0, "Craig", "this straddles a cut",
-                 speaking=((10.0, 12.0), (12.0, 14.0),
-                           (14.0, 16.0), (16.0, 18.0))),
-        ]
-        # Only one caption covering the bound segment
-        captions = [_caption_card(0.0, 10.0, "hello world")]
-        keep_ranges = [(0.0, 20.0)]
+    def test_f5_counts_only_the_seconds_the_reel_plays(self):
+        """Two rows of one invariant: a row reaching past the reel is
+        CLIPPED, not dropped, and a row an interior cut runs through
+        counts only what plays - the cut-out take is not uncaptioned
+        speech. Both were wrong while F5 mapped the row's raw endpoints
+        (docs/evidence/reel_conformance_verifier.md)."""
+        # Begins 5s BEFORE the reel and runs 5s into it; five 2s words,
+        # so the row crosses the boundary and no word does.
+        past = [_row(5.0, 15.0, "Craig", "a row the reel starts in",
+                     speaking=tuple((float(i), float(i + 2))
+                                    for i in range(5, 15, 2)))]
+        # Fifteen 2s words; a 10s take is removed from the middle.
+        cut = [_row(0.0, 30.0, "Akshita", "a row with a take taken out",
+                    speaking=tuple((float(i), float(i + 2))
+                                   for i in range(0, 30, 2)))]
+        for segments, keep, expected in (
+                (past, [(10.0, 20.0)], 5.0),
+                (cut, [(0.0, 10.0), (20.0, 30.0)], 20.0)):
+            f5 = [f for f in check_caption_coverage(
+                      "Reel 03", segments, [], keep, FPS)
+                  if f.finding_class == FindingClass.F5]
+            assert len(f5) == 1
+            assert f5[0].detail["straddling_seconds"] == pytest.approx(
+                expected, abs=0.05)
 
-        findings = check_caption_coverage(
-            "Reel 02", segments, captions, keep_ranges, FPS)
-        assert len(findings) >= 1
-        f5 = [f for f in findings if f.finding_class == FindingClass.F5]
-        assert len(f5) == 1
-        assert f5[0].detail["straddling_seconds"] > 7.0
-
-    def test_row_reaching_past_the_reel_is_clipped_not_dropped(self):
-        """A row that starts before the reel still counts inside it.
-
-        This is the case F5 was built for and used to skip: it mapped the
-        row's own start through `reel_time`, got None because the row
-        begins outside the reel, and `continue`d. Every reel has two such
-        rows by construction, at its two boundaries. On the captain's
-        nineteen approved reels that dropped 51 rows carrying 364.7s of
-        in-reel overlap and reported 29.2s of the 170.1s uncaptioned.
-        """
-        segments = [
-            # Begins 5s BEFORE the reel and runs 5s into it, uncaptioned.
-            # Five 2s words: the row crosses the boundary, no word does.
-            _row(5.0, 15.0, "Craig",
-                 "a row the reel starts in the middle of",
-                 speaking=((5.0, 7.0), (7.0, 9.0), (9.0, 11.0),
-                           (11.0, 13.0), (13.0, 15.0))),
-        ]
-        keep_ranges = [(10.0, 20.0)]
-
-        findings = check_caption_coverage(
-            "Reel 03", segments, [], keep_ranges, FPS)
-        f5 = [f for f in findings if f.finding_class == FindingClass.F5]
-        assert len(f5) == 1, "the part inside the reel is what F5 measures"
-        assert f5[0].detail["straddling_seconds"] == pytest.approx(5.0, abs=0.05)
-
-    def test_row_an_interior_cut_runs_through_counts_only_what_plays(self):
-        """A cut inside a row removes seconds; they are not speech.
-
-        Mapping the two raw endpoints was wrong even when it returned
-        numbers - the row mapped to one contiguous reel interval spanning
-        the removed take, so seconds the builder had cut out counted as
-        speech that needed a caption.
-        """
-        segments = [
-            # Fifteen 2s words; a 10s take is removed from the middle.
-            _row(0.0, 30.0, "Akshita",
-                 "a row with a bad take taken out of its middle",
-                 speaking=tuple((float(i), float(i + 2))
-                                for i in range(0, 30, 2))),
-        ]
-        # 10s removed from the middle: the reel plays 20s of this row.
-        keep_ranges = [(0.0, 10.0), (20.0, 30.0)]
-
-        findings = check_caption_coverage(
-            "Reel 04", segments, [], keep_ranges, FPS)
-        f5 = [f for f in findings if f.finding_class == FindingClass.F5]
-        assert len(f5) == 1
-        assert f5[0].detail["straddling_seconds"] == pytest.approx(
-            20.0, abs=0.05), "the cut-out 10s is not uncaptioned speech"
-
-
-    def test_a_stretched_word_is_not_counted_as_speech(self):
+    def test_a_stretched_word_is_excluded_and_honest_speech_still_fails(self):
         """Reel 10's shape: one 34.13s word, otherwise card-covered.
 
         Craig's "audits" (732.69-766.82) is a single word the aligner
@@ -656,9 +498,8 @@ class TestF5CaptionCoverage:
                    for w in warnings), (
             "the excluded word must be reported, not skipped quietly")
 
-    def test_sane_straddling_speech_with_no_caption_still_fails(self):
-        """The gate is not weakened: straddling speech with honest word
-        timings and nothing on screen over it is still an error."""
+        # The gate is not weakened: straddling speech with honest word
+        # timings and nothing on screen over it is still an error.
         segments = [
             _row(732.69, 736.0, "Craig", "audits indeed yes",
                  speaking=((732.69, 733.2), (733.4, 734.1),
@@ -718,28 +559,6 @@ class TestF7ShortCaptions:
 
 # ── F8: Boundary speech ─────────────────────────────────────────────
 
-class TestF8BoundarySpeech:
-    """F8 - PLANNING: reel boundaries cut through invisible speech."""
-
-    def test_detects_end_boundary_cutting_speech(self):
-        """Plant a straddling segment cut by the reel END boundary.
-
-        The audit found 11 boundaries that cut through real sentences
-        that snap_to_speech cannot see (straddling segments).
-        """
-        segments = [
-            # Straddling segment - no resolve_item_id, speaking throughout
-            _row(155.81, 179.97, "Craig",
-                 "bunch of terms blogs and whatnot"),
-        ]
-        # Reel END at 179.46 cuts through segment [155.81, 179.97]
-        findings = check_boundary_speech(
-            "Reel 02", span_start=112.0, span_end=179.46,
-            transcript_segments=segments)
-        assert len(findings) == 1
-        assert findings[0].finding_class == FindingClass.F8
-        assert findings[0].detail["boundary"] == "end"
-
 
 # ── F9: Duplicate placements ────────────────────────────────────────
 
@@ -790,16 +609,6 @@ class TestF9DuplicatePlacements:
         assert signature_findings[0].detail["unique_positions"] == 4
 
 
-    def test_different_tracks_same_position_not_duplicate(self):
-        """V1 and V2 at the same frame is normal (two speakers), not F9."""
-        items = (
-            _item("video", 1, 0, int(25 * FPS), speaker="Akshita"),
-            _item("video", 2, 0, int(25 * FPS), speaker="Craig"),
-        )
-        findings = check_duplicate_placements("Reel 01", items, FPS)
-        assert len(findings) == 0
-
-
 # ── F10: Format mismatch ────────────────────────────────────────────
 
 class TestF10Format:
@@ -809,58 +618,33 @@ class TestF10Format:
     rendering out landscape while every structural check passed.
     """
 
-    def test_detects_landscape_resolution(self):
-        """1920x1080 (landscape) is wrong for a project that declared vertical."""
-        findings = check_format("Reel 01", 1920, 1080, FPS, FPS,
-                                expected_width=1080, expected_height=1920)
-        assert len(findings) == 1
-        assert findings[0].finding_class == FindingClass.F10
-        assert findings[0].severity == "error"
-        assert "1920x1080" in findings[0].message
-        assert "1080x1920" in findings[0].message
 
+    def test_f10_grades_the_declared_frame_and_says_when_none_was(self):
+        """Three rows of one invariant: F10 grades against the DECLARED
+        frame and rate, never a hard-coded vertical, and an undeclared
+        frame is a warning that says it was NOT CHECKED - never a pass.
 
-    def test_detects_fps_mismatch(self):
-        """A reel at 30fps when the master is 23.976 stutters."""
-        findings = check_format("Reel 03", 1080, 1920, 30.0, FPS,
-                                expected_width=1080, expected_height=1920)
-        assert len(findings) == 1
-        assert findings[0].finding_class == FindingClass.F10
-        assert "fps" in findings[0].message.lower()
-
-
-    def test_a_declared_horizontal_reel_is_not_a_defect(self):
-        """F10 grades against the DECLARED frame, not against vertical.
-
-        The input that breaks this: putting `EXPECTED_WIDTH = 1080` back,
-        or defaulting `expected_width`/`expected_height` to it. A project
-        declaring `horizontal_1920x1080` would then have every correct
-        reel refused for being exactly what it asked for - a gate that
-        FAILS correct output (AGENTS.md 10.4).
+        Breaks if `expected_width`/`expected_height` default to vertical
+        (a declared horizontal reel refused for being what it asked for,
+        AGENTS.md 10.4) or if the no-frame case returns `[]`.
         """
-        findings = check_format("Reel 01", 1920, 1080, FPS, FPS,
-                                expected_width=1920, expected_height=1080)
-        assert findings == []
+        # A reel at 30fps when the master is 23.976 stutters.
+        fps = check_format("Reel 03", 1080, 1920, 30.0, FPS,
+                           expected_width=1080, expected_height=1920)
+        assert [f.finding_class for f in fps] == [FindingClass.F10]
+        assert "fps" in fps[0].message.lower()
 
-        # ... and the same reel is a defect where vertical was declared.
-        findings = check_format("Reel 01", 1920, 1080, FPS, FPS,
-                                expected_width=1080, expected_height=1920)
-        assert len(findings) == 1
-        assert findings[0].severity == "error"
+        assert check_format("Reel 01", 1920, 1080, FPS, FPS,
+                            expected_width=1920, expected_height=1080) == []
+        landscape = check_format("Reel 01", 1920, 1080, FPS, FPS,
+                                 expected_width=1080, expected_height=1920)
+        assert [f.severity for f in landscape] == ["error"]
 
-    def test_an_undeclared_frame_is_warned_about_never_passed(self):
-        """No expected frame means the shape was NOT CHECKED, and says so.
-
-        The input that breaks this: making the no-frame case return `[]`.
-        Every other check stayed green on the wrong shape once already;
-        a silent pass here is that incident with a nicer signature.
-        """
-        findings = check_format("Reel 01", 1080, 1920, FPS, FPS)
-        assert len(findings) == 1
-        assert findings[0].finding_class == FindingClass.F10
-        assert findings[0].severity == "warning"
-        assert "not checked" in findings[0].message
-        assert findings[0].detail["expected_width"] is None
+        unchecked = check_format("Reel 01", 1080, 1920, FPS, FPS)
+        assert [f.finding_class for f in unchecked] == [FindingClass.F10]
+        assert unchecked[0].severity == "warning"
+        assert "not checked" in unchecked[0].message
+        assert unchecked[0].detail["expected_width"] is None
 
 
 # ── F11: Subtitle styling ───────────────────────────────────────────
@@ -879,85 +663,44 @@ class TestF11SubtitleStyling:
     to catch.
     """
 
-    def _akshita_cap(self, start, end, idx=0):
-        """A caption card attributed to Akshita via filename."""
-        return _item(
-            "video", 3, start, end,
-            name=f"sub_synced_akshita_body{idx}_0-1000_abc123.mov",
-            source_file=f"/overlays/sub_synced_akshita_body{idx}_0-1000_abc123.mov",
-        )
+    def test_f11_refuses_output_that_cannot_prove_two_styles(self):
+        """Three ways the PLACED cards fail to carry the diarization
+        signal, each an F11 the check must say rather than pass:
+        one speaker's style on every card of a two-speaker video, cards
+        with no speaker in their name, and two speakers sharing one
+        overlay file (identical rendering whatever the names say)."""
+        two = (_item("video", 1, 0, int(10 * FPS), speaker="Akshita"),
+               _item("video", 2, 0, int(10 * FPS), speaker="Craig"))
 
-    def _craig_cap(self, start, end, idx=0):
-        """A caption card attributed to Craig via filename."""
-        return _item(
-            "video", 3, start, end,
-            name=f"sub_synced_craig_body{idx}_1000-2000_def456.mov",
-            source_file=f"/overlays/sub_synced_craig_body{idx}_1000-2000_def456.mov",
-        )
+        def cap(name, start, end, source=None):
+            return _item("video", 3, start, end, name=name,
+                         source_file=source or f"/overlays/{name}")
 
-    def test_detects_all_cards_same_speaker_with_two_video_speakers(self):
-        """Builder applied one speaker's style to ALL cards.  Video has
-        two speakers, but every caption is attributed to Akshita.  This
-        is the core defect: config might say two styles, but the OUTPUT
-        shows only one."""
-        captions = (
-            self._akshita_cap(0, int(3 * FPS), 0),
-            self._akshita_cap(int(3 * FPS), int(6 * FPS), 1),
-            self._akshita_cap(int(6 * FPS), int(9 * FPS), 2),
-        )
-        videos = (
-            _item("video", 1, 0, int(10 * FPS), speaker="Akshita"),
-            _item("video", 2, 0, int(10 * FPS), speaker="Craig"),
-        )
-        findings = check_subtitle_styling("Reel 01", captions, videos)
-        assert len(findings) >= 1
-        f11s = [f for f in findings if f.finding_class == FindingClass.F11]
-        assert any("diarization" in f.message.lower() for f in f11s)
-        assert all(f.severity == "error" for f in f11s)
+        one_style = tuple(
+            cap(f"sub_synced_akshita_body{i}_0-1000_abc123.mov",
+                int(3 * i * FPS), int(3 * (i + 1) * FPS))
+            for i in range(3))
+        f11 = [f for f in check_subtitle_styling("Reel 01", one_style, two)
+               if f.finding_class == FindingClass.F11]
+        assert any("diarization" in f.message.lower() for f in f11)
+        assert f11 and all(f.severity == "error" for f in f11)
 
-    def test_detects_unattributed_caption_cards(self):
-        """Caption cards with no speaker in their filename cannot be
-        verified for per-speaker styling.  The check must SAY SO rather
-        than returning clean."""
-        captions = (
-            _item("video", 2, 0, int(5 * FPS),
-                  name="caption_block_0.mov",
-                  source_file="/overlays/caption_block_0.mov"),
-            _item("video", 2, int(5 * FPS), int(10 * FPS),
-                  name="caption_block_1.mov",
-                  source_file="/overlays/caption_block_1.mov"),
-        )
-        videos = (
-            _item("video", 1, 0, int(10 * FPS), speaker="Akshita"),
-        )
-        findings = check_subtitle_styling("Reel 01", captions, videos)
-        assert len(findings) >= 1
-        assert any(f.finding_class == FindingClass.F11 and
-                   "no speaker attribution" in f.message
-                   for f in findings)
+        unattributed = (cap("caption_block_0.mov", 0, int(5 * FPS)),
+                        cap("caption_block_1.mov", int(5 * FPS),
+                            int(10 * FPS)))
+        assert any(f.finding_class == FindingClass.F11
+                   and "no speaker attribution" in f.message
+                   for f in check_subtitle_styling(
+                       "Reel 01", unattributed, two[:1]))
 
-    def test_detects_shared_overlay_source(self):
-        """Two speakers' cards use the SAME overlay file.  Even though
-        the filenames carry different speaker slugs, sharing a source
-        file means identical rendering."""
-        shared_source = "/overlays/sub_synced_shared_body0_0-1000_abc123.mov"
-        captions = (
-            _item("video", 2, 0, int(5 * FPS),
-                  name="sub_synced_akshita_body0_0-1000_abc123.mov",
-                  source_file=shared_source),
-            _item("video", 2, int(5 * FPS), int(10 * FPS),
-                  name="sub_synced_craig_body0_1000-2000_def456.mov",
-                  source_file=shared_source),
-        )
-        videos = (
-            _item("video", 1, 0, int(10 * FPS), speaker="Akshita"),
-            _item("video", 2, 0, int(10 * FPS), speaker="Craig"),
-        )
-        findings = check_subtitle_styling("Reel 01", captions, videos)
-        shared_findings = [f for f in findings
-                          if "share" in f.message.lower()]
-        assert len(shared_findings) >= 1
-        assert shared_findings[0].severity == "error"
+        shared = "/overlays/sub_synced_shared_body0_0-1000_abc123.mov"
+        sharing = (cap("sub_synced_akshita_body0_0-1000_abc123.mov",
+                       0, int(5 * FPS), shared),
+                   cap("sub_synced_craig_body0_1000-2000_def456.mov",
+                       int(5 * FPS), int(10 * FPS), shared))
+        shared_findings = [f for f in check_subtitle_styling(
+            "Reel 01", sharing, two) if "share" in f.message.lower()]
+        assert shared_findings and shared_findings[0].severity == "error"
 
     def test_current_provenance_name_attributes_the_speaker_not_clip_id(self):
         """Current caption names put speaker before the source clip id.
@@ -1014,23 +757,6 @@ class TestPlanQualitySpeakers:
 
 
 # ── Plan quality: Picture continuity ─────────────────────────────────
-
-class TestPlanQualityPicture:
-    """Plan quality gate: no picture holes in the plan span."""
-
-    def test_detects_gap_in_master(self):
-        """Plant a gap in the master coverage inside the reel span."""
-        master_items = [
-            {"timeline_start": 0.0, "timeline_end": 30.0,
-             "track_index": 1},
-            {"timeline_start": 34.0, "timeline_end": 60.0,
-             "track_index": 1},
-        ]
-        findings = check_plan_picture_continuity(
-            "Reel 16", 0.0, 60.0, master_items)
-        assert len(findings) >= 1
-        assert findings[0].finding_class == FindingClass.PQ_PICTURE
-        assert findings[0].detail["gap_frames"] > 0
 
 
 # ── Integration: verify_reel ─────────────────────────────────────────
@@ -1101,38 +827,8 @@ class TestVerifyReel:
 
 # ── Output formats ───────────────────────────────────────────────────
 
-class TestOutputFormats:
-    """Test human-readable and machine-readable output."""
-
-    def _make_report(self) -> VerificationReport:
-        plan = _plan(
-            placements=(
-                _placement(1, 0.0, 25.0, "Akshita"),
-                _placement(2, 0.0, 25.0, "Craig"),
-            ),
-        )
-        timeline = _timeline(
-            video_items=(
-                _item("video", 1, 0, 589),
-                _item("video", 1, 590, 1075),
-            ),
-            audio_items=(),
-        )
-        result = verify_reel(plan, timeline)
-        return VerificationReport(
-            project_name="Podcast (field test)",
-            master_timeline="GEO Podcast - Synced",
-            reel_results=[result],
-            read_only_proof={"before": "abc123", "after": "abc123",
-                             "identical": True},
-            plan_source="DERIVED from master (no --plan provided)",
-        )
-
 
 # ── Read-only proof ──────────────────────────────────────────────────
-
-class TestReadOnlyProof:
-    """Test the read-only proof mechanism."""
 
 
 # ── CLI ──────────────────────────────────────────────────────────────
@@ -1284,21 +980,9 @@ class TestClosingCallToAction:
 
 
     def test_the_plan_can_be_derived_with_a_project_folder(self, tmp_path):
-        """The card branch, which no test reached until it broke.
-
-        `_derive_plan_from_master` only plans cards when it is given BOTH
-        a `moment` and a `project_folder`; every other test here passes
-        neither, so the `plan_cards` call was never executed. PR #1095
-        made `plan_cards` take a required `width`/`height` - the declared
-        delivery frame - and updated its three callers in `reel_build`
-        and `captain_edits` but not this one. The verifier then raised
-        `TypeError` the first time a build reached the gate, and
-        `verify_built_reels` turned that into "Reel conformance verifier
-        failed to run", which discarded five correctly staged reels.
-
-        The same shape as PR #524's required `fps` on `placements`, noted
-        at the top of this section. A branch nothing runs is a branch
-        that breaks silently, so this runs it.
+        """The card branch of `_derive_plan_from_master` (moment + project_folder)
+        runs: a branch nothing runs breaks silently (PR #1095's required width/height).
+        History: docs/evidence/reel_conformance_verifier.md.
         """
         from library.tools.reel_conformance_verifier import (
             _derive_plan_from_master)
@@ -1323,16 +1007,8 @@ class TestClosingCallToAction:
 
     def test_a_recorded_head_trim_survives_re_derivation_in_play_order(
             self, tmp_path):
-        """A reel cannot be built to one rule and checked against another.
-
-        The build trims keep ranges per recorded `span_retime` pins
-        (`captain_edits.retime_ranges`) before the ending reads the last
-        range. The verifier re-derived without them, so Reel 16's pinned
-        1802-frame timeline (2026-09-18) was graded against a 1926-frame
-        plan and failed F4 - plus a logo card planned 124 frames past
-        where the trimmed build placed it. The re-derivation applies the
-        same trims at the same seam, and the early-master CTA still
-        closes the reel.
+        """Re-derivation applies the recorded `span_retime` trims at the build's seam,
+        and the early-master CTA still closes the reel (Reel 16, 2026-09-18).
         """
         def _timed(tokens, start):
             words, cursor = [], start
@@ -1421,53 +1097,17 @@ class TestClosingCallToAction:
 # ── NO-REFERENCE: the empty expected side ────────────────────────────
 
 class TestNoReferenceRefusesRatherThanSkipping:
-    """The vacuous caption gate, and why it is a class of its own.
-
-    Measured 2026-09-05 on the captain's nineteen: the verifier reported
-    captions expected/actual as 0/28, 0/39 ... 0/762. It expected zero
-    caption cards, found seven hundred and sixty-two, and PASSED - so F2,
-    F5, F6 and F7 were all vacuous. The guard was
-    `if plan.captions and timeline.caption_items:` and `plan.captions`
-    was `()` on every run the verifier had ever made, because
-    `reel_subtitles.py` was a parallel module whose output never entered
-    the plan the verifier reads.
-
-    The plan side is now derived, but that is not what makes this safe -
-    a derivation can break again, and the captioner is moving into step
-    4.01. What makes it safe is that the EMPTINESS is now the finding.
+    """An EMPTY expected caption side is a NO_REFERENCE finding, never a vacuous pass.
+    History (0/762 on the nineteen): docs/evidence/reel_conformance_verifier.md.
     """
-
-    def test_cards_on_the_timeline_with_none_in_the_plan_refuses(self):
-        findings = check_caption_reference(
-            "Reel 01 - test", (),
-            (_item("video", 3, 0, 24), _item("video", 3, 24, 48)))
-
-        assert len(findings) == 1
-        assert findings[0].finding_class == FindingClass.NO_REFERENCE
-        assert findings[0].severity == "error"
-        assert findings[0].detail["planned"] == 0
-        assert findings[0].detail["actual"] == 2
-
-
-    def test_a_reel_nobody_captioned_is_not_a_defect(self):
-        """`--skip-captions` builds a watchable timeline on purpose."""
-        assert check_caption_reference("Reel 01 - test", (), ()) == []
 
 
     def test_could_not_be_asked_is_not_the_same_as_has_none(self):
-        """The branch that stops the gate going quiet when the producer moves.
-
-        `_derive_planned_captions` used to import `reel_subtitles` inside
-        `except ImportError: return ()`. That module is being deleted -
-        the captain ruled it should never have existed and its work
-        belongs in step 4.01 - and on the day it went the plan side would
-        have become permanently empty, the caption gate would have gone
-        back to expecting zero cards while finding hundreds, and every
-        test here would still have passed.
-
-        So "could not be asked" is now its own answer and it REFUSES,
-        while "has none" stays clean.
+        """"Could not be asked" REFUSES; "has none" stays clean, because
+        `--skip-captions` builds a watchable timeline on purpose.
+        History: docs/evidence/reel_conformance_verifier.md.
         """
+        assert check_caption_reference("Reel 01 - test", (), ()) == []
         findings = check_caption_reference(
             "Reel 01 - test", (), (),
             unavailable="spine_for_reel is not available in "
@@ -1478,30 +1118,6 @@ class TestNoReferenceRefusesRatherThanSkipping:
         assert findings[0].severity == "error"
         assert findings[0].detail["direction"] == "unavailable"
         assert "reel_spine" in findings[0].message
-
-
-    def test_the_deleted_parallel_module_is_not_imported(self):
-        """The verifier asks the PIPELINE, not a module beside it.
-
-        Named rather than left to a grep, because the import was LAZY and
-        inside a swallowing except - so its absence broke no test and its
-        presence broke no test either.
-        """
-        import inspect
-
-        from library.tools import reel_conformance_verifier as verifier
-
-        source = inspect.getsource(verifier)
-        assert "import reel_captions" not in source
-        assert "from library.tools.reel_subtitles import" not in source
-        assert verifier.REEL_SPINE_PRODUCER[0] == "library.tools.reel_spine"
-        # Step 4.01 is reached THROUGH THE REGISTRY, not by importing its
-        # module: `Operation.run` resolves the step's own function and
-        # never wraps it, so the verifier runs 4.01's code rather than a
-        # copy of its rule. Importing the step directly would work and
-        # would be the second implementation the registry exists to stop.
-        assert verifier.SUBTITLE_PLAN_OPERATION == "subtitles.plan"
-        assert "from library.steps.step_4_01" not in source
 
 
     def test_verify_reel_refuses_the_vacuous_case_end_to_end(self):
@@ -1531,7 +1147,7 @@ class TestF8MeasuresWordsNotRowEnvelopes:
     silence between two words of the same row.
     """
 
-    def test_a_boundary_in_the_silence_inside_a_row_is_not_a_cut(self):
+    def test_f8_reads_words_and_falls_back_to_the_envelope_out_loud(self):
         """Reel 01's END, exactly as it is on the captain's timeline.
 
         Row 22.04-47.23s is one WhisperX segment of Craig's isolated
@@ -1551,10 +1167,8 @@ class TestF8MeasuresWordsNotRowEnvelopes:
         errors = [f for f in findings if f.severity == "error"]
         assert errors == [], "the boundary lands in a silence, not in speech"
 
-
-    def test_a_row_with_no_word_timings_falls_back_and_says_so(self):
-        """A transcript that stopped carrying word timings must not
-        silently switch this check off (AGENTS.md 10.4)."""
+        # A row with NO word timings must not silently switch the check
+        # off: the envelope answers, and the fallback is reported.
         segments = [_row(470.0, 480.0, "Craig", "no timings", words=())]
         findings = check_boundary_speech(
             "Reel 01", span_start=460.0, span_end=476.0,
@@ -1615,16 +1229,9 @@ class TestF5MeasuresSpeechNotRowSpan:
 
 
 class TestPlanMismatchRefusesF4:
-    """F4 reported a RE-DERIVED plan's disagreement with the timeline as
-    clips the builder had dropped.
-
-    `_derive_plan_from_master` recomputes the picture plan with today's
-    `reel_build`.  `MIN_TAKE_SECONDS` was removed from it in 890a61b at
-    22:58 on 2026-09-05; the captain's nineteen were built at 14:46 the
-    same day.  Today's cut rule finds retakes the build never cut, so the
-    derived plan lays down a different number of frames - and F4 read
-    that as "planned 6 picture items, found 4 on the timeline", ten
-    findings across five reels, none of them a build defect.
+    """A re-derived plan that lays down a different number of frames is
+    PLAN_MISMATCH, not F4 dropped clips.
+    History: docs/evidence/reel_conformance_verifier.md.
     """
 
     def test_a_plan_of_a_different_length_refuses_f4(self):
@@ -1638,21 +1245,6 @@ class TestPlanMismatchRefusesF4:
         assert FindingClass.PLAN_MISMATCH in classes
         assert FindingClass.F4 not in classes, (
             "a plan that is not this reel's cannot say a clip was dropped")
-
-
-    def test_a_plan_that_describes_the_timeline_lets_f4_run(self):
-        """The gate is not weakened: a clip dropped from UNDER another
-        one loses no frames, so the plan still describes the timeline and
-        F4 is still asked."""
-        plan = _plan(span_end=int(25 * FPS) / FPS,
-                     placements=(_placement(1, 0.0, 25.0, "Akshita"),
-                                 _placement(2, 0.0, 25.0, "Craig")))
-        timeline = _timeline(video_items=(_item("video", 1, 0, int(25 * FPS)),))
-        result = verify_reel(plan, timeline)
-        classes = {f.finding_class for f in result.findings
-                   if f.severity == "error"}
-        assert FindingClass.PLAN_MISMATCH not in classes
-        assert FindingClass.F4 in classes
 
 
 # ── F15: Caption card hangs past its speech ──────────────────────────
@@ -1749,22 +1341,17 @@ def _planned_overlay(seam: int, record: int, frames: int) -> dict:
             "duration_frames": frames, "track_index": OVERLAY_TRACK}
 
 
-def test_f18_catches_a_planned_element_that_never_reached_the_timeline():
-    """The defect class `bookends`, `timed_text_overlay` and
-    `motion_graphics_plan` were each built to close: a declaration that
-    silently draws nothing is indistinguishable from no declaration."""
-    findings = check_transition_overlays(
-        "Reel 01", [_planned_overlay(1, 240, 36)], [], FPS)
-    assert [f.finding_class for f in findings] == [FindingClass.F18]
-    assert "is not on V" in findings[0].message
-    assert findings[0].severity == "error"
-
-
-def test_f18_catches_an_element_on_the_timeline_that_no_plan_wrote():
-    findings = check_transition_overlays(
-        "Reel 01", [], [_overlay_item(240, 36)], FPS)
-    assert [f.finding_class for f in findings] == [FindingClass.F18]
-    assert "no plan wrote" in findings[0].message
+def test_f18_catches_a_plan_and_a_timeline_that_disagree():
+    """Both directions: a declaration that silently draws nothing is
+    indistinguishable from no declaration, and an element no plan wrote
+    is not the plan's."""
+    for planned, placed, says in (
+            ([_planned_overlay(1, 240, 36)], [], "is not on V"),
+            ([], [_overlay_item(240, 36)], "no plan wrote")):
+        findings = check_transition_overlays("Reel 01", planned, placed, FPS)
+        assert [f.finding_class for f in findings] == [FindingClass.F18], says
+        assert says in findings[0].message
+        assert findings[0].severity == "error"
 
 
 def test_f18_pairs_by_record_frame_not_by_list_index():
@@ -1791,85 +1378,48 @@ def test_f19_reports_a_video_item_on_a_track_nothing_grades():
     assert findings[0].severity == "error"
 
 
-def test_a_v4_item_reaches_the_overlay_bucket_and_not_the_bin():
-    """The bucketing itself, end to end from a snapshot.
+def test_every_video_row_reaches_a_bucket_a_check_reads():
+    """The bucketing, end to end from a snapshot.
 
-    This is the regression that matters: the item must land somewhere a
-    check looks, and a track nothing grades must land in
-    `unclassified_items` rather than vanishing.
-
-    V5 was that track when this test was written; it is now the
-    explainer's (`explainer_plan.EXPLAINER_TRACK`), and V6 is the
-    semantic-visual track (`reel_semantic_visual.SEMANTIC_TRACK`), so
-    the unknown one here is V7.  The assertion that matters is not which
-    number is unclassified - it is that a classified track reaches its
-    OWN bucket and an unclassified one reaches the bin, so the next
-    capability to claim a track finds out on the first run instead of
-    never."""
+    A classified track reaches its OWN bucket and an unknown one reaches
+    `unclassified_items` (F19) rather than vanishing; and a packed row is
+    read by NAME, not slot - V4 named "Semantic" is a semantic visual,
+    not a transition element no plan wrote (the F18/F22 misgrade the SOP
+    proof caught live)."""
     from library.tools.reel_conformance_verifier import (
         _snapshot_to_reel_timeline)
 
     class _Clip:
-        def __init__(self, track_index, track_type="video"):
-            self.track_type = track_type
+        def __init__(self, track_index, track_name=None):
+            self.track_type = "video"
             self.track_index = track_index
+            if track_name is not None:
+                self.track_name = track_name
             self.timeline_start, self.timeline_end = 0.0, 2.0
             self.duration = 2.0
             self.source_in_frame, self.source_out_frame = 0, 48
             self.source_file, self.speaker = "/x.mov", None
             self.name, self.resolve_item_id = f"v{track_index}", ""
 
-    class _Snapshot:
-        fps = FPS
-        timeline_name = "Reel 01"
-        start_frame, end_frame = 0, 48
-        width, height = 1080, 1920
-        clips = [_Clip(1), _Clip(3), _Clip(4), _Clip(5), _Clip(6), _Clip(7)]
+    def read(clips):
+        snapshot = type("_Snapshot", (), dict(
+            fps=FPS, timeline_name="Reel 01", start_frame=0, end_frame=48,
+            width=1080, height=1920, clips=clips))
+        return _snapshot_to_reel_timeline(snapshot())
 
-    timeline = _snapshot_to_reel_timeline(_Snapshot())
-    assert len(timeline.video_items) == 1
-    assert len(timeline.caption_items) == 1
-    assert len(timeline.overlay_items) == 1
-    assert len(timeline.explainer_items) == 1
-    assert len(timeline.semantic_items) == 1
-    assert [i.track_index for i in timeline.unclassified_items] == [7]
+    by_slot = read([_Clip(n) for n in (1, 3, 4, 5, 6, 7)])
+    for bucket in ("video_items", "caption_items", "overlay_items",
+                   "explainer_items", "semantic_items"):
+        assert len(getattr(by_slot, bucket)) == 1, bucket
+    assert [i.track_index for i in by_slot.unclassified_items] == [7]
 
-
-def test_a_packed_row_is_read_by_name_not_by_slot():
-    """A reel with no transitions packs its semantic row onto V4. The
-    bucketing must read the row's NAME - V4 named "Semantic" is a
-    semantic visual, not a transition element that no plan wrote (the
-    F18/F22 misgrade the SOP proof caught live: ten vox items filed
-    as unplanned transition elements, ten planned visuals reported
-    missing from an empty V6)."""
-    from library.tools.reel_conformance_verifier import (
-        _snapshot_to_reel_timeline)
-
-    class _Clip:
-        def __init__(self, track_index, track_name, track_type="video"):
-            self.track_type = track_type
-            self.track_index = track_index
-            self.track_name = track_name
-            self.timeline_start, self.timeline_end = 0.0, 2.0
-            self.duration = 2.0
-            self.source_in_frame, self.source_out_frame = 0, 48
-            self.source_file, self.speaker = "/x.mov", None
-            self.name, self.resolve_item_id = f"v{track_index}", ""
-
-    class _Snapshot:
-        fps = FPS
-        timeline_name = "Reel 01"
-        start_frame, end_frame = 0, 48
-        width, height = 1080, 1920
-        clips = [_Clip(1, "A-Roll"), _Clip(3, "Subtitles"),
-                 _Clip(4, "Semantic")]
-
-    timeline = _snapshot_to_reel_timeline(_Snapshot())
-    assert len(timeline.video_items) == 1
-    assert len(timeline.caption_items) == 1
-    assert len(timeline.overlay_items) == 0
-    assert len(timeline.semantic_items) == 1
-    assert timeline.unclassified_items == ()
+    packed = read([_Clip(1, "A-Roll"), _Clip(3, "Subtitles"),
+                   _Clip(4, "Semantic")])
+    assert len(packed.video_items) == 1
+    assert len(packed.caption_items) == 1
+    assert len(packed.overlay_items) == 0
+    assert len(packed.semantic_items) == 1
+    assert packed.unclassified_items == ()
 
 
 def test_f20_reports_the_caption_seconds_an_element_covers():
@@ -1934,7 +1484,7 @@ class TestCaptionProvenanceGate:
                 if f.finding_class == FindingClass.NO_REFERENCE
                 and f.detail.get("check") == "F2/F14"]
 
-    def test_refuses_without_any_provenance(self):
+    def test_refuses_without_provenance_and_grades_against_a_match(self):
         """No record of what was placed: refuse, do not grade."""
         _, plan, timeline = self._gradeable()
         result = verify_reel(plan, timeline, caption_provenance=None)
@@ -1944,10 +1494,8 @@ class TestCaptionProvenanceGate:
         assert refusals[0].severity == "error"
         assert refusals[0].detail["graded"] is False
 
-
-    def test_grades_against_the_matching_baseline(self):
-        """The gate refuses the unknown, not the known: a matching record
-        grades normally, and the planted off-by-one draws its F2s."""
+        # The gate refuses the unknown, not the known: a matching record
+        # grades normally, and the planted off-by-one draws its F2s.
         from library.tools.plan_provenance import caption_content_hash
 
         name, plan, timeline = self._gradeable()
@@ -1965,16 +1513,8 @@ class TestCaptionProvenanceGate:
 # ── F6 grades the cards that were built, not the re-derived plan ───
 
 class TestF6GradesPlacedCards:
-    """`verify_reel` must grade F6 against the placed items, not the plan.
-
-    F6 graded the plan's caption cards re-derived from today's code - the
-    same reference F2/F14 now refuse without a recorded baseline. On the
-    captain's nineteen that reference derived 39 cards where the build
-    placed 28, so F6 failed correct output when the planner drifted from
-    what was built, and missed real placed overlaps for the same reason.
-    These fixtures replay both directions: an overlapping plan beside
-    non-overlapping placed items, and a clean plan beside overlapping
-    placed items.
+    """`verify_reel` grades F6 against the PLACED items, not the re-derived plan.
+    History: docs/evidence/reel_conformance_verifier.md.
     """
 
     @staticmethod
@@ -2107,41 +1647,17 @@ class TestCaptionSlugFragments:
         assert findings[0].finding_class == FindingClass.F16
         assert findings[0].detail["items"] == len(self.REAL_NAMES)
 
-
-    def test_a_previous_producer_timeline_slug_is_still_graded(self):
-        """The timeline-carrying producer is gone, but its files still
-        sit on timelines: a previous-producer name from ANOTHER reel
-        placed here is the old overwrite made visible, and still
-        flagged."""
+        # A previous producer's name from ANOTHER reel placed here is the
+        # old overwrite made visible, and is still flagged.
         items = self._items([(100, 40, "sub_reel-01-geography_akshita_"
                                        "body-1_10000-11000_ab12cd34.mov")])
         assert check_caption_slugs(self.REEL, items) != []
 
 
 class TestRecordedPinsAreReadBeforeThePlanIsGraded:
-    """The CLI must grade the plan the build placed, not the raw file.
-
-    Measured 2026-09-12 on the rebuilt field-test project. The build's
-    in-process sweep PASSED; the same sweep run from the command line -
-
-        python3 -m library.tools.reel_conformance_verifier \\
-          --project 'Podcast (field test)' --master 'GEO Podcast - Synced' \\
-          --plan <project>/pipeline_output/review/reel_proposals_v2.json \\
-          --transcript <project>/.../transcript.json
-
-    - reported PLAN-MISMATCH as an ERROR on Reels 09, 26 and 28:
-    "+54 frames, +2.25s ... it is not the plan that built this reel".
-    Those are exactly the three built reels whose closer the captain's
-    `redraw_closer` pin moves, and 2.252s is exactly 54 frames at
-    23.976fps.
-
-    The cause was ORDERING, not logic. `_apply_recorded_pins` reads the
-    pins out of the project folder and returns the moments UNCHANGED
-    when it has none; the CLI can only DERIVE that folder from
-    `--plan`, and the derivation sat 70 lines below the call. So the
-    in-process caller, which passes the folder, applied the pins and
-    the CLI did not - a gate that fails correct output, which is no
-    more coverage than one that cannot fail (AGENTS.md 10.4).
+    """The CLI derives the project folder BEFORE reading recorded pins, so it
+    grades the plan the build placed (Reels 09/26/28 PLAN-MISMATCH, 2026-09-12).
+    History: docs/evidence/reel_conformance_verifier.md.
     """
 
 

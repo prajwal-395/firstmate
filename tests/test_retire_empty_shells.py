@@ -60,157 +60,71 @@ def names(plan):
 # ------------------------------------------------------- the pure plan
 
 
-def test_an_emptied_legacy_top_is_retired():
-    """The captain's complaint, literally: `Reels` and `Reel subtitles`
-    stand empty beside `05 - Reels` and `06 - Subtitle renders`."""
-    from library.tools.resolve_organization import plan_retirements
+def test_plan_retires_exactly_the_provably_empty_pipeline_shells():
+    """One row per case, each proven in BOTH directions: what must
+    retire and what must stay, on the same shape. Every retirement says
+    why, naming the scheme that superseded it."""
+    from library.tools.resolve_organization import BIN_UNPLACED, plan_retirements
 
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [
-        ("Reels",),
-        ("Reel subtitles",),
-        ("Subtitles",),
-        (BIN_REELS,),
-        (BIN_SUBTITLES,),
+    master = timeline("t-master", MASTER)
+    live = timeline("t-live", "Reel 09 - slug v003", folder=(BIN_REELS, "Current plan"))
+    rows = [
+        # The captain's complaint, literally: legacy tops standing empty
+        # beside the numbered scheme.
+        ("emptied legacy tops", [master],
+         [("Reels",), ("Reel subtitles",), ("Subtitles",), (BIN_REELS,), (BIN_SUBTITLES,)],
+         {}, {"Reels", "Reel subtitles", "Subtitles"}, {BIN_REELS, BIN_SUBTITLES}),
+        ("a legacy bin holding anything is not a shell",
+         [master, clip("c-cam", "cam.mov", path="/elsewhere/cam.mov", folder=("Subtitles",))],
+         [("Subtitles",), (BIN_SOURCE,)], {}, set(), {"Subtitles"}),
+        # A shell whose only children are emptied per-reel leaves.
+        ("empty sub-bins under a shell",
+         [master],
+         [("Reel subtitles",), ("Reel subtitles", "Reel 01 - live"),
+          ("Reel subtitles", "Not placed on any timeline")],
+         {"timeline_names": ["Reel 01 - live"]},
+         {"Reel subtitles", "Reel subtitles/Reel 01 - live",
+          "Reel subtitles/Not placed on any timeline"}, set()),
+        # A bin in neither scheme is the captain's.
+        ("captain-made bins", [master], [("My selects",), ("VOX test",), ("Reels",)],
+         {}, {"Reels"}, {"My selects", "VOX test"}),
+        # `Reels/Fully approved` is the captain's tier; its parent stays.
+        ("captain's tier blocks its parent", [master], [("Reels",), ("Reels", "Fully approved")],
+         {}, set(), {"Reels", "Reels/Fully approved"}),
+        # Nothing says the pipeline made `my picks`, so it and its parent stay.
+        ("unknown leaf under a legacy top", [master],
+         [("Reel subtitles",), ("Reel subtitles", "my picks")],
+         {}, set(), {"Reel subtitles", "Reel subtitles/my picks"}),
+        # Empty canonical per-reel bins naming nothing live retire; the
+        # live reel's bin, the canonical tops and the unplaced bin stay.
+        ("canonical per-reel bins", [master, live],
+         [(BIN_SUBTITLES,), (BIN_SUBTITLES, "Reel 09 - slug (staging)"),
+          (BIN_SUBTITLES, "Reel 09 - slug v003"), (BIN_SUBTITLES, BIN_UNPLACED),
+          (bins.MOTION_GRAPHICS_BIN,), (bins.MOTION_GRAPHICS_BIN, "Reel 04 - deleted")],
+         {}, {f"{BIN_SUBTITLES}/Reel 09 - slug (staging)",
+              f"{bins.MOTION_GRAPHICS_BIN}/Reel 04 - deleted"},
+         {BIN_SUBTITLES, f"{BIN_SUBTITLES}/Reel 09 - slug v003",
+          f"{BIN_SUBTITLES}/{BIN_UNPLACED}", bins.MOTION_GRAPHICS_BIN}),
     ]
-    plan = plan_retirements(artefacts, tree)
-    assert set(names(plan)) >= {"Reels", "Reel subtitles", "Subtitles"}
-    assert all("why" in entry and entry["why"].strip() for entry in plan)
-
-
-def test_a_legacy_bin_with_anything_inside_is_not_a_shell_and_stays():
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [
-        timeline("t-master", MASTER),
-        clip("c-cam", "cam.mov", path="/elsewhere/cam.mov", folder=("Subtitles",)),
-    ]
-    plan = plan_retirements(artefacts, [("Subtitles",), (BIN_SOURCE,)])
-    assert "Subtitles" not in names(plan)
-
-
-def test_a_shell_with_an_empty_sub_bin_under_it_is_still_empty():
-    """The migration's own shape: `Reel subtitles` holds only its emptied
-    per-reel leaves. Retire the leaves too, children before parents."""
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [
-        ("Reel subtitles",),
-        ("Reel subtitles", "Reel 01 - live"),
-        ("Reel subtitles", "Not placed on any timeline"),
-    ]
-    plan = plan_retirements(artefacts, tree, timeline_names=["Reel 01 - live"])
+    for label, artefacts, tree, kwargs, retire_set, keep_set in rows:
+        plan = plan_retirements(artefacts, tree, **kwargs)
+        retired = names(plan)
+        assert set(retired) == retire_set, label
+        assert not keep_set & set(retired), label
+        assert all(entry["why"].strip() for entry in plan), label
+    # Children before parents.
+    plan = plan_retirements([master], rows[2][2], **rows[2][3])
     ordered = names(plan)
-    assert set(ordered) == {
-        "Reel subtitles",
-        "Reel subtitles/Reel 01 - live",
-        "Reel subtitles/Not placed on any timeline",
-    }
     assert ordered.index("Reel subtitles/Reel 01 - live") < ordered.index(
         "Reel subtitles"
     )
-
-
-def test_a_bin_the_captain_made_stays_even_when_empty():
-    """A bin that is not part of either scheme is the captain's - they may
-    be about to put something in it."""
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [("My selects",), ("VOX test",), ("Reels",)]
-    plan = plan_retirements(artefacts, tree)
-    assert "My selects" not in names(plan)
-    assert "VOX test" not in names(plan)
-    assert "Reels" in names(plan)
-
-
-def test_a_captains_tier_under_a_legacy_top_stays_and_blocks_its_parent():
-    """`Reels/Fully approved` is the captain's organisation winning where
-    the two conflict. Retiring `Reels` under it would take the captain's
-    bin with it, so the parent stays too - and says so."""
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [("Reels",), ("Reels", "Fully approved")]
-    plan = plan_retirements(artefacts, tree)
-    assert names(plan) == []
-
-
-def test_an_unknown_leaf_under_a_legacy_top_is_not_provably_pipeline_made():
-    """`Reel subtitles/my picks` holds nothing, but nothing says the
-    pipeline made it either. From the pool alone it is indistinguishable
-    from the captain's, so it stays - and its parent stays with it."""
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [("Reel subtitles",), ("Reel subtitles", "my picks")]
-    plan = plan_retirements(artefacts, tree)
-    assert names(plan) == []
-
-
-def test_a_canonical_bin_is_never_retired_even_when_empty():
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [(BIN_REELS,), (BIN_SUBTITLES,), ("Reels",)]
-    plan = plan_retirements(artefacts, tree)
-    assert BIN_REELS not in names(plan)
-    assert BIN_SUBTITLES not in names(plan)
-    assert "Reels" in names(plan)
-
-
-def test_an_emptied_canonical_per_reel_bin_retires_when_its_timeline_is_gone():
-    """The captain's stale sub-bins, literally: `06 - Subtitle renders`
-    still carries the staging name promotion emptied, and `07 - Motion
-    graphics` still carries a deleted reel's bin. Empty and naming
-    nothing live, so they retire - the population the legacy sweep
-    never covered, in the same sweep rather than a second one."""
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [
-        timeline("t-master", MASTER),
-        timeline("t-live", "Reel 09 - slug v003", folder=(BIN_REELS, "Current plan")),
-    ]
-    tree = [
-        (BIN_SUBTITLES,),
-        (BIN_SUBTITLES, "Reel 09 - slug (staging)"),
-        (BIN_SUBTITLES, "Reel 09 - slug v003"),
-        (bins.MOTION_GRAPHICS_BIN,),
-        (bins.MOTION_GRAPHICS_BIN, "Reel 04 - deleted"),
-    ]
-    plan = plan_retirements(artefacts, tree)
-    ordered = names(plan)
-    assert f"{BIN_SUBTITLES}/Reel 09 - slug (staging)" in ordered
-    assert f"{bins.MOTION_GRAPHICS_BIN}/Reel 04 - deleted" in ordered
-    assert f"{BIN_SUBTITLES}/Reel 09 - slug v003" not in ordered
-    assert BIN_SUBTITLES not in ordered
-    assert bins.MOTION_GRAPHICS_BIN not in ordered
-    assert all("why" in entry and entry["why"].strip() for entry in plan)
-
-
-def test_a_canonical_per_reel_bin_of_a_live_timeline_stays_even_when_empty():
-    """A live reel with nothing currently filed may gain some on the
-    next build. Retiring its bin would be churn, not cleaning."""
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [
-        timeline("t-master", MASTER),
-        timeline("t-live", "Reel 09 - slug v003", folder=(BIN_REELS, "Current plan")),
-    ]
-    tree = [(BIN_SUBTITLES,), (BIN_SUBTITLES, "Reel 09 - slug v003")]
-    plan = plan_retirements(artefacts, tree)
-    assert names(plan) == []
-
-
-def test_the_unplaced_bin_is_a_standing_destination_and_never_retires():
-    from library.tools.resolve_organization import plan_retirements
-    from library.tools.resolve_organization import BIN_UNPLACED
-
-    artefacts = [timeline("t-master", MASTER)]
-    tree = [(BIN_SUBTITLES,), (BIN_SUBTITLES, BIN_UNPLACED)]
-    plan = plan_retirements(artefacts, tree)
-    assert names(plan) == []
+    # The why names the scheme that superseded the bin.
+    by_name = {
+        "/".join(e["path"]): e["why"]
+        for e in plan_retirements([master], [("Reels",), ("V1",)])
+    }
+    assert bins.REELS_BIN in by_name["Reels"]
+    assert bins.SOURCE_BIN in by_name["V1"]
 
 
 def test_a_nonempty_canonical_orphan_stays_and_says_so():
@@ -245,16 +159,6 @@ def test_a_nonempty_canonical_orphan_stays_and_says_so():
     assert f"{BIN_SUBTITLES}/Reel 04 - deleted (1 item(s))" in text
 
 
-def test_every_retirement_names_the_scheme_that_superseded_it():
-    from library.tools.resolve_organization import plan_retirements
-
-    artefacts = [timeline("t-master", MASTER)]
-    plan = plan_retirements(artefacts, [("Reels",), ("V1",)])
-    by_name = {"/".join(e["path"]): e["why"] for e in plan}
-    assert bins.REELS_BIN in by_name["Reels"]
-    assert bins.SOURCE_BIN in by_name["V1"]
-
-
 # ------------------------------------------------------- the executor
 
 
@@ -268,7 +172,7 @@ def empty_pool_with_shells():
     return project, root
 
 
-def test_retiring_removes_the_shells_and_keeps_the_captains_bins(tmp_path):
+def test_retiring_removes_the_shells_keeps_the_captains_bins_and_reverts(tmp_path):
     from library.tools.execution.organise_media_pool import read_pool
     from library.tools.resolve_organization import plan_retirements
 
@@ -287,6 +191,14 @@ def test_retiring_removes_the_shells_and_keeps_the_captains_bins(tmp_path):
     assert result["journal_path"] == journal_path
     journal = json.loads(Path(journal_path).read_text(encoding="utf-8"))
     assert sorted(r["path"] for r in journal["retired"]) == [
+        "Reels",
+        "Reels/Unrecorded",
+    ]
+    # And it reverts by recreating the empty shells from the journal.
+    undone = retire.revert(proj, journal_path)
+    assert sorted(undone["recreated"]) == ["Reels", "Reels/Unrecorded"]
+    assert sorted("/".join(p) for p in retire.read_bin_tree(proj)) == [
+        "My selects",
         "Reels",
         "Reels/Unrecorded",
     ]
@@ -320,21 +232,3 @@ def test_a_deletefolders_refusal_stops_the_run_and_keeps_the_bin(tmp_path):
     with pytest.raises(retire.RetirementRefused, match="DeleteFolders"):
         retire.retire_bins(proj, plan, str(tmp_path / "retire.json"))
     assert "Reels" in ["/".join(p) for p in retire.read_bin_tree(proj)]
-
-
-def test_a_retirement_reverts_by_recreating_the_empty_shells(tmp_path):
-    from library.tools.execution.organise_media_pool import read_pool
-    from library.tools.resolve_organization import plan_retirements
-
-    proj, _root = empty_pool_with_shells()
-    artefacts, _, _, _ = read_pool(proj)
-    plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)))
-    journal_path = str(tmp_path / "retire.json")
-    retire.retire_bins(proj, plan, journal_path)
-    undone = retire.revert(proj, journal_path)
-    assert sorted(undone["recreated"]) == ["Reels", "Reels/Unrecorded"]
-    assert sorted("/".join(p) for p in retire.read_bin_tree(proj)) == [
-        "My selects",
-        "Reels",
-        "Reels/Unrecorded",
-    ]

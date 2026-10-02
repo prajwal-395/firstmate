@@ -123,19 +123,6 @@ def test_the_upstream_cause_is_a_FINDING_not_a_note(hearing):
     assert finding.severity == "error"
 
 
-def test_the_cause_is_owned_by_the_step_that_wrote_the_transcript(hearing):
-    """Not by the one that placed the cards.
-
-    Every other finding this pass makes is owned by `build_reels` or
-    `plan_subtitles`, which are downstream of the defect and cannot fix
-    it. Routing this one there would send a reader to the wrong place.
-    """
-    read = reel_hearing.read_findings(hearing)
-    fit = next(f for f in read.reportable
-               if f.metric == reel_hearing.FIT_METRIC)
-    assert fit.owner == "temporal_index"
-
-
 # ── 2. The normalisation that stops it crying wolf ───────────────────
 
 def test_the_filed_spelling_correction_is_applied_to_the_heard_side(hearing):
@@ -191,13 +178,11 @@ def test_no_gate_reads_the_hearing_record():
         assert "hearing" not in body, manifest
 
 
-def test_every_finding_carries_an_honest_verdict(hearing):
-    """`passed` is the check's own verdict, not a constant true.
-
-    Gating nothing is a property of who reads the record; a row that
-    says clean when it measured a defect is the gate-that-cannot-fail
-    turned inside out (AGENTS.md 10.4).
-    """
+def test_every_finding_carries_an_honest_verdict_and_one_owner(hearing):
+    """`passed` is the check's own verdict, and every finding goes through
+    the one reader (AGENTS.md 10.4). The upstream cause is owned by the
+    step that wrote the transcript, never by `build_reels` or
+    `plan_subtitles`, which are downstream of the defect."""
     by_metric = {f.metric: f for f in hearing.findings}
     assert by_metric[reel_hearing.DRIFT_METRIC].passed is False
     assert by_metric[reel_hearing.COVERAGE_METRIC].passed is False
@@ -206,17 +191,16 @@ def test_every_finding_carries_an_honest_verdict(hearing):
     assert by_metric[reel_hearing.PAIRING_METRIC].severity == "info"
     assert set(by_metric) == set(reel_hearing.METRICS)
 
-
-def test_the_findings_go_through_the_one_reader(hearing):
-    """No private opinion about which measurements matter (AGENTS.md 10.4)."""
     read = reel_hearing.read_findings(hearing)
     assert read.unrouted == [], [f.metric for f in read.unrouted]
     assert {f.owner for f in read.findings} == {"build_reels",
                                                  "plan_subtitles",
                                                  "temporal_index"}
-    # Five checks, four failures: the three consequences in the
-    # delivered file, the transcript row that caused them, and a pairing
-    # check that is clean on this reel - which is the point being pinned.
+    fit = next(f for f in read.reportable
+               if f.metric == reel_hearing.FIT_METRIC)
+    assert fit.owner == "temporal_index"
+    # Five checks, four failures: the three consequences, the transcript
+    # row that caused them, and a pairing check clean on this reel.
     assert read.counts()[qa_findings.FAILING] == 4
 
 

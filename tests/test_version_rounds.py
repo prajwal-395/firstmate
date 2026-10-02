@@ -30,7 +30,7 @@ def _ask(identity, reel, when):
 
 # ── The boundary rule ────────────────────────────────────────────
 
-def test_a_batch_typed_before_anything_was_rebuilt_is_one_round():
+def test_a_round_is_a_batch_of_asks_bounded_by_builds():
     """Six markers at once, one pass, one result to look at.
 
     Nothing was promoted between them, so they are one batch - which is
@@ -45,12 +45,9 @@ def test_a_batch_typed_before_anything_was_rebuilt_is_one_round():
     assert len(rounds[1]["opened_by"]) == 5
     assert rounds[1]["opened_at"] == "2026-09-11T03:08:41Z"
 
-
-def test_a_new_ask_after_a_build_opens_the_next_round():
-    """The other half: an ask that arrives once a build has answered the
-    previous batch opens a round of its own. Remove the promotion from
-    between them and the two asks collapse into one round, which is
-    what makes this the real boundary rather than a clock."""
+    # The other half: an ask arriving once a build answered the previous
+    # batch opens a round of its own; remove the promotion between them
+    # and the asks collapse - the boundary is the build, not a clock.
     asks = [_ask("a", "Reel 01", "2026-09-11T03:08:43Z"),
             _ask("b", "Reel 09", "2026-09-11T22:51:54Z")]
     with_build = rv.round_boundaries(
@@ -185,14 +182,9 @@ def test_backfill_reconstructs_from_the_committed_snapshots(repo_project):
     assert promoted, "backfill recorded no reel"
     latest = promoted[-1]["reels"]["Reel 09 - x"]
     assert latest["rows"]["video:Akshita"]["count"] == 3
-
-
-def test_a_reconstructed_entry_never_claims_a_built_with(repo_project):
-    """Which engine revision built a reel cannot be recovered once the
-    build is over (AGENTS.md 10.1: merge time is not build time), so a
-    reconstruction says RECONSTRUCTED and leaves the stamp empty rather
-    than inventing one."""
-    rv.backfill(str(repo_project))
+    # Which engine revision built a reel cannot be recovered once the
+    # build is over (AGENTS.md 10.1), so a reconstruction says
+    # RECONSTRUCTED and leaves the stamp empty rather than inventing one.
     entries = [reel for entry in rv.read_rounds(str(repo_project))["rounds"]
                for reel in (entry["reels"] or {}).values()]
     assert entries

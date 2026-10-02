@@ -219,3 +219,27 @@ Reachability
 
 `tests/test_reel_quality_bar.py`.
 ```
+
+## `tests/test_quality_bar_thesis_ending.py` module docstring (moved 2026-10-02)
+
+```text
+A closer-less reel a project declares ends on its own thesis passes.
+
+Reel 27 (2026-09-19): Q->A on Google reviews, shared website-checkout
+closer deleted as topically alien, no own-thread replacement in the
+episode. `declared`/`in_body` cannot express that - a closer inside
+its own body is refused as a double play - so QB-CTA-ABSENT failed a
+reel ending exactly where its authorised re-cut puts it (AGENTS.md
+10.4). A HAND-WRITTEN `external/reel_ending.json` entry the reel
+honours (anchor measured in timed words or present in the approved
+transcript preview) now reads `thesis`, never ABSENT.
+
+Fail-closed both ways: undeclared absent reels still fail, and a
+declaration whose anchor is neither timed nor in the approved preview
+fails too - a declaration nobody honours is not a pass.
+
+`library/tools/reel_quality_bar.py` (`thesis_reading`,
+`cta_reading`, `exact_findings`, `judge`); declarations owned by
+`library/tools/reel_ending.py`; wired into the gate in
+`library/tools/reel_conformance_verifier.py`.
+```

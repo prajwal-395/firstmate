@@ -188,3 +188,69 @@ restore - and "cheap" for swaps means "no comp pass", never "no
 delete" and never a ratio against a rebuild quoted from the old
 spike figure.
 ```
+
+## What `tests/test_reel_touchup.py` pins
+
+Moved from the test module's docstring (2026-10-02).
+
+- the five ops qualify to the right class: move / swap_pixels / add_overlay /
+  remove_overlay are `composed`; retime is `composed_with_rederivation`;
+- two structural exclusions: adds to a comp-bearing row (V1/V2) refuse, and a
+  move across rows refuses - both name what to state instead, before anything
+  is staged;
+- anything unclassifiable refuses with its reason: unknown ops, vacating
+  continuous rows, undeclared treatments, collisions, graded swaps,
+  comp-carrying swaps, manifest mismatches;
+- every producer of a refused comp is accounted for: a drawing comp refuses
+  the swap, Resolve's own empty auto composition still qualifies, an
+  unreadable graph refuses fail-closed;
+- grades ride from the approved timeline: a graded retime or move keeps its
+  nodes through the composition;
+- the `composed` class runs through `apply_composed_edit` with the null
+  rederiver and verifies by re-reading the track.
+
+
+## `tests/test_ren_entry_motion_and_property_ops.py` - design history (moved 2026-10-02)
+
+```text
+Ren in the 1326/1327 shape: entry-motion and property-set operations.
+
+The absorbed row (`vep-build-the-entry-motion-and-property-op`) asked
+which half of the system owns small changes - the reel half
+(touch-reel) or the main-edit half (region operations).  The rebuild
+answers it by mechanism rather than by picking a half: an operation
+declared in the effect vocabulary is reachable through compose
+regardless of which half implements it.  Both operations below are
+owned by `build_reels` and route through the touchup's own
+stage-conform-write-verify-promote path - no new bespoke path, no
+command-line verb, no composer branch.
+
+What each one is:
+
+- `reel.entry_motion` animates a placed overlay element in (and out)
+  with an authored Fusion fade (`fusion.comp_builder` over the
+  `fade_in_frames`/`fade_out_frames` keys, the dispatch the comp pass
+  reads), imported onto the staged item and conformed by the pass's
+  own `comp_media_window.conform_item` - without rebuilding the reel
+  that carries it.
+- `reel.set_properties` writes a property mapping onto an
+  already-placed clip with `composed_edit.set_properties`, judged by
+  read-back - without deleting and re-placing it.
+
+The 1327 pattern, and nothing else: each declares its `Operation`
+under the owning step, its effect DERIVES from the requirement
+vocabulary (owning node `build_reels`, so the same effect its
+siblings `reel.build` and `reel.touchup` carry), each has a real step
+body, the SKILL.md is regenerated from the registry, and the tests
+assert registration, vocabulary membership and reachability through
+compose.
+
+The finding this shape produces rather than bends around: both
+operations land on an effect that already has a route
+(`state.verify_reels.reel_build`, whose representative stays
+`reel.build`).  Their declarations are NOT bent to steer which route
+compose picks - selection between equivalent routes is the open
+problem `vep-ren-two-routes-one-goal-no-basis-to-choose` owns, and
+`test_the_representative_stays_the_rebuild` pins that this lane does
+not pre-empt it.
+```

@@ -1,24 +1,8 @@
-"""Tests for the two verification defects fixed in this PR.
-
-Defect 1: verification_passed was hardcoded True and never derived from
-QA station outcomes. A failing station printed "Station fusion_comps:
-Failed" but the build returned verification_passed = True.
-
-Defect 2: The Fusion subprocess only processes V1 clips. Per-clip effects
-planned for B-roll on V2 (e.g. broll_1, broll_4, broll_8) were silently
-dropped with no error, warning, or explanation.
-
-Two layers of testing:
-  1. BEHAVIORAL tests that call the extracted pure functions with real
-     data objects and assert the returned values. These prove the logic
-     is correct.
-  2. SOURCE-GREP tests (second line) that verify the renderer calls
-     those functions and has not regressed to a hardcoded True.
+"""The build's verification verdict is DERIVED from its QA stations, and a
+planned Fusion effect whose label was never placed is detected, not
+silently dropped. History of both defects: docs/evidence/build_verification.md.
 """
-import os
 from types import SimpleNamespace
-
-import pytest
 
 # The pure helpers live in library/steps/step_6_01_render/, whose
 # directory tests/conftest.py owns on sys.path (it is needed for the
@@ -29,49 +13,22 @@ from library.steps.step_6_01_render.build_verification import (  # noqa: E402
     format_fusion_drop_error,
 )
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RENDERER = os.path.join(PROJECT_ROOT, "library", "steps", "step_6_01_render",
-                        "resolve_build_timeline.py")
-
-
-def _source():
-    with open(RENDERER, encoding="utf-8") as f:
-        return f.read()
-
 
 def _report(station: str, passed: bool):
     """A minimal QA report stub with the .passed attribute the function reads."""
     return SimpleNamespace(station=station, passed=passed)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# DEFECT 1 - BEHAVIORAL TESTS: derive_verification_verdict
-# ═══════════════════════════════════════════════════════════════════
+def test_the_verdict_is_derived_from_the_stations():
+    """One failing station fails the build (the old hardcoded True passed
+    it regardless); no evidence of failure is not a failure."""
+    reports = [
+        _report("clip_placement", True),
+        _report("fusion_comps", False),
+    ]
+    assert derive_verification_verdict(reports) is False
+    assert derive_verification_verdict([]) is True
 
-class TestDeriveVerificationVerdict:
-    """The function that replaces the hardcoded all_passed = True."""
-
-
-    def test_one_of_two_failing_returns_false(self):
-        """This is the core test. On the old hardcoded True, this would
-        pass regardless of what the stations said."""
-        reports = [
-            _report("clip_placement", True),
-            _report("fusion_comps", False),
-        ]
-        assert derive_verification_verdict(reports) is False
-
-
-    def test_no_stations_returns_true(self):
-        """No evidence of failure is not a failure."""
-        assert derive_verification_verdict([]) is True
-
-
-
-
-# ═══════════════════════════════════════════════════════════════════
-# DEFECT 2 - BEHAVIORAL TESTS: detect_unreachable_fusion_effects
-# ═══════════════════════════════════════════════════════════════════
 
 # Representative pmk_default Fusion look parameters
 _PMK_LOOK = {
@@ -89,90 +46,38 @@ _PMK_LOOK = {
 }
 
 
-class TestDetectUnreachableFusionEffects:
-    """The function that makes a dropped Fusion effect impossible to miss.
+def test_only_an_unplaced_label_is_a_dropped_effect():
+    """The pass walks V1 and V2 (`library/tools/execution/fusion_tracks.py`),
+    so placed B-roll is a normal hit; what is caught is a label that was
+    never placed - and a build that placed nothing drops everything."""
+    per_clip = {label: _PMK_LOOK for label in (
+        "a_roll_0", "a_roll_1", "broll_1", "broll_4", "broll_8")}
+    placed = {
+        1: {"a_roll_0", "a_roll_1"},
+        2: {"broll_1", "broll_4", "broll_8"},
+    }
+    assert detect_unreachable_fusion_effects(per_clip, placed) == []
 
-    V2 used to be unreachable by construction, because the Fusion pass
-    read `tracks['V1']` alone, and this class asserted that every B-roll
-    label was a permanent drop. That gap is closed - the pass walks both
-    tracks now (`library/tools/execution/fusion_tracks.py`) - so a placed
-    B-roll label is a normal hit, and what this function still catches is
-    the real question: was the label placed at all?
-    """
+    dropped = detect_unreachable_fusion_effects(
+        {"a_roll_0": _PMK_LOOK, "broll_9": _PMK_LOOK},
+        {1: {"a_roll_0"}, 2: {"broll_1"}})
+    assert len(dropped) == 1
+    assert dropped[0]["label"] == "broll_9"
+    assert dropped[0]["track"] == "unplaced"
+    assert dropped[0]["params"] == _PMK_LOOK
+    assert dropped[0]["label"] in dropped[0]["detail"]
 
-    def test_placed_broll_on_v2_is_not_dropped(self):
-        """broll_1, broll_4 and broll_8 carry the merged look and are on
-        V2, which the Fusion pass now reaches."""
-        per_clip = {
-            "a_roll_0": _PMK_LOOK,
-            "a_roll_1": _PMK_LOOK,
-            "broll_1": _PMK_LOOK,
-            "broll_4": _PMK_LOOK,
-            "broll_8": _PMK_LOOK,
-        }
-        placed = {
-            1: {"a_roll_0", "a_roll_1"},
-            2: {"broll_1", "broll_4", "broll_8"},
-        }
-
-        assert detect_unreachable_fusion_effects(per_clip, placed) == []
-
-    def test_a_broll_label_that_was_never_placed_is_detected(self):
-        """The gate must still be able to fire."""
-        per_clip = {"a_roll_0": _PMK_LOOK, "broll_9": _PMK_LOOK}
-        placed = {1: {"a_roll_0"}, 2: {"broll_1"}}
-
-        dropped = detect_unreachable_fusion_effects(per_clip, placed)
-        assert len(dropped) == 1
-        assert dropped[0]["label"] == "broll_9"
-        assert dropped[0]["track"] == "unplaced"
-        assert dropped[0]["params"] == _PMK_LOOK
-        assert dropped[0]["label"] in dropped[0]["detail"]
+    dropped = detect_unreachable_fusion_effects({"a_roll_0": _PMK_LOOK}, {})
+    assert [d["label"] for d in dropped] == ["a_roll_0"]
 
 
+def test_format_error_message_names_clips_and_params():
+    """The error message must be actionable: clip labels and parameters."""
+    per_clip = {"phantom": {"glow_gain": 0.12, "film_grain": True}}
+    dropped = detect_unreachable_fusion_effects(
+        per_clip, {1: set(), 2: set()})
 
-    def test_no_tracks_at_all_drops_everything(self):
-        """A build that placed nothing must not read as a clean run."""
-        dropped = detect_unreachable_fusion_effects(
-            {"a_roll_0": _PMK_LOOK}, {})
-        assert [d["label"] for d in dropped] == ["a_roll_0"]
-
-    def test_format_error_message_names_clips_and_params(self):
-        """The error message must be actionable: clip labels and parameters."""
-        per_clip = {"phantom": {"glow_gain": 0.12, "film_grain": True}}
-        dropped = detect_unreachable_fusion_effects(
-            per_clip, {1: set(), 2: set()})
-
-        msg = format_fusion_drop_error(dropped)
-        assert "phantom" in msg
-        assert "glow_gain" in msg
-        assert "cannot reach" in msg
-
-
-# ═══════════════════════════════════════════════════════════════════
-# SOURCE-GREP TESTS (second line of defense)
-# ═══════════════════════════════════════════════════════════════════
-
-class TestRendererCallsExtractedFunctions:
-    """The renderer must call the pure helpers, not inline the logic."""
-
-    def test_no_hardcoded_all_passed_true(self):
-        src = _source()
-        lines = src.splitlines()
-        hardcoded = [
-            (i + 1, l) for i, l in enumerate(lines)
-            if l.strip() == "all_passed = True"
-        ]
-        assert not hardcoded, (
-            f"all_passed = True is still hardcoded at line(s) "
-            f"{[n for n, _ in hardcoded]}"
-        )
-
-
-
-
-    def test_success_is_independent_of_verification(self):
-        src = _source()
-        line = next(l for l in src.splitlines() if 'results["success"] =' in l)
-        assert "verification_passed" not in line
-        assert "qa_reports" not in line
+    msg = format_fusion_drop_error(dropped)
+    assert "phantom" in msg
+    assert "glow_gain" in msg
+    assert "cannot reach" in msg

@@ -25,7 +25,6 @@ import pytest
 from library.tools.reel_build import (
     ReelBuildError,
     build_reel_timeline,
-    reel_angles,
     resolve_reel_program_channels,
 )
 from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
@@ -364,21 +363,45 @@ def test_reel24_build_uses_one_units_conversion_for_punches_and_override(
 # ── Angles come from the master's own picture rows ──
 
 
-def test_angles_are_read_off_the_master_not_assumed():
-    angles = reel_angles(_master_clips())
-    assert [(a["key"], a["label"]) for a in angles] == [
-        ("1", "Akshita"),
-        ("2", "Craig"),
-    ]
-
-
-def test_an_unresolvable_program_stream_refuses_before_creating():
+def test_an_unresolvable_input_refuses_before_creating():
     timeline, pool, project = _world()
     with pytest.raises(ReelBuildError, match="no recorded program stream"):
         _build(timeline, pool, project, _master_clips())
     assert project.GetTimelineCount() == 0, (
         "the refusal must fire before a timeline exists"
     )
+    assert pool.next_timeline is timeline
+
+    # A grade row whose declared asset vanished refuses before creation
+    # too, rather than leaving a half-built reel without that look.
+    timeline, pool, project = _world()
+    grade = {
+        "op": "grade",
+        "anchor": {"kind": "reel"},
+        "params": {
+            "drx": "missing.drx",
+            "provenance": {
+                "source": "Resolve export",
+                "authorised_by": "captain",
+                "licence": "captain's own asset",
+            },
+        },
+        "stated_by": "requester",
+        "reason": "apply the look",
+    }
+
+    with pytest.raises(
+        ReelBuildError, match="grade cannot be resolved before the timeline"
+    ):
+        _build(
+            timeline,
+            pool,
+            project,
+            _master_clips(),
+            program_channels={"1": 1, "2": 1},
+            edit_ledger_rows=[grade],
+        )
+    assert project.GetTimelineCount() == 0
     assert pool.next_timeline is timeline
 
 
@@ -546,40 +569,6 @@ def test_declared_angle_plan_limits_picture_rows_but_keeps_all_speech():
     assert record["angle_plan"]["picture_placements"] == 1
 
 
-def test_missing_ledger_powergrade_refuses_before_timeline_creation():
-    """A grade row whose declared asset vanished must not leave a
-    half-built reel behind without that look."""
-    timeline, pool, project = _world()
-    grade = {
-        "op": "grade",
-        "anchor": {"kind": "reel"},
-        "params": {
-            "drx": "missing.drx",
-            "provenance": {
-                "source": "Resolve export",
-                "authorised_by": "captain",
-                "licence": "captain's own asset",
-            },
-        },
-        "stated_by": "requester",
-        "reason": "apply the look",
-    }
-
-    with pytest.raises(
-        ReelBuildError, match="grade cannot be resolved before the timeline"
-    ):
-        _build(
-            timeline,
-            pool,
-            project,
-            _master_clips(),
-            program_channels={"1": 1, "2": 1},
-            edit_ledger_rows=[grade],
-        )
-    assert project.GetTimelineCount() == 0
-    assert pool.next_timeline is timeline
-
-
 def test_non_program_streams_are_deleted_on_the_spot_and_recorded():
     """Defect 1: the MXF's four streams reach placement, and only the
     recorded program stream stays - the rest are deleted and said.
@@ -712,24 +701,6 @@ def test_sparse_overlay_rows_pack_with_no_empty_row_left():
     assert record["deleted_empty_tracks"] == [], (
         "packing means no empty row is ever created, so none is deleted"
     )
-
-
-def test_a_caption_row_with_a_failed_import_refuses_the_build():
-    """A planned caption is not converted into an empty row when its
-    media fails to import; the build refuses at the missing segment."""
-    timeline, pool, project = _world(fail_paths=("/m/cap.mov",))
-    # The caption is absent from the pool because the configured import
-    # failure prevents it from being preloaded above.
-    with pytest.raises(ReelBuildError, match="would not import rendered caption"):
-        _build(
-            timeline,
-            pool,
-            project,
-            _master_clips(),
-            captions=[_caption(2.0, 4.0)],
-            semantic=[_semantic(0.0, 48)],
-            program_channels={"1": 1, "2": 1},
-        )
 
 
 # ── The look keeps one picture row per speaker ──

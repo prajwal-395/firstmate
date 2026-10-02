@@ -114,3 +114,32 @@ fabricated block (AGENTS.md 10.5).
 
 `tests/test_reel_spine.py`.
 ```
+
+## `tests/test_reel_fragment_blocks.py` module docstring (moved 2026-10-02)
+
+```text
+A mid-sentence transcript row is given back to its sentence.
+
+The defect, on Reel 23 of the captain's field test: three caption cards
+under half a second - ``them.`` 0.181s, ``comes in.`` 0.422s and
+``that's`` 0.140s.  None was a grouping fault.  Each was a WHOLE spine
+block, because the reel spine makes one block per transcript row, and
+each of those rows was one half of a sentence WhisperX split in two:
+
+    135.616-136.460  "It was definitely going to help"
+    136.540-136.721  "them."
+
+Same speaker, same clip, an 80ms pause and nothing removed.  Step 4.01
+groups WITHIN a block and clamps every card to it, so the second row's
+block is 0.181s and its only card is 0.181s at every partition.  The
+block is the ceiling on the card, so the block is where it is fixed.
+
+These tests prove BOTH directions, because a rule that only ever fires
+is as useless as one that never does:
+
+* it fires on a fragment whose sentence continues into a neighbour, and
+  the short card is gone;
+* it does NOT fire across a cut, across a clip, across a speaker, or on
+  a block long enough to carry a card - and a spine with no fragment in
+  it comes back unchanged, block for block.
+```

@@ -1,28 +1,7 @@
-"""F7 measures PLACED item durations against the readability floor, with
-no last-of-block exemption - and the same floor covers placed A/V items.
+"""F7 fails every PLACED caption card and A/V item under the readability
+floor (`MIN_CAPTION_DISPLAY_SECONDS`), with no last-of-block exemption.
 
-On 2026-09-08 the captain watched the fully-approved reels and reported
-"subtitles misplaced". The investigation
-(`data/vep-approved-reels-still-have-visible-defects/report.md`) found
-caption cards on screen for THREE FRAMES - R02 card 0 "yeah." 3f, R03
-card 3 "yeah" 3f, R19 card 32 "yeah." 2f at 23.976fps - each HELD by
-`check_short_captions` as a warning because each placed item is
-trivially the last card of its own block, the exemption's only clause.
-A check whose exemption is always satisfied cannot refuse.
-
-The exemption's intent was real: a block-final card cannot be lengthened
-by regrouping (it leaves when the block does). But "nothing can lengthen
-it" is a fact about the grouping, not a claim the card is readable - the
-remedy belongs upstream (rejoin the fragment row to its sentence; do not
-author sub-second keeps), and on the placed path the viewer sees a flash
-either way. So F7 fails every placed item under the floor, whatever
-block it ends with.
-
-The floor is not chosen: it is `manifest_validator.
-MIN_CAPTION_DISPLAY_SECONDS` (0.5s) - the pipeline's own hard floor
-(AGENTS.md 10.4; `render_qa`'s `subtitle_too_short`; the manifest P6
-check). At 23.976fps that is 12 frames; the 2-3 frame flash cards sit
-an order of magnitude below it, so no correct reel is near the line.
+History: `docs/evidence/reel_conformance_f7.md` (test_reel_f7_placed_floor.py).
 """
 
 import sys
@@ -63,25 +42,16 @@ def _errors(findings):
     return [f for f in findings if f.severity == "error"]
 
 
-def test_reel_02_flash_card_now_fails():
-    """R02 card 0 "yeah." - 3 frames, last of its own block."""
-    findings = check_short_captions(
-        "Reel 02 - seo-that-hurts-your-ai-ranking",
-        [_placed_card(3)], FPS)
-    errors = _errors(findings)
-    assert len(errors) == 1, [f.message for f in findings]
-    assert errors[0].finding_class == FindingClass.F7
-    assert errors[0].detail["duration_frames"] == 3
-
-
-def test_reel_19_flash_card_now_fails():
-    """R19 card 32 "yeah." - 2 frames (0.08s), last of its own block."""
-    findings = check_short_captions(
-        "Reel 19 - can-you-game-ai", [_placed_card(2)], FPS)
-    errors = _errors(findings)
-    assert len(errors) == 1, [f.message for f in findings]
-    assert errors[0].finding_class == FindingClass.F7
-    assert errors[0].detail["duration_frames"] == 2
+def test_flash_cards_last_of_their_own_block_now_fail():
+    """R02 card 0 "yeah." 3 frames and R19 card 32 "yeah." 2 frames, each
+    the last card of its own block - the exemption that used to hold them."""
+    for reel, frames in (("Reel 02 - seo-that-hurts-your-ai-ranking", 3),
+                         ("Reel 19 - can-you-game-ai", 2)):
+        findings = check_short_captions(reel, [_placed_card(frames)], FPS)
+        errors = _errors(findings)
+        assert len(errors) == 1, [f.message for f in findings]
+        assert errors[0].finding_class == FindingClass.F7
+        assert errors[0].detail["duration_frames"] == frames
 
 
 def test_a_correct_length_card_still_passes():

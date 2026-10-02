@@ -1,36 +1,10 @@
 """Distant repeats are reported, never cut - and the CTA is scanned at all.
 
-The brief's measured case (report filed outside this tree, reconstructed
-here from its description and the repo's own verbatim fixtures): reel 03
-plays its tagline THREE times - twice in the body 40-150s apart with
-another speaker between them, and again as the closing CTA from elsewhere
-in the episode. Reel 07 says its line twice, twelve seconds apart, and
-survives on a text bar rather than the window.
+By rule, CUT_WINDOW_SECONDS still gates every cut; a distant same-speaker
+pair becomes a suspect and a closer echoing the body is named. Whether a
+reported repeat is a retake or a callback is left to the model.
 
-What today's code does with that shape (reproduced before the fix):
-
-- `redundant_takes` over the body: [] - the pair is past CUT_WINDOW.
-- `suspected_takes` over the body: [] - the loose scan breaks at the
-  same window, so the report lane is blind past it too.
-- the CTA range: never scanned - `reel_ranges` places it whole, so a
-  closer echoing the body plays the line twice with nothing said.
-- only `duplicate_takes` (word-stream, selection-time, report-only)
-  sees the body pair.
-
-The distinction this file pins, by rule versus by model:
-
-- BY RULE, CUT: nothing new. Distance alone cannot tell a callback from
-  a retake, so CUT_WINDOW_SECONDS still gates every cut. A near-identical
-  same-speaker pair 45s apart is NOT cut here.
-- BY RULE, REPORT: a distant pair that meets the CUT text bars with
-  agreeing durations becomes a suspect (the markers lane), and a closer
-  that echoes the body or repeats itself is named by `closer_repeats`.
-  Both say why they were kept: distance / a deliberate choice.
-- LEFT TO THE MODEL: whether a reported repeat is a retake to redraw
-  past or a deliberate callback to keep.
-
-`library/tools/reel_build.py` - `suspected_takes`, `closer_repeats`;
-`library/tools/reel_proposal.py` - `enrich`.
+History: `docs/evidence/reel_distant_repeats.md` (test_reel_distant_repeats.py).
 """
 
 from __future__ import annotations
@@ -111,27 +85,16 @@ def test_the_distant_tagline_pair_is_suspected():
     assert pair.speaker == "Akshita"
 
 
-def test_the_closer_echoing_the_body_is_named():
-    """The CTA repeating the tagline is the reel's third play of it.
-    The closer is placed whole - a deliberate choice is never silently
-    shortened - but the echo is NAMED. FAILED before the fix: no
-    function measured the CTA at all."""
-    from library.tools.reel_build import closer_repeats
-    found = closer_repeats(_moment_03(), _reel_03_distant())
-    assert len(found) == 2, found
-    assert {round(e["body_start"], 2) for e in found} == {301.2, 350.0}
-    echo = next(e for e in found if round(e["body_start"], 2) == 301.2)
-    assert echo["kind"] == "closer_echoes_body"
-    assert round(echo["closer_start"], 2) == 900.0
-
-
 def test_the_closer_echo_reaches_the_model_at_selection_time():
     """`enrich` carries the echo so the span can still be redrawn or a
     different closer picked. A moment with no CTA carries []."""
     enriched = enrich(_moment_03(), _reel_03_distant())
-    assert len(enriched.closer_repeats) == 2
-    assert {r["kind"] for r in enriched.as_dict()["closer_repeats"]} == \
-        {"closer_echoes_body"}
+    found = enriched.as_dict()["closer_repeats"]
+    assert len(found) == 2, found
+    assert {r["kind"] for r in found} == {"closer_echoes_body"}
+    # The closer is placed whole, but the echo of each body play is NAMED.
+    assert {round(e["body_start"], 2) for e in found} == {301.2, 350.0}
+    assert {round(e["closer_start"], 2) for e in found} == {900.0}
     plain = ReelMoment(number=9, slug="no-closer", reason="ends on body",
                        timeline_start=BODY_START, timeline_end=BODY_END,
                        approval=Approval.APPROVED)

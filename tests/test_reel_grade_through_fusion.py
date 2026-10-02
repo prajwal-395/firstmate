@@ -1,27 +1,8 @@
-"""A declared look through Fusion on the reels path, at declared values.
+"""A declared look reaches every reel picture row through Fusion at the
+declared values (contrast emitted verbatim, Fusion's neutral is 0.0);
+no declared look means no grade keys.
 
-The captain approved the Fusion route for the four nodes no scriptable
-Color page call can reach (pivot contrast, glow, grain, vignette), and
-their numbers live in a project's own `project.yaml` under
-`style.series_look` - contrast 0.12, glow 0.20/0.72/3.5, grain 0.35/1.5,
-vignette 0.35/0.30.
-
-Two things have to be true for those numbers to reach the picture:
-
-1. The comp must carry what Fusion's own tool means by them. The
-   declaration says contrast in pivot-gain units (0 is neutral, the same
-   units the reference stills were rendered in) and Fusion's
-   `BrightnessContrast.Contrast` is neutral at 0.0 as well, so it is
-   emitted VERBATIM. This file asserted `1.12` for a day, from the
-   grade-variant report's PREDICTION that Fusion's neutral was 1.0;
-   probing the tool says its default is 0.0, and a still off the live
-   Reel 09 says `Contrast = 0.0` is byte-identical to having no node at
-   all while `1.12` crushes the mean luma from 45.39 to 19.74 where the
-   declared 0.12 takes it to 39.97 (see `fusion/effects.fx.grade`).
-2. The reels path must merge the look onto every picture clip. Step
-   5.04 merges `fusion_look` onto every V1/V2 clip of the master, but
-   the reel manifest (`reel_look.fusion_manifest`) carried only the
-   switch animation and the drift - the grade never reached a reel.
+History: docs/evidence/series_look.md.
 """
 from __future__ import annotations
 
@@ -30,7 +11,6 @@ import sys
 from dataclasses import dataclass
 
 import pytest
-import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -117,20 +97,16 @@ def test_reel_manifest_merges_grade_onto_both_picture_rows():
     # The switch animation still rides the first and last footage clip.
     assert per_clip["reel_picture_00"]["tv_power_head"] is True
     assert per_clip["reel_picture_01"]["tv_power_tail"] is True
-
-
-def test_reel_grade_never_overwrites_a_planned_value():
-    """The compile_manifest rule, unchanged: a value the planner asked
-    for wins over the look's."""
-    grade = resolve_look(TEST_LOOK).fusion()
-    placements = [_placement("/a.mxf", 0, 10.0)]
+    # The compile_manifest rule, unchanged: a value the planner asked
+    # for wins over the look's.
     motion = [{"target_block_position": 0, "effect_type": "slow_zoom_in",
                "params": {"zoom_start": 1.0, "zoom_end": 1.04,
                           "grade_contrast": 0.05}}]
-    manifest = reel_look.fusion_manifest(
-        placements, {"power": {}}, motion, 24.0, grade_look=dict(grade))
-    effects = manifest["fusion_effects"]["per_clip"]["reel_picture_00"]
-    assert effects["grade_contrast"] == pytest.approx(0.05)
+    planned = reel_look.fusion_manifest(
+        [_placement("/a.mxf", 0, 10.0)], {"power": {}}, motion, 24.0,
+        grade_look=dict(grade))
+    assert planned["fusion_effects"]["per_clip"]["reel_picture_00"][
+        "grade_contrast"] == pytest.approx(0.05)
 
 
 def test_no_grade_look_means_no_grade_keys_on_reels():
@@ -148,5 +124,3 @@ def test_no_grade_look_means_no_grade_keys_on_reels():
 
 
 # ── 3. The grade look resolves from the project's own project.yaml ────────
-
-

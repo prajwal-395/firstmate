@@ -81,47 +81,28 @@ def test_cover_derives_master_span_from_the_neighbour(tmp_path):
     assert clip.source_file == str(media)
 
 
-def test_cover_refuses_with_no_sync_basis(tmp_path):
-    """No placed clip of that file on any picture row: sync would be
-    asserted, so the cover is refused."""
+def test_cover_refuses_every_claim_it_cannot_check(tmp_path):
+    """Each refusal names its reason: no placed clip of the file to sync
+    from (sync would be asserted), the speaker talking inside the derived
+    span (a cutaway mid-sentence is no reaction), a moving camera, and -
+    under the production default - no face reading on a flat grey card."""
     media = tmp_path / "cam.mxf"
     other = tmp_path / "other.mxf"
+    moving = tmp_path / "moving.mp4"
     _render(media, "color=c=0x808080:s=160x120:r=24")
     _render(other, "color=c=0x808080")
-    with pytest.raises(OffsetRefused, match="no sync basis"):
-        verify_cover_clip(str(media), 2.5, 3.5,
-                          [_placed(other, 0.0, 2.0, 98.0)],
-                          _transcript(), FPS)
-
-
-def test_cover_refuses_a_talking_cover(tmp_path):
-    """Akshita speaks inside the derived master span: a cutaway to
-    someone mid-sentence is not a reaction."""
-    media = tmp_path / "cam.mxf"
-    _render(media, "color=c=0x808080:s=160x120:r=24")
-    with pytest.raises(OffsetRefused, match="mid-sentence"):
-        verify_cover_clip(str(media), 2.5, 3.5,
-                          [_placed(media, 0.0, 2.0, 98.0)],
-                          _transcript(words=[(100.7, 101.0, "mm-hm")]),
-                          FPS)
-
-
-def test_cover_refuses_a_moving_camera(tmp_path):
-    media = tmp_path / "moving.mp4"
-    _render(media, "testsrc2=s=160x120:r=24")
-    with pytest.raises(OffsetRefused, match="camera moved"):
-        verify_cover_clip(str(media), 2.5, 3.5,
-                          [_placed(media, 0.0, 2.0, 98.0)],
-                          _transcript(), FPS, require_face=False)
-
-
-def test_cover_refuses_with_no_face_reading(tmp_path):
-    """A faceless fixture with the production default: the cover
-    must carry the same face in the same framing, checked rather
-    than assumed - and a flat grey card carries none."""
-    media = tmp_path / "cam.mxf"
-    _render(media, "color=c=0x808080:s=160x120:r=24")
-    with pytest.raises(OffsetRefused, match="no face (check|reads)"):
-        verify_cover_clip(str(media), 2.5, 3.5,
-                          [_placed(media, 0.0, 2.0, 98.0)],
-                          _transcript(), FPS)
+    _render(moving, "testsrc2=s=160x120:r=24")
+    cases = (
+        (media, [_placed(other, 0.0, 2.0, 98.0)], _transcript(), {},
+         "no sync basis"),
+        (media, [_placed(media, 0.0, 2.0, 98.0)],
+         _transcript(words=[(100.7, 101.0, "mm-hm")]), {}, "mid-sentence"),
+        (moving, [_placed(moving, 0.0, 2.0, 98.0)], _transcript(),
+         {"require_face": False}, "camera moved"),
+        (media, [_placed(media, 0.0, 2.0, 98.0)], _transcript(), {},
+         "no face (check|reads)"),
+    )
+    for source, placed, transcript, kwargs, match in cases:
+        with pytest.raises(OffsetRefused, match=match):
+            verify_cover_clip(str(source), 2.5, 3.5, placed, transcript,
+                              FPS, **kwargs)

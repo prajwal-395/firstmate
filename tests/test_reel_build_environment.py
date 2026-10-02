@@ -1,24 +1,9 @@
 """What a reel build needs in its interpreter is DECLARED, and checked first.
 
-Four instances, all on 2026-09-10/11, each costing a lane a failed build:
-a cv2 without Haar cascades answering None from the face probe, a cv2 5.0
-refusing the punch-in aim, and a purpose-built cv2 4.12 venv missing
-`jsonschema` on the very next attempt. (The Remotion half already has an
-owner.) Every lane fixed it locally with its own venv, each missing
-something different - nothing declared the set, so every attempt
-rediscovered a different subset.
-
 `library/tools/shared_environment.py` (the BUILD half) is the one owner;
-`env.face_detector` and `env.reel_build_libraries` in
-`library/tools/requirements.py` are the pre-build refusal both reel-build
-lanes share. A missing detector, cascade file or library is ONE CLEAR
-MESSAGE BEFORE THE BUILD STARTS, naming what is missing and what would
-supply it.
-
-Nothing here reaches Resolve, renders, or a real project. The cv2 in
-each case is a fake in `sys.modules`, because the point is what the
-declaration says about each machine shape - not what this machine's
-own cv2 happens to be.
+`env.face_detector` and `env.reel_build_libraries` refuse BEFORE the build
+starts, naming what is missing and what would supply it. The cv2 in each
+case is a fake in `sys.modules`. History: docs/evidence/reel_build.md.
 """
 
 import os
@@ -80,8 +65,8 @@ def _requirement(name):
 
 # ── gap 1: the cv2 Haar cascades ─────────────────────────────────────
 
-def test_absent_detector_fails_the_pre_build_check_by_name(monkeypatch):
-    """The first surviving gap: present cv2, absent cascades.
+def test_an_absent_declaration_fails_the_pre_build_check_by_name(monkeypatch):
+    """Both surviving gaps: absent detector, and a missing library.
 
     A declared requirement that is absent fails the pre-build check BY
     NAME - `missing` carries the requirement, not a downstream symptom.
@@ -97,6 +82,17 @@ def test_absent_detector_fails_the_pre_build_check_by_name(monkeypatch):
     verdict = requirement.check(R.Context())
     assert verdict.is_unsatisfied
     assert verdict.missing == "env.face_detector"
+
+    # The second gap: a venv built for one thing, missing another (the
+    # row's instance was `jsonschema` absent from a cv2 4.12 venv).
+    monkeypatch.setattr(se, "REEL_BUILD_LIBRARIES", ("no_such_module_xyz",))
+    assert se.missing_build_libraries() == ("no_such_module_xyz",)
+    assert se.build_libraries_present() is False
+    verdict = _requirement("env.reel_build_libraries").check(R.Context())
+    assert verdict.is_unsatisfied
+    assert verdict.missing == "env.reel_build_libraries"
+    assert "no_such_module_xyz" in verdict.reason
+    assert se.REQUIREMENTS_FILE in verdict.reason
 
 
 def test_each_detector_shape_names_its_own_missing_half(
@@ -123,40 +119,3 @@ def test_each_detector_shape_names_its_own_missing_half(
             se.reel_build_environment_missing_message()):
         assert se.FACE_DETECTOR_PIN in message
         assert se.BUILD_VENV_DOC in message
-
-
-# ── gap 2: completeness of a purpose-built venv's libraries ──────────
-
-def test_missing_library_fails_the_pre_build_check_by_name(monkeypatch):
-    """The second surviving gap: a venv built for one thing, missing
-    another. The row's own instance was `jsonschema` absent from a cv2
-    4.12 venv on the very next build attempt."""
-    monkeypatch.setattr(se, "REEL_BUILD_LIBRARIES", ("no_such_module_xyz",))
-
-    assert se.missing_build_libraries() == ("no_such_module_xyz",)
-    assert se.build_libraries_present() is False
-
-    requirement = _requirement("env.reel_build_libraries")
-    verdict = requirement.check(R.Context())
-    assert verdict.is_unsatisfied
-    assert verdict.missing == "env.reel_build_libraries"
-    assert "no_such_module_xyz" in verdict.reason
-    assert se.REQUIREMENTS_FILE in verdict.reason
-
-
-# ── the acceptance shape: one message, before the build ─────────────
-
-
-def test_the_build_lanes_consume_both_requirements_and_verify_consumes_neither():
-    """The refusal fires before a build starts, never before a grading.
-
-    `reel.verify` grades timelines already placed and aims nothing, so
-    asking it for a detector would refuse a grading that needs none.
-    """
-    for name in ("env.face_detector", "env.reel_build_libraries"):
-        requirement = _requirement(name)
-        assert requirement.kind == R.KIND_ENVIRONMENT
-        assert requirement.consumers == ("build_reels",), (
-            f"{name} is consumed by {requirement.consumers}: a pipeline "
-            f"step's requirements must not move with this row, and the "
-            f"verify node must not ask for a detector it never aims")

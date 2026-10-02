@@ -6,8 +6,10 @@ spelling in library/tools/stable_json.py:
 - branch <-> timeline names derive from each other, both ways, on the
   exact shapes the captain has in Resolve today (` (j-cut)`,
   ` (reaction-cutaway)`);
-- the seam spec validates structurally and writes canonically (same
-  record, same bytes - otherwise every variant merge conflicts);
+- the spec expresses a SEAM or a DECLARATION derived from
+  `external_inputs.DECLARATIONS` and nothing else, and writes canonically
+  (same record, same bytes - otherwise every variant merge conflicts);
+- the conformance sweep skips a variant only when it is DECLARED;
 - creating a variation branches, records and commits, and refuses a
   dirty tree;
 - combining variations merges declarations while generated run state
@@ -25,7 +27,6 @@ import subprocess
 import pytest
 
 from library.tools.versions import store as bvc
-from library.tools import stable_json
 from library.tools.versions import variants as tv
 
 BASE_TIMELINE = "Reel 09 - your-website-is-only-20-percent (final)"
@@ -100,7 +101,7 @@ def _base_project(project):
 
 # ── names ────────────────────────────────────────────────────────────
 
-def test_names_derive_both_ways_on_real_shapes():
+def test_names_derive_both_ways_and_final_is_not_a_suffix():
     for suffix in (CUTAWAY_SUFFIX, JCUT_SUFFIX):
         specs = ({"suffix": suffix},)
         branch = tv.variant_branch_name(9, suffix)
@@ -112,36 +113,60 @@ def test_names_derive_both_ways_on_real_shapes():
         "variant/r09-reaction-cutaway"
     assert tv.variant_timeline_name(BASE_TIMELINE, CUTAWAY_SUFFIX) == \
         BASE_TIMELINE + CUTAWAY_SUFFIX
-
-
-
-
-def test_final_is_not_a_variant_suffix():
     # `(final)` is the approved timeline's own name. Only the spec
     # record tells a base-name paren from a variant suffix.
     specs = (dict(CUTAWAY_SPEC),)
     assert tv.branch_for_timeline(BASE_TIMELINE, specs) is None
-    assert tv.branch_for_timeline(BASE_TIMELINE + CUTAWAY_SUFFIX, specs) == \
-        "variant/r09-reaction-cutaway"
     assert tv.branch_for_timeline(
         BASE_TIMELINE + " (something-undeclared)", specs) is None
 
 
+# ── specs: what a variant can and cannot express ─────────────────────
+
+def test_the_declarable_set_is_derived_not_listed_again():
+    """A store added to `external_inputs.DECLARATIONS` becomes
+    variant-expressible with no second edit; two lists would drift."""
+    from library.tools import external_inputs
+
+    assert set(tv.declarable()) == set(external_inputs.DECLARATIONS)
+    assert len(tv.declarable()) >= 5
 
 
-# ── specs ────────────────────────────────────────────────────────────
+def test_valid_specs_pass_and_every_malformed_spec_is_refused():
+    """A variant differs in a SEAM or a per-project DECLARATION and in
+    nothing else (AGENTS.md 10.4). Each refused row names its reason."""
+    for spec in (dict(CUTAWAY_SPEC),
+                 {"suffix": " (cta-b)", "declares": ["reel_ending"],
+                  "watch": "the close"},
+                 {"suffix": " (reaction-cutaway)",
+                  "cutaway": {"hide_angle": "A", "window_seconds": [12.4, 12.7]},
+                  "declares": ["caption_timing"]}):
+        assert tv.validate_variant_spec(spec) == [], spec
+    refused = [
+        ({"suffix": " (same)"}, "declares"),
+        ({"suffix": CUTAWAY_SUFFIX, "watch": "look"}, "j_cut / cutaway"),
+        (dict(CUTAWAY_SPEC, suffix="reaction-cutaway"), "suffix"),
+        ({"suffix": " (a)", "declares": "reel_ending"}, ""),
+        ({"suffix": " (a)", "declares": []}, ""),
+        ({"suffix": " (a)", "declares": ["reel_ending", "reel_ending"]}, ""),
+        ({"suffix": " (a)", "declares": ["reel_ending"],
+          "transcript": "other.json"}, "unknown keys"),
+    ]
+    for spec, needle in refused:
+        errors = tv.validate_variant_spec(spec)
+        assert errors, spec
+        assert any(needle in e for e in errors), (spec, errors)
 
 
-
-def test_spec_without_a_seam_is_refused():
-    errors = tv.validate_variant_spec({"suffix": CUTAWAY_SUFFIX,
-                                       "watch": "look"})
-    assert any("j_cut / cutaway" in e for e in errors)
-
-
-def test_spec_with_a_wandering_suffix_is_refused():
-    bad = dict(CUTAWAY_SPEC, suffix="reaction-cutaway")
-    assert any("suffix" in e for e in tv.validate_variant_spec(bad))
+def test_a_store_nothing_owns_is_refused_and_the_boundary_is_quoted():
+    """`series_look` is a property of the SERIES: a variant differing in
+    it would compare two series, not two treatments of one moment."""
+    errors = tv.validate_variant_spec(
+        {"suffix": " (warm)", "declares": ["series_look"]})
+    message = " ".join(errors)
+    assert "series_look" in message
+    assert "reel_ending" in message
+    assert "a different look, grade or delivery format" in message
 
 
 def test_spec_write_is_canonical(tmp_path):
@@ -150,12 +175,16 @@ def test_spec_write_is_canonical(tmp_path):
               {"suffix": JCUT_SUFFIX,
                "j_cut": {"join_seconds": 0.4, "lead_seconds": 0.2}}],
         "10": [dict(CUTAWAY_SPEC, suffix=" (cover-10)")],
+        "11": [{"suffix": " (a)",
+                "declares": ["reel_ending", "caption_timing"]}],
     }}
     first = tv.write_variant_specs(str(tmp_path), record)
     before = (tmp_path / "pipeline_output" / "review"
               / tv.VARIANTS_FILENAME).read_text(encoding="utf-8")
     # Same record in a scrambled order is the same bytes.
     scrambled = {"variants": {
+        "11": [{"suffix": " (a)",
+                "declares": ["caption_timing", "reel_ending"]}],
         "10": [dict(CUTAWAY_SPEC, suffix=" (cover-10)")],
         "9": [dict(record["variants"]["9"][1]),
               dict(record["variants"]["9"][0])]}}
@@ -165,27 +194,75 @@ def test_spec_write_is_canonical(tmp_path):
     assert before == after
     assert first.endswith(tv.VARIANTS_FILENAME)
     assert after.endswith("\n")
-
-
-def test_duplicate_suffix_is_refused(tmp_path):
-    record = {"variants": {"9": [dict(CUTAWAY_SPEC),
-                                 dict(CUTAWAY_SPEC)]}}
+    assert tv.read_variant_specs(str(tmp_path))["variants"]["11"][0][
+        "declares"] == ["caption_timing", "reel_ending"]
+    # Two specs with one suffix is not a canonical record at all.
     with pytest.raises(ValueError):
-        tv.write_variant_specs(str(tmp_path), record)
+        tv.write_variant_specs(str(tmp_path), {"variants": {
+            "9": [dict(CUTAWAY_SPEC), dict(CUTAWAY_SPEC)]}})
 
 
-# ── reformatting never changes what the pipeline builds ──────────
+# ── which timelines are variants, and what the sweep grades ─────────
+
+def test_the_conformance_sweep_grades_by_declaration_not_by_name():
+    """A live variant's offsets are INTENTIONAL deviations, so the plan
+    verifier does not grade it - but only when DECLARED: no syntactic
+    rule tells `(final)` from `(reaction-cutaway)`. Archived names are
+    never graded; a name the operator asks for always is."""
+    from library.tools import reel_retirement as retire
+    from library.tools.reel_conformance_verifier import grades_as_a_reel
+
+    cutaway = BASE_TIMELINE + CUTAWAY_SUFFIX
+    declared = {cutaway}
+    assert grades_as_a_reel(BASE_TIMELINE, variant_names=declared)
+    assert not grades_as_a_reel(cutaway, variant_names=declared)
+    assert grades_as_a_reel(cutaway)
+    assert grades_as_a_reel(cutaway, variant_names=set())
+    assert grades_as_a_reel(cutaway, only_reels=[cutaway],
+                            variant_names=declared)
+    assert not grades_as_a_reel(retire.archived_name(BASE_TIMELINE, 3),
+                                variant_names=declared)
+    assert not grades_as_a_reel("Podcast - Synced", variant_names=declared)
+    comparison = "Reel 13 - x (baseline scratch)"
+    assert grades_as_a_reel(comparison)
+    assert not grades_as_a_reel(retire.archived_name(comparison, 2))
 
 
+def test_declared_variants_resolve_through_the_plans_own_reel_name(
+        tmp_path, monkeypatch):
+    """The reel's name comes from the proposal - the same read the
+    variant builder makes. No record answers EMPTY."""
+    project = tmp_path / "p"
+    (project / "pipeline_output" / "review").mkdir(parents=True)
+    assert tv.declared_variant_timelines(str(project)) == set()
+    tv.write_variant_specs(str(project), {"variants": {
+        "9": [{"suffix": CUTAWAY_SUFFIX,
+               "cutaway": {"hide_angle": "A", "window_seconds": [1, 2]}}],
+        "13": [{"suffix": " (tight)", "declares": ["caption_timing"]}]}})
 
-# ── stable_json ──────────────────────────────────────────────────────
+    class Moment:
+        def __init__(self, number, name):
+            self.number = number
+            self.timeline_name = name
 
+    monkeypatch.setattr(
+        "library.tools.reel_proposal.read_proposal",
+        lambda path: [Moment(9, BASE_TIMELINE),
+                      Moment(13, "Reel 13 - the-accounting-firm (final)")])
+    monkeypatch.setattr("library.tools.reel_proposal.proposal_path",
+                        lambda folder: "unused")
+    assert tv.declared_variant_timelines(str(project)) == {
+        BASE_TIMELINE + CUTAWAY_SUFFIX,
+        "Reel 13 - the-accounting-firm (final) (tight)"}
 
 
 # ── create ───────────────────────────────────────────────────────────
 
 def test_create_variation_branches_records_commits(tmp_path):
     default = _base_project(tmp_path)
+    # Another lane's records sit untracked in a live project; they ride
+    # no branch, so branching around them loses nothing.
+    _write(tmp_path, "pipeline_output/review/other_lane_note.json", "{}")
     result = tv.create_variation(str(tmp_path), 9, BASE_TIMELINE,
                                  dict(CUTAWAY_SPEC))
     assert result["created"] is True, result
@@ -200,7 +277,14 @@ def test_create_variation_branches_records_commits(tmp_path):
     assert tv.read_variant_specs(str(tmp_path))["variants"] == {}
 
 
-def test_create_refuses_a_dirty_tree(tmp_path):
+def test_create_refuses_without_a_repo_or_on_a_dirty_tree(tmp_path):
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    result = tv.create_variation(str(bare), 9, BASE_TIMELINE,
+                                 dict(CUTAWAY_SPEC))
+    assert result["created"] is False
+    assert "no git repo" in result["reason"]
+
     _base_project(tmp_path)
     _write(tmp_path, "project.yaml", "name: dirty\n")
     result = tv.create_variation(str(tmp_path), 9, BASE_TIMELINE,
@@ -209,47 +293,36 @@ def test_create_refuses_a_dirty_tree(tmp_path):
     assert "dirty" in result["reason"]
 
 
-def test_untracked_files_do_not_block_a_variation(tmp_path):
-    # Another lane's records sit untracked in a live project; they
-    # ride no branch, so branching around them loses nothing.
+def test_a_declaring_variant_builds_only_from_its_own_branch(tmp_path):
+    """A seam offset is IN the spec, so it builds anywhere; a declaring
+    variant's difference is the CONTENT of `external/<store>.json` on its
+    own branch, so off that branch it would differ from the approved
+    reel NOWHERE and be reported as a comparison."""
     _base_project(tmp_path)
-    _write(tmp_path, "pipeline_output/review/other_lane_note.json", "{}")
-    result = tv.create_variation(str(tmp_path), 9, BASE_TIMELINE,
-                                 dict(CUTAWAY_SPEC))
-    assert result["created"] is True, result
+    seam = {"suffix": CUTAWAY_SUFFIX,
+            "cutaway": {"hide_angle": "A", "window_seconds": [1, 2]}}
+    assert tv.branch_requirement(str(tmp_path), 9, seam) == ""
+    blocked = tv.branch_requirement(
+        str(tmp_path), 9, {"suffix": " (cta-b)", "declares": ["reel_ending"]})
+    assert "variant/r09-cta-b" in blocked
+    assert "checkout" in blocked
 
 
-def test_create_refuses_without_a_repo(tmp_path):
-    result = tv.create_variation(str(tmp_path), 9, BASE_TIMELINE,
-                                 dict(CUTAWAY_SPEC))
-    assert result["created"] is False
-    assert "no git repo" in result["reason"]
+def test_choosing_requires_a_reason_at_the_command_line():
+    """`--why` is required rather than defaulted."""
+    import pathlib
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "manage_project.py", "variant", "x", "choose",
+         "9", " (a)"],
+        cwd=str(pathlib.Path(__file__).resolve().parents[1]),
+        capture_output=True, encoding="utf-8", check=False)
+    assert result.returncode != 0
+    assert "--why" in result.stderr
 
 
 # ── answers merge for real ───────────────────────────────────────
-
-def test_new_answer_on_one_side_wins_cleanly(tmp_path):
-    """The refresh direction: main re-answers reel 9's motion while
-    the variant lives. Answers are written once, never rewritten by a
-    rebuild, so the merge takes the answer with no conflict - the
-    variant rebuild then reads it like any other declaration."""
-    default = _base_project(tmp_path)
-    _git(tmp_path, "checkout", "-b", "variant/r09-reaction-cutaway")
-    _build_touches_generated(tmp_path, "2026-09-10T11:45:00")
-    bvc.commit_build(str(tmp_path), message="variant build\n")
-    _git(tmp_path, "checkout", default)
-    _write(tmp_path, "pipeline_output/llm_responses/reel_motion_09.json",
-           json.dumps([{"shot": 1, "drift": "push in"}]))
-    bvc.commit_build(str(tmp_path), message="re-answer motion\n")
-
-    result = tv.merge_variations(str(tmp_path),
-                                 "variant/r09-reaction-cutaway")
-    assert result["merged"] is True, result
-    answer = json.loads(
-        (tmp_path / "pipeline_output" / "llm_responses" /
-         "reel_motion_09.json").read_text(encoding="utf-8"))
-    assert answer == [{"shot": 1, "drift": "push in"}]
-
 
 def test_two_answers_are_a_real_conflict(tmp_path):
     """Both sides answering the same reel differently is a fork in

@@ -26,12 +26,6 @@ from library.tools.reel_proposal import (
 from library.tools.timeline_transcript import transcript_path
 from tests.promotion_test_helpers import no_a_roll_track_plans
 
-FINAL = "Reel 01 - a-witness"
-STAGING = FINAL + " (rebuild staging)"
-OLD_SEGMENT = "mg_old-rendered-name"
-NEW_SEGMENT = "mg_new-rendered-name"
-
-
 @pytest.fixture(autouse=True)
 def fake_preservation_snapshots(monkeypatch):
     monkeypatch.setattr(
@@ -107,30 +101,6 @@ def _args(project):
         rebuild_all=True)
 
 
-def _semantic_record(reel, segment_id, display="Launch plan"):
-    return {
-        "reel": reel,
-        "basis": "planned",
-        "entries": [{
-            "element": "title",
-            "subject": "the launch plan",
-            "anchor_phrase": "the launch plan",
-            "copy": {"display": display},
-            "anchor": "top_centre",
-            "why": "identify the subject of this passage",
-        }],
-        "segments": [{
-            "segment_id": segment_id,
-            "overlay_path": f"/fixture/{segment_id}.mov",
-            "carry_identity": [
-                {"element": "title", "subject": "the launch plan",
-                 "anchor_phrase": "the launch plan",
-                 "copy": {"display": display},
-                 "anchor": "top_centre",
-                 "why": "identify the subject of this passage"}],
-        }],
-    }
-
 
 def _saved_semantic_graphic_record(reel, segment_id, element, display):
     """The saved Reel 24 props: same copy, regenerated element type."""
@@ -181,7 +151,7 @@ def _rerendered_title(copy, index, *, rebuilt):
     return element
 
 
-def _write_reel15_semantic_case(folder, final, staging, *, changed=None):
+def _write_reel15_semantic_case(folder, final, staging):
     from library.tools.reel_disabled_clip_carry import semantic_graphic_identity
 
     graphics = [
@@ -196,11 +166,7 @@ def _write_reel15_semantic_case(folder, final, staging, *, changed=None):
     old_segments, new_segments = [], []
     for index, (old_id, new_id, copy, start, duration) in enumerate(graphics):
         old_element = _rerendered_title(copy, index, rebuilt=False)
-        new_copy = (["Changed copy", *copy[1:]]
-                    if changed == "copy" and index == 0 else copy)
-        new_element = _rerendered_title(new_copy, index, rebuilt=True)
-        if changed == "element_type" and index == 0:
-            new_element["element"] = "different_title"
+        new_element = _rerendered_title(copy, index, rebuilt=True)
         for segment_id, element in ((old_id, old_element),
                                     (new_id, new_element)):
             (props_dir / f"{segment_id}_props.json").write_text(
@@ -230,93 +196,6 @@ def _write_reel15_semantic_case(folder, final, staging, *, changed=None):
     }), encoding="utf-8")
     return graphics
 
-
-@pytest.mark.parametrize("new_display,should_promote", [
-    ("Launch plan", True),
-    ("A different message", False),
-])
-def test_build_reels_carries_or_refuses_disabled_semantic_graphic(
-        tmp_path, monkeypatch, stub_resolve_script,
-        new_display, should_promote):
-    """A shifted rerender carries a match; changed content refuses."""
-    folder = _ready_project(tmp_path)
-    project = make_project()
-    _reel_timeline(project, "Fixture Timeline", [
-        _clip_spec("master", "/fixture/master.mov", 0, True)])
-    original = _reel_timeline(project, FINAL, [
-        _clip_spec("old-render-name", f"/fixture/{OLD_SEGMENT}.mov", 480,
-                   False)])
-    staged = _reel_timeline(project, STAGING, [
-        _clip_spec("new-render-name", f"/fixture/{NEW_SEGMENT}.mov",
-                   624 if new_display == "Launch plan" else 480, True)])
-    review = tmp_path / "pipeline_output" / "review"
-    review.mkdir(parents=True, exist_ok=True)
-    (review / "plan_provenance.json").write_text(
-        json.dumps({"built_reels": [FINAL, STAGING]}), encoding="utf-8")
-    (review / "semantic_visual_plans.json").write_text(json.dumps({
-        "format": "semantic_visual_plans/1",
-        "plans": [_semantic_record(FINAL, OLD_SEGMENT),
-                  _semantic_record(STAGING, NEW_SEGMENT, new_display)],
-    }), encoding="utf-8")
-
-    def offline_rebuild(project_folder, **_kwargs):
-        return reel_build.promote_staged_reels(
-            project_folder, "Fixture Project", "Fixture Timeline",
-            {FINAL: STAGING}, organise=False,
-            track_plans=no_a_roll_track_plans({FINAL: STAGING}))
-
-    monkeypatch.setattr(
-        reel_build, "resolve_project_exactly", lambda *_args: project)
-    execute = operations.Operation.execute
-
-    def skip_model_followups(self, project_folder, scope=None, **overrides):
-        if self.name in {"reel.ask", "reel.verify"}:
-            return SimpleNamespace(
-                refused=False, payload={}, status="completed")
-        return execute(self, project_folder, scope, **overrides)
-
-    monkeypatch.setattr(operations.Operation, "execute", skip_model_followups)
-
-    promotion_results = []
-
-    def capture_result(project_folder, **kwargs):
-        result = offline_rebuild(project_folder, **kwargs)
-        promotion_results.append(result)
-        return result
-
-    monkeypatch.setattr(reel_build, "rebuild_reels_in_project", capture_result)
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"):
-        if should_promote:
-            manage_project.cmd_build_reels(_args(folder))
-        else:
-            with pytest.raises(reel_build.ReelBuildError,
-                               match="old-render-name"):
-                manage_project.cmd_build_reels(_args(folder))
-
-    if should_promote:
-        report = promotion_results[0]["replace_reports"][FINAL]
-        semantic_row = next(row for row in report["rows"]
-                            if row["key"] == "video:Semantic")
-        assert semantic_row["enabled_changes"] == [{
-            "name": "old-render-name", "start": 480, "end": 528,
-            "retired_enabled": False, "incoming_enabled": True,
-            "staged_item": "new-render-name", "staged_start": 624,
-            "staged_enabled_after": False,
-            "match_basis": "semantic graphic type and copy",
-        }]
-        promoted = next(t for t in project.timelines
-                        if t.GetName() == FINAL)
-        clip = promoted.GetItemListInTrack("video", 1)[0]
-        assert clip.GetClipEnabled() is False
-        assert staged in project.timelines
-        assert staged.GetName() == FINAL
-        assert original not in project.timelines
-    else:
-        assert original in project.timelines
-        assert staged in project.timelines
-        original_clip = original.GetItemListInTrack("video", 1)[0]
-        assert original_clip.GetClipEnabled() is False
-        assert staged.GetItemListInTrack("video", 1)[0].GetClipEnabled() is True
 
 
 @pytest.mark.parametrize("staged_enabled,staged_display,should_promote", [
@@ -518,17 +397,16 @@ def test_semantic_identity_ignores_timing_but_keeps_content():
             != semantic_graphic_identity(changed_asset))
 
 
-@pytest.mark.parametrize("changed,should_promote", [
-    (None, True), ("copy", False), ("element_type", True),
-])
-def test_build_reels_carries_reel15_rerenders_and_refuses_changes(
-        tmp_path, monkeypatch, stub_resolve_script, changed, should_promote):
-    """Same-copy rerenders or type changes carry; changed copy blocks."""
+def test_build_reels_carries_reel15_restyled_rerenders(
+        tmp_path, monkeypatch, stub_resolve_script):
+    """Same-copy rerenders carry across restyling and a one-frame shift.
+
+    Changed copy refusing and a type change carrying are the Reel 24
+    replay above, through the same `cmd_build_reels` path."""
     case_final = "Reel 15 - the-3d-nail-art-salon-beats-the-chains"
     case_staging = case_final + " (rebuild staging)"
     folder = _ready_project(tmp_path)
-    graphics = _write_reel15_semantic_case(
-        folder, case_final, case_staging, changed=changed)
+    graphics = _write_reel15_semantic_case(folder, case_final, case_staging)
     old_specs, new_specs = [], []
     for index, (old_id, new_id, _copy, start, duration) in enumerate(graphics):
         old_specs.append(_clip_spec(
@@ -574,27 +452,16 @@ def test_build_reels_carries_reel15_rerenders_and_refuses_changes(
     args = _args(folder)
     args.only_reel = [15]
     with patch("library.tools.resolve_locale.scriptapp_preserving_locale"):
-        if should_promote:
-            manage_project.cmd_build_reels(args)
-        else:
-            with pytest.raises(reel_build.ReelBuildError,
-                               match="mg_live_a.mov"):
-                manage_project.cmd_build_reels(args)
+        manage_project.cmd_build_reels(args)
 
-    if should_promote:
-        report = promotion_results[0]["replace_reports"][case_final]
-        carried = report["disabled_clip_carry"]["carried"]
-        assert len(carried) == 3
-        assert [entry["staged_item"] for entry in carried] == [
-            "mg_stage_a.mov", "mg_stage_b.mov", "mg_stage_c.mov"]
-        promoted = next(t for t in project.timelines
-                        if t.GetName() == case_final)
-        assert [clip.GetClipEnabled() for clip in
-                promoted.GetItemListInTrack("video", 5)] == [False] * 3
-        assert original not in project.timelines
-    else:
-        assert not promotion_results
-        assert original in project.timelines
-        assert staged in project.timelines
-        assert [clip.GetClipEnabled() for clip in
-                staged.GetItemListInTrack("video", 5)] == [True] * 3
+    report = promotion_results[0]["replace_reports"][case_final]
+    carried = report["disabled_clip_carry"]["carried"]
+    assert len(carried) == 3
+    assert [entry["staged_item"] for entry in carried] == [
+        "mg_stage_a.mov", "mg_stage_b.mov", "mg_stage_c.mov"]
+    promoted = next(t for t in project.timelines
+                    if t.GetName() == case_final)
+    assert [clip.GetClipEnabled() for clip in
+            promoted.GetItemListInTrack("video", 5)] == [False] * 3
+    assert original not in project.timelines
+    assert staged in project.timelines

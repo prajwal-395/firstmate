@@ -1,22 +1,7 @@
-"""Check 5's reconstruction is script work, and now a script does it.
+"""`build_actual_script` concatenates the spine's measured words per played
+A-roll range in timeline order; every empty lookup is named.
 
-Step 3.03's handoff asks the model to look up the temporal index per
-A-roll range and concatenate the words in timeline order - range
-lookup plus string joining over word timings the pipeline already
-holds. `build_actual_script` (in step.py, beside the mechanical
-checks whose inputs it shares) builds it off the spine's own word
-timings instead, so the narrative review judges the measured script
-rather than a reconstruction.
-
-Deliberately NOT in `library/tools/timeline_transcript.py`: that
-module rebuilds timeline audio from source media and transcribes it
-with Whisper for live Resolve timelines that carry no measured words
-at all. Concatenating already-measured words is a different mechanism
-for a different input; forcing it in there would be the second
-mechanism the WP2a brief says to stop at.
-
-Proven in both directions: correct concatenation passes, and every
-way the lookup can come up empty is named rather than skipped.
+History: docs/evidence/rough_cut_review.md.
 """
 
 import sys
@@ -100,21 +85,17 @@ def test_words_are_concatenated_in_timeline_order():
     assert script["unvoiced"] == []
 
 
-
-
-def test_a_range_with_no_measured_words_is_named_not_skipped():
-    a_roll = [
-        {
-            "spine_block_position": 1,
-            "block_type": "speech",
-            "timeline_start": 0.0,
-            "timeline_end": 2.0,
-            "video_segments": [
-                {"clip_id": "clip_001", "video_in": 40.0, "video_out": 42.0},
-            ],
-        },
-    ]
-    script = build_actual_script(a_roll, SPINE)
+def test_an_empty_lookup_is_named_not_skipped():
+    """A played range with no measured words, and a segment with no
+    source range, each land in `unvoiced` with a reason."""
+    no_words = [{
+        "spine_block_position": 1, "block_type": "speech",
+        "timeline_start": 0.0, "timeline_end": 2.0,
+        "video_segments": [
+            {"clip_id": "clip_001", "video_in": 40.0, "video_out": 42.0},
+        ],
+    }]
+    script = build_actual_script(no_words, SPINE)
     assert script["blocks"] == []
     assert script["full_text"] == ""
     assert len(script["unvoiced"]) == 1
@@ -122,22 +103,11 @@ def test_a_range_with_no_measured_words_is_named_not_skipped():
     assert entry["spine_block_position"] == 1
     assert entry["source_in"] == 40.0
     assert "reason" in entry and entry["reason"]
-
-
-
-
-def test_a_segment_with_no_source_range_is_named():
-    a_roll = [
-        {
-            "spine_block_position": 1,
-            "block_type": "speech",
-            "timeline_start": 0.0,
-            "timeline_end": 2.0,
-            "video_segments": [{"clip_id": "clip_001"}],
-        },
-    ]
-    script = build_actual_script(a_roll, SPINE)
+    no_range = [{
+        "spine_block_position": 1, "block_type": "speech",
+        "timeline_start": 0.0, "timeline_end": 2.0,
+        "video_segments": [{"clip_id": "clip_001"}],
+    }]
+    script = build_actual_script(no_range, SPINE)
     assert len(script["unvoiced"]) == 1
     assert "no source range" in script["unvoiced"][0]["reason"]
-
-

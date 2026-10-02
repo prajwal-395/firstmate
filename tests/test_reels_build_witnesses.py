@@ -1,23 +1,8 @@
-"""The reels build consults what `edit_video` already consults.
-
-Two wirings, both print-only and neither a gate:
-
-1. `report_layer_coherence` runs `layer_coherence` on the reels
-   build - one import, one call, beside the prebuild census and the
-   divergence survey. It currently runs only on `edit_video`, while
-   the timelines it never consults are the ones the captain reviews.
-
-2. `sweep_all_reels_informational` grades EVERY reel timeline beside
-   the scoped refusing gate. The gate stays scoped on purpose (a
-   whole-project gate failed clean single-reel builds on timelines
-   they never touched - PR #658); the sweep restores the detection
-   ("did this round disturb a reel I did not touch") without
-   restoring the false refusals.
-
-Each test below names which half it would catch the removal of.
+"""The reels build consults what `edit_video` already consults - print-only,
+never a gate: `report_layer_coherence`, and `sweep_all_reels_informational`
+beside the scoped refusing gate. Why: docs/evidence/reel_build_witnesses.md.
 """
 
-import inspect
 import json
 import sys
 from pathlib import Path
@@ -71,23 +56,17 @@ def _sweep_project(root: Path) -> str:
 
 # ── layer_coherence on the reels build ────────────────────────────
 
-def test_coherence_names_a_stale_wording_layer_and_never_refuses(tmp_path):
-    """Remove the witness and a stale layer builds in silence.
-
-    The rows are the point: a wording the source transcript no
-    longer speaks must be said before anything is placed.
-    """
-    report = rb.report_layer_coherence(_stale_project(tmp_path))
-
+def test_coherence_names_a_stale_layer_and_is_quiet_when_layers_agree(
+        tmp_path, capsys):
+    """Remove the witness and a stale layer builds in silence: a wording
+    the source transcript no longer speaks is said before anything is
+    placed. No owned divergences, no LAYER COHERENCE line."""
+    report = rb.report_layer_coherence(_stale_project(tmp_path / "stale"))
     assert "unavailable" not in report
-    assert len(report["wording"]) >= 1
     assert any(row["should_be"] == "Lucie" for row in report["wording"])
 
-
-def test_coherence_is_quiet_when_the_layers_agree(tmp_path, capsys):
-    """No owned divergences, no LAYER COHERENCE line on the run."""
-    report = rb.report_layer_coherence(_clean_project(tmp_path))
-
+    capsys.readouterr()
+    report = rb.report_layer_coherence(_clean_project(tmp_path / "clean"))
     owned = sum(len(report.get(key, [])) for key in
                 ("wording", "pins", "assets"))
     assert owned == 0
@@ -105,48 +84,13 @@ def test_coherence_reports_rather_than_raises_when_it_cannot_run(tmp_path):
 
 # ── The whole-project sweep beside the scoped gate ────────────────
 
-def test_the_sweep_grades_every_reel_not_the_built_subset(tmp_path):
-    """Remove the sweep and nothing ever grades the untouched reels.
-
-    The scoped gate answers "did what I placed conform"; this is the
-    instrument that answers "did this round disturb a reel I did not
-    touch" - so it must reach the verifier with NO scope.
-    """
-    folder, transcript = _sweep_project(tmp_path)
-
-    with patch("library.tools.reel_conformance_verifier.run_verification",
-               return_value=0) as run:
-        result = rb.sweep_all_reels_informational(
-            project_folder=folder, resolve_project_name="Mock",
-            master_timeline_name="Master", plan_path="/x/plan.json",
-            transcript_path=transcript)
-
-    assert run.call_count == 1
-    assert run.call_args[1]["only_reels"] is None
-    assert result["exit_code"] == 0
-
-
-def test_the_sweep_grades_transforms_with_the_build_calibration(tmp_path):
-    """F12 must read the same Pan/Tilt units the build used."""
-    folder, transcript = _sweep_project(tmp_path)
-
-    with patch("library.tools.reel_conformance_verifier.run_verification",
-               return_value=0) as run:
-        rb.sweep_all_reels_informational(
-            project_folder=folder, resolve_project_name="Mock",
-            master_timeline_name="Master", plan_path="/x/plan.json",
-            transcript_path=transcript, draw_gain=4.0)
-
-    assert run.call_args[1]["draw_gain"] == 4.0
-
-
-def test_the_sweep_writes_beside_the_gate_report_not_over_it(tmp_path):
-    """The gate's `conformance_report.json` is the refusal's evidence.
-
-    A sweep that overwrote it would let an informational pass bury a
-    gate failure (or vice versa) - so it writes its own file and the
-    gate's is byte-identical afterwards.
-    """
+def test_the_sweep_grades_every_reel_in_build_units_beside_the_gate(
+        tmp_path):
+    """Remove the sweep and nothing ever grades the untouched reels: it
+    reaches the verifier with NO scope, reads Pan/Tilt in the build's
+    calibration (F12), and writes its own report - the gate's
+    `conformance_report.json` is the refusal's evidence and stays
+    byte-identical."""
     folder, transcript = _sweep_project(tmp_path)
     review = Path(folder) / "pipeline_output" / "review"
     gate_report = review / "conformance_report.json"
@@ -157,8 +101,12 @@ def test_the_sweep_writes_beside_the_gate_report_not_over_it(tmp_path):
         result = rb.sweep_all_reels_informational(
             project_folder=folder, resolve_project_name="Mock",
             master_timeline_name="Master", plan_path="/x/plan.json",
-            transcript_path=transcript)
+            transcript_path=transcript, draw_gain=4.0)
 
+    assert run.call_count == 1
+    assert run.call_args[1]["only_reels"] is None
+    assert run.call_args[1]["draw_gain"] == 4.0
+    assert result["exit_code"] == 0
     assert result["report"].endswith("conformance_sweep_report.json")
     assert run.call_args[1]["json_path"] == result["report"]
     assert gate_report.read_text(encoding="utf-8") == '{"gate": "evidence"}'

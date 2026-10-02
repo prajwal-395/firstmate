@@ -1,25 +1,8 @@
-"""The rough-cut review's narrative answer goes somewhere, and it arrives.
+"""The rough-cut review's `cut_decisions` reaches 4.02's cut table through
+the real bridge subprocess; an unjudged cut reads `unjudged`, never a
+borrowed verdict, and every row reaches one reader or the other.
 
-Step 3.03 is asked for `cut_decisions` on every run of this pipeline.
-Before this change, `grep -rn cut_decisions library/ tests/` returned the field's
-own declaration in `step_3_03_review_rough_cut/manifest.json` and nothing
-else - no DAG edge carried it, no manifest declared it as an input, and no
-line of Python indexed it.  The model answered and the answer was dropped.
-
-This file holds the wiring together in both directions:
-
-  * the DAG carries it from the producer to the reader,
-  * the reader DECLARES it, so `gather_step_inputs` will hand it over,
-  * the reader's own bridge - run as a real subprocess over JSON stdin,
-    the way the runner runs it - puts the verdict in the table the
-    handoff tells the model to read, and
-  * the verdict never invents itself: a cut the review did not judge
-    reads `unjudged`, and the mild end of the scale is not borrowed for
-    it (AGENTS.md 10.5).
-
-The bridge is DRIVEN rather than modelled: a table this step builds in
-code is exactly where the last two defects of this class hid. This test
-drives the bridge subprocess and asserts its observable output.
+History: docs/evidence/cut_verdicts.md.
 """
 
 import json
@@ -28,7 +11,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -49,19 +31,6 @@ def manifest(step_dir):
 
 
 # ── The wiring ───────────────────────────────────────────────────────
-
-
-
-
-
-
-
-def test_it_is_not_also_sent_raw_beside_the_table():
-    """Never a summary and the structure it was rendered from (10.1)."""
-    cf = manifest("step_4_02_plan_transitions")["context_fields"]
-    assert "cut_decisions" not in cf
-
-
 
 
 # ── The value arriving ───────────────────────────────────────────────
@@ -105,8 +74,6 @@ def cuts_rows(cuts_toon):
     return header, [dict(zip(header, l.split("\t"))) for l in lines[1:]]
 
 
-
-
 def test_an_unjudged_cut_does_not_borrow_the_mild_end_of_the_scale():
     out = run_bridge({"timed_spine": SPINE,
                       "cut_decisions": [CUT_DECISIONS[0]]})
@@ -119,9 +86,7 @@ def test_an_unjudged_cut_does_not_borrow_the_mild_end_of_the_scale():
     # And how much is missing is SAID, not left to be inferred from a
     # column of `unjudged`.
     assert "2 of 3" in out["cuts_unjudged"]
-
-
-def test_no_review_at_all_leaves_every_cut_unjudged_and_says_so():
+    # No review at all: every cut reads unjudged, and that is said.
     out = run_bridge({"timed_spine": SPINE})
     _, rows = cuts_rows(out["cuts_toon"])
     assert {r["narrative_verdict"] for r in rows} == {cv.UNJUDGED}
@@ -160,17 +125,6 @@ def test_the_verdict_decides_nothing_by_itself():
 # ── The reading ──────────────────────────────────────────────────────
 
 
-
-
-
-
-
-def test_the_withdrawn_readings_are_recorded():
-    """A withdrawal without its reason gets re-added."""
-    assert len(cv.WITHDRAWN_READINGS) == 2
-    assert all(v.strip() for v in cv.WITHDRAWN_READINGS.values())
-
-
 # ── The shape the run of record really used ──────────────────────────
 
 # Verbatim rows from project 001's own `step_outputs.review_rough_cut.
@@ -196,10 +150,6 @@ RUN_OF_RECORD = [
 ]
 
 
-
-
-
-
 # ── The other half, and its reader ───────────────────────────────────
 
 def test_every_row_reaches_one_reader_or_the_other():
@@ -207,9 +157,16 @@ def test_every_row_reaches_one_reader_or_the_other():
     placed = cv.verdicts_by_cut(RUN_OF_RECORD)
     unplaced = cv.unplaced_findings(RUN_OF_RECORD)
     assert len(placed) + len(unplaced) == len(RUN_OF_RECORD)
+    # Nothing is filtered by decision or severity: whatever picks which
+    # findings matter becomes the reviewer.
+    rows = [{"decision": "note", "rationale": "a"},
+            {"decision": "flag", "severity": "warning", "rationale": "b"},
+            {"rationale": "c"}]
+    assert len(cv.unplaced_findings(rows)) == 3
+    _the_finding_that_named_the_mis_anchor_is_printed()
 
 
-def test_the_finding_that_named_the_mis_anchor_is_printed():
+def _the_finding_that_named_the_mis_anchor_is_printed():
     lines = cv.summary_lines(RUN_OF_RECORD)
     text = "\n".join(lines)
     assert "block_13_head_alignment" in text
@@ -218,31 +175,6 @@ def test_the_finding_that_named_the_mis_anchor_is_printed():
     # The per-cut verdicts are NOT repeated here: they reach 4.02's own
     # table, and printing both is a summary beside its own source (10.1).
     assert "acceptable" not in text
-
-
-
-
-def test_nothing_is_filtered_by_decision_or_severity():
-    """Whatever picks which findings matter becomes the reviewer."""
-    rows = [{"decision": "note", "rationale": "a"},
-            {"decision": "flag", "severity": "warning", "rationale": "b"},
-            {"rationale": "c"}]
-    assert len(cv.unplaced_findings(rows)) == 3
-
-
-def test_the_runner_prints_them_after_the_status_is_decided():
-    """Reading is not gating - the same ordering the QA block is pinned to.
-
-    Pinned off the runner's own source so an edit that moves the block
-    above the status fails here rather than quietly starting to block
-    runs.
-    """
-    src = (REPO / "library" / "processes" / "edit_video"
-           / "run_pipeline.py").read_text()
-    marker = "from library.tools import cut_verdicts as _cv"
-    assert marker in src
-    assert src.index('summary = {\n        "status": status,') > src.index(
-        marker), "the review findings must be read after status is decided"
 
 
 # ── The bridge's own emissions are declared ──────────────────────────

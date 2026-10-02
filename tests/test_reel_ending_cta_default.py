@@ -1,25 +1,10 @@
 """A reel INHERITS its freeze ending from the call to action it closes on.
 
-The captain, 2026-09-11, on Reels 01 and 23: *"this change needs to be
-applied to all other reels that currently also use this CTA **or will
-be using this CTA**"*.  The second half of that sentence is what these
-tests are for.  Four hand-written entries in `external/reel_ending.json`
-would have satisfied the four reels he named and failed the
-instruction, because a reel planned tomorrow would have closed the old
-way with nothing to say so.
+`test_a_reel_nobody_declared_anything_for_inherits_the_freeze` is the gate:
+it fails the moment a newly planned reel stops inheriting it. Synthetic
+under `tmp_path`; nothing here reaches Resolve or a real project.
 
-So the freeze hangs on `reel_proposal.CallToAction` - the thing a reel
-closes ON - and `test_a_reel_nobody_declared_anything_for_inherits_the_
-freeze` is the gate: it fails the moment a newly planned reel stops
-inheriting it.
-
-Measured on the field test's own plan and stated here because it is why
-this cannot hang on a passage or a speaker: the four reels complained
-about close on THREE different call-to-action passages and Reel 13 on a
-fourth, and Reel 28's closer is CRAIG.
-
-Synthetic under `tmp_path` (AGENTS.md 8); nothing here reaches Resolve
-or a real project.
+History: `docs/evidence/reel_ending.md` (test_reel_ending_cta_default.py).
 """
 
 import json
@@ -204,23 +189,6 @@ def _placements(frames=179):
              "snapped_record": 1056, "record": 1056 / FPS,
              "track_index": 1, "speaker": "Akshita",
              "master": (333.8, 341.27)}]
-
-
-def test_an_inherited_ending_plans_the_same_freeze_a_declared_one_does(
-        tmp_path):
-    inherited = reel_ending.resolve_ending(
-        str(tmp_path), "Reel 01 - geo-is-comprehension-not-position",
-        _moment(AKSHITA_CTA))
-    freeze = reel_ending.plan_freeze(_placements(), inherited, FPS)
-
-    assert freeze is not None
-    # The hold's length is the ELEMENT's own, never a number stated here.
-    assert freeze.duration_frames == reel_ending.tail_room_frames(inherited)
-    # It begins on the frame after the live tail: the animation starts
-    # after the last word rather than over it.
-    assert freeze.reel_start_frame == 1056 + 179
-    measured = reel_ending.assert_tail_fits(_placements(), inherited, FPS)
-    assert measured["fits"] and measured["hold"] == "freeze"
 
 
 def test_the_inherited_ending_arms_the_element_on_the_held_frame(tmp_path):

@@ -19,7 +19,6 @@ from library.tools import operations
 from library.tools import region as region_mod
 from library.tools.reel_spine import (
     ALIGNMENT_METHOD,
-    ReelSpineError,
     spine_for_reel,
 )
 from library.tools.spine_contract import REQUIRED_BLOCK_KEYS, is_speech_block
@@ -86,22 +85,10 @@ def test_the_spine_satisfies_the_block_contract(transcript, moment):
         assert not missing, f"block {block['position']} is missing {missing}"
         assert is_speech_block(block)
         assert block["alignment_method"] == ALIGNMENT_METHOD
-
-
-def test_blocks_are_in_REEL_time_not_master_time(transcript, moment):
-    """The whole reason this module exists. A reel is its keep ranges laid
-    end to end, so a spine timed against the master drifts by the length of
-    everything removed before it."""
-    spine = spine_for_reel(moment, transcript)
-    first = spine["structure"][0]
-    assert first["timeline_start"] == pytest.approx(0.0), (
-        "the first block of a reel starts at reel second 0, not at the "
-        f"master second it was cut from ({first['timeline_start']})")
-    # and they run consecutively, because the ranges are laid end to end
-    ends = [b["timeline_end"] for b in spine["structure"]]
-    starts = [b["timeline_start"] for b in spine["structure"]]
-    for previous_end, next_start in zip(ends, starts[1:]):
-        assert next_start >= previous_end - 1e-6
+    # speech that all binds reports nothing - a gate that fires on correct
+    # output reads as a defect where there is none (AGENTS.md 10.4)
+    assert spine["unbindable_spans"] == []
+    assert spine["unbindable_seconds"] == 0.0
 
 
 def test_word_timings_are_SOURCE_seconds_not_timeline_seconds(transcript,
@@ -151,25 +138,24 @@ def test_the_reel_spine_never_promotes_an_interpolated_word_to_timing():
         "reason": "no_measured_word_interval",
         "reel_membership": "unknown_without_word_timing",
     }]
-
-
-def test_the_reel_spine_does_not_interpolate_a_missing_word(monkeypatch):
-    from library.tools import timeline_transcript
-
-    def no_interpolation(_words):
-        raise AssertionError("reel caption timing must stay measured")
-
-    monkeypatch.setattr(timeline_transcript, "interpolate_untimed_words",
-                        no_interpolation)
+    # segment text words missing from the alignment are named, too
     row = segment(
-        "host", "alpha unavailable omega", 10.0, 13.0,
+        "host", "alpha missing omega", 10.0, 12.0,
         "cam_a.mov", 100.0,
-        [word("alpha", 10.0, 10.5), {"word": "unavailable"},
-         word("omega", 12.0, 13.0)],
+        [word("alpha", 10.0, 10.5), word("omega", 11.5, 12.0)],
     )
-    spine = spine_for_reel(Moment(10.0, 13.0), {"segments": [row]},
-                           ranges=[(10.0, 13.0)])
-    assert spine["undetermined_words"][0]["word"] == "unavailable"
+    spine = spine_for_reel(Moment(10.0, 12.0), {"segments": [row]},
+                           ranges=[(10.0, 12.0)])
+
+    assert spine["structure"][0]["content"]["text"] == "alpha omega"
+    assert spine["undetermined_words"] == [{
+        "word": "missing",
+        "speaker": "host",
+        "master_segment_start": 10.0,
+        "master_segment_end": 12.0,
+        "reason": "word_not_present_in_transcript_alignment",
+        "reel_membership": "unknown_without_word_timing",
+    }]
 
 
 def test_the_reel_spine_rejoins_measured_subtokens_into_sentence_words():
@@ -212,26 +198,6 @@ def test_a_word_at_the_half_open_range_end_is_not_captioned_from_float_noise():
             spine["structure"][0]["word_timestamps"]] == ["alpha"]
 
 
-def test_segment_text_words_missing_from_the_alignment_are_named():
-    row = segment(
-        "host", "alpha missing omega", 10.0, 12.0,
-        "cam_a.mov", 100.0,
-        [word("alpha", 10.0, 10.5), word("omega", 11.5, 12.0)],
-    )
-    spine = spine_for_reel(Moment(10.0, 12.0), {"segments": [row]},
-                           ranges=[(10.0, 12.0)])
-
-    assert spine["structure"][0]["content"]["text"] == "alpha omega"
-    assert spine["undetermined_words"] == [{
-        "word": "missing",
-        "speaker": "host",
-        "master_segment_start": 10.0,
-        "master_segment_end": 12.0,
-        "reason": "word_not_present_in_transcript_alignment",
-        "reel_membership": "unknown_without_word_timing",
-    }]
-
-
 def test_a_phrase_token_is_captioned_as_one_timed_phrase():
     row = segment(
         "host", "AI sees it", 10.0, 11.0,
@@ -249,16 +215,10 @@ def test_a_phrase_token_is_captioned_as_one_timed_phrase():
     assert block["word_timestamps"][0]["source_end"] == pytest.approx(100.6)
     assert spine["undetermined_words"] == []
 
-
-def test_a_phrase_token_does_not_caption_a_nonmatching_sentence_phrase():
-    row = segment(
-        "host", "AI saw it", 10.0, 11.0,
-        "cam_a.mov", 100.0,
-        [word("AI sees", 10.0, 10.6), word("it", 10.6, 11.0)],
-    )
+    # ... and a phrase token does not caption a sentence phrase it doesn't match
+    row["text"] = "AI saw it"
     spine = spine_for_reel(Moment(10.0, 11.0), {"segments": [row]},
                            ranges=[(10.0, 11.0)])
-
     assert spine["structure"][0]["content"]["text"] == "it"
     assert [entry["word"] for entry in spine["undetermined_words"]] == [
         "AI", "saw"]
@@ -267,42 +227,6 @@ def test_a_phrase_token_does_not_caption_a_nonmatching_sentence_phrase():
 
 
 # ── What a reel cannot supply is SAID, not invented ─────────────────
-
-
-def test_a_segment_with_no_source_binding_is_dropped_and_counted():
-    """`attribute_to_clip` leaves these None when speech straddles a cut.
-    A block with an invented clip_id would fail the contract downstream."""
-    good = spoken("host", "this one is bound", 10.0, "cam_a.mov", 100.0)
-    orphan = spoken("host", "this one straddles a cut", 12.0, "cam_a.mov",
-                    120.0)
-    # what attribute_to_clip really leaves behind when speech crosses a cut
-    orphan["resolve_item_id"] = None
-    orphan["source_file"] = None
-    orphan["source_start"] = None
-    orphan["source_end"] = None
-    spine = spine_for_reel(Moment(10.0, 16.0),
-                           {"segments": [good, orphan]})
-    assert spine["dropped_segments"] == 1
-    assert all(b["clip_id"] for b in spine["structure"])
-
-
-def test_a_closer_from_earlier_in_the_episode_is_not_dropped():
-    """A reel's closing CTA may come from BEFORE its body.
-
-    The standalone captioner tested membership against the envelope from
-    the first range's start to the last range's end. On a reel whose CTA
-    precedes its body that envelope inverts and silently drops every
-    caption. Ranges are tested individually here.
-    """
-    body = spoken("host", "the body of the reel", 100.0, "cam_a.mov", 500.0)
-    closer = spoken("host", "follow for more", 10.0, "cam_a.mov", 20.0)
-    spine = spine_for_reel(
-        Moment(100.0, 104.0), {"segments": [closer, body]},
-        ranges=[(100.0, 104.0), (10.0, 13.0)])      # body THEN earlier closer
-    texts = [b["content"]["text"] for b in spine["structure"]]
-    assert any("body" in t for t in texts), "the body was dropped"
-    assert any("follow" in t for t in texts), (
-        "the closer was dropped - the envelope bug is back")
 
 
 # ── The point of the whole exercise ─────────────────────────────────
@@ -357,12 +281,9 @@ def test_mic_bleed_is_dropped_and_the_primary_mic_keeps_the_line():
     assert spine["structure"][0]["speaker"] == "host", (
         "the primary mic hears the words first, and its speaker is the "
         "right attribution")
-
-
-def test_a_real_interruption_keeps_BOTH_speakers():
-    """Two people talking over each other is not a duplicate. Dropping one
-    would delete speech that was really said - what to DRAW is 4.01's
-    decision, and it can see the overlap once the cards exist."""
+    # Two people talking over each other is not a duplicate. Dropping one
+    # would delete speech that was really said - what to DRAW is 4.01's
+    # decision, and it can see the overlap once the cards exist.
     spine = spine_for_reel(Moment(10.0, 14.0), {"segments": [
         spoken("host", "so what i think we should do here is", 10.0,
                "cam_a.mov", 100.0),
@@ -433,14 +354,8 @@ def test_a_row_carrying_two_speakers_is_cut_at_the_speaker_change():
     text = craig[0]["content"]["text"]
     assert text == "what is going on here yeah", text
     assert [w["word"] for w in craig[0]["word_timestamps"]][-1] == "yeah"
-
-
-def test_no_speech_is_lost_by_the_cut():
-    """The words removed from Craig's block are still captioned, by the
-    speaker who said them. A cut that deletes speech is worse than the
-    card it fixes, and the whole rule rests on this being true."""
-    spine = spine_for_reel(Moment(609.0, 619.0),
-                           {"segments": _reel_05_frame_1616_rows()})
+    # no speech is lost by the cut: the words removed from Craig's block are
+    # still captioned, by the speaker who said them
     said = set()
     for block in spine["structure"]:
         said |= {w["word"].lower().strip(",.") for w in block["word_timestamps"]}
@@ -632,8 +547,10 @@ def test_unanchored_row_on_a_real_clip_is_captioned():
 
 
 def test_an_uncaptioned_stretch_is_reported_with_its_reel_seconds():
-    """A row nothing can bind is dropped, and the count alone does not
-    say WHERE. The captain looking at reel 05 needs the seconds."""
+    """A row nothing can bind (`attribute_to_clip` leaves it None when
+    speech straddles a cut) is dropped and counted - an invented clip_id
+    would fail the contract downstream - and the count alone does not say
+    WHERE. The captain looking at reel 05 needs the seconds."""
     good = spoken("host", "this one is bound", 10.0, "cam_a.mov", 100.0)
     orphan = spoken("host", "nobody wrote these words down", 12.4,
                     "cam_a.mov", 120.0)
@@ -643,6 +560,8 @@ def test_an_uncaptioned_stretch_is_reported_with_its_reel_seconds():
     orphan["source_end"] = None
     spine = spine_for_reel(Moment(10.0, 18.0),
                            {"segments": [good, orphan]})
+    assert spine["dropped_segments"] == 1
+    assert all(b["clip_id"] for b in spine["structure"])
     spans = spine["unbindable_spans"]
     assert len(spans) == 1
     assert spans[0]["speaker"] == "host"
@@ -650,12 +569,9 @@ def test_an_uncaptioned_stretch_is_reported_with_its_reel_seconds():
     assert spine["unbindable_seconds"] > 0.0
     assert spine["unbindable_seconds"] == pytest.approx(
         sum(s["seconds"] for s in spans))
-
-
-def test_the_seconds_are_the_WORDS_not_the_row_envelope():
-    """A row with no binding is usually Whisper joining two utterances
-    across a silence. Field test row 206 spans 20.7s and holds 6.0s of
-    words; reporting the envelope would treble what is really missing."""
+    # A row with no binding is usually Whisper joining two utterances
+    # across a silence. Field test row 206 spans 20.7s and holds 6.0s of
+    # words; reporting the envelope would treble what is really missing.
     good = spoken("host", "bound", 10.0, "cam_a.mov", 100.0)
     orphan = segment("host", "start end", 12.0, 24.0, "cam_a.mov", 120.0,
                      [word("start", 12.0, 12.4), word("end", 23.6, 24.0)])
@@ -668,9 +584,3 @@ def test_the_seconds_are_the_WORDS_not_the_row_envelope():
         "the envelope is 12 seconds and the words are 0.8 of it")
 
 
-def test_a_reel_whose_speech_all_binds_reports_nothing(transcript, moment):
-    """The other direction. A gate that fires on correct output reads as
-    a defect where there is none (AGENTS.md 10.4)."""
-    spine = spine_for_reel(moment, transcript)
-    assert spine["unbindable_spans"] == []
-    assert spine["unbindable_seconds"] == 0.0

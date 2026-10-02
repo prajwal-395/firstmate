@@ -54,18 +54,17 @@ def test_a_reworded_retake_is_cut_and_the_later_take_kept():
 
 # ── What must NOT be cut ─────────────────────────────────────────────
 
-def test_a_question_and_its_answer_are_not_a_retake():
-    """An answer echoes the question's words. Cutting on vocabulary alone
-    deletes the question."""
+def test_what_must_not_be_cut_is_not_cut():
+    """Three rows the cut rule must leave alone. An answer echoes the
+    question's words - cutting on vocabulary alone deletes the question."""
     tx = _tx(_seg("Craig", "what kind of content works best on AI platforms",
                   10.0, 15.0),
              _seg("Akshita", "the best content is content that answers "
                              "specific questions on AI platforms", 16.0, 21.0, "u2"))
     assert redundant_takes(0.0, 60.0, tx) == []
 
-
-def test_a_fragment_is_never_kept_over_a_full_line():
-    """Reel 06 would have dropped 4.3s to keep a 0.5s fragment."""
+    # A fragment is never kept over a full line: reel 06 would have
+    # dropped 4.3s to keep a 0.5s fragment.
     tx = _tx(_seg("Akshita", "it is going to start hallucinating because it is "
                              "confused about what you actually do", 10.0, 14.3),
              _seg("Akshita", "confused about what you actually do hallucinating",
@@ -78,9 +77,7 @@ def test_a_fragment_is_never_kept_over_a_full_line():
     # surviving guard here rather than the removed one.
     assert 4.3 / 0.5 > DURATION_RATIO
 
-
-def test_a_near_miss_is_reported_not_cut():
-    """Everything the cut rule is unsure of becomes a MARKER."""
+    # Everything the cut rule is unsure of becomes a MARKER.
     tx = _tx(_seg("Akshita", "make sure you are writing about that", 10.0, 13.0),
              _seg("Akshita", "make sure you are writing about why you are "
                              "better than a competitor today", 14.0, 19.0, "u2"))
@@ -117,21 +114,9 @@ def test_both_tracks_shift_by_the_same_amount():
 # ── The resolution that would otherwise be silently wrong ────────────
 
 def test_the_reel_resolution_is_explicit_and_declared(tmp_path):
-    """The PROJECT default is 3840x2160 and only the existing timelines
-    override it, so a timeline created through the API inherits the
-    horizontal default - a silent wrong answer, not an error. So the
-    reel timeline is sized EXPLICITLY.
-
-    What it is sized to is the project's DECLARED delivery format, not
-    `REEL_RESOLUTION = (1080, 1920)`. A project that declares nothing
-    still gets vertical, which is what every reel already built was
-    built at.
-
-    The input that breaks this: writing the frame back as a constant.
-    A project declaring `horizontal_1920x1080` below would then build a
-    vertical timeline and composite horizontal overlays onto it - the
-    001 defect, which gemma-4-12b named unprompted on five of eight
-    sampled frames.
+    """The reel timeline is sized EXPLICITLY to the project's DECLARED delivery
+    format (vertical when nothing is declared), never a constant.
+    History: docs/evidence/reel_build.md.
     """
     from library.tools.reel_build import reel_resolution
 
@@ -155,208 +140,10 @@ def test_the_reel_resolution_is_explicit_and_declared(tmp_path):
     assert reel_resolution(str(square)) == (1080, 1080)
 
 
-def test_no_reel_build_site_writes_the_frame_by_hand():
-    """Sixteen sites wrote `1080`/`1920` as literals; none may again.
-
-    A resolved value threaded from one place is only a generalisation
-    while nothing beside it re-states the number. This reads the module
-    and fails on a bare 1080 or 1920 in CODE - docstrings and comments
-    keep the measurement history, which is the point of them.
-
-    The input that breaks this: adding
-    `width=1080, height=1920` to one more overlay call, which is exactly
-    how the other fifteen arrived.
-    """
-    import ast
-    import inspect
-    import io
-    import re
-    import tokenize
-
-    import library.tools.reel_build as reel_build
-
-    source = inspect.getsource(reel_build)
-    pattern = re.compile(r"\b(1080|1920)\b")
-    skip = set()
-    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
-        if tok.type in (tokenize.COMMENT, tokenize.STRING):
-            for line in range(tok.start[0], tok.end[0] + 1):
-                skip.add(line)
-    offenders = [
-        (n, line.strip())
-        for n, line in enumerate(source.splitlines(), 1)
-        if pattern.search(line) and n not in skip
-    ]
-    assert offenders == [], (
-        "reel_build.py states the delivery frame by hand at "
-        f"{offenders} - resolve it with reel_resolution(project_folder)")
-    ast.parse(source)
-
-
 # ── A reel must carry BOTH speakers' audio ───────────────────────────
-#
-# Measured 2026-09-04: the first sixteen reels were built with two video
-# tracks and ONE audio track. Akshita's V1 clips carried their sound to
-# A1; Craig's V2 clips had nowhere to put theirs, so Resolve placed his
-# picture and discarded his audio while returning True. Sixteen reels
-# reported success and played with one speaker silent.
-#
-# The helpers that first closed this (`required_tracks`, `audio_layout`,
-# `strays`) are gone: the track plan (`timeline_layout.plan_layout`)
-# owns row counts and names now, and stream enforcement reads every
-# placed audio item back. Their coverage lives in
-# `tests/test_reel_build_sop_conformance.py`, which drives the real
-# `build_reel_timeline` against fake Resolve and reads the timeline
-# back through the verifier.
-
-
-def test_build_reel_timeline_places_each_clip_exactly_once():
-    """build_reel_timeline must call AppendToTimeline once per planned
-    placement, at the planned record frame, on the planned track, with the
-    planned source in/out.
-
-    This is the test that was MISSING: nothing exercised the function that
-    actually talks to Resolve. The 19 tests above cover the pure helpers
-    (keep_ranges, placements, redundant_takes) and stop at the boundary
-    where Resolve begins. So a doubled placement loop, a basename pool
-    match, and a wrong record frame all sailed through because the
-    function that commits them was never called.
-    """
-    from unittest.mock import MagicMock
-
-    from library.tools.reel_build import (
-        build_reel_timeline,
-        keep_ranges,
-        placements as compute_placements,
-        redundant_takes,
-    )
-
-    fps = 23.976
-
-    # --- Build the inputs ---
-    moment = MagicMock()
-    moment.timeline_name = "Test Reel"
-    moment.timeline_start = 0.0
-    moment.timeline_end = 20.0
-    moment.number = 1
-    moment.call_to_action = None
-
-    # 4 master clips, each 5 seconds, all on video track 1.
-    master_clips = []
-    for i in range(4):
-        c = MagicMock()
-        c.source_file = f"/footage/clip_{i}.MXF"
-        c.track_type = "video"
-        c.track_index = 1
-        c.track_name = "Angle 1"
-        c.source_in = i * 5.0
-        c.source_out = (i + 1) * 5.0
-        c.source_start = i * 5.0
-        c.source_end = (i + 1) * 5.0
-        c.timeline_start = i * 5.0
-        c.timeline_end = (i + 1) * 5.0
-        c.speaker = "speaker_a"
-        master_clips.append(c)
-
-    transcript = {"segments": []}
-
-    # --- Compute the PLAN so we can assert the Resolve calls match it ---
-    ranges = keep_ranges(0.0, 20.0, redundant_takes(0.0, 20.0, transcript))
-    planned = compute_placements(ranges, master_clips, fps)
-
-    # --- Wire up a fake Resolve ---
-    project = MagicMock()
-    pool = MagicMock()
-    project.GetMediaPool.return_value = pool
-
-    timeline_mock = MagicMock()
-    timeline_mock.GetUniqueId.return_value = "test-uid"
-    # One angle: the plan mints V1/A1, so the fixture reports exactly
-    # those. Reads back nothing - the link pass and the occupancy
-    # sweep iterate empty rows, which the faithful fake in
-    # test_reel_build_sop_conformance.py covers instead.
-    timeline_mock.GetTrackCount.side_effect = lambda mt: (
-        1 if mt in ("video", "audio") else 0)
-    timeline_mock.GetItemListInTrack.return_value = []
-    pool.CreateEmptyTimeline.return_value = timeline_mock
-    project.GetCurrentTimeline.return_value = timeline_mock
-
-    root_folder = MagicMock()
-    pool.GetRootFolder.return_value = root_folder
-
-    # Each clip is found in the pool by FULL PATH (not basename).
-    pool_item_by_path = {}
-    pool_items_list = []
-    for c in master_clips:
-        pi = MagicMock()
-        pi.GetClipProperty.side_effect = lambda prop, path=c.source_file: (
-            path if prop == "File Path"
-            else str(fps) if prop == "FPS"
-            else ""
-        )
-        pool_item_by_path[c.source_file] = pi
-        pool_items_list.append(pi)
-
-    root_folder.GetClipList.return_value = pool_items_list
-    root_folder.GetSubFolderList.return_value = []
-
-    # --- Run ---
-    build_reel_timeline(
-        project, moment, master_clips, [],
-        fps, 1080, 1920, "/tmp/test_project", transcript,
-    )
-
-    # --- Assert: one call per placement, not N*N ---
-    calls = pool.AppendToTimeline.call_args_list
-    assert len(calls) == len(planned), (
-        f"Expected {len(planned)} AppendToTimeline calls (one per placement), "
-        f"got {len(calls)}"
-    )
-
-    # --- Assert: each call carries the planned arguments ---
-    for i, (call, plan) in enumerate(zip(calls, planned)):
-        # AppendToTimeline is called as pool.AppendToTimeline([{...}])
-        clip_spec = call[0][0][0]  # first positional arg, first list element
-
-        expected_pool_item = pool_item_by_path[plan["clip"].source_file]
-        pool_fps = fps  # all clips report the same FPS in this test
-
-        expected_start = round(plan["source_in"] * pool_fps)
-        expected_end = round(plan["source_out"] * pool_fps)
-        expected_record = plan["snapped_record"]
-        expected_track = plan["track_index"]
-        expected_media_type = 1  # all video
-
-        assert clip_spec["mediaPoolItem"] is expected_pool_item, (
-            f"Placement {i}: wrong pool item"
-        )
-        assert clip_spec["startFrame"] == expected_start, (
-            f"Placement {i}: startFrame {clip_spec['startFrame']} != {expected_start}"
-        )
-        assert clip_spec["endFrame"] == expected_end, (
-            f"Placement {i}: endFrame {clip_spec['endFrame']} != {expected_end}"
-        )
-        assert clip_spec["recordFrame"] == expected_record, (
-            f"Placement {i}: recordFrame {clip_spec['recordFrame']} != {expected_record}"
-        )
-        assert clip_spec["trackIndex"] == expected_track, (
-            f"Placement {i}: trackIndex {clip_spec['trackIndex']} != {expected_track}"
-        )
-        assert clip_spec["mediaType"] == expected_media_type, (
-            f"Placement {i}: mediaType {clip_spec['mediaType']} != {expected_media_type}"
-        )
-
-    # --- Assert: no uncovered frames between contiguous placements ---
-    for i in range(len(planned) - 1):
-        this_call = calls[i][0][0][0]
-        next_call = calls[i + 1][0][0][0]
-        this_dur = this_call["endFrame"] - this_call["startFrame"]
-        this_end = this_call["recordFrame"] + this_dur
-        assert this_end == next_call["recordFrame"], (
-            f"Gap between placement {i} and {i+1}: "
-            f"clip {i} ends at frame {this_end}, "
-            f"clip {i+1} starts at frame {next_call['recordFrame']}"
-        )
+# Covered by `tests/test_reel_build_sop_conformance.py` (real
+# `build_reel_timeline` against fake Resolve); history in
+# docs/evidence/reel_build.md.
 
 
 # ── The closing CTA, from anywhere in the episode ────────────────────
@@ -420,45 +207,6 @@ def test_a_distant_cta_clip_lands_last_on_the_reel():
     assert spots[-1]["snapped_record"] + last_len == reel_frames
 
 
-def test_one_shared_cta_range_closes_two_different_reels():
-    """Six spoken CTAs must be able to close sixteen reels.
-
-    Two reels whose bodies are nowhere near each other close on the SAME
-    seconds of the episode. Nothing about the second build differs from
-    the first except where the closer lands, because the reels differ in
-    length - which is the whole proof that the range is reused rather
-    than owned by one reel.
-    """
-    from library.tools.reel_build import placements, reel_ranges
-
-    fps = 24000 / 1001
-    shared = (468.0, 476.0)
-    closer = _clip(2, "Craig", 460.0, 480.0, src_in=460.0)
-
-    first_body = _clip(1, "Akshita", 100.0, 160.0, src_in=100.0)
-    second_body = _clip(1, "Akshita", 700.0, 745.0, src_in=700.0)
-
-    first = placements(
-        reel_ranges(_moment(100.0, 160.0, cta=shared, number=1), _tx()),
-        [first_body, closer], fps)
-    second = placements(
-        reel_ranges(_moment(700.0, 745.0, cta=shared, number=2), _tx()),
-        [second_body, closer], fps)
-
-    for spots in (first, second):
-        assert spots[-1]["clip"] is closer, "both reels close on the same clip"
-        assert spots[-1]["source_in"] == pytest.approx(468.0, abs=1 / fps)
-        assert spots[-1]["source_out"] == pytest.approx(476.0, abs=1 / fps)
-
-    # Same source seconds, different record frames - the clip is PLACED
-    # again, not copied, and each reel puts it after its own body.
-    assert (first[-1]["snapped_record"]
-            == int(round(160.0 * fps)) - int(round(100.0 * fps)))
-    assert (second[-1]["snapped_record"]
-            == int(round(745.0 * fps)) - int(round(700.0 * fps)))
-    assert first[-1]["snapped_record"] != second[-1]["snapped_record"]
-
-
 def test_a_closer_must_present_two_real_numbers():
     """A bare MagicMock answers every attribute with a truthy mock, and
     `float()` of one is 1.0 - so a stand-in that never mentioned a CTA
@@ -472,7 +220,7 @@ def test_a_closer_must_present_two_real_numbers():
     assert reel_ranges(stand_in, _tx()) == [(10.0, 40.0)]
 
 
-def test_a_closer_overlapping_its_own_body_is_refused_at_build_time():
+def test_an_unplayable_closer_is_refused_at_build_time():
     """`validate_proposal` refuses this when the proposal is WRITTEN, but
     the plan is a file the captain edits and `read_proposal` does not
     re-run validation. Without a refusal here the reel plays those
@@ -481,27 +229,14 @@ def test_a_closer_overlapping_its_own_body_is_refused_at_build_time():
     from library.tools.reel_build import ReelBuildError, reel_ranges
     with pytest.raises(ReelBuildError, match="play those seconds twice"):
         reel_ranges(_moment(600.0, 660.0, cta=(610.0, 620.0)), _tx())
-
-
-def test_a_sub_frame_closer_is_refused_rather_than_dropped():
-    from library.tools.reel_build import ReelBuildError, reel_ranges
+    # A sub-frame closer is refused too, rather than dropped.
     with pytest.raises(ReelBuildError, match="under a frame"):
         reel_ranges(_moment(600.0, 660.0, cta=(468.0, 468.01)), _tx())
 
 
 def test_a_finely_segmented_retake_is_cut():
-    """Reel 03: three takes of one sentence, none of them long.
-
-    `MIN_TAKE_SECONDS = 1.5` skipped any pair where either side was
-    shorter than that, so a retake WhisperX segmented into sub-second
-    pieces was never even scored. Reel 03 of the captain's approved
-    nineteen played "search didn't change, the question changed, whoever
-    AI understands best gets the answer" three times inside forty
-    seconds, and `redundant_takes` returned an empty list for it while
-    the proposal's own detector reported the repeat at similarity 1.0.
-
-    Both sides here are well under the old floor and their durations
-    agree, which is exactly the shape the floor uniquely blocked.
+    """Reel 03: a retake segmented into sub-second pieces is still scored and cut
+    (the removed `MIN_TAKE_SECONDS` floor). History: docs/evidence/reel_build.md.
     """
     line = ("search didn't change the question changed and whoever AI "
             "understands best gets the answer")
@@ -681,7 +416,7 @@ def test_overlay_append_is_video_only_on_the_named_track():
     assert clip["recordFrame"] == 218  # round(9.092 * 24000/1001)
 
 
-def test_a_refused_append_is_raised_not_skipped():
+def test_a_refused_append_or_import_is_raised_not_skipped():
     """AppendToTimeline returns nothing on a refusal instead of raising,
     and the old loop carried on - so the record claimed two visuals and
     the timeline carried none until F22 refused the build. A refusal
@@ -690,11 +425,8 @@ def test_a_refused_append_is_raised_not_skipped():
     with pytest.raises(ReelBuildError, match="would not place"):
         _placer(pool=pool)
 
-
-def test_a_refused_import_is_raised_not_skipped():
-    """Same shape one call earlier: an overlay file Resolve will not
-    import is a refused build, not a reel that quietly loses a visual."""
-
+    # Same shape one call earlier: an overlay file Resolve will not
+    # import is a refused build, not a reel that quietly loses a visual.
     class _NoImport(_FakePool):
         def ImportMedia(self, paths):
             return []
@@ -704,17 +436,9 @@ def test_a_refused_import_is_raised_not_skipped():
 
 
 def test_an_overlay_import_lands_in_its_declared_bin_not_in_current():
-    """The destination is binding at import time: the import happens
-    with the current folder set to the overlay's declared bin, and the
-    previous current folder is restored afterwards. Measured
-    2026-09-10: a fresh build left every overlay render in Source
-    footage because CURRENT was there and no organise followed.
-
-    The declared bin for this builder-written overlay is `03 -
-    Assets`: a production asset no render step wrote is not a
-    per-reel render (`overlay_import_bin`, AGENTS.md 14), so the
-    binding the test proves is import-into-Assets, not import-into
-    the reel's leaf."""
+    """An overlay import lands in its declared bin (`03 - Assets`), not wherever
+    CURRENT is. History: docs/evidence/reel_build.md.
+    """
     from library.tools import resolve_bin_layout as bins
 
     pool, _ = _placer()
@@ -843,22 +567,20 @@ def _tight_placer(segments, track=7, placed=None, **kwargs):
     return pool, placed
 
 
-def test_a_tight_segment_is_placed_through_its_box_placement():
+def test_a_tight_segment_is_placed_through_its_box_and_read_back(capsys):
     """A tight graphic rides the Scaling/Pan/Tilt its box computed:
     the placer SETS them on the placed item, then reads them back."""
     _, placed = _tight_placer([_tight_segment()])
     assert placed[0].set_calls == {
         "Scaling": 1, "Pan": 140.0, "Tilt": -1720.0}
 
-
-def test_a_graphic_resolve_has_moved_is_reported_by_name(capsys):
-    """THE READ-BACK. A placed overlay holding something other than
-    its box placement is REPORTED by name: the clip IS on the
-    timeline, and failing the build over a movable graphic would
-    trade a misplaced one for a missing one."""
+    # THE READ-BACK: a placed overlay holding something other than its
+    # box placement is REPORTED by name, not failed - the clip IS on the
+    # timeline, and failing would trade a misplaced graphic for a missing one.
     moved = [_PlacedItem(218, frozen={"Tilt": -3840.0})]
     _tight_placer([_tight_segment()], placed=moved)
     err = capsys.readouterr().err
     assert "semantic visual" in err
     assert "Tilt" in err and "-3840" in err
+
 

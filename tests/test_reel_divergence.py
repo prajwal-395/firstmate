@@ -62,25 +62,22 @@ effect:
 
 # ── The registry itself can fail ─────────────────────────────────
 
-def test_a_detector_that_never_says_what_absent_looks_like_is_refused():
-    """Removing `absent_looks_like` from a wired detector must FAIL.
-
-    A check that cannot state its failing input cannot be shown to fail
-    on one, and reads as coverage (AGENTS.md 10.4).
-    """
-    broken = dict(rd.DETECTORS)
-    broken[rd.KEY_FULL_FRAME] = rd.Detector(
+def test_a_malformed_registry_entry_is_refused():
+    """A wired detector that never says what ABSENT looks like, and an
+    undetectable declaration missing its reason or owner, must FAIL: a
+    check that cannot state its failing input reads as coverage, and a
+    declaration silently missing from the table reads as agreeing
+    (AGENTS.md 10.4)."""
+    no_absent = dict(rd.DETECTORS)
+    no_absent[rd.KEY_FULL_FRAME] = rd.Detector(
         key=rd.KEY_FULL_FRAME, what="a card",
         detect=rd._detect_full_frame_elements)
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(rd, "DETECTORS", broken)
+        patch.setattr(rd, "DETECTORS", no_absent)
         with pytest.raises(rd.MalformedDetector) as refused:
             rd.assert_registry_is_well_formed()
     assert "ABSENT" in str(refused.value)
 
-
-def test_an_undetectable_declaration_must_name_a_reason_and_an_owner():
-    """A declaration silently missing from the table reads as agreeing."""
     for missing in ({"undetectable_reason": ""}, {"owner": ""}):
         broken = dict(rd.DETECTORS)
         entry = broken[rd.KEY_CAPTION_ROW]
@@ -97,14 +94,6 @@ def test_an_undetectable_declaration_must_name_a_reason_and_an_owner():
 
 # ── The detector reads the artefact, both shapes ─────────────────
 
-def test_a_reel_carrying_the_declared_card_reads_carried(tmp_path):
-    folder = project_declaring(tmp_path, LOGO_YAML)
-    report = rd.survey(folder, {
-        "Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))})
-    assert report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]["verdict"] \
-        == rd.CARRIED
-
-
 def test_a_reel_built_before_the_declaration_reads_absent(tmp_path):
     """The measured 2026-09-11 case: six reels of eight.
 
@@ -117,6 +106,8 @@ def test_a_reel_built_before_the_declaration_reads_absent(tmp_path):
         "Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))})
     assert report["reels"]["Reel 01"][rd.KEY_FULL_FRAME]["verdict"] \
         == rd.ABSENT
+    assert report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]["verdict"] \
+        == rd.CARRIED
     assert report["divergent"][rd.KEY_FULL_FRAME] == ["Reel 01"]
 
 
@@ -149,10 +140,7 @@ def test_an_unread_reel_is_undetermined_not_absent(tmp_path):
     assert "no timeline of that exact name" in cell["detail"]
     assert rd.KEY_FULL_FRAME not in report["divergent"]
 
-
-def test_a_detector_that_raises_is_undetermined_with_the_exception(tmp_path):
-    folder = project_declaring(tmp_path, LOGO_YAML)
-
+    # A detector that raises is undetermined too, carrying the exception.
     def explode(snapshot, params):
         raise RuntimeError("resolve went away")
 
@@ -170,19 +158,16 @@ def test_a_detector_that_raises_is_undetermined_with_the_exception(tmp_path):
 
 # ── The freeze ending: applicability, not a false gate ───────────
 
-def test_a_reel_closing_on_no_cta_is_not_reported_as_missing_a_freeze(tmp_path):
-    """A gate that FAILS correct output is no coverage (AGENTS.md 10.4)."""
-    folder = project_declaring(tmp_path, "pipeline: {}\n")
-    report = rd.survey(folder, {"Reel 05": FakeSnapshot(FakeClip("a.mxf"))},
-                       endings={})
-    cell = report["reels"]["Reel 05"][rd.KEY_FREEZE_ENDING]
-    assert cell["verdict"] == rd.UNDETERMINED
-
-
 def test_a_reel_owed_a_freeze_and_without_one_reads_absent(tmp_path):
+    """And one owed none is not reported missing it: a gate that FAILS
+    correct output is no coverage (AGENTS.md 10.4)."""
     from library.tools.reel_ending import FREEZE_PREFIX
 
     folder = project_declaring(tmp_path, "pipeline: {}\n")
+    no_cta = rd.survey(folder, {"Reel 05": FakeSnapshot(FakeClip("a.mxf"))},
+                       endings={})
+    assert no_cta["reels"]["Reel 05"][rd.KEY_FREEZE_ENDING]["verdict"] \
+        == rd.UNDETERMINED
     endings = {"Reel 05": {"tail_hold": "freeze"},
                "Reel 07": {"tail_hold": "freeze"}}
     report = rd.survey(folder, {

@@ -1,22 +1,7 @@
-"""Wordless islands stranded BETWEEN take cuts are absorbed, not placed.
+"""Wordless islands stranded BETWEEN take cuts are absorbed, not placed as
+sub-floor F7 items; a spoken fragment there refuses by name.
 
-The census for vep-yeah-breaks-reels walked all 22 approved reels'
-keep ranges and found one reel carrying the same strand-a-nub shape
-as the two fixed deaths: Reel 15
-(`the-3d-nail-art-salon-beats-the-chains`, master 1186.94-1251.21s)
-keeps 1221.51-1221.73s - 0.22s of room tone between dropping "if
-you're a salon that specializes in 3D nail art" (1219.06-1221.51) and
-"and your content is built around that niche, ..." (1221.73-1227.05).
-Placing that island is a 5-frame picture+audio item the F7 floor
-refuses - the death Reel 13 died with its strike's tail (PR 1058).
-The strike path absorbs its own edge-dust
-(`absorb_wordless_remnants`); the take path never did, so the island
-survived `reel_ranges` and waited for the gate.
-
-Numbers below are the field test's own, copied verbatim from
-`pipeline_output/scratch/timeline_transcript/transcript.json` and the
-approved reel span. No test here reads that project (AGENTS.md 8):
-the measurement travels as data so the case runs anywhere.
+History: docs/evidence/reel_take_cuts.md.
 """
 
 from __future__ import annotations
@@ -142,15 +127,6 @@ def _items(ranges):
 
 # ── The island ───────────────────────────────────────────────────────
 
-def test_the_island_survives_take_cuts_without_the_absorb():
-    """The shape, stated without the fix: two cuts, one kept sliver."""
-    ranges = keep_ranges(START, END, _cuts())
-    assert (1221.51, 1221.73) in [(round(a, 2), round(b, 2))
-                                  for a, b in ranges], ranges
-
-
-
-
 def test_reel_ranges_absorbs_the_island(monkeypatch):
     """The fix, through the build funnel: the cutter's two cuts go in
     (pinned, so the scan's windowing cannot move them on a trimmed
@@ -167,23 +143,23 @@ def test_reel_ranges_absorbs_the_island(monkeypatch):
         if b - a < reel_build.ABSORB_REMNANT_SECONDS:
             assert reel_build._remnant_has_timed_words(
                 a, b, _transcript()) is not None, (a, b)
-
-
+    _a_long_pause_between_take_cuts_survives()
 
 
 # ── The kill chain, both ways ────────────────────────────────────────
 
 def test_the_island_placed_is_an_f7_error():
-    """What the gate says about the unfixed ranges: the 0.22s island
-    as a placed item is 5 frames, under the 12-frame floor."""
+    """The shape without the fix - two cuts leave a kept 0.22s sliver -
+    and what the gate says about it: placed, the island is 5 frames,
+    under the 12-frame floor."""
     ranges = keep_ranges(START, END, _cuts())
+    assert (1221.51, 1221.73) in [(round(a, 2), round(b, 2))
+                                  for a, b in ranges], ranges
     findings = check_short_av_items("Reel 15", _items(ranges),
                                     _items(ranges), FPS)
     errors = [f for f in findings if f.severity == "error"]
     assert len(errors) == 2, [f.message for f in findings]
     assert all(f.finding_class == FindingClass.F7 for f in errors)
-
-
 
 
 # ── The refusal branch ───────────────────────────────────────────────
@@ -200,9 +176,20 @@ def test_a_spoken_fragment_between_take_cuts_refuses():
     with pytest.raises(ReelBuildError, match="take cut 1219.06-1221.51"):
         absorb_wordless_take_gaps(keep_ranges(START, END, _cuts()),
                                   _cuts(), transcript)
+    # The strike path's refusal still names the keep exclusion.
+    strike = _transcript(extra_segments=[{
+        "speaker": "Akshita", "resolve_item_id": "stowaway",
+        "text": "sorry", "timeline_start": 1227.10,
+        "timeline_end": 1227.30, "bound": True,
+        "words": [{"word": "sorry", "start": 1227.10, "end": 1227.30,
+                   "timed": True}]}])
+    with pytest.raises(ReelBuildError, match="keep exclusion 'lc-x'"):
+        reel_build.absorb_wordless_remnants(
+            [(START, 1219.06), (1227.05, 1227.40), (1227.60, END)],
+            [(1219.06, 1227.05, "lc-x")], strike)
 
 
-def test_a_long_pause_between_take_cuts_survives():
+def _a_long_pause_between_take_cuts_survives():
     """Past the floor the gap stops being edge-dust and becomes a real
     pause the reel plays - the absorb must not touch it."""
     cuts = [Cut(dropped_start=1219.06, dropped_end=1221.51,
@@ -212,20 +199,3 @@ def test_a_long_pause_between_take_cuts_survives():
     ranges = [(START, 1219.06), (1221.51, 1222.51), (1227.05, END)]
     assert absorb_wordless_take_gaps(
         ranges, cuts, _transcript()) == ranges
-
-
-# ── The strike wording is untouched ──────────────────────────────────
-
-def test_the_strike_refusal_still_names_the_exclusion():
-    """The `kind` default keeps the strike message byte-identical: a
-    spoken strike remnant still names the keep exclusion."""
-    transcript = _transcript(extra_segments=[{
-        "speaker": "Akshita", "resolve_item_id": "stowaway",
-        "text": "sorry", "timeline_start": 1227.10,
-        "timeline_end": 1227.30, "bound": True,
-        "words": [{"word": "sorry", "start": 1227.10, "end": 1227.30,
-                   "timed": True}]}])
-    ranges = [(START, 1219.06), (1227.05, 1227.40), (1227.60, END)]
-    with pytest.raises(ReelBuildError, match="keep exclusion 'lc-x'"):
-        reel_build.absorb_wordless_remnants(
-            ranges, [(1219.06, 1227.05, "lc-x")], transcript)

@@ -1,17 +1,8 @@
-"""The six duplicate-take fixes hold through the build cascade.
+"""Each recorded duplicate-take fix replays through the build's exact
+cascade (exclusion cuts -> lead-in/tail growth -> `reel_ranges`): the bad
+take is gone, the kept telling plays whole, nothing refuses.
 
-The captain, 2026-09-19, marked repeated takes on six reels and called
-it a pattern. Five became recorded keep exclusions (lc-0093..lc-0097);
-the sixth (Reel 08) the bleed-aware judge now cuts mechanically. Each
-test replays its fix through the build's exact cascade -
-`exclusion_cuts_for_span` -> lead-in/tail growth -> `reel_ranges` with
-judge and wholeness guard - and asserts the bad take is gone, the kept
-telling plays whole, and nothing refuses.
-
-Frozen specimens (AGENTS.md 8: no test reaches a real project). Segment
-texts, boundaries and the word timings the verdict edges depend on are
-the 2026-09-18 timeline transcript's own; interior words of long
-tellings are evenly spread, which moves no edge these tests assert.
+History: docs/evidence/reel_take_cuts.md.
 """
 
 from types import SimpleNamespace
@@ -163,7 +154,7 @@ def _reel06():
     return {"segments": [craig, first, flub, nod, retake]}
 
 
-def test_reel06_verdict_strikes_the_doubled_answer():
+def test_each_recorded_verdict_strikes_its_take_and_keeps_the_telling():
     """lc-0093 (425.87-432.36): the doubled answer and the flubbed
     telling go; "Not at all." and the clean retake play."""
     transcript = _reel06()
@@ -171,6 +162,9 @@ def test_reel06_verdict_strikes_the_doubled_answer():
     assert _struck(ranges, (425.87, 432.36)), f"bad take still plays: {ranges}"
     assert _plays(ranges, (432.67, 433.09)), f"'Not at all.' lost: {ranges}"
     assert _plays(ranges, (432.83, 434.0)), f"retake opening lost: {ranges}"
+    _reel21_verdict_keeps_the_restart()
+    _reel24_verdict_removes_the_whole_bad_take()
+    _reel03_verdict_keeps_the_recovery_whole()
 
 
 # ── Reel 11: consolidation is a take choice (lc-0094) ──
@@ -321,7 +315,7 @@ def _reel21():
     return {"segments": [abandoned, restated]}
 
 
-def test_reel21_verdict_keeps_the_restart():
+def _reel21_verdict_keeps_the_restart():
     """lc-0095 (1796.89-1800.39): the run-up tail goes; the setup and
     the restated telling play. An aborted telling that restarts clean
     keeps the RESTART, not the first attempt."""
@@ -394,7 +388,7 @@ def _reel24():
     return {"segments": [prior, bad, completion]}
 
 
-def test_reel24_verdict_removes_the_whole_bad_take():
+def _reel24_verdict_removes_the_whole_bad_take():
     """lc-0096 (2051.46-2058.18): every bit of the bad take goes; the
     concise completion plays."""
     transcript = _reel24()
@@ -437,7 +431,7 @@ def _reel03():
     return {"segments": [segment]}
 
 
-def test_reel03_verdict_keeps_the_recovery_whole():
+def _reel03_verdict_keeps_the_recovery_whole():
     """lc-0097 (238.71-241.85): the stumble goes; the recovery plays
     whole from "what's"."""
     transcript = _reel03()

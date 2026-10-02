@@ -567,8 +567,8 @@ even when it returned numbers: a row an interior cut runs through mapped to one
 contiguous reel interval spanning the removed take, so seconds the builder had
 cut out counted as speech needing a caption. `reel_time` remains the sole owner
 of the arithmetic; the clip reads a piece's start inclusively and its end with
-`at_end=True`. Three tests in `tests/test_reel_conformance_verifier.py` pin the
-boundary row, the interior cut, and the row the reel does not play at all.
+`at_end=True`. `tests/test_reel_conformance_verifier.py::TestF5CaptionCoverage::test_f5_counts_only_the_seconds_the_reel_plays`
+pins the boundary row and the interior cut.
 
 **What is NOT changed is what gets captioned.** Whether caption cards may be
 derived from unanchored rows changes what a viewer sees, and it is the

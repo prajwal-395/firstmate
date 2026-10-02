@@ -105,12 +105,8 @@ def test_a_built_variant_records_what_it_contains(project_folder):
     assert entry["rows"]["video:V1"]["count"] == 2
     written = pathlib.Path(choice.builds_path_for(project_folder))
     assert json.loads(written.read_text(encoding="utf-8"))["builds"][JCUT]["reel"] == 9
-
-
-def test_rebuilding_a_variant_replaces_its_record(project_folder):
-    """Two row snapshots for one live timeline is the disagreement
-    AGENTS.md 10.1 keeps catching."""
-    choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2))
+    # Rebuilding replaces the record: two row snapshots for one live
+    # timeline is the disagreement AGENTS.md 10.1 keeps catching.
     choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(7))
     assert len(choice.builds_for_reel(project_folder, 9)) == 1
     assert (
@@ -137,12 +133,8 @@ def test_two_variants_are_compared_without_resolve(project_folder):
     assert diff["changed"], "four items against two is a change"
     text = choice.render_comparison(diff)
     assert "the join" in text and "Akshita's reaction" in text
-
-
-def test_comparing_against_a_variant_nobody_built_refuses(project_folder):
-    """An empty side reads exactly like a version that contained
-    nothing, and the two must never be confused."""
-    choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2))
+    # An empty side reads exactly like a version that contained nothing,
+    # so comparing against a variant nobody built refuses.
     with pytest.raises(choice.ChoiceRefused) as refusal:
         choice.compare(project_folder, 9, " (j-cut)", " (never-built)")
     assert "never-built" in str(refusal.value)
@@ -152,8 +144,12 @@ def test_comparing_against_a_variant_nobody_built_refuses(project_folder):
 
 
 def test_the_chosen_variant_takes_the_reels_name_and_the_rest_is_archived():
+    # `variant_names` comes from the SPEC RECORD, so another reel's
+    # archived variant is never touched.
+    other = "Reel 13 - the-accounting-firm (final) (tight)"
     plan = choice.plan_choice(
-        [REEL, JCUT, CUTAWAY], REEL, {JCUT, CUTAWAY}, CUTAWAY, [JCUT], 4
+        [REEL, JCUT, CUTAWAY, f"{other} (archived round 001)"],
+        REEL, {JCUT, CUTAWAY}, CUTAWAY, [JCUT], 4
     )
     assert plan["promote"] == (CUTAWAY, REEL)
     # The version that held the name is RETIRED, never deleted.
@@ -163,9 +159,7 @@ def test_the_chosen_variant_takes_the_reels_name_and_the_rest_is_archived():
     assert plan["archive"][JCUT] == f"{JCUT} (archived round 004)"
     assert retire.is_archived_timeline(plan["archive"][JCUT])
     assert plan["collect"] == []
-
-
-def test_choosing_something_that_was_never_built_refuses():
+    assert other not in json.dumps(plan)
     with pytest.raises(choice.ChoiceRefused):
         choice.plan_choice([REEL, JCUT], REEL, {JCUT, CUTAWAY}, CUTAWAY, [JCUT], 4)
 
@@ -226,7 +220,7 @@ def test_the_reels_OWN_retired_generations_are_bounded_too():
     assert f"{REEL} (archived round 001.2)" in [k["name"] for k in plan["kept"]]
 
 
-def test_a_signed_off_generation_of_the_reel_itself_is_never_collected():
+def test_a_signed_off_generation_or_variant_is_never_collected():
     first = f"{REEL} (archived round 001)"
     plan = choice.plan_choice(
         [REEL, first, CUTAWAY],
@@ -238,11 +232,8 @@ def test_a_signed_off_generation_of_the_reel_itself_is_never_collected():
         signed_off_reels={REEL},
     )
     assert plan["collect"] == []
-
-
-def test_a_signed_off_unchosen_variant_is_never_collected():
-    """The captain approved that cut; collecting it would delete the
-    only copy of the thing they approved."""
+    # Nor is a signed-off UNCHOSEN variant: collecting it would delete
+    # the only copy of the thing the captain approved.
     tight = f"{REEL} (tight)"
     existing = [REEL, f"{JCUT} (archived round 004)", tight, CUTAWAY]
     plan = choice.plan_choice(
@@ -256,22 +247,6 @@ def test_a_signed_off_unchosen_variant_is_never_collected():
     )
     assert plan["collect"] == []
     assert any(JCUT in k["why"] and "sign-off" in k["why"] for k in plan["kept"])
-
-
-def test_a_timeline_that_is_not_this_reels_variant_is_never_touched():
-    """`variant_names` comes from the SPEC RECORD, so `(final)` - a
-    reel's own name - can never be mistaken for a variation of it."""
-    other = "Reel 13 - the-accounting-firm (final) (tight)"
-    plan = choice.plan_choice(
-        [REEL, JCUT, CUTAWAY, f"{other} (archived round 001)"],
-        REEL,
-        {JCUT, CUTAWAY},
-        CUTAWAY,
-        [JCUT],
-        4,
-    )
-    assert plan["collect"] == []
-    assert other not in json.dumps(plan)
 
 
 # ── The Resolve half ─────────────────────────────────────────────
@@ -401,6 +376,8 @@ def test_choosing_renames_retires_archives_and_records(project_folder):
     # diffed against it with Resolve closed.
     assert entry["rows"]["video:V1"]["count"] == 4
     assert "lands the joke" in choice.render_choice(report)
+    # The build record stops claiming what is no longer alive.
+    assert choice.builds_for_reel(project_folder, 9) == []
 
 
 def test_a_choice_with_no_reason_is_refused(project_folder):
@@ -418,22 +395,6 @@ def test_a_choice_with_no_reason_is_refused(project_folder):
         )
     assert "no reason" in str(refusal.value)
     assert project.names() == [REEL, CUTAWAY], "nothing moved"
-
-
-def test_the_build_record_stops_claiming_what_is_no_longer_alive(project_folder):
-    _built(project_folder)
-    project = _project([FakeTimeline(REEL), FakeTimeline(JCUT), FakeTimeline(CUTAWAY)])
-    choice.choose(
-        project,
-        project.GetMediaPool(),
-        project_folder,
-        9,
-        REEL,
-        " (reaction-cutaway)",
-        "chose the cutaway",
-        variant_names={JCUT, CUTAWAY},
-    )
-    assert choice.builds_for_reel(project_folder, 9) == []
 
 
 def test_a_rename_resolve_refuses_leaves_everything_recoverable(project_folder):
@@ -534,14 +495,7 @@ def test_a_signed_off_variant_carries_its_approval_onto_the_reel(project_folder)
     assert carried["by"] == "captain"
     # And it is no longer claimed on the name that no longer exists.
     assert reel_signoff.signoff_for(project_folder, CUTAWAY) is None
-
-
-def test_a_variant_has_its_own_signoff_identity():
-    """`feedback_ledger.base_reel_name` strips the BUILD's own container
-    suffixes and leaves everything else alone, so a variant is its own
-    reel to a sign-off - which is what lets one be signed off at all
-    without any change to `reel_signoff`."""
-    from library.tools import reel_signoff
-
+    # A variant is its own reel to a sign-off (`base_name` strips only
+    # the BUILD's container suffixes), which is what let it be signed.
     assert reel_signoff.base_name(CUTAWAY) == CUTAWAY
     assert reel_signoff.base_name(f"{REEL} (rebuild staging)") == REEL

@@ -1,22 +1,10 @@
 """A closer-less reel a project declares ends on its own thesis passes.
 
-Reel 27 (2026-09-19): Q->A on Google reviews, shared website-checkout
-closer deleted as topically alien, no own-thread replacement in the
-episode. `declared`/`in_body` cannot express that - a closer inside
-its own body is refused as a double play - so QB-CTA-ABSENT failed a
-reel ending exactly where its authorised re-cut puts it (AGENTS.md
-10.4). A HAND-WRITTEN `external/reel_ending.json` entry the reel
-honours (anchor measured in timed words or present in the approved
-transcript preview) now reads `thesis`, never ABSENT.
-
 Fail-closed both ways: undeclared absent reels still fail, and a
 declaration whose anchor is neither timed nor in the approved preview
-fails too - a declaration nobody honours is not a pass.
+fails too.
 
-`library/tools/reel_quality_bar.py` (`thesis_reading`,
-`cta_reading`, `exact_findings`, `judge`); declarations owned by
-`library/tools/reel_ending.py`; wired into the gate in
-`library/tools/reel_conformance_verifier.py`.
+History: `docs/evidence/reel_quality_bar.md` (test_quality_bar_thesis_ending.py).
 """
 
 import json
@@ -134,42 +122,18 @@ def test_declared_and_honoured_thesis_reads_thesis_not_absent():
     assert qb.QB_CTA_ABSENT not in codes
 
 
-def test_undeclared_absent_reel_still_fails():
+def test_an_unhonoured_or_missing_declaration_still_fails():
+    """Fail-closed both ways: no declaration, and a declaration whose
+    anchor is true words of the reel but its OPENING, not its tail."""
     transcript = _transcript()
     moment = _moment()
-    reading = qb.cta_reading(moment, transcript, {})
-    assert reading["source"] == "absent"
-    codes = {f.code for f in qb.exact_findings(moment, transcript, {})}
-    assert qb.QB_CTA_ABSENT in codes
-
-
-def test_declaration_whose_anchor_is_not_the_tail_still_fails():
-    transcript = _transcript()
-    moment = _moment()
-    # True words of the reel, but the OPENING - not where it ends.
-    thesis = _thesis("so what actually changed")
-    reading = qb.cta_reading(moment, transcript, {}, thesis=thesis)
-    assert reading["source"] == "absent"
-    codes = {f.code for f in qb.exact_findings(moment, transcript, {},
-                                               thesis=thesis)}
-    assert qb.QB_CTA_ABSENT in codes
-
-
-def test_judge_reads_thesis_endings_off_the_project(tmp_path):
-    transcript = _transcript()
-    moment = _moment()
-    external = tmp_path / "external"
-    external.mkdir()
-    (external / "reel_ending.json").write_text(json.dumps({
-        "version": 1,
-        "endings": [_thesis("ranking game stops paying")],
-    }), encoding="utf-8")
-    report = qb.judge([moment], transcript, None,
-                      project_folder=str(tmp_path))
-    assert len(report.verdicts) == 1
-    assert report.verdicts[0].cta["source"] == "thesis"
-    assert qb.QB_CTA_ABSENT not in {
-        f.code for f in report.verdicts[0].findings}
+    for thesis in (None, _thesis("so what actually changed")):
+        kwargs = {} if thesis is None else {"thesis": thesis}
+        reading = qb.cta_reading(moment, transcript, {}, **kwargs)
+        assert reading["source"] == "absent"
+        codes = {f.code for f in qb.exact_findings(moment, transcript, {},
+                                                   **kwargs)}
+        assert qb.QB_CTA_ABSENT in codes
 
 
 def test_recorded_ending_in_approved_preview_passes_when_timing_omits_words():

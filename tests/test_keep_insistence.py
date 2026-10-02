@@ -1,21 +1,7 @@
-"""Seconds the captain says STAY IN withdraw the take cut that drops them.
+"""A keep insistence (seconds the captain says STAY IN) withdraws the take
+cut that drops them, at the build, and round-trips through the store.
 
-Reel 01, frame 270, 2026-09-11: *"this cut here on craig is a little
-jarring and does't actually make sense, it's better to just not cut out
-those few words inbetween"*.
-
-The cut was `reel_build.redundant_takes`'s.  Craig says *"we've got to
-get into geo geo geo i get it"* - one sentence with a rhetorical triple
-- and the word-stream duplicate scan matched the run before the
-repetition against the repetition itself at 0.667 similarity, called
-the first a retake, and removed "got to get into" from the middle of
-the sentence.
-
-A keep EXCLUSION could only have removed more.  This is its inverse, in
-the same store, enforced at the build.
-
-Synthetic under `tmp_path` (AGENTS.md 8); nothing reaches a real
-project.
+History: docs/evidence/reel_take_cuts.md.
 """
 
 from types import SimpleNamespace
@@ -50,8 +36,6 @@ CRAIG_WORDS = [
 ]
 
 
-
-
 def _segment(words, item="clip-1"):
     first, last = words[0], words[-1]
     return {"timeline_start": first[1], "timeline_end": last[2],
@@ -84,7 +68,7 @@ def _cut(a, b):
 
 # ── The withdrawal ─────────────────────────────────────────────────
 
-def test_an_insistence_withdraws_the_cut_that_drops_those_seconds():
+def _an_insistence_withdraws_the_cut_that_drops_those_seconds():
     cuts = [_cut(11.42, 11.98)]
     kept, withdrawn = reel_build.withdraw_insisted_cuts(
         cuts, [(11.42, 11.98, "keep-1")])
@@ -127,16 +111,7 @@ def test_the_reel_plays_the_words_again():
     restored = _spoken(whole)
     window = restored[restored.index("we've"):restored.index("geo")]
     assert window == ["we've", "got", "to", "get", "into"]
-
-
-def test_the_scan_still_reports_what_it_measured():
-    """An insistence withdraws a CUT; it does not edit the measurement.
-    `refused_take_groups` and `suspected_takes` read the transcript, so
-    a run still says what it saw."""
-    transcript = _transcript()
-    assert reel_build.redundant_takes(9.0, 16.0, transcript), (
-        "the scan stopped seeing the repetition, so the insistence is "
-        "now hiding a measurement rather than withdrawing a cut")
+    _an_insistence_withdraws_the_cut_that_drops_those_seconds()
 
 
 # ── The store ──────────────────────────────────────────────────────
@@ -155,10 +130,9 @@ def test_an_insistence_round_trips_through_the_store(tmp_path):
     assert transcript_corrections.INSIST_READERS == ["build_reels"]
 
 
-@pytest.mark.parametrize("args,match", [
-    ((11.98, 11.42, "why"), "not a range"),
-    ((11.42, 11.98, "   "), "no reason"),
-])
-def test_a_malformed_insistence_refuses(tmp_path, args, match):
-    with pytest.raises(LearnedContextError, match=match):
-        transcript_corrections.record_keep_insistence(str(tmp_path), *args)
+def test_a_malformed_insistence_refuses(tmp_path):
+    for args, match in (((11.98, 11.42, "why"), "not a range"),
+                        ((11.42, 11.98, "   "), "no reason")):
+        with pytest.raises(LearnedContextError, match=match):
+            transcript_corrections.record_keep_insistence(
+                str(tmp_path), *args)

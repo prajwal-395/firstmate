@@ -1,36 +1,8 @@
-"""Reel 13's repetitive Craig line, removed in the keep ranges.
+"""Reel 13's repeated Craig line goes as a recorded keep exclusion: the
+cutter refuses the pair, the strike grows over wordless edges past the
+angle switch, and no edge lands mid-word.
 
-The captain, 2026-09-12, on frame 189 of
-`Reel 13 - the-accounting-firm-ai-called-healthcare`: *"craig's line at
-this point is a bit repetitive with the line he says just before this,
-can you fix this?"*
-
-The pair, off the master transcript (real words, real seconds):
-
-    889.92-893.02  Craig   "and that's what happened with that company
-                            why they came back as a healthcare company"
-    893.46-895.12  Akshita "And not an accounting software company, yes."
-    895.47-899.40  Craig   "and that's one of the reasons why that company
-                            got called a healthcare company"
-
-This is a cutter MISS by design, not by accident: the two readings are
-paraphrase across an interjection, marginal on every bar the cut lane
-holds (containment 0.667/1.0 against 0.75, Jaccard 0.286/0.50 against
-0.55, durations 1.625s against 0.8s at ratio 2.03 over 2.0). Loosening
-any of those bars to catch it would also catch deliberate restatement -
-Reel 30's green marker records the cutter dropping a repeated closing
-phrase that was never a retake, and the fix there was WITHDRAWING the
-cut. So the cutter still refuses this pair, the suspect lane still
-flags it for the captain, and the captain's verdict travels as a
-recorded keep exclusion: Craig's SECOND line goes
-(895.471-899.400, the one AT the marker), the first stays.
-
-And the Reel 30 seam rule holds here: an exclusion edge through a word
-plays half a word and then jumps (`exclusion_midword_edges` refuses the
-build). Both edges of this one sit exactly on timed word edges, so the
-seam carries no partial word and no clipped breath - the cut starts on
-"and"'s first frame (grown back over the wordless lead-in to "yes."'s
-last) and ends on "company"'s last.
+History: docs/evidence/reel_take_cuts.md.
 """
 
 from types import SimpleNamespace
@@ -158,44 +130,6 @@ def test_the_cutter_refuses_the_pair_and_the_suspect_lane_flags_it():
     assert (891.40, 898.60) in pairs
 
 
-def test_the_recorded_strike_cuts_exactly_the_second_line():
-    """`exclusion_cuts_for_span` clips the strike to the span, and the
-    wordless lead-in growth pulls its start back to "yes."'s last frame
-    - so no sub-floor nub of room tone is stranded for F7 to refuse."""
-    cuts = tc.exclusion_cuts_for_span(
-        START, END, [{"start": EXCLUDED[0], "end": EXCLUDED[1],
-                      "id": "reel13-craig-repeat"}])
-    assert cuts == [(895.471, 899.40, "reel13-craig-repeat")]
-    grown = tc.grow_cuts_over_wordless_leadin(cuts, _transcript())
-    assert [(round(s, 3), round(e, 3)) for s, e, _ in grown] == [
-        (895.120, 899.400)]
-
-
-def test_the_reel_keeps_one_line_and_plays_no_half_word():
-    """One reel in, one reel out, fewer seconds: the first line stays,
-    the second goes, and every interior edge sits on a timed word edge.
-    """
-    transcript = _transcript()
-    grown = tc.grow_cuts_over_wordless_leadin(
-        tc.exclusion_cuts_for_span(
-            START, END, [{"start": EXCLUDED[0], "end": EXCLUDED[1],
-                          "id": "reel13-craig-repeat"}]),
-        transcript)
-    moment = SimpleNamespace(timeline_start=START, timeline_end=END)
-    ranges = reel_build.reel_ranges(
-        moment, transcript,
-        extra_cuts=[(s, e) for s, e, _ in grown])
-    assert ranges == [(START, 895.120), (899.400, END)]
-    played = " ".join(
-        s["text"] for s in transcript["segments"]
-        if any(a < s["timeline_end"] and s["timeline_start"] < b
-               for a, b in ranges))
-    assert "they came back as a healthcare company" in played
-    assert "one of the reasons why that company got called" not in played
-    assert reel_build.exclusion_midword_edges(
-        START, END, grown, transcript) == []
-
-
 # ── The tail edge: what the first beside build refused ────────────────
 #
 # The strike is recorded on a real word edge and STILL stranded a nub,
@@ -218,29 +152,16 @@ def _grown_cuts(transcript):
     return tc.grow_cuts_over_wordless_tail(head, transcript)
 
 
-def test_the_strike_end_grows_forward_over_the_wordless_tail():
-    """Craig's "company" ends 899.400 and Akshita's "Yeah," starts
-    899.570, so 170ms of room tone sits between them. The end reaches
-    her word's start and stops there."""
-    grown, held = _grown_cuts(_transcript())
-    assert [(round(s, 3), round(e, 3)) for s, e, _ in grown] == [
-        (895.120, 899.570)]
-    assert held == []
+def test_the_strike_grows_over_wordless_edges_and_clears_the_switch():
+    """The recorded strike is clipped to the span and grown both ways:
+    back to "yes."'s last frame (no sub-floor room-tone nub for F7), and
+    forward over the 170ms between Craig's "company" (899.400) and
+    Akshita's "Yeah," (899.570), stopping at her word.
 
-
-def test_the_grown_tail_clears_the_masters_angle_switch():
-    """THE FAILING INPUT, in words.
-
-    Resuming the keep range at the recorded 899.400 admitted 82ms of
-    Craig's camera, because the master does not switch back to Akshita
-    until 899.482. The build gate refused it:
-
-        video item 8 'LCATL0013.MXF' is 2 frames (0.083s), under the
-        0.5s readability floor (12 frames at 23.976fps)
-
-    Grown, the cut covers the switch, so the second range opens on
-    Akshita's own clip and no sliver of Craig's is placed.
-    """
+    THE FAILING INPUT: resuming at the recorded 899.400 admitted 82ms of
+    Craig's camera (the master switches back at 899.482), which the build
+    gate refused as a 2-frame item under the readability floor. Grown,
+    the cut covers the switch and no sliver of Craig's is placed."""
     transcript = _transcript()
     head_only = tc.grow_cuts_over_wordless_leadin(
         tc.exclusion_cuts_for_span(
@@ -249,9 +170,10 @@ def test_the_grown_tail_clears_the_masters_angle_switch():
         transcript)
     assert head_only[0][1] < ANGLE_SWITCH_BACK, (
         "the head-only growth is what stranded the flash")
-
-    grown, _held = _grown_cuts(transcript)
-    assert grown[0][1] >= ANGLE_SWITCH_BACK
+    grown, held = _grown_cuts(transcript)
+    assert [(round(s, 3), round(e, 3)) for s, e, _ in grown] == [
+        (895.120, 899.570)]
+    assert held == []
     fps = 24000 / 1001
     stranded = round((ANGLE_SWITCH_BACK - grown[0][1]) * fps)
     assert stranded <= 0, f"{stranded} frame(s) of the wrong camera left"

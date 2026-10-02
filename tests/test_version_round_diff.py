@@ -56,7 +56,7 @@ def _reel(rows, when="2026-09-12T01:28Z"):
             "rows": rows, "source": rounds.SOURCE_STAMPED}
 
 
-def test_a_card_added_to_a_row_is_named_with_its_span(tmp_path):
+def test_a_row_gained_or_lost_is_named_in_the_guards_vocabulary(tmp_path):
     """The real shape of the 2026-09-12 round on the captain's project:
     a tail logo card arrived on the Akshita row of six reels."""
     earlier = {"Reel 01": _reel({"video:Akshita": _row(
@@ -74,6 +74,16 @@ def test_a_card_added_to_a_row_is_named_with_its_span(tmp_path):
     changed = diff["reels"]["Reel 01"]["changed"]
     assert [row["key"] for row in changed] == ["video:Akshita"]
     assert changed[0]["gained"][0]["name"] == "logo_reveal.mov"
+
+    # A whole row gone is named as gone, in the promote guard's own
+    # vocabulary (the V5 'Semantic' row shape).
+    earlier = {"Reel 01": _reel({
+        "video:Semantic": _row("Semantic", [_item("s.mov", 0, 40)])})}
+    project = _rounds(tmp_path / "gone", earlier, {"Reel 01": _reel({})})
+    diff = rounds.diff_rounds(str(project), 2, 3)
+    entry = diff["reels"]["Reel 01"]
+    assert entry["changed"][0]["state"] == rounds.LOST_ROW
+    assert "the row is gone" in rounds.render_diff(diff)
 
 
 def test_overlays_re_rendered_at_identical_spans_are_not_a_change(
@@ -102,15 +112,13 @@ def test_overlays_re_rendered_at_identical_spans_are_not_a_change(
     # filenames: nothing here parses a naming scheme.
     assert "sub_0_bbbb.mov" not in rendered
 
-
-def test_a_row_that_really_moved_is_not_read_as_a_re_render(tmp_path):
-    """The bound on the classification above: one span differs and the
-    row is a change again."""
+    # The bound on the classification: one span differs and the row is
+    # a change again.
     earlier = {"Reel 01": _reel({"video:Subtitles": _row(
         "Subtitles", [_item("a.mov", 0, 50), _item("b.mov", 50, 50)])})}
     later = {"Reel 01": _reel({"video:Subtitles": _row(
         "Subtitles", [_item("a.mov", 0, 50), _item("b.mov", 60, 50)])})}
-    project = _rounds(tmp_path, earlier, later)
+    project = _rounds(tmp_path / "moved", earlier, later)
 
     entry = rounds.diff_rounds(str(project), 2, 3)["reels"]["Reel 01"]
     assert [row["key"] for row in entry["changed"]] == ["video:Subtitles"]
@@ -126,22 +134,6 @@ def test_a_reel_not_rebuilt_in_the_round_says_so(tmp_path):
     diff = rounds.diff_rounds(str(project), 2, 3)
     assert diff["reels"]["Reel 13"]["state"] == "not rebuilt in this round"
     assert "not rebuilt in round 3" in rounds.render_diff(diff)
-
-
-
-
-def test_a_whole_row_gone_is_named_as_gone(tmp_path):
-    """The V5 'Semantic' row vanishing is the shape the promote guard
-    was built for; a round diff reports it the same way and in the same
-    vocabulary."""
-    earlier = {"Reel 01": _reel({
-        "video:Semantic": _row("Semantic", [_item("s.mov", 0, 40)])})}
-    later = {"Reel 01": _reel({})}
-    project = _rounds(tmp_path, earlier, later)
-    entry = rounds.diff_rounds(str(project), 2, 3)["reels"]["Reel 01"]
-    assert entry["changed"][0]["state"] == rounds.LOST_ROW
-    assert "the row is gone" in rounds.render_diff(
-        rounds.diff_rounds(str(project), 2, 3))
 
 
 

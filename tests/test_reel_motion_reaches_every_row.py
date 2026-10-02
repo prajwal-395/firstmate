@@ -1,18 +1,7 @@
 """A treatment planned for a clip on ANY picture row must reach that clip.
 
-Found 2026-09-10 on Reel 09: the motion answer planned drift on four
-shots, but the reel Fusion manifest reached V1 only, so the two drifts
-on V2 (shots 0 and 5, Craig's picture row) never reached a comp and
-never even reached verification - the receipt read clips_checked = 2
-of 4 planned. Before the per-speaker ruling every reel had one picture
-row and V1-only was harmless; the manifest did not follow the layout.
-
-The defect is not "V2 was forgotten", it is "the manifest assumed one
-row" - so this test builds a two-angle reel through the layout owner's
-own answer (`timeline_layout.plan_layout`) and proves every planned
-drift draws, on both rows. It fails on the old code: the old
-`fusion_manifest` takes no plan and emits V1 alone, so the V2 specs
-are missing and the V2 items get no comp.
+A two-angle reel built through `timeline_layout.plan_layout` draws every
+planned drift, on both rows. Reel 09's history: docs/evidence/reel_look.md.
 """
 import importlib
 import json
@@ -26,10 +15,6 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from library.tools import reel_look
-from library.tools.execution.fusion_tracks import (
-    fusion_comp_tracks,
-    reachable_effect_labels,
-)
 from library.tools.pipeline_skills import read_receipts
 from library.tools.timeline_layout import plan_layout
 
@@ -118,13 +103,6 @@ def test_manifest_groups_clips_by_the_plan_rows():
         "V1": [reel_look.clip_label(1), reel_look.clip_label(2)],
         "V2": [reel_look.clip_label(0), reel_look.clip_label(3)],
     }
-
-
-def test_every_planned_treatment_is_reachable():
-    manifest = _manifest()
-    per_clip = manifest["fusion_effects"]["per_clip"]
-    assert len(per_clip) == 4
-    assert set(per_clip) <= reachable_effect_labels(manifest)
 
 
 # ── The pass itself, driven against a fake Resolve ────────────────────

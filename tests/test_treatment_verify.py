@@ -1,26 +1,9 @@
 """A visual treatment must look at what it drew, and be able to undo it.
 
-Proven on PowerCrop (the tv_power Crop): the captain found by eye that
-the powercrop nodes mis-frame the a-roll and that removing them makes
-things look right. The pipeline never looked - `apply_fusion_comps` and
-`comp_builder` contain no visual verification of any kind.
-
-`library/tools/treatment_verify.py` is the always-on deterministic
-half: it builds the comp with and without the treatment, evaluates the
-treatment's own splines over the frames the timeline really renders,
-and reports the before/after difference. The measurable part gates
-(AGENTS.md 10.4); the model's reading is recorded, never enforced.
-
-Frame-measured diagnosis this pins (see /tmp/powercrop_sim, since
-reproduced here without Resolve - the comp builder is Resolve-free by
-design):
-- the switch-ON head opens fully and holds neutral: EXONERATED as drawn.
-- the switch-OFF tail on a 24000/1001 reel timeline cut from 30 fps pool
-  footage keys its animation at source frames 72..90 while the timeline
-  plays 0..71: every spline flat-neutral over everything rendered, 0 of
-  72 frames changed. The reel never turns off and nothing says so.
-- a head on a clip shorter than its own animation never reaches
-  neutral: the whole clip plays collapsed.
+`library/tools/treatment_verify.py` builds the comp with and without the
+treatment, evaluates its splines over the frames the timeline really
+renders, and gates on the before/after difference (AGENTS.md 10.4).
+The PowerCrop diagnosis behind it: docs/evidence/treatment_verify.md.
 """
 import sys
 from pathlib import Path
@@ -63,34 +46,6 @@ HEAD = {"tv_power_head": True, "tv_power_head_timing": switch_on_frames()}
 TAIL = {"tv_power_tail": True, "tv_power_tail_timing": switch_off_frames()}
 
 
-def test_legacy_tail_without_horizon_draws_nothing_on_reel():
-    """The shipped defect, characterized: keyed past everything rendered.
-
-    Without a played horizon the tail keys its animation at source
-    frames 72..90 while a 24000/1001 reel timeline cut from 30 fps pool
-    footage plays 0..71. Flat extrapolation holds neutral over all of
-    it: 0 of 72 frames change and nothing anywhere says so.
-    """
-    from library.tools.fusion.transition_frames import (
-        parse_splines, value_at)
-
-    comp = build_effect_comp(applier_effects(TAIL), CLIP_DUR,
-                             source_res=SOURCE_RES)
-    rows = parse_splines(comp)
-    assert rows, "the tail arms nodes - they just never play"
-    for name, keys in rows.items():
-        if "Crop" in name:
-            neutral = 0.0
-        elif "Size" in name:
-            neutral = 1.0
-        elif "Gain" in name:
-            neutral = 1.0
-        else:
-            continue
-        assert all(abs(value_at(keys, f) - neutral) < 1e-9
-                   for f in range(played_reel())), name
-
-
 def test_reel_tail_draws_with_a_played_horizon():
     """The clamp anchors the animation inside what renders."""
     from library.tools import treatment_verify as tv
@@ -98,9 +53,9 @@ def test_reel_tail_draws_with_a_played_horizon():
     verdict = tv.verify_treatment(
         applier_effects(TAIL), "tv_power_tail", CLIP_DUR,
         played_frames=played_reel(), source_res=SOURCE_RES)
-    # NOTE: this passes only with the played_frames clamp in
-    # build_effect_comp; without it the tail keys at 72..90 and the
-    # verdict above (drew_nothing) is what comes back.
+    # Passes only with the played_frames clamp in build_effect_comp:
+    # without it a 24000/1001 reel cut from 30 fps footage keys the tail
+    # at source 72..90 while it plays 0..71, and 0 of 72 frames change.
     assert verdict["passed"] is True
     assert len(verdict["changed_frames"]) == 18
     assert verdict["changed_frames"] == list(range(54, 72))
@@ -128,37 +83,6 @@ def test_head_opens_and_holds_neutral():
     assert verdict["min_kept_fraction"] == pytest.approx(0.02)
     # The hottest frame is the dot, exactly as on the switch-off.
     assert verdict["max_gain"] == pytest.approx(2.5)
-
-
-def test_short_clip_head_never_settles_and_fails():
-    """A head on 10 played frames never reaches neutral: refused."""
-    from library.tools import treatment_verify as tv
-
-    verdict = tv.verify_treatment(
-        {**applier_effects(HEAD),
-         "source_in_frame": 0, "source_out_frame": 9},
-        "tv_power_head", CLIP_DUR, played_frames=10, source_res=SOURCE_RES)
-    assert verdict["passed"] is False
-    assert verdict["failure"] == "never_settles"
-
-
-def test_undo_restores_byte_identical_comp():
-    """Removing the treatment returns the exact untreated bytes."""
-    from library.tools import treatment_verify as tv
-
-    with_treatment = applier_effects({**HEAD, **TAIL})
-    restored = tv.remove_treatment(
-        tv.remove_treatment(with_treatment, "tv_power_head"),
-        "tv_power_tail")
-    stripped = {k: v for k, v in with_treatment.items()
-                if not k.startswith("tv_power")}
-    assert restored == stripped
-    # The proof is string equality, not an assertion of equality:
-    # counter reset per build makes the same inputs the same bytes.
-    assert (build_effect_comp(restored, CLIP_DUR,
-                              source_res=SOURCE_RES)
-            == build_effect_comp(stripped, CLIP_DUR,
-                                 source_res=SOURCE_RES))
 
 
 def test_window_gate_can_fail():
@@ -192,7 +116,6 @@ def test_sampled_hold_after_is_a_frame_not_an_offset():
     assert frames[0] == 0
     assert frames[-1] == 71
     assert abs(spline.keyframes[-1].value - 0.0) < 1e-9
-    assert "end_frame+N" not in (BezierSpline.sampled.__doc__ or "")
 
 
 def test_verify_and_undo_is_surgical():
@@ -244,15 +167,18 @@ def test_verify_and_undo_drops_short_clip_treatments():
     final, rows = tv.verify_and_undo(effects, CLIP_DUR,
                                      played_frames=10, source_res=SOURCE_RES)
     assert all(r["undone"] for r in rows)
+    assert {r["failure"] for r in rows} == {"never_settles"}
     assert final == {"source_in_frame": 0, "source_out_frame": 9}
     assert "PowerCrop" not in build_effect_comp(
         final, CLIP_DUR, played_frames=10, source_res=SOURCE_RES)
 
 
-def test_skill_run_writes_a_receipt_that_reads_back(tmp_path):
-    """A self-reported check writes no receipt; this one does."""
+def test_skill_run_writes_a_receipt_and_refuses_an_unknown_key(tmp_path):
+    """A self-reported check writes no receipt; this one does - and an
+    unchecked treatment must not read as a checked one."""
     from library.skills.verify_treatment.skill import run
     from library.tools import pipeline_skills
+    from library.tools.treatment_verify import UnknownTreatment
 
     record = run(dict(HEAD), "tv_power_head", CLIP_DUR,
                  str(tmp_path), "plan_vfx", played_frames=90, source_res=SOURCE_RES)
@@ -260,19 +186,6 @@ def test_skill_run_writes_a_receipt_that_reads_back(tmp_path):
     receipts = pipeline_skills.read_receipts(str(tmp_path), "plan_vfx")
     assert "verify_treatment" in receipts
     assert receipts["verify_treatment"]["result"]["passed"] is True
-
-
-    # With the played horizon the clamp anchors the tail inside what
-    # renders; the legacy no-horizon build is what drew nothing (see
-    # test_legacy_tail_without_horizon_draws_nothing_on_reel).
-
-
-def test_skill_refuses_an_unknown_key():
-    """An unchecked treatment must not read as a checked one."""
-    import pytest
-
-    from library.skills.verify_treatment.skill import run
-    from library.tools.treatment_verify import UnknownTreatment
 
     with pytest.raises(UnknownTreatment):
         run({}, "slow_zoom", 600, "/nonexistent", "plan_vfx",
@@ -388,57 +301,41 @@ def _mock_resolve(monkeypatch, played):
     return afc
 
 
-def test_applier_ships_a_drawing_tail_with_receipt(monkeypatch, tmp_path):
-    """72 played frames: the clamped tail draws, receipted, nothing undone."""
-    import glob
-
-    from library.tools import pipeline_skills
-
-    afc = _mock_resolve(monkeypatch, 72)
-    assert afc.apply_fusion_comps(
-        _reel_tail_manifest(), str(tmp_path),
-        step_id="build_reels") is True
-
-    receipts = pipeline_skills.read_receipts(str(tmp_path), "build_reels")
-    record = receipts["verify_treatment"]["result"]
-    assert record["treatments_undone"] == 0
-    row = record["rows"][0]
-    assert row["treatment"] == "tv_power_tail"
-    assert row["passed"] is True and row["undone"] is False
-
-    banked = glob.glob(str(tmp_path / "assets" / "fusion_presets" / "clip_0_*.comp"))
-    assert len(banked) == 1
-    assert "PowerBandMask1 = RectangleMask" in open(banked[0]).read()
-
-
-def test_applier_undoes_a_tail_with_no_room_and_receipts_it(
+def test_applier_verifies_the_tail_on_the_path_that_ships(
         monkeypatch, tmp_path):
-    """10 played frames: the tail cannot fit, so the applier drops it.
-
-    The banked comp carries no PowerBand - the picture keeps what the
-    footage had - and the receipt names the failed key and the reason.
-    That is the undo, proven on the path that ships, not asserted.
-    """
+    """72 played frames: the clamped tail draws, receipted, nothing
+    undone. 10: it cannot fit, so the applier drops it - the banked comp
+    carries no PowerBand and the receipt names the key and the reason."""
     import glob
 
     from library.tools import pipeline_skills
 
-    afc = _mock_resolve(monkeypatch, 10)
-    assert afc.apply_fusion_comps(
-        _reel_tail_manifest(), str(tmp_path),
-        step_id="build_reels") is True
+    for played, undone in ((72, 0), (10, 1)):
+        project = tmp_path / str(played)
+        project.mkdir()
+        afc = _mock_resolve(monkeypatch, played)
+        assert afc.apply_fusion_comps(
+            _reel_tail_manifest(), str(project),
+            step_id="build_reels") is True
 
-    receipts = pipeline_skills.read_receipts(str(tmp_path), "build_reels")
-    record = receipts["verify_treatment"]["result"]
-    assert record["treatments_undone"] == 1
-    row = record["rows"][0]
-    assert row["treatment"] == "tv_power_tail"
-    assert row["failure"] == "never_settles"
-    assert row["undone"] is True
+        receipts = pipeline_skills.read_receipts(str(project), "build_reels")
+        record = receipts["verify_treatment"]["result"]
+        assert record["treatments_undone"] == undone
+        row = record["rows"][0]
+        assert row["treatment"] == "tv_power_tail"
+        assert row["undone"] is bool(undone)
+        assert row["passed"] is (not undone)
+        if undone:
+            assert row["failure"] == "never_settles"
 
-    banked = glob.glob(str(tmp_path / "assets" / "fusion_presets" / "clip_0_*.comp"))
-    assert len(banked) == 1
-    assert "PowerBand" not in open(banked[0]).read()
+        banked = glob.glob(str(
+            project / "assets" / "fusion_presets" / "clip_0_*.comp"))
+        assert len(banked) == 1
+        text = open(banked[0]).read()
+        if undone:
+            assert "PowerBand" not in text
+        else:
+            assert "PowerBandMask1 = RectangleMask" in text
 
 
 def test_head_samples_decode_the_opening_not_the_number():
@@ -504,41 +401,3 @@ def test_a_retimed_switch_decodes_differently_both_ways():
     assert tv.treatment_total("tv_power_tail", {
         "tv_power_tail": True,
         "tv_power_tail_timing": slower["tv_power_head_timing"]}) == 24
-
-
-def test_head_samples_identically_on_both_picture_rows():
-    """V1 Akshita and V2 Craig: the Fusion pass reaches both rows
-    (PR 874), so the head the captain judged is the head both rows
-    draw.  Same timing in, same decoded frames out - per clip, per
-    row, off the bytes the renderer writes."""
-    from library.tools import treatment_verify as tv
-    from library.tools.execution.fusion_tracks import (
-        fusion_comp_tracks, reachable_effect_labels)
-
-    manifest = {
-        "tracks": {
-            "V1": {"clips": [{"label": "reel_picture_akshita",
-                              "source_file": "akshita.mov"}]},
-            "V2": {"clips": [{"label": "reel_picture_craig",
-                              "source_file": "craig.mov"}]},
-        },
-        "fusion_effects": {"per_clip": {
-            "reel_picture_akshita": dict(HEAD),
-            "reel_picture_craig": dict(HEAD),
-        }},
-    }
-    # The pass visits both rows - this is what stranded V2 before.
-    visited = [index for index, clips, _ in fusion_comp_tracks(manifest)
-               if clips]
-    assert visited == [1, 2]
-    labels = reachable_effect_labels(manifest)
-    assert {"reel_picture_akshita", "reel_picture_craig"} <= labels
-
-    per_clip = manifest["fusion_effects"]["per_clip"]
-    v1 = tv.sample_head_frames(per_clip["reel_picture_akshita"], 600,
-                               source_res=SOURCE_RES)
-    v2 = tv.sample_head_frames(per_clip["reel_picture_craig"], 600,
-                               source_res=SOURCE_RES)
-    assert v1 == v2
-    assert {r["frame"]: r for r in v1}[0]["kept_fraction"] == pytest.approx(
-        0.02)

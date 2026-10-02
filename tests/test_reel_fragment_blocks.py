@@ -1,27 +1,9 @@
 """A mid-sentence transcript row is given back to its sentence.
 
-The defect, on Reel 23 of the captain's field test: three caption cards
-under half a second - ``them.`` 0.181s, ``comes in.`` 0.422s and
-``that's`` 0.140s.  None was a grouping fault.  Each was a WHOLE spine
-block, because the reel spine makes one block per transcript row, and
-each of those rows was one half of a sentence WhisperX split in two:
+Both directions: it fires on a fragment whose sentence continues into a
+neighbour, and does NOT fire across a cut, a clip or a speaker.
 
-    135.616-136.460  "It was definitely going to help"
-    136.540-136.721  "them."
-
-Same speaker, same clip, an 80ms pause and nothing removed.  Step 4.01
-groups WITHIN a block and clamps every card to it, so the second row's
-block is 0.181s and its only card is 0.181s at every partition.  The
-block is the ceiling on the card, so the block is where it is fixed.
-
-These tests prove BOTH directions, because a rule that only ever fires
-is as useless as one that never does:
-
-* it fires on a fragment whose sentence continues into a neighbour, and
-  the short card is gone;
-* it does NOT fire across a cut, across a clip, across a speaker, or on
-  a block long enough to carry a card - and a spine with no fragment in
-  it comes back unchanged, block for block.
+History: `docs/evidence/reel_spine.md` (test_reel_fragment_blocks.py).
 """
 from dataclasses import dataclass
 
@@ -150,30 +132,6 @@ def test_a_head_fragment_falls_back_to_the_previous_sentence():
         >= MIN_CAPTION_DISPLAY_SECONDS
 
 
-def test_a_head_fragment_with_neither_side_connected_is_left_alone():
-    """The fallback's other direction: previous ends a sentence, the next
-    block is another clip, AND the previous side is cut too.
-
-    Nothing continuous can take the fragment, so it stays and is named -
-    a short card the run says aloud rather than one it invents continuity
-    for.
-    """
-    transcript = {"segments": [
-        row("Akshita", "Authority and trust.",
-            81.901, 83.42, "cam_a", 4830.045),
-        # Same reel seconds, but 3 seconds later in the SOURCE: a cut.
-        row("Akshita", "Yeah.", 83.521, 83.621, "cam_a", 4834.665),
-        row("Akshita", "Let us do the work for you.",
-            83.621, 84.7, "cam_b", 3673.531),
-    ]}
-    spine = spine_for_reel(Moment(81.0, 85.0), transcript)
-
-    assert texts(spine) == ["Authority and trust.", "Yeah.",
-                            "Let us do the work for you."]
-    assert spine["fragment_blocks_merged"] == 0
-    assert spine["fragment_blocks_unmerged"] == ["Yeah."]
-
-
 # ── It does NOT fire, and says which ones it left ───────────────────
 
 def test_a_fragment_is_left_alone_across_a_cut_and_is_named():
@@ -194,7 +152,18 @@ def test_a_fragment_is_left_alone_across_a_cut_and_is_named():
     assert spine["fragment_blocks_merged"] == 0
     assert spine["fragment_blocks_unmerged"] == ["this."]
 
-
-# ── It does not fire on correct output ──────────────────────────────
-
-
+    # A head fragment whose previous side is cut too, and whose next block
+    # is another clip: nothing continuous can take it, so it stays, named.
+    transcript = {"segments": [
+        row("Akshita", "Authority and trust.",
+            81.901, 83.42, "cam_a", 4830.045),
+        # Same reel seconds, but 3 seconds later in the SOURCE: a cut.
+        row("Akshita", "Yeah.", 83.521, 83.621, "cam_a", 4834.665),
+        row("Akshita", "Let us do the work for you.",
+            83.621, 84.7, "cam_b", 3673.531),
+    ]}
+    spine = spine_for_reel(Moment(81.0, 85.0), transcript)
+    assert texts(spine) == ["Authority and trust.", "Yeah.",
+                            "Let us do the work for you."]
+    assert spine["fragment_blocks_merged"] == 0
+    assert spine["fragment_blocks_unmerged"] == ["Yeah."]

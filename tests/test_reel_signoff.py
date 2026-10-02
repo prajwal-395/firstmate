@@ -1,22 +1,10 @@
 """A BUILT reel carries a durable sign-off, and promotion respects it.
 
-Before this, approval was a state on a PROPOSED moment ruled on before
-the build (`reel_proposal.Approval`), so the newest build under the
-final name was the answer by construction and an approved reel could be
-silently replaced. `staging_holds.py:14` states the absence in this
-repository's own words.
-
-Each test fails if its mechanism is removed:
-
-- the refusal itself - delete `assert_declared` from the promotion loop
-  and the signed-off reel promotes silently;
-- the DECLARATION half - the refusal prints the exact flag, and that
-  flag proceeds;
-- per-reel scoping: a signed-off reel refusing never holds back a
-  sibling;
-- the sign-off being superseded rather than deleted;
-- an unreadable sign-off file refusing rather than reading as "nobody
-  approved anything".
+A signed-off reel refuses promotion unless the promotion declares
+`--supersede`, per reel (a refusal never holds back a sibling); an
+unreadable sign-off file refuses rather than reading as "nobody approved
+anything". The declare-then-proceed half is pinned in
+`tests/test_reel_retirement.py::test_a_signed_off_backup_retires_on_the_default_path`.
 """
 
 from unittest.mock import patch
@@ -61,7 +49,7 @@ def project(tmp_path):
 # ── The store ────────────────────────────────────────────────────
 
 
-def test_a_signoff_survives_the_containers_a_build_puts_a_reel_in(project):
+def test_a_signoff_survives_its_containers_and_records_which_build(project):
     """A reel is staged, backed up and promoted - three names for one
     reel. A sign-off keyed on the container name would evaporate the
     moment the build touched it."""
@@ -72,11 +60,8 @@ def test_a_signoff_survives_the_containers_a_build_puts_a_reel_in(project):
         f"{REEL} (pre-rebuild backup)",
     ):
         assert signoff.signoff_for(str(project), container) is not None
-
-
-def test_a_signoff_records_which_build_was_approved(project):
-    """A bare "approved" flag cannot answer whether the timeline in
-    front of you is still the one that was signed off."""
+    # And it records WHICH build was approved: a bare flag cannot answer
+    # whether the timeline in front of you is still the signed one.
     rows = {
         "video:A": {
             "media_type": "video",
@@ -87,13 +72,13 @@ def test_a_signoff_records_which_build_was_approved(project):
             "frames": 0,
         }
     }
-    signoff.sign_off(str(project), REEL, rows=rows)
+    signoff.sign_off(str(project), OTHER, rows=rows)
     assert "still carries the rows that were approved" in signoff.describe(
-        str(project), REEL, rows
+        str(project), OTHER, rows
     )
     moved = {"video:A": {**rows["video:A"], "count": 1, "frames": 10}}
     assert "a later build has taken this name" in signoff.describe(
-        str(project), REEL, moved
+        str(project), OTHER, moved
     )
 
 
@@ -143,69 +128,33 @@ def _promote(resolve, project, staged_to_final, supersede=None):
 
 
 def test_promotion_refuses_over_an_undeclared_signoff(project):
-    """The whole point. Remove `assert_declared` from the promotion and
-    the signed-off timeline is replaced with no word said."""
+    """Remove `assert_declared` from the promotion and the signed-off
+    timeline is replaced with no word said. Per reel, like the guard: the
+    refusal never holds back a sibling (the 2026-09-11 round lost three
+    buildable reels to one refusal)."""
     signoff.sign_off(str(project), REEL, note="the ending is right now")
     original, staging = _pair(REEL)
-    resolve = FakeProject([FakeTimeline(MASTER), original, staging])
-
-    with pytest.raises(ReelBuildError) as refused:
-        _promote(resolve, project, {REEL: staging.GetName()})
-
-    message = str(refused.value)
-    assert "SIGNED OFF" in message
-    assert "the ending is right now" in message
-    assert f"--supersede {REEL!r}" in message
-    # Nothing was renamed: the approved timeline is still there and the
-    # staging is untouched for a deliberate re-run.
-    assert original.GetName() == REEL
-    assert staging.GetName() == f"{REEL} (rebuild staging)"
-    assert resolve.deleted == []
-    assert signoff.signoff_for(str(project), REEL) is not None
-
-
-def test_the_declaration_the_refusal_prints_proceeds(project):
-    """Declare, then proceed - the shape `reel_replace_guard` already
-    takes. A refusal that cannot be overridden is one an operator routes
-    around; what must never happen is an accidental replacement."""
-    signoff.sign_off(str(project), REEL, note="ships")
-    original, staging = _pair(REEL)
-    resolve = FakeProject([FakeTimeline(MASTER), original, staging])
-
-    promoted = _promote(resolve, project, {REEL: staging.GetName()}, supersede=[REEL])
-
-    assert promoted["promoted"] == [REEL]
-    assert REEL in promoted["superseded_signoffs"]
-    # Superseded, never deleted: "this reel was approved once and then
-    # rebuilt" is exactly the question that had no answer before.
-    assert signoff.signoff_for(str(project), REEL) is None
-    history = signoff.read_signoffs(str(project))["superseded"]
-    assert history[0]["ended_by"] == "superseded"
-    assert history[0]["note"] == "ships"
-
-
-def test_a_signed_off_reel_never_holds_back_a_sibling(project):
-    """Per reel, like the guard: the 2026-09-11 round lost three
-    buildable reels to one refusal, and that structure is why it cannot
-    happen again."""
-    signoff.sign_off(str(project), REEL)
-    signed, signed_staging = _pair(REEL)
     other, other_staging = _pair(OTHER)
     resolve = FakeProject(
-        [FakeTimeline(MASTER), signed, signed_staging, other, other_staging]
+        [FakeTimeline(MASTER), original, staging, other, other_staging]
     )
 
     with pytest.raises(ReelBuildError) as refused:
         _promote(
             resolve,
             project,
-            {REEL: signed_staging.GetName(), OTHER: other_staging.GetName()},
+            {REEL: staging.GetName(), OTHER: other_staging.GetName()},
         )
 
     message = str(refused.value)
+    assert "SIGNED OFF" in message
+    assert "the ending is right now" in message
+    assert f"--supersede {REEL!r}" in message
     assert f"Promoted 1 reel(s): {[OTHER]}" in message
-    assert REEL in message
-    # The sibling really landed, and the signed-off reel is untouched.
     assert OTHER in resolve.names()
-    assert signed.GetName() == REEL
-    assert signed_staging.GetName() == f"{REEL} (rebuild staging)"
+    # Nothing of the signed reel was renamed: the approved timeline is
+    # still there and the staging is untouched for a deliberate re-run.
+    assert original.GetName() == REEL
+    assert staging.GetName() == f"{REEL} (rebuild staging)"
+    assert resolve.deleted == [f"{OTHER} (pre-rebuild backup)"]
+    assert signoff.signoff_for(str(project), REEL) is not None

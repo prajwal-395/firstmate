@@ -1,36 +1,8 @@
-"""A kept range that stops before its thought finishes.
+"""A kept range that stops before its thought finishes is extended, held,
+reported or refused - never silently shipped (`repair_moment_tail`,
+`stranded_tail_keep_edges`). Field-test numbers travel as data.
 
-Two field-test defects, one predicate family. Both are the same cause
-at two sizes - a kept range stops before the thought it carries has
-finished - and the existing gates cannot see either, for opposite
-reasons:
-
-- Reel 09 (one word): the keep edge lands 0.02s BEFORE the final
-  word's start, so `midword_keep_edges` (which refuses an edge
-  INSIDE a word) passes it clean and the last word is simply gone.
-  The live timeline narrowed the Akshita keep bound 36510 down to
-  36490; the staging records carry 36510 and that is the correct
-  bound.
-- Reel 04 (one sentence): the body ends on "why." while the sentence
-  that states its point ("...is a decision engine.") starts five
-  frames later. The boundary-repair machinery recorded that it knew
-  the sentence continued and stopped, because no pin kind extends a
-  body.
-
-The fix under test: `stranded_tail_keep_edges` reports interior
-edges that strand whole kept words (refused at build, like midword),
-and `repair_moment_tail` extends or holds the stored moment end the
-snap owns - extending to the sentence end where whole words stand
-unplayed inside the speaker's pace, holding where the approved bound
-already covers all but breath of the final word. Every threshold is
-derived from the kept range's own segment word timings (median word
-duration); the transcript-wide fallback says so loudly and never
-extends.
-
-Field-test numbers below are copied verbatim from
-`pipeline_output/scratch/timeline_transcript/transcript.json` and the
-approved reel spans. No test here reads that project (AGENTS.md 8):
-the measurement travels as data so the case runs anywhere.
+History: docs/evidence/reel_boundary_snap.md.
 """
 
 from __future__ import annotations
@@ -46,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from library.tools import reel_build
 from library.tools.reel_build import (
-    ReelBuildError,
     record_tail_repairs,
     reel_ranges,
     repair_moment_tail,
@@ -155,7 +126,7 @@ def _reel9_transcript():
     )
 
 
-def test_an_approved_bound_covering_all_but_breath_holds():
+def _an_approved_bound_covering_all_but_breath_holds():
     """Reel 09's shape: the approved end sits 0.08s inside the final
     word - inside the speaker's 0.18s pace - with the next speech
     0.8s away. The repair holds it: drift since approval does not
@@ -181,24 +152,17 @@ def test_an_edge_before_the_final_word_extends_to_it():
     assert finding["tail_words"] == ["misrecommended."]
 
 
-def test_the_snap_holds_the_approved_bound_and_snaps_the_head():
-    """End to end of the hold: the stored body end stays 693.3s -
-    the only body_end move is the tail-hold, never a snap rewrite."""
+def test_the_held_bound_places_36510():
+    """The acceptance, in frames: the held body end maps to source
+    frame 36510 on the transcript's own clip alignment - not the
+    live defect's 36490, and one frame under the snapped word end. The
+    only body_end move is the tail-hold, never a snap rewrite."""
     repaired, moves = snap_moment_to_speech(
         _moment(9, 631.115, 693.3), _reel9_transcript())
     assert repaired.timeline_end == 693.3
     body_ends = [m for m in moves if m["boundary"] == "body_end"]
-    assert len(body_ends) == 1
-    assert body_ends[0]["attribution"] == "tail-hold"
-    assert body_ends[0]["now"] == 693.3
-
-
-def test_the_held_bound_places_36510():
-    """The acceptance, in frames: the held body end maps to source
-    frame 36510 on the transcript's own clip alignment - not the
-    live defect's 36490, and one frame under the snapped word end."""
-    repaired, _ = snap_moment_to_speech(
-        _moment(9, 631.115, 693.3), _reel9_transcript())
+    assert [(m["attribution"], m["now"]) for m in body_ends] == [
+        ("tail-hold", 693.3)]
     ranges = reel_ranges(repaired, _reel9_transcript())
     assert ranges == [(repaired.timeline_start, 693.3)]
     clip = SimpleNamespace(
@@ -207,6 +171,7 @@ def test_the_held_bound_places_36510():
         track_index=0, speaker="Akshita", track_type="video")
     placed = reel_build.placements(ranges, [clip], FPS)
     assert round(placed[-1]["source_out"] * FPS) == 36510
+    _an_approved_bound_covering_all_but_breath_holds()
 
 
 # ------------------------------------------------- Reel 04, verbatim
@@ -273,8 +238,10 @@ def _reel4_transcript():
 
 def test_a_body_that_ends_before_its_point_extends_to_the_sentence():
     """Reel 04's shape: the 0.20s gap to "So" sits inside the 0.29s
-    pace, so the body extends to the sentence end at 290.23s -
-    carrying the "decision engine" punchline. Fixable, not demoted."""
+    pace, so the body extends to the sentence end at 290.23s, carrying
+    the "decision engine" punchline as one clean keep range. Over the
+    two-second bar the extension shouts NEEDS DECISION and points at
+    the recorded WHY."""
     new_end, finding = repair_moment_tail(
         285.42, 267.358, _reel4_transcript())
     assert new_end == 290.23
@@ -283,12 +250,6 @@ def test_a_body_that_ends_before_its_point_extends_to_the_sentence():
     assert finding["tail_words"][-2:] == ["decision", "engine."]
     assert finding["gap"] == pytest.approx(0.20)
     assert finding["pace"] == pytest.approx(0.27)
-
-
-def test_the_extended_body_builds_one_clean_range():
-    """End to end of the extend: the repaired moment lays down a
-    single keep range through the punchline, with no take cut drawn
-    inside it and no gate left to fail."""
     repaired, moves = snap_moment_to_speech(
         _moment(4, 267.358, 285.42), _reel4_transcript())
     assert repaired.timeline_end == 290.23
@@ -298,18 +259,7 @@ def test_the_extended_body_builds_one_clean_range():
     assert reel_build.midword_keep_edges(
         repaired.timeline_start, repaired.timeline_end,
         _reel4_transcript()) == []
-
-
-def test_a_tail_extend_is_loud_and_pointed_at_its_record():
-    """An extension is a real decision: over the two-second bar it
-    shouts NEEDS DECISION with the pulled-in words, and the decide
-    line points at the recorded WHY - never at the stale claim that
-    no mechanism extends a body."""
-    repaired, moves = snap_moment_to_speech(
-        _moment(4, 267.358, 285.42), _reel4_transcript())
-    extend = next(m for m in moves
-                  if m.get("attribution") == "tail-extend")
-    lines = decision_lines(4, extend, _reel4_transcript(), "")
+    lines = decision_lines(4, moves[0], _reel4_transcript(), "")
     assert any("NEEDS DECISION" in line for line in lines)
     assert any("decision" in line and "engine" in line for line in lines)
     assert any("moment_boundary_repairs" in line for line in lines)
@@ -319,7 +269,7 @@ def test_a_tail_extend_is_loud_and_pointed_at_its_record():
 # ------------------------------------------------- the family rules
 
 
-def test_a_new_voice_taking_over_is_left_alone():
+def test_a_turn_boundary_or_straddling_word_is_left_alone():
     """Turn boundaries are legitimate ends: the same words that
     extend a same-speaker thought stay untouched when another
     speaker takes over - reaching into their turn is selection's
@@ -340,6 +290,7 @@ def test_a_new_voice_taking_over_is_left_alone():
     )
     new_end, finding = repair_moment_tail(11.5, 10.0, tx)
     assert (new_end, finding) == (11.5, None)
+    _a_straddling_word_interior_is_never_held()
 
 
 def test_take_cuts_are_not_stranded_tails():
@@ -386,24 +337,7 @@ def test_a_tail_across_a_dropped_take_abstains_loudly():
     assert "crosses a dropped take" in finding["reason"]
 
 
-def test_the_fallback_pace_cleans_but_never_extends():
-    """Where no bound segment reaches the edge, the transcript-wide
-    fallback judges distance but never content: far speech is clean,
-    nearby speech abstains for a human."""
-    tx = _tx(
-        _seg("Host", "a later thought.", 60.0, 70.0, "u1",
-             words=[_w("later", 60.0, 60.4),
-                    _w("thought.", 60.5, 61.0)]),
-    )
-    far_end, far_finding = repair_moment_tail(50.0, 40.0, tx)
-    assert (far_end, far_finding) == (50.0, None)
-    near_end, near_finding = repair_moment_tail(59.9, 40.0, tx)
-    assert near_end == 59.9
-    assert near_finding["verdict"] == "abstain"
-    assert near_finding["inferred"] is False
-
-
-def test_a_straddling_word_interior_is_never_held():
+def _a_straddling_word_interior_is_never_held():
     """No boundary is ever placed on a straddling row: an end inside
     one belongs to the snap as before, however small the remainder."""
     tx = _tx(
@@ -483,6 +417,7 @@ def test_tail_repairs_land_on_the_ledger_idempotently(tmp_path):
     record_tail_repairs(str(project), repairs)
     again = json.loads(ledger_file.read_text(encoding="utf-8"))
     assert len(again["value"]) == 3
+    _an_authorised_extension_answers_the_recorded_report(tmp_path / "second")
 
 
 # ------------------------------------------------- the caption side
@@ -510,10 +445,11 @@ def test_a_held_bound_clips_its_caption_block_and_says_so():
 
 
 def test_an_abstention_is_loud_in_the_preview_and_the_build():
-    """What the pass cannot judge is held for a human on both
-    surfaces: the preview renders it HELD FOR DECISION (counted as
-    flagged, never as moved), and the build's decision lines say
-    the same."""
+    """Where no bound segment reaches the edge, the transcript-wide
+    fallback judges distance but never content: far speech is clean,
+    nearby speech abstains, and the abstention is held for a human on
+    both surfaces - HELD FOR DECISION in the preview (flagged, never
+    moved) and NEEDS DECISION in the build's lines."""
     from library.tools.reel_proposal import preview_snap, render_snap_preview
 
     tx = _tx(
@@ -521,6 +457,11 @@ def test_an_abstention_is_loud_in_the_preview_and_the_build():
              words=[_w("later", 60.0, 60.4),
                     _w("thought.", 60.5, 61.0)]),
     )
+    assert repair_moment_tail(50.0, 40.0, tx) == (50.0, None)
+    near_end, near_finding = repair_moment_tail(59.9, 40.0, tx)
+    assert near_end == 59.9
+    assert near_finding["verdict"] == "abstain"
+    assert near_finding["inferred"] is False
     report = preview_snap([_moment(1, 40.0, 59.9)], tx)
     assert report["moved"] == 0
     assert report["flagged"] == 1
@@ -624,12 +565,13 @@ def _reel28_transcript():
     )
 
 
-def test_a_further_passage_reports_rather_than_extending():
-    """The Reel 28 carve-out, as a general predicate rather than a
-    per-reel exception: the tail adds 21.54s past a 9.34s closing
-    thought - a further passage absorbed, not a severed tail
-    finished - so the bound keeps its approved value and the fully
-    measured finding is reported for a human instead of applied."""
+def test_a_reported_reel_places_as_approved_but_stays_loud():
+    """The Reel 28 carve-out, as a general predicate: the tail adds
+    21.54s past a 9.34s closing thought - a further passage, not a
+    severed tail - so the bound keeps its approved value, a tail-report
+    move is recorded, and the preview flags it without counting it."""
+    from library.tools.reel_proposal import preview_snap
+
     new_end, finding = repair_moment_tail(
         2265.6, 2217.71, _reel28_transcript())
     assert new_end == 2265.6
@@ -637,13 +579,6 @@ def test_a_further_passage_reports_rather_than_extending():
     assert finding["tail_end"] == 2287.14
     assert finding["kind"] == "sentence-tail"
     assert finding["inferred"] is True
-
-
-def test_a_reported_reel_places_as_approved_but_stays_loud():
-    """End to end of the carve-out: the snap keeps the approved
-    bound (no body_end value move), records a tail-report move, and
-    the preview flags it without counting it as moved."""
-    from library.tools.reel_proposal import preview_snap
 
     repaired, moves = snap_moment_to_speech(
         _moment(28, 2217.71, 2265.6), _reel28_transcript())
@@ -682,8 +617,11 @@ def _reel28_authorizations():
 def test_an_authorised_report_applies_as_an_extension():
     """Reel 28 with its recorded ruling extends exactly where the
     predicate would have: the body runs to the sentence end at
-    2287.14s, and the finding, the WHY and the move all name whose
-    decision that was."""
+    2287.14s, the WHY and the move name whose decision that was, the
+    lengthening is loud, and the ruling is per reel: Reel 10's identical
+    shape with no entry of its own keeps reporting."""
+    from library.tools.reel_proposal import preview_snap
+
     repaired, moves = snap_moment_to_speech(
         _moment(28, 2217.71, 2265.6), _reel28_transcript(),
         tail_extend_authorizations=_reel28_authorizations())
@@ -700,43 +638,28 @@ def test_an_authorised_report_applies_as_an_extension():
     assert reel_build.midword_keep_edges(
         repaired.timeline_start, repaired.timeline_end,
         _reel28_transcript()) == []
-
-
-def test_an_authorised_reel_is_loud_about_its_new_length():
-    """The 21.54s extension crosses the two-second bar, so the
-    decision lines shout NEEDS DECISION with the pulled-in words -
-    lengthening an accepted reel is never a quiet move."""
-    from library.tools.reel_proposal import preview_snap
-
     report = preview_snap([_moment(28, 2217.71, 2265.6)],
                           _reel28_transcript(),
                           tail_extend_authorizations=(
                               _reel28_authorizations()))
-    assert report["moved"] == 1
-    assert report["flagged"] == 1
+    assert (report["moved"], report["flagged"]) == (1, 1)
     lines = decision_lines(28, report["moments"][0]["moves"][0],
                            _reel28_transcript(), "")
     assert any("NEEDS DECISION" in line for line in lines)
-
-
-def test_a_sibling_reel_with_the_same_shape_still_reports():
-    """The ruling is per reel, not per shape: Reel 10's identical
-    severed tail, with no entry of its own, keeps the approved bound
-    and reports - the carve-out the captain declined to widen stays
-    closed."""
-    repaired, moves = snap_moment_to_speech(
+    sibling, sibling_moves = snap_moment_to_speech(
         _moment(10, 2217.71, 2265.6), _reel28_transcript(),
         tail_extend_authorizations=_reel28_authorizations())
-    assert repaired.timeline_end == 2265.6
-    assert [m for m in moves
+    assert sibling.timeline_end == 2265.6
+    assert [m for m in sibling_moves
             if m.get("attribution") == "tail-report"] != []
 
 
-def test_an_authorised_extension_answers_the_recorded_report(tmp_path):
+def _an_authorised_extension_answers_the_recorded_report(tmp_path):
     """The ledger stops asking once answered: recording an
     authorised tail-extend supersedes the same reel and boundary's
     tail-report entry, and says so - while an UNauthorised extend
     would leave both standing."""
+    tmp_path.mkdir()
     project = tmp_path / "project"
     review = project / "pipeline_output" / "review"
     review.mkdir(parents=True)

@@ -173,7 +173,9 @@ def declarable() -> tuple:
     variant-expressible with no second edit, and one removed stops
     being expressible at the same moment.
 
-    `tests/test_variant_spec_vocabulary.py` pins the derivation.
+    `tests/test_version_variants.py::
+    test_the_declarable_set_is_derived_not_listed_again` pins the
+    derivation.
     """
     from library.tools.external_inputs import DECLARATIONS
 

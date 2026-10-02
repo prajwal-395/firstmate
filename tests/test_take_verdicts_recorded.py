@@ -55,58 +55,38 @@ def test_a_valid_verdict_is_recorded_with_its_reason(tmp_path):
     assert stored[0]["author"] == "model"
     assert "test-reel" in stored[0]["reason"]
     assert "the second telling is tighter" in stored[0]["reason"]
-
-
-def test_a_string_verdict_parses(tmp_path):
+    # A string verdict parses to the same record shape.
     recorded, refused = post_bridge.record_take_verdicts(
-        _survivor({"takes_dropped": ["12-15 - second telling is tighter"]}),
+        _survivor({"takes_dropped": ["16-18 - second telling is tighter"]}),
         _transcript(), str(tmp_path), 100.0)
     assert refused == []
-    assert [(r["start"], r["end"]) for r in recorded] == [(12.0, 15.0)]
+    assert [(r["start"], r["end"]) for r in recorded] == [(16.0, 18.0)]
+    _an_exact_duplicate_is_not_re_recorded(tmp_path / "second")
 
 
-def test_a_reasonless_verdict_is_refused(tmp_path):
-    recorded, refused = post_bridge.record_take_verdicts(
-        _survivor({"takes_dropped": [{"start": 12.0, "end": 15.0}]}),
-        _transcript(), str(tmp_path), 100.0)
-    assert recorded == []
-    assert len(refused) == 1
+def test_an_invalid_verdict_is_refused_and_nothing_stored(tmp_path):
+    """No reason; the whole moment (that rejects the reel - `considered`'s
+    job, not a take drop's); an edge through a word (the build would
+    play half a word and jump); outside the timeline."""
+    cases = [
+        ({"start": 12.0, "end": 15.0}, None),
+        ({"start": 10.0, "end": 20.0, "reason": "hate it"}, None),
+        ({"start": 12.5, "end": 15.0, "reason": "tighter"}, "word"),
+        ({"start": 200.0, "end": 205.0, "reason": "tighter"}, None),
+    ]
+    for verdict, said in cases:
+        recorded, refused = post_bridge.record_take_verdicts(
+            _survivor({"takes_dropped": [verdict]}),
+            _transcript(), str(tmp_path), 100.0)
+        assert recorded == [], verdict
+        assert len(refused) == 1, verdict
+        if said:
+            assert said in refused[0]["reason"]
     assert tc.keep_exclusions(str(tmp_path)) == []
 
 
-def test_a_whole_moment_verdict_is_refused(tmp_path):
-    """Striking the whole moment rejects the reel - that is
-    `considered`'s job, not a take drop's."""
-    recorded, refused = post_bridge.record_take_verdicts(
-        _survivor({"takes_dropped": [
-            {"start": 10.0, "end": 20.0, "reason": "hate it"}]}),
-        _transcript(), str(tmp_path), 100.0)
-    assert recorded == []
-    assert len(refused) == 1
-
-
-def test_a_mid_word_edge_is_refused(tmp_path):
-    """A strike edge through a word refuses like a take edge: the
-    build would play half a word and then jump."""
-    recorded, refused = post_bridge.record_take_verdicts(
-        _survivor({"takes_dropped": [
-            {"start": 12.5, "end": 15.0, "reason": "tighter"}]}),
-        _transcript(), str(tmp_path), 100.0)
-    assert recorded == []
-    assert len(refused) == 1
-    assert "word" in refused[0]["reason"]
-
-
-def test_a_verdict_outside_the_timeline_is_refused(tmp_path):
-    recorded, refused = post_bridge.record_take_verdicts(
-        _survivor({"takes_dropped": [
-            {"start": 200.0, "end": 205.0, "reason": "tighter"}]}),
-        _transcript(), str(tmp_path), 100.0)
-    assert recorded == []
-    assert len(refused) == 1
-
-
-def test_an_exact_duplicate_is_not_re_recorded(tmp_path):
+def _an_exact_duplicate_is_not_re_recorded(tmp_path):
+    tmp_path.mkdir()
     tc.record_keep_exclusion(str(tmp_path), 12.0, 15.0,
                              "captain strike", author="captain")
     recorded, refused = post_bridge.record_take_verdicts(
@@ -116,7 +96,3 @@ def test_an_exact_duplicate_is_not_re_recorded(tmp_path):
     assert recorded == []
     assert refused == []
     assert len(tc.keep_exclusions(str(tmp_path))) == 1
-
-
-
-

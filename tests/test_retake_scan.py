@@ -1,17 +1,8 @@
-"""Retake and false-start candidates the cut lane misses.
+"""`retake_scan` REPORTS false starts, paraphrases and cross-segment
+verbatims with both texts, a basis and a recommended strike; it cuts
+nothing, and legitimate repetition does not report.
 
-The captain, 2026-09-19, marked six retake-shaped repetitions across
-six reel timelines and called it a pattern. The cut lane
-(`redundant_takes` + the judge) removes one of the six. This module
-measures the other shapes - false starts, paraphrases and
-cross-segment word-stream verbatims - and REPORTS them with both
-texts, a basis and a recommended strike. It cuts nothing.
-
-Specimens are this project's, frozen as stated data (AGENTS.md 8: no
-test reaches a real project). Segment texts and boundaries are the
-transcript's own; word timings are the transcript's own where the span
-under test depends on them (Reel 21's tail-drop, Reel 24's restart),
-evenly spread where only the wording matters. Each test says which.
+History: docs/evidence/reel_take_cuts.md.
 """
 
 from library.tools import retake_scan
@@ -70,7 +61,7 @@ def _reel06_transcript():
     ]}
 
 
-def test_a_two_take_pair_reports_a_verbatim_retelling():
+def test_a_retake_shape_reports_its_strike():
     """Reel 06's shape: the head repeats word for word while the tails
     diverge past the pair-scan bars. Reported with the whole first
     telling as the strike - never cut, because a window is not a
@@ -84,6 +75,7 @@ def test_a_two_take_pair_reports_a_verbatim_retelling():
     assert found["speaker"] == "Akshita"
     assert found["similarity"] == 1.0
     assert "426.51-432.36" in found["recommended_action"].replace(" ", "")
+    _a_restart_inside_one_segment_reports_the_run_up()
 
 
 # ── Reel 24: a false start and its restart in one segment ──
@@ -105,7 +97,7 @@ def _reel24_segment():
                 2051.46, 2058.18, words=words, uid="a1")
 
 
-def test_a_restart_inside_one_segment_reports_the_run_up():
+def _a_restart_inside_one_segment_reports_the_run_up():
     """Reel 24's shape: "there's a very strong" twice with "um okay"
     between, in a telling that ends on "but". The first copy is the
     flubbed run-up, at real word seconds."""
@@ -145,78 +137,42 @@ def _reel21_a_words():
     ])
 
 
-def test_an_abandoned_telling_reports_its_run_up_tail():
-    """Reel 21's shape: "your website is just a part of what's maybe"
-    restated as "your website is just a part of your whole profile".
-    The drop is the run-up's tail from the joining "and" - the setup
-    ("that's a problem") survives, at real word seconds."""
-    transcript = {"segments": [
-        _seg("Akshita", "Are you not even showing up at all?",
-             1793.17, 1794.59, uid="a0"),
-        _seg("Akshita",
-             "If that's the case that's a problem and your website is "
-             "just a part of what's maybe",
-             1794.86, 1800.39, words=_reel21_a_words(), uid="a1"),
-        _seg("Akshita",
-             "and your website is just a part of your whole profile "
-             "and that's only twenty percent.",
-             1800.62, 1804.88, uid="a2"),
-    ]}
-    reported = retake_scan.scan_span(
-        1793.00, 1805.00, transcript)["reported"]
-    assert len(reported) == 1
-    found = reported[0]
-    assert found["kind"] == "false_start"
-    assert found["shape"] == "abandoned_telling_restated"
-    assert (found["dropped_start"], found["dropped_end"]) == (1796.89, 1800.39)
-    assert (found["kept_start"], found["kept_end"]) == (1800.62, 1804.88)
-
-
 # ── Positive controls: legitimate repetition that must NOT report ──
 
-def test_a_rhetorical_triple_is_not_a_restart():
-    """lc-0005's shape: Craig's "geo geo geo" is emphasis inside one
-    delivered telling, not an abandoned one. Real text, even words."""
-    transcript = {"segments": [
-        _seg("Craig", "their CMO or their head of marketing",
-             9.154, 11.120, uid="c0"),
-        _seg("Craig",
-             "we've got to get into geo geo geo i get it it's "
-             "something that's going to continually eat into",
-             11.241, 15.680, uid="c1"),
-    ]}
-    reported = retake_scan.scan_span(9.0, 16.0, transcript)["reported"]
-    assert reported == []
+def test_legitimate_repetition_does_not_report():
+    """lc-0005's rhetorical triple ("geo geo geo", emphasis inside one
+    telling); Reel 21's unmarked contrast questions (one shared content
+    word, the first ends complete); parallel structure in one complete
+    sentence. Real texts and boundaries, even words."""
+    cases = [
+        ((9.0, 16.0), [
+            _seg("Craig", "their CMO or their head of marketing",
+                 9.154, 11.120, uid="c0"),
+            _seg("Craig",
+                 "we've got to get into geo geo geo i get it it's "
+                 "something that's going to continually eat into",
+                 11.241, 15.680, uid="c1"),
+        ]),
+        ((1791.00, 1795.00), _contrast_questions()),
+        ((99.0, 105.0), [
+            _seg("Akshita",
+                 "if you're gonna post daily you're gonna burn out fast.",
+                 100.00, 104.00, uid="a0"),
+        ]),
+    ]
+    for (start, end), segments in cases:
+        assert retake_scan.scan_span(
+            start, end, {"segments": segments})["reported"] == [], segments
 
 
-def test_contrast_questions_are_not_a_restatement():
-    """Reel 21's unmarked pair: "Are you actually showing up the way
-    you want there?" against "Are you not even showing up at all?"
-    share one content word ("showing") and the first ends complete.
-    Real texts and boundaries, even words."""
-    transcript = {"segments": [
+def _contrast_questions():
+    return [
         _seg("Akshita",
              "Are you actually showing up the way you want there?",
              1791.08, 1793.47, uid="a0"),
         _seg("Akshita", "Are you not even showing up at all?",
              1793.17, 1794.59, uid="a1"),
-    ]}
-    reported = retake_scan.scan_span(
-        1791.00, 1795.00, transcript)["reported"]
-    assert reported == []
-
-
-def test_parallel_structure_is_not_a_restart():
-    """"you're gonna X, you're gonna Y" in one complete sentence is
-    parallelism, not a false start: no filler between the copies and
-    the telling ends on a period."""
-    transcript = {"segments": [
-        _seg("Akshita",
-             "if you're gonna post daily you're gonna burn out fast.",
-             100.00, 104.00, uid="a0"),
-    ]}
-    reported = retake_scan.scan_span(99.0, 105.0, transcript)["reported"]
-    assert reported == []
+    ]
 
 
 def test_telling_properties_measure_concise_and_clear():
@@ -238,8 +194,12 @@ def test_telling_properties_measure_concise_and_clear():
 # ── The selection bridge carries candidates to the model ──
 
 def test_the_bridge_reports_candidates_with_a_verdict_line():
-    """`retake_candidates_inside` gives the model what judging takes:
-    both tellings with measured properties, the basis, and a concrete
+    """Reel 21's shape: "your website is just a part of what's maybe"
+    restated as "your website is just a part of your whole profile".
+    The scan reports the run-up's tail from the joining "and" (the setup
+    "that's a problem" survives, at real word seconds), and
+    `retake_candidates_inside` gives the model what judging takes: both
+    tellings with measured properties, the basis, and a concrete
     recommended strike - marked as work the build will not do."""
     from library.steps.step_3_04_select_reels import bridge
 
@@ -255,6 +215,11 @@ def test_the_bridge_reports_candidates_with_a_verdict_line():
              "and that's only twenty percent.",
              1800.62, 1804.88, uid="a2"),
     ]}
+    reported = retake_scan.scan_span(
+        1793.00, 1805.00, transcript)["reported"]
+    assert [(c["kind"], c["shape"], c["kept_start"], c["kept_end"])
+            for c in reported] == [
+        ("false_start", "abandoned_telling_restated", 1800.62, 1804.88)]
     found = bridge.retake_candidates_inside(1793.00, 1805.00, transcript)
     assert len(found) == 1
     context = found[0]
@@ -264,17 +229,5 @@ def test_the_bridge_reports_candidates_with_a_verdict_line():
     assert context["dropped_ends_complete"] is False
     assert context["kept_ends_complete"] is True
     assert context["basis"]
-
-
-def test_the_bridge_reports_nothing_where_nothing_repeats():
-    from library.steps.step_3_04_select_reels import bridge
-
-    transcript = {"segments": [
-        _seg("Akshita",
-             "Are you actually showing up the way you want there?",
-             1791.08, 1793.47, uid="a0"),
-        _seg("Akshita", "Are you not even showing up at all?",
-             1793.17, 1794.59, uid="a1"),
-    ]}
     assert bridge.retake_candidates_inside(
-        1791.00, 1795.00, transcript) == []
+        1791.00, 1795.00, {"segments": _contrast_questions()}) == []

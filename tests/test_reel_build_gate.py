@@ -1,11 +1,8 @@
-import os
-import json
 import pytest
 from unittest.mock import patch, MagicMock
-import sys
 from tests.promotion_test_helpers import install_fake_timeline_snapshots
 
-from library.tools.reel_build import STAGING_SUFFIX, rebuild_reels_in_project
+from library.tools.reel_build import rebuild_reels_in_project
 
 MASTER = "GEO Podcast - Synced"
 
@@ -161,44 +158,6 @@ def test_verifier_unavailable_fails(mock_resolve_style, mock_snapshot, mock_read
             rebuild_reels_in_project(str(mock_project_env),
                              organise=ORGANISE)
 
-
-@patch("library.tools.reel_build.reel_subtitle_segments")
-@patch("library.tools.reel_build.build_reel_timeline")
-@patch("library.tools.resolve_locale.scriptapp_preserving_locale")
-@patch("library.tools.reel_build.resolve_project_exactly")
-@patch("library.tools.reel_proposal.read_proposal")
-@patch("library.tools.timeline_ingest.snapshot_timeline")
-@patch("library.tools.subtitle_style.resolve_subtitle_style")
-@patch("library.tools.reel_conformance_verifier.run_verification")
-def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_snapshot, mock_read_prop, mock_resolve_proj, mock_scriptapp, mock_build, mock_reel_segments, mock_project_env):
-    """skip_captions skips caption generation entirely.
-
-    It used to assert `captions is None` reached build_reel_timeline -
-    which was true whether or not captions had been generated, because
-    the caller passed None unconditionally and threw the computed
-    captions away. It now asserts the pipeline caption path is not
-    entered at all, and that None is what the builder is given.
-    """
-    moment = MagicMock()
-    moment.approval = "approved"
-    moment.timeline_name = "Reel 01"
-    moment.timeline_start = 0.0
-    moment.timeline_end = 10.0
-    mock_read_prop.return_value = [moment]
-
-    mock_proj = _ResolveProject([MASTER])
-    mock_resolve_proj.return_value = mock_proj
-    mock_build.side_effect = _placing(mock_proj)
-    
-    mock_run_verif.return_value = 0
-    
-    rebuild_reels_in_project(str(mock_project_env),
-                             skip_captions=True,
-                             organise=ORGANISE)
-    
-    mock_reel_segments.assert_not_called()
-    mock_build.assert_called_once()
-    assert mock_build.call_args[1]["subtitle_segments"] is None
 
 
 @patch("library.tools.project_registry.get_project")

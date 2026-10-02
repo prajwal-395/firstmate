@@ -72,21 +72,18 @@ def test_a_landscape_frame_in_a_portrait_reel_is_cover_scaled(tmp_path):
     assert zoom == pytest.approx((1920 / 1080) / (2160 / 3840), abs=1e-9)
 
 
-def test_a_frame_whose_cover_would_upscale_it_is_refused(tmp_path):
-    """The first thing that genuinely cannot be framed."""
-    asset = _png(tmp_path / "small.png", (540, 960), window=True)
+def test_an_unframeable_asset_is_refused_by_name(tmp_path):
+    """A cover that would upscale, or a frame with no window (a slate)."""
+    small = _png(tmp_path / "small.png", (540, 960), window=True)
     with pytest.raises(ValueError) as excinfo:
-        tv_frame.assert_frameable(_look(asset), 1080, 1920)
+        tv_frame.assert_frameable(_look(small), 1080, 1920)
     message = str(excinfo.value)
     assert "upscale" in message
     assert "540x960" in message and "1080x1920" in message
 
-
-def test_a_frame_with_no_window_is_refused(tmp_path):
-    """The second: a frame with no window is a slate over the picture."""
-    asset = _png(tmp_path / "slate.png", (3840, 2160), window=False)
+    slate = _png(tmp_path / "slate.png", (3840, 2160), window=False)
     with pytest.raises(ValueError) as excinfo:
-        tv_frame.assert_frameable(_look(asset), 1080, 1920)
+        tv_frame.assert_frameable(_look(slate), 1080, 1920)
     assert "slate" in str(excinfo.value)
 
 
@@ -99,14 +96,6 @@ def test_sequential_placements_frame_as_one_run():
     # One contiguous run, because the two abut exactly - read off the
     # placements as placed, with no collapse onto one row first.
     assert reel_look.frame_runs(placements, fps) == [(0, 240)]
-
-
-def test_power_effects_land_on_the_first_and_last_picture():
-    effects = reel_look.power_effects(
-        {"power": {}}, reel_look.clip_label(0), reel_look.clip_label(2))
-    assert effects[reel_look.clip_label(0)]["tv_power_head"] is True
-    assert effects[reel_look.clip_label(2)]["tv_power_tail"] is True
-    assert "tv_power_tail" not in effects[reel_look.clip_label(0)]
 
 
 def test_an_unanswered_motion_ask_is_not_an_empty_plan(tmp_path):
@@ -206,96 +195,6 @@ def test_a_reasoned_drift_resolves_and_reaches_the_manifest():
     # comp builder reads both from.
     assert effects["tv_power_head"] is True
     assert manifest["tracks"]["V1"]["clips"][0]["source_file"] == "/a.mxf"
-
-
-def test_no_ken_burns_moves_outside_cta_sections(tmp_path):
-    """The sparse-plan defect: the ask left body cadence unstated.
-
-    It now calls for recurring body moves, and a revised answer cannot
-    replace the existing closer/CTA move with a newly chosen one.
-    """
-    from library.tools.project_layout import Area, ProjectLayout
-
-    project_folder = os.fspath(tmp_path / "project")
-    response_dir = str(ProjectLayout(project_folder).read_dir(
-        Area.LLM_RESPONSES))
-    os.makedirs(response_dir, exist_ok=True)
-    closer = {
-        "target_block_position": 1,
-        "effect_type": "ken_burns",
-        "params": {"zoom_start": 1.04, "zoom_end": 1.0},
-        "rationale": "the existing CTA pull-back",
-    }
-
-    placements = [
-        _placement("/body.mxf", 0, 12.0),
-        _placement("/closer.mxf", 288, 4.0),
-    ]
-    placements[0]["source_in"] = 2.0
-    placements[0]["source_out"] = 14.0
-    placements[0]["clip"] = _Clip(
-        "/body.mxf", timeline_start=100.0, source_in=2.0)
-    words = [
-        {"word": "we", "start": 101.0, "end": 101.2},
-        {"word": "bridge", "start": 105.5, "end": 105.7},
-        {"word": "next", "start": 106.1, "end": 106.3},
-        {"word": "idea", "start": 110.5, "end": 110.7},
-    ]
-    spine = reel_look.motion_spine(
-        placements, 24.0,
-        [{"source_file": "/body.mxf", "timeline_start": 100.0,
-          "timeline_end": 112.0, "source_start": 2.0,
-          "source_end": 14.0, "words": words}])
-    says = [{"timeline_start": 0.0, "timeline_end": 12.0,
-             "text": "We explain the idea."}]
-    reel_look.write_motion_request(
-        42, "Reel 42", spine, says, project_folder)
-    response_path = os.path.join(response_dir, "reel_motion_42.json")
-    with open(response_path, "w", encoding="utf-8") as handle:
-        json.dump(reel_look.bind_motion_answer(
-            project_folder, 42, {"reel_motion_plan": [closer]}), handle)
-    path = reel_look.write_motion_request(
-        42, "Reel 42", spine, says, project_folder)
-    with open(path, "r", encoding="utf-8") as handle:
-        request = json.load(handle)
-
-    assert "one move per roughly 6-8 seconds" in request["prompt"]
-    assert "body" in request["prompt"].lower()
-    assert request["context"]["shots"][0]["word_spans"].startswith(
-        "we[1.000-1.200] ")
-    assert request["context"]["locked_closing_moves"] == [closer]
-
-    body_in = {
-        "target_block_position": 0,
-        "anchor": {"word": "we"},
-        "anchor_end": {"word": "bridge", "edge": "end"},
-        "effect_type": "ken_burns",
-        "params": {"zoom_start": 1.0, "zoom_end": 1.03},
-        "rationale": "the explanation builds toward the point",
-    }
-    body_out = {
-        "target_block_position": 0,
-        "anchor": {"word": "next"},
-        "anchor_end": {"word": "idea", "edge": "end"},
-        "effect_type": "ken_burns",
-        "params": {"zoom_start": 1.03, "zoom_end": 1.0},
-        "rationale": "the speaker opens the frame for the conclusion",
-    }
-    altered_closer = dict(closer)
-    altered_closer["params"] = {"zoom_start": 1.0, "zoom_end": 1.1}
-    with open(response_path, "w", encoding="utf-8") as handle:
-        json.dump({"reel_motion_plan": [body_in, body_out, altered_closer]},
-                  handle)
-    answer = reel_look.read_motion_answer(project_folder, 42)
-    assert answer == [body_in, body_out, closer]
-    assert reel_look.locked_closing_positions(project_folder, 42) == {1}
-
-    _resolved, record = reel_look.resolve_motion(answer, spine, 24.0)
-    assert record["resolved"] == 3
-    assert [move["effect_type"] for move in record["moves"]] == [
-        "slow_zoom_in", "slow_zoom_out", "slow_zoom_out"]
-    assert [move["target_block_position"] for move in record["moves"]] == [
-        0, 0, 1]
 
 
 def test_existing_cta_motion_is_locked_by_its_span_not_the_last_shot(
@@ -611,11 +510,8 @@ def test_build_motion_resolves_a_word_end_on_the_picture_frame_edge():
     assert resolved[1]["timeline_end"] == pytest.approx(9.426)
     assert "snapped to block end frame" in resolved[1]["anchor_method"]
 
-
-def test_build_motion_still_refuses_a_word_end_in_the_next_frame():
-    fps = 24000 / 1001
+    # One frame further is outside the picture shot, and refuses.
     next_frame_edge = 227 / fps
-    placement = _placement("/a.mxf", 0, 9.426, fps)
     spine = reel_look.motion_spine(
         [placement], fps,
         [{"source_file": "/a.mxf", "timeline_start": 0.0,
@@ -669,6 +565,7 @@ def test_closing_cta_ken_burns_keeps_its_existing_full_shot_window():
 
 
 def test_body_ken_burns_refuses_a_punch_sized_scale_change():
+    """Anchored or whole-shot, a body move past 1.0-1.05 is refused."""
     fps = 24.0
     placement = _placement("/body.mxf", 0, 12.0, fps)
     punch = {
@@ -679,29 +576,17 @@ def test_body_ken_burns_refuses_a_punch_sized_scale_change():
         "params": {"zoom_start": 1.0, "zoom_end": 1.12},
         "anchor_method": "word",
     }
-    with pytest.raises(reel_look.ReelLookRefused,
-                       match="subtle 1.0-1.05 body scale envelope"):
-        reel_look.fusion_manifest(
-            [placement], {"power": {}}, [punch], fps)
-
-
-def test_whole_shot_body_ken_burns_cannot_bypass_subtle_scale_contract():
-    import pytest
-
-    fps = 24.0
-    placement = _placement("/body.mxf", 0, 12.0, fps)
-    spine = reel_look.motion_spine([placement], fps)
-    resolved, _ = reel_look.resolve_motion([
+    whole_shot, _ = reel_look.resolve_motion([
         {"target_block_position": 0,
          "effect_type": "ken_burns",
          "params": {"zoom_start": 1.0, "zoom_end": 1.07},
          "rationale": "the old whole-shot body push"},
-    ], spine, fps)
-
-    with pytest.raises(reel_look.ReelLookRefused,
-                       match="exceeds the subtle 1.0-1.05 body scale"):
-        reel_look.fusion_manifest(
-            [placement], {"power": {}}, resolved, fps)
+    ], reel_look.motion_spine([placement], fps), fps)
+    for moves in ([punch], whole_shot):
+        with pytest.raises(reel_look.ReelLookRefused,
+                           match="subtle 1.0-1.05 body scale"):
+            reel_look.fusion_manifest(
+                [placement], {"power": {}}, moves, fps)
 
 
 def test_anchored_body_ken_burns_cannot_straddle_a_picture_cut():

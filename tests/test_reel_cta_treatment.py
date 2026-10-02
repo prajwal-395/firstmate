@@ -166,70 +166,39 @@ def test_an_excluded_reel_is_untouched_even_in_scope(tmp_path):
     assert "explicitly excluded" in report["stale"][0]["reason"]
 
 
-def test_a_malformed_exclusion_refuses(tmp_path):
-    root = str(tmp_path)
-    external = os.path.join(root, "external")
-    os.makedirs(external, exist_ok=True)
-    path = os.path.join(external, "reel_cta.json")
-    good_treatment = {"element": "title_lockup", "entrance": "fade",
-                      "exit": "fade", "anchor": "centre", "color": GOLD}
-    for bad_exclude in ["Reel 08", ["  "], [42], ""]:
-        document = {"version": 1, "scope_cta_contains": SCOPE,
-                    "exclude_reels": bad_exclude,
-                    "treatment": good_treatment, "reason": "x"}
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(document, handle)
-        with pytest.raises(cta_rx.ReelCtaTreatmentError):
-            cta_rx.load_treatment(root)
-
-
 # ── The declaration is checked, never asserted ───────────────────────
 
 def test_a_malformed_declaration_refuses(tmp_path):
+    """Every malformed or unreadable declaration refuses at load, by row:
+    bad treatment fields, a blank scope or reason, an unknown version,
+    a malformed exclusion list, and a file that is not JSON."""
     root = str(tmp_path)
     external = os.path.join(root, "external")
     os.makedirs(external, exist_ok=True)
     path = os.path.join(external, "reel_cta.json")
     good_treatment = {"element": "title_lockup", "entrance": "fade",
                       "exit": "fade", "anchor": "centre", "color": GOLD}
+
+    def doc(**over):
+        base = {"version": 1, "scope_cta_contains": SCOPE,
+                "treatment": good_treatment, "reason": "x"}
+        base.update(over)
+        return json.dumps(base)
+
     bad_documents = [
-        {"version": 1, "scope_cta_contains": SCOPE,
-         "treatment": dict(good_treatment, element="ticker_tape"),
-         "reason": "x"},
-        {"version": 1, "scope_cta_contains": SCOPE,
-         "treatment": dict(good_treatment, element="subject_emblem"),
-         "reason": "x"},
-        {"version": 1, "scope_cta_contains": SCOPE,
-         "treatment": dict(good_treatment, entrance="wipe"),
-         "reason": "x"},
-        {"version": 1, "scope_cta_contains": SCOPE,
-         "treatment": dict(good_treatment, anchor="everywhere"),
-         "reason": "x"},
-        {"version": 1, "scope_cta_contains": SCOPE,
-         "treatment": dict(good_treatment, color="gold"),
-         "reason": "x"},
-        {"version": 1, "scope_cta_contains": "  ",
-         "treatment": good_treatment, "reason": "x"},
-        {"version": 1, "scope_cta_contains": SCOPE,
-         "treatment": good_treatment, "reason": "  "},
-        {"version": 99, "scope_cta_contains": SCOPE,
-         "treatment": good_treatment, "reason": "x"},
+        doc(treatment=dict(good_treatment, element="ticker_tape")),
+        doc(treatment=dict(good_treatment, element="subject_emblem")),
+        doc(treatment=dict(good_treatment, entrance="wipe")),
+        doc(treatment=dict(good_treatment, anchor="everywhere")),
+        doc(treatment=dict(good_treatment, color="gold")),
+        doc(scope_cta_contains="  "),
+        doc(reason="  "),
+        doc(version=99),
+        *(doc(exclude_reels=bad) for bad in ("Reel 08", ["  "], [42], "")),
+        "{not json",
     ]
     for document in bad_documents:
         with open(path, "w", encoding="utf-8") as handle:
-            json.dump(document, handle)
+            handle.write(document)
         with pytest.raises(cta_rx.ReelCtaTreatmentError):
             cta_rx.load_treatment(root)
-
-
-def test_an_unreadable_declaration_refuses(tmp_path):
-    root = str(tmp_path)
-    external = os.path.join(root, "external")
-    os.makedirs(external, exist_ok=True)
-    with open(os.path.join(external, "reel_cta.json"), "w",
-              encoding="utf-8") as handle:
-        handle.write("{not json")
-    with pytest.raises(cta_rx.ReelCtaTreatmentError):
-        cta_rx.load_treatment(root)
-
-

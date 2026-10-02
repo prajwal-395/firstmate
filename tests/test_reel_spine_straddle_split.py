@@ -61,14 +61,7 @@ def test_row_straddling_a_keep_exclusion_splits_in_two():
     assert words == ["alpha", "beta", "gamma",
                      "zeta", "eta", "theta"], (
         "both sides survive, the struck middle does not")
-
-
-def test_split_spine_plans_captions_without_refusal():
-    """The refusal point itself: step 4.01 maps every block 1x."""
-    row = _row("alpha beta gamma delta epsilon zeta eta theta", 10.0)
-    ranges = [(10.0, 11.0), (12.0, 13.2)]
-    spine = spine_for_reel(Moment(10.0, 13.2), {"segments": [row]},
-                           ranges=ranges)
+    # the refusal point itself: step 4.01 maps every block 1x
     plan = generate_subtitles(spine, caption_case="lowercase",
                               project_folder="")
     entries = plan["subtitle_plan"]["subtitle_entries"]

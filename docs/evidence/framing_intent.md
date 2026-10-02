@@ -117,3 +117,28 @@ Source: spine block > project > template > `DEFAULT_FRAMING_INTENT` (1.0). [why]
 - **A source that already covers the delivery frame fills at every intent.** `source_covers_frame` is the predicate.
 - **Which clips letterbox is a MEASUREMENT, not a second creative choice** (section 10.5).
 ```
+
+## `tests/test_reel_framing.py` module docstring (moved 2026-10-02)
+
+```text
+The picture a built reel puts on the frame, and the gate that reads it.
+
+Every number in this file is either arithmetic or a measurement recorded
+elsewhere in the repository.  The two that are measurements:
+
+- **rows 656..1264** for 3840x2160 fitted into 1080x1920.  Independently
+  measured by ``render_qa``'s occupancy pass on project 001's real export
+  and recorded in ``library/tools/framing_intent.py`` as rows 656..1263,
+  608 of 1920 rows.  A different project, different source files,
+  different resolution, and the arithmetic here lands on the same top row
+  and one below on the bottom - 607.5 rounded.
+- **the twenty harvest reels** of the GEO Podcast field test, read off
+  Resolve on 2026-09-06: 376 video items across 49 timelines, every one
+  of them ``ZoomX=ZoomY=1.0, Pan=Tilt=0, Crop*=0`` on a 1080x1920
+  ``scaleToFit`` timeline.  ``_HARVEST`` below is that transform.
+
+AGENTS.md 10.4: a gate that cannot fail is worse than no gate, and one
+that fails correct output is the same defect from the other side.  Both
+directions are pinned here, on the geometry the captain's reels really
+carry.
+```

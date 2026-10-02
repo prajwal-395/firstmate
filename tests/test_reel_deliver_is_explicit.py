@@ -34,49 +34,27 @@ def _dag_node_ids():
     return ids
 
 
-def test_no_dag_node_renders():
-    """No DAG in the tree names a deliver/render node.
+def test_nothing_triggers_a_render_implicitly():
+    """No DAG node, no operation, and no `build-reels`/`run`/propose body
+    or process runner reaches `reel_deliver`, `deliver_reel` or
+    `render_timeline`: any such reference IS an implicit trigger.
 
-    If a node were added, the reels process (or edit_video's run) could
-    schedule it at the end of a build - the exact automatic render the
-    ruling forbids. The reels process stays exactly two nodes.
+    The reels process stays exactly two nodes. (Nodes named `render_*`
+    render overlay ARTEFACTS onto timelines, not video files.) The verb
+    lives outside the operation registry on purpose: an operation would
+    make a render addressable from the runner, the skill projection and
+    `--break`/`--rerun`.
     """
-    from library.tools import processes
+    import manage_project
+    from library.tools import operations, processes
 
     assert processes.execution_order(processes.REELS) == [
         "build_reels", "verify_reels"]
     for node_id in _dag_node_ids():
-        # A deliver/export node would schedule a render at the end of a
-        # build - the exact automatic render the ruling forbids. (Nodes
-        # named `render_*` render overlay ARTEFACTS onto timelines, not
-        # video files, and are not this.)
         assert "deliver" not in node_id, node_id
         assert "export" not in node_id, node_id
 
-
-def test_no_operation_renders():
-    """The operation registry names no deliver operation.
-
-    An operation would make a render addressable from the runner, the
-    skill projection and `--break`/`--rerun` addresses - all implicit
-    paths. The verb lives outside the registry on purpose.
-    """
-    from library.tools import operations
-
-    assert "reel.deliver" not in operations.names()
-    assert not [name for name in operations.names()
-                if "deliver" in name]
-
-
-def test_build_and_run_paths_cannot_reach_the_render():
-    """`build-reels` and `run` never import the deliver path.
-
-    THE INPUT THAT BREAKS THIS TEST is any reference from these bodies
-    (or the process runners they drive) to `reel_deliver`,
-    `deliver_reel` or `render_timeline`: that reference IS an implicit
-    trigger, however it is reached. Read off the source, not the docs.
-    """
-    import manage_project
+    assert not [name for name in operations.names() if "deliver" in name]
 
     for func in (manage_project.cmd_build_reels, manage_project.cmd_run,
                  manage_project.cmd_propose_reels):
@@ -129,20 +107,14 @@ def _project_with_proposal(tmp_path, approved=(3,), proposed=()):
     return folder
 
 
-def test_deliver_refuses_an_unknown_reel(tmp_path):
-    """A reel number the plan does not name is refused, naming the input."""
+def test_deliver_refuses_an_unknown_or_unapproved_reel(tmp_path):
+    """A reel number the plan does not name, or a moment the captain left
+    PROPOSED, is refused, naming the input."""
     from library.tools import reel_deliver
 
-    folder = _project_with_proposal(tmp_path)
+    folder = _project_with_proposal(tmp_path, approved=(3,), proposed=(4,))
     with pytest.raises(reel_deliver.DeliverRefused, match="no reel 9"):
         reel_deliver.timeline_name_for_reel(folder, 9)
-
-
-def test_deliver_refuses_an_unapproved_reel(tmp_path):
-    """A moment the captain left PROPOSED is not deliverable."""
-    from library.tools import reel_deliver
-
-    folder = _project_with_proposal(tmp_path, approved=(), proposed=(4,))
     with pytest.raises(reel_deliver.DeliverRefused, match="not approved"):
         reel_deliver.timeline_name_for_reel(folder, 4)
 

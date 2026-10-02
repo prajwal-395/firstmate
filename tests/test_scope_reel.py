@@ -28,26 +28,22 @@ def test_a_reel_range_is_not_a_bare_pair_of_floats():
         scope_mod.reel([3.0], timeline="reel_03")
 
 
-def test_a_reel_with_no_ranges_is_refused():
-    """Empty would read as the whole project and redo everything."""
-    with pytest.raises(scope_mod.ScopeError) as exc:
-        scope_mod.reel([], timeline="reel_03")
-    assert "whole project" in str(exc.value)
-
-
-def test_a_reel_may_not_mix_timelines():
-    with pytest.raises(scope_mod.ScopeError) as exc:
-        scope_mod.reel([Region("reel_03", 0.0, 5.0),
-                        Region("reel_09", 6.0, 7.0)])
-    assert "ONE timeline" in str(exc.value)
-
-
-def test_a_reels_ranges_may_not_overlap():
-    """reel_time walks in list order and returns the first containing
-    range, so an overlap gives one second two answers."""
-    with pytest.raises(scope_mod.ScopeError) as exc:
-        scope_mod.reel([(0.0, 5.0), (3.0, 8.0)], timeline="reel_03")
-    assert "overlap" in str(exc.value)
+def test_a_malformed_reel_is_refused_by_name():
+    table = [
+        # empty would read as the whole project and redo everything
+        (lambda: scope_mod.reel([], timeline="reel_03"), "whole project"),
+        (lambda: scope_mod.reel([Region("reel_03", 0.0, 5.0),
+                                 Region("reel_09", 6.0, 7.0)]),
+         "ONE timeline"),
+        # reel_time returns the first containing range, so an overlap
+        # gives one second two answers
+        (lambda: scope_mod.reel([(0.0, 5.0), (3.0, 8.0)], timeline="reel_03"),
+         "overlap"),
+    ]
+    for build, says in table:
+        with pytest.raises(scope_mod.ScopeError) as exc:
+            build()
+        assert says in str(exc.value)
 
 
 def test_play_order_is_preserved_and_time_order_is_not_required():
@@ -58,11 +54,9 @@ def test_play_order_is_preserved_and_time_order_is_not_required():
     assert [r.start for r in reel.reel_ranges] == [30.0, 5.0]
 
 
-@pytest.mark.parametrize("kind,payload", [
-    (scope_mod.PROJECT, {"reel_ranges": (Region(MASTER, 0.0, 1.0),)}),
-])
-def test_reel_ranges_on_a_non_reel_scope_are_refused(kind, payload):
+def test_reel_ranges_on_a_non_reel_scope_are_refused():
     """__post_init__ was EXTENDED to REEL, not loosened for it."""
     with pytest.raises(scope_mod.ScopeError) as exc:
-        scope_mod.Scope(kind, **payload)
+        scope_mod.Scope(scope_mod.PROJECT,
+                        reel_ranges=(Region(MASTER, 0.0, 1.0),))
     assert "reel" in str(exc.value).lower()

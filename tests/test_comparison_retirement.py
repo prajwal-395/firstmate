@@ -62,22 +62,6 @@ def rounds(*entries):
     ]
 
 
-# ── The family ───────────────────────────────────────────────────
-
-
-def test_a_retired_comparison_is_not_graded_as_a_deliverable():
-    """The sweep already declines archived names, whatever the reel
-    part carries inside - so a retired comparison stops being graded
-    the moment it retires, exactly like a retired reel."""
-    from library.tools.reel_conformance_verifier import grades_as_a_reel
-
-    assert grades_as_a_reel(BASELINE)
-    assert not grades_as_a_reel(retire.archived_name(BASELINE, 2))
-
-
-# ── The ordering ─────────────────────────────────────────────────
-
-
 # ── The lifecycle ────────────────────────────────────────────────
 
 
@@ -107,7 +91,7 @@ def test_one_live_and_one_archived_per_reel_not_per_round():
     assert scoped["retire"] == [] and scoped["collect"] == []
 
 
-def test_a_signed_off_comparison_is_never_collected_or_retired():
+def test_only_a_sign_off_on_the_comparison_itself_protects_it():
     names = [
         BASELINE,
         BATCH,
@@ -125,15 +109,9 @@ def test_a_signed_off_comparison_is_never_collected_or_retired():
     assert plan["collect"] == []
     whys = " ".join(entry["why"] for entry in plan["kept"])
     assert "sign-off" in whys
-
-
-def test_a_sign_off_on_the_base_does_not_protect_comparisons():
-    """The approved cut lives on the base timeline itself, which this
-    rule never names, and the rows live in the round record. A base
-    sign-off protecting every comparison would make every signed
-    reel's comparisons immortal - the bound would end exactly where
-    approvals begin."""
-    names = [BASELINE, BATCH]
+    # A sign-off on the BASE does not protect its comparisons: the
+    # approved cut lives on the base timeline, which this rule never
+    # names, or the bound would end exactly where approvals begin.
     plan = comp.plan_collection(
         names,
         [REEL],

@@ -227,40 +227,61 @@ def _semantic_timelines():
     return retired, staging
 
 
-def test_only_reel_rebuild_over_cutaway_refuses(project_dir):
-    """Drop 1: V1 3 items -> 2, the 24-frame cover at rec 574 named."""
-    retired, staging = _cutaway_timelines()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+def _gains_frames_loses_cover():
+    """Frames alone cannot catch this: the cover is gone and the
+    surviving clip grew past the old row total. Names are the
+    load-bearing half."""
+    retired = FakeTimeline(
+        FINAL,
+        video=[
+            (
+                "Akshita",
+                [FakeItem("Craig A", 0, 100), FakeItem("LC4932 cover", 100, 124)],
+            ),
+        ],
+    )
+    staging = FakeTimeline(
+        FINAL + " (rebuild staging)",
+        video=[("Akshita", [FakeItem("Craig A", 0, 140)])],
+    )
+    return retired, staging
 
-    with pytest.raises(ReelBuildError) as refused:
-        _promote(resolve, project_dir, {FINAL: staging.GetName()})
 
-    message = str(refused.value)
-    assert "video:Akshita" in message
-    assert "3 item(s) -> 2" in message
-    assert "LC4932 cover" in message and "574..598" in message
-    assert "--allow-drop 'video:Akshita'" in message
-    # Nothing was renamed and nothing deleted: the check runs before
-    # the first rename, so the approved timeline is still there.
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL, staging.GetName()])
-    assert resolve.deleted == []
+#: Each undeclared-loss shape, and what its refusal must name.
+LOSS_SHAPES = [
+    # Drop 1: V1 3 items -> 2, the 24-frame cover at rec 574 named.
+    (
+        _cutaway_timelines,
+        ["video:Akshita", "3 item(s) -> 2", "LC4932 cover", "574..598",
+         "--allow-drop 'video:Akshita'"],
+    ),
+    # Drop 2: the V5 row exists retired and not at all incoming.
+    (
+        _semantic_timelines,
+        ["video:Semantic", "row absent", "4 item(s)",
+         "--allow-drop 'video:Semantic'"],
+    ),
+    # A loss that gains frames still refuses.
+    (_gains_frames_loses_cover, ["video:Akshita", "2 item(s) -> 1", "LC4932 cover"]),
+]
 
 
-def test_build_with_failed_overlay_renders_refuses(project_dir):
-    """Drop 2: the V5 row exists retired and not at all incoming."""
-    retired, staging = _semantic_timelines()
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+def test_an_undeclared_loss_refuses_before_any_rename(project_dir):
+    for shape, expected in LOSS_SHAPES:
+        retired, staging = shape()
+        resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
 
-    with pytest.raises(ReelBuildError) as refused:
-        _promote(resolve, project_dir, {FINAL: staging.GetName()})
+        with pytest.raises(ReelBuildError) as refused:
+            _promote(resolve, project_dir, {FINAL: staging.GetName()})
 
-    message = str(refused.value)
-    assert "video:Semantic" in message
-    assert "row absent" in message
-    assert "4 item(s)" in message
-    assert "--allow-drop 'video:Semantic'" in message
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL, staging.GetName()])
-    assert resolve.deleted == []
+        message = str(refused.value)
+        for needle in expected:
+            assert needle in message, (shape.__name__, needle)
+        # Nothing was renamed and nothing deleted: the check runs before
+        # the first rename, so the approved timeline is still there.
+        assert sorted(resolve.names()) == sorted(
+            [MASTER, FINAL, staging.GetName()])
+        assert resolve.deleted == []
 
 
 def test_snapshot_and_replace_diff_report_enabled_state_change():
@@ -288,6 +309,42 @@ def test_snapshot_and_replace_diff_report_enabled_state_change():
             "incoming_enabled": True,
         }
     ]
+    # A legacy snapshot that never recorded `enabled` is UNKNOWN, not a
+    # change.
+    legacy = {
+        "video:Semantic": {
+            "media_type": "video",
+            "index": 1,
+            "name": "Semantic",
+            "count": 1,
+            "frames": 48,
+            "items": [
+                {"name": "semantic-card", "start": 120, "end": 168, "duration": 48}
+            ],
+        }
+    }
+    current = {
+        "video:Semantic": {
+            "media_type": "video",
+            "index": 1,
+            "name": "Semantic",
+            "count": 1,
+            "frames": 48,
+            "items": [
+                {
+                    "name": "semantic-card",
+                    "start": 120,
+                    "end": 168,
+                    "duration": 48,
+                    "enabled": False,
+                }
+            ],
+        }
+    }
+
+    changes = guard.diff_rows(legacy, current)[0]["enabled_changes"]
+
+    assert changes == []
 
 
 def test_full_snapshot_diff_detects_replaced_timeline_identity():
@@ -320,7 +377,7 @@ def test_full_snapshot_diff_detects_replaced_timeline_identity():
     assert not guard._change_is_carried(changes[0], staged)
 
 
-def test_marker_change_is_carried_when_its_content_moves_with_the_picture():
+def test_a_marker_change_is_carried_only_in_its_own_direction():
     before = {
         "source": "timeline_marker",
         "frame": 100,
@@ -342,8 +399,7 @@ def test_marker_change_is_carried_when_its_content_moves_with_the_picture():
 
     assert guard._change_is_carried(change, {"markers": [carried]})
 
-
-def test_removed_marker_is_not_carried_by_a_relocated_copy():
+    # A REMOVED marker is not carried by a relocated copy of it.
     removed = {
         "source": "timeline_marker",
         "frame": 100,
@@ -556,43 +612,6 @@ def test_promotion_refuses_a_target_created_during_the_build(project_dir):
     assert resolve.deleted == []
 
 
-def test_legacy_snapshots_without_enabled_are_unknown_not_changes():
-    legacy = {
-        "video:Semantic": {
-            "media_type": "video",
-            "index": 1,
-            "name": "Semantic",
-            "count": 1,
-            "frames": 48,
-            "items": [
-                {"name": "semantic-card", "start": 120, "end": 168, "duration": 48}
-            ],
-        }
-    }
-    current = {
-        "video:Semantic": {
-            "media_type": "video",
-            "index": 1,
-            "name": "Semantic",
-            "count": 1,
-            "frames": 48,
-            "items": [
-                {
-                    "name": "semantic-card",
-                    "start": 120,
-                    "end": 168,
-                    "duration": 48,
-                    "enabled": False,
-                }
-            ],
-        }
-    }
-
-    changes = guard.diff_rows(legacy, current)[0]["enabled_changes"]
-
-    assert changes == []
-
-
 def test_live_snapshot_refuses_unreadable_enabled_state():
     timeline = FakeTimeline(
         FINAL, video=[("Semantic", [FakeItem("semantic-card", 120, 168, enabled=None)])]
@@ -602,14 +621,9 @@ def test_live_snapshot_refuses_unreadable_enabled_state():
         guard.snapshot_timeline(timeline, FINAL)
 
 
-@pytest.mark.parametrize(
-    "declaration",
-    [
-        ["video:Semantic"],
-    ],
-)
-def test_declared_reduction_passes_and_names_what_it_declared(project_dir, declaration):
+def test_declared_reduction_passes_and_names_what_it_declared(project_dir):
     """The intended change: silent on stdout, named in the record."""
+    declaration = ["video:Semantic"]
     retired, staging = _semantic_timelines()
     resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
 
@@ -681,38 +695,6 @@ def test_a_join_passes_undeclared_and_says_so(project_dir):
     # reel, nothing archived (`library/tools/reel_retirement.py`).
     assert sorted(resolve.names()) == sorted([MASTER, FINAL])
     assert resolve.deleted == [f"{FINAL} (pre-rebuild backup)"]
-
-
-def test_a_loss_that_gains_frames_still_refuses(project_dir):
-    """The counter-example frames alone cannot catch: the cover is gone
-    and the surviving clip grew past the old row total - frames gained,
-    content lost. Names are the load-bearing half, so this refuses."""
-    retired = FakeTimeline(
-        FINAL,
-        video=[
-            (
-                "Akshita",
-                [FakeItem("Craig A", 0, 100), FakeItem("LC4932 cover", 100, 124)],
-            ),
-        ],
-    )
-    staging = FakeTimeline(
-        FINAL + " (rebuild staging)",
-        video=[
-            ("Akshita", [FakeItem("Craig A", 0, 140)]),
-        ],
-    )
-    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
-
-    with pytest.raises(ReelBuildError) as refused:
-        _promote(resolve, project_dir, {FINAL: staging.GetName()})
-
-    message = str(refused.value)
-    assert "video:Akshita" in message
-    assert "2 item(s) -> 1" in message
-    assert "LC4932 cover" in message
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL, staging.GetName()])
-    assert resolve.deleted == []
 
 
 def test_a_float_read_of_an_int_is_the_same_value_not_a_change():

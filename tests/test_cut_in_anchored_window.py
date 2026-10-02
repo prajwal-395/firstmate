@@ -1,19 +1,8 @@
-"""Comps key to the anchored span (finding 36).
+"""A comp keys its zoom to the anchored `effect_window_frames` and holds
+neutral outside it; no window (or a full-range one) keys as before.
+Asserted on the serialized comp's own splines.
 
-4.03 resolved a `cut_in` anchored to the word 'quit' (0.2-7.185 s),
-but the build drew one constant-zoom comp over the whole hook item
-(0-216) at 1.15 - the exported frame at 0.07 s is already punched.
-The resolved sub-block anchor reached per_clip as params but the
-comp keyed its keyframes to the whole played item, ignoring it.
-
-The fix threads the window through: compile_manifest records the
-entry's absolute timeline span as `effect_window`, the applicator
-turns it into comp frames (`effect_window_frames`), and `fx.zoom`
-keys inside the window while holding neutral (1.0) outside it. A
-window covering the whole played range keys exactly as before.
-
-These tests read the serialized comp's own splines - the bytes
-Resolve holds - never the plan. No Resolve writes.
+History: docs/evidence/composed_edit.md.
 """
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.fusion.transition_frames import parse_splines, value_at
@@ -44,21 +33,15 @@ def test_anchored_cut_in_holds_neutral_outside_the_window():
     assert value_at(keys, 215) == 1.15
 
 
-def test_unwindowed_cut_in_still_punches_the_whole_item():
+def test_no_window_or_a_full_range_window_punches_the_whole_item():
     """No window (an unanchored entry spanning the block) keeps the
-    current whole-item behaviour: a scalar Size over the clip, so
-    every frame - including frame 2 - plays punched."""
-    comp_text = _comp(1.15)
-    assert "Size = Input { Value = 1.15, }" in comp_text
-    assert parse_splines(comp_text) == {}
-
-
-def test_a_full_range_window_keys_exactly_as_no_window():
-    """A window covering everything played is no window: the windowed
-    build carries the same scalar Size and no spline either."""
-    comp_text = _comp(1.15, [0, 215])
-    assert "Size = Input { Value = 1.15, }" in comp_text
-    assert parse_splines(comp_text) == {}
+    whole-item behaviour - a scalar Size, every frame punched - and a
+    window covering everything played is no window: same scalar, no
+    spline either."""
+    for window in (None, [0, 215]):
+        comp_text = _comp(1.15, window)
+        assert "Size = Input { Value = 1.15, }" in comp_text, window
+        assert parse_splines(comp_text) == {}
 
 
 def test_windowed_drift_ramps_inside_and_holds_outside():

@@ -131,3 +131,22 @@ and it covers the trees.
 
 `tests/test_reel_rebuild_need.py`.
 ```
+
+## The test suite's account
+
+Moved from the module docstring of `tests/test_reel_rebuild_need.py` (2026-10-02).
+
+`library/tools/reel_rebuild_need.py` is what stops a build paying a full
+Resolve pass per reel per build. The measured stake, from the composed-edit
+spike (`docs/RULE_EVIDENCE.md`, "what it costs"): one reel's Resolve pass is
+19.4-67.1 s, of which the Fusion comp pass is 17.0-63.7 s of FIXED overhead.
+
+The whole risk is in one direction. A digest that misses an input SKIPS A REEL
+THAT NEEDED REBUILDING, and nothing downstream would say so - the reel would
+simply be last week's. A digest that covers too much rebuilds a reel that did
+not need it and costs a minute. So the tests are mostly about the first: every
+REBUILD answer, the absence of any partial answer, and a mechanical check that
+the engine trees really do cover the modules the reel build reaches.
+`plan_provenance.REEL_BUILD_CODE_FILES` names three paths and the reel build
+reaches far more; a digest built on that set would leave a change to
+`reel_ending.py` or `reel_look.py` invisible.

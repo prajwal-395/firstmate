@@ -122,3 +122,33 @@ Where it runs
 
 `tests/test_reel_thesis.py`.
 ```
+
+
+## The acceptance tests
+
+Module docstring of `tests/test_reel_thesis.py`, moved verbatim on
+2026-10-02 when the test file kept only its invariant.
+
+```text
+The thesis check separates the five incoherent reels from their fixes.
+
+Gap G1: reels 04, 10, 13, 14 and 27 failed on thesis and every gate
+passed them. `library/tools/reel_thesis.py` reads each reel's kept
+word sequence with three questions and refuses promotion on a fresh
+recorded incoherent. The acceptance test is not that the check runs -
+it is that it would have caught those five while passing what is
+fine.
+
+Fixtures below are built from the scout report's verbatim quotes
+(`data/vep-ft-structural-reels/report.md` in the firstmate home):
+each failing reel's kept words, and the same reel's fixed kept words
+("after fix the reel says"). The readings are the model's half,
+hand-written as the survey would record them; the VERDICTS are
+derived by the engine and asserted here. Five read incoherent, five
+read coherent - the separation the removed coherence warning never
+showed.
+
+These tests pin what is measured, what is deliberately NOT decided
+(no score, no threshold, no count anywhere), and that an answer that
+cannot be checked reads as unjudged rather than as a verdict.
+```

@@ -1,31 +1,9 @@
-"""The declared CDL reaches reel picture clips, CDL-first.
+"""The declared CDL reaches reel picture clips, CDL-first: it resolves from
+the same declaration the Fusion half reads, `SetCDL` lands on node 1 of
+footage picture items only, and the pixel proof (skipped without the
+grade-variant stills) shows the split comes from the CDL.
 
-PR 881 delivered the Fusion four (pivot contrast, glow, grain, vignette)
-onto every reel picture clip. The CDL half - slope/offset/power/saturation,
-which carries the warm-skin-over-teal-shadows split itself - never reached
-a reel: step 6.01's master path applies it through `TimelineItem.SetCDL`
-and `reel_build` has no SetCDL call at all.
-
-Three things have to be true for the split to reach the picture:
-
-1. The CDL half resolves from the same declaration the Fusion half reads -
-   the project's own `style.series_look` winning whole-slot over its brand
-   template's (`effective_series_look`) - in the key names the renderer
-   reads (`slope_r`...`saturation`, the names step 6.01 formats).
-2. Every footage picture item on the reel gets `SetCDL` on Color page
-   node 1 (PR 870: that is where SetCDL lands on the master), and nothing
-   else does - not rendered cards sharing the picture rows, not the frame
-   overlay, not the captions.
-3. The full look proves in decoded pixels against
-   `data/vep-grade-variants-to-choose-from/v04_teal_split.jpg` in the
-   firstmate home: the Fusion four alone
-   reach the still's luminance, and the CDL moves the COLOUR statistics
-   toward the still's - warm skin (R-B) over teal shadows (B-R).
-   The CDL-versus-Fusion ordering is CDL first, established from PR 866's
-   recipe (`data/vep-grade-variants-to-choose-from/report.md` in the
-   firstmate home, section 2: "Grade order:
-   CDL first (as SetCDL on the timeline item), then the Fusion chain in
-   node order") - not assumed.
+History: `docs/evidence/series_look.md` (test_reel_grade_cdl.py).
 """
 from __future__ import annotations
 

@@ -1,19 +1,7 @@
-"""Stored proposals predate the boundary snap; the build repairs them.
+"""Stored proposals are snapped out of word interiors at BUILD time
+(`snap_moment_to_speech`), body and CTA alike, without reselecting.
 
-PR #671 made the boundary drawer snap cut boundaries OUT of word
-interiors when a proposal is GENERATED.  But the stored
-`reel_proposals_v2.json` was written weeks earlier and is read AS-IS at
-build time, so the snap never touched it: reel 5 rebuilt on fully fixed
-code and still gate-FAILED on F8, its END at 413.85s cutting through
-the word 'about' (412.77-414.03s).
-
-The fix under test is option (b): `snap_moment_to_speech` applies the
-SAME snap at BUILD time to whatever proposal is read - body window and
-closing CTA alike - without re-running selection, so WHICH moments the
-captain approved is untouched and only where each one opens and closes
-moves.  The build (`rebuild_reels_in_project`) and the gate
-(`run_verification`) both consume the repaired moments, so a reel
-cannot be built to one span and graded against another.
+History: docs/evidence/reel_boundary_snap.md.
 """
 
 from library.tools.reel_proposal import (
@@ -85,13 +73,7 @@ def test_build_time_repair_moves_a_stored_end_out_of_a_word():
         342.038, 414.03)
     assert moves == [{"boundary": "body_end", "was": 413.851,
                       "now": 414.03, "through": "about"}]
-
-
-def test_repair_is_idempotent():
-    """Repairing twice is repairing once: the second pass finds no
-    boundary inside any word."""
-    repaired, _ = snap_moment_to_speech(
-        _moment(342.038, 413.851), _reel5_transcript())
+    # Idempotent: the second pass finds no boundary inside any word.
     again, moves = snap_moment_to_speech(repaired, _reel5_transcript())
     assert again is repaired
     assert moves == []
@@ -167,4 +149,3 @@ def test_large_cta_end_cascade_is_reported_but_held():
     lines = decision_lines(5, candidate, tx)
     assert "candidate 342.030s -> 349.540s (+7.510s)" in lines[0]
     assert "approved CTA end remains at 342.030s" in lines[1]
-

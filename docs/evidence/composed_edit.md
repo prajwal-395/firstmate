@@ -123,3 +123,22 @@ holds no Resolve import: it takes live handles as arguments, so it is
 driven under test by a fake (`tests/test_composed_edit.py`) and under
 `AGENTS.md 5`'s process rule by whatever opened the project.
 ```
+
+## `tests/test_cut_in_anchored_window.py` (moved from its module docstring, 2026-10-02)
+
+Comps key to the anchored span (finding 36).
+
+4.03 resolved a `cut_in` anchored to the word 'quit' (0.2-7.185 s),
+but the build drew one constant-zoom comp over the whole hook item
+(0-216) at 1.15 - the exported frame at 0.07 s is already punched.
+The resolved sub-block anchor reached per_clip as params but the
+comp keyed its keyframes to the whole played item, ignoring it.
+
+The fix threads the window through: compile_manifest records the
+entry's absolute timeline span as `effect_window`, the applicator
+turns it into comp frames (`effect_window_frames`), and `fx.zoom`
+keys inside the window while holding neutral (1.0) outside it. A
+window covering the whole played range keys exactly as before.
+
+These tests read the serialized comp's own splines - the bytes
+Resolve holds - never the plan. No Resolve writes.

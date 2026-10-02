@@ -40,41 +40,25 @@ def _blocks():
     return outgoing, incoming
 
 
-def test_lead_frames_places_the_audio_cut_on_the_frame():
-    """TR3.3's shape: 20 frames before the picture cut, to the frame."""
+def test_a_stated_offset_places_the_audio_cut_on_the_frame():
+    """TR3.3's 20 frames before the picture cut, MX3.3's 30 frames
+    after it, and MX3.3's stated second as a 30-frame offset - each to
+    the frame, the method naming the stated unit."""
     outgoing, incoming = _blocks()
-    hit = resolve_audio_cut(
-        kind="j_cut", entry={"type": "j_cut", "lead_frames": 20},
-        outgoing=outgoing, incoming=incoming,
-        boundary_frame=300, frame_rate=FPS)
-    assert hit["audio_cut_frame"] == 280
-    assert hit["picture_cut_frame"] == 300
-    assert hit["lead_seconds"] == pytest.approx(20 / FPS, abs=1e-3)
-    assert "20 frames" in hit["method"]
-
-
-def test_lag_frames_places_the_audio_cut_on_the_frame():
-    """MX3.3's shape in frames: 30 frames after the picture cut."""
-    outgoing, incoming = _blocks()
-    hit = resolve_audio_cut(
-        kind="l_cut", entry={"type": "l_cut", "lag_frames": 30},
-        outgoing=outgoing, incoming=incoming,
-        boundary_frame=300, frame_rate=FPS)
-    assert hit["audio_cut_frame"] == 330
-    assert hit["lead_seconds"] == pytest.approx(30 / FPS, abs=1e-3)
-    assert "30 frames" in hit["method"]
-
-
-def test_one_second_l_cut_places_audio_thirty_frames_late():
-    """MX3.3's stated second survives as a 30-frame timeline offset."""
-    outgoing, incoming = _blocks()
-    hit = resolve_audio_cut(
-        kind="l_cut", entry={"type": "l_cut", "lag_seconds": 1.0},
-        outgoing=outgoing, incoming=incoming,
-        boundary_frame=300, frame_rate=FPS)
-    assert hit["audio_cut_frame"] == 330
-    assert hit["picture_cut_frame"] == 300
-    assert "1.000s" in hit["method"]
+    cases = [
+        ("j_cut", {"lead_frames": 20}, 280, 20 / FPS, "20 frames"),
+        ("l_cut", {"lag_frames": 30}, 330, 30 / FPS, "30 frames"),
+        ("l_cut", {"lag_seconds": 1.0}, 330, 1.0, "1.000s"),
+    ]
+    for kind, offset, frame, seconds, method in cases:
+        hit = resolve_audio_cut(
+            kind=kind, entry={"type": kind, **offset},
+            outgoing=outgoing, incoming=incoming,
+            boundary_frame=300, frame_rate=FPS)
+        assert hit["audio_cut_frame"] == frame, offset
+        assert hit["picture_cut_frame"] == 300
+        assert hit["lead_seconds"] == pytest.approx(seconds, abs=1e-3)
+        assert method in hit["method"]
 
 
 def test_seconds_and_frames_agreeing_ship_the_frames():

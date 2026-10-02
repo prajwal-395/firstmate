@@ -65,11 +65,14 @@ def one_reel(name, *clips):
 
 # ── The pure diff: agreements ───────────────────────────────────
 
-def test_identical_documents_hold_what_the_commit_recorded():
+def test_identical_documents_and_read_noise_hold_what_the_commit_recorded():
+    """Resolve read-back noise (transform_drift.UNMOVED = 1e-3) is not a
+    hand edit. Remove the tolerance and every reel diffs itself."""
     record = one_reel("Reel 26", make_clip("a.MXF", 100),
                       make_clip("b.MXF", 200))
     live = one_reel("Reel 26", make_clip("a.MXF", 100),
-                    make_clip("b.MXF", 200))
+                    make_clip("b.MXF", 200,
+                              transform={"Pan": 0.0005, "Tilt": 0.2505}))
     per = rd.diff_record_vs_live(record, live, reel="Reel 26")
     assert per["compared"] is True
     assert per["counts"] == {"agreements": 2, "conflicts": 0,
@@ -77,65 +80,37 @@ def test_identical_documents_hold_what_the_commit_recorded():
     assert "hold exactly what the commit recorded" in per["line"]
 
 
-def test_read_noise_within_tolerance_is_still_agreement():
-    """Resolve read-back noise (transform_drift.UNMOVED = 1e-3) is not a
-    hand edit. Remove the tolerance and every reel diffs itself."""
-    record = one_reel("Reel 26", make_clip("a.MXF", 100))
-    live = one_reel("Reel 26",
-                    make_clip("a.MXF", 100,
-                              transform={"Pan": 0.0005, "Tilt": 0.2505}))
-    per = rd.diff_record_vs_live(record, live, reel="Reel 26")
-    assert per["counts"]["conflicts"] == 0
-    assert per["counts"]["agreements"] == 1
-
-
 # ── The pure diff: conflicts ────────────────────────────────────
 
-def test_a_moved_clip_reads_as_moved_not_removed_plus_added():
-    """Same name, new record window: one conflict naming both spans.
-    Splitting it into removed-plus-added would double the triage."""
-    record = one_reel("Reel 13", make_clip("LC4930.MXF", 590, 1069))
-    live = one_reel("Reel 13", make_clip("LC4930.MXF", 600, 1079))
-    per = rd.diff_record_vs_live(record, live, reel="Reel 13")
-    assert per["counts"]["conflicts"] == 1
-    assert per["counts"]["agreements"] == 0
-    detail = per["conflicts"][0]["detail"]
-    assert "moved" in detail and "@590..1069" in detail
-    assert "@600..1079" in detail
-
-
-def test_a_reframed_clip_names_the_axis():
-    record = one_reel("Reel 13", make_clip("LC4930.MXF", 590))
-    live = one_reel("Reel 13",
-                    make_clip("LC4930.MXF", 590,
-                              transform={"Pan": -24.0}))
-    per = rd.diff_record_vs_live(record, live, reel="Reel 13")
-    assert per["counts"]["conflicts"] == 1
-    assert "transform.Pan 0 -> -24" in per["conflicts"][0]["detail"]
-
-
-def test_an_added_clip_is_unclaimed_by_the_commit():
-    record = one_reel("Reel 13", make_clip("a.MXF", 100))
-    live = one_reel("Reel 13", make_clip("a.MXF", 100),
-                    make_clip("insert.MXF", 200))
-    per = rd.diff_record_vs_live(record, live, reel="Reel 13")
-    assert per["counts"] == {"agreements": 1, "conflicts": 1,
-                             "undetermined": 0}
-    assert "unclaimed by it" in per["conflicts"][0]["detail"]
-    assert "insert.MXF" in per["conflicts"][0]["detail"]
-
-
-def test_a_track_on_one_side_is_one_row_not_a_clip_explosion():
-    """A whole new overlay row is one finding. One row per clip would
-    turn a single added track into dozens of conflicts."""
-    record = one_reel("Reel 13", make_clip("a.MXF", 100))
-    live = doc("Reel 13", ("video", 1, "V1", [make_clip("a.MXF", 100)]),
-               ("video", 4, "Captions", [make_clip("cap.mov", 100),
-                                         make_clip("cap2.mov", 200)]))
-    per = rd.diff_record_vs_live(record, live, reel="Reel 13")
-    assert per["counts"]["conflicts"] == 1
-    assert "Captions" in per["conflicts"][0]["detail"]
-    assert "2 clip(s)" in per["conflicts"][0]["detail"]
+def test_each_kind_of_change_is_one_conflict_that_names_itself():
+    """A move is one conflict naming both spans (not removed-plus-added,
+    which would double the triage); a reframe names the axis; an added
+    clip is unclaimed; a whole new row is ONE finding, not one per clip."""
+    base = make_clip("LC4930.MXF", 590, 1069)
+    rows = [
+        (one_reel("Reel 13", base),
+         one_reel("Reel 13", make_clip("LC4930.MXF", 600, 1079)),
+         0, ["moved", "@590..1069", "@600..1079"]),
+        (one_reel("Reel 13", base),
+         one_reel("Reel 13", make_clip("LC4930.MXF", 590, 1069,
+                                       transform={"Pan": -24.0})),
+         0, ["transform.Pan 0 -> -24"]),
+        (one_reel("Reel 13", base),
+         one_reel("Reel 13", base, make_clip("insert.MXF", 2000)),
+         1, ["unclaimed by it", "insert.MXF"]),
+        (one_reel("Reel 13", base),
+         doc("Reel 13", ("video", 1, "V1", [base]),
+             ("video", 4, "Captions", [make_clip("cap.mov", 100),
+                                       make_clip("cap2.mov", 200)])),
+         1, ["Captions", "2 clip(s)"]),
+    ]
+    for record, live, agreements, needles in rows:
+        per = rd.diff_record_vs_live(record, live, reel="Reel 13")
+        assert per["counts"] == {"agreements": agreements, "conflicts": 1,
+                                 "undetermined": 0}, needles
+        detail = per["conflicts"][0]["detail"]
+        for needle in needles:
+            assert needle in detail
 
 
 # ── The pure diff: undetermined is a first-class answer ─────────
@@ -185,27 +160,16 @@ def _project_with_commits(tmp_path):
     return str(root)
 
 
-def test_the_record_is_head_not_the_worktree(tmp_path):
-    """The hand trim above must read as a conflict. Reading the
-    worktree file as the record would report agreement with itself."""
-    project = _project_with_commits(tmp_path)
-    found = rd.committed_document(project, "Reel 13")
-    assert found["document"] is not None
-    clips = found["document"]["tracks"][0]["clips"]
-    assert clips[0]["record_out"] == 1069
-
-
-def test_an_uncommitted_reel_has_no_record_and_says_so(tmp_path):
-    project = _project_with_commits(tmp_path)
-    found = rd.committed_document(project, "Reel 09")
-    assert found["document"] is None
-    assert "no committed snapshot" in found["reason"]
-
-
 # ── The set: cross-reel summary, never refusing ────────────────
 
 def test_the_set_reports_changed_unchanged_undetermined(tmp_path):
+    """Reel 13 was hand-trimmed after the commit: it reads changed only
+    because the record is HEAD, never the worktree file."""
     project = _project_with_commits(tmp_path)
+    assert rd.committed_document(project, "Reel 13")["document"][
+        "tracks"][0]["clips"][0]["record_out"] == 1069
+    assert "no committed snapshot" in rd.committed_document(
+        project, "Reel 09")["reason"]
     report = rd.diff_records(project, ["Reel 26", "Reel 13", "Reel 09"])
     assert report["changed"] == ["Reel 13"]
     assert report["unchanged"] == ["Reel 26"]
