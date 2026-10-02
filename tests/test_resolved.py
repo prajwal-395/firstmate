@@ -221,3 +221,31 @@ def test_a_stale_patch_is_rejected_with_what_a_rebase_needs(
     assert receipt["result"]["rebase_possible"] is True
     # The captain's cursor is put back where the broker found it.
     assert resolve.project.GetCurrentTimeline().GetName() == "Master"
+
+
+def test_the_broker_connects_to_resolve_only_inside_the_lease(
+        lock_dir, unguarded, monkeypatch):
+    """Measured live 2026-10-02: the executor's handshake ran outside any
+    lease, and `resolve_locale` refuses that, so every job failed."""
+    seen = []
+    project = _Project(jobs.QUALIFICATION_PROJECT, ["Q Markers"])
+
+    def connect():
+        seen.append(resolve_lock.held())
+        return _Resolve(project)
+
+    monkeypatch.setattr("library.tools.timeline_shadow.observe",
+                        lambda project, timeline: types.SimpleNamespace(
+                            summary=lambda: {"generation": 1}))
+    store = JobStore(lock_dir / "ren-resolved.sqlite3")
+    broker = Broker(store, connect=connect)
+    try:
+        submitted = broker.submit("timeline.snapshot",
+                                  {"project": jobs.QUALIFICATION_PROJECT,
+                                   "timeline": "Q Markers"})
+        receipt = broker.result(submitted["id"], wait=5)
+    finally:
+        broker.stop()
+        store.close()
+    assert receipt["state"] == "done", receipt["error"]
+    assert seen == [True]

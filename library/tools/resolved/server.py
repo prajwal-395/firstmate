@@ -213,8 +213,27 @@ class Broker:
                     return
                 job_id = self._executor_queue.pop(0)
             job = self.store.get(job_id)
-            state, result, error = "done", None, ""
-            try:
+            state, result, error = self._run(job)
+            if state == "granted":
+                # Checked; the caller takes Resolve now that the broker
+                # has let go of it.
+                self._started[job_id].set()
+                continue
+            with self._cond:
+                self._finish(job_id, state=state, result=result, error=error)
+
+    def _run(self, job: dict) -> tuple:
+        """(state, result, error) for one job, under the instance lease.
+
+        Held in the JOB's mode for the whole job, connection included:
+        the scripting handshake is refused outside a lease
+        (`resolve_locale`), and a connection opened between leases is a
+        client nobody scheduled.
+        """
+        from library.tools.resolve_lock import resolve_lease
+        try:
+            with resolve_lease(f"ren-resolved {job['kind']} {job['id']}",
+                               exclusive=job["mode"] == "exclusive"):
                 if job["qualification"]:
                     found = job_kinds.open_project_name(self._resolve_handle())
                     if found != job_kinds.QUALIFICATION_PROJECT:
@@ -223,18 +242,15 @@ class Broker:
                             f"{job_kinds.QUALIFICATION_PROJECT!r} open; "
                             f"Resolve has {found or 'no project'!r}")
                 if not job["executed"]:
-                    self._started[job_id].set()
-                    continue
-                result = job_kinds.run(job, self._resolve_handle())
-            except job_kinds.JobRefused as exc:
-                state, error, result = "rejected", str(exc), exc.result
-            except Exception as exc:                          # noqa: BLE001
-                # The job failed; the broker does not. A dead connection
-                # is reopened on the next job rather than trusted.
-                state, error = "failed", f"{type(exc).__name__}: {exc}"
-                self._resolve = None
-            with self._cond:
-                self._finish(job_id, state=state, result=result, error=error)
+                    return "granted", None, ""
+                return "done", job_kinds.run(job, self._resolve_handle()), ""
+        except job_kinds.JobRefused as exc:
+            return "rejected", exc.result, str(exc)
+        except Exception as exc:                              # noqa: BLE001
+            # The job failed; the broker does not. A dead connection is
+            # reopened on the next job rather than trusted.
+            self._resolve = None
+            return "failed", None, f"{type(exc).__name__}: {exc}"
 
     def _resolve_handle(self):
         if self._resolve is None:

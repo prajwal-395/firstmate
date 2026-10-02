@@ -262,8 +262,9 @@ def verify(project) -> list:
         if names != spec["clips"]:
             problems.append(f"{spec['name']}: V1 holds {names}, "
                             f"declared {spec['clips']}")
-        # GetEndFrame is the LAST frame, inclusive (`safe_zone_guide`).
-        length = timeline.GetEndFrame() - timeline.GetStartFrame() + 1
+        # GetEndFrame is EXCLUSIVE: measured live on Resolve 21.1
+        # (2026-10-02), a 216-frame timeline read end - start = 216.
+        length = timeline.GetEndFrame() - timeline.GetStartFrame()
         declared = sum(frames(clip) for clip in spec["clips"])
         if length != declared:
             problems.append(f"{spec['name']}: {length} frames, "

@@ -162,8 +162,11 @@ def test_qualify_passes_end_to_end_against_the_resolve_double(
                                   height=1080, frame_rate=qp.FPS)
         manager.projects[project.GetName()] = manager._project = project
         for spec in qp.TIMELINES:
-            timeline = project.adopt(rd.FakeTimeline(spec["name"],
-                                                     project=project))
+            # Resolve's GetEndFrame is EXCLUSIVE (measured live
+            # 2026-10-02); the double's default reads it inclusive.
+            length = sum(qp.frames(clip) for clip in spec["clips"])
+            timeline = project.adopt(rd.FakeTimeline(
+                spec["name"], project=project, end_frame=length))
             for clip in spec["clips"]:
                 pool = rd.make_pool_clip(f"{clip}.mp4", frames=qp.frames(clip))
                 rd.place_clip(timeline, pool, 0, qp.frames(clip) - 1)
