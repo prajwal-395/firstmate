@@ -275,7 +275,7 @@ def observing_operation(project_folder, operation_id: str,
     # The same receipt, priced: `ren profile` reads this row.
     perf = perf_ledger.begin(
         project_folder, operation_id, run_id,
-        node=next((op.owning_node for op in operations.all()
+        node=next((dag_adapter.node_of(op) for op in operations.all()
                    if op.name == operation_id), None))
     try:
         yield ledger

@@ -738,3 +738,18 @@ def test_preflight_shared_code_references_are_declared():
             f"declared-but-unreferenced {sorted(declared - required)} "
             f"would invalidate good cache on unrelated edits")
 
+
+
+def test_a_node_run_completes_its_project_capabilities_only():
+    """The ledgers are keyed by node; reading them by capability must
+    not credit a region splice or a touch-up with a node run that never
+    executed it, and an entry naming its operation completes only that
+    capability."""
+    state = {step_ledger.LEDGER_KEY[step_ledger.EDIT]: {
+        "plan_subtitles": {}, "build_reels": {}},
+        step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {
+        "temporal_index": {"operation": "transcript.reindex"}}}
+    done = step_ledger.completed_capabilities(state)
+    assert {"subtitles.plan", "reel.build"} <= done
+    assert not {"subtitles.splice", "reel.touchup", "temporal.index"} & done
+    assert "transcript.reindex" in done

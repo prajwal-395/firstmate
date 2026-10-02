@@ -262,7 +262,7 @@ def run(project: str, capability_ids: Sequence[str]) -> dict:
         if failed:
             row["status"] = NOT_RUN
             continue
-        if step_ledger.is_completed(state, node):
+        if cid in step_ledger.completed_capabilities(state):
             row["status"] = REUSED
             print(f"[analyze] {cid}: reused", file=sys.stderr, flush=True)
             continue

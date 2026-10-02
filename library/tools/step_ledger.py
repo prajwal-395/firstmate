@@ -220,6 +220,33 @@ def is_completed(state: dict, node_id: str) -> bool:
     return node_id in all_completed(state)
 
 
+def completed_capabilities(state: dict) -> set:
+    """The capability ids the ledgers record as finished.
+
+    The ledgers stay keyed by node, because the runner runs nodes; this
+    is the capability-keyed reading of them.  An entry that names its
+    `operation` was written by a path that ran ONE capability
+    (`footage_intelligence`) and completes exactly that one.  An entry
+    without one is a node the runner ran end to end, which completes
+    every capability of the node that produces something at project
+    scope - never a region splice, a touch-up or a segment unit, which a
+    node run does not execute.
+    """
+    from library.tools import dag_adapter
+    from library.tools.scope import PROJECT
+
+    done = set()
+    for node_id, entry in all_completed(state).items():
+        named = entry.get("operation") if isinstance(entry, dict) else None
+        if named:
+            done.add(named)
+            continue
+        done.update(op.name for op in dag_adapter.capabilities_at(node_id)
+                    if op.produces and PROJECT in op.scopes
+                    and not op.caller_supplied)
+    return done
+
+
 def record(state: dict, stage: str, node_id: str, entry: dict) -> None:
     """Write a step's completion into its own stage's ledger."""
     ledger(state, stage)[node_id] = entry
