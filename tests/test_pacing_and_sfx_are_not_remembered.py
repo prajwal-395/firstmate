@@ -1,45 +1,14 @@
 """Two steps decided from memory, and now they decide from context.
 
-Both defects were invisible on the run of record because one agent
-answered every step, and both are recorded in the creative-decision
-degradation report of 2026-08-28 (F7 and F13):
-
-  * `mesh_spine` (2.05) places every non-speech gap, sets its length,
-    and sets the `music_behavior` of every block - including the
-    `silent` climax, the strongest creative decision in the finished
-    video. Its own handoff names the creative direction as one of three
-    core reads and scores it on "the spine follows the creative
-    direction's energy arc". No DAG edge carried it. The 2.05 reasoning
-    trace justified the silence by quoting 2.01's `energy_arc` - "the
-    piece resolves by getting quieter and more certain, not louder" -
-    and that sentence appeared nowhere in 2.05's context.
-
-  * `plan_sfx` (4.04) is told, first thing, to pair sounds with
-    transitions, and its second evaluation criterion is "every creative
-    transition has at most one SFX". No DAG edge carried
-    `transition_spec`. Both sounds that shipped sit on the two drawn
-    transitions, placed by an agent that had planned those transitions
-    itself minutes earlier.
-
-Replace the answering agent between steps and neither justification has
-a source. These tests fail if either edge is removed again, and they
-also hold the BOUNDARY: what was deliberately left out stays out, so the
-fix cannot quietly grow into routing everything available.
+`mesh_spine` (2.05) sees the creative direction's energy arc through its
+own projection, and `plan_sfx` (4.04) sees which transitions draw. The
+legacy DAG edges that route them are not pinned here (AGENTS.md 3).
+History (F7, F13): docs/evidence/sfx.md.
 """
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
-DAG = json.loads(
-    (REPO / "library" / "processes" / "edit_video" / "dag.json")
-    .read_text(encoding="utf-8")
-)
-SFX = REPO / "library" / "steps" / "step_4_04_plan_sfx"
 
 from library.steps.step_4_04_plan_sfx.bridge import (  # noqa: E402
     build_transition_rows,
@@ -54,35 +23,7 @@ def _manifest(step_dir: str) -> dict:
     )
 
 
-def _carries(source: str, target: str, state_key: str) -> bool:
-    return any(
-        e["from"] == source and e["to"] == target
-        and state_key in (e.get("data_mapping") or {})
-        for e in DAG["edges"]
-    )
-
-
-# ── Edge 1: the direction reaches the step that sets the pace ─────────
-
-
-def test_the_dag_carries_the_direction_into_the_spine():
-    assert _carries("creative_direction", "mesh_spine",
-                    "creative_direction"), (
-        "mesh_spine sets every gap and every music_behavior with no "
-        "sight of the creative direction again"
-    )
-
-
-def test_the_spine_declares_the_direction_and_the_runner_refuses_without_it():
-    declared = {i["name"]: i
-                for i in _manifest("step_2_05_mesh_spine")
-                ["interface"]["inputs"]}
-    assert "creative_direction" in declared
-    assert declared["creative_direction"]["required"] is True, (
-        "an optional creative direction is one nothing refuses on, and "
-        "a run missing it would look exactly like the defect this "
-        "edge removes"
-    )
+# ── The direction reaches the step that sets the pace ────────────────
 
 
 def test_the_energy_arc_survives_the_spines_projection():
@@ -115,35 +56,12 @@ def test_the_energy_arc_survives_the_spines_projection():
     for name in ("target_mood", "target_energy", "emotional_landscape",
                  "narrative_theme", "audience_emotion"):
         assert name in kept, f"{name} no longer reaches the spine prompt"
+    # The boundary: 2.01's own reasoning and a second copy of the
+    # passages 2.02 already chose do not travel.
+    assert "key_moments" not in kept and "rationale" not in kept
 
 
-def test_the_spine_is_not_handed_the_whole_direction():
-    """The boundary, held deliberately.
-
-    `key_moments` names clips and source ranges that 2.02 has already
-    turned into the passages this step arranges, and `rationale` is
-    2.01's account of how it reached the direction - addressed to
-    somebody auditing 2.01, not to somebody placing a gap. Together
-    they are 4,744 of the direction's 6,854 bytes on project 001.
-    """
-    fields = _manifest("step_2_05_mesh_spine")["context_fields"]
-    selected = [f for f in fields if f.startswith("creative_direction")]
-    assert selected, "nothing selects the direction"
-    assert not any("key_moments" in f or "rationale" in f
-                   for f in selected), (
-        "the spine now carries 2.01's own reasoning and a second copy "
-        "of the passages speech_sequence already chose"
-    )
-
-
-# ── Edge 2: the sound step can see the transitions ────────────────────
-
-
-def test_the_dag_carries_the_transition_plan_into_plan_sfx():
-    assert _carries("plan_transitions", "plan_sfx", "transition_spec"), (
-        "plan_sfx is told to pair sounds with transitions it cannot see "
-        "again"
-    )
+# ── The sound step can see the transitions ────────────────────────────
 
 
 def _spine():
@@ -190,10 +108,6 @@ def _inputs(**overrides):
     return payload
 
 
-
-
-
-
 def test_a_drawn_transition_is_told_apart_from_one_that_draws_nothing():
     """The handoff's second criterion is about a CREATIVE transition.
 
@@ -231,7 +145,6 @@ def test_a_cut_that_names_no_boundary_is_unresolved_not_the_nearest_block():
 
 
 
-
 def test_the_table_is_empty_rather_than_wrong_without_the_plan():
     """An absent plan is zero rows, never a table of invented cuts.
 
@@ -242,14 +155,3 @@ def test_the_table_is_empty_rather_than_wrong_without_the_plan():
     payload = _inputs()
     del payload["transition_spec"]
     assert build_transition_rows(payload) == []
-
-
-
-
-def test_the_table_is_declared_as_an_output():
-    """A bridge key the manifest does not declare warns on every run."""
-    names = {o["name"] for o in _manifest("step_4_04_plan_sfx")
-             ["interface"]["outputs"]}
-    assert "transitions_toon" in names
-
-

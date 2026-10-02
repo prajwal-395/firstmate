@@ -88,46 +88,31 @@ def test_ingest_legacy_whisperx_words_keep_their_method(monkeypatch):
     assert regions[0]["confidence"] == -0.08
 
 
-def test_ingest_silence_keeps_its_none_stamp(monkeypatch):
-    """The seam heard nothing and said so: the index must keep the
-    "none" stamp, not let the legacy whisperx defaults rewrite it
-    into an instrument that never ran."""
+def test_nothing_transcribed_is_empty_with_an_honest_none_stamp(monkeypatch):
+    """Whether the seam heard nothing and said so, or could not run at
+    all, the index keeps `"none"` - never the legacy whisperx defaults
+    (an instrument that never ran), never a null read as "the default".
+    An empty region list is not a measurement of silence."""
     import library.tools.timeline_transcript as tt
 
-    monkeypatch.setattr(
-        tt, "transcribe_audio",
-        lambda *a, **k: (
-            {"segments": []},
-            hybrid_transcription.fallback_record(
-                hybrid_transcription.FallbackRequired(
-                    hybrid_transcription.HEARD_NOTHING,
-                    "the transcriber returned no words"),
-                attempted="clip.wav")))
+    heard_nothing = lambda *a, **k: (  # noqa: E731
+        {"segments": []},
+        hybrid_transcription.fallback_record(
+            hybrid_transcription.FallbackRequired(
+                hybrid_transcription.HEARD_NOTHING,
+                "the transcriber returned no words"),
+            attempted="clip.wav"))
 
-    regions, transcription = temporal_index.detect_speech_regions(
-        "/tmp/clip.wav", "/tmp", onsets=[], language="en")
+    def could_not_run(*a, **k):
+        raise ImportError("no transcriber")
 
-    assert regions == []
-    assert transcription["arm"] == temporal_index.UNTRANSCRIBED
-    assert transcription["aligner"] == temporal_index.UNTRANSCRIBED
-
-
-def test_ingest_failure_is_empty_with_an_honest_stamp(monkeypatch):
-    """Nothing transcribed is `[]` with the arm as `"none"` - an
-    empty region list is not a measurement of silence, and a null
-    stamp would read as "timed by the default"."""
-    import library.tools.timeline_transcript as tt
-
-    monkeypatch.setattr(
-        tt, "transcribe_audio",
-        lambda *a, **k: (_ for _ in ()).throw(ImportError("no transcriber")))
-
-    regions, transcription = temporal_index.detect_speech_regions(
-        "/tmp/clip.wav", "/tmp", onsets=[], language="en")
-
-    assert regions == []
-    assert transcription["arm"] == temporal_index.UNTRANSCRIBED
-    assert transcription["aligner"] == temporal_index.UNTRANSCRIBED
+    for seam in (heard_nothing, could_not_run):
+        monkeypatch.setattr(tt, "transcribe_audio", seam)
+        regions, transcription = temporal_index.detect_speech_regions(
+            "/tmp/clip.wav", "/tmp", onsets=[], language="en")
+        assert regions == []
+        assert transcription["arm"] == temporal_index.UNTRANSCRIBED
+        assert transcription["aligner"] == temporal_index.UNTRANSCRIBED
 
 
 def _cached_index(tmp_path, **overrides):
@@ -143,41 +128,26 @@ def _cached_index(tmp_path, **overrides):
     return str(path)
 
 
-def test_a_pre_stamp_cache_is_served_as_legacy_not_retranscribed(tmp_path):
-    """Every index written before this change was timed by the old
-    WhisperX path - an instrument, not nothing. Serving it stamped
-    as legacy keeps the run from silently re-transcribing whole
-    projects; `ren reindex` moves them when asked."""
+def test_a_cache_is_served_by_its_stamp(tmp_path):
+    """Pre-stamp: served as the legacy WhisperX instrument it was, never
+    silently re-transcribed (`ren reindex` moves it when asked), and
+    stamped on read so the next read is stable. `"none"`: retried, or
+    empty words would be pinned forever. Current MFA stamp: reused - the
+    refusal must not fail correct output."""
     path = _cached_index(tmp_path)
-
-    index = temporal_index._load_cached_index(
-        path, expected_language="en")
-
+    index = temporal_index._load_cached_index(path, expected_language="en")
     assert index is not None
     assert index["transcription_arm"] == temporal_index.LEGACY_ARM
-    assert index["transcription_aligner"] == (
-        temporal_index.LEGACY_ALIGNER)
+    assert index["transcription_aligner"] == temporal_index.LEGACY_ALIGNER
     assert index["detected_language"] == "en"
-    # Stamped on read: the next read is stable, not a re-discovery.
-    again = temporal_index._load_cached_index(
-        path, expected_language="en")
+    again = temporal_index._load_cached_index(path, expected_language="en")
     assert again["transcription_aligner"] == "wav2vec2"
 
-
-def test_an_untranscribed_cache_is_retried_not_pinned(tmp_path):
-    """A clip nothing could transcribe stamps `"none"`; serving that
-    as current would pin empty words forever, because the stamp
-    never changes on its own."""
     path = _cached_index(
         tmp_path, transcription_aligner=temporal_index.UNTRANSCRIBED)
-
     assert temporal_index._load_cached_index(
         path, expected_language="en") is None
 
-
-def test_a_stamped_cache_still_hits(tmp_path):
-    """The refusal above must not become a gate that fails correct
-    output: an MFA-timed index in the right language is reused."""
     regions = [{"start": 0.5, "end": 1.4, "text": "absolutely.",
                 "words": [{"word": "absolutely.", "start": 0.5,
                            "end": 1.4}],
@@ -186,10 +156,7 @@ def test_a_stamped_cache_still_hits(tmp_path):
         tmp_path, speech_regions=regions,
         transcription_aligner=hybrid_transcription.ALIGNER_MFA,
         transcription_arm=hybrid_transcription.ARM_HYBRID)
-
-    index = temporal_index._load_cached_index(
-        path, expected_language="en")
-
+    index = temporal_index._load_cached_index(path, expected_language="en")
     assert index is not None
     assert index["speech_regions"] == regions
 
@@ -247,21 +214,16 @@ def test_reindex_invalidates_only_what_no_current_instrument_timed(tmp_path):
     assert report["unrecognized"] == ["notes.json"]
 
 
-def test_speech_window_language_avoids_language_not_covered_for_batch(
-        monkeypatch, tmp_path):
-    """Batching is the cost fix: two clips' windows align in ONE
-    call, and every word comes back on its own clip's clock. Language
-    detection samples those word windows rather than the file lead-in,
-    so music cannot choose an uncovered MFA language."""
+def _stub_hearing(monkeypatch, probes=None):
+    """One "Hi." at 0.5-0.9 per file; language probes recorded."""
     from library.tools import heard_speech
 
-    language_probes = []
-
-    def _identify_speech(path, **kwargs):
-        language_probes.append((path, kwargs))
+    def _identify(path, **kwargs):
+        if probes is not None:
+            probes.append((path, kwargs))
         return heard_speech.HeardLanguage("en", 0.98)
 
-    monkeypatch.setattr(heard_speech, "identify_language", _identify_speech)
+    monkeypatch.setattr(heard_speech, "identify_language", _identify)
     monkeypatch.setattr(
         heard_speech, "transcribe",
         lambda path, **kw: heard_speech.HeardSpeech(
@@ -270,129 +232,57 @@ def test_speech_window_language_avoids_language_not_covered_for_batch(
             text="Hi.",
             engine={"transcriber": "da", "version": "0.1.1"}))
 
+
+def test_a_batch_aligns_once_and_every_clip_keeps_its_own_clock(
+        monkeypatch, tmp_path):
+    """Two clips' windows align in ONE call (the cost fix). Language is
+    sampled from each clip's word windows, not its lead-in, so music
+    cannot choose an uncovered MFA language. Windows AND their
+    `source_words` ride up the concat by the clip's offset - unshifted,
+    a kept transcriber-timed window lands seconds off - and every word
+    comes back on its own clip's clock."""
     import library.tools.timeline_transcript as tt
 
-    calls = []
+    probes, calls, received = [], [], []
+    _stub_hearing(monkeypatch, probes)
 
     def _one_align(segments, language, audio_path):
         calls.append((len(segments), language))
-        out = []
-        for segment in segments:
-            out.append({
-                "start": segment["start"] + 0.05,
-                "end": segment["end"] - 0.05,
-                "text": segment["text"],
-                "words": [{"word": "Hi.",
-                           "start": segment["start"] + 0.05,
-                           "end": segment["end"] - 0.05}],
-            })
-        return {"segments": out,
-                "aligner": hybrid_transcription.ALIGNER_MFA}
+        received.extend(segments)
+        return {"segments": [
+            {"start": s["start"] + 0.05, "end": s["end"] - 0.05,
+             "text": s["text"],
+             "words": [{"word": "Hi.", "start": s["start"] + 0.05,
+                        "end": s["end"] - 0.05}]} for s in segments],
+            "aligner": hybrid_transcription.ALIGNER_MFA}
 
     monkeypatch.setattr(
         tt, "_aligner",
         lambda: hybrid_transcription.Aligner(
             covers=lambda language: True, align=_one_align))
-
-    import wave
-    audios = []
-    for name in ("a.wav", "b.wav"):
-        path = str(tmp_path / name)
-        with wave.open(path, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(16000)
-            wav.writeframes(b"\x00\x00" * 16000)
-        audios.append(path)
+    audios = [_silent_wav(tmp_path / name) for name in ("a.wav", "b.wav")]
 
     results = temporal_index.transcribe_clips_batched(
         [{"key": "clip_001", "audio_path": audios[0]},
          {"key": "clip_002", "audio_path": audios[1]}],
         language="en")
 
-    assert len(calls) == 1
-    assert calls[0] == (2, "en")
-    assert [path for path, _ in language_probes] == audios
-    for _path, probe in language_probes:
+    assert calls == [(2, "en")]
+    assert [path for path, _ in probes] == audios
+    for _path, probe in probes:
         assert probe["sample_start_seconds"] == pytest.approx(0.35)
         assert probe["sample_duration_seconds"] == pytest.approx(0.7)
+    # Clip 2 starts one second into the concat: window and sources both.
+    assert received[1]["start"] == pytest.approx(received[0]["start"] + 1.0)
+    second_sources = received[1]["source_words"]
+    assert second_sources[0]["start"] == pytest.approx(
+        received[0]["source_words"][0]["start"] + 1.0)
+    assert second_sources[0]["start"] == pytest.approx(0.5 + 1.0)
     first = results["clip_001"][0][0]
     second = results["clip_002"][0][0]
     assert results["clip_001"][1]["aligner"] == "mfa"
-    # The concat offset is subtracted: both clips' words sit in the
-    # first second, on their own clocks.
     assert first["words"][0]["start"] == second["words"][0]["start"]
     assert first["words"][0]["start"] < 1.0
-
-
-def test_batch_windows_carry_source_spans_on_the_concat_clock(
-        monkeypatch, tmp_path):
-    """The merge falls back to a window's `source_words` for a span no
-    pass can align, so the batch shifts those spans into the concat
-    like the window itself - unshifted, the split-back subtracts the
-    offset from the wrong clock and a kept window lands seconds off."""
-    from library.tools import heard_speech
-
-    monkeypatch.setattr(
-        heard_speech, "identify_language",
-        lambda path, **kw: heard_speech.HeardLanguage("en", 0.98))
-    monkeypatch.setattr(
-        heard_speech, "transcribe",
-        lambda path, **kw: heard_speech.HeardSpeech(
-            words=[heard_speech.HeardWord("Hi.", 0.5, 0.9)],
-            sentences=[heard_speech.HeardSentence("Hi.", 0.5, 0.9)],
-            text="Hi.",
-            engine={"transcriber": "da", "version": "0.1.1"}))
-
-    import library.tools.timeline_transcript as tt
-
-    received = []
-
-    def _capture(segments, language, audio_path):
-        received.extend(segments)
-        out = []
-        for segment in segments:
-            out.append({
-                "start": segment["start"], "end": segment["end"],
-                "text": segment["text"],
-                "words": [{"word": "Hi.",
-                           "start": segment["start"],
-                           "end": segment["end"]}],
-            })
-        return {"segments": out,
-                "aligner": hybrid_transcription.ALIGNER_MFA}
-
-    monkeypatch.setattr(
-        tt, "_aligner",
-        lambda: hybrid_transcription.Aligner(
-            covers=lambda language: True, align=_capture))
-
-    import wave
-    audios = []
-    for name in ("a.wav", "b.wav"):
-        path = str(tmp_path / name)
-        with wave.open(path, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(16000)
-            wav.writeframes(b"\x00\x00" * 16000)
-        audios.append(path)
-
-    temporal_index.transcribe_clips_batched(
-        [{"key": "clip_001", "audio_path": audios[0]},
-         {"key": "clip_002", "audio_path": audios[1]}],
-        language="en")
-
-    assert len(received) == 2
-    first_sources = received[0]["source_words"]
-    second_sources = received[1]["source_words"]
-    # Clip 2 starts one second into the concat: its window AND its
-    # source spans ride one second up.
-    assert received[1]["start"] == pytest.approx(
-        received[0]["start"] + 1.0)
-    assert second_sources[0]["start"] == pytest.approx(
-        first_sources[0]["start"] + 1.0)
-    assert second_sources[0]["start"] == pytest.approx(0.5 + 1.0)
 
 
 def _silent_wav(path, seconds=1):
@@ -414,16 +304,7 @@ def test_samples_heard_once_serve_both_the_index_and_source_memory(
     first are served to the batch - the seam runs zero more times."""
     from library.tools import heard_speech, source_memory
 
-    monkeypatch.setattr(
-        heard_speech, "identify_language",
-        lambda path, **kw: heard_speech.HeardLanguage("en", 0.98))
-    monkeypatch.setattr(
-        heard_speech, "transcribe",
-        lambda path, **kw: heard_speech.HeardSpeech(
-            words=[heard_speech.HeardWord("Hi.", 0.5, 0.9)],
-            sentences=[heard_speech.HeardSentence("Hi.", 0.5, 0.9)],
-            text="Hi.",
-            engine={"transcriber": "da", "version": "0.1.1"}))
+    _stub_hearing(monkeypatch)
 
     import library.tools.timeline_transcript as tt
 

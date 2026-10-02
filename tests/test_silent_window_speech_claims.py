@@ -33,7 +33,10 @@ mlx_mock.prompt_utils = mlx_prompt_utils
 from library.tools.analysis import vision_pipeline_v3 as vp
 
 
-def test_quoted_span_is_stripped_but_description_survives():
+def test_only_quotations_are_stripped():
+    """A quoted span goes and the description around it survives; a
+    straight apostrophe is not a quotation; an unbalanced quote nulls
+    the field rather than leaving half a quotation."""
     cleaned, stripped = vp._strip_unheard_quotations(
         'mouth moving as if speaking, says "hello there friends" loudly')
     assert stripped is True
@@ -41,19 +44,11 @@ def test_quoted_span_is_stripped_but_description_survives():
     assert "mouth moving" in cleaned
     assert "hello there friends" not in cleaned
 
-
-def test_apostrophe_is_not_a_quotation():
-    cleaned, stripped = vp._strip_unheard_quotations(
-        "person's mouth moving, head nodding")
-    assert stripped is False
-    assert cleaned == "person's mouth moving, head nodding"
-
-
-def test_unbalanced_quote_nulls_the_field():
-    cleaned, stripped = vp._strip_unheard_quotations(
-        'mouth moving, says "hello there')
-    assert stripped is True
-    assert cleaned is None
+    assert vp._strip_unheard_quotations(
+        "person's mouth moving, head nodding") == (
+        "person's mouth moving, head nodding", False)
+    assert vp._strip_unheard_quotations(
+        'mouth moving, says "hello there') == (None, True)
 
 
 def test_window_transcript_reports_its_precision():
@@ -78,7 +73,10 @@ def _analyzer_saying(raw_actions):
     return analyzer
 
 
-def test_untranscribed_window_quotation_is_stripped_and_recorded():
+def test_only_a_wordless_window_has_its_quotation_stripped_and_recorded():
+    """A window the transcript gives no words has the invented quotation
+    stripped and `speech_quote_stripped` recorded, its visible delivery
+    intact; a word-timed window may echo the transcript it was given."""
     analyzer = _analyzer_saying([{
         "start": 0.0, "end": 10.0,
         "action": "person talking to camera",
@@ -86,26 +84,20 @@ def test_untranscribed_window_quotation_is_stripped_and_recorded():
         "body_language": "seated, hands visible",
     }])
     clips = [{"index": 0, "start": 0.0, "end": 10.0, "path": "/tmp/w.mp4"}]
-    out = vp.analyze_windows(analyzer, clips, 10.0, None, "")
-    assert len(out) == 1
-    entry = out[0]
+    entry = vp.analyze_windows(analyzer, clips, 10.0, None, "")[0]
     assert entry.get("speech_quote_stripped") is True
     cue = entry["actions"][0]["speech_cue"]
     assert cue is None or '"' not in cue
     assert "welcome back to the show" not in str(entry["actions"])
-    # The visible delivery around the quotation survives.
     assert entry["actions"][0]["action"] == "person talking to camera"
     assert entry["actions"][0]["body_language"] == "seated, hands visible"
 
-
-def test_word_timed_window_may_echo_its_transcript():
     analyzer = _analyzer_saying([{
         "start": 1.0, "end": 3.0,
         "action": "person talking to camera",
         "speech_cue": "mouth moving steadily",
         "body_language": "seated",
     }])
-    clips = [{"index": 0, "start": 0.0, "end": 10.0, "path": "/tmp/w.mp4"}]
     temporal = {"speech_regions": [
         {"start": 1.0, "end": 3.0, "text": "hello world"},
     ]}

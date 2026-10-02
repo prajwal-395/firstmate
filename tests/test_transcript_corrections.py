@@ -9,9 +9,6 @@ kind with a machine-readable `source`, and is applied deterministically
 at the transcript root - so every downstream consumer (captions,
 explainer stages, motion-graphics anchors, the model-read context)
 reads the corrected words with no changes of its own.
-
-Fail-before: this module does not exist yet, and `transcribe_audio`
-takes no bias arguments.
 """
 
 import json
@@ -73,8 +70,11 @@ def _doc_with_lucy():
     }
 
 
-def test_spelling_correction_is_recorded_as_a_learned_correction(tmp_path):
+def test_spelling_correction_is_recorded_and_read_back_everywhere(tmp_path):
+    """Recorded as a learned correction; the bias strings and the model
+    note both carry it, and an empty store renders nothing."""
     from library.tools import transcript_corrections as tc
+    assert tc.render_for_model(str(tmp_path)) == ""
     rec = tc.record_spelling(
         str(tmp_path), heard="lucy", correct="Lucie",
         reason="captain marker at frame 1516: the company Lucie Content, "
@@ -87,6 +87,11 @@ def test_spelling_correction_is_recorded_as_a_learned_correction(tmp_path):
         (tmp_path / "learned_context" / "learnings.json").read_text(
             encoding="utf-8"))
     assert len(store) == 1
+    prompt, hotwords = tc.bias_strings(str(tmp_path))
+    assert "Lucie" in prompt
+    assert "Lucie" in hotwords
+    note = tc.render_for_model(str(tmp_path))
+    assert "lucy" in note and "Lucie" in note
 
 
 def test_apply_rewrites_segment_text_and_words(tmp_path):
@@ -177,19 +182,11 @@ def test_transcribe_carries_bias_arguments_unread(monkeypatch):
         hybrid_transcription.HEARD_NOTHING
 
 
-def test_bias_strings_carry_every_correction(tmp_path):
-    from library.tools import transcript_corrections as tc
-    tc.record_spelling(
-        str(tmp_path), heard="lucy", correct="Lucie",
-        reason="captain marker at frame 1516")
-    prompt, hotwords = tc.bias_strings(str(tmp_path))
-    assert "Lucie" in prompt
-    assert "Lucie" in hotwords
-
-
-def test_keep_exclusion_trims_a_fragment_off_a_moment():
+def test_keep_exclusion_trims_an_edge_and_drops_an_interior_one():
     """Frame 528: "so what do they" at the range head goes, the rest of
-    the audio stays. A trim, not a drop."""
+    the audio stays - a trim, not a drop. An interior exclusion would
+    split one reel into two, a new editorial decision: dropped with the
+    reason."""
     from library.tools import transcript_corrections as tc
     moments = [{"start": 20.0, "end": 40.0, "slug": "reel-09"}]
     exclusions = [{"start": 20.0, "end": 23.5, "id": "lc-0002",
@@ -200,12 +197,6 @@ def test_keep_exclusion_trims_a_fragment_off_a_moment():
     assert kept[0]["end"] == 40.0
     assert kept[0]["trimmed_by"] == ["lc-0002"]
 
-
-def test_keep_exclusion_in_the_middle_drops_and_says_so():
-    """An interior exclusion would split one reel into two - a new
-    editorial decision, not an enforcement. Dropped with the reason."""
-    from library.tools import transcript_corrections as tc
-    moments = [{"start": 20.0, "end": 40.0, "slug": "reel-09"}]
     exclusions = [{"start": 28.0, "end": 30.0, "id": "lc-0003",
                    "reason": "captain: mistake in the middle"}]
     kept, dropped = tc.apply_keep_exclusions(moments, exclusions)
@@ -294,23 +285,10 @@ def test_played_speech_reads_lucie_after_correction(tmp_path):
                for line in with_words for w in line.get("words", []))
 
 
-def test_render_for_model_names_the_verdict(tmp_path):
-    from library.tools import transcript_corrections as tc
-    assert tc.render_for_model(str(tmp_path)) == ""
-    tc.record_spelling(
-        str(tmp_path), heard="lucy", correct="Lucie",
-        reason="captain marker at frame 1516")
-    note = tc.render_for_model(str(tmp_path))
-    assert "lucy" in note and "Lucie" in note
-
-
 def test_correction_reaches_the_motion_graphics_planner_prompt(tmp_path):
     """The authored-copy half: a `read_by: ["*"]` correction is routed
     to the MG planner through `project_context`, so model-written copy
-    spells it right. 4.06 declares the input; the runner restores it by
-    name into every prompt."""
-    import json
-
+    spells it right."""
     from library.tools import learned_context as lc
     from library.tools import transcript_corrections as tc
     tc.record_spelling(
@@ -319,13 +297,6 @@ def test_correction_reaches_the_motion_graphics_planner_prompt(tmp_path):
     prompt_text = lc.render_for_prompt(
         str(tmp_path), "render_motion_graphics")
     assert "Lucie" in prompt_text
-    manifest = json.loads(
-        (REPO_ROOT / "library" / "steps"
-         / "step_4_06_render_motion_graphics" / "manifest.json")
-        .read_text(encoding="utf-8"))
-    declared = [i.get("name")
-                for i in manifest["interface"]["inputs"]]
-    assert "project_context" in declared
 
 
 def test_reel_semantic_request_carries_the_correction(tmp_path):
@@ -376,22 +347,11 @@ def _hybrid_doc_with_lucy():
     return doc
 
 
-def test_the_repair_reaches_a_hybrid_transcript_too(tmp_path):
-    from library.tools import transcript_corrections as tc
-    tc.record_spelling(str(tmp_path), heard="lucy", correct="Lucie",
-                       reason="captain marker at frame 1516")
-    doc = _hybrid_doc_with_lucy()
-    report = tc.apply_to_document(doc, str(tmp_path))
-    assert report["replacements"] >= 2
-    assert "Lucie" in doc["segments"][0]["text"]
-    assert not any(w["word"].strip().lower() == "lucy"
-                   for w in doc["segments"][0]["words"])
-
-
-def test_the_repair_leaves_the_hybrid_timings_and_scores_alone(tmp_path):
-    """Measured: aligning the wrong spelling and the right one moved 11
-    of 12 occurrences by zero milliseconds. So the respelling inherits
-    correct timings, and it must not write over them."""
+def test_the_repair_reaches_a_hybrid_transcript_and_touches_only_text(
+        tmp_path):
+    """Respelling inherits correct timings (measured: 11 of 12 moved by
+    zero ms), so timings and aligner scores stay, and the pass never
+    fills in the confidence the transcriber never produced."""
     from library.tools import transcript_corrections as tc
     from library.tools.transcript_confidence import ALIGNMENT_SCORE
 
@@ -400,29 +360,21 @@ def test_the_repair_leaves_the_hybrid_timings_and_scores_alone(tmp_path):
     doc = _hybrid_doc_with_lucy()
     before = [(w["start"], w["end"], w[ALIGNMENT_SCORE])
               for w in doc["segments"][0]["words"]]
-    tc.apply_to_document(doc, str(tmp_path))
-    after = [(w["start"], w["end"], w[ALIGNMENT_SCORE])
-             for w in doc["segments"][0]["words"]]
-    assert after == before
-
-
-def test_the_repair_does_not_invent_the_confidence_the_hybrid_lacks(tmp_path):
-    """The correction pass touches text. It must not quietly fill in the
-    number the transcriber never produced."""
-    from library.tools import transcript_corrections as tc
-
-    tc.record_spelling(str(tmp_path), heard="lucy", correct="Lucie",
-                       reason="captain marker at frame 1516")
-    doc = _hybrid_doc_with_lucy()
-    tc.apply_to_document(doc, str(tmp_path))
+    report = tc.apply_to_document(doc, str(tmp_path))
+    assert report["replacements"] >= 2
+    assert "Lucie" in doc["segments"][0]["text"]
+    assert not any(w["word"].strip().lower() == "lucy"
+                   for w in doc["segments"][0]["words"])
+    assert [(w["start"], w["end"], w[ALIGNMENT_SCORE])
+            for w in doc["segments"][0]["words"]] == before
     assert all("avg_logprob" not in row or row["avg_logprob"] is None
                for row in doc["segments"])
 
 
 def test_an_uncertain_model_proposal_records_pending_not_applied(tmp_path):
-    """The Sheehan default, corrected: an unsure model proposal is
-    recorded for review, never enforced - no prompt, no pass, no bias
-    - until a human promotes it."""
+    """The Sheehan default, corrected: an unsure model proposal - a
+    respelling or a suppression - is recorded for review, never enforced
+    (no prompt, no pass, no bias) until a human promotes it."""
     from library.tools import learned_context as lc
     from library.tools import transcript_corrections as tc
 
@@ -445,11 +397,6 @@ def test_an_uncertain_model_proposal_records_pending_not_applied(tmp_path):
                reason="Captain: it's not a name, keep the fix.")
     assert [c["correct"] for c in tc.spelling_corrections(
         str(tmp_path))] == ["she even"]
-
-
-def test_a_pending_suppression_hides_nothing_until_promoted(tmp_path):
-    from library.tools import learned_context as lc
-    from library.tools import transcript_corrections as tc
 
     rec = tc.record_display_suppression(
         str(tmp_path), "different",

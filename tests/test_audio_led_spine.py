@@ -100,54 +100,31 @@ def _music_block(position=3):
 
 # ── The contract admits the new vocabulary ──────────────────────────
 
-def test_picture_block_with_clip_and_span_passes():
-    """A picture block that names its clip span is a legal spine block.
-
-    Defect prevented: the gate knowing only speech-with-words and
-    clip-less gaps, so a picture-led moment had no shape that passed.
-    """
+def test_the_contract_admits_picture_and_music_blocks_and_refuses_holes():
+    """A picture block naming its clip span and a music block naming its
+    track are legal spine blocks. Each malformed shape refuses by name:
+    a clipless picture block is a hole wearing a name; words on a
+    picture-led moment read two sources for one moment; a music span
+    with no track is a plan nothing can play; and a block that plays a
+    clip is never held on black (the declared hole would excuse the very
+    range the coverage assertion should see filled)."""
     validate_spine_blocks([_speech_block(), _picture_block()])
-
-
-def test_picture_block_with_no_clip_is_refused():
-    """A picture block naming no clip is a hole wearing a name.
-
-    Defect prevented: a clipless picture block sailing through as a
-    generic non-speech block and reaching V1 with nothing to play.
-    """
-    block = _picture_block(clip_id=None)
-    with pytest.raises(SpineContractError) as excinfo:
-        validate_spine_blocks([block])
-    assert "no clip_id" in str(excinfo.value)
-
-
-def test_picture_block_with_words_is_refused():
-    """A picture-led moment says nothing, so words on one are a defect.
-
-    Defect prevented: a block claiming both a picture cut and a speech
-    alignment, which would read two sources for one moment downstream.
-    """
-    block = _picture_block()
-    block["word_timestamps"] = _words(5.0)
-    block["alignment_method"] = "whisperx"
-    with pytest.raises(SpineContractError) as excinfo:
-        validate_spine_blocks([block])
-    assert "word_timestamps" in str(excinfo.value)
-
-
-def test_music_block_passes_and_a_broken_track_ref_is_refused():
-    """A music block needs no clip; a half-written track ref fails.
-
-    Defect prevented, both directions: refusing the music-led moment
-    outright, or letting a span-with-no-track reach the mix as a plan
-    nothing can play.
-    """
     validate_spine_blocks([_music_block()])
-    broken = _music_block()
-    broken["content"] = {"source_in": 10.0, "source_out": 14.0}
-    with pytest.raises(SpineContractError) as excinfo:
-        validate_spine_blocks([broken])
-    assert "no track" in str(excinfo.value)
+
+    clipless = _picture_block(clip_id=None)
+    worded = dict(_picture_block(), word_timestamps=_words(5.0),
+                  alignment_method="whisperx")
+    trackless = dict(_music_block(),
+                     content={"source_in": 10.0, "source_out": 14.0})
+    black = dict(_picture_block(), intentional_black_beat=True,
+                 black_beat_reason="hold before the reveal")
+    for block, fragment in ((clipless, "no clip_id"),
+                            (worded, "word_timestamps"),
+                            (trackless, "no track"),
+                            (black, "never held on black")):
+        with pytest.raises(SpineContractError) as excinfo:
+            validate_spine_blocks([block])
+        assert fragment in str(excinfo.value), fragment
 
 
 def test_empty_body_covers_zero_of_zero():
@@ -158,21 +135,6 @@ def test_empty_body_covers_zero_of_zero():
     """
     validate_passage_coverage([], 0)
     validate_passage_coverage([_music_block()], 0)
-
-
-def test_picture_block_cannot_declare_a_black_beat():
-    """A block that plays a clip is never held on black.
-
-    Defect prevented: a deliberate hole declared on a block whose
-    picture assign_aroll just placed, excusing the very range the
-    coverage assertion should see filled.
-    """
-    block = _picture_block()
-    block["intentional_black_beat"] = True
-    block["black_beat_reason"] = "hold before the reveal"
-    with pytest.raises(SpineContractError) as excinfo:
-        validate_spine_blocks([block])
-    assert "never held on black" in str(excinfo.value)
 
 
 # ── mesh_spine runs without speech ───────────────────────────────────
@@ -294,24 +256,6 @@ def _catalog():
     ]
 
 
-def test_assign_a_roll_places_picture_blocks():
-    """A picture block's own span becomes its V1 picture.
-
-    Defect prevented: assign_aroll skipping picture blocks (non-A-roll
-    read as non-speech), leaving their timeline range with no V1 clip
-    for compile_manifest to build.
-    """
-    spine = {"structure": [_speech_block(), _picture_block(),
-                           _music_block()]}
-    result = assign_a_roll(spine, _catalog(), 1080, 1920, 30.0)
-    by_position = {a["spine_block_position"]: a
-                   for a in result["a_roll_assignments"]}
-    assert set(by_position) == {1, 2}
-    picture = by_position[2]
-    assert picture["block_type"] == "picture"
-    assert picture["video_segments"][0]["clip_id"] == "clip_002"
-
-
 def test_picture_block_reaches_v1_and_music_does_not():
     """V1 membership follows the picture, not the speech.
 
@@ -322,6 +266,9 @@ def test_picture_block_reaches_v1_and_music_does_not():
     assert block_reaches_v1(_picture_block()) is True
     assert block_reaches_v1(_music_block()) is False
     assert block_reaches_v1(_speech_block()) is True
+    # A speech block sourced from a catalogued voiceover (`audio_001`)
+    # plays from the audio file on A1: nothing reaches V1.
+    assert block_reaches_v1(_speech_block(clip_id="audio_001")) is False
 
 
 def test_cutaway_slots_skip_blocks_that_already_have_picture():
@@ -334,6 +281,10 @@ def test_cutaway_slots_skip_blocks_that_already_have_picture():
                            _music_block()]}
     slots = cutaway_slot_seconds(spine)
     assert slots == [4.0]
+    # A voiceover speech block is a slot its picture must cover, or the
+    # timeline carries black where the narration plays.
+    voiceover = {"structure": [_speech_block(clip_id="audio_001")]}
+    assert cutaway_slot_seconds(voiceover) == [2.0]
 
 
 def test_actual_script_is_empty_for_a_speechless_cut():
@@ -481,6 +432,7 @@ def test_picture_only_spine_compiles_with_v1_from_picture(tmp_path):
     assert len(v1) == 1
     assert v1[0]["label"].startswith("picture_")
     assert v1[0].get("picture_led") is True
+    assert v1[0]["source_file"] == catalog[1]["source_file"]
 
 
 def test_picture_v1_clips_are_exempt_from_the_fabricated_range_rule():

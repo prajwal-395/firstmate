@@ -95,48 +95,31 @@ def _speed_op(op_id="speed_001", start=0.0, end=2.4, percent=50.0):
 
 # ── the build applicator ─────────────────────────────────────────
 
-def test_retime_carries_same_span_dialogue():
+def test_retime_carries_same_span_dialogue_and_never_the_bed():
     """The B2 shape: 50% on the picture retimes the same-span dialogue
-    to 50% too, each judged by its own re-read."""
+    to 50% too, each judged by its own re-read. Span match alone is not
+    linkage: the bed plays the same span on a music row and stays at
+    100% (track scoping is the caller's: dialogue row 1 only)."""
     from library.tools import native_ops_apply as apply
     video = _FakeItem("hook", 0, 72)
     dialogue = _FakeItem("hook-audio", 0, 72)
-    bed = _FakeItem("bed", 0, 216, pool="infected.wav")
-    timeline = _FakeTimeline(video=[video], audio=[dialogue])
+    bed = _FakeItem("bed", 0, 72, pool="infected.wav")
+
+    class _TwoRow(_FakeTimeline):
+        def GetItemListInTrack(self, track_type, index):
+            if track_type == "audio":
+                return {1: [dialogue], 2: [bed]}.get(index, [])
+            return super().GetItemListInTrack(track_type, index)
+
     report = apply.apply_native_speed_ops(
-        timeline, [_speed_op()], fps=FPS, dialogue_tracks=[1])
+        _TwoRow(video=[video]), [_speed_op()], fps=FPS, dialogue_tracks=[1])
     assert len(report["applied"]) == 1
     row = report["applied"][0]
     assert dialogue.GetSpeed()["Percentage"] == 50.0
     assert row["audio"][0]["item"] == "hook-audio"
     assert row["audio"][0]["percent"] == 50.0
-    assert report["failed"] == []
-
-
-def test_bed_on_another_row_never_rides_the_retime():
-    """Span match alone is not linkage: the bed plays the same span
-    on a music row and must stay at 100%."""
-    from library.tools import native_ops_apply as apply
-    video = _FakeItem("hook", 0, 72)
-    dialogue = _FakeItem("hook-audio", 0, 72)
-    bed = _FakeItem("bed", 0, 72, pool="infected.wav")
-    # Track scoping is the caller's: dialogue row 1 only, bed row 2.
-
-    class _TwoRow(_FakeTimeline):
-        def GetItemListInTrack(self, track_type, index):
-            if track_type == "audio":
-                if index == 1:
-                    return [dialogue]
-                if index == 2:
-                    return [bed]
-            return super().GetItemListInTrack(track_type, index)
-
-    timeline = _TwoRow(video=[video], audio=[])
-    report = apply.apply_native_speed_ops(
-        timeline, [_speed_op()], fps=FPS, dialogue_tracks=[1])
-    assert len(report["applied"]) == 1
     assert bed.GetSpeed()["Percentage"] == 100.0
-    assert dialogue.GetSpeed()["Percentage"] == 50.0
+    assert report["failed"] == []
 
 
 def test_video_only_clip_reports_no_linked_audio():
@@ -190,42 +173,32 @@ def _span_of(item):
     return axi._item_span(item)
 
 
-def test_verb_selects_same_source_audio_and_skips_the_bed():
+def test_verb_links_same_source_audio_and_refuses_to_guess():
     """Same span + same file is linked; same span + another file is
-    named and left alone."""
+    named and left alone; no audio selects nothing; a same-span item
+    whose source will not read refuses rather than guesses - the bed
+    could be hiding behind the blank."""
     from library.tools import resolve_axi as axi
     video = _FakeItem("hook", 0, 72, pool="hook.mov")
     dialogue = _FakeItem("hook-audio", 0, 72, pool="hook.mov")
     bed = _FakeItem("bed", 0, 72, pool="infected.wav")
-    timeline = _FakeTimeline(video=[video], audio=[dialogue, bed])
     linked, skipped, refused, unchecked = axi._linked_audio_for_speed(
-        timeline, video, _span_of(video))
+        _FakeTimeline(video=[video], audio=[dialogue, bed]), video,
+        _span_of(video))
     assert [a.GetName() for a in linked] == ["hook-audio"]
     assert skipped == ["bed"]
     assert refused == "" and unchecked == ""
 
-
-def test_verb_with_no_audio_selects_nothing():
-    from library.tools import resolve_axi as axi
-    video = _FakeItem("broll", 0, 72, pool="street.mov")
-    timeline = _FakeTimeline(video=[video], audio=[])
     assert axi._linked_audio_for_speed(
-        timeline, video, _span_of(video)) == ([], [], "", "")
-
-
-def test_verb_refuses_an_unreadable_source_beside_candidates():
-    """A same-span item whose source will not read refuses rather
-    than guesses - the bed could be hiding behind the blank."""
-    from library.tools import resolve_axi as axi
-    video = _FakeItem("hook", 0, 72, pool="hook.mov")
+        _FakeTimeline(video=[video], audio=[]), video,
+        _span_of(video)) == ([], [], "", "")
 
     class _NoSource(_FakeItem):
         def GetMediaPoolItem(self): return None
 
-    ghost = _NoSource("ghost", 0, 72)
-    timeline = _FakeTimeline(video=[video], audio=[ghost])
     linked, skipped, refused, unchecked = axi._linked_audio_for_speed(
-        timeline, video, _span_of(video))
+        _FakeTimeline(video=[video], audio=[_NoSource("ghost", 0, 72)]),
+        video, _span_of(video))
     assert linked == [] and skipped == []
     assert "ghost" in refused and unchecked == ""
 

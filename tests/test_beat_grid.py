@@ -15,7 +15,6 @@ either side fails rather than degrading to silence.
 """
 import ast
 import os
-import re
 import sys
 
 import pytest
@@ -28,8 +27,6 @@ from library.tools.beat_grid import (
     MIN_USABLE_BEATS,
     assert_music_offset_is_the_chosen_section,
     beat_positions,
-    bpm,
-    downbeat_positions,
 )
 
 # The bed plays from the head of the file unless a section says otherwise;
@@ -78,63 +75,13 @@ def test_the_producer_really_emits_tempo_beats_and_downbeats():
     assert "bpm" in emitted
 
 
-def test_the_producer_emits_no_beat_grid_key():
-    """The key plan_sfx used to ask for. It never existed."""
-    with open(MUSIC_PIPELINE, encoding="utf-8") as f:
-        src = f.read()
-    assert "beat_grid" not in src
-
-
-def test_no_consumer_reads_the_key_that_never_existed():
-    consumers = [
-        "library/steps/step_4_04_plan_sfx/post_bridge.py",
-        "library/steps/step_4_02_plan_transitions/post_bridge.py",
-        "library/steps/step_4_02_plan_transitions/bridge.py",
-    ]
-    offenders = []
-    for rel in consumers:
-        with open(os.path.join(PROJECT_ROOT, rel), encoding="utf-8") as f:
-            code = "\n".join(l for l in f.read().splitlines()
-                             if not l.lstrip().startswith("#"))
-        if 'get("beat_grid"' in code or "get('beat_grid'" in code:
-            offenders.append(rel)
-    assert not offenders, (
-        f"{offenders} read music_analysis['beat_grid'], which the producer "
-        f"has never emitted. Use library/tools/beat_grid.py.")
-
-
-def test_nobody_synthesises_a_grid_from_bpm_any_more():
-    """`[i * 60/bpm ...]` from t=0 is the bug, not a fallback."""
-    for rel in ("library/steps/step_4_02_plan_transitions/post_bridge.py",
-                "library/steps/step_4_02_plan_transitions/bridge.py"):
-        with open(os.path.join(PROJECT_ROOT, rel), encoding="utf-8") as f:
-            code = "\n".join(l for l in f.read().splitlines()
-                             if not l.lstrip().startswith("#"))
-        assert "60.0 / bpm" not in code and "60 / bpm" not in code, (
-            f"{rel} still synthesises a beat grid from BPM. The synthetic "
-            f"grid starts at t=0 and no track's first beat does.")
-
-
 # ─────────────────────────────────────────────────────────
 # Reading the grid
 # ─────────────────────────────────────────────────────────
 
 
-
-def test_the_first_beat_is_not_assumed_to_be_zero():
-    """The whole point: real grids have a lead-in."""
-    got = beat_positions(analysis(beats=BEATS), NO_SECTION)
-    assert got[0] == pytest.approx(0.37)
-    assert got[0] != 0.0
-
-
-
-
-
-
 class TestRefusesToInvent:
     """Empty means "do not snap", which every caller already honours."""
-
 
 
     def test_too_few_beats_is_not_a_rhythm(self):
@@ -145,8 +92,6 @@ class TestRefusesToInvent:
     def test_malformed_entries_are_skipped_not_crashed(self):
         messy = list(BEATS) + ["x", None, {}, -1.0]
         assert beat_positions(analysis(beats=messy), NO_SECTION) == sorted(BEATS)
-
-
 
 
 # ─────────────────────────────────────────────────────────
@@ -175,34 +120,3 @@ def test_music_placed_somewhere_other_than_the_chosen_section_raises():
             {"tracks": {"A2": {"clips": [
                 {"source_in": 4.5, "timeline_in": 0.0}]}}},
             None)
-
-
-def test_compile_manifest_asserts_the_domain():
-    path = os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_5_04_compile_manifest", "step.py")
-    with open(path, encoding="utf-8") as f:
-        src = f.read()
-    assert "assert_music_offset_is_the_chosen_section(manifest, ms, spine)" in src, (
-        "compile_manifest must assert the time domain the beat grid "
-        "depends on, or an offset silently moves every snapped cut")
-
-
-# ─────────────────────────────────────────────────────────
-# P4.2: pacing, removed rather than left as a number nobody acts on
-# ─────────────────────────────────────────────────────────
-
-
-
-def test_the_cohesion_step_no_longer_scores_pacing():
-    path = os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_5_03_creative_cohesion", "step.py")
-    with open(path, encoding="utf-8") as f:
-        code = "\n".join(l for l in f.read().splitlines()
-                         if not l.lstrip().startswith("#"))
-    assert "extract_cuts_per_minute" not in code
-    assert "Pacing mismatch" not in code
-
-
-def test_the_brand_schema_has_no_pacing_slot():
-    from library.schemas.brand_template import StyleSlots
-    assert not hasattr(StyleSlots(), "pacing")

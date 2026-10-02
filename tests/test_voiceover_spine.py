@@ -23,21 +23,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from library.steps.step_2_02_speech_sequence.post_bridge import (  # noqa: E402
-    PassageAlignmentError,
-    enrich_speech_sequence,
-)
 from library.steps.step_3_01_assign_aroll.step import (  # noqa: E402
     assign_a_roll,
 )
-from library.steps.step_3_02_select_broll.bridge import (  # noqa: E402
-    cutaway_slot_seconds,
-)
 from library.steps.step_3_03_review_rough_cut.step import (  # noqa: E402
     build_actual_script,
-)
-from library.tools.transition_carriers import (  # noqa: E402
-    block_reaches_v1,
 )
 
 SEQ_POST_BRIDGE = (
@@ -86,76 +76,23 @@ def _audio_catalog(path="/tmp/vo.wav"):
     ]
 
 
-# ── The spine knows a voiceover block carries no picture ──────────
-
-def test_voiceover_speech_block_does_not_reach_v1():
-    """A voiceover-sourced speech block puts nothing on V1.
-
-    Defect prevented: V1 membership read off block_type alone, so
-    compile built a V1 clip from a sound-only file and the transition
-    planner offered cuts no V1 clip ends at.
-    """
-    assert block_reaches_v1(_voiceover_block()) is False
-
-
-def test_cutaway_slots_cover_voiceover_speech_blocks():
-    """A voiceover speech block is a slot its picture must cover.
-
-    Defect prevented: slots skipped every speech block, so a
-    voiceover block's B-roll cover was never sized and the timeline
-    carried black where the narration plays.
-    """
-    spine = {"structure": [_voiceover_block()]}
-    assert cutaway_slot_seconds(spine) == [2.0]
-
+# (V1 membership and cutaway slots for a voiceover block are pinned in
+# tests/test_audio_led_spine.py beside the picture and music cases.)
 
 # ── assign_aroll places the words, not the picture ────────────────
 
-def test_assign_a_roll_emits_a_voiceover_assignment():
-    """A voiceover block's words play from the audio file.
-
-    Defect prevented: assign_aroll looked every clip_id up in the
-    video catalog, so a voiceover-sourced block died with "not found
-    in catalog" and a voiceover-over-B-roll project never placed.
-    """
-    spine = {"structure": [_voiceover_block()]}
-    result = assign_a_roll(spine, _catalog(), 1080, 1920, 30.0,
-                           audio_catalog=_audio_catalog())
-    assert result["a_roll_assignments"] == []
-    assert len(result["voiceover_assignments"]) == 1
-    vo = result["voiceover_assignments"][0]
-    assert vo["audio_id"] == "audio_001"
-    assert vo["source_file"] == "/tmp/vo.wav"
-    assert (vo["audio_in"], vo["audio_out"]) == (0.0, 2.0)
-    assert (vo["timeline_start"], vo["timeline_end"]) == (0.0, 2.0)
-
-
-def test_assign_a_roll_refuses_a_picture_block_naming_audio():
-    """A picture-led moment cut from a sound-only file is refused.
-
-    Defect prevented: a picture block naming an audio id sailing
-    through as a placement with no picture to cut.
-    """
-    block = _voiceover_block()
-    block["block_type"] = "picture"
-    block["word_timestamps"] = []
-    block["alignment_method"] = None
-    with pytest.raises(ValueError, match="no picture to cut"):
-        assign_a_roll({"structure": [block]}, _catalog(),
-                      1080, 1920, 30.0,
-                      audio_catalog=_audio_catalog())
-
-
-def test_assign_a_roll_refuses_voiceover_with_no_intake():
-    """A voiceover block with no audio catalog names its lack.
-
-    Defect prevented: the audio id misread as footage ("not found in
-    catalog") on a run whose catalog predates the audio intake.
-    """
-    with pytest.raises(ValueError, match="audio catalog"):
-        assign_a_roll({"structure": [_voiceover_block()]},
-                      _catalog(), 1080, 1920, 30.0,
-                      audio_catalog=[])
+def test_assign_a_roll_refuses_what_a_sound_only_file_cannot_be():
+    """A picture block naming an audio id has no picture to cut; a
+    voiceover block on a run whose catalog predates the audio intake
+    names that lack rather than reading as missing footage."""
+    picture = dict(_voiceover_block(), block_type="picture",
+                   word_timestamps=[], alignment_method=None)
+    for block, audio_catalog, fragment in (
+            (picture, _audio_catalog(), "no picture to cut"),
+            (_voiceover_block(), [], "audio catalog")):
+        with pytest.raises(ValueError, match=fragment):
+            assign_a_roll({"structure": [block]}, _catalog(),
+                          1080, 1920, 30.0, audio_catalog=audio_catalog)
 
 
 # ── The review hears the narration ───────────────────────────────
@@ -180,28 +117,6 @@ def test_actual_script_includes_voiceover_words():
 
 
 # ── A failed voiceover index refuses by name ─────────────────────
-
-def test_errored_audio_index_refuses_the_passage_by_name(tmp_path):
-    """A passage cut from a voiceover that never indexed fails naming it.
-
-    Defect prevented: the failure surfacing downstream as a generic
-    "no speech regions" naming the symptom rather than the file.
-    """
-    ti_dir = tmp_path / "temporal_index"
-    ti_dir.mkdir()
-    (ti_dir / "audio_001.json").write_text(json.dumps({
-        "audio_id": "audio_001",
-        "speech_regions": [],
-    }))
-    sequence = {"body_sequence": [{
-        "clip_id": "audio_001", "source_start": 0.0,
-        "source_end": 2.0, "text": "hello world",
-    }]}
-    with pytest.raises(PassageAlignmentError, match="audio_001"):
-        enrich_speech_sequence(
-            sequence, str(ti_dir),
-            audio_index_errors={"audio_001": "whisper blew up"})
-
 
 def test_errored_audio_index_refuses_through_main(tmp_path):
     """The post_bridge main reads the `audio_indices` edge.
@@ -239,13 +154,11 @@ def test_errored_audio_index_refuses_through_main(tmp_path):
 
 # ── A held bed joins the choosing candidates ─────────────────────
 
-def test_catalogued_music_bed_joins_the_candidates(tmp_path):
-    """A music bed the project holds is offered to the choice.
-
-    Defect prevented: the bridge cataloguing only the shared library
-    and music/, so a bed already held in the project's audio intake
-    was invisible to the model choosing the score.
-    """
+def test_project_audio_joins_the_candidates_labelled_for_what_it_is(
+        tmp_path):
+    """A bed the project holds is offered to the choice (the bridge once
+    catalogued only the shared library); a voiceover take joins marked
+    as speech, never hidden (a second, quieter chooser) or offered bare."""
     from library.steps.step_2_04_music_selection.bridge import (
         catalogue_project_audio,
     )
@@ -262,30 +175,17 @@ def test_catalogued_music_bed_joins_the_candidates(tmp_path):
     assert candidates[0]["source"] == "project"
     assert "no transcribed speech" in candidates[0]["catalog_note"]
 
-
-def test_catalogued_voiceover_is_marked_as_speech(tmp_path):
-    """A voiceover take joins the candidates marked as speech.
-
-    Defect prevented: the catalogue hiding the file (a second,
-    quieter chooser) or offering it bare, with nothing saying the
-    "track" is minutes of narration.
-    """
-    from library.steps.step_2_04_music_selection.bridge import (
-        catalogue_project_audio,
-    )
     take = tmp_path / "narration.wav"
     take.write_bytes(b"\x00" * 64)
-    state = tmp_path / "pipeline_data.json"
-    state.write_text(json.dumps({"step_outputs": {
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pipeline_data.json").write_text(json.dumps({"step_outputs": {
         "catalog": {"audio_catalog": [{
             "audio_id": "audio_001", "path": str(take),
             "filename": "narration.wav", "duration_seconds": 120.0}]},
         "temporal_index": {"audio_indices": [{
             "audio_id": "audio_001", "total_words": 200}]},
     }}))
-    project = tmp_path / "proj"
-    project.mkdir()
-    (project / "pipeline_data.json").write_text(state.read_text())
     candidates = catalogue_project_audio(
         {"project_folder": str(project), "audio_catalog": None},
         60.0, 600.0)
@@ -327,25 +227,22 @@ def test_broll_bridge_refuses_a_doubly_claimed_block():
 
 # ── The shape declaration reads where it changes behaviour ──────
 
-def test_shape_truth_table():
+def test_the_declared_shape_decides_whether_speech_is_expected(tmp_path):
     """Undeclared stays speech-led; music and picture-led do not expect it.
 
     Defect prevented: a music/montage project asked for speech it
     never planned to carry - or an undeclared project silently
     re-read as speechless, changing every run that declared nothing.
     """
-    from library.tools.project_shape import expects_speech
+    from library.tools.project_shape import declared_shape, expects_speech
     assert expects_speech("") is True
     assert expects_speech("speech") is True
     assert expects_speech("both") is True
     assert expects_speech("music") is False
     assert expects_speech("picture-led") is False
 
-
-def test_undeclared_shape_reads_off_the_project_folder(tmp_path):
     project = tmp_path / "p"
     project.mkdir()
-    from library.tools.project_shape import declared_shape
     assert declared_shape(str(project)) == ""
     (project / "project.yaml").write_text("source:\n  shape: music\n")
     assert declared_shape(str(project)) == "music"
@@ -433,3 +330,6 @@ def test_voiceover_spine_compiles_narration_on_a1(tmp_path):
     assert a1[0]["source_file"] == str(vo)
     assert a1[0].get("voiceover") is True
     assert (a1[0]["timeline_in"], a1[0]["timeline_out"]) == (0.0, 2.0)
+    vo_row = placed["voiceover_assignments"][0]
+    assert (vo_row["audio_id"], vo_row["audio_in"], vo_row["audio_out"]) == (
+        "audio_001", 0.0, 2.0)

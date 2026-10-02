@@ -1,27 +1,10 @@
 """The SFX catalogue reaches the prompt as a REFERENCE, not as a copy.
 
-`#298` put the whole library in step 4.04's prompt, which was right - a
-model that cannot see `avoid_when` cannot decline a sound the library
-says to decline.  But as one TOON table it measured **44,397 B on the
-captain's 78-entry library**, and once `#295` stopped copying the
-creative brief that was **44.1% of this step's entire context** and 6.5%
-of every byte the pipeline's twelve contexts send.  `#299` named it.
-
-The mechanism already existed.  These tests hold that it was APPLIED and
-not forked:
-
-  * the bridge writes the catalogue into the step's OWN directory and
-    puts `brief_reference`'s map in the prompt;
-  * the map is a fraction of the document, measured in bytes;
-  * **every sound is still reachable** - the map names each by its exact
-    `sfx_id`, and following the path and the line range returns prose
-    that was NOT in the prompt;
-  * a harness that cannot follow a path gets the document whole, which
-    is clause 5 of the same rule.
-
-This test FOLLOWS the reference rather than asserting its shape - it
-parses the path and the range out of the string the model reads, the way
-`tests/test_brief_reference.py` does.
+The bridge writes the catalogue into its own step directory and puts
+`brief_reference`'s map in the prompt; every sound stays reachable by its
+exact `sfx_id`, and a harness that cannot follow a path gets the document
+whole. This FOLLOWS the reference rather than asserting its shape.
+Measured sizes: docs/RULE_EVIDENCE.md#the-catalogue-was-copied-into-the-prompt.
 """
 import json
 import os
@@ -36,7 +19,6 @@ REPO = Path(__file__).resolve().parents[1]
 SFX_STEP = REPO / "library" / "steps" / "step_4_04_plan_sfx"
 
 from library.tools.brief_reference import (  # noqa: E402
-    REFERENCED_INPUTS,
     reference_path,
     restore_for_harness,
 )
@@ -134,8 +116,11 @@ def test_the_bridge_writes_the_catalogue_into_its_own_step_directory(
     path = _document_path(project)
     assert path.exists(), sorted(project.rglob("*"))
 
-    reference = json.loads(proc.stdout)["sfx_catalog_reference"]
-    assert reference_path(reference) == str(path.resolve())
+    out = json.loads(proc.stdout)
+    assert reference_path(out["sfx_catalog_reference"]) == str(path.resolve())
+    # It never hands the step its own empty output back as input (an
+    # empty `sfx_spec` read as a plan that had already placed nothing).
+    assert "sfx_spec" not in out
 
 
 def test_the_bridge_refuses_when_there_is_nowhere_to_write_it(library):
@@ -158,32 +143,7 @@ def _ranges(reference: str) -> dict:
                            reference, flags=re.M))
 
 
-def _map_entry(reference: str, name: str) -> list:
-    """The map's lines for one sound: its heading and its lede."""
-    lines = reference.split("\n")
-    start = next(i for i, line in enumerate(lines)
-                 if line.startswith(f"## {name}  ["))
-    end = start + 1
-    while end < len(lines) and lines[end].strip():
-        end += 1
-    return lines[start:end]
-
-
 # ── Every sound is still reachable ────────────────────────────────────
-
-def test_the_map_names_every_sound_by_the_id_an_answer_must_use(
-        library, project):
-    """A reference that narrows the menu has made the problem worse."""
-    proc = _run_bridge(library, project)
-    reference = json.loads(proc.stdout)["sfx_catalog_reference"]
-
-    catalog = load_sfx_catalog(str(library))
-    assert len(catalog) == len(SOUNDS)
-    for entry in catalog:
-        assert entry["sfx_id"] in reference, (
-            f"{entry['sfx_id']} is not in the map, so the model cannot "
-            f"name it")
-
 
 def test_following_the_range_returns_prose_the_prompt_did_not_carry(
         library, project):
@@ -193,8 +153,11 @@ def test_following_the_range_returns_prose_the_prompt_did_not_carry(
     path = Path(reference_path(reference))
     lines = path.read_text(encoding="utf-8").split("\n")
 
+    # Every sound is named by the exact id an answer must use - a
+    # reference that narrowed the menu would be the shortlist again.
     ranges = _ranges(reference)
     assert set(ranges) == {name for name, *_ in SOUNDS}
+    assert {e["sfx_id"] for e in load_sfx_catalog(str(library))} == set(ranges)
 
     for name, span in ranges.items():
         first, last = (int(n) for n in span.split("-"))

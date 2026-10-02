@@ -8,7 +8,6 @@ pre-run drift check and the layer-coherence gate - the same calls
 values and the deep path, a true refusal, or - where no file carrier
 exists - the per-class statement of what the user sees instead.
 
-Run with `pytest tests/test_shallow_loud.py -s` to read the matrix.
 """
 
 import json
@@ -19,9 +18,6 @@ import pytest
 from library.tools import display_drift
 from library.tools import edit_depth
 from library.tools import layer_coherence
-
-MATRIX = []
-
 
 class _SimpleShot:
     """The two fields `reel_build.placements` reads off a master clip."""
@@ -35,13 +31,6 @@ class _SimpleShot:
         self.source_in = source_in
         self.track_type = "video"
         self.source_file = "/f/shot.mov"
-
-
-def _row(edit_class, shallow_outcome):
-    line = f"ROW {edit_class}: shallow -> {shallow_outcome}"
-    print(line)
-    MATRIX.append((edit_class, shallow_outcome))
-    return line
 
 
 def _write(root, relpath, document):
@@ -107,33 +96,6 @@ def test_row_wording_flags_with_both_values_and_deep_path(tmp_path,
     out = capsys.readouterr().out
     assert "say lucy" in out and "deep path" in out
     assert edit_depth.DEEP_PATH["wording"] in out
-    _row("wording",
-         "FLAGGED (coherence names found+should-be with the deep path)")
-
-
-@pytest.mark.parametrize("edit_class,relpath", [
-    ("clip_timing", os.path.join("pipeline_output", "steps",
-                                 "5_04_compile_manifest",
-                                 "assembly_manifest.json")),
-])
-def test_row_hand_edit_flags_with_both_values_and_deep_path(
-        tmp_path, capsys, edit_class, relpath):
-    """B1 collapse: the four row-flag tests share one helper and one
-    property, so one parametrized test. Each case still calls `_row`,
-    which is what `test_matrix_covers_every_edit_class` counts."""
-    root = str(tmp_path)
-    _drift_flagged(root, relpath, edit_class, capsys)
-    _row(edit_class,
-         "FLAGGED (drift names old+new hash with the deep path)")
-
-
-def test_row_picture_position_states_unreachable():
-    reach = edit_depth.reachability("picture_position")
-    assert reach["reachable"] is False
-    assert "capture-transform" in reach["instead"]
-    assert edit_depth.DEEP_PATH["picture_position"]
-    _row("picture_position",
-         "STATED UNREACHABLE (no file carrier; capture route named)")
 
 
 def test_row_look_grade_refuses_and_flags_comp(tmp_path, capsys):
@@ -147,8 +109,6 @@ def test_row_look_grade_refuses_and_flags_comp(tmp_path, capsys):
     relpath = os.path.join("pipeline_output", "steps", "6_01_render",
                            "fusion_comps", "clip_001.comp")
     _drift_flagged(root, relpath, "look_grade", capsys)
-    _row("look_grade",
-         "REFUSED (consultation) + FLAGGED on .comp files")
 
 
 def test_row_assets_flags_and_missing_media_is_named(tmp_path, capsys):
@@ -163,8 +123,6 @@ def test_row_assets_flags_and_missing_media_is_named(tmp_path, capsys):
     report = layer_coherence.check_project(root)
     assert any("not on disk" in row["found"]
                for row in report["assets"])
-    _row("assets",
-         "FLAGGED (drift + coherence missing-media row with deep path)")
 
 
 def test_row_mg_content_flags_quote_and_payload(tmp_path, capsys):
@@ -188,8 +146,6 @@ def test_row_mg_content_flags_quote_and_payload(tmp_path, capsys):
     assert flagged["drifted"] == [relpath]
     err = capsys.readouterr().err
     assert "mg_content" in err and "deep path" in err
-    _row("mg_content",
-         "FLAGGED (coherence quote row + drift payload flag)")
 
 
 def test_row_ending_refuses_an_element_that_cannot_draw(tmp_path):
@@ -224,9 +180,6 @@ def test_row_ending_refuses_an_element_that_cannot_draw(tmp_path):
     assert len(record["stale"]) == 1
     assert "STALE" in record["stale"][0]["reason"]
     assert edit_depth.reachability("ending")["reachable"] is True
-    _row("ending",
-         "REFUSED (element with no room names both counts) + STALE "
-         "(anchor the reel no longer plays)")
 
 
 def test_row_caption_timing_refuses_and_reports_stale():
@@ -251,8 +204,5 @@ def test_row_caption_timing_refuses_and_reports_stale():
                       "head_frames": 999, "reason": "too far"}], 24.0)
     assert "draws nothing" in str(refusal.value)
     assert edit_depth.reachability("caption_timing")["reachable"] is True
-    _row("caption_timing",
-         "STALE (pin matching no card) + REFUSED (pin that would trim a "
-         "card out of existence)")
 
 

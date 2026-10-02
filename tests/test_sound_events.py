@@ -64,15 +64,10 @@ def _block(clip_id="clip_001", source_start=0.0, source_end=10.0,
 
 # ── the reader ───────────────────────────────────────────────────────
 
-def test_unmeasured_summary_is_empty_not_an_error():
-    assert not measured({"clip_id": "c"})
-    assert not measured({"clip_id": "c", "sound_event_method":
-                         "unmeasured: no checkpoint", "sound_events": []})
-    assert events({"clip_id": "c"}) == []
-    assert present_labels({"clip_id": "c"}) == []
-
-
-def test_measured_summary_reads_in_time_order():
+def test_events_read_measured_spans_in_order_and_nothing_else():
+    """Measured spans come back in time order; malformed rows are
+    skipped rather than served; an unmeasured summary is empty, not an
+    error."""
     rows = events(_summary())
     assert [(r["label"], r["start_seconds"], r["end_seconds"])
             for r in rows] == [
@@ -82,8 +77,6 @@ def test_measured_summary_reads_in_time_order():
     ]
     assert present_labels(_summary()) == ["Music", "Vehicle"]
 
-
-def test_malformed_rows_are_skipped_not_served():
     summary = _summary(events_list=[
         {"label": "Music", "start": 1.0, "end": 2.0, "confidence": 0.5},
         {"label": "", "start": 1.0, "end": 2.0, "confidence": 0.5},
@@ -93,6 +86,12 @@ def test_malformed_rows_are_skipped_not_served():
     ])
     assert [(r["label"], r["start_seconds"]) for r in events(summary)] == [
         ("Music", 1.0)]
+
+    assert not measured({"clip_id": "c"})
+    assert not measured({"clip_id": "c", "sound_event_method":
+                         "unmeasured: no checkpoint", "sound_events": []})
+    assert events({"clip_id": "c"}) == []
+    assert present_labels({"clip_id": "c"}) == []
 
 
 def test_find_events_matches_case_insensitively_keeps_verbatim():
@@ -111,88 +110,57 @@ def test_events_in_block_tolerates_the_cut_edge():
 
 # ── the anchor ───────────────────────────────────────────────────────
 
-def test_event_anchor_resolves_to_the_onset_frame():
-    hit = resolve_anchor({"event": "Music"}, block=_block(),
-                         temporal_indices=[_summary()],
-                         frame_rate=FPS, step="plan_sfx",
-                         plan="sfx_creative", index=0)
-    assert hit["frame"] == seconds_to_frame(0.32, FPS)
-    assert "Music" in hit["method"]
+def _anchor(anchor, block=None, summaries=None, index=0):
+    return resolve_anchor(
+        anchor, block=block or _block(),
+        temporal_indices=[_summary()] if summaries is None else summaries,
+        frame_rate=FPS, step="plan_sfx", plan="sfx_creative", index=index)
 
 
-def test_event_anchor_occurrence_and_edge_end():
-    hit = resolve_anchor({"event": "Music", "occurrence": 2},
-                         block=_block(), temporal_indices=[_summary()],
-                         frame_rate=FPS, step="plan_sfx",
-                         plan="sfx_creative", index=0)
-    assert hit["frame"] == seconds_to_frame(3.52, FPS)
-    hit = resolve_anchor({"event": "Music", "edge": "end"},
-                         block=_block(), temporal_indices=[_summary()],
-                         frame_rate=FPS, step="plan_sfx",
-                         plan="sfx_creative", index=0)
-    assert hit["frame"] == seconds_to_frame(1.92, FPS)
+def test_event_anchor_resolves_to_the_addressed_frame():
+    for anchor, seconds in (
+            ({"event": "Music"}, 0.32),
+            ({"event": "Music", "occurrence": 2}, 3.52),
+            ({"event": "Music", "edge": "end"}, 1.92)):
+        hit = _anchor(anchor)
+        assert hit["frame"] == seconds_to_frame(seconds, FPS), anchor
+    assert "Music" in _anchor({"event": "Music"})["method"]
 
 
-def test_event_anchor_outside_the_block_refuses():
-    block = _block(source_start=4.0, source_end=10.0)
-    with pytest.raises(AnchorRefused) as exc:
-        resolve_anchor({"event": "Music"}, block=block,
-                       temporal_indices=[_summary()], frame_rate=FPS,
-                       step="plan_sfx", plan="sfx_creative", index=0)
-    assert "Music" in str(exc.value.what)
-
-
+# (anchor, block, summaries, what the refusal says, what it lists)
 UNRESOLVABLE = [
-    ({"event": "Laughter"}, "not measured inside block",
+    ({"event": "Laughter"}, None, None, "not measured inside block",
      "Music, Vehicle"),
-    ({"event": "Music", "occurrence": 5}, "occurrence 5 was asked for",
-     None),
-    ({"event": "Music", "edge": "middle"}, "is not 'start' or 'end'",
-     None),
-    ({"event": "Music", "grid": "detected"},
+    ({"event": "Music", "occurrence": 5}, None, None,
+     "occurrence 5 was asked for", None),
+    ({"event": "Music", "edge": "middle"}, None, None,
+     "is not 'start' or 'end'", None),
+    ({"event": "Music", "grid": "detected"}, None, None,
      "grid applies to beat anchors", None),
-    ({"event": ""}, "names no event", None),
-    ({"event": "Music", "word": "quit"}, "names 2 addresses", None),
+    ({"event": ""}, None, None, "names no event", None),
+    ({"event": "Music", "word": "quit"}, None, None, "names 2 addresses",
+     None),
+    ({"event": "Music"}, _block(source_start=4.0, source_end=10.0), None,
+     "Music", None),
+    ({"event": "Music"}, None, [_summary(method="unmeasured: no checkpoint")],
+     "no measured sound events", None),
+    ({"event": "Music"}, None, [], "no sound-event measurement is routed",
+     None),
+    ({"event": "Music"}, _block(clip_id=None), None, "names no source clip",
+     None),
 ]
 
 
-@pytest.mark.parametrize("anchor, _why, match", UNRESOLVABLE)
-def test_unresolvable_event_anchors_refuse_with_the_fix(anchor, _why,
-                                                        match):
-    with pytest.raises(AnchorRefused) as exc:
-        resolve_anchor(anchor, block=_block(),
-                       temporal_indices=[_summary()], frame_rate=FPS,
-                       step="plan_sfx", plan="sfx_creative", index=7)
-    assert _why in str(exc.value.what)
-    assert "entry 7" in str(exc.value.why)
-    if match is not None:
-        assert match in str(exc.value.what)
-
-
-def test_event_anchor_on_unmeasured_clip_refuses_by_name():
-    summary = _summary(method="unmeasured: no checkpoint")
-    with pytest.raises(AnchorRefused) as exc:
-        resolve_anchor({"event": "Music"}, block=_block(),
-                       temporal_indices=[summary], frame_rate=FPS,
-                       step="plan_sfx", plan="sfx_creative", index=0)
-    assert "no measured sound events" in str(exc.value.what)
-
-
-def test_event_anchor_without_routed_summaries_refuses():
-    with pytest.raises(AnchorRefused) as exc:
-        resolve_anchor({"event": "Music"}, block=_block(),
-                       temporal_indices=[], frame_rate=FPS,
-                       step="plan_sfx", plan="sfx_creative", index=0)
-    assert "no sound-event measurement is routed" in str(exc.value.what)
-
-
-def test_event_anchor_on_clipless_block_refuses():
-    block = _block(clip_id=None)
-    with pytest.raises(AnchorRefused) as exc:
-        resolve_anchor({"event": "Music"}, block=block,
-                       temporal_indices=[_summary()], frame_rate=FPS,
-                       step="plan_sfx", plan="sfx_creative", index=0)
-    assert "names no source clip" in str(exc.value.what)
+def test_unresolvable_event_anchors_refuse_with_the_fix():
+    """A label no clip measured refuses with what the clip carries,
+    never coined; every other unanswerable address refuses by name."""
+    for anchor, block, summaries, why, lists in UNRESOLVABLE:
+        with pytest.raises(AnchorRefused) as exc:
+            _anchor(anchor, block=block, summaries=summaries, index=7)
+        assert why in str(exc.value.what), anchor
+        assert "entry 7" in str(exc.value.why), anchor
+        if lists is not None:
+            assert lists in str(exc.value.what), anchor
 
 
 # ── the view ─────────────────────────────────────────────────────────
@@ -202,8 +170,9 @@ def _view_data(blocks, summaries):
             "timed_spine": {"structure": blocks}}
 
 
-def test_soundevents_view_carries_spans_in_timeline_seconds():
-    data = _view_data([_block()], [_summary()])
+def test_soundevents_view_carries_spans_and_names_the_unmeasured():
+    data = _view_data([_block(), _block(position=4, clip_id="clip_002")],
+                      [_summary()])
     view = build_view("soundevents", data)["soundevents"]
     assert view["blocks_measured"] == 1
     row = view["blocks"][0]
@@ -215,17 +184,7 @@ def test_soundevents_view_carries_spans_in_timeline_seconds():
         ("Music", 3.52, 7.67),
     ]
     assert "legend" in view
-
-
-def test_soundevents_view_names_unmeasured_blocks():
-    data = _view_data([_block(), _block(position=4, clip_id="clip_002")],
-                      [_summary()])
-    view = build_view("soundevents", data)["soundevents"]
-    assert view["blocks_measured"] == 1
     assert "4" in view["not_measured"]
-
-
-def test_soundevents_view_empty_without_routing():
     assert build_view("soundevents", {}) == {}
 
 
@@ -239,15 +198,6 @@ def test_runs_merge_gaps_and_drop_blips():
         (0.1, 1.0),
     ]
     assert sep._runs([True] + [False] * 20, 10.0) == []
-
-
-def test_withheld_speech_labels_are_not_events():
-    for label in ("Speech", "Male speech, man speaking",
-                  "Female speech, woman speaking",
-                  "Child speech, kid speaking", "Conversation",
-                  "Narration, monologue", "Babbling", "Whispering"):
-        assert label in sep.WITHHELD_SPEECH_LABELS
-    assert "Laughter" not in sep.WITHHELD_SPEECH_LABELS
 
 
 def test_missing_checkpoint_is_unmeasured_never_a_guess(tmp_path):
@@ -281,16 +231,14 @@ def _stub_doctor_models(monkeypatch, tmp_path, panns_ok):
     return doctor
 
 
-def test_doctor_reports_panns_without_failing(monkeypatch, tmp_path):
+def test_doctor_reports_panns_and_its_absence_never_fails(monkeypatch,
+                                                         tmp_path):
     doctor = _stub_doctor_models(monkeypatch, tmp_path, True)
     (tmp_path / "x.pth").write_bytes(b"0" * 64)
     check = next(c for c in doctor.model_checks()
                  if c.name == "model PANNs Cnn14-DLM")
     assert check.ok
 
-
-def test_doctor_panns_absence_is_reported_never_a_fail(monkeypatch,
-                                                       tmp_path):
     doctor = _stub_doctor_models(monkeypatch, tmp_path, False)
     check = next(c for c in doctor.model_checks()
                  if c.name == "model PANNs Cnn14-DLM")

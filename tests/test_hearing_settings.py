@@ -48,37 +48,21 @@ def test_every_dial_says_what_its_value_rests_on():
             hearing_settings.DIALS = original
 
 
-def test_the_drift_floor_is_MEASURED_and_the_other_two_are_CHOSEN():
-    """The whole answer to "configure it a bit more", as an enumeration.
-
-    The floor is a property of how two transcribers disagree, measured
-    over 6,983 words. The run length and the coverage bar are
-    judgements about what is worth a reader's attention.
-    """
-    kinds = {dial.name: dial.kind for dial in hearing_settings.DIALS}
-    assert kinds["drift_noise_floor_seconds"] == hearing_settings.MEASURED
-    assert kinds["drift_run_min_words"] == hearing_settings.CHOSEN
-    assert kinds["caption_coverage_floor"] == hearing_settings.CHOSEN
-
-
 # ── 2. Nothing asked: the measurement answers, and says so ───────────
 
 
 # ── 3. A CHOSEN dial really moves ────────────────────────────────────
 
-def test_a_project_may_declare_its_own_caption_bar(tmp_path):
-    folder = _project(tmp_path, {"caption_coverage_floor": 0.8})
+def test_this_run_beats_the_project_and_the_project_beats_the_measurement(
+        tmp_path):
+    folder = _project(tmp_path, {"caption_coverage_floor": 0.8,
+                                 "drift_run_min_words": 5})
     settings = hearing_settings.resolve(folder)
     assert settings.caption_coverage_floor == 0.8
     assert settings.readings["caption_coverage_floor"] == \
         hearing_settings.PROJECT
     assert settings.moved_pinned == []
 
-
-def test_this_run_beats_the_project_and_the_project_beats_the_measurement(
-        tmp_path):
-    folder = _project(tmp_path, {"caption_coverage_floor": 0.8,
-                                 "drift_run_min_words": 5})
     settings = hearing_settings.resolve(
         folder, {"caption_coverage_floor": 0.3})
     assert settings.caption_coverage_floor == 0.3
@@ -90,7 +74,8 @@ def test_this_run_beats_the_project_and_the_project_beats_the_measurement(
 
 # ── 4. A MEASURED dial may move, and can never move silently ─────────
 
-def test_moving_the_measured_floor_is_RECORDED(tmp_path):
+def test_moving_the_MEASURED_floor_is_recorded_and_said_a_CHOSEN_one_is_not(
+        tmp_path):
     settings = hearing_settings.resolve(
         _project(tmp_path), {"drift_noise_floor_seconds": 0.6})
     assert settings.drift_noise_floor_seconds == 0.6
@@ -101,16 +86,10 @@ def test_moving_the_measured_floor_is_RECORDED(tmp_path):
     assert row["used"] == 0.6
     assert row["asked_by"] == hearing_settings.RUN
     assert "6,983 words" in row["measurement"]
-
-
-def test_a_moved_measurement_is_SAID_out_loud(tmp_path):
-    lines = hearing_settings.warning_lines(hearing_settings.resolve(
-        _project(tmp_path), {"drift_noise_floor_seconds": 0.6}))
+    lines = hearing_settings.warning_lines(settings)
     assert any("MOVED" in line for line in lines)
     assert any("not comparable" in line for line in lines)
 
-
-def test_moving_a_CHOSEN_dial_is_not_a_moved_measurement(tmp_path):
     settings = hearing_settings.resolve(
         _project(tmp_path), {"drift_run_min_words": 6})
     assert settings.moved_pinned == []
@@ -122,16 +101,14 @@ def test_moving_a_CHOSEN_dial_is_not_a_moved_measurement(tmp_path):
 # ── 5. A declaration that cannot be acted on REFUSES ─────────────────
 
 
-def test_a_key_nothing_reads_refuses(tmp_path):
-    """A preference the captain believes is in force and is not."""
+# ── 6. Turning a check off is never the same as it being silent ──────
+
+def test_a_declaration_that_cannot_be_acted_on_refuses(tmp_path):
+    """A key nothing reads is a preference the captain believes is in
+    force and is not; a declined check must be one this pass makes."""
     with pytest.raises(hearing_settings.MalformedHearingDeclaration) as bad:
         hearing_settings.resolve(_project(tmp_path, {"drift_floor": 0.4}))
     assert "which nothing reads" in str(bad.value)
-
-
-# ── 6. Turning a check off is never the same as it being silent ──────
-
-def test_a_declined_check_must_be_one_this_pass_makes(tmp_path):
     with pytest.raises(hearing_settings.MalformedHearingDeclaration) as bad:
         hearing_settings.resolve(_project(tmp_path), None, ["not_a_metric"])
     assert "does not measure" in str(bad.value)

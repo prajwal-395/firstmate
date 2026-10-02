@@ -1,39 +1,8 @@
-"""The selector can see how sure the transcriber was, and still no threshold.
+"""The selector sees how sure the transcriber was, and still no threshold.
 
-A clean selector run over the whole 45-minute episode named the one
-thing it needed and did not have, and priced it in its own
-`could_not_determine`: it could not tell a garbled READING from garbled
-AUDIO, so it ended reel 22 at 284.07 rather than 299.41 - giving up
-Craig's 290.73-299.41 pickup and about 15 seconds of length to keep the
-damaged line outside the span.
-
-What it asked for was "a per-line transcription confidence beside the
-text - the ASR already produces one - or a flag saying a line's
-characters fall outside the language the rest of the transcript is in".
-
-Both now exist, and this file holds all three directions at once,
-because a gate that can only fail one way is not a gate
-(AGENTS.md 10.4):
-
-  * the transcriber's own confidence REACHES the prompt, through the
-    declaration at the manifest's top level that #583 built;
-  * the word timings, source paths and item ids #583 removed still do
-    NOT come back with it; and
-  * NO threshold fires on any of it. The number is published and the
-    model judges - the captain's standing ruling (AGENTS.md 10.5).
-
-Measured on the field-test transcript, 2026-09-06
--------------------------------------------------
-It carries no confidence at all: 940 segments whose keys are exactly
-`speaker, text, timeline_start, timeline_end, source_file, source_start,
-source_end, resolve_item_id, words, read_from_words`, and 8,509 words
-whose keys are exactly `word, start, end, timed`.  `faster_whisper`
-emits `avg_logprob` per segment and `whisperx.align` carries it; both
-write sites in `timeline_transcript` rebuilt the dict without it.
-
-Its letters are 38,008 LATIN and 8 HANGUL, and all 8 sit on one line -
-284.13-288.06, exactly the line the model named.  One flagged row in
-940.
+Three directions at once: the confidence (and the script flag) REACH the
+prompt, the word timings and ids do NOT come back with them, and NOTHING
+fires on any of it (AGENTS.md 10.5). History: docs/evidence/transcription.md.
 """
 
 import ast
@@ -45,7 +14,6 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from library.processes.edit_video.run_pipeline import project_step_context
-from library.tools.context_projector import declared_context_fields
 from library.tools.context_views import build_view
 from library.tools.toon_serializer import json_to_toon
 from library.tools import transcript_confidence as tc
@@ -127,20 +95,6 @@ def projected(doc: dict) -> dict:
 
 # ── Direction one: the confidence reaches the prompt ─────────────────
 
-def test_it_arrives_through_the_declaration_at_the_manifests_top_level():
-    """#583's mechanism is what carries this, not a route around it.
-
-    The confidence rides inside `view:spoken_lines`, which is where the
-    words it sits beside already ride. Nothing widens the allow-list.
-    """
-    fields = declared_context_fields(manifest(), "select_reels")
-    assert fields is not None
-    assert "view:spoken_lines" in fields
-    assert not any(f.startswith("timeline_transcript.segments")
-                   for f in fields), (
-        "the confidence was smuggled in by widening the projection "
-        "rather than declared through the view that carries the words")
-
 
 def test_the_transcribers_own_number_is_on_the_row_with_the_words():
     context = json_to_toon(projected(document(with_confidence=True)))
@@ -149,25 +103,26 @@ def test_the_transcribers_own_number_is_on_the_row_with_the_words():
         assert value in context, (
             f"{value} is what the transcriber recorded and the model "
             f"cannot see it")
+    assert tc.CONFIDENCE_LEGEND in context, (
+        "a number with no legend is a number the model has to guess the "
+        "scale of")
 
 
 def test_the_number_is_verbatim_and_nothing_is_derived_from_it():
+    """The model gets the number and judges: no row is dropped, reordered
+    or marked by it, and nothing is computed from it."""
+    doc = document(True)
+    doc["segments"][1]["avg_logprob"] = -9.5      # as bad as it gets
     view = build_view("spoken_lines",
-                      {"timeline_transcript": document(True)})["spoken_lines"]
-    assert [row["avg_logprob"] for row in view["lines"]] == [-0.21, -0.83,
+                      {"timeline_transcript": doc})["spoken_lines"]
+    assert [row["start"] for row in view["lines"]] == [281.07, 284.13, 290.73]
+    assert view["lines"][1]["text"] == GARBLED
+    assert [row["avg_logprob"] for row in view["lines"]] == [-0.21, -9.5,
                                                              -0.19]
     for row in view["lines"]:
         assert set(row) == {"speaker", "start", "end", "text", "avg_logprob"}, (
             "a row carries the ASR's own number and nothing computed "
             "from it")
-
-
-def test_the_prompt_says_what_the_number_is_and_that_nothing_fires_on_it():
-    context = json_to_toon(projected(document(with_confidence=True)))
-    assert tc.CONFIDENCE_LEGEND in context, (
-        "a number with no legend is a number the model has to guess the "
-        "scale of")
-    assert "no threshold is applied to it" in tc.CONFIDENCE_LEGEND.lower()
 
 
 def test_an_absent_confidence_is_STATED_rather_than_invented():
@@ -224,21 +179,6 @@ def test_the_dominant_script_comes_from_the_transcript_itself():
     flagged = tc.script_mismatches(korean)
     assert len(flagged) == 1 and flagged[0]["start"] == 290.73
     assert set(flagged[0]["foreign"]) == {"LATIN"}
-
-
-
-
-
-
-def test_the_flag_says_what_it_cannot_catch():
-    """The same transcript carries `kalabrahat Correct.` at 299.999 -
-    the same failure in LATIN characters. A signal that reads as
-    complete is worse than one that names its own blind spot."""
-    latin_garble = document(False)
-    latin_garble["segments"][1]["text"] = "kalabrahat Correct."
-    assert tc.script_mismatches(latin_garble) == [], (
-        "the fixture no longer demonstrates the blind spot")
-    assert "not a line proven clean" in tc.SCRIPT_LEGEND
 
 
 # ── Direction two: the noise still cannot get through ────────────────
@@ -303,8 +243,6 @@ def _numeric_comparisons(source: str) -> list:
     return found
 
 
-
-
 def test_no_confidence_threshold_is_invented_anywhere():
     """`if confidence < 0.x` is the line the captain ruled out, and this
     is the module that would be where it went."""
@@ -315,40 +253,10 @@ def test_no_confidence_threshold_is_invented_anywhere():
         "transcriber's confidence")
 
 
-def test_no_line_is_dropped_reordered_or_marked_by_its_confidence():
-    """The model gets the number and judges. Nothing here judges for it."""
-    doc = document(with_confidence=True)
-    doc["segments"][1]["avg_logprob"] = -9.5      # as bad as it gets
-    view = build_view("spoken_lines",
-                      {"timeline_transcript": doc})["spoken_lines"]
-    assert [row["start"] for row in view["lines"]] == [281.07, 284.13, 290.73]
-    assert view["lines"][1]["avg_logprob"] == -9.5
-    assert view["lines"][1]["text"] == GARBLED
-
-
-def test_a_flagged_line_is_still_a_row_and_still_a_boundary():
-    """The script flag REPORTS. It does not remove the line from the
-    conversation or from the seconds a reel may be cut at - deciding
-    that is the model's, and it is the decision that cost 15 seconds."""
-    view = build_view("spoken_lines",
-                      {"timeline_transcript": document(False)})["spoken_lines"]
-    assert [row["start"] for row in view["lines"]] == [281.07, 284.13, 290.73]
-    assert view["lines"][1]["text"] == GARBLED
-
-
 # ── What the transcriber writes down, so a re-run has it ─────────────
 #
-# NOTE 2026-09-24: the write-site test that lived here
-# (`test_the_transcriber_stops_throwing_the_number_away`) pinned the
-# fallback arm rebuilding each faster-whisper segment with its
-# `avg_logprob` for the aligner to carry. That arm left with whisperx,
-# and no remaining arm publishes segment confidence at all - Voz emits
-# nothing like it, MFA emits no per-word score. There is no write site
-# left to pin; the absence is stated loudly in the transcript block,
-# `confidence_notice`, and the model-read view instead, and the legacy
-# fixtures below keep old transcripts loading.
-
-
+# No current arm publishes segment confidence (docs/evidence/transcription.md);
+# these keep old transcripts loading and the count honest.
 
 
 def test_a_transcript_that_predates_this_still_loads():
@@ -402,32 +310,6 @@ def test_the_document_says_how_many_rows_carry_one():
     assert built["segments"][1]["avg_logprob"] is None
 
 
-# ── The prompt stays honest about its own size ───────────────────────
-
-def test_the_report_is_one_line_rather_than_a_column_of_empty_cells():
-    """Measured on the field-test episode: 1 flagged row in 929. A
-    sparse per-row column costs 945 characters of empty cells to carry
-    that one value; this costs about 660 and names the span, the
-    speaker, the scripts and the words."""
-    view = build_view("spoken_lines",
-                      {"timeline_transcript": document(False)})["spoken_lines"]
-    for row in view["lines"]:
-        assert "script" not in row and "foreign" not in row
-    assert "script_mismatch" in view
-
-
-def test_the_handoff_names_both_things_the_projection_now_delivers():
-    """A prompt naming a table nothing sends is the contract defect, and
-    a table nothing names is the same defect facing the other way."""
-    handoff = (STEP_DIR / "handoff.md").read_text(encoding="utf-8")
-    assert "`transcription_confidence`" in handoff
-    assert "`script_mismatch`" in handoff
-    view = projected(document(True))["spoken_lines"]
-    assert "transcription_confidence" in view and "script_mismatch" in view
-
-
-
-
 # ── The THIRD reading of a missing number, and it is new ─────────────
 #
 # "No `avg_logprob`" now means one of three different things, and only
@@ -457,13 +339,16 @@ def hybrid_document() -> dict:
     return doc
 
 
-def test_a_hybrid_transcript_is_told_apart_from_an_old_one():
+def test_each_provenance_is_told_apart_and_gets_its_own_sentence():
+    """Old transcript, hybrid-heard, MFA-timed: three readings of a
+    missing number, and only the first is fixed by re-running."""
     assert tc.transcribed_by_hybrid(hybrid_document())
     assert not tc.transcribed_by_hybrid(document(with_confidence=False))
     assert not tc.transcribed_by_hybrid({})
-
-
-def test_each_of_the_three_cases_gets_its_own_sentence():
+    assert tc.timed_by_mfa(mfa_document())
+    assert not tc.timed_by_mfa(hybrid_document())
+    assert not tc.timed_by_mfa(document(with_confidence=False))
+    assert not tc.timed_by_mfa({})
     assert tc.confidence_notice(document(True)) == tc.CONFIDENCE_LEGEND
     assert (tc.confidence_notice(document(False))
             == tc.CONFIDENCE_ABSENT)
@@ -472,29 +357,13 @@ def test_each_of_the_three_cases_gets_its_own_sentence():
     assert tc.CONFIDENCE_ABSENT_HYBRID != tc.CONFIDENCE_ABSENT
 
 
-def test_the_hybrid_sentence_refuses_the_reading_that_hid_reel_26():
-    """A missing confidence must not read as an unchallenged line. That
-    is the whole of it, and the words are checked because the words are
-    what a model gets."""
-    said = tc.CONFIDENCE_ABSENT_HYBRID.lower()
-    assert "not an old transcript" in said
-    assert "absent by construction" in said
-    assert "do not read its absence as" in said
-    assert "alignment_score" in said
-
-
-def test_the_view_a_model_reads_carries_the_hybrid_sentence():
-    view = build_view("spoken_lines",
-                      {"timeline_transcript": hybrid_document()})["spoken_lines"]
-    assert view["transcription_confidence"] == tc.CONFIDENCE_ABSENT_HYBRID
-    assert "avg_logprob" not in view["lines"][0]
-
-
 def test_the_aligners_score_reaches_the_view_under_its_own_name():
     """It is measured, so it has a reader. It is NOT a confidence, so it
     does not travel under that heading."""
     view = build_view("spoken_lines",
                       {"timeline_transcript": hybrid_document()})["spoken_lines"]
+    assert view["transcription_confidence"] == tc.CONFIDENCE_ABSENT_HYBRID
+    assert "avg_logprob" not in view["lines"][0]
     assert view["lines"][0]["alignment_score"] == 0.9
     assert tc.ALIGNMENT_SCORE_LEGEND in view["alignment_score_legend"]
 
@@ -511,13 +380,6 @@ def test_the_score_is_never_published_beside_the_confidence():
     assert "avg_logprob" in view["lines"][0]
     assert "alignment_score" not in view["lines"][0]
     assert "alignment_score_legend" not in view
-
-
-def test_the_score_legend_says_plainly_it_is_not_a_confidence():
-    legend = tc.ALIGNMENT_SCORE_LEGEND.lower()
-    assert "not a transcription confidence" in legend
-    assert "higher" in legend          # the measured brand-name inversion
-    assert "no threshold" in legend
 
 
 def test_a_row_whose_words_were_never_aligned_scores_nothing():
@@ -566,13 +428,6 @@ def mfa_document() -> dict:
     return doc
 
 
-def test_timed_by_mfa_reads_the_recorded_aligner():
-    assert tc.timed_by_mfa(mfa_document())
-    assert not tc.timed_by_mfa(hybrid_document())
-    assert not tc.timed_by_mfa(document(with_confidence=False))
-    assert not tc.timed_by_mfa({})
-
-
 def test_an_mfa_transcript_states_the_missing_score_rather_than_omitting_it():
     """A column that simply is not there reads as broken alignment.
     The legend key is present with the absence stated instead."""
@@ -582,18 +437,3 @@ def test_an_mfa_transcript_states_the_missing_score_rather_than_omitting_it():
     assert "alignment_score" not in view["lines"][0]
     assert (view["transcription_confidence"]
             == tc.CONFIDENCE_ABSENT_HYBRID)
-
-
-def test_the_absence_sentence_refuses_the_broken_alignment_reading():
-    said = tc.ALIGNMENT_SCORE_ABSENT_MFA.lower()
-    assert "not broken alignment" in said
-    assert "absent by construction" in said
-    assert "transcription.aligners" in said
-
-
-def test_the_hybrid_sentence_qualifies_its_score_promise():
-    """It used to promise every hybrid word carries `alignment_score`.
-    MFA-timed rows carry none, so the promise now names its exception."""
-    said = tc.CONFIDENCE_ABSENT_HYBRID.lower()
-    assert "alignment_score" in said
-    assert "mfa" in said

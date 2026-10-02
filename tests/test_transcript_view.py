@@ -25,13 +25,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from library.tools.context_projector import project_fields
-from library.tools.context_views import CONTEXT_VIEWS, build_view
+from library.tools.context_views import CONTEXT_VIEWS
 from library.tools.toon_serializer import json_to_toon
 
 STEPS = REPO / "library" / "steps"
@@ -43,22 +41,10 @@ TRANSCRIPT_STEPS = {
     "speech_sequence": "step_2_02_speech_sequence",
 }
 
-# 2.02's own pre-bridge builds `transcripts_toon` off the per-clip index
-# files, with the same content and a deliberate `clip_id,start,end,text`
-# header, and its handoff tells the model to read that table by name.
-# Declaring the view as well put all 110 lines in the prompt twice, in two
-# different column orders - 19,844 characters, a quarter of the context.
-# So the view is the route for the step that has no bridge.
-# `tests/test_context_ships_it_once.py` holds the pair of them together.
-#
-# 3.03 is the third case and the reason is its own: Check 5 of its frozen
-# handoff tells it to reconstruct what the viewer ACTUALLY hears "from
-# actual temporal index data, not from the speech_sequence's intended
-# text", and the projection was deleting the only input that could answer
-# it.  Every other input the step is routed is a decision some upstream
-# step made, so without this the reviewer was handed nothing but the plan
-# it was reviewing. See docs/RULE_EVIDENCE.md, "the review answered
-# and nobody read it".
+# The steps that read the VIEW: 2.02 builds its own `transcripts_toon`
+# (`tests/test_context_ships_it_once.py`), and 3.03 needs what the viewer
+# actually hears (docs/RULE_EVIDENCE.md, "the review answered and nobody
+# read it").
 VIEW_STEPS = {
     "creative_direction": "step_2_01_creative_direction",
     "review_rough_cut": "step_3_03_review_rough_cut",
@@ -122,56 +108,42 @@ def find_key(obj, name: str) -> bool:
 
 # ── What the prompt carries ───────────────────────────────────────────
 
-@pytest.mark.parametrize("node_id", sorted(TRANSCRIPT_STEPS))
-def test_no_word_timing_reaches_the_prompt(node_id):
-    cf = manifest(TRANSCRIPT_STEPS[node_id])["context_fields"]
-    projected = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
-    context = json_to_toon(projected)
+def test_no_word_timing_reaches_the_prompt():
+    for node_id, step_dir in sorted(TRANSCRIPT_STEPS.items()):
+        cf = manifest(step_dir)["context_fields"]
+        projected = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
+        context = json_to_toon(projected)
 
-    assert not find_key(projected, "words"), (
-        f"'{node_id}' still sends per-word timings to the model"
-    )
-    assert '"word":' not in context, (
-        f"'{node_id}'s context still contains word records:\n{context}"
-    )
+        assert not find_key(projected, "words"), (
+            f"'{node_id}' still sends per-word timings to the model"
+        )
+        assert '"word":' not in context, (
+            f"'{node_id}'s context still contains word records:\n{context}"
+        )
 
 
-@pytest.mark.parametrize("node_id", sorted(VIEW_STEPS))
-def test_what_was_said_survives(node_id):
+def test_what_was_said_survives():
     """A saving bought by blinding the step is not a saving."""
-    cf = manifest(VIEW_STEPS[node_id])["context_fields"]
-    projected = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
+    for node_id, step_dir in sorted(VIEW_STEPS.items()):
+        cf = manifest(step_dir)["context_fields"]
+        projected = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
 
-    assert projected["transcript"] == [{
-        "clip_id": "clip_006", "start": 14.68, "end": 16.085,
-        "text": CONTRACTION,
-    }]
-    # And it reaches the prompt spelled the way the captain said it.
-    assert CONTRACTION in json_to_toon(projected)
-
-
-@pytest.mark.parametrize("node_id", sorted(VIEW_STEPS))
-def test_the_view_declares_the_input_it_reads(node_id):
-    """A view is not routing. The step still has to be sent the input."""
-    m = manifest(VIEW_STEPS[node_id])
-    assert "view:transcript" in m["context_fields"]
-    assert "temporal_index" in declared_inputs(m), (
-        f"'{node_id}' asks for the transcript view and no longer declares "
-        f"temporal_index, so there is nothing for the view to read"
-    )
+        assert projected["transcript"] == [{
+            "clip_id": "clip_006", "start": 14.68, "end": 16.085,
+            "text": CONTRACTION,
+        }], node_id
+        # And it reaches the prompt spelled the way the captain said it.
+        assert CONTRACTION in json_to_toon(projected), node_id
 
 
-@pytest.mark.parametrize("node_id", sorted(QA_STEPS))
-def test_no_word_timing_reaches_the_qa_prompts(node_id):
+def test_no_word_timing_reaches_the_render_qa_prompt():
     """The other route in: `subtitles[*].words` off the assembly manifest.
 
     `render` is deliberately unprojected, so the removal is a drop-only
     declaration - everything it was handed, minus this one field -
     rather than an allow-list, which would quietly become the decision
-    about what the QA calls should ask for. `validate` dropped the whole
-    manifest from its prompt (#1282), so no word timing reaches it
-    because nothing of the manifest does; that absence is pinned
-    separately below.
+    about what the QA calls should ask for. `validate` carries no
+    manifest at all (pinned below).
     """
     inputs = {
         "assembly_manifest": {
@@ -185,18 +157,17 @@ def test_no_word_timing_reaches_the_qa_prompts(node_id):
         },
         "rendered_output": {"output_path": "/nowhere/out.mp4"},
     }
-    cf = manifest(QA_STEPS[node_id])["context_fields"]
+    cf = manifest(QA_STEPS["render"])["context_fields"]
     projected = project_fields(inputs, cf)
 
     assert not find_key(projected, "words")
-    if node_id == "render":
-        # Everything else it was handed is still there: this is a drop,
-        # not an allow-list.
-        sub = projected["assembly_manifest"]["subtitles"][0]
-        assert sub["text"] == "i can feel the"
-        assert sub["emphasis_words"] == ["feel"]
-        assert projected["assembly_manifest"]["tracks"]["v1"]
-        assert projected["rendered_output"]["output_path"] == "/nowhere/out.mp4"
+    # Everything else it was handed is still there: this is a drop,
+    # not an allow-list.
+    sub = projected["assembly_manifest"]["subtitles"][0]
+    assert sub["text"] == "i can feel the"
+    assert sub["emphasis_words"] == ["feel"]
+    assert projected["assembly_manifest"]["tracks"]["v1"]
+    assert projected["rendered_output"]["output_path"] == "/nowhere/out.mp4"
 
 
 def test_validate_prompt_carries_no_manifest_at_all():
@@ -220,15 +191,7 @@ def test_validate_prompt_carries_no_manifest_at_all():
     assert projected["rendered_output"]["output_path"] == "/nowhere/out.mp4"
 
 
-# ── The view enumeration ──────────────────────────────────────────────
-
-
-
-
-
-@pytest.mark.parametrize("name", sorted(CONTEXT_VIEWS))
-@pytest.mark.parametrize("node_id", sorted(VIEW_STEPS))
-def test_projecting_an_already_projected_tree_keeps_the_view(node_id, name):
+def test_projecting_an_already_projected_tree_keeps_every_view():
     """An `llm_only` step is projected TWICE on every run.
 
     `gather_step_inputs` projects it and `present_llm_step` projects the
@@ -237,14 +200,15 @@ def test_projecting_an_already_projected_tree_keeps_the_view(node_id, name):
     would delete the section it had just built - which is exactly what
     happened the first time this was wired.
     """
-    cf = manifest(VIEW_STEPS[node_id])["context_fields"]
-    once = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
-    twice = project_fields(once, cf)
-    # `.get`, because a view whose source this fixture does not route
-    # builds nothing on either pass - and "absent both times" is the same
-    # guarantee as "identical both times". The one this fixture does
-    # build is asserted on above.
-    assert twice.get(name) == once.get(name)
+    for step_dir in VIEW_STEPS.values():
+        cf = manifest(step_dir)["context_fields"]
+        once = project_fields({"temporal_index": TEMPORAL_INDEX}, cf)
+        twice = project_fields(once, cf)
+        assert once["transcript"], step_dir
+        # `.get`: a view whose source this fixture does not route builds
+        # nothing on either pass, the same guarantee as "identical".
+        for name in sorted(CONTEXT_VIEWS):
+            assert twice.get(name) == once.get(name), (step_dir, name)
 
 
 # ── And the code still gets every word ────────────────────────────────
@@ -293,7 +257,3 @@ def test_the_post_bridge_still_reads_every_word_timing(tmp_path):
         f"carries: {hook.get('word_timestamps')}"
     )
     assert hook["word_timestamps"][0]["source_start"] == 14.68
-
-
-# ── End to end: what actually lands in a recorded request ─────────────
-

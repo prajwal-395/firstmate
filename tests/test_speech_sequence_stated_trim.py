@@ -59,36 +59,29 @@ def _passage(**over):
     return {"body_sequence": [base]}
 
 
-def test_head_trim_in_frames_moves_the_bound_off_the_word(index_dir):
-    """C3.1's shape: 4 frames off the head lands at 9.733, not 9.6."""
+def test_a_stated_trim_moves_only_the_played_bound(index_dir):
+    """C3.1's shape: 4 frames off the head lands at 9.733, not the
+    word's 9.6; seconds trim the tail; frames and seconds that agree on
+    one edge ship the frames. The words stay as measured."""
+    rows = [
+        (dict(trim_head_frames=4), 9.6 + 4 / FPS, 11.9),
+        (dict(trim_tail_seconds=0.5), 9.6, 11.4),
+        (dict(trim_head_frames=4, trim_head_seconds=4 / FPS),
+         9.6 + 4 / FPS, 11.9),
+    ]
+    for trim, start, end in rows:
+        out = pb.enrich_speech_sequence(
+            _passage(**trim), index_dir, frame_rate=FPS)
+        (passage,) = out["body_sequence"]
+        assert passage["source_start"] == pytest.approx(start), trim
+        assert passage["source_end"] == pytest.approx(end), trim
+        assert passage["word_timestamps"][0]["source_start"] == (
+            pytest.approx(9.6)), trim
     out = pb.enrich_speech_sequence(
         _passage(trim_head_frames=4), index_dir, frame_rate=FPS)
-    (passage,) = out["body_sequence"]
-    assert passage["source_start"] == pytest.approx(9.6 + 4 / FPS)
-    assert passage["source_end"] == pytest.approx(11.9)
-    # The words stay as measured - the trim cuts the played bound, not
-    # the transcript.
-    assert passage["word_timestamps"][0]["source_start"] == pytest.approx(
-        9.6)
     (report,) = out["alignment_report"]
     assert report["stated_trim"]["trim_head_seconds"] == pytest.approx(
         4 / FPS, abs=1e-3)
-
-
-def test_tail_trim_in_seconds(index_dir):
-    out = pb.enrich_speech_sequence(
-        _passage(trim_tail_seconds=0.5), index_dir, frame_rate=FPS)
-    (passage,) = out["body_sequence"]
-    assert passage["source_end"] == pytest.approx(11.4)
-    assert passage["source_start"] == pytest.approx(9.6)
-
-
-def test_frames_and_seconds_agreeing_ship_the_frames(index_dir):
-    out = pb.enrich_speech_sequence(
-        _passage(trim_head_frames=4, trim_head_seconds=4 / FPS),
-        index_dir, frame_rate=FPS)
-    (passage,) = out["body_sequence"]
-    assert passage["source_start"] == pytest.approx(9.6 + 4 / FPS)
 
 
 def test_frames_without_a_timebase_refuse(index_dir):

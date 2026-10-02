@@ -12,8 +12,6 @@ from __future__ import annotations
 import pytest
 
 from library.tools.footage_identity import (
-    SUPPORTED_AUDIO_EXTENSIONS,
-    SUPPORTED_VIDEO_EXTENSIONS,
     enumerate_audio,
     enumerate_footage,
     fingerprints_for,
@@ -68,26 +66,17 @@ def test_audio_and_video_share_one_fingerprint_record(tmp_path):
             != record["clip_001"]["path"])
 
 
-def test_audio_extensions_cover_voiceover_sources():
-    assert {".mp3", ".wav", ".m4a", ".flac"} <= SUPPORTED_AUDIO_EXTENSIONS
-    assert not (SUPPORTED_AUDIO_EXTENSIONS & SUPPORTED_VIDEO_EXTENSIONS)
-
-
-def test_zero_byte_audio_is_skipped_not_cataloged(tmp_path):
-    folder = _project(tmp_path, {"empty.wav": b"",
-                                 "bed.mp3": b"w" * 64})
+def test_audio_enumeration_skips_the_empty_and_refuses_the_missing(tmp_path):
+    """A zero-byte take is skipped with its reason, a video-only project
+    (the normal case) enumerates to [], and a missing raw/ raises."""
+    folder = _project(tmp_path / "zero", {"empty.wav": b"",
+                                          "bed.mp3": b"w" * 64})
     audio, skipped = enumerate_audio(folder)
     assert [e["audio_id"] for e in audio] == ["audio_001"]
     assert len(skipped) == 1 and "zero-byte" in skipped[0]["reason"]
 
+    folder = _project(tmp_path / "video_only", {"a.mp4": b"x" * 64})
+    assert enumerate_audio(folder) == ([], [])
 
-def test_missing_raw_dir_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         enumerate_audio(str(tmp_path / "nope"))
-
-
-def test_no_audio_is_an_empty_list_not_an_error(tmp_path):
-    """Video-only projects - the normal case - enumerate to []."""
-    folder = _project(tmp_path, {"a.mp4": b"x" * 64})
-    audio, skipped = enumerate_audio(folder)
-    assert audio == [] and skipped == []

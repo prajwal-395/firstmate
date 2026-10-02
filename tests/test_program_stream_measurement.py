@@ -1,12 +1,15 @@
-"""The program mix is declared or measured - and measurement must earn it.
+"""The program mix is a decision: declared, or measured - never defaulted.
 
-The captain's field-test MXF carries four mono streams (one mix, two
-ISOs, one empty) with nothing in the metadata telling them apart, so
-`select_program_stream` refuses without a declaration. This file covers
-the second route the pipeline offers: measuring the mix off the footage
-itself (`source.measure_program_stream`), and the precedence between
-the two. A declaration always wins; a measurement that is not decisive
-refuses exactly like an undeclared one.
+The catalog records every audio stream with what tells them apart. The
+captain's field-test MXF (LC4930.MXF, 2026-09-09) carries four identical
+mono pcm_s24le streams (one mix, two ISOs, one empty) with no layout,
+language, title or disposition, and the catalog once took the FIRST
+audio stream and discarded the rest - a non-program stream leaked onto
+the timeline. So `select_program_stream` refuses without a declaration,
+even where metadata could tell streams apart; a project may instead
+measure the mix off the footage (`source.measure_program_stream`). A
+declaration always wins; a measurement that is not decisive refuses
+exactly like an undeclared one.
 
 Media fixtures are generated with ffmpeg (skipped with a named
 environment where it is absent): four sine streams 6 dB apart read as
@@ -71,6 +74,94 @@ def _probe_streams(path):
     return describe_audio_streams(json.loads(result.stdout))
 
 
+def _mxf_like_probe():
+    """ffprobe output shaped like the captain's MXF: one video stream,
+    four IDENTICAL mono audio streams, one data stream."""
+    streams = [{
+        "index": 0, "codec_name": "h264", "codec_type": "video",
+        "width": 3840, "height": 2160, "r_frame_rate": "24000/1001",
+        "pix_fmt": "yuv420p", "tags": {},
+    }]
+    for i in (1, 2, 3, 4):
+        streams.append({
+            "index": i, "codec_name": "pcm_s24le", "codec_type": "audio",
+            "sample_rate": "48000", "channels": 1,
+            "bits_per_sample": 24, "tags": {},
+            "disposition": {"default": 0, "dub": 0, "original": 0,
+                            "comment": 0, "lyrics": 0, "karaoke": 0,
+                            "forced": 0, "hearing_impaired": 0,
+                            "visual_impaired": 0, "clean_effects": 0,
+                            "attached_pic": 0, "timed_thumbnails": 0},
+        })
+    streams.append({"index": 5, "codec_name": "smpte_436m_anc",
+                    "codec_type": "data"})
+    return {"streams": streams, "format": {"duration": "10.0", "tags": {}}}
+
+
+def _video():
+    return {"index": 0, "codec_name": "h264", "codec_type": "video",
+            "width": 1920, "height": 1080, "r_frame_rate": "30/1",
+            "pix_fmt": "yuv420p"}
+
+
+def test_every_audio_stream_is_recorded_with_what_tells_them_apart():
+    streams = describe_audio_streams(_mxf_like_probe())
+    assert len(streams) == 4
+    first = streams[0]
+    assert first["index"] == 1
+    assert first["channel"] == 1
+    assert first["codec"] == "pcm_s24le"
+    assert first["channels"] == 1
+    assert first["sample_rate"] == 48000
+    for key in ("channel_layout", "language", "title", "handler"):
+        assert key in first
+    assert [s["channel"] for s in streams] == [1, 2, 3, 4]
+
+
+def test_the_program_stream_is_declared_single_or_refused():
+    mxf = describe_audio_streams(_mxf_like_probe())
+    # Indistinguishable streams refuse rather than default to stream 0,
+    # naming the source and what was seen.
+    with pytest.raises(ProgramStreamRefused) as exc:
+        select_program_stream(mxf, declaration=None, source="LC4930.MXF")
+    assert "LC4930.MXF" in str(exc.value)
+    assert "4 audio streams" in str(exc.value)
+    # The project declares, and the engine obeys instead of choosing.
+    chosen = select_program_stream(mxf, declaration=1, source="LC4930.MXF")
+    assert (chosen["channel"], chosen["index"], chosen["basis"]) == (
+        1, 1, "declared")
+
+    # A single stream needs no declaration.
+    phone = describe_audio_streams({"streams": [_video(), {
+        "index": 1, "codec_name": "aac", "codec_type": "audio",
+        "sample_rate": "44100", "channels": 2, "channel_layout": "stereo"}],
+        "format": {"duration": "5.0"}})
+    chosen = select_program_stream(phone, declaration=None, source="phone.MOV")
+    assert (chosen["channel"], chosen["basis"]) == (1, "single")
+
+    # Even distinguishable metadata is not a heuristic the engine may use.
+    tagged = describe_audio_streams({"streams": [_video(), {
+        "index": 1, "codec_name": "aac", "codec_type": "audio",
+        "sample_rate": "48000", "channels": 2, "channel_layout": "stereo",
+        "tags": {"language": "eng", "title": "Program Mix"}}, {
+        "index": 2, "codec_name": "aac", "codec_type": "audio",
+        "sample_rate": "48000", "channels": 8, "channel_layout": "7.1",
+        "tags": {"language": "eng", "title": "ISO feeds"}}],
+        "format": {"duration": "5.0"}})
+    with pytest.raises(ProgramStreamRefused):
+        select_program_stream(tagged, declaration=None, source="cam.MXF")
+    chosen = select_program_stream(tagged, declaration=1, source="cam.MXF")
+    assert chosen["title"] == "Program Mix"
+
+    # A declaration beats a measurement.
+    chosen = select_program_stream(
+        [{"index": 1, "channel": 1}, {"index": 3, "channel": 2}],
+        declaration=2, source="cam.MXF",
+        measured_selection={"channel": 1, "basis": "measured-loudest",
+                            "levels": {1: -10.0, 2: -20.0}})
+    assert (chosen["channel"], chosen["basis"]) == (2, "declared")
+
+
 @NEEDS_FFMPEG
 def test_levels_follow_the_gains_in_stream_order(tmp_path):
     fixture = tmp_path / "four.mkv"
@@ -85,19 +176,6 @@ def test_levels_follow_the_gains_in_stream_order(tmp_path):
 
 
 @NEEDS_FFMPEG
-def test_a_decisive_measurement_selects_the_loudest_with_evidence(tmp_path):
-    fixture = tmp_path / "four.mkv"
-    _sine_gains(fixture, [1.0, 0.5, 0.25, 0.125])
-    streams = _probe_streams(fixture)
-    chosen = measure_program_selection(
-        str(fixture), streams, source="four.mkv")
-    assert chosen["channel"] == 1
-    assert chosen["basis"] == "measured-loudest"
-    assert set(chosen["measured_levels_db"]) == {
-        "CH1", "CH2", "CH3", "CH4"}
-
-
-@NEEDS_FFMPEG
 def test_an_ambiguous_measurement_refuses_like_an_undeclared_one(tmp_path):
     fixture = tmp_path / "close.mkv"
     _sine_gains(fixture, [1.0, 0.9, 0.25, 0.125])
@@ -107,22 +185,10 @@ def test_an_ambiguous_measurement_refuses_like_an_undeclared_one(tmp_path):
         measure_program_selection(str(fixture), streams, source="close.mkv")
 
 
-def test_a_declaration_beats_a_measurement():
-    streams = [
-        {"index": 1, "channel": 1},
-        {"index": 3, "channel": 2},
-    ]
-    measured = {"channel": 1, "basis": "measured-loudest",
-                "levels": {1: -10.0, 2: -20.0}}
-    chosen = select_program_stream(
-        streams, declaration=2, source="cam.MXF",
-        measured_selection=measured)
-    assert chosen["channel"] == 2
-    assert chosen["basis"] == "declared"
-
-
 @NEEDS_FFMPEG
 def test_source_block_measure_flag_records_a_measured_selection(tmp_path):
+    """A decisive measurement selects the loudest stream, and the
+    evidence travels with the decision, per file."""
     fixture = tmp_path / "four.mkv"
     _sine_gains(fixture, [1.0, 0.5, 0.25, 0.125])
     (tmp_path / "project.yaml").write_text(

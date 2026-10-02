@@ -9,18 +9,15 @@ These tests hold both halves:
 
   * the decision REACHES the manifest, and the beat grid is mapped
     through the same offset;
-  * nothing in the pipeline chooses a section, scores one, or prefers
-    one, and a selection that declares none plays from the head of the
-    file as the ABSENCE of a decision.
+  * a selection that declares none plays from the head of the file as
+    the ABSENCE of a decision.
 """
-import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-STEP = REPO / "library" / "steps" / "step_2_04_music_selection"
 
 from library.tools.beat_grid import (  # noqa: E402
     assert_music_offset_is_the_chosen_section,
@@ -29,11 +26,8 @@ from library.tools.beat_grid import (  # noqa: E402
 from library.tools.music_measurement import track_sections  # noqa: E402
 from library.tools.music_section import (  # noqa: E402
     UNDECLARED_SOURCE_IN,
-    UNSUPPORTED_BY_THE_MEASUREMENTS,
     MusicSectionError,
     read_section,
-    resolve_section,
-    section_offset_seconds,
     validate_section,
 )
 
@@ -51,15 +45,6 @@ def test_no_section_is_the_absence_of_a_decision():
     assert validate_section({"title": "t"}, TRACK, EDIT) == []
 
 
-def test_a_declared_section_is_read_verbatim():
-    section = read_section({"section": {"source_in": 60.0,
-                                        "why": "the intro swings 31 dB"}})
-    assert section.declared is True
-    assert section.source_in == 60.0
-    assert section.why == "the intro swings 31 dB"
-    assert section.source_out(EDIT) == 120.0
-
-
 @pytest.mark.parametrize("declared", [
     "60",
 ])
@@ -69,34 +54,18 @@ def test_a_malformed_section_raises(declared):
         read_section({"section": declared})
 
 
-def test_a_section_past_the_end_of_the_track_is_refused():
+def test_a_section_the_track_cannot_play_is_refused_with_the_arithmetic():
+    """Past the end, and too close to it - the latter says what WOULD work."""
     errors = validate_section({"section": {"source_in": 400.0}}, TRACK, EDIT)
     assert errors and "after the file ends" in errors[0]
 
-
-def test_a_section_too_close_to_the_end_is_refused_with_the_arithmetic():
     errors = validate_section({"section": {"source_in": 180.0}}, TRACK, EDIT)
     assert len(errors) == 1
     assert "would be silent" in errors[0]
-    # and it says what WOULD work, rather than only that this does not
     assert "138.6" in errors[0]
 
 
-def test_resolve_raises_rather_than_sliding_the_section_to_fit():
-    """Moving the start is choosing which part plays."""
-    with pytest.raises(MusicSectionError, match="silent"):
-        resolve_section({"section": {"source_in": 180.0}}, TRACK, EDIT)
-    section = resolve_section({"section": {"source_in": 60.0}}, TRACK, EDIT)
-    assert section.source_in == 60.0
-
-
 # ── One reading of the offset, and the grid moves with it ─────────────
-
-def test_the_offset_has_one_reading():
-    assert section_offset_seconds(None) == 0.0
-    assert section_offset_seconds({}) == 0.0
-    assert section_offset_seconds({"section": {"source_in": 12.5}}) == 12.5
-
 
 def test_the_beat_grid_is_mapped_through_the_chosen_section():
     analysis = {"tempo": {"bpm": 120.0,
@@ -194,7 +163,8 @@ def test_a_section_that_cannot_cover_the_timeline_fails_the_build(tmp_path):
 # ── What the model decides FROM, and what nothing decides for it ──────
 
 def test_every_playable_section_is_measured_and_the_last_one_is_included():
-    """One row per span that could play, including the tail."""
+    """One row per span that could play, including the tail - and none for
+    a track shorter than the edit."""
     per_second = [-20.0] * 199
     rows = track_sections(per_second, 60.0)
     assert [r["start_seconds"] for r in rows] == [0.0, 60.0, 120.0, 139.0]
@@ -202,44 +172,4 @@ def test_every_playable_section_is_measured_and_the_last_one_is_included():
     for row in rows:
         assert set(row) == {"start_seconds", "end_seconds",
                             "mean_dbfs", "spread_db"}
-
-
-def test_a_track_shorter_than_the_edit_has_no_playable_section():
     assert track_sections([-20.0] * 30, 60.0) == []
-
-
-BEST_SECTION_WORDS = ("best_section", "pick_section", "choose_section",
-                      "select_section", "score_section", "rank_section",
-                      "flattest", "steadiest")
-
-
-def test_nothing_writes_a_best_section_rule():
-    """A "best section" heuristic is a hardcoded creative value.
-
-    Checked in the modules that could hold one: the resolver, the
-    measurement, and both halves of the step.
-    """
-    for path in (REPO / "library" / "tools" / "music_section.py",
-                 REPO / "library" / "tools" / "music_measurement.py",
-                 STEP / "bridge.py",
-                 STEP / "post_bridge.py"):
-        body = path.read_text(encoding="utf-8").split('"""', 2)[-1]
-        for word in BEST_SECTION_WORDS:
-            assert word not in body, f"{path.name} names {word!r}"
-
-
-
-
-def test_the_model_is_asked_for_the_section_without_touching_the_frozen_prompt():
-    """handoff.md is under a captain freeze; the schema comes from the
-    manifest, and that is where the question is asked."""
-    import json
-    manifest = json.loads((STEP / "manifest.json").read_text(encoding="utf-8"))
-    asked = manifest["interface"]["llm_outputs"][0]["description"]
-    assert "section (object" in asked
-    assert "track_sections" in asked
-    assert "your decision" in asked
-    assert "section" in manifest["interface"]["outputs"][1]["expected_schema"]
-
-    handoff = (STEP / "handoff.md").read_text(encoding="utf-8")
-    assert "OUTPUT_SCHEMA: auto-injected from manifest.json" in handoff

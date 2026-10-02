@@ -22,8 +22,6 @@ if PROJECT_ROOT not in sys.path:
 from library.tools.context_views import build_view
 from library.tools.frame_utils import seconds_to_frame
 from library.tools.music_sections import (
-    NON_ADDRESSABLE,
-    addressable_labels,
     available,
     find_sections,
     sections_timeline,
@@ -104,13 +102,6 @@ def test_unavailable_grid_reads_empty():
                                            "sections": []}})
 
 
-def test_sentinels_are_not_addressable():
-    labels = addressable_labels(_analysis())
-    assert "start" not in labels and "end" not in labels
-    assert set(NON_ADDRESSABLE) == {"start", "end"}
-    assert labels == ["intro", "intro", "solo", "outro"]
-
-
 def test_find_sections_pairs_matches_with_what_is_present():
     matches, present = find_sections(_analysis(), {}, "intro")
     assert len(matches) == 2
@@ -141,62 +132,40 @@ def test_section_anchor_edge_end_resolves_to_the_span_end():
     assert hit["timeline_seconds"] == pytest.approx(136.7, abs=1e-9)
 
 
-def test_section_anchor_outside_the_block_refuses():
-    with pytest.raises(AnchorRefused, match="outside block"):
-        resolve_anchor({"section": "solo"}, block=_block(),
-                       music_analysis=_analysis(), music_selection={},
-                       frame_rate=FPS, step="plan_vfx",
-                       plan="vfx_creative", index=0)
-
-
-UNRESOLVABLE_SECTIONS = [
-    pytest.param({"section": "chorus"}, "no-drop fixture",
-                 "section 'chorus' is not in the measured grid",
-                 id="label-absent"),
-    pytest.param({"section": "drop"}, "no-drop fixture",
-                 "section 'drop' is not in the measured grid",
-                 id="drop-never-coined"),
-    pytest.param({"section": "start"}, "sentinel",
-                 "is grid bookkeeping, not music",
-                 id="sentinel"),
-    pytest.param({"section": "intro", "occurrence": 3}, "past count",
-                 "occurs 2 time",
-                 id="occurrence-past"),
-    pytest.param({"section": "  "}, "blank",
-                 "names no section",
-                 id="blank"),
-]
-
-
-@pytest.mark.parametrize("anchor, _why, match", UNRESOLVABLE_SECTIONS)
-def test_unresolvable_section_anchors_refuse(anchor, _why, match):
-    with pytest.raises(AnchorRefused, match=match):
-        resolve_anchor(anchor, block=_block(0.0, 200.0),
-                       music_analysis=_analysis(), music_selection={},
-                       frame_rate=FPS, step="plan_transitions",
-                       plan="transitions", index=0)
-
-
-def test_section_anchor_without_a_grid_refuses():
-    with pytest.raises(AnchorRefused, match="no usable section grid"):
-        resolve_anchor({"section": "chorus"}, block=_block(0.0, 200.0),
-                       music_analysis={}, music_selection={},
-                       frame_rate=FPS, step="plan_transitions",
-                       plan="transitions", index=0)
+def test_a_section_anchor_the_grid_cannot_resolve_refuses_by_name():
+    """Never coined, never first-matched: each row refuses with what the
+    grid carries."""
+    wide = _block(0.0, 200.0)
+    rows = [
+        # the drop is never coined on a grid without one
+        ({"section": "drop"}, wide, _analysis(),
+         "section 'drop' is not in the measured grid"),
+        # start/end are grid bookkeeping
+        ({"section": "start"}, wide, _analysis(),
+         "is grid bookkeeping, not music"),
+        ({"section": "intro", "occurrence": 3}, wide, _analysis(),
+         "occurs 2 time"),
+        ({"section": "  "}, wide, _analysis(), "names no section"),
+        ({"section": "chorus"}, wide, {}, "no usable section grid"),
+        ({"section": "solo"}, _block(), _analysis(), "outside block"),
+    ]
+    for anchor, block, analysis, match in rows:
+        with pytest.raises(AnchorRefused, match=match):
+            resolve_anchor(anchor, block=block, music_analysis=analysis,
+                           music_selection={}, frame_rate=FPS,
+                           step="plan_transitions", plan="transitions",
+                           index=0)
 
 
 # ── The producer validates before it adopts ───────────────────────────
 
-def test_validation_catches_a_dropped_opening():
+def test_validation_catches_a_dropped_opening_and_passes_the_measured_grid():
     """The measured 1-in-3 failure: first downbeat six bars in."""
-    downbeats = [round(16.31 + i * 2.69, 3) for i in range(64)]
-    problems = _validate_section_grid(downbeats, 198.6)
-    assert any("first downbeat" in p for p in problems)
-
-
-def test_validation_passes_the_measured_grid():
-    downbeats = [round(0.16 + i * 2.69, 3) for i in range(73)]
-    assert _validate_section_grid(downbeats, 198.6) == []
+    dropped = [round(16.31 + i * 2.69, 3) for i in range(64)]
+    assert any("first downbeat" in p
+               for p in _validate_section_grid(dropped, 198.6))
+    measured = [round(0.16 + i * 2.69, 3) for i in range(73)]
+    assert _validate_section_grid(measured, 198.6) == []
     assert _validate_section_grid([1.0], 198.6) != []
 
 
@@ -225,7 +194,7 @@ def test_no_noncommercial_weights_in_the_pipeline():
 
 # ── The view shows labels, never the boundary series ──────────────────
 
-def test_sectiongrid_view_lists_sections_with_provenance():
+def test_sectiongrid_view_lists_sections_with_provenance_or_nothing():
     data = {"music_analysis": _analysis(), "music_selection": {}}
     view = build_view("sectiongrid", data)["sectiongrid"]
     assert view["method"] == "allin1-harmonix-all"
@@ -234,8 +203,5 @@ def test_sectiongrid_view_lists_sections_with_provenance():
     assert first["label"] == "intro"
     assert first["first_downbeat_seconds"] == pytest.approx(0.16)
     assert "legend" in view and "labels_absent_note" in view
-
-
-def test_sectiongrid_view_absent_when_no_grid():
-    data = {"music_analysis": {}, "music_selection": {}}
-    assert build_view("sectiongrid", data) == {}
+    assert build_view("sectiongrid",
+                      {"music_analysis": {}, "music_selection": {}}) == {}

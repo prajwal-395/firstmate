@@ -6,8 +6,6 @@ voz/MFA: n-gram matching and the Resolve cross-check are pure
 functions over small synthetic word lists.
 """
 
-import json
-from pathlib import Path
 
 import pytest
 
@@ -50,49 +48,24 @@ def _distinct_words(count, prefix="w"):
 # ── pairwise_offset ──────────────────────────────────────────────────
 
 
-def test_pairwise_offset_recovers_a_constant_shift():
-    """A transcripts B seconds later than A is reported with that sign:
-    `a_time == b_time + offset_seconds`."""
+def test_pairwise_offset_recovers_the_shift_despite_outliers():
+    """B transcribed `shift` seconds later than A is reported with that
+    sign: `a_time == b_time + offset_seconds`. A contiguous run of
+    matches on an unrelated offset must not drag the median -
+    `agreeing_matches` says how many were used."""
     vocab = _distinct_words(80)
     a = _m1_doc([(w, float(i)) for i, w in enumerate(vocab)])
     shift = 12.5
     b = _m1_doc([(w, float(i) + shift) for i, w in enumerate(vocab)])
-
     result = cc.pairwise_offset(a, b)
-
-    assert result is not None
     assert result["offset_seconds"] == pytest.approx(-shift, abs=0.01)
     assert result["agreement_fraction"] == 1.0
     assert result["agreeing_matches"] == len(vocab) - cc.NGRAM_SIZE + 1
 
-
-def test_pairwise_offset_none_for_unrelated_vocabularies():
-    """No shared word at all: there is nothing to match, not a spurious 0."""
-    a = _m1_doc([(w, float(i)) for i, w in enumerate(_distinct_words(40, "a"))])
-    b = _m1_doc([(w, float(i)) for i, w in enumerate(_distinct_words(40, "b"))])
-
-    assert cc.pairwise_offset(a, b) is None
-
-
-def test_pairwise_offset_ignores_a_few_outlier_matches():
-    """A handful of coincidental n-gram collisions on a different offset
-    must not drag the median - `agreeing_matches` says how many were used."""
-    vocab = _distinct_words(80)
-    a = _m1_doc([(w, float(i)) for i, w in enumerate(vocab)])
-    shift = 5.0
-    times_b = [float(i) + shift for i in range(len(vocab))]
-    # Three repeated words elsewhere in B create a coincidental, unrelated
-    # duplicate 4-gram sequence at a wildly different time - but since the
-    # gram repeats in B it is excluded by the uniqueness filter, not the
-    # tolerance band. Simulate the genuinely-unrelated-offset case instead
-    # by shifting one small contiguous run far away.
+    times_b = [float(i) + 5.0 for i in range(len(vocab))]
     times_b[-5:] = [t + 500 for t in times_b[-5:]]
-    b = _m1_doc(list(zip(vocab, times_b)))
-
-    result = cc.pairwise_offset(a, b)
-
-    assert result is not None
-    assert result["offset_seconds"] == pytest.approx(-shift, abs=0.01)
+    result = cc.pairwise_offset(a, _m1_doc(list(zip(vocab, times_b))))
+    assert result["offset_seconds"] == pytest.approx(-5.0, abs=0.01)
     assert result["total_candidate_matches"] > result["agreeing_matches"]
     assert result["agreement_fraction"] < 1.0
 
@@ -101,6 +74,8 @@ def test_pairwise_offset_ignores_a_few_outlier_matches():
 
 
 def test_discover_edges_only_keeps_qualifying_pairs():
+    """C shares no word with A or B: there is nothing to match, so no
+    edge - not a spurious 0 offset."""
     vocab = _distinct_words(80)
     a = _m1_doc([(w, float(i)) for i, w in enumerate(vocab)], digest="A")
     b = _m1_doc([(w, float(i) + 3.0) for i, w in enumerate(vocab)], digest="B")
@@ -110,6 +85,7 @@ def test_discover_edges_only_keeps_qualifying_pairs():
     edges = cc.discover_edges({"A": a, "B": b, "C": c})
 
     assert set(edges) == {("A", "B")}
+    assert cc.pairwise_offset(a, c) is None
     groups = cc.group_digests(["A", "B", "C"], edges)
     assert groups == [["A", "B"]]
 
@@ -148,31 +124,25 @@ def _segment(source_file, source_start, source_end, timeline_start,
            "timeline_end": timeline_end, "resolve_item_id": "x"}
 
 
-def test_resolve_cut_offsets_is_antisymmetric_in_its_arguments():
-    """Swapping which source is named `a` must negate the result - a
-    cut's implied offset does not depend on which side you call A."""
+def test_resolve_cut_offsets_is_antisymmetric_and_skips_loose_boundaries():
+    """Swapping which source is named `a` negates the result - a cut's
+    implied offset does not depend on which side you call A. A boundary
+    gap wider than the tolerance is a real edit, not a camera-switch
+    instant, and is not read as one."""
     segments = [
         _segment("A.mov", 10.0, 14.0, 0.0, 4.0),
         _segment("B.mov", 6.2, 20.0, 4.1, 17.9),
     ]
-
     a_minus_b = cc.resolve_cut_offsets(segments, "A.mov", "B.mov")
     b_minus_a = cc.resolve_cut_offsets(segments, "B.mov", "A.mov")
-
     assert a_minus_b == pytest.approx([14.0 - 6.2])
     assert b_minus_a == pytest.approx([6.2 - 14.0])
-    assert a_minus_b[0] == pytest.approx(-b_minus_a[0])
 
-
-def test_resolve_cut_offsets_skips_loose_boundaries():
-    """A boundary gap wider than the tolerance is a real edit, not a
-    camera-switch instant, and must not be read as one."""
-    segments = [
+    loose = [
         _segment("A.mov", 10.0, 14.0, 0.0, 4.0),
         _segment("B.mov", 6.2, 20.0, 9.0, 22.8),  # 5 s gap
     ]
-
-    assert cc.resolve_cut_offsets(segments, "A.mov", "B.mov") == []
+    assert cc.resolve_cut_offsets(loose, "A.mov", "B.mov") == []
 
 
 # ── map_time ─────────────────────────────────────────────────────
@@ -194,7 +164,4 @@ def test_map_time_round_trips_through_the_reference(memory_root):
 
     assert cc.map_time("B", 100.0) == {"A": pytest.approx(103.8)}
     assert cc.map_time("A", 103.8) == {"B": pytest.approx(100.0)}
-
-
-def test_map_time_empty_for_a_source_with_no_clock(memory_root):
     assert cc.map_time("unknown-digest", 5.0) == {}

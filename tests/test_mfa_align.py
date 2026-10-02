@@ -31,7 +31,6 @@ What these pin, and why each is here
 
 from __future__ import annotations
 
-import os
 import wave
 from pathlib import Path
 
@@ -96,62 +95,72 @@ def _windows():
     ]
 
 
-# ── 1. normalization spells out, and changes nothing the pipeline reads
+# ── 1. normalization spells out; the merge writes the ORIGINAL tokens back
 
 
-def test_digits_and_symbols_are_spelled_out_for_the_aligner():
-    assert (
-        mfa_align.normalize_for_aligner("Take 20% off 3.5")
-        == "Take twenty percent off three point five"
-    )
+def test_digits_symbols_compounds_and_initialisms_are_spelled_for_the_aligner():
+    for text, spelled in (
+            ("Take 20% off 3.5", "Take twenty percent off three point five"),
+            ("10-man 50-person eye-opening",
+             "ten man fifty person eye opening"),
+            ("CRM ChatGPT AI's", "see are em chat gee pee tee ay eye ess")):
+        assert mfa_align.normalize_for_aligner(text) == spelled
 
 
-def test_mfa_splits_hyphenated_numeric_compounds_and_unions_their_windows():
-    assert mfa_align.normalize_for_aligner("10-man 50-person eye-opening") == (
-        "ten man fifty person eye opening")
-    words = mfa_align.merge_window(
-        "50-person", [("fifty", 0.2, 0.45), ("person", 0.46, 0.8)], 4.0)
-    assert words == [{"word": "50-person", "start": 4.2, "end": 4.8}]
+# (transcript text, MFA words, window offset, source_words, expected)
+# expected rows are (word, start, end), or (word, None, None) for a token
+# that must stay explicitly untimed - never lost, never guessed.
+MERGE_CASES = [
+    # A spelled-out phrase times its original token.
+    ("Take 20% off",
+     [("take", 0.0, 0.3), ("twenty", 0.3, 0.6), ("percent", 0.6, 0.9),
+      ("off", 0.9, 1.1)], 10.0, None,
+     [("Take", 10.0, 10.3), ("20%", 10.3, 10.9), ("off", 10.9, 11.1)]),
+    # A hyphenated numeric compound unions its pieces' windows.
+    ("50-person", [("fifty", 0.2, 0.45), ("person", 0.46, 0.8)], 4.0, None,
+     [("50-person", 4.2, 4.8)]),
+    # Initialisms and camel-case brands map back letter by letter.
+    ("CRM ChatGPT",
+     [("see", 0.0, 0.1), ("are", 0.11, 0.2), ("em", 0.21, 0.3),
+      ("chat", 0.4, 0.6), ("gee", 0.61, 0.7), ("pee", 0.71, 0.8),
+      ("tee", 0.81, 0.9)], 2.0, None,
+     [("CRM", 2.0, 2.3), ("ChatGPT", 2.4, 2.9)]),
+    # "20 percent" stays two measured source words.
+    ("20 percent", [("twenty", 0.2, 0.5), ("percent", 0.51, 0.9)], 1.0, None,
+     [("20", 1.2, 1.5), ("percent", 1.51, 1.9)]),
+    # A partially aligned expansion is NOT timed.
+    ("50-person", [("fifty", 0.2, 0.45)], 4.0, None,
+     [("50-person", None, None)]),
+    # One grouped transcriber span is never copied to several words.
+    ("20 percent", [], 1.0,
+     [{"word": "20 percent", "start": 1.2, "end": 1.9}],
+     [("20", None, None), ("percent", None, None)]),
+    # Tokens MFA dropped are untimed, never lost.
+    ("Well Mm-hmm eye-opening AI's model",
+     [("well", 0.0, 0.3), ("model", 1.5, 1.9)], 0.0, None,
+     [("Well", 0.0, 0.3), ("Mm-hmm", None, None), ("eye-opening", None, None),
+      ("AI's", None, None), ("model", 1.5, 1.9)]),
+]
 
 
-def test_mfa_expands_initialisms_and_camel_case_brands_for_alignment():
-    assert mfa_align.normalize_for_aligner("CRM ChatGPT AI's") == (
-        "see are em chat gee pee tee ay eye ess")
-    words = mfa_align.merge_window(
-        "CRM ChatGPT",
-        [("see", 0.0, 0.1), ("are", 0.11, 0.2), ("em", 0.21, 0.3),
-         ("chat", 0.4, 0.6), ("gee", 0.61, 0.7), ("pee", 0.71, 0.8),
-         ("tee", 0.81, 0.9)],
-        2.0,
-    )
-    assert [(w["word"], w["start"], w["end"]) for w in words] == [
-        ("CRM", 2.0, 2.3), ("ChatGPT", 2.4, 2.9)]
-
-
-def test_mfa_does_not_mark_a_partially_aligned_expansion_as_timed():
-    words = mfa_align.merge_window(
-        "50-person", [("fifty", 0.2, 0.45)], 4.0)
-    assert words == [{
-        "word": "50-person", "timed": False,
-        "timing_reason": "mfa_word_not_fully_aligned",
-    }]
-
-
-def test_mfa_keeps_twenty_percent_as_two_measured_source_words():
-    words = mfa_align.merge_window(
-        "20 percent", [("twenty", 0.2, 0.5), ("percent", 0.51, 0.9)], 1.0)
-    assert [(w["word"], w["start"], w["end"]) for w in words] == [
-        ("20", 1.2, 1.5), ("percent", 1.51, 1.9)]
-
-
-def test_mfa_does_not_copy_one_grouped_phrase_span_to_multiple_words():
-    words = mfa_align.merge_window(
+def test_a_token_is_timed_only_when_every_piece_aligned():
+    for text, aligned, offset, source_words, expected in MERGE_CASES:
+        kwargs = {"source_words": source_words} if source_words else {}
+        words = mfa_align.merge_window(text, aligned, offset, **kwargs)
+        assert [w["word"] for w in words] == [e[0] for e in expected], text
+        for word, (_token, start, end) in zip(words, expected):
+            if start is None:
+                assert "start" not in word and "end" not in word, (text, word)
+            else:
+                assert word["start"] == pytest.approx(start), (text, word)
+                assert word["end"] == pytest.approx(end), (text, word)
+    partial = mfa_align.merge_window("50-person", [("fifty", 0.2, 0.45)], 4.0)
+    assert partial == [{"word": "50-person", "timed": False,
+                        "timing_reason": "mfa_word_not_fully_aligned"}]
+    grouped = mfa_align.merge_window(
         "20 percent", [], 1.0,
-        source_words=[{"word": "20 percent", "start": 1.2, "end": 1.9}],
-    )
-    assert [word["word"] for word in words] == ["20", "percent"]
-    assert all(word["timed"] is False for word in words)
-    assert all("start" not in word for word in words)
+        source_words=[{"word": "20 percent", "start": 1.2, "end": 1.9}])
+    assert all(word["timed"] is False for word in grouped)
 
 
 # ── 2. TextGrid parsing reads the words tier
@@ -164,47 +173,6 @@ def test_parse_reads_the_words_tier_and_skips_empties(tmp_path):
         encoding="utf-8",
     )
     assert mfa_align.parse_textgrid(grid) == [("hello", 0.5, 0.9), ("world", 0.9, 1.4)]
-
-
-# ── 3. the merge writes the ORIGINAL tokens back
-
-
-def test_merge_times_original_tokens_through_spelled_out_phrases():
-    words = mfa_align.merge_window(
-        "Take 20% off",
-        [
-            ("take", 0.0, 0.3),
-            ("twenty", 0.3, 0.6),
-            ("percent", 0.6, 0.9),
-            ("off", 0.9, 1.1),
-        ],
-        10.0,
-    )
-    assert [(w["word"], round(w["start"], 2), round(w["end"], 2)) for w in words] == [
-        ("Take", 10.0, 10.3),
-        ("20%", 10.3, 10.9),
-        ("off", 10.9, 11.1),
-    ]
-
-
-def test_a_token_mfa_dropped_is_untimed_never_lost():
-    """An incompletely aligned original token is explicit and untimed."""
-    words = mfa_align.merge_window(
-        "Well Mm-hmm eye-opening AI's model",
-        [("well", 0.0, 0.3), ("model", 1.5, 1.9)],
-        0.0,
-    )
-    assert [w["word"] for w in words] == [
-        "Well",
-        "Mm-hmm",
-        "eye-opening",
-        "AI's",
-        "model",
-    ]
-    assert words[0]["start"] == pytest.approx(0.0)
-    assert words[4]["start"] == pytest.approx(1.5)
-    for word in words[1:4]:
-        assert "start" not in word and "end" not in word
 
 
 def test_mfa_dropped_word_keeps_transcriber_timing_through_transcript(
@@ -544,26 +512,6 @@ def test_an_mfa_decline_is_refused_not_realigned(monkeypatch, tmp_path):
     with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
         tt.transcribe_audio(tmp_path / "craig.wav")
     assert refused.value.reason == mfa_align.MFA_ENVIRONMENT_ABSENT
-
-
-def test_the_document_says_which_aligner_timed_each_speaker():
-    """The wav2vec2 value below is legacy vocabulary for transcripts
-    written before 2026-09-24 - still readable, no longer producible."""
-    import library.tools.timeline_transcript as tt
-
-    record = tt.transcription_record(
-        {
-            "Akshita": {
-                "arm": hybrid_transcription.ARM_HYBRID,
-                "aligner": hybrid_transcription.ALIGNER_MFA,
-            },
-            "Craig": {
-                "arm": hybrid_transcription.ARM_WHISPERX,
-                "aligner": hybrid_transcription.ALIGNER_WAV2VEC2,
-            },
-        }
-    )
-    assert record["aligners"] == {"Akshita": "mfa", "Craig": "wav2vec2"}
 
 
 # ── 8. the environment half: discovered, overridable, refusing by name

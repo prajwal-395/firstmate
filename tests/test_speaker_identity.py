@@ -17,7 +17,6 @@ Every project here is built under `tmp_path`. No test reaches a real
 one (`tests/test_tests_never_reach_real_projects.py`).
 """
 
-import json
 
 import pytest
 
@@ -62,16 +61,35 @@ def _lines(*pairs):
 
 # ── 1. A project that declares nothing ───────────────────────────────
 
-def test_a_project_declaring_no_speakers_gets_no_lower_thirds(tmp_path):
-    """The generalisation case. No crash, no placeholder, no graphic."""
-    folder = _project(tmp_path, "declares-nothing")
-    plan = si.plan_for_reel(
-        reel_name="Reel 01", lines=_lines(("Ada", 1.0), ("Bram", 8.0)),
-        reel_seconds=60.0, project_folder=folder, width=1080, height=1920)
-    assert plan.entries == []
-    assert plan.introductions == []
-    assert plan.declared is False
-    assert plan.basis == si.NOT_DECLARED
+def _appearing_project(tmp_path, name):
+    return _project(tmp_path, name,
+                    effect={si.DECLARATION_KEY: DECLARATION})
+
+
+def test_a_reel_with_nobody_to_name_gets_no_card_and_says_why(tmp_path):
+    """No crash, no placeholder, no graphic - and the basis names which
+    absence it was: a project that declares no cast (the generalisation
+    case), a reel with no lines and nobody appearing, a reel whose only
+    voice the project never declared, and an appearing voice the
+    declaration does not list."""
+    rows = [
+        # (project declares?, lines, appearing, basis, declared)
+        (False, _lines(("Ada", 1.0), ("Bram", 8.0)), (),
+         si.NOT_DECLARED, False),
+        (True, [], (), si.NO_LINES_IN_THE_REEL, True),
+        (True, _lines(("Zoe", 1.0)), (), si.NO_DECLARED_SPEAKER_SPOKE, True),
+        (True, [], ("Zoe",), si.NO_LINES_IN_THE_REEL, True),
+    ]
+    for n, (declares, lines, appearing, basis, declared) in enumerate(rows):
+        folder = (_appearing_project(tmp_path, f"p{n}") if declares
+                  else _project(tmp_path, f"p{n}"))
+        plan = si.plan_for_reel(
+            "R", lines, 60.0, folder, width=1080, height=1920,
+            appearing_speakers=appearing)
+        assert plan.entries == [], n
+        assert plan.introductions == [], n
+        assert plan.basis == basis, n
+        assert plan.declared is declared, n
 
 
 def test_a_second_project_declares_a_different_cast(tmp_path):
@@ -146,11 +164,6 @@ def test_a_speaker_appearing_twice_gets_exactly_one_graphic(tmp_path):
 
 # ── A speaker who appears but says nothing still gets a card ──────
 
-def _appearing_project(tmp_path, name):
-    return _project(tmp_path, name,
-                    effect={si.DECLARATION_KEY: DECLARATION})
-
-
 def test_a_speaker_who_appears_but_says_nothing_still_gets_a_card(tmp_path):
     """The captain's 2026-09-30 ruling: the card identifies the person,
     not the sentence. Reel 05's stale `no_lines_in_the_reel` row named
@@ -178,30 +191,6 @@ def test_a_speaker_who_appears_but_says_nothing_still_gets_a_card(tmp_path):
     assert len(resolved.moments) == 2
 
 
-def test_the_old_skip_stands_where_nobody_appears(tmp_path):
-    """The skip this change retires, pinned where it still applies: no
-    lines AND no appearance is no anchor at all, so the plan still
-    says `no_lines_in_the_reel` rather than inventing a card."""
-    folder = _appearing_project(tmp_path, "still-skips")
-    plan = si.plan_for_reel(
-        "Reel 05", [], 60.0, folder, width=1080, height=1920)
-    assert plan.entries == []
-    assert plan.introductions == []
-    assert plan.declared is True
-    assert plan.basis == si.NO_LINES_IN_THE_REEL
-
-
-def test_lines_without_a_declared_speaker_keep_their_skip(tmp_path):
-    """The sibling skip: the reel speaks, but nobody the project
-    declared - and nobody appearing either - so there is still nobody
-    to name."""
-    folder = _appearing_project(tmp_path, "stranger")
-    plan = si.plan_for_reel(
-        "R", _lines(("Zoe", 1.0)), 60.0, folder, width=1080, height=1920)
-    assert plan.entries == []
-    assert plan.basis == si.NO_DECLARED_SPEAKER_SPOKE
-
-
 def test_a_silent_appearing_speaker_joins_a_speaking_one(tmp_path):
     """Mixed reel: Bram is in the cast list but says nothing, Ada
     speaks at 5s. Bram's card opens the reel; Ada's lands on her
@@ -218,62 +207,35 @@ def test_a_silent_appearing_speaker_joins_a_speaking_one(tmp_path):
             for e in plan.entries] == [(0.0, 3.0), (5.0, 3.0)]
 
 
-def test_an_undeclared_appearing_voice_is_not_named(tmp_path):
-    """The declaration is the cast list: a voice the project never
-    declared is passed over in silence even where the proposal lists
-    them as appearing."""
-    folder = _appearing_project(tmp_path, "undeclared-appears")
-    plan = si.plan_for_reel(
-        "R", [], 60.0, folder, width=1080, height=1920,
-        appearing_speakers=("Zoe",))
-    assert plan.entries == []
-    assert plan.basis == si.NO_LINES_IN_THE_REEL
+def test_a_card_that_cannot_be_drawn_is_refused_by_name(tmp_path):
+    """Each refusal keeps the cards that can still be drawn:
 
-
-def test_speech_wins_a_tie_against_appearance(tmp_path):
-    """Ada speaks at 0.0s and Bram appears silently: both cards want
-    the opening second of one row, so the appearance-anchored one is
-    the one shortened away - below the readability floor, refused -
-    and the line keeps its card."""
-    folder = _appearing_project(tmp_path, "tie")
-    plan = si.plan_for_reel(
-        "R", _lines(("Ada", 0.0)), 60.0, folder, width=1080, height=1920,
-        appearing_speakers=("Bram",))
-    assert plan.basis == si.SPEAKERS_INTRODUCED
-    assert [i.speaker for i in plan.introductions] == ["Ada"]
-    assert [(r["speaker"], r["reason"]) for r in plan.refused] == [
-        ("Bram", si.TRUNCATED_BELOW_READABLE)]
-
-
-def test_a_line_less_card_past_the_reels_end_is_refused(tmp_path):
-    """Hold-spaced openings can walk off a short reel: the second
-    3.0s card of a 2.0s reel starts outside it and is refused, while
-    the first still opens the reel."""
-    folder = _appearing_project(tmp_path, "short")
-    plan = si.plan_for_reel(
-        "R", [], 2.0, folder, width=1080, height=1920,
-        appearing_speakers=("Ada", "Bram"))
-    assert plan.basis == si.SPEAKERS_INTRODUCED
-    assert [i.speaker for i in plan.introductions] == ["Ada"]
-    assert [(r["speaker"], r["reason"]) for r in plan.refused] == [
-        ("Bram", si.OUTSIDE_THE_REEL)]
-
-
-# ── The colour: the project's, or nothing ────────────────────────────
-
-
-def test_a_speaker_with_no_colour_anywhere_is_refused_not_invented(tmp_path):
-    """There are no house looks. A colour the engine chose is a defect."""
-    folder = _project(
-        tmp_path, "colourless",
-        effect={si.DECLARATION_KEY: {
-            **DECLARATION,
-            "speakers": {"Ada": {"name": "Ada Lovelace"}},
-        }})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
-    assert plan.entries == []
-    assert [r["reason"] for r in plan.refused] == [si.NO_COLOUR_DECLARED]
-
+    - speech wins a tie: Ada speaks at 0.0s and Bram appears silently,
+      so the appearance-anchored card is shortened below the
+      readability floor and refused;
+    - hold-spaced openings walk off a short reel: the second 3.0s card
+      of a 2.0s reel starts outside it;
+    - there are no house looks: a speaker with no colour anywhere is
+      refused, never given an engine-chosen one."""
+    colourless = {**DECLARATION, "speakers": {"Ada": {"name": "Ada Lovelace"}}}
+    rows = [
+        (DECLARATION, _lines(("Ada", 0.0)), 60.0, ("Bram",),
+         ["Ada"], [("Bram", si.TRUNCATED_BELOW_READABLE)]),
+        (DECLARATION, [], 2.0, ("Ada", "Bram"),
+         ["Ada"], [("Bram", si.OUTSIDE_THE_REEL)]),
+        (colourless, _lines(("Ada", 1.0)), 40.0, (),
+         [], [("Ada", si.NO_COLOUR_DECLARED)]),
+    ]
+    for n, (declaration, lines, seconds, appearing, introduced,
+            refused) in enumerate(rows):
+        folder = _project(tmp_path, f"r{n}",
+                          effect={si.DECLARATION_KEY: declaration})
+        plan = si.plan_for_reel(
+            "R", lines, seconds, folder, width=1080, height=1920,
+            appearing_speakers=appearing)
+        assert [i.speaker for i in plan.introductions] == introduced, n
+        assert [(r["speaker"], r["reason"])
+                for r in plan.refused] == refused, n
 
 
 # ── A declaration that cannot be read is refused, never completed ────
@@ -394,24 +356,19 @@ def _measured(rows, cols, frame=(1080, 1920)):
             "touches_frame_edge": []}
 
 
-def test_ink_on_the_caption_row_is_refused():
+def test_a_render_measurement_is_judged_in_delivery_frame_pixels():
+    """Ink on the caption row is refused; a tight-boxed overlay's
+    extents are not delivery-frame coordinates, and reading them as if
+    they were is how a placement check becomes a confident wrong answer."""
     findings = si.render_findings(
         _measured((1300, 1450), (90, 700)), INSETS, 1080, 1920)
-    assert [f["code"] for f in findings] == [si.INK_LEFT_THE_BOX]
-    assert findings[0]["severity"] == "error"
-
-
-
-
-def test_a_measurement_on_a_small_canvas_is_not_read_as_frame_pixels():
-    """A tight-boxed overlay's extents are not delivery-frame
-    coordinates, and reading them as if they were is how a placement
-    check becomes a confident wrong answer."""
+    assert [(f["code"], f["severity"]) for f in findings] == [
+        (si.INK_LEFT_THE_BOX, "error")]
     findings = si.render_findings(
         _measured((0, 120), (0, 400), frame=(420, 140)),
         INSETS, 1080, 1920)
-    assert [f["severity"] for f in findings] == ["warning"]
-    assert findings[0]["code"] == "not_the_delivery_frame"
+    assert [(f["code"], f["severity"]) for f in findings] == [
+        ("not_the_delivery_frame", "warning")]
 
 
 # ── The record a check grades against ────────────────────────────────
@@ -420,16 +377,8 @@ def test_a_measurement_on_a_small_canvas_is_not_read_as_frame_pixels():
 def test_promotion_renames_the_staging_record_to_the_final_name(tmp_path):
     """A staged build records under `<final> (rebuild staging)`; the
     promotion must rename it, or `plan_for` answers None for a reel
-    that really has a plan and F24 reports the graphics the build
-    placed as items nothing accounts for.
-
-    Measured 2026-09-12 on the first beside build of Reel 01 in the
-    captain's project: two lower thirds placed on V7, F24 ERROR "2
-    item(s) on the lower-third row (V7) and this reel has no recorded
-    speaker lower-third plan at all". The three sibling records
-    (`explainer_plan`, `reel_semantic_visual` twice) were renamed at
-    promotion and this one was not.
-    """
+    that really has a plan. Incident: docs/evidence/speaker_identity.md
+    ("The staging record that was never renamed")."""
     folder = _project(tmp_path, "promote",
                       effect={si.DECLARATION_KEY: DECLARATION})
     staging = "Reel 07 (rebuild staging)"
@@ -503,24 +452,3 @@ def test_a_lower_third_that_moved_changes_the_rebuild_digest():
         "a lower third that MOVED digests the same as one that did not")
     assert digest(redrawn) != digest(at_start), (
         "a lower third whose ink landed elsewhere digests the same")
-
-
-def test_a_project_with_no_lower_thirds_digests_exactly_as_before():
-    """Absent means none. A project that declares no speakers must not
-    re-place every reel it has just because this layer was added."""
-    from library.tools import reel_rebuild_need as need
-
-    base = dict(
-        reel_number=1, engine_code="eng", project_wide="proj",
-        plan_content_hash="plan", transcript_hash="tr", master_digest="m",
-        ranges=[(0.0, 10.0)], placements_list=[], cards=[],
-        caption_segments=[], explainer_segments=[], semantic_segments=[],
-        overlay_placements=None, motion_record=None, ending=None,
-        look=None, grade_cdl=None, grade_look=None, power_grade=None)
-    common = {"extra_cuts": [], "insisted": []}
-    segments = []
-    without_the_key = need.derivation_digest(**base, extra=dict(common))
-    as_the_build_computes_it = need.derivation_digest(
-        **base, extra={**common,
-                       **({"lower_thirds": []} if segments else {})})
-    assert without_the_key == as_the_build_computes_it

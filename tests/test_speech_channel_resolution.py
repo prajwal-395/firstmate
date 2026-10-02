@@ -8,8 +8,6 @@ the project's declaration first - and the refusal an undeclared,
 unmeasurable source earns instead of a quiet default.
 """
 
-import json
-
 import pytest
 
 from library.steps.step_6_01_render.resolve_build_timeline import (
@@ -18,82 +16,66 @@ from library.steps.step_6_01_render.resolve_build_timeline import (
     resolve_speech_channel,
 )
 
+# (angle_sources, catalog_channels, catalog_refusals, manifest_decl,
+#  project_decl, single_stream, expected_channel, basis_fragment)
+RESOLVED = [
+    # The manifest's own angle declaration wins over everything.
+    ({"a.MXF"}, {"/x/a.MXF": 1, "a.MXF": 1}, {}, 2, 1, {"a.MXF"},
+     2, "manifest angle declaration"),
+    # The project's declaration beats a stale catalog recording.
+    ({"a.MXF"}, {"a.MXF": 2}, {}, None, 1, set(), 1, "declaration"),
+    # A catalog recording is honoured when nothing is declared.
+    ({"a.MXF"}, {"a.MXF": 3}, {}, None, None, set(), 3, "catalog"),
+    # A single-stream source is its own answer.
+    ({"phone.MOV"}, {}, {}, None, None, {"phone.MOV"},
+     1, "single-stream source"),
+    # Every source on an angle agrees.
+    ({"a.MXF", "b.MXF"}, {"a.MXF": 1, "b.MXF": 1}, {}, None, None, set(),
+     1, "catalog"),
+]
 
-def test_manifest_declaration_wins():
-    channel, basis = resolve_speech_channel(
-        "a", "Akshita", 2, {"a.MXF"}, {"/x/a.MXF": 1, "a.MXF": 1}, {},
-        1, {"a.MXF"})
-    assert (channel, basis) == (2, "manifest angle declaration")
-
-
-def test_project_declaration_beats_a_stale_catalog_recording():
-    channel, basis = resolve_speech_channel(
-        "a", "Akshita", None, {"a.MXF"}, {"a.MXF": 2}, {}, 1, set())
-    assert channel == 1
-    assert "declaration" in basis
-
-
-def test_catalog_recording_is_honoured():
-    channel, basis = resolve_speech_channel(
-        "a", "Akshita", None, {"a.MXF"}, {"a.MXF": 3}, {}, None, set())
-    assert channel == 3
-    assert "catalog" in basis
-
-
-def test_a_single_stream_source_is_its_own_answer():
-    channel, basis = resolve_speech_channel(
-        "main", "main", None, {"phone.MOV"}, {}, {}, None,
-        {"phone.MOV"})
-    assert (channel, basis) == (1, "single-stream source")
-
-
-def test_every_source_on_an_angle_must_agree():
-    channel, _ = resolve_speech_channel(
-        "a", "Akshita", None, {"a.MXF", "b.MXF"},
-        {"a.MXF": 1, "b.MXF": 1}, {}, None, set())
-    assert channel == 1
-    with pytest.raises(SpeechChannelRefused, match="different program"):
-        resolve_speech_channel(
-            "a", "Akshita", None, {"a.MXF", "b.MXF"},
-            {"a.MXF": 1, "b.MXF": 2}, {}, None, set())
+REFUSED = [
+    # Sources on one angle recorded on different program channels.
+    ({"a.MXF", "b.MXF"}, {"a.MXF": 1, "b.MXF": 2}, {}, None,
+     ["different program"]),
+    # An undeclared multi-stream source refuses loudly, naming the fix.
+    ({"cam.MXF"}, {}, {}, None,
+     ["REFUSING to place speech", "cam.MXF", "source.program_stream"]),
+    # The catalog's own refusal is carried into the build refusal.
+    ({"cam.MXF"}, {}, {"cam.MXF": "Refusal: cam.MXF carries 4 audio streams"},
+     None, ["declared or recorded"]),
+    # A garbage manifest declaration refuses rather than tracebacks.
+    ({"a.MXF"}, {"a.MXF": 1}, {}, "CH1", ["not a channel ordinal"]),
+]
 
 
-def test_an_undeclared_multi_stream_source_refuses_loudly():
-    with pytest.raises(SpeechChannelRefused,
-                       match="REFUSING to place speech") as exc:
-        resolve_speech_channel(
-            "a", "Akshita", None, {"cam.MXF"}, {}, {}, None, set())
-    assert "cam.MXF" in str(exc.value)
-    assert "source.program_stream" in str(exc.value)
+def test_the_speech_channel_resolves_by_precedence():
+    for (sources, recorded, refusals, manifest_decl, project_decl, single,
+         expected, basis_fragment) in RESOLVED:
+        channel, basis = resolve_speech_channel(
+            "a", "Akshita", manifest_decl, sources, recorded, refusals,
+            project_decl, single)
+        assert channel == expected, (sources, recorded, basis)
+        assert basis_fragment in basis, (sources, basis)
 
 
-def test_a_catalog_refusal_is_carried_into_the_build_refusal():
-    with pytest.raises(SpeechChannelRefused,
-                       match="declared or recorded"):
-        resolve_speech_channel(
-            "a", "Akshita", None, {"cam.MXF"}, {},
-            {"cam.MXF": "Refusal: cam.MXF carries 4 audio streams"},
-            None, set())
+def test_an_unresolvable_speech_channel_refuses_by_name():
+    for sources, recorded, refusals, manifest_decl, fragments in REFUSED:
+        with pytest.raises(SpeechChannelRefused) as exc:
+            resolve_speech_channel(
+                "a", "Akshita", manifest_decl, sources, recorded, refusals,
+                None, set())
+        for fragment in fragments:
+            assert fragment in str(exc.value), (fragment, str(exc.value))
 
 
-def test_a_garbage_manifest_declaration_refuses_not_tracebacks():
-    with pytest.raises(SpeechChannelRefused,
-                       match="not a channel ordinal"):
-        resolve_speech_channel(
-            "a", "Akshita", "CH1", {"a.MXF"}, {"a.MXF": 1}, {}, None,
-            set())
-
-
-def test_stereo_speech_carries_the_program_stream():
+def test_a_mapping_carries_the_program_stream_when_it_includes_it():
     """Finding 4: iPhone stereo speech maps CH[1, 2] and carries
     program CH1 in it. Exact-equality (`channels == [1]`) deleted
     every such item as "non-program audio" - twelve deletions, an
     export at -91 dB over the spoken hook, the step green."""
     assert mapping_carries_program([1, 2], 1) is True
     assert mapping_carries_program([1], 1) is True
-
-
-def test_a_mapping_without_the_program_stream_still_goes():
     assert mapping_carries_program([2], 1) is False
     assert mapping_carries_program([3, 4], 1) is False
     assert mapping_carries_program([], 1) is False

@@ -146,7 +146,7 @@ def test_cleanup_context_skips_blocks_with_no_words(tmp_path):
 
 # ── the post-bridge ──────────────────────────────────────────────────
 
-def test_resolve_cleanup_accepts_a_valid_plan():
+def test_resolve_cleanup_accepts_a_valid_plan_and_an_absent_one():
     out = resolve_cleanup({
         "cleanup_context": {"tools": {"deepfilternet": {}}},
         "cleanup_plan": [
@@ -159,9 +159,8 @@ def test_resolve_cleanup_accepts_a_valid_plan():
     assert [r["tool"] for r in out["requests"]] == [
         "voice_isolation", "deepfilternet"]
     assert out["requests"][0]["amount"] == 60
-
-
-def test_resolve_cleanup_empty_means_no_cleanup():
+    # Cleanup is opt-in: no plan, an empty one, or a non-list answer
+    # means no cleanup, never an error.
     assert resolve_cleanup({})["requests"] == []
     assert resolve_cleanup({"cleanup_plan": []})["requests"] == []
     out = resolve_cleanup({"cleanup_plan": "loud please"})
@@ -198,7 +197,7 @@ def test_assemble_carries_the_cleanup_plan():
 
 # ── the OTIO swap ────────────────────────────────────────────────────
 
-def _otio(clip_path, start_frame=0, frames=100):
+def _otio(clip_path, frames=100):
     return {"tracks": {"children": [{
         "kind": "Audio", "name": "A1",
         "children": [{
@@ -213,11 +212,6 @@ def _otio(clip_path, start_frame=0, frames=100):
                 "Parameters": []}}],
         }],
     }]}}
-
-
-def _start(clip, frames=100):
-    position = 0
-    return position
 
 
 def test_stem_swap_lands_on_the_matched_clip(tmp_path):
@@ -236,24 +230,22 @@ def test_stem_swap_lands_on_the_matched_clip(tmp_path):
     assert clip["media_references"]["m1"]["target_url"].endswith(
         "src_clean0.wav")
     assert clip["source_range"]["start_time"]["value"] == 0
+    assert clip["source_range"]["duration"]["value"] == 100
     assert not otio_mix.verify_stems(otio, report["applied"])
 
 
-def test_stem_swap_reports_the_miss(tmp_path):
+def test_stem_swap_reports_a_miss_or_a_missing_stem(tmp_path):
+    """Neither is swapped; each is reported unmatched with the reason."""
     manifest = {"audio": {"dialogue_cleanup": {"stems": [{
         "source_file": "/src/other.MOV",
         "stem_file": str(tmp_path / "x.wav"),
         "timeline_in_frame": 500, "label": "miss"}]}}}
-    otio = _otio("/src/other.MOV", start_frame=0)
     report = otio_mix.apply_stem_swaps(
-        otio, otio_mix.stem_swaps(manifest))
+        _otio("/src/other.MOV"), otio_mix.stem_swaps(manifest))
     assert not report["applied"] and len(report["unmatched"]) == 1
     assert "matched no clip" in report["unmatched"][0]["reason"]
 
-
-def test_stem_swap_refuses_a_missing_stem_file():
-    otio = _otio("/src/a.MOV")
-    report = otio_mix.apply_stem_swaps(otio, [{
+    report = otio_mix.apply_stem_swaps(_otio("/src/a.MOV"), [{
         "source_file": "/src/a.MOV", "stem_file": "/gone/clean.wav",
         "start_frame": 0, "label": "gone"}])
     assert not report["applied"]
@@ -268,15 +260,12 @@ def _clip(source, start=0.0, end=4.0, label="hook"):
             "label": label}
 
 
-def test_stage_refuses_an_unplayed_source(tmp_path):
+def test_stage_refuses_an_unplayed_source_or_span(tmp_path):
     with pytest.raises(DialogueCleanupRefused, match="no played clip"):
         stage_deepfilternet(
             {"source": "gone.MOV", "tool": "deepfilternet",
              "why": "noisy"},
             [], [], str(tmp_path))
-
-
-def test_stage_refuses_a_span_outside_the_played_range(tmp_path):
     source = str(tmp_path / "speech.wav")
     _speech_wav(source)
     with pytest.raises(DialogueCleanupRefused, match="intersects nothing"):

@@ -120,18 +120,14 @@ def test_a_span_on_one_angle_is_placed_on_the_items_that_play_the_other(memory_r
         "timeline_start": 1005.0, "timeline_end": 1007.0}]
 
 
-def test_an_unshipped_predicate_is_refused_not_answered_empty(tmp_path):
-    """hand_near_mouth failed its pre-registered bar. An empty answer to
-    "when does Craig cover his mouth" reads as "never" - the one answer
-    the measurement cannot support."""
+def test_a_predicate_the_measurement_cannot_answer_is_refused(tmp_path):
+    """hand_near_mouth failed its pre-registered bar: an empty answer to
+    "when does Craig cover his mouth" reads as "never". on_screen spans
+    run the length of every take: verifying them is the whole-episode VLM
+    pass the candidate stage exists to avoid."""
     with pytest.raises(RenRefusal) as refused:
         event_spans.query(str(tmp_path), "Craig", "hand_near_mouth")
     assert "11/17" in str(refused.value.why)
-
-
-def test_verify_refuses_a_predicate_whose_spans_are_the_whole_episode(tmp_path):
-    """on_screen spans run the length of every take: verifying them is the
-    whole-episode VLM pass the candidate stage exists to avoid."""
     with pytest.raises(RenRefusal) as refused:
         event_spans.verified_query(str(tmp_path), "Craig", "on_screen",
                                    "covers his mouth with his hand")

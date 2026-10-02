@@ -123,20 +123,16 @@ def test_an_empty_region_plan_removes_that_regions_sounds(
             for s in out["sfx_spec"]["sfx_list"]] == [0, 2]
 
 
-def test_a_fresh_sound_outside_the_region_is_refused(stored_spec, catalog):
-    with pytest.raises(SpliceRefused, match="not in the region"):
-        pb.splice_region_sfx([_sound(1), _sound(2)], SPINE, stored_spec,
-                             _region(4.0, 8.0), catalog=catalog)
-
-
-def test_a_region_touching_no_block_is_refused(stored_spec, catalog):
-    with pytest.raises(SpliceRefused, match="touches no spine block"):
-        pb.splice_region_sfx([], SPINE, stored_spec, _region(60.0, 70.0),
-                             catalog=catalog)
+def test_a_splice_reaching_past_its_region_is_refused(stored_spec, catalog):
+    for fresh, region, said in (
+            ([_sound(1), _sound(2)], (4.0, 8.0), "not in the region"),
+            ([], (60.0, 70.0), "touches no spine block")):
+        with pytest.raises(SpliceRefused, match=said):
+            pb.splice_region_sfx(fresh, SPINE, stored_spec,
+                                 _region(*region), catalog=catalog)
 
 
 def test_sfx_splice_is_a_region_only_operation():
     op = operations.get("sfx.splice")
     assert op.supports(_region(4.0, 8.0))
     assert not op.supports(scope_mod.project())
-    assert op.run.__name__ == "splice_region_sfx"

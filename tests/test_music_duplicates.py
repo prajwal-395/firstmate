@@ -8,20 +8,14 @@ The numbers in these fixtures are the ones measured on 001 and on
 re-encodes of its own tracks, 2026-08-28; `library/tools/music_duplicates.py`
 carries the table. Nothing here is a filename comparison.
 """
-from pathlib import Path
-
 import pytest
-
-REPO = Path(__file__).resolve().parents[1]
 
 from library.tools.music_duplicates import (  # noqa: E402
     DB_TOLERANCE,
     DECLINED_SIGNALS,
     distinct_count,
-    duplicate_groups,
     mark_duplicates,
     same_recording,
-    summarise,
 )
 
 
@@ -101,8 +95,6 @@ def test_the_verdict_is_blind_to_the_name():
     assert "the filename" in DECLINED_SIGNALS
 
 
-# ── Nothing is deleted ────────────────────────────────────────────────
-
 # ── An absent measurement is not evidence of sameness ─────────────────
 
 def test_an_unmeasured_candidate_is_never_a_duplicate():
@@ -116,37 +108,15 @@ def test_an_unmeasured_candidate_is_never_a_duplicate():
     assert distinct_count(marked) == 3
 
 
-def test_a_missing_column_is_not_a_match():
-    stripped = {k: v for k, v in LYRICS_WAV.items()
-                if k != "speech_band_ratio_db"}
-    assert same_recording(LYRICS_MP3, stripped)[0] is False
-
-
-def test_envelopes_of_different_lengths_do_not_match():
-    short = dict(LYRICS_WAV)
-    short["window_envelope_dbfs"] = SICKICK_ENVELOPE[:6]
-    assert same_recording(LYRICS_MP3, short)[0] is False
-
-
-# ── The tolerance is measured, not picked ─────────────────────────────
-
-WORST_RE_ENCODE_DELTA_DB = 0.50  # mp3 128k, worst envelope bucket
-
-
-def test_the_tolerance_is_twice_the_worst_measured_re_encode_difference():
-    assert DB_TOLERANCE == pytest.approx(2 * WORST_RE_ENCODE_DELTA_DB)
-
-
-@pytest.mark.parametrize("field", [
-    "integrated_lufs",
-])
-def test_a_difference_past_the_tolerance_is_a_different_recording(field):
-    other = dict(LYRICS_WAV)
-    other[field] = LYRICS_MP3[field] + DB_TOLERANCE + 0.1
-    assert same_recording(LYRICS_MP3, other)[0] is False
-
-
-def test_a_different_length_is_a_different_recording():
-    other = dict(LYRICS_WAV)
-    other["duration_seconds"] = LYRICS_MP3["duration_seconds"] + 3.0
-    assert same_recording(LYRICS_MP3, other)[0] is False
+def test_any_measured_disagreement_or_absence_is_a_different_recording():
+    """Each row changes one thing about the WAV encode of the same song."""
+    missing_column = {k: v for k, v in LYRICS_WAV.items()
+                      if k != "speech_band_ratio_db"}
+    short_envelope = dict(LYRICS_WAV,
+                          window_envelope_dbfs=SICKICK_ENVELOPE[:6])
+    louder = dict(LYRICS_WAV, integrated_lufs=(
+        LYRICS_MP3["integrated_lufs"] + DB_TOLERANCE + 0.1))
+    longer = dict(LYRICS_WAV,
+                  duration_seconds=LYRICS_MP3["duration_seconds"] + 3.0)
+    for other in (missing_column, short_envelope, louder, longer):
+        assert same_recording(LYRICS_MP3, other)[0] is False

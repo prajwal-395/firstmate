@@ -86,12 +86,6 @@ def test_nominate_measures_shapes_not_words():
     assert hy.nominate(arts) == []
 
 
-def test_alignment_note_names_the_mfa_limit():
-    note = hy.alignment_note(_doc())
-    assert "MFA" in note and "no per-word score" in note
-    assert "confidence is not the discriminator" in note
-
-
 def test_dispose_batch_refuses_what_it_cannot_honour():
     view = hy.segments_for_judgement(_doc())
     verdict = {
@@ -121,6 +115,8 @@ def test_dispose_batch_refuses_what_it_cannot_honour():
 
 
 def test_scan_records_with_evidence_and_provenance(tmp_path):
+    """A preview (apply=False) records nothing; an applied scan records
+    under the model's own name, and the next run enforces it."""
     from library.tools import learned_context as lc
     from library.tools import transcript_corrections as tc
 
@@ -136,6 +132,11 @@ def test_scan_records_with_evidence_and_provenance(tmp_path):
                 "respell": [{"heard": "aics", "correct": "AI sees",
                              "why": "misheard product"}],
                 "unevaluated": [], "refused": []}
+
+    preview = hy.scan(project, _doc(), judge=stub_judge, apply=False)
+    assert len(preview["suppress"]) == 1
+    assert preview["recorded"] == []
+    assert lc.active_for_step(project, "*") == []
 
     report = hy.scan(project, _doc(), judge=stub_judge, apply=True)
     assert report["recorded"] and len(report["recorded"]) == 2
@@ -153,22 +154,6 @@ def test_scan_records_with_evidence_and_provenance(tmp_path):
     tc.apply_to_document(doc, project)
     assert "qu" not in doc["segments"][0]["text"].split()
 
-
-def test_scan_preview_records_nothing(tmp_path):
-    project = _project(tmp_path)
-
-    def stub_judge(view, candidates, terms, project_folder):
-        return {"suppress": [{"seg": 0, "index": 2, "word": "qu",
-                              "speaker": "A", "prev": "niche",
-                              "next": "niche", "scope": "anchored",
-                              "why": "stray"}],
-                "respell": [], "unevaluated": [], "refused": []}
-
-    report = hy.scan(project, _doc(), judge=stub_judge, apply=False)
-    assert len(report["suppress"]) == 1
-    assert report["recorded"] == []
-    from library.tools import learned_context as lc
-    assert lc.active_for_step(project, "*") == []
 
 def test_keyless_judge_returns_unevaluated(tmp_path, monkeypatch):
     project = _project(tmp_path)

@@ -1,14 +1,6 @@
-"""Finding 25: the music bed has one level per behaviour, fitted to one block.
-
-On the scout's B4 run every `background` block's bed was -29.57 LUFS,
-fitted to one block's speech: block speech ranged -39 to -20 LUFS, so
-delivered speech-over-bed separation was 2.6-9.2 dB in 10 of 12 blocks
-against the step's own 14 dB target. Recorded in `music_automation`,
-never reported as a shortfall.
-
-The fix: fit the bed per block to the decided separation, and report any
-shortfall on the row that misses (plus the undetermined rows that state
-why they carry no gain at all).
+"""The bed is fitted per block to the decided separation, and a shortfall
+is reported on the row that misses. History (finding 25, the B4 run):
+docs/evidence/music_tests.md#bed-fits-each-block.
 """
 import sys
 from pathlib import Path

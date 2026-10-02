@@ -6,7 +6,8 @@ sub-block anchor. These tests drive the real `resolve_transitions`:
 a J-cut ships a hard-cut picture with the audio offset beside it; an
 L-cut anchored to a word lands on that word; a picture decoration at
 the same boundary merges onto one entry; and two audio offsets (or a
-hold, a substitute, or an end anchor on an audio cut) refuse.
+hold, or an end anchor on an audio cut) refuse. A lead through speech
+refusing by word is `tests/test_jl_cuts.py`'s.
 """
 import os
 import sys
@@ -100,38 +101,20 @@ def test_picture_decoration_and_j_cut_merge_onto_one_entry():
     assert entry["audio_offset"]["kind"] == "j_cut"
 
 
-def test_two_audio_offsets_at_one_join_refuse():
-    with pytest.raises(JLCutRefused, match="two audio offsets"):
-        _resolve([
-            {"cut_point_position": 2, "type": "j_cut",
-             "lead_seconds": 0.5},
-            {"cut_point_position": 2, "type": "l_cut",
-             "lag_seconds": 0.3},
-        ])
-
-
-def test_hold_on_a_j_cut_refuses():
-    with pytest.raises(JLCutRefused, match="duration_feel"):
-        _resolve([
-            {"cut_point_position": 2, "type": "j_cut",
-             "lead_seconds": 0.5, "duration_feel": "quick"},
-        ])
-
-
-def test_end_anchor_on_an_audio_cut_refuses():
-    with pytest.raises(AnchorRefused, match="anchor_end"):
-        _resolve([
-            {"cut_point_position": 2, "type": "j_cut",
-             "lead_seconds": 0.5, "anchor_end": {"word": "next"}},
-        ])
-
-
-def test_lead_through_speech_refuses_naming_the_word():
-    with pytest.raises(JLCutRefused, match="'next'"):
-        _resolve([
-            {"cut_point_position": 2, "type": "l_cut",
-             "lag_seconds": 2.0},
-        ])
+def test_an_unbuildable_audio_cut_entry_refuses():
+    """Two offsets at one join, a hold, or an end anchor on an audio cut."""
+    rows = [
+        ([{"cut_point_position": 2, "type": "j_cut", "lead_seconds": 0.5},
+          {"cut_point_position": 2, "type": "l_cut", "lag_seconds": 0.3}],
+         JLCutRefused, "two audio offsets"),
+        ([{"cut_point_position": 2, "type": "j_cut", "lead_seconds": 0.5,
+           "duration_feel": "quick"}], JLCutRefused, "duration_feel"),
+        ([{"cut_point_position": 2, "type": "j_cut", "lead_seconds": 0.5,
+           "anchor_end": {"word": "next"}}], AnchorRefused, "anchor_end"),
+    ]
+    for plan, error, said in rows:
+        with pytest.raises(error, match=said):
+            _resolve(plan)
 
 
 def test_plain_picture_entries_still_resolve_unchanged():

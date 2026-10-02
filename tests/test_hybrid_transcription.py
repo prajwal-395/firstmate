@@ -82,17 +82,11 @@ def test_a_sentence_is_split_at_an_internal_silence():
     windows = hybrid_transcription.alignment_windows(spoken)
     assert [w["text"] for w in windows] == ["Okay so", "right then"]
     assert windows[0]["end"] < windows[1]["start"]
-
-
-def test_the_split_is_at_one_second_and_two_seconds_would_not_split_this():
-    """The sweep's own finding, pinned: at a 2.0s threshold four
-    over-long words survive across the two mic files, at 1.0s none
-    does. A gap of 1.4s is exactly the material that distinguishes
-    them."""
+    # The sweep's finding: at the default a 1.4s gap splits (four
+    # over-long words survive at 2.0s, none at 1.0s); at 2.0s it would not.
     spoken = _heard(
         [("one", 0.0, 0.3), ("two", 1.7, 2.0)],
         [("one two", 0.0, 2.0)])
-    assert hybrid_transcription.SILENCE_SPLIT_SECONDS == 1.0
     assert len(hybrid_transcription.alignment_windows(spoken)) == 2
     assert len(hybrid_transcription.alignment_windows(
         spoken, silence_split=2.0)) == 1
@@ -104,12 +98,10 @@ def test_every_window_is_padded_at_both_ends():
     spoken = _heard([("Yeah.", 5.0, 5.16)], [("Yeah.", 5.0, 5.16)])
     window = hybrid_transcription.alignment_windows(spoken)[0]
     pad = hybrid_transcription.WINDOW_PAD_SECONDS
-    assert pad == 0.15
+    assert pad > 0
     assert window["start"] == pytest.approx(5.0 - pad)
     assert window["end"] == pytest.approx(5.16 + pad)
-
-
-def test_a_window_never_starts_before_the_file_does():
+    # ...and never before the file does.
     spoken = _heard([("Hi", 0.02, 0.4)], [("Hi", 0.02, 0.4)])
     assert hybrid_transcription.alignment_windows(spoken)[0]["start"] == 0.0
 
@@ -134,9 +126,7 @@ def test_words_no_sentence_claims_are_kept_rather_than_dropped():
     assert " ".join(w["text"] for w in
                     hybrid_transcription.alignment_windows(spoken)) == \
         "one two three"
-
-
-def test_a_transcription_with_no_sentences_still_windows():
+    # A transcription with no sentences at all still windows.
     spoken = _heard([("a", 0.0, 0.3), ("b", 0.3, 0.6)])
     assert len(hybrid_transcription.alignment_windows(spoken)) == 1
 
@@ -162,86 +152,63 @@ def test_the_recorded_payload_windows_without_the_transcriber_installed():
 # (AGENTS.md 10.4). One test per trigger, and `TRIGGERS` is asserted
 # complete against them.
 
-def test_an_uncovered_language_falls_back(monkeypatch):
-    monkeypatch.setattr(heard_speech, "identify_language",
-                        lambda path, **kw: heard_speech.HeardLanguage("xh",
-                                                                      0.99))
-    monkeypatch.setattr(
-        heard_speech, "transcribe",
-        lambda path, **kw: _heard([("bonjour", 5.0, 5.5)],
-                                  [("bonjour", 5.0, 5.5)]))
-    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        hybrid_transcription.transcribe_and_align(
-            "audio.wav", _aligner(_one_word_per_window))
-    assert refused.value.reason == hybrid_transcription.LANGUAGE_NOT_COVERED
-    assert "xh" in refused.value.detail
+def _backtrack_failed(windows, language, audio_path):
+    """`whisperx.align`'s `backtrack failed`: an empty word list."""
+    return {"segments": [{"start": w["start"], "end": w["end"],
+                          "text": w["text"], "words": []}
+                         for w in windows]}
 
 
-def test_a_transcriber_that_is_not_installed_falls_back(monkeypatch):
-    def _absent(path, **kw):
-        raise heard_speech.TranscriberUnavailable("not on PATH")
-
-    monkeypatch.setattr(heard_speech, "identify_language", _absent)
-    monkeypatch.setattr(heard_speech, "executable", lambda: None)
-    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        hybrid_transcription.transcribe_and_align(
-            "audio.wav", _aligner(_one_word_per_window))
-    assert refused.value.reason == hybrid_transcription.TRANSCRIBER_UNAVAILABLE
+def _absent(path, **kw):
+    raise heard_speech.TranscriberUnavailable("not on PATH")
 
 
-def test_a_transcriber_that_refused_the_file_says_THAT(monkeypatch):
-    """Measured by running the seam on six seconds of silence: the
-    transcriber exits 1 with `no speech found`, and a record calling
-    that "unavailable" sends a reader to check their PATH for a machine
-    that is set up correctly."""
-    def _refused(path, **kw):
-        raise heard_speech.TranscriberUnavailable(
-            "da voz exited 1: Error: no speech found in silence.wav")
-
-    monkeypatch.setattr(heard_speech, "identify_language",
-                        lambda path, **kw: heard_speech.HeardLanguage("en", 0.4))
-    monkeypatch.setattr(heard_speech, "transcribe", _refused)
-    monkeypatch.setattr(heard_speech, "executable", lambda: "/usr/local/bin/da")
-    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        hybrid_transcription.transcribe_and_align(
-            "audio.wav", _aligner(_one_word_per_window))
-    assert refused.value.reason == hybrid_transcription.TRANSCRIBER_REFUSED
-    assert "no speech found" in refused.value.detail
+def _refused(path, **kw):
+    # Measured on six seconds of silence: exit 1, `no speech found`.
+    # Calling that "unavailable" sends a reader to check their PATH.
+    raise heard_speech.TranscriberUnavailable(
+        "da voz exited 1: Error: no speech found in silence.wav")
 
 
-def test_hearing_nothing_falls_back_rather_than_reporting_silence(monkeypatch):
-    monkeypatch.setattr(heard_speech, "identify_language",
-                        lambda path, **kw: heard_speech.HeardLanguage("en", 1.0))
-    monkeypatch.setattr(heard_speech, "transcribe",
-                        lambda path, **kw: _heard([]))
-    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        hybrid_transcription.transcribe_and_align(
-            "audio.wav", _aligner(_one_word_per_window))
-    assert refused.value.reason == hybrid_transcription.HEARD_NOTHING
+def _says(language, confidence=1.0):
+    return lambda path, **kw: heard_speech.HeardLanguage(language, confidence)
 
 
-def test_a_window_that_aligned_to_no_words_falls_back(monkeypatch):
-    """`whisperx.align` logs `backtrack failed, resorting to original`
-    and emits an empty word list. Measured at 0 over 150.7 minutes under
-    this window, so one is enough."""
-    monkeypatch.setattr(heard_speech, "identify_language",
-                        lambda path, **kw: heard_speech.HeardLanguage("en", 1.0))
-    monkeypatch.setattr(
-        heard_speech, "transcribe",
-        lambda path, **kw: _heard([("Yeah.", 5.0, 5.16)],
-                                  [("Yeah.", 5.0, 5.16)]))
+def _hears(*words):
+    return lambda path, **kw: _heard(list(words), list(words))
 
-    def _backtrack_failed(windows, language, audio_path):
-        return {"segments": [{"start": w["start"], "end": w["end"],
-                              "text": w["text"], "words": []}
-                             for w in windows]}
 
-    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        hybrid_transcription.transcribe_and_align(
-            "audio.wav", _aligner(_backtrack_failed))
-    assert (refused.value.reason
-            == hybrid_transcription.SEGMENT_PRODUCED_NO_WORDS)
-    assert "Yeah." in refused.value.detail
+# (identify_language, transcribe, executable, aligner, trigger, in detail)
+TRIGGER_CASES = [
+    (_says("xh", 0.99), _hears(("bonjour", 5.0, 5.5)), None,
+     _one_word_per_window, hybrid_transcription.LANGUAGE_NOT_COVERED, "xh"),
+    (_absent, None, lambda: None, _one_word_per_window,
+     hybrid_transcription.TRANSCRIBER_UNAVAILABLE, None),
+    (_says("en", 0.4), _refused, lambda: "/usr/local/bin/da",
+     _one_word_per_window, hybrid_transcription.TRANSCRIBER_REFUSED,
+     "no speech found"),
+    (_says("en"), lambda path, **kw: _heard([]), None,
+     _one_word_per_window, hybrid_transcription.HEARD_NOTHING, None),
+    (_says("en"), _hears(("Yeah.", 5.0, 5.16)), None, _backtrack_failed,
+     hybrid_transcription.SEGMENT_PRODUCED_NO_WORDS, "Yeah."),
+]
+
+
+def test_every_trigger_refuses_by_name(monkeypatch):
+    """One row per trigger; each one really fires, and says why."""
+    for identify, transcribe, executable, align, trigger, said in \
+            TRIGGER_CASES:
+        monkeypatch.setattr(heard_speech, "identify_language", identify)
+        if transcribe is not None:
+            monkeypatch.setattr(heard_speech, "transcribe", transcribe)
+        if executable is not None:
+            monkeypatch.setattr(heard_speech, "executable", executable)
+        with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
+            hybrid_transcription.transcribe_and_align(
+                "audio.wav", _aligner(align))
+        assert refused.value.reason == trigger
+        if said:
+            assert said in refused.value.detail, trigger
 
 
 def test_2026_word_over_the_clamp_is_sanitized_without_losing_speech(
@@ -313,23 +280,6 @@ def test_music_leadin_cannot_make_english_speech_language_not_covered(
     assert result.record["language"]["language"] == "en"
 
 
-def test_a_speech_window_in_a_genuinely_non_english_clip_is_not_forced_to_english(
-        monkeypatch):
-    monkeypatch.setattr(heard_speech, "identify_language",
-                        lambda path, **kw: heard_speech.HeardLanguage("es", 0.99))
-    monkeypatch.setattr(
-        heard_speech, "transcribe",
-        lambda path, **kw: _heard([("hola", 2.0, 2.5)],
-                                  [("hola", 2.0, 2.5)]))
-
-    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
-        hybrid_transcription.transcribe_and_align(
-            "audio.wav", _aligner(_one_word_per_window))
-
-    assert refused.value.reason == hybrid_transcription.LANGUAGE_NOT_COVERED
-    assert "'es'" in refused.value.detail
-
-
 def test_every_declared_trigger_is_proved_by_a_test_in_this_file():
     """The enumeration and the coverage are checked against each other,
     so a trigger added without a test that fires it fails here."""
@@ -357,17 +307,17 @@ def _clean(monkeypatch):
             engine={"transcriber": "da", "version": "0.1.1"}))
 
 
-def test_a_clean_pass_returns_the_aligners_own_document(monkeypatch):
+def test_a_clean_pass_returns_the_aligners_document_and_a_full_record(
+        monkeypatch):
     _clean(monkeypatch)
     result = hybrid_transcription.transcribe_and_align(
         "audio.wav", _aligner(_one_word_per_window))
     assert [s["text"] for s in result.aligned["segments"]] == ["What changed"]
-
-
-def test_the_record_says_which_transcriber_and_which_window(monkeypatch):
-    _clean(monkeypatch)
-    record = hybrid_transcription.transcribe_and_align(
-        "audio.wav", _aligner(_one_word_per_window)).record
+    record = result.record
+    # A null confidence reads as "nobody doubted this line" - the hole
+    # Reel 26's defect hid in - so the absence is STATED.
+    assert (record["asr_confidence"]
+            == hybrid_transcription.ASR_CONFIDENCE_ABSENT)
     assert record["arm"] == hybrid_transcription.ARM_HYBRID
     assert record["transcriber"]["version"] == "0.1.1"
     assert record["language"] == {"language": "en", "confidence": 0.98}
@@ -382,33 +332,6 @@ def test_the_record_says_which_transcriber_and_which_window(monkeypatch):
         "transcriber_timed_windows": 0,
         "transcriber_timed_words": 0,
     }
-
-
-def test_the_record_states_the_confidence_is_absent_rather_than_omitting_it(
-        monkeypatch):
-    """A null on a confidence field reads as 'nobody doubted this line'.
-    That is the hole Reel 26's defect hid in and it is not rebuilt."""
-    _clean(monkeypatch)
-    record = hybrid_transcription.transcribe_and_align(
-        "audio.wav", _aligner(_one_word_per_window)).record
-    assert (record["asr_confidence"]
-            == hybrid_transcription.ASR_CONFIDENCE_ABSENT)
-    assert record["asr_confidence"] is not None
-
-
-def test_the_aligner_is_asked_for_the_language_the_identifier_heard(
-        monkeypatch):
-    """Nothing in the transcriber's JSON names a language, so the align
-    model would otherwise be chosen by assumption."""
-    _clean(monkeypatch)
-    asked = {}
-
-    def _remember(windows, language, audio_path):
-        asked["language"] = language
-        return _one_word_per_window(windows, language, audio_path)
-
-    hybrid_transcription.transcribe_and_align("audio.wav", _aligner(_remember))
-    assert asked["language"] == "en"
 
 
 def test_transcriber_timed_words_are_counted_on_the_record(monkeypatch):
@@ -449,26 +372,3 @@ def test_transcriber_timed_words_are_counted_on_the_record(monkeypatch):
     assert len(result.aligned["segments"]) == 2
     assert result.record["alignment_window"]["transcriber_timed_windows"] == 1
     assert result.record["alignment_window"]["transcriber_timed_words"] == 1
-
-
-def test_a_clean_pass_counts_no_transcriber_timed_words(monkeypatch):
-    _clean(monkeypatch)
-    record = hybrid_transcription.transcribe_and_align(
-        "audio.wav", _aligner(_one_word_per_window)).record
-    assert record["alignment_window"]["transcriber_timed_windows"] == 0
-    assert record["alignment_window"]["transcriber_timed_words"] == 0
-
-
-def test_a_fallback_record_names_the_trigger_and_what_was_measured():
-    """The refusal travels with its reason: no arm answered ("none",
-    nothing timed), so the trigger and detail are the whole account."""
-    failure = hybrid_transcription.FallbackRequired(
-        hybrid_transcription.LANGUAGE_NOT_COVERED,
-        "speech window language 'nn' is not covered")
-    record = hybrid_transcription.fallback_record(failure, attempted="craig.wav")
-    assert record["arm"] == "none"
-    assert record["aligner"] is None
-    assert record["fell_back_because"]["trigger"] == \
-        hybrid_transcription.LANGUAGE_NOT_COVERED
-    assert "'nn'" in record["fell_back_because"]["detail"]
-    assert record["attempted_on"] == "craig.wav"

@@ -36,7 +36,7 @@ is where that role is stated.  This module is the mechanism written down -
 the `MEASUREMENT_LEGEND` route, which defines what a key IS and never what
 to conclude (AGENTS.md 10.5).
 
-`tests/test_sfx_envelope.py`.
+`tests/test_sfx_layering_and_build.py`.
 
 
 Rules relocated from AGENTS.md 10.5
@@ -48,7 +48,7 @@ and points here.
 
 - **What a sound's measured ENVELOPE buys is written down, in ONE place.** `library/tools/sfx_envelope.py`. [why](docs/RULE_EVIDENCE.md#the-catalogue-column-nobody-said-was-read) The library profiles `punchy`/`swelling`/`fading`/`sustained` per sound and step 4.04's post-bridge KEYS ITS PLACEMENT on that word - **a `swelling` sound is anchored by its END so its climax lands on the moment, which is what a build IS and the engine already does it**. Nothing said so: the catalogue map printed an `envelope` column and never named a reader, and 001 shipped two 0.3-0.5s camera shutters, layering nothing, on a planner that judged the library *"built for a different kind of edit"*. `post_bridge._describe_placement` and the prompt's `sfx_envelope_legend` are rendered from the SAME table, so they cannot drift.
 - **What the library HOLDS is counted, not asserted.** `sfx_envelope.library_shape` measures per envelope on every run - on the captain's library 2026-09-03: 78 sounds, 42 `swelling`, 31 of those 2s or longer, longest 76s. A catalogue ordered by folder reads like its folder names. **It counts and recommends nothing**; whether a moment earns a sound is the sound editor's, and `craft_role` is where that role is stated (§3).
-- `tests/test_sfx_envelope.py`, `tests/test_sfx_layering_and_build.py`.
+- `tests/test_sfx_layering_and_build.py`.
 """
 
 from __future__ import annotations

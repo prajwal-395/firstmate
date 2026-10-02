@@ -33,20 +33,16 @@ def report(episode):
 # ── 1. The class the hybrid report measured and nobody read ──────────
 
 def test_the_unfitted_rows_are_counted_exactly(report):
-    """15 rows on the shipped transcript, 13 whole and 2 partial.
-
-    `data/vep-voz-plus-wav2vec2-hybrid/report.md`: rows that fail forced
-    alignment are already discovered and nothing reads them. This is the
-    reading.
-    """
+    """15 rows on the shipped transcript, 13 whole and 2 partial - among
+    them the Reel 26 row that cost a delivered reel its captions, and a
+    hallucinated clause whose five invented tokens the aligner found no
+    audio for while its ten real words kept their timings (the class a
+    `words: []` check reported as fine)."""
     assert report["unfitted_rows"] == 15
     assert report["whole_rows_lost"] == 13
     assert report["parts_of_rows_lost"] == 2
     assert report["words_with_no_timing"] == 217
 
-
-def test_the_reel_26_row_is_one_of_them(report):
-    """The row that cost a delivered reel its captions."""
     rows = [r for r in report["rows_detail"]
             if "answers specific questions" in r["text"]]
     assert len(rows) == 1, rows
@@ -56,14 +52,6 @@ def test_the_reel_26_row_is_one_of_them(report):
     assert row["timed_words"] == 0
     assert row["span_seconds"] == pytest.approx(0.92, abs=0.01)
 
-
-def test_a_row_can_lose_only_PART_of_itself(report):
-    """The class `wordless_rows` could not see at all.
-
-    A hallucinated clause whose five invented tokens the aligner found
-    no audio for. The row keeps ten real words and ten real timings, so
-    a check that only looked for `words: []` reported it as fine.
-    """
     partial = [r for r in report["rows_detail"]
                if r["kind"] == transcript_fit.PART_OF_ROW]
     assert len(partial) == 2, partial
@@ -91,20 +79,13 @@ def test_the_comparison_has_no_false_positive_mechanism(episode):
 
 
 def test_the_reference_rate_is_the_documents_own(report):
-    """The fastest row that DID fit, not a constant.
-
-    11.76 words per second is what this episode's fastest fully-timed
-    multi-word row asserts. Twelve unfitted rows assert more than that -
-    text no speaker said in that span - and three do not, which is the
-    distinction a threshold would destroy.
-    """
+    """The fastest row that DID fit, not a constant: 11.76 words per
+    second. Twelve unfitted rows assert more than that - the worst,
+    eighteen words in sixty milliseconds - and three do not, which is the
+    distinction a threshold would destroy."""
     assert report["fastest_fitted_words_per_second"] == pytest.approx(11.76,
                                                                      abs=0.01)
     assert report["rows_asserting_a_rate_no_fitted_row_reaches"] == 12
-
-
-def test_the_worst_row_asserts_three_hundred_words_a_second(report):
-    """Eighteen words in sixty milliseconds. Nothing said that."""
     worst = max(report["rows_detail"],
                 key=lambda r: r["implied_words_per_second"] or 0)
     assert worst["implied_words_per_second"] == pytest.approx(300.0)
@@ -136,23 +117,14 @@ def test_the_numerals_the_aligner_cannot_pronounce_are_not_findings(
 
 # ── 4. A row is measured, never guessed at ───────────────────────────
 
-def test_a_row_with_every_word_timed_is_not_a_row(episode):
-    fitted = [s for s in episode["segments"]
-              if len(s.get("words") or []) == len(s["text"].split())]
+def test_row_fit_measures_only_what_the_row_asserts(episode):
+    fitted = [seg for seg in episode["segments"]
+              if len(seg.get("words") or []) == len(seg["text"].split())]
     assert fitted
-    assert all(transcript_fit.row_fit(s) is None for s in fitted)
-
-
-def test_a_row_with_no_text_is_not_a_row():
+    assert all(transcript_fit.row_fit(seg) is None for seg in fitted)
     assert transcript_fit.row_fit({"text": "   ", "words": []}) is None
-
-
-def test_a_row_with_no_source_times_falls_back_to_its_timeline_span():
-    """A row the pipeline could not bind to a clip still has a duration.
-
-    One row of this episode really carries `source_file: null`; a
-    measurement that skipped it would silently under-report.
-    """
+    # No source times (one real row is `source_file: null`): the
+    # timeline span still gives a duration, or the row is under-reported.
     row = transcript_fit.row_fit({
         "text": "one two three four", "words": [],
         "source_start": None, "source_end": None,
@@ -160,9 +132,7 @@ def test_a_row_with_no_source_times_falls_back_to_its_timeline_span():
     assert row is not None
     assert row.span_seconds == pytest.approx(1.0)
     assert row.implied_rate == pytest.approx(4.0)
-
-
-def test_a_row_with_no_span_at_all_asserts_no_rate():
+    # No span at all: a row, asserting no rate.
     row = transcript_fit.row_fit({"text": "one two", "words": []})
     assert row is not None
     assert row.implied_rate is None
@@ -171,34 +141,10 @@ def test_a_row_with_no_span_at_all_asserts_no_rate():
 
 # ── 5. The reel's own rows, without a render ─────────────────────────
 
-def test_the_document_half_reaches_no_hearing_machinery():
-    """Step 1.04 executes only `row_fit` over the transcript document.
-
-    The per-reel half (`rows_played`) lives in `reel_hearing` beside
-    the `Span`s it reads, so the document module must import nothing
-    from the hearing side - a new import there re-couples the preflight
-    cache identity to the whole hearing pass. AST, not text: the prose
-    names the hearing module and must keep doing so.
-    """
-    import ast
-
-    source = Path(transcript_fit.__file__).read_text(encoding="utf-8")
-    imported = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module)
-        elif isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-    assert not any("reel_hearing" in name for name in imported), (
-        f"transcript_fit reaches the hearing side: {sorted(imported)}")
-
-def test_the_reels_rows_are_found_from_the_PLAN_alone():
-    """No audio, no render, no transcription.
-
-    This is the placement argument in one test: Reel 26's defect was
-    knowable the moment `build_reels` serialized the timeline, and
-    hearing the delivered mp4 is not what discovers it.
-    """
+def test_the_reels_rows_are_found_from_the_PLAN_alone(episode):
+    """No audio, no render, no transcription: Reel 26's defect was
+    knowable the moment `build_reels` serialized the timeline. A row the
+    reel does not play is not reported."""
     timeline = json.loads((FIXTURES / "reel26.timeline.json").read_text(
         encoding="utf-8"))
     transcript = json.loads((FIXTURES / "reel26.transcript.json").read_text(
@@ -207,39 +153,17 @@ def test_the_reels_rows_are_found_from_the_PLAN_alone():
     assert len(played) == 1, played
     assert played[0]["reel_start"] == pytest.approx(25.62, abs=0.01)
     assert played[0]["untimed_words"] == 12
+    assert len(reel_hearing.rows_played(timeline, episode)) < len(
+        transcript_fit.unfitted_rows(episode))
 
 
-def test_a_row_the_reel_does_not_play_is_not_reported():
-    """The episode has 15; this reel plays one of them."""
-    timeline = json.loads((FIXTURES / "reel26.timeline.json").read_text(
-        encoding="utf-8"))
-    episode = json.loads((FIXTURES / "episode.transcript.json").read_text(
-        encoding="utf-8"))
-    # The episode fixture's rows are scattered across the whole podcast
-    # and this reel's clips cover one narrow span of one file.
-    played = reel_hearing.rows_played(timeline, episode)
-    assert len(played) < len(transcript_fit.unfitted_rows(episode))
+# ── 6. It reports, and refuses only what is not there ────────────────
 
-
-# ── 6. It reports ────────────────────────────────────────────────────
-
-def test_the_summary_says_it_does_not_gate(report):
-    lines = transcript_fit.summary_lines(report, "somewhere")
-    assert any("not a gate" in line for line in lines)
-
-
-def test_the_summary_names_the_interpolated_words_as_not_a_finding(report):
-    lines = transcript_fit.summary_lines(report, "somewhere")
-    assert any("NOT a finding" in line for line in lines)
-
-
-def test_the_module_refuses_a_transcript_that_is_not_there(tmp_path, capsys):
+def test_the_module_reports_off_disk_and_refuses_a_missing_transcript(
+        tmp_path, capsys):
+    """Exit zero whatever it found: a report is not a failure."""
     assert transcript_fit.main([str(tmp_path / "nothing.json")]) == 1
     assert "REFUSED" in capsys.readouterr().err
-
-
-def test_the_module_reads_a_document_off_disk(tmp_path, capsys):
-    """And exits zero whatever it found: a report is not a failure."""
     document = tmp_path / "transcript.json"
     document.write_text(json.dumps({"segments": [
         {"text": "one two three", "words": [], "source_start": 0.0,

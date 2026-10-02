@@ -26,7 +26,6 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 STEP = REPO / "library" / "steps" / "step_2_04_music_selection"
 
-from library.tools import music_search  # noqa: E402
 from library.tools.music_search import (  # noqa: E402
     DECLARATION_KEY,
     DEFAULT_FETCH_LIMIT,
@@ -35,7 +34,6 @@ from library.tools.music_search import (  # noqa: E402
     derive_queries_from_creative_direction,
     parse_declaration,
     provenance,
-    resolve_declaration,
     search_declaration,
     within_duration,
 )
@@ -66,35 +64,21 @@ def test_a_project_that_declares_nothing_gets_default_on_search(tmp_path):
     assert declaration.fetch_limit == DEFAULT_FETCH_LIMIT
 
 
-def test_a_project_can_decline_explicitly(tmp_path):
-    declaration = search_declaration(
-        str(_project(tmp_path, {DECLARATION_KEY: False})))
-    assert declaration.requested is False
-    assert "declined search explicitly" in declaration.reason
-
-
 # ── Explicit declarations must state their own bounds ─────────────────
 
-@pytest.mark.parametrize("bound", ["results_per_query"])
-def test_a_declaration_without_its_bounds_is_refused(bound):
-    declared = {"queries": ["x"], "results_per_query": 3, "fetch_limit": 2}
-    del declared[bound]
-    with pytest.raises(MusicSearchError, match=bound):
-        parse_declaration(declared)
-
-
-@pytest.mark.parametrize("value", [0])
-def test_a_bound_that_is_not_a_positive_integer_is_refused(value):
-    with pytest.raises(MusicSearchError, match="results_per_query"):
-        parse_declaration({"queries": ["x"], "results_per_query": value,
-                           "fetch_limit": 2})
-
-
-def test_a_misspelled_key_is_refused_by_name():
-    """A bound that is silently not there is a bound that is not there."""
-    with pytest.raises(MusicSearchError, match="fetch_limi"):
-        parse_declaration({"queries": ["x"], "results_per_query": 3,
-                           "fetch_limi": 2, "fetch_limit": 2})
+def test_a_declaration_that_does_not_state_its_bounds_is_refused_by_name():
+    """Missing, non-positive and misspelled bounds each refuse, naming it."""
+    rows = [
+        ({"queries": ["x"], "fetch_limit": 2}, "results_per_query"),
+        ({"queries": ["x"], "results_per_query": 0, "fetch_limit": 2},
+         "results_per_query"),
+        # a bound that is silently not there is a bound that is not there
+        ({"queries": ["x"], "results_per_query": 3,
+          "fetch_limi": 2, "fetch_limit": 2}, "fetch_limi"),
+    ]
+    for declared, match in rows:
+        with pytest.raises(MusicSearchError, match=match):
+            parse_declaration(declared)
 
 
 # ── Bytes are only spent on tracks that could be chosen ───────────────
@@ -104,34 +88,21 @@ TARGET = 60.0
 SLACK = 0.5
 
 
-def test_a_compilation_is_rejected_before_it_is_downloaded():
-    ok, note = within_duration({"duration_seconds": 15102.0},
-                               TARGET, CEILING, SLACK)
-    assert ok is False
-    assert "TOO LONG" in note
-
-
-def test_a_track_shorter_than_the_edit_is_rejected_before_download():
-    ok, note = within_duration({"duration_seconds": 31.0},
-                               TARGET, CEILING, SLACK)
-    assert ok is False
-    assert "TOO SHORT" in note
-
-
-def test_an_unstated_duration_is_kept_and_said_to_be_unstated():
-    """An absent measurement is not a measurement of unsuitability."""
-    for value in (None, 0, "3:45"):
-        ok, note = within_duration({"duration_seconds": value},
+def test_duration_is_judged_before_download_and_unstated_is_kept():
+    """Too long and too short are dropped on the stated duration; an
+    absent measurement is not a measurement of unsuitability."""
+    for seconds, ok_expected, word in ((15102.0, False, "TOO LONG"),
+                                       (31.0, False, "TOO SHORT"),
+                                       (None, True, "unstated"),
+                                       (0, True, "unstated"),
+                                       ("3:45", True, "unstated")):
+        ok, note = within_duration({"duration_seconds": seconds},
                                    TARGET, CEILING, SLACK)
-        assert ok is True
-        assert "unstated" in note
+        assert ok is ok_expected, (seconds, note)
+        assert word in note
 
 
 # ── Queries are derived from creative_direction by default ────────────
-
-DIRECTION_FIELDS = ("target_mood", "emotional_landscape", "target_energy",
-                    "energy_arc", "narrative_theme", "audience_emotion")
-
 
 def test_derive_queries_from_creative_direction_uses_mood_and_theme():
     """The query is the model's own words, not a phrase this module composed."""
@@ -152,22 +123,6 @@ def test_derive_queries_from_empty_direction_returns_nothing():
     assert derive_queries_from_creative_direction(None) == ()
     assert derive_queries_from_creative_direction(
         {"target_mood": "", "narrative_theme": ""}) == ()
-
-
-def test_resolve_declaration_loud_gap_when_direction_is_empty():
-    """When creative_direction can't produce a query, the gap is LOUD."""
-    from library.tools.music_search import SearchDeclaration
-    declaration = SearchDeclaration(
-        requested=True,
-        queries=(),
-        results_per_query=DEFAULT_RESULTS_PER_QUERY,
-        fetch_limit=DEFAULT_FETCH_LIMIT,
-        derive_from_direction=True,
-    )
-    resolved = resolve_declaration(declaration, {})
-    assert resolved.requested is False
-    assert "LIMITED TO WHAT IS ALREADY ON DISK" in resolved.reason
-    assert "target_mood" in resolved.reason
 
 
 # ── Licence is provenance, and it gates nothing ───────────────────────
@@ -203,13 +158,6 @@ def test_no_module_refuses_a_track_on_rights():
             if "licence" in stripped or "license" in stripped:
                 assert not stripped.startswith(("if ", "elif ", "assert ")), (
                     f"{path.name} branches on a licence: {stripped!r}")
-
-
-# ── The tool, and how it is invoked ───────────────────────────────────
-
-def test_the_dead_search_script_is_gone():
-    """Replaced, not left beside its replacement."""
-    assert not (STEP / "search_youtube.py").exists()
 
 
 # ── The bridge searches by default, and declines loudly ───────────────

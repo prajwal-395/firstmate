@@ -1,21 +1,10 @@
 """Prosody that measured nothing must not report success.
 
-`praat-parselmouth` is step 1.05's only measuring instrument and its
-manifest has listed it as a precondition since the step was written -
-while `requirements.txt` never carried it. On project 001 the step
-reported SUCCESS in 0.1 seconds having written seventeen files that each
-said `{"prosody": {"method": null, "error": "parselmouth not
-installed"}}`, and 4.2 KB of those identical error records were
-serialised into the creative-direction prompt as if they were
-measurements.
-
-Two halves, and the second is the worse one:
-
-1. the dependency is declared in `requirements.txt` now;
-2. a step that cannot do its job reports `available: false`, which
-   `run_pipeline.check_output_is_real` reads as a failed step - and it
-   writes no profile file, because a profile file IS the cache, so an
-   error record on disk made the failure permanent as well as silent.
+The dependency is declared, a step that cannot measure reports
+`available: false` (which `run_pipeline.check_output_is_real` reads as a
+failed step), and an error record on disk is never carried forward as a
+measurement or as cache. Incident (project 001's seventeen hollow
+records): docs/evidence/prosody.md.
 """
 import json
 import os
@@ -56,30 +45,22 @@ def test_requirements_carries_parselmouth():
 
 # ── What counts as a profile ──────────────────────────────────────────
 
-class TestProfileDefect:
-    GOOD = {
-        "clip_id": "clip_001",
-        "prosody": {
-            "method": "parselmouth-praat",
-            "pitch_stats": {"mean_f0_hz": 120.0},
-            "intensity_contour_50ms": [{"time": 0.0, "db": 60.0}],
-        },
-    }
-
-
-    def test_the_shipped_001_record_is_rejected(self):
-        """The literal seventeen records from project 001."""
-        defect = profile_defect(
-            {"clip_id": "clip_001",
-             "prosody": {"method": None,
-                         "error": "parselmouth not installed"}})
-        assert "parselmouth not installed" in defect
-
-
-    def test_a_profile_that_measured_nothing_is_rejected(self):
-        assert profile_defect(
-            {"prosody": {"method": "parselmouth-praat", "pitch_stats": {},
-                         "intensity_contour_50ms": []}})
+def test_a_profile_that_measured_nothing_is_rejected():
+    """The literal record project 001 shipped, and a profile whose
+    measurements are all empty, are both defects."""
+    shipped = profile_defect(
+        {"clip_id": "clip_001",
+         "prosody": {"method": None, "error": "parselmouth not installed"}})
+    assert "parselmouth not installed" in shipped
+    assert profile_defect(
+        {"prosody": {"method": "parselmouth-praat", "pitch_stats": {},
+                     "intensity_contour_50ms": []}})
+    assert profile_defect(
+        {"clip_id": "clip_001",
+         "prosody": {"method": "parselmouth-praat",
+                     "pitch_stats": {"mean_f0_hz": 120.0},
+                     "intensity_contour_50ms": [{"time": 0.0, "db": 60.0}]}}
+    ) == ""
 
 
 # ── The analyser raises rather than writing an error record ───────────
@@ -138,16 +119,8 @@ def _run_step(tmp_path: Path, project: Path = None):
 
 
 def _seed_stale_record(project: Path) -> Path:
-    """Write the literal record project 001 shipped, where the step READS.
-
-    The area is named, not composed. This test used to hand-write
-    `pipeline_output/prosody` while the step resolves
-    `Area.PROSODY` to `pipeline_output/steps/1_05_prosody_analysis`, so
-    the step reported `0 cached, 1 to analyze` and never opened the record
-    at all - the assertion below was passing on the missing dependency and
-    not on the stale record. A test composes a project path no more freely
-    than a step does; see AGENTS.md 8.
-    """
+    """Write the literal record project 001 shipped, where the step READS
+    (`Area.PROSODY`, never a hand-composed path - AGENTS.md 8)."""
     from library.tools.project_layout import Area, ProjectLayout
 
     prosody_dir = ProjectLayout(project).write_dir(
@@ -170,82 +143,33 @@ def _cached_count(stderr: str) -> int:
 
 @pytest.mark.skipif(parselmouth_installed,
                     reason="this is the missing-dependency failure mode")
-def test_the_step_does_not_report_success_with_nothing_measured(tmp_path):
-    _proc, out = _run_step(tmp_path)
+def test_a_step_that_measured_nothing_fails_the_run(tmp_path):
+    """`available: false` is the loudness: the reason reaches the
+    operator, and check_output_is_real stops the run rather than carrying
+    an error record into the next prompt."""
+    import importlib.util
+    proc, out = _run_step(tmp_path)
     assert out["available"] is False
     assert out["profiles"] == {}
-    assert "parselmouth" in out["error"], (
-        f"the reason must reach the operator, not a generic note: "
-        f"{out['error']}")
+    assert "parselmouth" in out["error"], out["error"]
     assert out["unmeasured_clips"] == ["clip_001"]
 
-
-@pytest.mark.skipif(parselmouth_installed,
-                    reason="this is the missing-dependency failure mode")
-def test_the_runner_treats_it_as_a_failed_step(tmp_path):
-    """`available: false` is the loudness: check_output_is_real stops the
-    run rather than carrying an error record into the next prompt."""
-    import importlib.util
     spec = importlib.util.spec_from_file_location(
         "_run_pipeline_prosody_test",
         REPO / "library" / "processes" / "edit_video" / "run_pipeline.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-
-    proc, _out = _run_step(tmp_path)
     problems = module.check_output_is_real(
         "prosody_analysis", json.loads(proc.stdout))
     assert problems, "the run would have continued over a dead signal"
     assert "available=false" in problems[0]
 
 
-def test_a_stale_error_record_on_disk_is_rejected(tmp_path):
-    """A profile left by an earlier broken run must not read as data.
-
-    This runs whether or not parselmouth is installed, so it asserts the
-    thing that is true either way: the record is never carried forward as
-    a measurement. It used to assert `available is False`, which is not
-    that - it is a statement about the ENVIRONMENT. With the dependency
-    absent the step reports `available: false` for its own reasons, and
-    with it present the clip is re-analysed and correctly reports
-    `available: true`, so the assertion broke the moment somebody
-    installed parselmouth (2026-08-28) despite nothing changing about the
-    stale record or the step's treatment of it.
-    """
-    project = tmp_path / "project"
-    project.mkdir()
-    _seed_stale_record(project)
-
-    _proc, out = _run_step(tmp_path, project=project)
-
-    profiles = out.get("profiles") or {}
-    for clip_id, profile in profiles.items():
-        assert profile_defect(profile) == "", (
-            f"{clip_id} was reported as a profile while measuring nothing: "
-            f"{profile_defect(profile)}")
-    assert "parselmouth not installed" not in json.dumps(profiles), (
-        "the stale record reached the output as a measurement")
-
-    measured = "clip_001" in profiles
-    unmeasured = "clip_001" in (out.get("unmeasured_clips") or [])
-    assert measured != unmeasured, (
-        f"clip_001 must be reported as measured or as unmeasured, exactly "
-        f"one: profiles={list(profiles)} unmeasured={out.get('unmeasured_clips')}")
-    assert out["available"] is measured, (
-        f"available={out['available']} disagrees with what was measured")
-
-
-def test_a_stale_error_record_does_not_block_re_analysis(tmp_path):
-    """The other half of "a profile file IS the cache".
-
-    The record was rejected at collection - correctly - and then its mere
-    existence counted as "already analysed", so it permanently prevented
-    the measurement that would have replaced it. One run made without
-    parselmouth poisoned every later run that had it. Measured 2026-08-28
-    on a working parselmouth: `1 cached, 0 to analyze`, `available:
-    false`. The cache check now runs the same `profile_defect` the
-    collection half does.
-    """
+def test_a_stale_error_record_is_neither_data_nor_cache(tmp_path):
+    """A profile left by an earlier broken run must not read as data,
+    and its mere existence must not count as "already analysed" (one run
+    without parselmouth once poisoned every later run that had it).
+    Asserts what is true with or without the dependency installed."""
     project = tmp_path / "project"
     project.mkdir()
     stale = _seed_stale_record(project)
@@ -255,17 +179,19 @@ def test_a_stale_error_record_does_not_block_re_analysis(tmp_path):
     assert _cached_count(proc.stderr) == 0, (
         f"a profile that measured nothing was reused as cached data: "
         f"{proc.stderr[-400:]}")
-
+    profiles = out.get("profiles") or {}
+    for clip_id, profile in profiles.items():
+        assert profile_defect(profile) == "", clip_id
+    assert "parselmouth not installed" not in json.dumps(profiles), (
+        "the stale record reached the output as a measurement")
+    measured = "clip_001" in profiles
+    unmeasured = "clip_001" in (out.get("unmeasured_clips") or [])
+    assert measured != unmeasured
+    assert out["available"] is measured
+    assert measured is parselmouth_installed
     if parselmouth_installed:
-        assert out["available"] is True, (
-            f"the dependency is installed and the clip was re-analysed, so "
-            f"it must measure: {out.get('error')}")
-        assert profile_defect(out["profiles"]["clip_001"]) == ""
         assert "parselmouth not installed" not in stale.read_text(
             encoding="utf-8"), "the stale record was not replaced on disk"
-    else:
-        assert out["available"] is False
-        assert out["unmeasured_clips"] == ["clip_001"]
 
 
 # ── Container files that Praat cannot read ────────────────────────────

@@ -1,20 +1,10 @@
 """Transcript duration anomalies warn before captions are planned.
 
-Reel 12 (field test, 2026-09-19) is the specimen: the large-v3 arm
-dropped "pull from there" and stuttered "probably" into two in a single
-46-word row, MFA stretched "hallucinate" across the gap to 1.55s, and
-the coverage gate reported CLEAN - every leg reads the transcript. The
-two duration outliers in that row WERE the two captain complaints
-("hallucinate" 1.55s the row maximum, "probably" 0.72s the runner-up,
-against a next-longest content word of 0.58s), so the row's own words
-scored against its own local rate must warn, while an ordinary row
-carrying a naturally long word must stay silent. The second test is
-what proves the threshold discriminates rather than fires on
-everything: the same absolute seconds warn in fast speech and pass in
-slow speech, because the threshold is derived per row, never constant.
-
+A row's own words are scored against its own local rate, so Reel 12's
+stretched "hallucinate"/"probably" warn while an ordinary row's naturally
+long word stays silent: the threshold is derived per row, never constant.
 `library/tools/transcript_duration_anomaly.py`, wired into
-`generate_subtitles` in `library/steps/step_4_01_plan_subtitles/step.py`.
+`generate_subtitles`. History: docs/evidence/transcription.md.
 """
 
 from __future__ import annotations
@@ -70,88 +60,65 @@ R12_TOKENS = [
 ]
 
 
-class TestAnomalousRowWarns:
-    def test_r12_row_flags_both_complaints(self):
-        assert len(R12_TOKENS) == 46
-        report = flag_duration_anomalies([_row(R12_TOKENS)])
-        assert report["rows_checked"] == 1
-        flagged = {w["word"] for w in report["warnings"]}
-        assert "hallucinate" in flagged
-        assert "probably" in flagged
+def test_the_r12_row_flags_both_complaints_against_its_local_rate():
+    assert len(R12_TOKENS) == 46
+    report = flag_duration_anomalies([_row(R12_TOKENS)])
+    assert report["rows_checked"] == 1
+    flagged = [(w["word"], w["duration_seconds"]) for w in report["warnings"]]
+    assert {word for word, _ in flagged} >= {"hallucinate", "probably"}
+    # The 0.58s content word is long but local: not an outlier.
+    assert not [w for w in flagged if w[0] == "however,"]
+    # The squeezed 0.16s duplicate is short: one-sided, never flags.
+    assert ("probably", 0.16) not in flagged
 
-    def test_genuine_long_word_and_stutter_duplicate_stay_silent(self):
-        report = flag_duration_anomalies([_row(R12_TOKENS)])
-        flagged = [(w["word"], w["duration_seconds"])
-                   for w in report["warnings"]]
-        # The 0.58s content word is long but local: not an outlier.
-        assert not [w for w in flagged if w[0] == "however,"]
-        # The squeezed 0.16s duplicate is short: one-sided, never flags.
-        assert not [w for w in flagged
-                    if w == ("probably", 0.16)]
-
-    def test_warning_names_the_local_rate(self):
-        report = flag_duration_anomalies([_row(R12_TOKENS)])
-        hallucinate = next(w for w in report["warnings"]
-                           if w["word"] == "hallucinate")
-        assert hallucinate["duration_seconds"] == 1.55
-        assert hallucinate["speaker"] == "Akshita"
-        assert hallucinate["position"] == 8
-        # Derived from this row, not a constant: the row median, far
-        # below either flagged duration.
-        assert hallucinate["local_median_seconds"] == pytest.approx(
-            0.27, abs=0.05)
-        assert hallucinate["local_median_seconds"] < 0.72
-        assert hallucinate["modified_z"] > 3.5
+    hallucinate = next(w for w in report["warnings"]
+                       if w["word"] == "hallucinate")
+    assert hallucinate["duration_seconds"] == 1.55
+    assert hallucinate["speaker"] == "Akshita"
+    assert hallucinate["position"] == 8
+    # Derived from this row, not a constant: the row median, far below
+    # either flagged duration.
+    assert hallucinate["local_median_seconds"] == pytest.approx(
+        0.27, abs=0.05)
+    assert hallucinate["local_median_seconds"] < 0.72
+    assert hallucinate["modified_z"] > 3.5
 
 
-class TestOrdinaryRowStaysSilent:
-    def test_naturally_long_word_in_slow_speech_does_not_warn(self):
-        # A slow speaker: the same ~0.7s absolute duration the R12 row
-        # flags is unremarkable here, because the row's own median is
-        # ~0.45s. This is what "derived from the local rate" buys that
-        # a seconds constant cannot: one number cannot pass this row
-        # and flag that one.
-        tokens = [
-            ("well", 0.38), ("yesterday", 0.68), ("we", 0.30),
-            ("talked", 0.52), ("about", 0.40), ("the", 0.32),
-            ("whole", 0.48), ("afternoon", 0.62), ("and", 0.34),
-            ("it", 0.30), ("was", 0.36), ("really", 0.50),
-            ("quite", 0.42), ("something", 0.58), ("else", 0.44),
-            ("entirely", 0.60), ("though", 0.46), ("indeed", 0.55),
-        ]
+SLOW_ROW = [
+    ("well", 0.38), ("yesterday", 0.68), ("we", 0.30),
+    ("talked", 0.52), ("about", 0.40), ("the", 0.32),
+    ("whole", 0.48), ("afternoon", 0.62), ("and", 0.34),
+    ("it", 0.30), ("was", 0.36), ("really", 0.50),
+    ("quite", 0.42), ("something", 0.58), ("else", 0.44),
+    ("entirely", 0.60), ("though", 0.46), ("indeed", 0.55),
+]
+HEALTHY_FAST_ROW = [(f"w{i}", 0.18 + (i % 7) * 0.03) for i in range(20)]
+
+
+def test_ordinary_rows_stay_silent():
+    """A slow speaker's ~0.7s word is unremarkable at a ~0.45s median -
+    the same seconds the R12 row flags. One number cannot pass this row
+    and flag that one."""
+    for tokens in (SLOW_ROW, HEALTHY_FAST_ROW):
         report = flag_duration_anomalies([_row(tokens, position=3,
-                                              speaker="Craig")])
+                                               speaker="Craig")])
         assert report["rows_checked"] == 1
         assert report["warnings"] == []
 
-    def test_healthy_fast_row_stays_silent(self):
-        tokens = [(f"w{i}", 0.18 + (i % 7) * 0.03) for i in range(20)]
-        report = flag_duration_anomalies([_row(tokens)])
-        assert report["warnings"] == []
 
-
-class TestDegenerateRows:
-    def test_short_row_is_skipped_never_warned(self):
-        report = flag_duration_anomalies([_row([("hi", 0.2),
-                                               ("there", 5.0)])])
+def test_degenerate_rows_are_skipped_never_warned():
+    """Too short, nothing timed but punctuation, or zero spread."""
+    for row in (
+            _row([("hi", 0.2), ("there", 5.0)]),
+            {"position": 1, "words": [
+                {"word": "hi", "start": 1.0, "end": 1.2},
+                {"word": "...", "start": 1.2, "end": 2.2},
+                {"word": "there"}]},
+            _row([(f"w{i}", 0.25) for i in range(10)])):
+        report = flag_duration_anomalies([row])
         assert report["warnings"] == []
         assert report["rows_skipped"] == 1
         assert report["rows_checked"] == 0
-
-    def test_untimed_and_punctuation_words_do_not_count(self):
-        words = [{"word": "hi", "start": 1.0, "end": 1.2},
-                 {"word": "...", "start": 1.2, "end": 2.2},
-                 {"word": "there"}]
-        report = flag_duration_anomalies([{"position": 1,
-                                           "words": words}])
-        assert report["warnings"] == []
-        assert report["rows_skipped"] == 1
-
-    def test_zero_spread_row_is_skipped(self):
-        tokens = [(f"w{i}", 0.25) for i in range(10)]
-        report = flag_duration_anomalies([_row(tokens)])
-        assert report["warnings"] == []
-        assert report["rows_skipped"] == 1
 
 
 # ── planned through generate_subtitles, the load-bearing wiring ──
@@ -179,17 +146,13 @@ def _spine(tokens, position=8):
     }]}
 
 
-class TestPlanStepWiring:
-    def test_anomalous_block_says_so_on_the_run(self, capsys):
-        generate_subtitles(_spine(R12_TOKENS),
-                           caption_case="lowercase")
-        err = capsys.readouterr().err
-        assert "hallucinate" in err
-        assert "probably" in err
+def test_generate_subtitles_says_so_on_the_run_and_only_then(capsys):
+    generate_subtitles(_spine(R12_TOKENS), caption_case="lowercase")
+    err = capsys.readouterr().err
+    assert "hallucinate" in err
+    assert "probably" in err
 
-    def test_ordinary_block_plans_quietly(self, capsys):
-        tokens = [(f"w{i}", 0.18 + (i % 7) * 0.03) for i in range(20)]
-        generate_subtitles(_spine(tokens), caption_case="lowercase")
-        err = capsys.readouterr().err
-        assert "duration-anomaly" not in err
-        assert "aligner stretch" not in err
+    generate_subtitles(_spine(HEALTHY_FAST_ROW), caption_case="lowercase")
+    err = capsys.readouterr().err
+    assert "duration-anomaly" not in err
+    assert "aligner stretch" not in err

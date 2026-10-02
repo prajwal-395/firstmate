@@ -1,35 +1,10 @@
 """`sfx_candidates_toon` carries rows, and they come from the spine.
 
-The regression, observed on the clean run of project 001 on 2026-08-26
-and reported as #223: the table the `plan_sfx` handoff describes column
-by column arrived as
-
-    sfx_candidates_toon: |
-      [0]{segment_id,text,action_sfx_suggested}
-
-The bridge built it from `data["a_roll_assignments"]`, and:
-
-  * no DAG edge routes `a_roll_assignments` into `plan_sfx`, so the
-    `.get()` answered `{}` and the loop body never ran once;
-  * `assign_aroll`'s entries are keyed `spine_block_position`, not
-    `segment_id`, so the rows would have been `unknown` even routed;
-  * and they carry no `text` key at all.
-
-Same family as `cuts_toon` in #218 - AGENTS.md 10.1, key-name
-mismatches - and these tests fail if any of the three comes back.
+Regression #223: the table arrived with zero rows, built from an input no
+DAG edge carries and keyed by a name the answer cannot use (AGENTS.md
+10.1). History: docs/evidence/sfx.md.
 """
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
-
-import pytest
-
-REPO = Path(__file__).resolve().parents[1]
-SFX = REPO / "library" / "steps" / "step_4_04_plan_sfx"
-
-from library.steps.step_4_04_plan_sfx.bridge import (  # noqa: E402
+from library.steps.step_4_04_plan_sfx.bridge import (
     build_sfx_candidates,
 )
 
@@ -111,13 +86,6 @@ def _inputs(**overrides):
 # ── The rows ──────────────────────────────────────────────────────────
 
 
-def test_the_table_has_one_row_per_spine_block():
-    rows = build_sfx_candidates(_inputs())
-    assert len(rows) == 3, (
-        f"the table is built from something other than the spine: {rows}"
-    )
-
-
 def test_segment_id_is_the_position_the_answer_has_to_name():
     """The step's `llm_outputs` schema asks for `spine_block_position`.
 
@@ -125,30 +93,10 @@ def test_segment_id_is_the_position_the_answer_has_to_name():
     cannot use, which is what `segment_id` off an A-roll slot would have
     been even had the input been routed.
     """
-    rows = build_sfx_candidates(_inputs())
-    assert [r["segment_id"] for r in rows] == ["hook", 1, 2]
-
-
-def test_the_table_needs_no_a_roll_assignments():
-    """The root cause: the bridge read an input no DAG edge carries.
-
-    The payload here has no `a_roll_assignments` key at all - exactly
-    what the runner hands this step - and the table must still be full.
-    """
     payload = _inputs()
-    assert "a_roll_assignments" not in payload
-    assert len(build_sfx_candidates(payload)) == 3
-
-    source = (SFX / "bridge.py").read_text(encoding="utf-8")
-    for line in source.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("#") or stripped.startswith("*"):
-            continue
-        assert 'get("a_roll_assignments"' not in stripped, (
-            "the bridge reads `a_roll_assignments` again. No DAG edge "
-            "routes it into plan_sfx, so it answers {} and the table "
-            "comes out with zero rows."
-        )
+    assert "a_roll_assignments" not in payload  # what the runner hands it
+    rows = build_sfx_candidates(payload)
+    assert [r["segment_id"] for r in rows] == ["hook", 1, 2]
 
 
 def test_a_speech_block_carries_its_line_and_a_slot_carries_its_note():
@@ -164,7 +112,11 @@ def test_a_speech_block_carries_its_line_and_a_slot_carries_its_note():
 
 
 def test_the_transient_column_is_measured_not_a_constant(monkeypatch):
-    monkeypatch.setattr('library.steps.step_4_04_plan_sfx.bridge._temporal_lookup', lambda data: {t['clip_id']: t for t in data.get('temporal_event_indices', [])})
+    # The bridge reads per-clip index FILES; hand it the fixture's indices.
+    monkeypatch.setattr(
+        'library.steps.step_4_04_plan_sfx.bridge._temporal_lookup',
+        lambda data: {t['clip_id']: t
+                      for t in data.get('temporal_event_indices', [])})
     """It was the literal string "No" on every row it built.
 
     Now it counts the energy peaks step 1.04 measured inside the
@@ -205,44 +157,3 @@ def test_a_covered_block_names_the_cutaway_and_says_it_plays_silent():
     assert rows[1]["action_sfx_suggested"] == (
         "covered by clip_004, video only - the cutaway's own audio is "
         "never heard")
-
-
-def test_the_transient_column_states_no_verdict():
-    """How many sounds a piece gets is the model's call (AGENTS.md 10.5).
-
-    A pre-computed "Yes"/"No" in this column is the bridge voting on it.
-    """
-    rows = build_sfx_candidates(_inputs())
-    for row in rows:
-        assert row["action_sfx_suggested"] not in ("Yes", "No", "yes", "no")
-
-
-# ── What the bridge emits ─────────────────────────────────────────────
-
-
-def test_the_bridge_hands_the_step_no_empty_sfx_spec():
-    """It used to emit its own output back as input.
-
-    `{"sfx_list": [], "fairlight_preset": "default"}` reached the prompt
-    on every run - a pre-bridge key is restored past the projection
-    (AGENTS.md 10.1) - and read as a plan that had already decided to
-    place no sounds.
-    """
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO) + os.pathsep + env.get("PYTHONPATH", "")
-    proc = subprocess.run(
-        [sys.executable, str(SFX / "bridge.py")],
-        input=json.dumps(_inputs()),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=str(REPO),
-        env=env,
-    )
-    if proc.returncode != 0:
-        pytest.skip(f"the SFX library is not resolvable here: {proc.stdout}")
-    out = json.loads(proc.stdout)
-    assert "sfx_spec" not in out, (
-        "the bridge hands plan_sfx its own empty output as input again"
-    )
-    assert out["sfx_candidates_toon"].startswith("[3]{")

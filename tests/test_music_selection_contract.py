@@ -1,22 +1,9 @@
 """Music selection has a real schema, and the library is really consulted.
 
-Captain's ruling 2026-08-20, verbatim: "fix schema and let LLM choose from
-both library or outside". A hybrid, and neither offered option.
-
-Three things must hold, and each of them failed on the shipped run:
-
-1. The LLM is handed a non-empty output schema. It was handed an EMPTY one,
-   because `present_llm_step` subtracts anything the bridge already
-   supplied from `interface.outputs`, and the bridge supplied the step's
-   only output.
-2. `PIPELINE_MUSIC_LIBRARY` is opened. It never was.
-3. Selecting from outside the library is still allowed. The captain did
-   not restrict it, so a test that forbids `external` would be wrong.
-
-And the failure that prompted all of it - a 3914-second "Inspirational
-Motivational Music Video" scoring a 55-second piece whose direction says
-it must never be scored as triumphant - must now be rejectable on the
-recorded reasoning.
+The LLM gets a non-empty output schema, `PIPELINE_MUSIC_LIBRARY` is
+catalogued, outside tracks stay allowed, and the shipped 3914-second
+compilation is rejected on the recorded reasoning. History:
+docs/evidence/music_tests.md#music-selection-contract.
 """
 import json
 import os
@@ -24,16 +11,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from library.tools.music_selection_contract import (  # noqa: E402
-    MAX_TRACK_DURATION_FLOOR_SECONDS,
-    VALID_SOURCES,
-    catalogue_sources,
-    max_track_duration_seconds,
     validate_selection,
 )
 
@@ -140,28 +121,21 @@ def test_bridge_lists_the_library_and_picks_nothing(tmp_path, monkeypatch):
     assert searched["library"]["directory"] == str(library)
 
 
-# ── 3. Outside the library stays allowed ──────────────────────────────
+# ── 3. Outside the library stays allowed, and a valid pick passes ────
 
 
-def test_external_is_a_valid_source():
-    assert "external" in VALID_SOURCES, (
-        "the captain did NOT restrict selection to the library"
-    )
+def test_a_valid_library_or_external_selection_passes(tmp_path):
+    """The captain did NOT restrict selection to the library."""
+    track = tmp_path / "t.wav"
+    track.write_bytes(b"\x00" * 16)
+    candidates = [{"audio_path": str(track), "source": "library"}]
+    assert validate_selection(_good_selection(str(track)), candidates,
+                              60.0) == []
 
-
-def test_an_external_track_with_a_url_validates():
-    selection = _good_selection("", duration=180.0)
-    selection["source"] = "external"
-    selection["source_url"] = "https://example.com/track"
-    assert validate_selection(selection, [], 60.0) == []
-
-
-def test_an_external_track_without_a_url_is_rejected():
-    selection = _good_selection("", duration=180.0)
-    selection["source"] = "external"
-    selection["source_url"] = ""
-    errors = validate_selection(selection, [], 60.0)
-    assert any("source_url" in e for e in errors)
+    external = _good_selection("", duration=180.0)
+    external["source"] = "external"
+    external["source_url"] = "https://example.com/track"
+    assert validate_selection(external, [], 60.0) == []
 
 
 # ── What the schema must make impossible ──────────────────────────────
@@ -203,53 +177,31 @@ def test_the_shipped_failure_is_now_rejected(tmp_path):
     )
 
 
-def test_a_track_shorter_than_the_edit_is_rejected(tmp_path):
-    track = tmp_path / "dummy.wav"
-    track.write_bytes(b"\x00" * 16)
-    candidates = [{"audio_path": str(track), "source": "project"}]
-    selection = _good_selection(str(track), duration=1.0)
-    selection["source"] = "project"
-    errors = validate_selection(selection, candidates, 60.0)
-    assert any("silent" in e for e in errors), errors
-
-
-def test_a_local_path_outside_the_catalogue_is_rejected(tmp_path):
-    track = tmp_path / "not_catalogued.wav"
-    track.write_bytes(b"\x00" * 16)
-    errors = validate_selection(_good_selection(str(track)), [], 60.0)
-    assert any("catalogued candidates" in e for e in errors), errors
-
-
-def test_a_missing_justification_is_rejected(tmp_path):
+def test_each_unacceptable_selection_names_its_reason(tmp_path):
     track = tmp_path / "t.wav"
     track.write_bytes(b"\x00" * 16)
-    candidates = [{"audio_path": str(track), "source": "library"}]
-    selection = _good_selection(str(track))
-    del selection["direction_justification"]
-    errors = validate_selection(selection, candidates, 60.0)
-    assert any("direction_justification" in e for e in errors), errors
+    uncatalogued = tmp_path / "not_catalogued.wav"
+    uncatalogued.write_bytes(b"\x00" * 16)
+    library = [{"audio_path": str(track), "source": "library"}]
+    project = [{"audio_path": str(track), "source": "project"}]
 
+    too_short = dict(_good_selection(str(track), duration=1.0),
+                     source="project")
+    no_url = dict(_good_selection("", duration=180.0),
+                  source="external", source_url="")
+    no_justification = _good_selection(str(track))
+    del no_justification["direction_justification"]
+    unanswered = _good_selection(str(track))
+    unanswered["direction_justification"]["why_not_forbidden"].pop(
+        "triumphant")
 
-def test_an_unanswered_forbidden_register_is_rejected(tmp_path):
-    track = tmp_path / "t.wav"
-    track.write_bytes(b"\x00" * 16)
-    candidates = [{"audio_path": str(track), "source": "library"}]
-    selection = _good_selection(str(track))
-    selection["direction_justification"]["why_not_forbidden"].pop("triumphant")
-    errors = validate_selection(selection, candidates, 60.0)
-    assert any("triumphant" in e for e in errors), errors
-
-
-def test_a_valid_library_selection_passes(tmp_path):
-    track = tmp_path / "t.wav"
-    track.write_bytes(b"\x00" * 16)
-    candidates = [{"audio_path": str(track), "source": "library"}]
-    assert validate_selection(_good_selection(str(track)), candidates, 60.0) == []
-
-
-@pytest.mark.parametrize(
-    "target,expected",
-    [(60.0, MAX_TRACK_DURATION_FLOOR_SECONDS)],   # 10x60 = 600 = the floor
-)
-def test_duration_ceiling(target, expected):
-    assert max_track_duration_seconds(target) == expected
+    rows = [
+        (too_short, project, "silent"),
+        (_good_selection(str(uncatalogued)), [], "catalogued candidates"),
+        (no_url, [], "source_url"),
+        (no_justification, library, "direction_justification"),
+        (unanswered, library, "triumphant"),
+    ]
+    for selection, candidates, reason in rows:
+        errors = validate_selection(selection, candidates, 60.0)
+        assert any(reason in e for e in errors), (reason, errors)

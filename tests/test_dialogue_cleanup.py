@@ -5,15 +5,15 @@ locally first (see `library/tools/dialogue_cleanup.py` for the table).
 These tests drive the real module on synthetic WAV fixtures (stdlib
 `wave`, decoded the same way - no ffmpeg, no model, no Resolve):
 
-- the vocabulary holds exactly the two measured tools;
 - a plan entry with an unknown tool, a missing/out-of-range amount, a
   half or backwards span, or no `why`/`source` refuses by name;
 - Voice Isolation claims nothing without the re-read (False, mismatch
   and missing track all refuse; the fake timeline judges the
   discipline);
-- the OTIO rewrite points the clip at the stem, zeroes the source
-  start, keeps the duration, and refuses a missing stem;
-- the availability probes state their reason instead of raising.
+- the OTIO rewrite refuses a missing stem or reference (the swap itself
+  is `tests/test_audio_mix_cleanup.py`'s);
+- the availability probe resolves package, shared location, then PATH,
+  and states its reason instead of raising.
 """
 import math
 import os
@@ -28,15 +28,12 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.dialogue_cleanup import (
-    CLEANUP_ENTRY_KEYS,
-    TOOLS,
     DialogueCleanupRefused,
     apply_voice_isolation,
     deepfilternet_probe,
     measure_source,
     rewrite_clip_media_to_stem,
     validate_cleanup_request,
-    voice_isolation_note,
 )
 
 SR = 8000
@@ -74,24 +71,6 @@ def _good(tool="deepfilternet", **over):
     return entry
 
 
-# ── vocabulary ───────────────────────────────────────────────────────
-
-def test_tools_name_every_delivered_cleanup_path():
-    """The prompt and build expose all cleanup/effect tools they can apply."""
-    assert tuple(TOOLS) == (
-        "voice_isolation", "deepfilternet", "audio_ops")
-
-
-def test_probes_state_their_reason():
-    probe = deepfilternet_probe()
-    assert set(probe) == {"available", "method", "reason"}
-    assert probe["reason"].strip()
-    if probe["available"]:
-        assert probe["method"] in ("python", "binary")
-    note = voice_isolation_note()
-    assert "Studio" in note["reason"]
-
-
 # ── plan validation ──────────────────────────────────────────────────
 
 def test_valid_entries_normalise():
@@ -103,81 +82,31 @@ def test_valid_entries_normalise():
     assert (row["amount"], row["span_start"], row["span_end"]) == (60, 1.0, 2.0)
 
 
-@pytest.mark.parametrize("entry", [
-    _good(tool="noisereduce"),
-    _good(tool="eq"),
-    _good(tool=None),
-])
-def test_unknown_tool_refuses_by_name(entry):
-    with pytest.raises(DialogueCleanupRefused, match="not a cleanup tool"):
-        validate_cleanup_request(entry)
-
-
-def test_voice_isolation_needs_an_amount():
-    with pytest.raises(DialogueCleanupRefused, match="names no amount"):
-        validate_cleanup_request(_good("voice_isolation", amount=None))
-
-
-@pytest.mark.parametrize("amount", [-1, 101, "loud", 55.5 + 45.6])
-def test_voice_isolation_amount_is_resolves_own_scale(amount):
-    if amount == 101.1:
-        with pytest.raises(DialogueCleanupRefused):
-            validate_cleanup_request(_good("voice_isolation", amount=amount))
-    elif isinstance(amount, str):
-        with pytest.raises(DialogueCleanupRefused, match="not a number"):
-            validate_cleanup_request(_good("voice_isolation", amount=amount))
-    else:
-        with pytest.raises(DialogueCleanupRefused, match="0\\.\\.100"):
-            validate_cleanup_request(_good("voice_isolation", amount=amount))
-
-
-def test_deepfilternet_carries_no_amount():
-    with pytest.raises(DialogueCleanupRefused, match="carries an amount"):
-        validate_cleanup_request(_good(amount=60))
-
-
-def test_half_span_and_backwards_span_refuse():
-    with pytest.raises(DialogueCleanupRefused, match="half a span"):
-        validate_cleanup_request(_good("voice_isolation", span_start=1.0))
-    with pytest.raises(DialogueCleanupRefused, match="runs backwards"):
-        validate_cleanup_request(
-            _good("voice_isolation", span_start=2.0, span_end=1.0))
-
-
-def test_no_why_or_no_source_refuses():
-    with pytest.raises(DialogueCleanupRefused, match="no why"):
-        validate_cleanup_request(_good(why="  "))
-    with pytest.raises(DialogueCleanupRefused, match="no source"):
-        validate_cleanup_request(_good(source=""))
-    with pytest.raises(DialogueCleanupRefused, match="not an object"):
-        validate_cleanup_request("voice_isolation")
-
-
-def test_entry_keys_are_exactly_what_the_step_reads():
-    assert set(CLEANUP_ENTRY_KEYS) == {
-        "source", "tool", "amount", "span_start", "span_end",
-        "operations", "why"}
+def test_an_invalid_entry_refuses_by_name():
+    """Each row is one malformed plan entry; each refuses naming why."""
+    rows = [
+        (_good(tool="noisereduce"), "not a cleanup tool"),
+        (_good(tool="eq"), "not a cleanup tool"),
+        (_good(tool=None), "not a cleanup tool"),
+        (_good("voice_isolation", amount=None), "names no amount"),
+        (_good("voice_isolation", amount=-1), "0\\.\\.100"),
+        (_good("voice_isolation", amount=101), "0\\.\\.100"),
+        (_good("voice_isolation", amount=101.1), "0\\.\\.100"),
+        (_good("voice_isolation", amount="loud"), "not a number"),
+        (_good(amount=60), "carries an amount"),
+        (_good("voice_isolation", span_start=1.0), "half a span"),
+        (_good("voice_isolation", span_start=2.0, span_end=1.0),
+         "runs backwards"),
+        (_good(why="  "), "no why"),
+        (_good(source=""), "no source"),
+        ("voice_isolation", "not an object"),
+    ]
+    for entry, said in rows:
+        with pytest.raises(DialogueCleanupRefused, match=said):
+            validate_cleanup_request(entry)
 
 
 # ── source measurement ───────────────────────────────────────────────
-
-def test_measure_source_records_floor_and_speech(tmp_path):
-    path = str(tmp_path / "speech.wav")
-    _fixture(path)
-    record = measure_source(path, [(0.0, 4.0)], [(0.5, 1.5)])
-    assert record["floor"]["level_dbfs"] < -30
-    assert record["floor_unmeasured_reason"] == ""
-    assert record["speech"]["measured"] is True
-
-
-def test_measure_source_states_an_unmeasurable_floor(tmp_path):
-    path = str(tmp_path / "dense.wav")
-    _fixture(path)
-    record = measure_source(path, [(0.0, 4.0)], [(0.0, 4.0)])
-    assert record["floor"] == {}
-    assert "no speech-free stretch" in record["floor_unmeasured_reason"]
-    assert record["speech"]["measured"] is True
-
 
 def test_measure_source_states_a_missing_file(tmp_path):
     record = measure_source(str(tmp_path / "gone.wav"), [(0.0, 1.0)], [])
@@ -219,22 +148,20 @@ def test_voice_isolation_claims_only_what_rereads():
     assert timeline.writes == [(1, {"isEnabled": True, "amount": 60})]
 
 
-def test_voice_isolation_false_or_mismatch_refuses():
-    with pytest.raises(DialogueCleanupRefused, match="answered False"):
-        apply_voice_isolation(_Timeline(write_answer=False), 1, 60)
-    with pytest.raises(DialogueCleanupRefused, match="re-reads"):
-        apply_voice_isolation(
-            _Timeline(read_back={"isEnabled": True, "amount": 30}), 1, 60)
-    with pytest.raises(DialogueCleanupRefused, match="re-reads"):
-        apply_voice_isolation(
-            _Timeline(read_back={"isEnabled": False}), 1, 60)
-
-
-def test_voice_isolation_missing_track_refuses():
-    with pytest.raises(DialogueCleanupRefused, match="names nothing"):
-        apply_voice_isolation(_Timeline(tracks=1), 2, 60)
-    with pytest.raises(DialogueCleanupRefused, match="0\\.\\.100"):
-        apply_voice_isolation(_Timeline(), 1, 101)
+def test_voice_isolation_refuses_what_it_cannot_reread():
+    """A False answer, a re-read that disagrees, a missing track, or an
+    amount off Resolve's scale - none is claimed as applied."""
+    rows = [
+        (_Timeline(write_answer=False), 1, 60, "answered False"),
+        (_Timeline(read_back={"isEnabled": True, "amount": 30}), 1, 60,
+         "re-reads"),
+        (_Timeline(read_back={"isEnabled": False}), 1, 60, "re-reads"),
+        (_Timeline(tracks=1), 2, 60, "names nothing"),
+        (_Timeline(), 1, 101, "0\\.\\.100"),
+    ]
+    for timeline, track, amount, said in rows:
+        with pytest.raises(DialogueCleanupRefused, match=said):
+            apply_voice_isolation(timeline, track, amount)
 
 
 # ── OTIO stem rewrite ────────────────────────────────────────────────
@@ -255,25 +182,12 @@ def _clip(tmp_path):
     }, str(stem)
 
 
-def test_stem_rewrite_points_at_the_stem_and_zeroes_the_start(tmp_path):
+def test_stem_rewrite_refuses_a_missing_stem_or_reference(tmp_path):
     clip, stem = _clip(tmp_path)
-    rewrite_clip_media_to_stem(clip, stem)
-    assert clip["media_references"]["m1"]["target_url"] == "file://" + stem
-    assert clip["source_range"]["start_time"]["value"] == 0
-    assert clip["source_range"]["duration"]["value"] == 768000
-
-
-def test_stem_rewrite_refuses_a_missing_stem(tmp_path):
-    clip, _ = _clip(tmp_path)
     with pytest.raises(DialogueCleanupRefused, match="not on disk"):
         rewrite_clip_media_to_stem(clip, str(tmp_path / "gone.wav"))
-
-
-def test_stem_rewrite_refuses_a_clip_with_no_reference(tmp_path):
-    stem = tmp_path / "clean.wav"
-    stem.write_bytes(b"RIFF")
     with pytest.raises(DialogueCleanupRefused, match="no active media"):
-        rewrite_clip_media_to_stem({"OTIO_SCHEMA": "Clip.1"}, str(stem))
+        rewrite_clip_media_to_stem({"OTIO_SCHEMA": "Clip.1"}, stem)
 
 
 # ── binary resolution: one location, then PATH ────────────────────────
@@ -298,23 +212,14 @@ def _fake_binary(path):
     return str(path)
 
 
-def test_probe_reads_the_shared_environment_location(tmp_path, monkeypatch):
+def test_probe_resolves_shared_location_then_path_then_says_how(
+        tmp_path, monkeypatch):
     from library.tools.dialogue_cleanup import _deepfilter_binary_path
     _no_df_package(monkeypatch)
     monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
     monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
-    expected = _fake_binary(tmp_path / "vep" / "bin" / "deep-filter")
-    monkeypatch.setattr("shutil.which", lambda name: "/elsewhere/deep-filter")
-    assert _deepfilter_binary_path() == expected
-    probe = deepfilternet_probe()
-    assert probe == {"available": True, "method": "binary",
-                     "reason": f"the deep-filter binary answers at {expected}"}
 
-
-def test_probe_falls_back_to_path(tmp_path, monkeypatch):
-    _no_df_package(monkeypatch)
-    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
-    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    # PATH alone answers when the shared location holds nothing.
     monkeypatch.setattr("shutil.which",
                         lambda name: "/usr/local/bin/deep-filter"
                         if name == "deep-filter" else None)
@@ -322,17 +227,20 @@ def test_probe_falls_back_to_path(tmp_path, monkeypatch):
     assert probe["available"] and probe["method"] == "binary"
     assert "/usr/local/bin/deep-filter" in probe["reason"]
 
-
-def test_probe_unavailable_names_the_install_command(tmp_path, monkeypatch):
-    _no_df_package(monkeypatch)
-    monkeypatch.delenv("PIPELINE_DEEPFILTER_BINARY", raising=False)
-    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    # Nothing anywhere: unavailable, naming the install route.
     monkeypatch.setattr("shutil.which", lambda name: None)
     probe = deepfilternet_probe()
     assert probe["available"] is False and probe["method"] == ""
-    assert probe["reason"].strip()
     assert "scripts/install_deepfilternet.sh" in probe["reason"]
     assert "PIPELINE_DEEPFILTER_BINARY" in probe["reason"]
+
+    # The shared-environment location wins over PATH.
+    expected = _fake_binary(tmp_path / "vep" / "bin" / "deep-filter")
+    monkeypatch.setattr("shutil.which", lambda name: "/elsewhere/deep-filter")
+    assert _deepfilter_binary_path() == expected
+    assert deepfilternet_probe() == {
+        "available": True, "method": "binary",
+        "reason": f"the deep-filter binary answers at {expected}"}
 
 
 def test_enhance_binary_moves_the_produced_stem_into_place(

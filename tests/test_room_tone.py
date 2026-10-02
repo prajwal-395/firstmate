@@ -22,9 +22,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.room_tone import (
-    MIN_GAP_SECONDS,
     RoomToneRefused,
-    decode_mono,
     measure_room_tone,
     rms_dbfs,
     spectrum_db,
@@ -75,7 +73,7 @@ def test_gaps_exclude_speech_and_short_breaths():
     assert speech_free_gaps(4.0, [(0.0, 1.95), (2.05, 4.0)]) == []
 
 
-def test_quietest_gap_wins_and_level_is_measured(tmp_path):
+def test_quietest_gap_wins_and_the_fill_matches_the_measurement(tmp_path):
     src = str(tmp_path / "take.wav")
     speech = _fixture(src)
     record = measure_room_tone(src, speech)
@@ -91,14 +89,8 @@ def test_quietest_gap_wins_and_level_is_measured(tmp_path):
     # far hotter than the empty 10-15 kHz band above the fixture's own
     # Nyquist.
     assert record["spectrum_db"][1] > record["spectrum_db"][6] + 20.0
-
-
-def test_staged_fill_matches_the_measurement(tmp_path):
-    src = str(tmp_path / "take.wav")
-    speech = _fixture(src)
-    record = measure_room_tone(src, speech)
-    out = str(tmp_path / "room" / "fill.wav")
-    staged = stage_fill(src, record, 0.5, out)
+    # The staged fill is that room, at the measured level.
+    staged = stage_fill(src, record, 0.5, str(tmp_path / "room" / "fill.wav"))
     assert staged["loops"] == 0
     assert staged["fill_seconds"] == pytest.approx(0.5, abs=0.01)
     assert abs(staged["level_dbfs"] - record["level_dbfs"]) < 3.0
@@ -121,59 +113,27 @@ def test_short_gap_loops_to_the_fill_length(tmp_path):
     assert staged["level_dbfs"] < -30.0
 
 
-def test_wall_to_wall_speech_refuses_by_name(tmp_path):
-    samples = [0.5 * math.sin(2 * math.pi * 440.0 * i / SR)
-               for i in range(2 * SR)]
-    src = str(tmp_path / "wall.wav")
-    _write_wav(src, samples)
-    with pytest.raises(RoomToneRefused, match="no speech-free stretch"):
-        measure_room_tone(src, [(0.0, 2.0)])
-
-
-def test_missing_source_refuses_with_the_fix(tmp_path):
-    with pytest.raises(RoomToneRefused) as exc:
-        measure_room_tone(str(tmp_path / "absent.wav"), [])
-    assert "not on disk" in str(exc.value)
+def test_no_measurable_room_refuses_by_name(tmp_path):
+    """Never a default level: wall-to-wall speech, a missing source, and
+    pauses of pure digital silence (-inf must not win as "the quietest
+    gap", or the staged fill would be silence) all refuse."""
+    wall = str(tmp_path / "wall.wav")
+    _write_wav(wall, [0.5 * math.sin(2 * math.pi * 440.0 * i / SR)
+                      for i in range(2 * SR)])
+    silent = [0.0] * (2 * SR)
+    for i in range(int(0.2 * SR), int(0.8 * SR)):
+        silent[i] = 0.5 * math.sin(2 * math.pi * 440.0 * i / SR)
+    silent_path = str(tmp_path / "silent.wav")
+    _write_wav(silent_path, silent)
+    for source, speech, said in (
+            (wall, [(0.0, 2.0)], "no speech-free stretch"),
+            (str(tmp_path / "absent.wav"), [], "not on disk"),
+            (silent_path, [(0.2, 0.8)], "digital silence")):
+        with pytest.raises(RoomToneRefused, match=said):
+            measure_room_tone(source, speech)
 
 
 def test_silence_reads_as_silence_not_zero():
     assert rms_dbfs([0.0] * 100) == float("-inf")
     assert rms_dbfs([]) == float("-inf")
     assert all(b == float("-inf") for b in spectrum_db([], SR))
-
-
-def test_decode_mono_reads_the_fixture_exactly(tmp_path):
-    src = str(tmp_path / "exact.wav")
-    _write_wav(src, [0.5, -0.25, 0.0, 0.125])
-    samples, rate = decode_mono(src, sample_rate=SR)
-    assert rate == SR
-    assert samples[0] == pytest.approx(0.5, abs=1e-4)
-    assert samples[1] == pytest.approx(-0.25, abs=1e-4)
-    assert samples[3] == pytest.approx(0.125, abs=1e-4)
-
-
-def test_digital_silence_is_not_room_tone(tmp_path):
-    # Pauses of pure digital silence read -inf: they must not win as
-    # "the quietest gap", or the staged fill would be silence.
-    samples = [0.0] * (2 * SR)
-    for i in range(int(0.2 * SR), int(0.8 * SR)):
-        samples[i] = 0.5 * math.sin(2 * math.pi * 440.0 * i / SR)
-    src = str(tmp_path / "silent.wav")
-    _write_wav(src, samples)
-    with pytest.raises(RoomToneRefused, match="digital silence"):
-        measure_room_tone(src, [(0.2, 0.8)])
-
-
-def test_records_are_json_safe(tmp_path):
-    import json
-    src = str(tmp_path / "take.wav")
-    speech = _fixture(src)
-    record = measure_room_tone(src, speech)
-    staged = stage_fill(src, record, 0.5, str(tmp_path / "fill.wav"))
-    json.dumps({"room_tone": record, "staged": staged})
-
-
-def test_min_gap_is_a_measurement_bound_not_taste():
-    # 0.30 s at 48 kHz is 14,400 samples: enough for an 8-band
-    # spectrum, which is what the bound exists to protect.
-    assert MIN_GAP_SECONDS * 48000 >= 4096

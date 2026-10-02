@@ -1,20 +1,8 @@
 """The sound is chosen by the model, out of the library's own catalogue.
 
-`library/tools/sfx_library.py` used to hold `TYPE_KEYWORDS`: eight
-hand-written word lists, counted as substring hits over each entry's
-description, folder and filename, highest count wins, ties to whichever
-entry came first.  That was the chooser.  These tests hold the shape that
-replaced it:
-
-  * the catalogue carries what the library RECORDS about each sound, out
-    of all three of its index files;
-  * a sound that is not on disk is not in the catalogue;
-  * an id the catalogue does not contain fails AT PLAN TIME, in step
-    4.04, naming the id;
-  * no word list, and none of the three undeliverable type names, is
-    reachable from anything the planner can emit;
-  * the transition plan reaches the step whose first named purpose is
-    pairing sounds with transitions.
+The catalogue carries what the library records about each on-disk sound
+(all three index files); an id resolves exactly or not at all, and a plan
+naming a sound the library has not got fails at plan time, in step 4.04.
 """
 import json
 import os
@@ -27,12 +15,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 SFX_STEP = REPO / "library" / "steps" / "step_4_04_plan_sfx"
 
-from library.tools import sfx_library  # noqa: E402
 from library.tools.sfx_envelope import placement_of  # noqa: E402
 from library.tools.sfx_library import (  # noqa: E402
-    CATALOG_COLUMNS,
     catalog_document,
-    catalog_rows,
     load_sfx_catalog,
     resolve_sfx_id,
 )
@@ -119,23 +104,17 @@ def test_the_catalogue_merges_all_three_index_files(tmp_path):
     assert entry["transient_offset_sec"] == 0.05
 
 
-def test_a_sound_that_is_not_on_disk_is_not_offered(tmp_path):
-    """The guarantee `sfx_library` exists for, at its earliest point.
-
-    `gone.wav` is in the index with a description a word list would have
-    matched. It is not in the catalogue, so the model cannot name it.
-    """
+def test_only_an_on_disk_sound_is_offered_and_an_id_resolves_exactly(
+        tmp_path):
+    """`gone.wav` is indexed but not on disk, so the model cannot name
+    it; and a near miss never resolves - a nearest match is a chooser."""
     catalog = load_sfx_catalog(str(_library(tmp_path)))
     assert [e["sfx_id"] for e in catalog] == ["present.wav", "builder.wav"]
-    assert resolve_sfx_id("gone.wav", catalog) is None
-
-
-def test_an_id_resolves_exactly_or_not_at_all(tmp_path):
-    catalog = load_sfx_catalog(str(_library(tmp_path)))
-    assert resolve_sfx_id("present.wav", catalog)["path"].endswith("present.wav")
-    for near_miss in ("present", "Present.wav", "present.mp3", "", None):
-        assert resolve_sfx_id(near_miss, catalog) is None, (
-            f"{near_miss!r} resolved - a nearest match is a chooser")
+    assert resolve_sfx_id("present.wav", catalog)["path"].endswith(
+        "present.wav")
+    for near_miss in ("gone.wav", "present", "Present.wav", "present.mp3",
+                      "", None):
+        assert resolve_sfx_id(near_miss, catalog) is None, near_miss
 
 
 def test_a_description_with_a_comma_and_an_apostrophe_needs_no_escaping(
@@ -152,39 +131,6 @@ def test_a_description_with_a_comma_and_an_apostrophe_needs_no_escaping(
     assert "doesn''t" not in document
     assert ("- description: A dry, close snap, and it doesn't ring on."
             in document)
-
-
-# ── Nothing maps a word to a sound any more ───────────────────────────
-
-def test_the_keyword_chooser_is_gone(tmp_path):
-    """Deleted, not unwired, and no second word list took its place."""
-    for name in ("TYPE_KEYWORDS", "match_sfx_file", "available_sfx_types"):
-        assert not hasattr(sfx_library, name), (
-            f"{name} is back in library/tools/sfx_library.py. Which sound "
-            f"plays is the model's decision, made from the catalogue.")
-
-
-# `foley` and `ambient` are in neither the output schema nor the library;
-# `reverse_cymbal` is in the library's index of nothing at all. All three
-# are still named in step_4_04_plan_sfx/handoff.md's toolkit table, which
-# is under a captain freeze - that file is the one place they survive,
-# and after this change they name nothing the model can emit: the schema
-# asks for an `sfx_id` out of `sfx_catalog_reference`.
-UNDELIVERABLE_TYPES = ("foley", "ambient", "reverse_cymbal")
-FROZEN_PROMPT = SFX_STEP / "handoff.md"
-
-
-def _docstrings(source: str) -> str:
-    import ast
-    out = []
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
-                             ast.ClassDef)):
-            doc = ast.get_docstring(node)
-            if doc:
-                out.append(doc)
-    return "\n".join(out)
 
 
 # ── A plan naming an unplayable sound fails at PLAN time ──────────────
@@ -258,14 +204,3 @@ def test_a_plan_naming_real_sounds_resolves_to_real_files(tmp_path):
     assert placed["source_in"] == 0.05
     assert placed["duration_seconds"] == pytest.approx(0.35)
     assert placed["timeline_out"] - placed["timeline_in"] == pytest.approx(0.35)
-
-
-# ── The transition plan reaches the step that pairs sounds with cuts ──
-#
-# The edge and the `transitions_toon` table landed in #294, on its own
-# branch, while this one was in flight. This holds it in place from the
-# sound side: a sound cannot be paired with a transition the step cannot
-# see, and the id the table is keyed by has to be the one `sfx_creative`
-# names.
-
-

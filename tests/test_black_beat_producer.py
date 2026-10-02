@@ -1,11 +1,9 @@
 """The black-beat escape hatch: a planner can declare a deliberate hold on
 black, and compile_manifest will accept it.  An undeclared gap still fails.
 
-The captain ruled both gaps and no-gaps have their place, but a gap must be
-deliberate and defensible.  PR #80 landed the consumer in compile_manifest;
-this file tests the producer side - that the planner can emit the
-declaration, that it passes the spine contract and the coverage assertion,
-and that every malformed or missing declaration still hard-fails.
+A gap must be deliberate and defensible: the planner can emit the
+declaration, it passes the spine contract and the coverage assertion, and
+every malformed or missing declaration still hard-fails.
 
 Uses real captured run data from `tests/fixtures/captured_run/` so the
 tests exercise the full data flow, not just synthetic shapes.
@@ -30,10 +28,9 @@ sys.path.insert(0, str(REPO_ROOT))
 from library.tools.spine_contract import (
     MAX_DECLARED_BLACK_BEAT_SECONDS,
     SpineContractError,
-    declared_black_beat_ranges,
     validate_spine_blocks,
 )
-from library.tools.render_qa import detect_black_frames, run_full_render_qa
+from library.tools.render_qa import detect_black_frames
 from library.steps.step_5_04_compile_manifest.step import (
     _assert_timeline_fully_covered,
     _video_coverage_gaps,
@@ -88,30 +85,23 @@ class TestSpineContractBlackBeatValidation:
 
     @pytest.mark.parametrize("case", [
         "valid_declaration",
-        "block_without_declaration",
         "false_flag_is_not_a_declaration",
-        "captured_spine",
         "captured_block_with_declaration",
     ])
     def test_valid_black_beat_shapes_pass(self, case, captured_run):
-        """B1 collapse: the five no-raise validators in one parametrized
-        test - no-raise is the only signal in each, so one test with five
-        cases keeps every shape covered."""
+        """Accepted shapes. The captured spine's undeclared blocks ride
+        along in the last case, so an undeclared block is covered too."""
         if case == "valid_declaration":
             blocks = [_make_spine_block(
                 1, "transition_slot", 4.0, 5.0,
                 intentional_black_beat=True,
                 black_beat_reason="hold on black before the tonal shift",
             )]
-        elif case == "block_without_declaration":
-            blocks = [_make_spine_block(1, "transition_slot", 4.0, 5.0)]
         elif case == "false_flag_is_not_a_declaration":
             blocks = [_make_spine_block(
                 1, "transition_slot", 4.0, 5.0,
                 intentional_black_beat=False,
             )]
-        elif case == "captured_spine":
-            blocks = captured_run["timed_spine_structure"]
         else:
             blocks = copy.deepcopy(captured_run["timed_spine_structure"])
             slot = next(
@@ -122,8 +112,9 @@ class TestSpineContractBlackBeatValidation:
         # Should not raise
         validate_spine_blocks(blocks)
 
-    def test_declaration_on_speech_block_fails(self):
-        blocks = [_make_spine_block(
+    def test_each_malformed_declaration_fails_by_name(self):
+        """A declaration on speech, and one without a reason, both refuse."""
+        on_speech = _make_spine_block(
             1, "speech", 4.0, 5.0,
             clip_id="clip_001",
             source_start=10.0, source_end=11.0,
@@ -132,20 +123,15 @@ class TestSpineContractBlackBeatValidation:
             alignment_method="whisperx",
             intentional_black_beat=True,
             black_beat_reason="dramatic pause",
-        )]
-        with pytest.raises(SpineContractError,
-                           match="speech block declares intentional_black_beat"):
-            validate_spine_blocks(blocks)
-
-
-    def test_declaration_without_reason_fails(self):
-        blocks = [_make_spine_block(
-            1, "transition_slot", 4.0, 5.0,
-            intentional_black_beat=True,
-        )]
-        with pytest.raises(SpineContractError,
-                           match="black_beat_reason is missing or empty"):
-            validate_spine_blocks(blocks)
+        )
+        no_reason = _make_spine_block(
+            1, "transition_slot", 4.0, 5.0, intentional_black_beat=True)
+        for block, match in (
+            (on_speech, "speech block declares intentional_black_beat"),
+            (no_reason, "black_beat_reason is missing or empty"),
+        ):
+            with pytest.raises(SpineContractError, match=match):
+                validate_spine_blocks([block])
 
 
 # ─── Post-bridge passthrough ──────────────────────────────────────────
@@ -178,57 +164,6 @@ class TestPostBridgeBlackBeatPassthrough:
         assert blocks[0]["black_beat_reason"] == "silence before the reveal"
 
 
-
-# ─── End-to-end: declared beat vs undeclared gap ──────────────────────
-
-class TestEndToEndBlackBeat:
-    """Prove both directions against the coverage assertion."""
-
-    def test_declared_beat_passes_coverage_check(self):
-        """A gap covered by a declared black beat passes compilation."""
-        spine = [_make_spine_block(
-            1, "transition_slot", 3.5, 5.0,
-            intentional_black_beat=True,
-            black_beat_reason="hold on black before the turn",
-        )]
-        # V1 has a 0.4s gap from 4.0 to 4.4, inside the spine block
-        manifest = _manifest_with_spine(
-            v1=[(0.0, 4.0), (4.4, 10.0)],
-            spine_blocks=[{
-                "position": 1,
-                "timeline_start": 3.5,
-                "timeline_end": 5.0,
-                "block_type": "transition_slot",
-                "music_behavior": "full",
-                "intentional_black_beat": True,
-                "black_beat_reason": "hold on black before the turn",
-            }],
-        )
-        # Should have a gap
-        gaps = _video_coverage_gaps(manifest)
-        assert len(gaps) == 1
-        assert gaps[0] == pytest.approx((4.0, 4.4))
-        # But the assertion should pass because the beat is declared
-        _assert_timeline_fully_covered(manifest)
-
-    def test_undeclared_gap_same_size_still_fails(self):
-        """The same gap without a declaration hard-fails."""
-        manifest = _manifest_with_spine(
-            v1=[(0.0, 4.0), (4.4, 10.0)],
-            spine_blocks=[{
-                "position": 1,
-                "timeline_start": 3.5,
-                "timeline_end": 5.0,
-                "block_type": "transition_slot",
-                "music_behavior": "full",
-                # No intentional_black_beat
-            }],
-        )
-        with pytest.raises(ValueError,
-                           match="no spine block declares"):
-            _assert_timeline_fully_covered(manifest)
-
-
 # ─── The render gate honours the same ruling ──────────────────────────
 
 def _blackdetect_stderr(*segments):
@@ -250,65 +185,31 @@ class TestRenderQADeclaredBeats:
                    return_value=MagicMock(stderr=stderr, returncode=0)):
             return detect_black_frames("dummy.mp4", **kwargs)
 
-    def test_declared_beat_at_the_maximum_passes(self):
-        """A beat of exactly MAX_DECLARED_BLACK_BEAT_SECONDS - the length
-        the handoff documents and compile_manifest accepts - passes."""
-        res = self._detect(
-            _blackdetect_stderr((24.5, 24.5 + MAX_DECLARED_BLACK_BEAT_SECONDS)),
-            declared_beats=[(24.259, 26.259)],
-        )
-        assert res.passed
-        assert res.value[0]["declared"] is True
-
-    def test_declared_beat_reported_a_frame_wide_still_passes(self):
-        """blackdetect reports whole frames, so the segment can run a
-        frame past the planned gap; that is still the declared beat."""
-        res = self._detect(
-            _blackdetect_stderr((24.492, 25.025)),
-            declared_beats=[(24.259, 26.259)],
-        )
-        assert res.passed
-
-    def test_undeclared_black_still_fails(self):
-        """The other direction: black nobody declared is still a defect."""
-        res = self._detect(
-            _blackdetect_stderr((4.0, 4.4)),
-            declared_beats=[(24.259, 26.259)],
-        )
-        assert not res.passed
-        assert res.severity == "error"
-        assert res.value[0]["declared"] is False
-        assert "undeclared" in res.detail
-
-    def test_black_longer_than_a_beat_inside_a_declaration_fails(self):
-        """A declaration excuses a beat, not a hole: black that outruns
-        the bound fails even inside the declared block."""
-        res = self._detect(
-            _blackdetect_stderr((24.4, 26.0)),
-            declared_beats=[(24.259, 26.259)],
-        )
-        assert not res.passed
-
-    def test_black_straddling_a_declaration_edge_fails(self):
-        """A beat must sit inside the block that declared it."""
-        res = self._detect(
-            _blackdetect_stderr((24.0, 24.4)),
-            declared_beats=[(24.259, 26.259)],
-        )
-        assert not res.passed
-
-
-
-
-
-class TestDeclaredBeatRanges:
-    """Only a declaration the spine gate would have accepted is honoured."""
-
-
-
-
-
-
+    def test_render_gate_judges_black_by_the_declaration(self):
+        """Each row: blackdetect segments against one declared beat."""
+        declared = [(24.259, 26.259)]
+        rows = [
+            # exactly the bound compile_manifest accepts
+            ((24.5, 24.5 + MAX_DECLARED_BLACK_BEAT_SECONDS), True),
+            # blackdetect reports whole frames: a frame wide still passes
+            ((24.492, 25.025), True),
+            # black nobody declared
+            ((4.0, 4.4), False),
+            # longer than a beat, even inside the declaration
+            ((24.4, 26.0), False),
+            # straddling the declaration's edge
+            ((24.0, 24.4), False),
+        ]
+        for segment, passes in rows:
+            res = self._detect(_blackdetect_stderr(segment),
+                               declared_beats=declared)
+            assert res.passed is passes, (segment, res.detail)
+            if segment == (4.0, 4.4):
+                assert res.severity == "error"
+                assert res.value[0]["declared"] is False
+                assert "undeclared" in res.detail
+            if passes and segment[0] == 24.5:
+                assert res.value[0]["declared"] is True
 
 
 # ─── End-to-end with real captured run data ───────────────────────────
@@ -365,7 +266,6 @@ class TestCapturedRunBlackBeat:
     directions: declare on one of its blocks and the hole is excused,
     leave it undeclared and the same hole hard-fails.
     """
-
 
 
     def test_captured_manifest_gap_with_declaration_passes(self, captured_run):

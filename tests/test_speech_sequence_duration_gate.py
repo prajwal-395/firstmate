@@ -1,21 +1,18 @@
 """Step 2.02's duration verdict belongs to the script, not the model.
 
-The handoff tells the model the sequence MUST fit the target and asks
-it to pre-add passage durations - exact summation work. The
-post-bridge computed the same total and printed a WARNING when it
-missed, so an over-long sequence sailed through here and failed a
-stage later at step 3.03's total-duration gate, where the only
-recovery is a re-run. The gate is now HARD: `refuse_out_of_zone_sequence`
-raises, `main` exits 1 with the numbers, and the post-bridge retry
-path carries them back to the model that chose the passages - which is
-the step that can still fix it by cutting.
+The gate is HARD: `refuse_out_of_zone_sequence` raises and `main` exits 1
+with the numbers, so the post-bridge retry carries them back to the
+model that chose the passages - the step that can still cut. Speech owns
+the lower half of the zone (its ceiling is the declared TARGET, not the
+zone max); the band above is the room step 2.05's breaths, intro/outro
+and music/picture blocks extend into. Each refusal names its own fix (too
+long cuts, too short extends) and never which passage goes. Findings 9
+and 30 (execution-frontier report 2026-09-24): an over-long sequence
+once passed here and died a stage later at 3.03/2.05, and the too-short
+message said "fewer or shorter".
 
-Which passages to cut stays judgement: the refusal names the total
-and the zone, never which passage goes.
-
-The enrichment fixture is 001's own clip_011 data (see
-`tests/test_aligner_leading_gap.py`): five passages enriching to
-~20.8s of real word timings. Nothing here reaches a real project.
+The enrichment fixture is 001's own clip_011 data: five passages
+enriching to ~20.8s of real word timings. Nothing reaches a real project.
 """
 
 import io
@@ -30,6 +27,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import library.steps.step_2_02_speech_sequence.post_bridge as pb  # noqa: E402
+from library.tools.duration_targets import (  # noqa: E402
+    get_speech_duration_zone,
+    get_target_duration_zone,
+)
 
 FIXTURE = (REPO_ROOT / "tests" / "fixtures" / "captured_run"
            / "clip_011_speech_regions.json")
@@ -64,15 +65,6 @@ def enriched(clip_011, index_dir):
     return pb.enrich_speech_sequence(seq, index_dir)
 
 
-def _zone(target):
-    return (target * 0.9, float(target), target * 1.1)
-
-
-def _speech_zone(target):
-    floor, target_f, _ceiling = _zone(target)
-    return (floor, target_f, target_f)
-
-
 # ── The total is measured off aligned words, not the hint ────────────
 
 def test_the_total_is_read_off_the_aligned_timings(enriched):
@@ -82,18 +74,32 @@ def test_the_total_is_read_off_the_aligned_timings(enriched):
 
 # ── The gate, both directions ─────────────────────────────────────────
 
-def test_a_sequence_short_of_a_declared_target_is_refused(enriched):
-    total = pb.total_speech_seconds(enriched["body_sequence"])
-    with pytest.raises(pb.SpeechDurationError) as excinfo:
-        pb.refuse_out_of_zone_sequence(total, _speech_zone(60), _zone(60))
-    message = str(excinfo.value)
-    assert f"{total:.1f}s" in message
-    assert "54.0-66.0s" in message
-
-
-def test_no_declared_target_is_unchecked_not_judged(enriched):
-    total = pb.total_speech_seconds(enriched["body_sequence"])
-    assert pb.refuse_out_of_zone_sequence(total, None) is None
+def test_the_speech_gate_refuses_each_direction_with_its_own_fix():
+    """(speech seconds, target, refusal fragments, forbidden fragment).
+    30.3 s at a 30 s target is the B6 shape that passed the old full-zone
+    gate; 28 s leaves the 30-33 s band for what extends the total."""
+    rows = [
+        (30.3, 30, ["30.3s", "fewer or shorter", "30.0-33.0s"], None),
+        (28.0, 30, None, None),
+        (40.1, 60, ["40.1s", "MORE or LONGER", "54.0-66.0s"],
+         "fewer or shorter"),
+    ]
+    for seconds, target, fragments, forbidden in rows:
+        data = {"project_config": {"target_duration_seconds": target}}
+        args = (seconds, get_speech_duration_zone(data),
+                get_target_duration_zone(data))
+        if fragments is None:
+            assert pb.refuse_out_of_zone_sequence(*args) is None
+            continue
+        with pytest.raises(pb.SpeechDurationError) as excinfo:
+            pb.refuse_out_of_zone_sequence(*args)
+        message = str(excinfo.value)
+        for fragment in fragments:
+            assert fragment in message, (seconds, message)
+        if forbidden:
+            assert forbidden not in message
+    # No declared target is unchecked, not judged.
+    assert pb.refuse_out_of_zone_sequence(30.3, None) is None
 
 
 # ── The gate is wired into the step's entry point, not defined beside it

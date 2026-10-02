@@ -1,37 +1,14 @@
 """Step 2.02's aligner must not open a passage on the wrong occurrence.
 
-Project 001's finished 59.437s export carries **6.901 seconds of audio
-nobody chose, with no caption over it** - 11.6% of the video - because
-`_align_words_to_text` anchored body_3 on the wrong occurrence of the
-word *"i"*.  The passage the model wrote begins *"i get caught up in all
-the numbers..."*; the aligner opened it seconds before that, and the
-two-pointer then walked forward over everything in between with no
-bound on the time it may skip.
-
-Both existing guards are the right guards for a different failure.
-`MAX_HINT_DRIFT` fired and re-anchored - onto a second wrong *"i"*.
-`MIN_TEXT_OVERLAP` compares SETS, so a span that is 63% unmatched audio
-still scores a perfect 1.0.
-
-The fix is an anchor SEARCH, not a threshold: every occurrence of the
-passage's first word is tried, and the alignments are ranked by words
-aligned, then by the leading gap, and only then by proximity to the
-model's time hint.  A leading gap survives exactly when no equally
-complete anchor removes it - which is what protects body_0's dramatic
-pause ("and ... i have an announcement to make"), where the silence IS
-the line.
-
-The fixture is 001's own data: clip_011's WhisperX word timings for the
-whole clip and the four passages the model cut from it, verbatim from
-the 2026-08-26 run that produced the shipped export.  It is written
-under `tmp_path`; nothing here reaches a real project (AGENTS.md 8).
+An anchor SEARCH, not a threshold: completeness first, then the leading
+gap, then the hint - so 001's body_3 mis-anchor (6.901s of unchosen audio)
+moves and body_0's real dramatic pause stays. The fixture is 001's own
+clip_011 data, written under `tmp_path`. History: docs/evidence/transcription.md.
 """
 
 import ast
 import inspect
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -149,71 +126,24 @@ def test_the_rule_that_shipped_opens_body_3_on_the_wrong_i(clip_011):
     assert "goals" not in pb.normalize(passage["text"]).split()
 
 
+# ─── every passage 001 cut from this clip ──────────────────────
 
-
-# ─── the fix ───────────────────────────────────────────────────
-
-
-
-def test_the_re_anchor_trades_away_no_completeness(index_dir, clip_011):
-    """The tighter anchor aligns every word the loose one did."""
+def test_only_body_3_moves_completely_and_says_so(index_dir, clip_011,
+                                                  capsys):
+    """The search moves the passage that is wrong and no other, trades
+    away no completeness, and never corrects silently: stderr and the
+    durable record say RE-ANCHORED for body_3 and HELD for body_0's real
+    1.121s pause ("and ... i have an announcement to make")."""
     passage = clip_011["passages"]["body_3"]
-    start = float(passage["source_start"])
-    end = float(passage["source_end"])
     shipped = _hint_nearest_alignment(
-        pb._clip_regions_to_window(clip_011["speech_regions"], start, end),
+        pb._clip_regions_to_window(clip_011["speech_regions"],
+                                   float(passage["source_start"]),
+                                   float(passage["source_end"])),
         passage)
 
     result = pb.enrich_speech_sequence(_sequence(clip_011), index_dir)
     body_3 = result["body_sequence"][ORDER.index("body_3")]
     assert len(body_3["word_timestamps"]) == len(shipped)
-
-
-def test_the_re_anchor_says_what_it_did(index_dir, clip_011, capsys):
-    """It never corrects silently - stderr and the durable record."""
-    result = pb.enrich_speech_sequence(_sequence(clip_011), index_dir)
-    entry = _report(result)["Body[4]"]
-
-    assert entry["event"] == "reanchored"
-    assert entry["hint_nearest_start"] == pytest.approx(SHIPPED_ANCHOR)
-    assert entry["hint_nearest_leading_gap_seconds"] == pytest.approx(
-        SHIPPED_LEADING_GAP, abs=1e-3)
-    assert entry["chosen_start"] == pytest.approx(CORRECT_ANCHOR)
-    assert entry["anchors_considered"] > 1
-
-    err = capsys.readouterr().err
-    assert "RE-ANCHORED" in err
-    assert "100.519" in err and "107.369" in err
-    assert "6.901s" in err
-
-
-def test_body_0s_dramatic_pause_survives(index_dir, clip_011, capsys):
-    """A real 1.121s beat is held, not flattened - and it says so.
-
-    "and ... i have an announcement to make": the pause IS the line.  No
-    alternative anchor aligns this passage as completely with a smaller
-    leading gap, so the silence stands.
-    """
-    result = pb.enrich_speech_sequence(_sequence(clip_011), index_dir)
-    body_0 = result["body_sequence"][ORDER.index("body_0")]
-
-    assert (round(body_0["source_start"], 3),
-            round(body_0["source_end"], 3)) == UNCHANGED_SPANS["body_0"]
-
-    entry = _report(result)["Body[1]"]
-    assert entry["event"] == "held"
-    assert entry["leading_gap_seconds"] == pytest.approx(BODY_0_PAUSE,
-                                                         abs=1e-3)
-    err = capsys.readouterr().err
-    assert "HELD" in err
-    assert "1.121s" in err
-
-
-# ─── every passage 001 cut from this clip ──────────────────────
-
-def test_only_body_3_moves(index_dir, clip_011):
-    """The search moves the passage that is wrong and no other."""
-    result = pb.enrich_speech_sequence(_sequence(clip_011), index_dir)
     spans = {
         k: (round(p["source_start"], 3), round(p["source_end"], 3))
         for k, p in zip(ORDER, result["body_sequence"])
@@ -231,7 +161,20 @@ def test_only_body_3_moves(index_dir, clip_011):
         "Body[5]": "ok",
     }
 
+    entry = _report(result)["Body[4]"]
+    assert entry["hint_nearest_start"] == pytest.approx(SHIPPED_ANCHOR)
+    assert entry["hint_nearest_leading_gap_seconds"] == pytest.approx(
+        SHIPPED_LEADING_GAP, abs=1e-3)
+    assert entry["chosen_start"] == pytest.approx(CORRECT_ANCHOR)
+    assert entry["anchors_considered"] > 1
+    assert _report(result)["Body[1]"]["leading_gap_seconds"] == \
+        pytest.approx(BODY_0_PAUSE, abs=1e-3)
 
+    err = capsys.readouterr().err
+    assert "RE-ANCHORED" in err
+    assert "100.519" in err and "107.369" in err
+    assert "6.901s" in err
+    assert "HELD" in err and "1.121s" in err
 
 
 # ─── the measurements are measurements, not thresholds ─────────
@@ -292,5 +235,47 @@ def test_the_ranking_puts_completeness_before_the_gap():
     assert notes["event"] == "held"
 
 
-# ─── the emitted document declares itself ──────────────────────
+# ─── the report reaches a reader (`alignment_findings`) ────────
+#
+# It ORDERS and REPORTS; no number here decides anything (AGENTS.md 6).
+# On 001's run of record body[0] shipped a 1.169s silence inside a 2.982s
+# block, voiced_fraction 0.474, the worst of eight, and nothing said so.
 
+from library.tools.alignment_findings import (  # noqa: E402
+    passage_rows,
+    summary_lines,
+)
+
+# The eight records 001's run of record really wrote, trimmed to the
+# keys this module reads.
+REPORT = [
+    {"block": "Hook", "clip_id": "clip_011", "event": "ok",
+     "source_start": 0.836, "source_end": 3.234,
+     "leading_gap_seconds": 0.02, "largest_gap_seconds": 0.08,
+     "voiced_fraction": 0.852, "anchors_considered": 26},
+    {"block": "Body[#1]", "clip_id": "clip_011", "event": "ok",
+     "source_start": 9.699, "source_end": 12.681,
+     "leading_gap_seconds": 0.02, "largest_gap_seconds": 1.169,
+     "voiced_fraction": 0.474, "anchors_considered": 2},
+    {"block": "Body[#2]", "clip_id": "clip_017", "event": "reanchored",
+     "source_start": 45.441, "source_end": 55.59,
+     "leading_gap_seconds": 0.038, "largest_gap_seconds": 1.072,
+     "voiced_fraction": 0.579, "anchors_considered": 4},
+]
+
+
+def test_the_worst_internal_gap_comes_first():
+    rows = passage_rows(REPORT)
+    assert [r["block"] for r in rows] == ["Body[#1]", "Body[#2]", "Hook"]
+    assert rows[0]["largest_gap_seconds"] == 1.169
+    assert rows[0]["duration_seconds"] == 2.982
+    assert rows[0]["voiced_fraction"] == 0.474
+
+
+def test_an_unmeasured_passage_keeps_its_row_and_says_so():
+    rows = passage_rows([{"block": "Body[#1]", "clip_id": "clip_009"}])
+    assert len(rows) == 1
+    assert rows[0]["largest_gap_seconds"] is None
+    assert rows[0]["voiced_fraction"] is None
+    assert "unmeasured" in "\n".join(summary_lines(
+        [{"block": "Body[#1]", "clip_id": "clip_009"}]))

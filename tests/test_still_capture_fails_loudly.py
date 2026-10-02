@@ -1,18 +1,11 @@
 """A capture that did not happen raises by name - never a usable value.
 
-On 2026-09-10 a lane reported the captain's `.drx` grade moving 599,583
-pixels (28.9% of the frame); the real number was 486 pixels (0.023%).
-The cause: the `GrabStill` + `ExportStills` route returned False and
-wrote no file on Resolve Studio 21.0.0b, and the caller measured anyway -
-the "measurements" clustered around 600,000 px because they were the
-picture area, not a picture.  See `marker_capture`'s "WHEN THE ROUTE
+Every failure shape of the `GrabStill` + `ExportStills` route raises
+`StillCaptureError` (a `CaptureError`, so existing handlers still catch
+it), and the ffmpeg capture helpers treat a zero-byte file as failure,
+not a still. Incident (the 599,583-pixel grade that was really 486):
+docs/evidence/marker_capture.md and `marker_capture`'s "WHEN THE ROUTE
 FAILS".
-
-These tests pin the rule with fakes (no Resolve): all three failure
-shapes - `GrabStill` declining, `ExportStills` returning False, and no
-or empty file on disk - raise `StillCaptureError` (a `CaptureError`, so
-existing handlers still catch it).  The ffmpeg capture helpers pin the
-same rule in their own idiom: a zero-byte file is failure, not a still.
 """
 
 from __future__ import annotations
@@ -98,47 +91,27 @@ def _grab(exported=True, write_png=True, png_bytes=b"\x89PNG\r\n\x1a\n" + b"1" *
     return grab_still(_Timeline(still), _Project(album), destination)
 
 
-# ── The three failure shapes ──────────────────────────────────────
+# ── The failure shapes ────────────────────────────────────────────
 
 
-def test_grabstill_false_raises_by_name(tmp_path):
-    """`GrabStill` returning False is a capture that did not happen."""
-    with pytest.raises(StillCaptureError, match="declined to grab"):
-        _grab(still=False, tmp_path=tmp_path)
-
-
-
-
-def test_exportstills_false_raises_by_name(tmp_path):
-    """The 2026-09-10 shape: False return, nothing on disk."""
-    with pytest.raises(StillCaptureError, match="ExportStills returned False"):
-        _grab(exported=False, write_png=False, tmp_path=tmp_path)
-
-
-def test_exportstills_false_raises_even_when_a_file_is_there(tmp_path):
-    """A False return is authoritative: a file beside it is not this
-    call's file, so it must not reach a caller that would average it."""
-    with pytest.raises(StillCaptureError, match="ExportStills returned False"):
-        _grab(exported=False, write_png=True, tmp_path=tmp_path)
-
-
-def test_exportstills_true_with_no_file_raises_by_name(tmp_path):
-    with pytest.raises(StillCaptureError, match="wrote no png"):
-        _grab(exported=True, write_png=False, tmp_path=tmp_path)
-
-
-def test_zero_byte_still_raises_by_name(tmp_path):
-    with pytest.raises(StillCaptureError, match="is empty"):
-        _grab(exported=True, write_png=True, png_bytes=b"", tmp_path=tmp_path)
-
-
-def test_the_named_error_is_still_a_capture_error(tmp_path):
-    """Existing `except CaptureError` handlers keep catching it."""
+def test_every_capture_that_did_not_happen_raises_by_name(tmp_path):
+    """`GrabStill` declining; `ExportStills` returning False (the
+    2026-09-10 shape) - authoritative even when a file sits beside it,
+    because that file is not this call's; True with no file; and a
+    zero-byte file."""
     assert issubclass(StillCaptureError, CaptureError)
-    with pytest.raises(CaptureError):
-        _grab(still=False, tmp_path=tmp_path)
-
-
+    rows = [
+        (dict(still=False), "declined to grab"),
+        (dict(exported=False, write_png=False), "ExportStills returned False"),
+        (dict(exported=False, write_png=True), "ExportStills returned False"),
+        (dict(exported=True, write_png=False), "wrote no png"),
+        (dict(exported=True, write_png=True, png_bytes=b""), "is empty"),
+    ]
+    for n, (shape, fragment) in enumerate(rows):
+        folder = tmp_path / str(n)
+        folder.mkdir()
+        with pytest.raises(StillCaptureError, match=fragment):
+            _grab(tmp_path=folder, **shape)
 
 
 # ── The ffmpeg helpers: zero bytes is failure, not a still ────────
@@ -149,51 +122,28 @@ def _run_writing_zero_bytes(cmd, **kwargs):
     return SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
-def test_ask_the_footage_rejects_a_zero_byte_still(tmp_path):
+def test_every_ffmpeg_capture_helper_rejects_a_zero_byte_still(tmp_path):
     from library.skills.ask_the_footage.skill import capture_still
-
-    out = str(tmp_path / "still_00.png")
-    with patch("subprocess.run", side_effect=_run_writing_zero_bytes):
-        assert capture_still(str(tmp_path), 1.0, out) is False
-
-
-def test_verify_treatment_skips_zero_byte_stills(tmp_path):
     from library.skills.verify_treatment.skill import capture_window_stills
-
-    source = tmp_path / "clip.mp4"
-    source.write_bytes(b"fake-video")
-    with patch("subprocess.run", side_effect=_run_writing_zero_bytes):
-        assert capture_window_stills(
-            str(source), 30.0, [0, 90], str(tmp_path)) == []
-
-
-def test_grade_extract_frame_rejects_a_zero_byte_frame(tmp_path):
-    from library.steps.step_5_01_color_grade.grade import _extract_frame
-
-    source = tmp_path / "clip.mp4"
-    source.write_bytes(b"fake-video")
-    with patch("subprocess.run", side_effect=_run_writing_zero_bytes):
-        assert _extract_frame(str(source)) == ""
-
-
-def test_validate_output_extract_frame_rejects_a_zero_byte_frame(tmp_path):
-    from library.steps.step_6_02_validate_output.bridge import _extract_frame
-
-    source = tmp_path / "clip.mp4"
-    source.write_bytes(b"fake-video")
-    with patch("subprocess.run", side_effect=_run_writing_zero_bytes):
-        assert _extract_frame(
-            str(source), 30, str(tmp_path / "frame.png")) is False
-
-
-def test_vision_frame_cache_skips_a_zero_byte_frame(tmp_path):
-    """`extract_frames` never hands an empty file to the vision pass,
-    and does not leave it cached for the next run either."""
+    from library.steps.step_5_01_color_grade.grade import (
+        _extract_frame as grade_extract_frame,
+    )
+    from library.steps.step_6_02_validate_output.bridge import (
+        _extract_frame as validate_extract_frame,
+    )
     from library.tools.analysis.vision_pipeline_v3 import extract_frames
 
-    clip = tmp_path / "clip.mp4"
-    clip.write_bytes(b"fake-video")
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"fake-video")
     with patch("subprocess.run", side_effect=_run_writing_zero_bytes):
-        assert extract_frames(clip, 10.0, tmp_path, interval_s=5.0) == []
-    leftovers = [p for p in (tmp_path / "clip" / "frames").iterdir()]
-    assert leftovers == []
+        assert capture_still(
+            str(tmp_path), 1.0, str(tmp_path / "still_00.png")) is False
+        assert capture_window_stills(
+            str(source), 30.0, [0, 90], str(tmp_path)) == []
+        assert grade_extract_frame(str(source)) == ""
+        assert validate_extract_frame(
+            str(source), 30, str(tmp_path / "frame.png")) is False
+        # The vision pass is never handed an empty file, and does not
+        # leave it cached for the next run either.
+        assert extract_frames(source, 10.0, tmp_path, interval_s=5.0) == []
+    assert list((tmp_path / "clip" / "frames").iterdir()) == []

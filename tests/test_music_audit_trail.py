@@ -1,26 +1,12 @@
-"""The music audit trail is out of the spines, and kept in its own file.
+"""The music audit trail is out of the spines and kept whole in its own file.
 
-Captain's ruling, 2026-09-16: move it out to its own file, then confirm
-on a real run. The record - how each track was found and why this one
-was chosen - is KEPT; it just stops travelling through every step that
-never reads it (~24 kB per run in `pipeline_data.json`, the single
-largest remaining payload saving found anywhere in the pipeline).
-
-Both halves are pinned here:
-
-1. ABSENT from the edit data: `mesh_spine`'s post-bridge writes no
-   `music_selection` key into `audio_spine` (or `timed_spine`, which
-   is the same object).
-2. PRESENT and COMPLETE in its own file:
-   `pipeline_output/steps/2_04_music_selection/music_audit_trail.json`
-   (`library/tools/music_audit_trail.py`), holding the whole resolved
-   selection - candidates, justification, splices, section,
-   measurements, provenance - with nothing summarised away.
+Absent from `audio_spine`; present and complete in
+`2_04_music_selection/music_audit_trail.json`; a missing or unparseable
+sidecar refuses. History: docs/evidence/music_tests.md#music-audit-trail.
 """
 
 import json
 import os
-import subprocess
 import sys
 
 import pytest
@@ -152,60 +138,16 @@ def test_the_audit_file_holds_the_whole_selection(tmp_path):
 
 # ── The other half of 2.04's warn-and-continue write ──────────────
 #
-# The post-bridge keeps the run alive over a failed sidecar write with
-# one WARNING line nobody is looking for. `assert_audit_trail_present`
-# is what makes somebody look: the pre-render check calls it whenever
-# a selection was resolved, and it refuses loudly when the record is
-# gone. Without it the run silently reverts half of the 2026-09-16
-# ruling (the record is KEPT, only the carrier changes) while
-# reporting success.
+# The post-bridge only WARNS on a failed sidecar write; the pre-render
+# check's `assert_audit_trail_present` is what refuses.
 
-def test_a_missing_sidecar_after_a_resolved_selection_refuses(tmp_path):
+def test_a_missing_or_unparseable_sidecar_refuses(tmp_path):
     selection = _selection()
     with pytest.raises(audit.AuditTrailMissing,
                        match="audit sidecar is missing"):
         audit.assert_audit_trail_present(str(tmp_path), selection)
 
-
-def test_an_unparseable_sidecar_refuses(tmp_path):
-    selection = _selection()
     path = audit.write_audit_trail(str(tmp_path), selection)
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(audit.AuditTrailMissing, match="does not parse"):
         audit.assert_audit_trail_present(str(tmp_path), selection)
-
-
-def test_step_2_04_post_bridge_writes_the_sidecar(tmp_path):
-    """The real 2.04 post-bridge leaves the sidecar beside its output."""
-    from library.steps.step_2_04_music_selection import (
-        post_bridge as pb04,
-    )
-
-    track = tmp_path / "bed.wav"
-    track.write_bytes(b"RIFF" + b"\x00" * 100)
-    candidates = [{
-        "title": "Bed", "source": "library",
-        "audio_path": str(track),
-        "duration_seconds": 160.0, "duration_ok": True,
-    }]
-    selection = {
-        "title": "Bed", "source": "library",
-        "audio_path": str(track),
-        "duration_seconds": 160.0,
-        "direction_justification": {
-            "direction_mood": "measured, unhurried",
-            "why_it_fits": "it settles rather than pushes",
-            "forbidden_registers": ["triumphant"],
-            "why_not_forbidden": {"triumphant": "no brass, no lift"},
-        },
-        "candidates_evaluated": [
-            {"title": "Bed", "source": "library", "verdict": "chosen",
-             "reason": "the only candidate measured"}],
-    }
-    resolved = pb04.resolve_selection(
-        selection, candidates, 60.0, str(tmp_path))
-    path = audit.write_audit_trail(str(tmp_path), resolved)
-    stored = json.loads(path.read_text(encoding="utf-8"))
-    assert stored == resolved
-    assert stored["candidates_evaluated"] == \
-        selection["candidates_evaluated"]

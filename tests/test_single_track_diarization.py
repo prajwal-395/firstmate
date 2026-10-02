@@ -86,37 +86,58 @@ def _refuse_diarize(*args, **kwargs):
 
 # ── routing: the fallback taken when it should not be ────────────────
 
-def test_two_audio_paths_keep_the_per_iso_path(tmp_path, monkeypatch):
-    """Two timeline speakers must never reach the diarizer, even with no
-    declared roster: the per-ISO path owns multi-track timelines."""
-    src = _tone(tmp_path / "src.wav", 2.0)
-    clips = [_clip(src, 0.0, 1.0, 0.0, 1.0, uid="a", speaker="Akshita"),
-             _clip(src, 0.0, 1.0, 1.0, 2.0, uid="b", speaker="Craig")]
-    monkeypatch.setattr(std, "diarize_track", _refuse_diarize)
-    monkeypatch.setattr(
-        tt, "transcribe_audio",
-        lambda path, **kw: (_aligned("hello", 0.0, 1.0, 2), {"arm": "test"}))
-    document = tt.build_and_transcribe(str(tmp_path), _snapshot(clips))
-    assert document["diarization"]["path"] == "per-iso"
-    assert sorted(document["speakers"]) == ["Akshita", "Craig"]
-    assert document["segments_with_voice_embedding"] == 0
+def _refuse_missing(*args, **kwargs):
+    raise std.DiarizationUnavailable("no checkout")
 
 
-def test_declared_monologue_blocks_the_fallback(tmp_path, monkeypatch):
-    """One path plus a one-name roster keeps the single label: a
-    declared monologue has nothing to separate, and diarizing it could
-    only split one voice into invented speakers."""
-    (tmp_path / "project.yaml").write_text(
-        "source:\n  speakers:\n    - {name: Craig}\n", encoding="utf-8")
-    src = _tone(tmp_path / "src.wav", 2.0)
-    clips = [_clip(src, 0.0, 2.0, 0.0, 2.0, uid="a", speaker=None)]
-    monkeypatch.setattr(std, "diarize_track", _refuse_diarize)
-    monkeypatch.setattr(
-        tt, "transcribe_audio",
-        lambda path, **kw: (_aligned("hello", 0.0, 2.0, 2), {"arm": "test"}))
-    document = tt.build_and_transcribe(str(tmp_path), _snapshot(clips))
-    assert document["diarization"]["path"] == "single-label"
-    assert document["segments_with_voice_embedding"] == 0
+# (case, project.yaml, clip speakers, diarize flag, diarizer stub,
+#  expected path, reason fragment)
+SINGLE_LABEL_ROUTES = [
+    # Two timeline speakers never reach the diarizer, even with no
+    # declared roster: the per-ISO path owns multi-track timelines.
+    ("two audio paths", None, ["Akshita", "Craig"], True, _refuse_diarize,
+     "per-iso", None),
+    # One path plus a one-name roster keeps the single label: diarizing a
+    # declared monologue could only split one voice into invented speakers.
+    ("declared monologue", "source:\n  speakers:\n    - {name: Craig}\n",
+     [None], True, _refuse_diarize, "single-label", None),
+    # `--no-diarize-single-track` holds even an eligible timeline.
+    ("opt-out flag", None, [None], False, _refuse_diarize, "single-label",
+     "no-diarize-single-track"),
+    # No weights on the machine reads as single-label with the reason on
+    # the record - never a crash, never silence.
+    ("encoder unavailable", None, [None], True, _refuse_missing,
+     "single-label", "unavailable"),
+]
+
+
+def test_the_fallback_is_not_taken_where_it_must_not_be(tmp_path,
+                                                        monkeypatch):
+    for (case, yaml_text, speakers, diarize, stub, path,
+         reason) in SINGLE_LABEL_ROUTES:
+        folder = tmp_path / case.replace(" ", "_")
+        folder.mkdir()
+        if yaml_text:
+            (folder / "project.yaml").write_text(yaml_text, encoding="utf-8")
+        src = _tone(folder / "src.wav", 2.0)
+        span = 2.0 / len(speakers)
+        clips = [_clip(src, 0.0, span, i * span, (i + 1) * span,
+                       uid=f"u{i}", speaker=who)
+                 for i, who in enumerate(speakers)]
+        monkeypatch.setattr(std, "diarize_track", stub)
+        monkeypatch.setattr(
+            tt, "transcribe_audio",
+            lambda p, span=span, **kw: (
+                _aligned("hello", 0.0, span, 2), {"arm": "test"}))
+        document = tt.build_and_transcribe(
+            str(folder), _snapshot(clips), diarize=diarize)
+        assert document["diarization"]["path"] == path, case
+        assert document["segments_with_voice_embedding"] == 0, case
+        assert document["segment_count"] > 0, case
+        if reason:
+            assert reason in document["diarization"]["reason"], case
+        if case == "two audio paths":
+            assert sorted(document["speakers"]) == ["Akshita", "Craig"]
 
 
 def test_declared_roster_count_reaches_k(tmp_path, monkeypatch):
@@ -141,21 +162,6 @@ def test_declared_roster_count_reaches_k(tmp_path, monkeypatch):
     document = tt.build_and_transcribe(str(tmp_path), _snapshot(clips))
     assert asked == [2]
     assert document["diarization"]["path"] == "single-track-fallback"
-
-
-def test_no_diarize_flag_forces_single_label(tmp_path, monkeypatch):
-    """`--no-diarize-single-track` must hold even an eligible timeline
-    on one label: an opt-out that still diarizes is not an opt-out."""
-    src = _tone(tmp_path / "src.wav", 2.0)
-    clips = [_clip(src, 0.0, 2.0, 0.0, 2.0, uid="a", speaker=None)]
-    monkeypatch.setattr(std, "diarize_track", _refuse_diarize)
-    monkeypatch.setattr(
-        tt, "transcribe_audio",
-        lambda path, **kw: (_aligned("hello", 0.0, 2.0, 2), {"arm": "test"}))
-    document = tt.build_and_transcribe(
-        str(tmp_path), _snapshot(clips), diarize=False)
-    assert document["diarization"]["path"] == "single-label"
-    assert "no-diarize-single-track" in document["diarization"]["reason"]
 
 
 def _canned_diarization():
@@ -207,47 +213,27 @@ def test_eligible_single_path_diarizes_and_prints_voices(tmp_path,
     assert len(first["voice_embedding"]) == 4
 
 
-def test_unavailable_encoder_records_single_label(tmp_path, monkeypatch):
-    """No weights on the machine must read as today's behavior with the
-    reason on the record - never a crash, never silence."""
-    src = _tone(tmp_path / "src.wav", 2.0)
-    clips = [_clip(src, 0.0, 2.0, 0.0, 2.0, uid="a", speaker=None)]
-
-    def _missing(*args, **kwargs):
-        raise std.DiarizationUnavailable("no checkout")
-
-    monkeypatch.setattr(std, "diarize_track", _missing)
-    monkeypatch.setattr(
-        tt, "transcribe_audio",
-        lambda path, **kw: (_aligned("hello", 0.0, 2.0, 2), {"arm": "test"}))
-    document = tt.build_and_transcribe(str(tmp_path), _snapshot(clips))
-    assert document["diarization"]["path"] == "single-label"
-    assert "unavailable" in document["diarization"]["reason"]
-    assert document["segment_count"] > 0
-
-
 # ── turns: the seam a dropped window leaves ──────────────────────────
 
-def test_merge_runs_truncates_seam_overlaps():
+def test_merge_runs_never_double_claims_a_seam():
     """A VAD-dropped window splits runs but both 1.5 s windows still
-    cover the seam: without truncation the hypothesis claims the seam
-    twice and every overlap counts double downstream. The earlier tail
-    wins; the later turn starts where it ends."""
-    starts = np.array([0.0, 0.5, 1.0, 2.0, 2.5])
-    turns = std.merge_runs_to_turns(starts, [0, 0, 0, 0, 0])
-    assert turns == [(0.0, 2.5, 0), (2.5, 4.0, 0)]
-    for (first_start, first_end, _), (second_start, _, _) in (
-            itertools.pairwise(turns)):
-        assert first_start < first_end
-        assert second_start >= first_end
-
-
-def test_merge_runs_splits_on_label_change_and_yields():
-    """A speaker change splits the run and the earlier tail wins the
-    overlapped second: one label per frame, no double claim."""
-    starts = np.array([0.0, 0.5, 1.0, 1.5])
-    turns = std.merge_runs_to_turns(starts, [0, 0, 1, 1])
-    assert turns == [(0.0, 2.0, 0), (2.0, 3.0, 1)]
+    cover the seam, and a speaker change overlaps the same way: without
+    truncation the hypothesis claims the seam twice and every overlap
+    counts double downstream. The earlier tail wins; the later turn
+    starts where it ends."""
+    cases = [
+        ([0.0, 0.5, 1.0, 2.0, 2.5], [0, 0, 0, 0, 0],
+         [(0.0, 2.5, 0), (2.5, 4.0, 0)]),
+        ([0.0, 0.5, 1.0, 1.5], [0, 0, 1, 1],
+         [(0.0, 2.0, 0), (2.0, 3.0, 1)]),
+    ]
+    for starts, labels, expected in cases:
+        turns = std.merge_runs_to_turns(np.array(starts), labels)
+        assert turns == expected
+        for (first_start, first_end, _), (second_start, _, _) in (
+                itertools.pairwise(turns)):
+            assert first_start < first_end
+            assert second_start >= first_end
 
 
 # ── voice prints and the k search, without the ML stack ──────────────

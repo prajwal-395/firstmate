@@ -1,17 +1,7 @@
-"""The main selection resolves title-plus-source to a catalogue path.
-
-At HEAD the model had to hand-copy `audio_path` verbatim because nothing
-resolved the track TITLE it chose to the catalogue PATH the verdict
-demands - the only title matching in the path was `_shortlist_track`,
-which serves shortlist sections, not the main selection.  So a title the
-model named and a path it retyped could disagree, and the step could only
-refuse the disagreement after the fact.
-
-`resolve_audio_path` is the missing resolver: exact on title AND source,
-and a refusal - never a guess - when the title is absent or ambiguous.
-An ambiguous title resolved by picking the first match would let sorted
-order decide what the viewer hears, which is the defect family AGENTS.md
-10.5 has been closing.
+"""The main selection resolves title-plus-source to a catalogue path:
+exact on title AND source, and a refusal - never a guess - when the title
+is absent or ambiguous (AGENTS.md 10.5). History:
+docs/evidence/music_tests.md#music-selection-resolver.
 """
 import sys
 from pathlib import Path
@@ -72,43 +62,27 @@ def test_exact_title_and_source_resolve_to_the_catalogue_path():
     assert path == "/music/rise.mp3"
 
 
-def test_source_scopes_the_match():
-    """The same title held by the project is not the library's track."""
-    candidates = [_candidate("rise", "project", "/proj/music/rise.wav")]
-    path, errors = resolve_audio_path("rise", "library", candidates)
+def test_a_title_that_does_not_name_exactly_one_entry_is_refused():
+    """Never guessed: scoped by source, absent, or ambiguous - each refuses
+    and says what IS held, so the answer can be corrected."""
+    project_only = [_candidate("rise", "project", "/proj/music/rise.wav")]
+    path, errors = resolve_audio_path("rise", "library", project_only)
     assert path is None
     assert any("rise" in e and "library" in e for e in errors)
 
-
-# ── ...and refuses rather than guessing ──────────────────────────────
-
-
-def test_an_absent_title_is_refused_actionably():
-    candidates = [_candidate("rise", "library", "/music/rise.mp3")]
-    path, errors = resolve_audio_path("something else", "library", candidates)
+    held = [_candidate("rise", "library", "/music/rise.mp3")]
+    path, errors = resolve_audio_path("something else", "library", held)
     assert path is None
-    assert errors, "an unknown title must be refused, not resolved to nothing"
     joined = " ".join(errors)
-    assert "something else" in joined
-    assert "rise" in joined, (
-        "the refusal must say what IS held, so the answer can be corrected"
-    )
+    assert "something else" in joined and "rise" in joined
 
-
-def test_an_ambiguous_title_is_refused_not_first_matched():
-    """Two files, one name: sorted order must not decide the bed."""
+    # two files, one name: sorted order must not decide the bed
     first = _candidate("rise", "library", "/music/a-rise.mp3")
     second = _candidate("rise", "library", "/music/z-rise.mp3")
-    path, errors = resolve_audio_path(
-        "rise", "library", [second, first])
+    path, errors = resolve_audio_path("rise", "library", [second, first])
     assert path is None
-    assert errors, "an ambiguous title must be refused, never picked"
     joined = " ".join(errors)
-    assert "/music/a-rise.mp3" in joined
-    assert "/music/z-rise.mp3" in joined
-    assert path != "/music/a-rise.mp3", (
-        "the sorted-first file must not become the answer by position"
-    )
+    assert "/music/a-rise.mp3" in joined and "/music/z-rise.mp3" in joined
 
 
 # ── The post-bridge uses it ───────────────────────────────────────────

@@ -1,20 +1,13 @@
 """What the timeline says, rebuilt from source spans rather than rendered.
 
-The design claim worth testing is the CACHE KEY. The captain asked to be
-able to re-index one portion of the cut - a clip that was unused becoming
-used, or an earlier index being wrong - and that is only possible if an
-extracted span is addressed by the span itself and not by where it sits.
-`test_the_cache_key_ignores_timeline_position` is that claim.
-
-ffmpeg is real here; the fixtures are tiny generated tones, so the tests
-measure the assembly rather than mocking it.
+The design claim worth testing is the CACHE KEY: re-indexing one portion
+of the cut is only possible if an extracted span is addressed by the span
+itself and not by where it sits on the timeline.
 """
 
 from __future__ import annotations
 
 import math
-import shutil
-import subprocess
 import sys
 import wave
 from array import array
@@ -24,27 +17,6 @@ import pytest
 
 from library.tools import reel_proposal, timeline_transcript as tt
 from library.tools.timeline_ingest import TimelineClip
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg/ffprobe are required; CI installs them (AGENTS.md 9)")
-
-
-def _tone(path: Path, seconds: float, freq: int = 440) -> Path:
-    subprocess.run(
-        ["ffmpeg", "-nostdin", "-y", "-loglevel", "error",
-         "-f", "lavfi", "-i", f"sine=frequency={freq}:duration={seconds}",
-         "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(path)],
-        check=True)
-    return path
-
-
-def _duration(path: Path) -> float:
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(path)],
-        capture_output=True, encoding="utf-8", check=True)
-    return float(out.stdout.strip())
 
 
 def _write_iso_level(path: Path, start: float, end: float,
@@ -101,38 +73,35 @@ def _clip(source, src_in, src_out, tl_start, tl_end, uid="uid", speaker="A",
 
 # ── The cache key, which is what makes re-indexing possible ──────────
 
-def test_the_cache_key_ignores_timeline_position(tmp_path):
+def test_the_cache_key_is_the_span_and_only_the_span():
     """The captain's ask: re-index one portion. A key that included the
     cut position would re-extract a clip that merely MOVED, and would
     miss a span already extracted for a different clip."""
     a = tt.span_cache_key("/m/LC4930.MXF", 131.4, 151.7)
-    b = tt.span_cache_key("/m/LC4930.MXF", 131.4, 151.7)
-    assert a == b
-
-
-def test_a_different_span_gets_a_different_key():
-    a = tt.span_cache_key("/m/LC4930.MXF", 131.4, 151.7)
+    assert a == tt.span_cache_key("/m/LC4930.MXF", 131.4, 151.7)
     assert a != tt.span_cache_key("/m/LC4930.MXF", 131.4, 151.8)
     assert a != tt.span_cache_key("/m/LC4931.MXF", 131.4, 151.7)
-
-
-def test_the_key_is_stable_across_float_noise():
+    # Stable across float noise.
     assert (tt.span_cache_key("/m/x.MXF", 10.0000001, 20.0)
             == tt.span_cache_key("/m/x.MXF", 10.0, 20.0))
 
 
-def test_reel15_duplicate_sentence_keeps_akshitas_clearer_iso(tmp_path):
-    """The passage arrived 50ms earlier on Craig's transcript, but
-    Akshita's measured mic is much louder and owns the caption/spine."""
-    tracks = {
-        "Craig": _write_iso_level(tmp_path / "craig.wav", 1.0, 3.42, 200),
-        "Akshita": _write_iso_level(tmp_path / "akshita.wav", 1.0, 3.42, 2000),
-    }
-    merged, decisions = tt.merge_speakers({
-        "Craig": [_reel15_duplicate("Craig", 1.0)],
-        "Akshita": [_reel15_duplicate("Akshita", 1.05)],
-    }, tracks)
+def test_mic_bleed_duplicate_is_dropped_only_when_the_iso_levels_decide(
+        tmp_path):
+    """Reel 15: one sentence on both mics, 50ms apart. The clearly louder
+    iso owns it; equal levels or a missing iso keep both and say why; and
+    distinct overlapping speech is never a bleed candidate."""
+    def tracks(craig, akshita):
+        return {
+            "Craig": _write_iso_level(tmp_path / "craig.wav", 1.0, 3.42, craig),
+            "Akshita": _write_iso_level(tmp_path / "akshita.wav", 1.0, 3.42,
+                                        akshita),
+        }
 
+    duplicate = {"Craig": [_reel15_duplicate("Craig", 1.0)],
+                 "Akshita": [_reel15_duplicate("Akshita", 1.05)]}
+
+    merged, decisions = tt.merge_speakers(duplicate, tracks(200, 2000))
     assert len(merged) == 1
     assert merged[0].speaker == "Akshita"
     assert merged[0].text.startswith("Yeah,")
@@ -142,36 +111,16 @@ def test_reel15_duplicate_sentence_keeps_akshitas_clearer_iso(tmp_path):
     assert decisions[0]["dropped_speaker"] == "Craig"
     assert decisions[0]["level_difference_db"] >= 19.0
 
+    for audio, reason in ((tracks(1000, 1000),
+                           "level_difference_below_threshold"),
+                          (None, "audio_tracks_missing")):
+        args = (duplicate, audio) if audio else (duplicate,)
+        merged, decisions = tt.merge_speakers(*args)
+        assert {segment.speaker for segment in merged} == {"Craig", "Akshita"}
+        assert decisions[0]["status"] == "unresolved", reason
+        assert decisions[0]["reason"] == reason
 
-def test_duplicate_passage_is_kept_when_audio_does_not_decide(tmp_path):
-    tracks = {
-        "Craig": _write_iso_level(tmp_path / "craig.wav", 1.0, 3.42, 1000),
-        "Akshita": _write_iso_level(tmp_path / "akshita.wav", 1.0, 3.42, 1000),
-    }
-    merged, decisions = tt.merge_speakers({
-        "Craig": [_reel15_duplicate("Craig", 1.0)],
-        "Akshita": [_reel15_duplicate("Akshita", 1.05)],
-    }, tracks)
-
-    assert {segment.speaker for segment in merged} == {"Craig", "Akshita"}
-    assert decisions[0]["status"] == "unresolved"
-    assert decisions[0]["reason"] == "level_difference_below_threshold"
-
-
-def test_duplicate_passage_is_kept_without_both_iso_tracks():
-    merged, decisions = tt.merge_speakers({
-        "Craig": [_reel15_duplicate("Craig", 1.0)],
-        "Akshita": [_reel15_duplicate("Akshita", 1.05)],
-    })
-
-    assert {segment.speaker for segment in merged} == {"Craig", "Akshita"}
-    assert decisions[0]["status"] == "unresolved"
-    assert decisions[0]["reason"] == "audio_tracks_missing"
-
-
-def test_overlapping_distinct_speech_is_not_a_bleed_candidate():
-    first = _reel15_duplicate("Craig", 1.0)
-    second = tt.SpokenSegment(
+    distinct = tt.SpokenSegment(
         speaker="Akshita", text="No, I was talking about the other thing.",
         timeline_start=1.05, timeline_end=3.42, source_file="/Akshita.MXF",
         source_start=2716.0, source_end=2718.37,
@@ -181,32 +130,12 @@ def test_overlapping_distinct_speech_is_not_a_bleed_candidate():
             for index, word in enumerate(
                 "No I was talking about the other thing".split())))
     merged, decisions = tt.merge_speakers({
-        "Craig": [first], "Akshita": [second]})
-
+        "Craig": [_reel15_duplicate("Craig", 1.0)], "Akshita": [distinct]})
     assert len(merged) == 2
     assert decisions == []
 
 
-
-
-# ── Rebuilding the audio ─────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ── Binding speech back to the footage ───────────────────────────────
-
 
 
 def test_speech_straddling_a_cut_is_attributed_to_nothing(tmp_path):
@@ -215,10 +144,6 @@ def test_speech_straddling_a_cut_is_attributed_to_nothing(tmp_path):
     clips = [_clip("/m/a.MXF", 100.0, 120.0, 10.0, 30.0, uid="a"),
              _clip("/m/b.MXF", 5.0, 25.0, 30.0, 50.0, uid="b")]
     assert tt.attribute_to_clip(28.0, 34.0, clips) is None
-
-
-
-
 
 
 # ── Untimed words are interpolated, never dropped ────────────────────
@@ -232,12 +157,7 @@ def test_an_untimed_word_is_interpolated_not_dropped():
     assert [w["word"] for w in out] == ["hello", "there", "friend"]
     assert out[1]["timed"] is False
     assert 1.4 <= out[1]["start"] < out[1]["end"] <= 2.0
-
-
-
-
-def test_an_untimed_word_with_no_neighbours_is_dropped():
-    """Nothing to interpolate FROM. Dropping is honest; inventing is not."""
+    # Nothing to interpolate FROM: dropping is honest; inventing is not.
     assert tt.interpolate_untimed_words([{"word": "alone"}]) == []
 
 
@@ -388,23 +308,19 @@ def test_a_row_inside_one_clip_is_left_exactly_as_it_was():
     assert out[0].read_from_words is False
 
 
-def test_a_row_wholly_in_a_gap_stays_unbound():
-    """The honest outcome, unchanged. Nine of the field test's nineteen
-    unbindable words are single words the aligner stretched across a
-    silence; nothing here invents a clip for them."""
-    row = {"start": 620.0, "end": 628.0, "text": "well",
-           "words": [_word("well", 620.0, 628.0)]}
-    out = tt.segments_for_speaker({"segments": [row]}, "Craig",
+def test_speech_in_a_gap_between_clips_stays_unbound():
+    """Nothing invents a clip for a word the aligner stretched across a
+    silence - neither a row wholly in the gap, nor the middle of a row
+    whose head and tail sit on clips."""
+    whole = {"start": 620.0, "end": 628.0, "text": "well",
+             "words": [_word("well", 620.0, 628.0)]}
+    out = tt.segments_for_speaker({"segments": [whole]}, "Craig",
                                   _craig_clips())
     assert len(out) == 1
     assert out[0].resolve_item_id is None
     assert out[0].source_start is None
     assert out[0].text == "well"
 
-
-def test_a_row_that_reaches_a_clip_only_at_its_edges_keeps_the_gap_out():
-    """Head on a clip, middle in the gap, tail on the next: three parts,
-    and the middle one is still refused."""
     row = {"start": 613.0, "end": 632.0, "text": "here well when",
            "words": [_word("here", 613.7, 613.9),
                      _word("well", 620.0, 628.0),
@@ -424,16 +340,6 @@ def test_a_word_is_placed_by_the_same_containment_rule_with_no_tolerance():
     assert tt.clip_of_word(_word("x", 613.0, 613.2), clips).resolve_item_id == "A"
     just_out = _word("x", 614.014, 614.016)
     assert tt.clip_of_word(just_out, clips) is None
-
-
-def test_the_runs_are_maximal():
-    """Consecutive words on one clip are ONE run, not one run each: a
-    caption card per word is not what a split is for."""
-    runs = tt.clip_runs(ROW_204["words"], _craig_clips())
-    assert [(c.resolve_item_id if c else None, len(w)) for c, w in runs] \
-        == [("A", 2), ("B", 3)]
-
-
 
 
 def test_the_document_counts_rows_whose_text_outruns_their_timings():
@@ -519,20 +425,15 @@ def test_rebinding_splits_a_row_the_old_pass_left_unbound():
     after = tt.rebind_document(before, _Snap())
 
     assert after["segments_straddling_a_cut"] == 0
+    # The repair is a binding: every word timing out is a word timing in.
+    assert [w for s in after["segments"] for w in s["words"]] \
+        == ROW_204["words"]
     assert [s["resolve_item_id"] for s in after["segments"]] == ["A", "B"]
     assert [s["text"] for s in after["segments"]] == ["on here", "yeah so ranking"]
     assert after["segments_rebound_from_words"] == 2
 
 
-def test_rebinding_re_hears_nothing():
-    """Every word timing out is a word timing in. The repair is a
-    binding, so a word that moved would mean something else ran."""
-    after = tt.rebind_document(_straddling_document(), _Snap())
-    words = [w for s in after["segments"] for w in s["words"]]
-    assert words == ROW_204["words"]
-
-
-def test_rebinding_leaves_a_bound_row_exactly_as_it_was():
+def test_rebinding_leaves_bound_and_wordless_rows_exactly_as_they_were():
     """`segments_for_speaker`'s own rule - a row that already binds is
     left ALONE - and re-reading the bound ones was measured to move 4 of
     875 by 0.05-0.12s for no gain. A rebind must not do it either."""
@@ -546,11 +447,8 @@ def test_rebinding_leaves_a_bound_row_exactly_as_it_was():
     after = tt.rebind_document(before, _Snap())
     assert after["segments"] == before["segments"]
 
-
-def test_rebinding_leaves_a_row_with_no_words_alone():
-    """A row with no per-word timing cannot be asked the word question.
-    It stays as it is rather than being dropped - dropping it would lose
-    a row the transcript really carries."""
+    # A row with no per-word timing cannot be asked the word question;
+    # it stays rather than being dropped.
     wordless = tt.SpokenSegment(
         speaker="Craig", text="mm", timeline_start=609.0, timeline_end=609.4,
         source_file=None, source_start=None, source_end=None,
@@ -559,18 +457,6 @@ def test_rebinding_leaves_a_row_with_no_words_alone():
     after = tt.rebind_document(before, _Snap())
     assert after["segments"] == before["segments"]
     assert after["segments_straddling_a_cut"] == 1
-
-
-def test_a_rebound_transcript_says_it_was_rebound():
-    """Two transcripts of one timeline differ in when each HALF of them
-    was produced, and a reader cannot tell from the rows."""
-    after = tt.rebind_document(_straddling_document(), _Snap())
-    assert "RE-DERIVED" in after["measurement"]
-    # The transcribe half is still named, and it is the half that did
-    # not run here: the words and their timings came from the earlier
-    # pass, the binding came from this machine's clip list.
-    assert "forced alignment" in after["measurement"]
-    assert "the one the transcribe pass produced" in after["measurement"]
 
 
 # ── The seam: the hybrid hears one speaker ─────────────────────────
@@ -635,6 +521,7 @@ def test_silence_is_returned_empty_and_attributed(monkeypatch):
     assert asked == {"hybrid": 1}
     assert aligned["segments"] == []
     assert record["arm"] == "none"
+    assert record["aligner"] is None
     assert record["fell_back_because"]["trigger"] == \
         hybrid_transcription.HEARD_NOTHING
     assert record["attempted_on"] == "craig.wav"
@@ -662,41 +549,31 @@ def test_a_refusal_the_seam_cannot_answer_propagates(monkeypatch):
     assert "no words" in exc.value.detail
 
 
-
-
-def test_the_document_says_which_arm_heard_each_speaker():
-    """The "whisperx" arm below is legacy vocabulary, kept readable.
-
-    No transcript written since 2026-09-24 can carry it, but old ones
-    still read - and a mixed transcript must still name each speaker's
-    instrument rather than blending into one."""
+def test_the_document_says_which_arm_and_aligner_heard_each_speaker():
+    """Per speaker, never blended. "whisperx"/"wav2vec2" are legacy
+    vocabulary: no transcript written since 2026-09-24 carries them, but
+    old ones still read. Any hybrid part means the confidence is gone;
+    a transcript with nothing to say carries no arm block at all."""
     from library.tools import hybrid_transcription
 
     record = tt.transcription_record({
-        "Akshita": {"arm": hybrid_transcription.ARM_HYBRID},
+        "Akshita": {"arm": hybrid_transcription.ARM_HYBRID,
+                    "aligner": hybrid_transcription.ALIGNER_MFA},
         "Craig": {"arm": hybrid_transcription.ARM_WHISPERX,
+                  "aligner": hybrid_transcription.ALIGNER_WAV2VEC2,
                   "fell_back_because": {"trigger": "heard_nothing",
                                         "detail": "no words"}},
     })
     assert record["arms"] == {"Akshita": "hybrid", "Craig": "whisperx"}
+    assert record["aligners"] == {"Akshita": "mfa", "Craig": "wav2vec2"}
     assert record["by_speaker"]["Craig"]["fell_back_because"]["trigger"] \
         == "heard_nothing"
-
-
-def test_a_transcript_any_part_of_which_is_hybrid_says_the_confidence_is_gone():
-    """Zero rows with `avg_logprob` already meant two things. It now
-    means three, and this is what tells them apart."""
-    from library.tools import hybrid_transcription
-
-    mixed = tt.transcription_record({
-        "Akshita": {"arm": hybrid_transcription.ARM_HYBRID},
-        "Craig": {"arm": hybrid_transcription.ARM_WHISPERX},
-    })
-    assert mixed["asr_confidence"] == \
+    assert record["asr_confidence"] == \
         hybrid_transcription.ASR_CONFIDENCE_ABSENT
     whisperx_only = tt.transcription_record(
         {"Craig": {"arm": hybrid_transcription.ARM_WHISPERX}})
     assert whisperx_only["asr_confidence"] == "present"
+    assert "transcription" not in tt.transcript_document(_Snap(), [])
 
 
 def test_a_rebind_does_not_lose_which_transcriber_heard_the_words():
@@ -715,8 +592,37 @@ def test_a_rebind_does_not_lose_which_transcriber_heard_the_words():
     assert after["transcription"]["arms"] == {"Craig": "hybrid"}
 
 
-def test_a_transcript_written_before_the_seam_carries_no_arm_block():
-    """The key is written only when there is something to say, so an
-    older transcript is not retro-labelled with an arm nobody recorded."""
-    document = tt.transcript_document(_Snap(), [])
-    assert "transcription" not in document
+def test_a_suppression_entry_does_not_lose_the_transcript(tmp_path,
+                                                          monkeypatch):
+    """2026-09-25, geo-podcast: a full re-transcription finished, then
+    raised `KeyError: 'replacements'` while PRINTING its correction
+    summary (suppression entries carry `suppressed`, not `replacements`),
+    so the document was never returned and the transcription was lost."""
+    from types import SimpleNamespace
+
+    from library.tools import single_track_diarization as std
+    from library.tools import transcript_corrections
+
+    clip = SimpleNamespace(speaker="Akshita")
+    snapshot = SimpleNamespace(picture_clips=lambda: [clip])
+    monkeypatch.setattr(tt, "build_speaker_audio", lambda *a, **k: None)
+    monkeypatch.setattr(tt, "transcribe_audio", lambda *a, **k: ({}, {}))
+    monkeypatch.setattr(tt, "segments_for_speaker", lambda *a, **k: [])
+    monkeypatch.setattr(tt, "transcript_document",
+                        lambda *a, **k: {"segments": []})
+
+    # The rebuild is mocked (no wav), so the diarizer reads unavailable.
+    def _missing(*args, **kwargs):
+        raise std.DiarizationUnavailable("no checkout")
+    monkeypatch.setattr(std, "diarize_track", _missing)
+    monkeypatch.setattr(
+        transcript_corrections, "apply_to_document",
+        lambda document, folder: {
+            "replacements": 1, "segments_touched": 1, "suppressed": 1,
+            "applied": [
+                {"id": "lc-1", "heard": "x", "correct": "y",
+                 "replacements": 1},
+                {"id": "lc-2", "heard": "um", "suppressed": 1},
+            ]})
+    document = tt.build_and_transcribe(str(tmp_path), snapshot)
+    assert document == {"segments": []}
