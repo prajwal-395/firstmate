@@ -393,9 +393,11 @@ def resolve_session():
     LIVE_RESOLVE_GUARD.armed = False
     try:
         try:
+            from library.tools.resolved.jobs import QUALIFICATION_PROJECT
             with resolve_lock.resolve_lease(
                     "pytest: a test that drives the live Resolve",
-                    exclusive=True, timeout=5.0) as lease:
+                    exclusive=True, timeout=5.0,
+                    qualification_project=QUALIFICATION_PROJECT) as lease:
                 yield lease
         except resolve_lock.ResolveBusy as busy:
             pytest.skip(str(busy))

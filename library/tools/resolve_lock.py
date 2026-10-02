@@ -498,7 +498,8 @@ def assume_sole_writer(reason: str):
 def resolve_lease(purpose: str, exclusive: bool = True,
                   timeout: Optional[float] = None,
                   owner: Optional[str] = None,
-                  honor_captain: bool = True):
+                  honor_captain: bool = True,
+                  qualification_project: str = ""):
     """Hold the Resolve instance for one critical section.
 
     Exclusive by default: a cursor operation is a write even when it
@@ -523,6 +524,15 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     full-suite runs at 0% CPU on 2026-09-11. Where the wait was on the
     captain's signal, the refusal is `CaptainPresent`, which names the
     signal, its age, and how to clear it.
+
+    Where ren-resolved is serving, the acquisition first takes its TURN
+    from the broker (`library/tools/resolved`), so this lease is
+    scheduled - priority, aging, the captain's own actions first - with
+    every other Resolve job instead of racing for the flock. The flock
+    is still taken underneath: it is the fence against a writer that
+    never asked the broker. `qualification_project` marks a TEST
+    section; the broker refuses it unless that project is the
+    qualification project and is the one open.
     """
     global _depth, _mode
     if _sole_writer_reason is not None:
@@ -591,62 +601,93 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     _entry_captain = captain_present() if honor_captain else None
     if honor_captain:
         _wait_for_captain(purpose, resolved_timeout)
-    deadline = time.time() + resolved_timeout
-    lock_dir().mkdir(parents=True, exist_ok=True)
-    handle = open(lock_path(), "a+", encoding="utf-8")
-    try:
-        while not _flock(handle, exclusive, blocking=False):
-            if time.time() >= deadline:
-                current = holder()
-                raise ResolveBusy(
-                    f"Resolve is held by "
-                    f"{current.describe() if current else 'another process'}"
-                    f" - waited {resolved_timeout:g}s "
-                    f"for {purpose!r}",
-                    "one instance, no isolation",
-                    "wait for the holder to finish, or come back later - "
-                    "re-run the same command")
-            # Who is holding it NOW, not just who was there at entry:
-            # a handoff mid-wait otherwise misattributes the delay.
-            # One small file read per poll; the most recent holder
-            # seen is what the granted lease names.
-            _during = holder()
-            if _during is not None:
-                waited_on = _during.describe()
-            time.sleep(_POLL_SECONDS)
-
-        wait_seconds = max(0.0, time.time() - acquire_start)
-        if not waited_on and _entry_captain is not None:
-            waited_on = _entry_captain.describe()
-        lease = Lease(owner=owner or default_owner(), purpose=purpose,
-                      pid=os.getpid(), host=socket.gethostname(),
-                      since=time.time(),
-                      wait_seconds=wait_seconds,
-                      waited_on=waited_on)
-        _depth, _mode = 1, "exclusive" if exclusive else "shared"
-        previous_inherit = os.environ.get(INHERIT_ENV)
-        previous_inherit_mode = os.environ.get(INHERIT_MODE_ENV)
-        os.environ[INHERIT_ENV] = str(os.getpid())
-        os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
-        if exclusive:
-            _write_lease(lease)
+    with _broker_turn(purpose, exclusive, not honor_captain,
+                      resolved_timeout, owner or default_owner(),
+                      qualification_project):
+        deadline = time.time() + resolved_timeout
+        lock_dir().mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path(), "a+", encoding="utf-8")
         try:
-            yield lease
-        finally:
-            _depth, _mode = 0, None
-            if previous_inherit is None:
-                os.environ.pop(INHERIT_ENV, None)
-            else:
-                os.environ[INHERIT_ENV] = previous_inherit
-            if previous_inherit_mode is None:
-                os.environ.pop(INHERIT_MODE_ENV, None)
-            else:
-                os.environ[INHERIT_MODE_ENV] = previous_inherit_mode
+            while not _flock(handle, exclusive, blocking=False):
+                if time.time() >= deadline:
+                    current = holder()
+                    raise ResolveBusy(
+                        f"Resolve is held by "
+                        f"{current.describe() if current else 'another process'}"
+                        f" - waited {resolved_timeout:g}s "
+                        f"for {purpose!r}",
+                        "one instance, no isolation",
+                        "wait for the holder to finish, or come back later - "
+                        "re-run the same command")
+                # Who is holding it NOW, not just who was there at entry:
+                # a handoff mid-wait otherwise misattributes the delay.
+                # One small file read per poll; the most recent holder
+                # seen is what the granted lease names.
+                _during = holder()
+                if _during is not None:
+                    waited_on = _during.describe()
+                time.sleep(_POLL_SECONDS)
+
+            wait_seconds = max(0.0, time.time() - acquire_start)
+            if not waited_on and _entry_captain is not None:
+                waited_on = _entry_captain.describe()
+            lease = Lease(owner=owner or default_owner(), purpose=purpose,
+                          pid=os.getpid(), host=socket.gethostname(),
+                          since=time.time(),
+                          wait_seconds=wait_seconds,
+                          waited_on=waited_on)
+            _depth, _mode = 1, "exclusive" if exclusive else "shared"
+            previous_inherit = os.environ.get(INHERIT_ENV)
+            previous_inherit_mode = os.environ.get(INHERIT_MODE_ENV)
+            os.environ[INHERIT_ENV] = str(os.getpid())
+            os.environ[INHERIT_MODE_ENV] = "exclusive" if exclusive else "shared"
             if exclusive:
-                _clear_lease()
-            _unflock(handle)
-    finally:
-        handle.close()
+                _write_lease(lease)
+            try:
+                yield lease
+            finally:
+                _depth, _mode = 0, None
+                if previous_inherit is None:
+                    os.environ.pop(INHERIT_ENV, None)
+                else:
+                    os.environ[INHERIT_ENV] = previous_inherit
+                if previous_inherit_mode is None:
+                    os.environ.pop(INHERIT_MODE_ENV, None)
+                else:
+                    os.environ[INHERIT_MODE_ENV] = previous_inherit_mode
+                if exclusive:
+                    _clear_lease()
+                _unflock(handle)
+        finally:
+            handle.close()
+
+
+@contextmanager
+def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
+                 timeout: float, owner: str, qualification_project: str):
+    """The broker's grant for one lease, or nothing where none serves."""
+    from library.tools.resolved import client
+    if not client.serving():
+        yield None
+        return
+    granted = False
+    try:
+        with client.grant({"purpose": purpose, "exclusive": exclusive,
+                           "interactive": interactive,
+                           "project": qualification_project},
+                          owner=owner,
+                          qualification=bool(qualification_project),
+                          wait=timeout) as job_id:
+            granted = True
+            yield job_id
+    except client.BrokerError as refused:
+        if granted:
+            raise
+        raise ResolveBusy(
+            f"ren-resolved did not grant {purpose!r}: {refused}",
+            "the broker schedules the one Resolve instance",
+            "wait for the running jobs (`ren resolved list`), or fix what "
+            "the refusal names, then re-run the same command") from refused
 
 
 @contextmanager

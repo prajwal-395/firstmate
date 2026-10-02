@@ -6542,6 +6542,32 @@ def _normalize(argv: list) -> list:
     return argv
 
 
+def _through_broker(client, argv: list) -> int:
+    """Run this command line inside ren-resolved, and print what it did.
+
+    Where the broker is serving it owns Resolve, so the command queues
+    with every other Resolve job, and an identical read already in
+    flight from another agent is joined rather than repeated.
+    """
+    from library.tools.resolve_lock import default_owner
+    try:
+        submitted = client.submit(
+            "resolve_axi", {"argv": list(argv), "cwd": os.getcwd()},
+            owner=default_owner())
+        job = client.result(submitted["id"], wait=0.0)
+        while job["state"] in ("queued", "running"):
+            job = client.result(submitted["id"], wait=60.0)
+    except (ConnectionError, client.BrokerError) as exc:
+        return fail(f"ren-resolved refused this command: {exc}",
+                    "ren resolved status")
+    if job["state"] != "done":
+        return fail(f"ren-resolved {job['state']} job {job['id']}: "
+                    f"{job['error']}", f"ren resolved result {job['id']}")
+    sys.stdout.write(job["result"]["stdout"])
+    sys.stderr.write(job["result"]["stderr"])
+    return job["result"]["exit_code"]
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if len(argv) == 1 and argv[0] in ("-v", "-V", "--version"):
@@ -6558,6 +6584,10 @@ def main(argv=None) -> int:
         parser.print_help(sys.stdout)
         return 2
     from library.tools.resolve_lock import ResolveBusy
+    if getattr(func, "__name__", "") not in _LOCAL_COMMANDS:
+        from library.tools.resolved import client
+        if client.serving():
+            return _through_broker(client, argv)
     try:
         return _dispatch(func, args)
     except AxiError as exc:
