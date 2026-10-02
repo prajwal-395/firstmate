@@ -1,70 +1,32 @@
 """The grade the COLOURIST decides, and how it composes with a declared look.
 
-Step 5.01 measured project 001's nine graded clips correctly and then did
-nothing with the measurement.  Adjacent shots in the finished cut read:
-
-    clip_011   145.495   bright outdoor plaza
-    clip_013   130.691
-    clip_017    53.116   dim car interior, the shot the video ends on
-
-- a 2.7x spread the pipeline measured, wrote down, and answered with the
-IDENTITY CDL on all nine clips: slope 1/1/1, offset 0/0/0, power 1/1/1,
-saturation 1.0.  An identity CDL is a no-op, so Resolve drew no node and
-the captain opened the colour page to find it empty.
-
-**The step was not broken; its authority was missing.**  Normalisation
-was reachable only through `exposure_reference`, and only a brand
-template can declare one.  001 names no template, so nothing could act on
-what had been measured.  That guard was itself a correction of a real
-prior defect - the step used to compare every clip against a hardcoded
-122.0, which is a decision about how bright the finished video is taken
-by nobody - and reverting to a constant would reinstate it.  The fix is
-not a different constant.  It is that the decision belongs to somebody,
-and the only party in the loop who can look at a dim car interior and say
-"that one is dark on purpose" is the model.
-
-Captain, on the colour half specifically:
-
-    *"i think we need to still let the LLM understand it should try to add
-    some color grading if it thinks it is needed rather than saying no
-    completely bc of a lack of brand template (like this is another aspect
-    of the creative reasoning i was talking about that the LLM should be
-    able to handle)."*
+A project that names no brand template still gets a grade, because a
+colourist - the model at step 5.01 - looks at the measured clips and
+decides one (captain, 2026-09-03).  The decision is per clip: a colourist
+may bring two bright shots down, leave a third, and lift a dark one only
+part of the way because its darkness is the content.
 
 Why this is not `exposure_reference` wearing a new hat
 ------------------------------------------------------
 `exposure_reference` stays exactly what it is: a `LookElement` a brand
-TEMPLATE declares, one scalar, meaning *this series wants its clips to sit
-at this luma*.  It is a per-series constant and it is a DECLARATION.
+TEMPLATE declares, one per-series scalar.  The correction is its own
+field, `color_correction` (:data:`FIELD`), on three counts:
 
-The craft layer is a different thing on three counts, and each one on its
-own would be enough:
-
-1. **It is per clip, and it is not one target.**  A colourist may bring
-   two bright shots down, leave a third, and lift a dark one only part of
-   the way because its darkness is the content.  One scalar cannot say
-   that, and forcing it through one would make "normalise everything to
-   the mean" the only expressible answer - which is the constant-122
-   defect with a model's name on it.
-2. **It is a JUDGEMENT, not a declaration, and the output has to be able
-   to tell them apart.**  Writing a model's answer into the template slot
-   would make `series_look.exposure_reference` mean two different things
-   depending on who wrote it, and `resolve_look` refuses unknown keys
-   precisely so that no value arrives from somewhere nobody can name.
+1. **It is per clip, and it is not one target.**  One scalar would make
+   "normalise everything to the mean" the only expressible answer.
+2. **It is a JUDGEMENT, not a declaration**, and writing it into the
+   template slot would make `series_look.exposure_reference` mean two
+   things depending on who wrote it.
 3. **A template that declares one must keep winning.**  Keeping the two
-   fields apart is what makes that precedence expressible, recordable and
-   testable.
+   fields apart is what makes that precedence expressible and testable.
 
-So the correction is its own field, `color_correction`, and a project
-that declares a template gets that template's look with the correction
-composed underneath it.
+A project that declares a template gets that template's look with the
+correction composed underneath it.
 
 How the two compose, exactly
 ----------------------------
 An ASC CDL is ``out = (in * slope + offset) ** power`` per channel, then a
-saturation term.  Two CDLs applied in series do NOT flatten into one in
-general - but they do for the order this uses, which is why this order
-and not another:
+saturation term.  `compose_cdl` applies, in this order:
 
     1. the correction's exposure gain ``g = 2 ** exposure_stops`` and its
        per-channel ``slope`` multiplier ``c``      (a pre-scale)
@@ -77,45 +39,40 @@ and not another:
     out = ( in * (g * c * s) + (o + d) ) ** (p * q)
     saturation = look_saturation * correction_saturation
 
-Every step is exact.  ``(x ** p) ** q == x ** (p * q)``; a pre-scale folds
-into the slope because ``(in * g) * s == in * (g * s)``; an offset added in
-the same linear stage is addition; and the luma-preserving saturation
-formula composes multiplicatively because it leaves luma alone.  Nothing
-here is an approximation dressed as arithmetic, which matters because the
-result is the only CDL the renderer ever sees.
-
-Gamma is offered.  It is exact under (4)/(5) above, and lift/gamma/gain is
-the vocabulary a colourist actually corrects in; withholding one of the
-three would be this file deciding which moves a professional may make.
+Every step is exact: ``(x ** p) ** q == x ** (p * q)``, a pre-scale folds
+into the slope, a same-stage offset adds, and the luma-preserving
+saturation composes multiplicatively.  That is why the order is fixed.
+Gamma is offered (it is exact under (4)/(5)); `CORRECTION_TERMS` is the
+vocabulary and `WITHHELD_TERMS` records what a correction may not say and
+where it lives instead.
 
 What is refused, what is dropped, and what is recorded
 ------------------------------------------------------
 * A malformed VALUE - a slope that is not three numbers, a level that is
-  not a number - RAISES.  It is a contract violation, and
-  `library/tools/post_bridge_retry.py` carries a raised violation back to
-  the model that caused it.  Refusing is how it gets fixed; dropping is
-  how it goes quiet.
-* An entry that names no clip in the cut, names no correction term, or
-  names no reason is DROPPED with the reason recorded.  Same shape as
-  `vfx_plan_basis` and the same reason: the plan entry is under-specified
-  rather than wrong, and completing it means this file choosing a number.
-  `DROP_REASONS` is the whole of what a drop can be for and a reason
-  outside it is refused by name.
-* **`planning_basis` says which ABSENCE an ungraded run is.**  Four
-  readings, spelled differently on purpose:
-  ``corrected``, ``judged_no_correction_needed`` (a decision),
-  ``no_correction_decision`` (nobody decided - what a run that never
-  reached a model records), and ``every_entry_dropped`` (the absence of a
-  decision, not a decision to do nothing).  The old output could not tell
-  the second from the third: an identity CDL read the same whether the
-  colourist had looked and approved or whether no colourist existed.
+  not a number - RAISES `ColorCorrectionRefused`, so
+  `library/tools/post_bridge_retry.py` carries it back to the model.
+* An entry that names no clip in the cut, no correction term, or no
+  reason is DROPPED with the reason recorded (`Dropped`).  Completing it
+  would mean this file choosing a number.  `DROP_REASONS` is the whole of
+  what a drop can be for; a reason outside it is refused by name.
+* **`planning_basis` says which ABSENCE an ungraded run is**, recorded as
+  the spec's `correction_basis` (`basis_record`).  Four readings
+  (`BASIS_READINGS`): ``corrected``, ``judged_no_correction_needed`` (a
+  decision), ``no_correction_decision`` (nobody decided), and
+  ``every_entry_dropped`` (the absence of a decision, not a decision to
+  do nothing).
+* `check_assessment` holds the colourist's checkable prose claims (a
+  universal scope word, one term, one number) against what shipped, and
+  REPORTS a mismatch - never refuses.
 
 There are no bounds.  How far a correction may travel is the colourist's,
-the same way `series_look` has no bound on how far a declared slope may
-go: an engine-supplied range is a strength nobody chose arriving one
-level up (AGENTS.md 10.5).
+the same way `series_look` bounds no declared slope (AGENTS.md 10.5).
 
-`tests/test_color_correction.py`, `tests/test_color_grade_delivery.py`.
+`tests/test_color_correction.py`, `tests/test_color_grade_delivery.py`,
+`tests/test_color_grade_is_decided.py`.
+
+The nine measured clips graded with the identity CDL, and the ruling that
+gave the decision to a colourist: docs/evidence/color_correction.md.
 
 
 Rules relocated from AGENTS.md 12

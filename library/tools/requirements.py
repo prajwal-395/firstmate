@@ -1,126 +1,78 @@
 """One owner for "may this step run", and the only vocabulary for saying no.
 
-The defect this exists to remove
---------------------------------
-Every step manifest declared `interface.preconditions` and
-`interface.postconditions` as prose - `"'audio_spine' exists in state"`,
-`"'rough_cut_review.passed' is true in state"`.  126 strings across 29
-manifests, and **nothing evaluated one of them**.  The only consumers
-were a `library/schema/manifest.schema.json` that required the FIELD to
-exist (deleted - nothing ever loaded it) and one test asserting the
-substring `"parselmouth"` appeared in step 1.05's list.
-
-Meanwhile the real gating lived in three places that read two different
-declarations: `run_scope._assert_dependencies_met` (selection time),
-`run_pipeline.gather_step_inputs` (mid-run), and each step's own code.
-So the document that READ like the contract was the one with no teeth,
-and the contract with teeth could only ever say one thing: *a key is
-present*.
-
-That limit is the whole problem.  Measured on `b5f6cdd`, driving the
-real `gather_step_inputs`:
-
-    CASE 3 - all keys present, transcript EMPTY, review FAILED:
-      NO REFUSAL. inputs = ['audio_spine', 'brand_effect', 'brand_style',
-                            'rough_cut_review', 'speech_sequence']
-
-An empty transcript and a rejected rough cut both passed the contract and
-reached the step.  End to end through the runner, the rejected cut then
-produced four real subtitles, and the empty transcript produced a
-`subtitle_plan` with zero entries, printed `✓ Completed`, printed no
-warning, and recorded a ledger entry.
-
-So the defect is not "there is no contract".  It is **the contract could
-only say a key was present, never that its content satisfied the
-requirement.**
+A prerequisite is EXECUTABLE, not prose.  A `Requirement` says what a
+step needs - not merely that a key is present but that its content
+satisfies the need - and the runner evaluates it before the first step
+runs, so a prerequisite that will not be met is a REFUSAL rather than a
+step failure.
 
 The six kinds
 --------------
 All six are MECHANICAL.  None encodes taste and none carries a number
-this module invented (the standing ruling on thresholds - a mechanical
-proxy fitted to the captain's verdicts failed to predict them, so what is
-checkable here is presence, provenance from a declared list, and
-buildability; coherence is not).
+this module invented: what is checkable here is presence, provenance from
+a declared list, and buildability; coherence is not.
 
 * ``state_key``   - a key is present.  **Auto-derived**, never hand
-  written: `derive_state_keys` wraps `run_scope.prerequisites`, which is
-  the same reading of `inputs[].required` + `data_mapping` that
-  `gather_step_inputs` raises on.  One derivation, so the refusal and the
-  crash it prevents cannot drift apart.
-* ``predicate``   - a value satisfies a test.  No expression before this
-  module.
-* ``environment`` - the machine can do the work.  No expression before
-  this module, which is the structural reason "Node.js and npx are
-  available" could only ever be prose.
-* ``coverage``    - the data spans what was asked for.  No expression
-  before this module.
-* ``verdict``     - a node produced its judgement.  The captain's ruling,
-  2026-09-23: a verdict is expressible as a goal, AS ITS OWN KIND - not
-  by loosening what a requirement means.  A verdict requirement is a
-  GOAL ONLY: it names a producer and no consumers, so no run ever asks
-  it as a precondition and the composer alone reads it.  Making a
-  node's own judgement its prerequisite would be the circular
-  `sfx.index_loads` shape recorded under DELETED - the step refused
-  before the step that diagnoses the problem could say so.  Scoped to
-  the three VERDICT rows of `operations.EMPTY_EFFECT_REASONS`
-  (`VERDICTS` below); the artifact cases are a separate question and
-  get no requirement here.
-* ``optional``    - an edge that MAY OR MAY NOT carry state.  The
-  captain's ruling, 2026-09-23, board answer "add-optional": ADD
-  OPTIONALITY TO THE VOCABULARY.  An optional requirement is a GOAL
-  ONLY, like a verdict: it names the producing node and no consumers,
-  so no run ever asks it as a precondition and the composer alone
-  reads it.  Asking one as a precondition would be either vacuous (an
-  absent optional input is legitimate, so it could never refuse) or a
-  lie (refusing one would refuse a run the runner accepts) - and a
-  requirement that cannot refuse violates the anti-vacuity gate this
-  layer is built on.  Scoped to the eight OPTIONAL edges of the seven
-  blind nodes (`OPTIONALS` below); the artifact cases stay out, and a
-  required edge never needs one.
+  written: `derive_state_keys` wraps `run_scope.prerequisites`, the same
+  reading of `inputs[].required` + `data_mapping` that
+  `gather_step_inputs` raises on, so the refusal and the crash it
+  prevents cannot drift apart.
+* ``predicate``   - a value satisfies a test (`PREDICATES`).
+* ``environment`` - the machine can do the work (`ENVIRONMENT`).
+* ``coverage``    - the data spans what was asked for (`COVERAGE`).
+* ``verdict``     - a node produced its judgement (captain, 2026-09-23).
+  A GOAL ONLY: it names a producer and no consumers, so no run asks it
+  as a precondition and the composer alone reads it.  Making a node's
+  own judgement its prerequisite would refuse the step before the step
+  that diagnoses the problem could say so.  Scoped to the VERDICT rows
+  of `operations.EMPTY_EFFECT_REASONS` (`VERDICTS`).
+* ``optional``    - an edge that MAY OR MAY NOT carry state (captain,
+  2026-09-23).  Also a GOAL ONLY: asked as a precondition it would be
+  either vacuous (an absent optional input is legitimate) or a lie
+  (refusing a run the runner accepts).  Scoped to the OPTIONAL edges of
+  the blind nodes (`OPTIONALS`); a required edge never needs one.
+
+State the pipeline did not produce is `EXTERNAL_STATE`.  `HAND_WRITTEN`
+is every kind but ``state_key``, and `registry` returns it;
+`all_requirements` adds the derived ``state_key`` half.  `UNAUTHORISED` holds requirements pending a captain decision
+(empty), and `DELETED` records each removed requirement with its reason,
+so a deletion never reads as an oversight.
 
 A refusal says what to run; a pass says how it passed
 -----------------------------------------------------
 `Satisfaction` is never a bare bool.  `SATISFIED(source)` names one of
-`IN_STATE` / `RECORDED` / `SUPPLIED` / `PRODUCED_BY`, and
-`UNSATISFIED(reason, ...)` carries `produced_by` - the operations that
-would satisfy it.  A refusal that cannot say what to run is not a
-refusal, it is a dead end.
+`SOURCES` (`IN_STATE`, `RECORDED`, `SUPPLIED`, `PRODUCED_BY`,
+`MEASURED`), and `UNSATISFIED(reason, ...)` carries `produced_by` - the
+operations that would satisfy it.  A refusal that cannot say what to run
+is a dead end.
 
 Checked against what will EXECUTE, not against the plan
 --------------------------------------------------------
-`--step` and `--from` narrow the step list AFTER `run_scope.resolve` has
-already agreed to the selection (`run_pipeline`, where `steps_to_run` is
-built from `scope.steps_to_run`).  So the refusal was computed against
-the wider set and the run executed the narrower one, and `--step
-plan_subtitles` on a fresh project did not refuse - it died forty lines
-later inside `gather_step_inputs` with an unhandled traceback:
+`check` and `evaluate` take the EXECUTE set: `run_pipeline` calls
+`evaluate` after `--from`/`--step` narrowing and before the first step
+runs, so a prerequisite that will not be produced is REFUSED rather
+than becoming a step failure, which is recorded and colours `status` on
+every later run.
 
-    RuntimeError: Step 'plan_subtitles': data_mapping expects key
-    'audio_spine' from upstream step 'mesh_spine', but it is missing from
-    that step's outputs. Available keys: []
-
-`check` therefore takes the EXECUTE set.  `run_pipeline` calls it after
-`--from`/`--step` narrowing and before the first step runs, so a
-prerequisite that will not be produced is a REFUSED rather than a step
-failure - which matters, because a step failure is recorded and colours
-`status` on every later run until that step succeeds.
+Overrides
+---------
+`--override` proceeds past a refusal only for a requirement that opted
+in (`overridable`).  `assert_overrides_are_real` refuses, before the run,
+an override naming a requirement that does not exist or has not opted in.
+A proceeded-past refusal is carried as `Overridden`, verbatim, so the
+run's outputs say WHAT was overridden; proceeding is never the same event
+as passing.
 
 Witnesses are mandatory, and that is the anti-vacuity gate
 -----------------------------------------------------------
 A gate that cannot fail is worse than no gate, because it reads as
-coverage.  This repository has already paid for that lesson twice, and
-there is a third live instance in the reel conformance verifier, where an
-empty expected side silently disables a check.
-
-So every `Requirement` must carry BOTH witnesses -
-`refuting_context()` and `satisfying_context()` - and they have no
+coverage (AGENTS.md 10.4).  Every `Requirement` must carry BOTH
+witnesses - `refuting_context()` and `satisfying_context()` - with no
 defaults, so a requirement **cannot be registered without them**.  The
 registration is the gate; `tests/test_every_requirement_can_refuse.py`
 only reads it.  A requirement that genuinely cannot refuse is DELETED,
-never exempted.
-
-`tests/test_no_requirement_refuses_correct_input.py` is the mirror, so
-the layer cannot be vacuously strict either.
+never exempted.  `tests/test_no_requirement_refuses_correct_input.py` is
+the mirror, so the layer cannot be vacuously strict either.
 
     python3 -m library.tools.requirements          # the registry
     python3 -m library.tools.requirements --kinds  # counts by kind
@@ -128,6 +80,10 @@ the layer cannot be vacuously strict either.
 `tests/test_requirements.py`,
 `tests/test_every_requirement_can_refuse.py`,
 `tests/test_no_requirement_refuses_correct_input.py`.
+
+The prose contracts nothing evaluated, the measured cases that passed
+them, and the rulings that added verdicts and optionals:
+docs/evidence/requirements.md.
 """
 
 from __future__ import annotations
