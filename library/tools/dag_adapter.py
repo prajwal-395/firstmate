@@ -17,18 +17,25 @@ question a capability-keyed caller asks is answered here, so the day a
 reader stops needing the node is the day one function here goes, rather
 than an audit of every `owning_node` read in the tree.
 
-Effects are the one exception to "the node answers": a capability
-declares what it `produces`, and a node's effect is DERIVED from its
-capabilities (`node_effects`) - a computed view, never a declaration.
+Effects are not answered by the node: a capability declares what it
+`produces`, and a node's effect is DERIVED from its capabilities
+(`node_effects`) - a computed view, never a declaration.
+
+Requirements are read BY CAPABILITY ID: `requirement_index` turns each
+requirement's legacy node tuples (`produced_by`, `consumers`) into the
+capability ids that produce and consume it, once, and every capability
+-keyed reader (`capabilities.producers_of` / `consumers_of`, the
+composer, a standalone refusal, the override record) reads that.  The
+node tuples stay on the requirement for the runner, which executes
+nodes, and for a node no capability covers yet.
 
 What it refuses
 ---------------
 A capability with no legacy node raises `NoLegacyNode` rather than
-answering with an empty set.  Requirements are still keyed by node id, so
-"no node" would read as "requires nothing, produces nothing" - a
-confidently wrong answer that would let a composer schedule it anywhere.
-No capability lacks a node today; the refusal is what a capability-first
-entry must meet until requirements are keyed by capability id.
+answering with an empty set.  The index derives a capability's
+requirements from its node, so "no node" would read as "requires
+nothing, produces nothing" - a confidently wrong answer that would let a
+composer schedule it anywhere.  No capability lacks a node today.
 """
 from __future__ import annotations
 
@@ -96,31 +103,57 @@ def declaring_dag(op: Any) -> dict:
     return processes.dag_declaring(node_of(op))
 
 
+def _consumes(op: Any, r: Any) -> bool:
+    return node_of(op) in r.consumers
+
+
+def _produces(op: Any, r: Any) -> bool:
+    """The requirement names its producer NODE (the DAG's data_mapping
+    is still where producers come from) and the state key that node
+    writes (`Requirement.key_at`); the capability is credited only when
+    it declares that key.  An empty key is a whole-output requirement,
+    met by any capability of the node that produces anything."""
+    node = node_of(op)
+    produces = set(getattr(op, "produces", ()) or ())
+    return bool(produces) and node in r.produced_by and (
+        r.key_at(node) in produces or not r.key_at(node))
+
+
 def requirements_consumed(op: Any) -> tuple:
     """Every requirement whose consumers include the capability's node."""
     from library.tools import requirements
-    node = node_of(op)
     return tuple(r for r in requirements.all_requirements()
-                 if node in r.consumers)
+                 if _consumes(op, r))
 
 
 def requirements_produced(op: Any) -> tuple:
-    """Every requirement the capability's declared `produces` satisfies.
-
-    The requirement names its producer NODE (the DAG's data_mapping is
-    still where producers come from) and the state key that node writes
-    (`Requirement.key_at`); the capability is credited only when it
-    declares that key.  An empty key is a whole-output requirement, met
-    by any capability of the node that produces anything.
-    """
+    """Every requirement the capability's declared `produces` satisfies."""
     from library.tools import requirements
-    node = node_of(op)
-    produces = set(getattr(op, "produces", ()) or ())
-    if not produces:
-        return ()
     return tuple(r for r in requirements.all_requirements()
-                 if node in r.produced_by
-                 and (r.key_at(node) in produces or not r.key_at(node)))
+                 if _produces(op, r))
+
+
+def requirement_index(ops=None, reqs=None) -> tuple:
+    """`(consumers, producers)`: requirement name -> capability ids.
+
+    The ONE place a requirement's node-keyed producers and consumers are
+    turned into capability ids, in a single pass over the live registry
+    (`capabilities.consumers_of` / `producers_of` are the readers).  Not
+    cached: the composer and the tests read the LIVE registry.
+    """
+    from library.tools import operations, requirements
+    ops = operations.all() if ops is None else ops
+    reqs = requirements.all_requirements() if reqs is None else reqs
+    consumers: dict = {r.name: [] for r in reqs}
+    producers: dict = {r.name: [] for r in reqs}
+    for op in ops:
+        for r in reqs:
+            if _consumes(op, r):
+                consumers[r.name].append(op.name)
+            if _produces(op, r):
+                producers[r.name].append(op.name)
+    return ({n: tuple(v) for n, v in consumers.items()},
+            {n: tuple(v) for n, v in producers.items()})
 
 
 def node_effects(node_id: str) -> tuple:

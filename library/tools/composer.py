@@ -274,25 +274,31 @@ def _plan_maps():
     from library.tools import operations as ops_mod
     from library.tools import requirements as req_mod
 
-    by_name = {r.name: r for r in req_mod.all_requirements()}
+    reqs = req_mod.all_requirements()
+    ops = ops_mod.all()
+    by_name = {r.name: r for r in reqs}
     all_producers = {n: tuple(sorted(set(r.produced_by)))
                      for n, r in by_name.items()}
-    best: dict[tuple[str, str], tuple] = {}
-    for index, op in enumerate(ops_mod.all()):
-        node = dag_adapter.node_of(op)
-        for r in op.effect:
-            ranked = (_rank(op, index), op.name)
-            if (r.name, node) not in best or ranked < best[(r.name, node)]:
-                best[(r.name, node)] = ranked
-    capable = {n: tuple(best[(n, node)][1]
-                        for node in sorted(set(r.produced_by))
-                        if (n, node) in best)
-               for n, r in by_name.items()}
+    consumers, producers = dag_adapter.requirement_index(ops, reqs)
+    by_op = {op.name: (index, op) for index, op in enumerate(ops)}
+    capable = {}
+    for n in by_name:
+        best: dict[str, tuple] = {}
+        for name in producers.get(n, ()):
+            index, op = by_op[name]
+            node = dag_adapter.node_of(op)
+            ranked = (_rank(op, index), name)
+            if node not in best or ranked < best[node]:
+                best[node] = ranked
+        capable[n] = tuple(best[node][1] for node in sorted(best))
     # The live registry, not the cached `capabilities.all()`: an
-    # operation's name IS its capability id, and its `requires` is the
-    # same derivation the spec carries.
-    needs = {op.name: tuple(r.name for r in op.requires)
-             for op in ops_mod.all()}
+    # operation's name IS its capability id, and what it needs is read
+    # off the same capability-keyed index as what produces it.
+    needs: dict[str, list] = {op.name: [] for op in ops}
+    for n in by_name:
+        for name in consumers.get(n, ()):
+            needs[name].append(n)
+    needs = {name: tuple(reqs_) for name, reqs_ in needs.items()}
     return by_name, all_producers, capable, needs
 
 

@@ -2412,7 +2412,11 @@ def run_pipeline(
         for record in override_records:
             print(f"  {record['requirement']}: {record['refused_because']}",
                   file=sys.stderr)
-            print(f"      needed by: {record['needed_by']}", file=sys.stderr)
+            # By capability id first; the node list for a record (or a
+            # node) no capability covers yet.
+            print(f"      needed by: "
+                  f"{record.get('needed_by_capabilities') or record['needed_by']}",
+                  file=sys.stderr)
         print("", file=sys.stderr)
         if not dry_run:
             state[REQUIREMENT_OVERRIDES_KEY] = override_records

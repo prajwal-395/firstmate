@@ -191,6 +191,7 @@ def test_the_override_record_carries_the_verdict_it_overrode(gate):
         "the record must carry the reason the cut was rejected, or it "
         "says only that a rule was bypassed")
     assert record["needed_by"]
+    assert "subtitles.plan" in record["needed_by_capabilities"]
     assert json.loads(json.dumps(record)) == record, (
         "the record must survive being written to pipeline_data.json")
 

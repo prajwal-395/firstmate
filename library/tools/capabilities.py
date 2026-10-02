@@ -226,6 +226,22 @@ def ids() -> tuple:
     return tuple(c.id for c in all())
 
 
+def producers_of(requirement_name: str) -> tuple:
+    """The capability ids that DECLARE producing a requirement.
+
+    The capability-keyed answer to "what makes this?" - the requirement's
+    own `produced_by` is its legacy node tuple, kept for the runner,
+    which executes nodes.  Empty when only a node with no capability
+    (`dag_adapter.legacy_only_nodes`) or nothing at all produces it.
+    """
+    return dag_adapter.requirement_index()[1].get(requirement_name, ())
+
+
+def consumers_of(requirement_name: str) -> tuple:
+    """The capability ids that refuse without a requirement."""
+    return dag_adapter.requirement_index()[0].get(requirement_name, ())
+
+
 def get(capability_id: str) -> CapabilitySpec:
     for c in all():
         if c.id == capability_id:

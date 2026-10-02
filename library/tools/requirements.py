@@ -1709,12 +1709,20 @@ class Overridden:
     satisfaction: Satisfaction
 
     def as_record(self) -> Dict[str, str]:
-        """The durable form, for the run's own outputs."""
+        """The durable form, for the run's own outputs.
+
+        `needed_by_capabilities` is the authoritative reader list, by
+        capability id; `needed_by` keeps the legacy node ids every
+        current reader of the record prints.
+        """
+        from library.tools import capabilities
         return {
             "requirement": self.requirement.name,
             "kind": self.requirement.kind,
             "describe": self.requirement.describe,
             "refused_because": self.satisfaction.reason,
+            "needed_by_capabilities": ", ".join(
+                capabilities.consumers_of(self.requirement.name)),
             "needed_by": ", ".join(self.requirement.consumers),
         }
 

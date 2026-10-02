@@ -706,10 +706,8 @@ class Operation:
                        "these while it waits - inside a DAG run they would "
                        "be satisfied by a producer scheduled ahead of it."),
                       "To satisfy them:"]
-            producing = {}
-            for op in all():
-                for r in op.effect:
-                    producing.setdefault(r.name, []).append(op.name)
+            from library.tools import dag_adapter
+            _, producing = dag_adapter.requirement_index()
             for name, producers in deferrable:
                 # The STEP is always named; a capability only when it
                 # DECLARES producing this key.  Sibling ownership is not
