@@ -132,7 +132,19 @@ _FACE_APP = None
 
 
 def _face_app():
-    """The insightface `FaceAnalysis` app, loaded once per process."""
+    """The insightface `FaceAnalysis` app, loaded once per process.
+
+    Detection and recognition only: ArcFace aligns on the detector's own
+    five keypoints, so the pack's 2D/3D landmark and sex/age models feed
+    nothing this module reads - they were 22 of 96 ms per frame (measured
+    over the 427 M2 frames of the geo-podcast sources). Embeddings are
+    byte-identical with or without them.
+
+    Not replaced by M3's Apple Vision faces: aligning ArcFace on
+    Vision-landmark keypoints instead of SCRFD's raised FRR at
+    `FACE_MATCH_THRESHOLD` from 0 to 0.074 on the 83-face study (profile
+    frames misplace the keypoints by more than an inter-ocular distance).
+    """
     global _FACE_APP
     if _FACE_APP is not None:
         return _FACE_APP
@@ -141,6 +153,7 @@ def _face_app():
 
     app = FaceAnalysis(name=shared_environment.INSIGHTFACE_PACK_NAME,
                        root=str(model_dir),
+                       allowed_modules=["detection", "recognition"],
                        providers=["CPUExecutionProvider"])
     app.prepare(ctx_id=-1, det_size=(640, 640))
     _FACE_APP = app
