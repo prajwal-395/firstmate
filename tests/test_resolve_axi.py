@@ -1657,6 +1657,27 @@ def test_audio_lists_enable_state(audio_patched, capsys):
     assert "audio2,A2,no,0" in out
 
 
+def test_audio_does_not_report_mute_off_the_cursor(monkeypatch, capsys):
+    """Resolve answers GetIsTrackEnabled False for every track of a
+    timeline that is not current; read off the cursor, that is not a
+    mute and must not be reported as one."""
+    reel = _Timeline("Reel 22 - a-score", tracks={
+        ("audio", 1): {"name": "Akshita CH1", "items": [],
+                       "enabled": False}}, start=0, end=99)
+    other = _Timeline("Reel 08 - top-three", tracks={}, start=0, end=9)
+    project = _Project("Podcast (field test)", [reel, other],
+                       current=other)
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    assert cmd_audio(_ns(project="", timeline="Reel 22 - a-score",
+                          full=False)) == 0
+    out = capsys.readouterr().out
+    assert "audio1,Akshita CH1,not-current,0" in out
+    assert ",no," not in out
+
+
 def test_audio_full_tolerates_a_missing_voice_call(audio_patched,
                                                    capsys):
     """The fake defines no GetVoiceIsolationState: an older Resolve

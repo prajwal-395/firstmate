@@ -2085,6 +2085,11 @@ def cmd_audio(args) -> int:
             return fail(f"timeline {timeline.GetName()!r} would not "
                         f"report its audio tracks ({exc}).",
                         f"{TOOL} timeline list")
+        try:
+            on_cursor = (project.GetCurrentTimeline().GetName()
+                         == timeline.GetName())
+        except Exception:
+            on_cursor = False
         rows = []
         for index in range(1, count + 1):
             try:
@@ -2100,11 +2105,19 @@ def cmd_audio(args) -> int:
                 row["name"] = timeline.GetTrackName("audio", index) or ""
             except Exception:
                 row["name"] = ""
-            try:
-                row["enabled"] = ("yes" if timeline.GetIsTrackEnabled(
-                    "audio", index) else "no")
-            except Exception:
-                row["enabled"] = ""
+            # GetIsTrackEnabled answers False for every track of a
+            # timeline that is not current - measured 2026-10-01 on
+            # Podcast (field test): 34 reels read "no" by name and
+            # "yes" with each made current. A read that cannot see the
+            # flag says so rather than reporting a muted row.
+            if not on_cursor:
+                row["enabled"] = "not-current"
+            else:
+                try:
+                    row["enabled"] = ("yes" if timeline.GetIsTrackEnabled(
+                        "audio", index) else "no")
+                except Exception:
+                    row["enabled"] = ""
             full: dict = {}
             for key, method in (("sub_type", "GetTrackSubType"),
                                 ("locked", "GetIsTrackLocked")):
