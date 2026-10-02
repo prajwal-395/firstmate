@@ -697,6 +697,94 @@ def project_frame_rate_refusal(project, requested_fps: float) -> str:
     return ""
 
 
+def project_timeline_shape_refusal(project, requested_width: int,
+                                   requested_height: int) -> str:
+    """Do not resize the project underneath timelines that inherit it.
+
+    Resolve rescales stored Pan/Tilt when the project timeline resolution
+    changes. That is expected for a timeline using project settings, but it
+    silently rewrites existing framing. New timelines are made custom below;
+    existing timelines must already be custom before this build changes the
+    project resolution.
+    """
+    try:
+        raw_requested = (float(requested_width), float(requested_height))
+        if any(not math.isfinite(value) or not value.is_integer()
+               for value in raw_requested):
+            raise ValueError("resolution dimensions must be integers")
+        requested = tuple(int(value) for value in raw_requested)
+    except (TypeError, ValueError, OverflowError):
+        return ("Manifest timeline resolution is unreadable: requested "
+                f"{requested_width!r}x{requested_height!r}")
+    if any(value <= 0 for value in requested):
+        return ("Manifest timeline resolution must be positive, got "
+                f"{requested[0]}x{requested[1]}")
+
+    keys = ("timelineResolutionWidth", "timelineResolutionHeight")
+    current_raw = []
+    current = []
+    for key in keys:
+        try:
+            raw = project.GetSetting(key)
+            numeric = float(raw)
+            if not math.isfinite(numeric) or not numeric.is_integer():
+                raise ValueError(f"not an integer resolution: {raw!r}")
+            current_raw.append(raw)
+            current.append(int(numeric))
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            current_raw.append(None)
+            current.append(None)
+    if tuple(current) == requested:
+        return ""
+
+    try:
+        timeline_count = int(project.GetTimelineCount())
+    except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+        return ("Resolve did not return a readable timeline count for its "
+                f"project ({type(exc).__name__}: {exc}); refusing to set "
+                "the project timeline resolution")
+    if timeline_count < 0:
+        return (f"Resolve returned an invalid timeline count "
+                f"({timeline_count}); refusing to set the project timeline "
+                "resolution")
+    if timeline_count == 0:
+        return ""
+
+    old_shape = (f"{current_raw[0]}x{current_raw[1]}"
+                 if all(value is not None for value in current_raw)
+                 else f"{current_raw[0]!r}x{current_raw[1]!r}")
+    for index in range(1, timeline_count + 1):
+        try:
+            timeline = project.GetTimelineByIndex(index)
+        except Exception as exc:  # noqa: BLE001 - Resolve proxy may fail
+            return ("Resolve could not inspect existing timeline "
+                    f"{index} ({type(exc).__name__}: {exc}); refusing to "
+                    "change the project timeline resolution")
+        if timeline is None:
+            return ("Resolve did not return existing timeline "
+                    f"{index} of {timeline_count}; refusing to change the "
+                    "project timeline resolution")
+        try:
+            use_custom_settings = timeline.GetSetting("useCustomSettings")
+        except Exception as exc:  # noqa: BLE001 - fail closed on unknown
+            return ("Resolve could not read whether existing timeline "
+                    f"{index} uses custom settings "
+                    f"({type(exc).__name__}: {exc}); refusing to change "
+                    "the project timeline resolution")
+        if str(use_custom_settings).strip() != "1":
+            try:
+                name = timeline.GetName()
+            except Exception:  # noqa: BLE001 - keep the refusal actionable
+                name = f"at index {index}"
+            return (
+                f"Resolve project timeline resolution mismatch: requested "
+                f"{requested[0]}x{requested[1]}, project reads {old_shape}, "
+                f"and existing timeline {name!r} uses project settings. "
+                "Changing the project resolution rescales stored Pan/Tilt; "
+                "set existing timelines to custom settings before building.")
+    return ""
+
+
 def caption_block_offsets(v1_clips, placed_by_label) -> dict:
     """{spine block index: measured V1 start offset} for caption placement.
 
@@ -1498,6 +1586,11 @@ def build_timeline(
     if _project_fps_refusal:
         results["errors"].append(_project_fps_refusal)
         return results
+    _project_timeline_shape_refusal = project_timeline_shape_refusal(
+        project, width, height)
+    if _project_timeline_shape_refusal:
+        results["errors"].append(_project_timeline_shape_refusal)
+        return results
 
     # ── Create empty timeline ──
     timeline = media_pool.CreateEmptyTimeline(timeline_name)
@@ -1543,6 +1636,9 @@ def build_timeline(
     # `project_frame_rate_refusal` names that mismatch before placement.
     def _confirm(obj, key, value, attempts=5):
         """Write, then read back. Returns the value Resolve reports."""
+        before = obj.GetSetting(key)
+        if str(before) == str(value):
+            return str(before)
         for _ in range(attempts):
             obj.SetSetting(key, str(value))
             got = obj.GetSetting(key)

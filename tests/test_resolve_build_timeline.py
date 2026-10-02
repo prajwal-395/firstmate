@@ -20,6 +20,7 @@ from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E40
     _allocate_audio_tracks,
     source_frame_span_for_timeline,
     project_frame_rate_refusal,
+    project_timeline_shape_refusal,
     timeline_frame_rate_refusal,
     v1_plan_overlap_refusal,
 )
@@ -260,6 +261,61 @@ def test_build_refuses_project_rate_conflict_before_creating_timeline(
     assert not result["success"]
     assert "project reads '24'" in result["errors"][0]
     mock_resolve["media_pool"].CreateEmptyTimeline.assert_not_called()
+
+
+def test_build_refuses_project_timeline_shape_change_before_inherited_timelines(
+        mock_resolve, sample_manifest):
+    project = mock_resolve["project"]
+    project.GetTimelineCount.return_value = 1
+    project.SetSetting("timelineFrameRate", "30")
+    project.SetSetting("timelineResolutionWidth", "3840")
+    project.SetSetting("timelineResolutionHeight", "2160")
+    project.SetSetting.reset_mock()
+
+    inherited = MagicMock()
+    inherited.GetName.return_value = "Reel 13"
+    inherited.GetSetting.return_value = "0"
+    project.GetTimelineByIndex.return_value = inherited
+
+    with patch("os.path.exists", return_value=True):
+        result = build_timeline(sample_manifest)
+
+    assert not result["success"]
+    assert "Reel 13" in result["errors"][0]
+    assert "rescales stored Pan/Tilt" in result["errors"][0]
+    mock_resolve["media_pool"].CreateEmptyTimeline.assert_not_called()
+    project.SetSetting.assert_not_called()
+
+
+def test_project_timeline_shape_change_allows_existing_custom_timelines():
+    project = MagicMock()
+    project.GetTimelineCount.return_value = 2
+    project.GetSetting.side_effect = lambda key: {
+        "timelineResolutionWidth": "3840",
+        "timelineResolutionHeight": "2160",
+    }.get(key, "")
+    custom = MagicMock()
+    custom.GetSetting.return_value = "1"
+    project.GetTimelineByIndex.side_effect = [custom, custom]
+
+    assert project_timeline_shape_refusal(project, 1920, 1080) == ""
+
+
+def test_project_timeline_shape_refuses_unreadable_custom_setting():
+    project = MagicMock()
+    project.GetTimelineCount.return_value = 1
+    project.GetSetting.side_effect = lambda key: {
+        "timelineResolutionWidth": "3840",
+        "timelineResolutionHeight": "2160",
+    }.get(key, "")
+    timeline = MagicMock()
+    timeline.GetSetting.side_effect = RuntimeError("settings unavailable")
+    project.GetTimelineByIndex.return_value = timeline
+
+    refusal = project_timeline_shape_refusal(project, 1920, 1080)
+
+    assert "could not read whether existing timeline" in refusal
+    assert "refusing to change" in refusal
 
 
 def test_empty_project_sets_and_reads_back_requested_frame_rate():
