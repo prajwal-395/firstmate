@@ -23,8 +23,8 @@ The composer can only select capabilities - registered operations - so it
 inherits both limits of the layer underneath, and both are TRUE rather
 than gaps:
 
-* THE TWO.  Two operations have a deliberately empty derived effect
-  (`operations.EMPTY_EFFECT_REASONS`: two ARTIFACTS written to disk
+* THE FOUR.  Four operations have a deliberately empty derived effect
+  (`operations.EMPTY_EFFECT_REASONS`: four ARTIFACTS written to disk
   rather than state).  A composer working backwards from requirements
   alone can never select them, because artifact productions are
   invisible as goals.  No plan this module returns ever names one, and
@@ -52,18 +52,17 @@ than gaps:
   own kind and not by loosening `produced_by` or widening an existing
   kind.  `requirements.OPTIONALS` is that kind, so `prosody.analyse`,
   `color_grade.resolve`, `ocr.extract`, `transitions.resolve`,
-  `sfx.resolve` and `vfx.resolve` derive non-empty effects and compose
-  as `optional.*` goals - the three mechanism-B edges
-  (`transition_spec`, `sfx_spec`, `enhancement_spec` for
-  `compile_manifest`) alongside the four mechanism-A productions.  The
-  seventh node, `creative_cohesion`, owns no registered operation, so
-  its goal refuses by name with the producer to run in the DAG - the
-  middle-of-the-DAG answer below, not a failure of the kind.  Whether
+  `sfx.resolve`, `vfx.resolve` and `cohesion.review` derive non-empty
+  effects and compose as `optional.*` goals - the three mechanism-B
+  edges (`transition_spec`, `sfx_spec`, `enhancement_spec` for
+  `compile_manifest`) alongside the four mechanism-A productions and
+  `cohesion_review`.  Whether
   each one REACHES is measured per goal, not promised by the kind.
-* THE MIDDLE OF THE DAG.  Thirteen producer nodes have no registered
-  operation at all (`scan`, `catalog`, `speech_sequence`,
-  `review_rough_cut`, `music_selection` and the
-  rest).  A goal whose chain passes through one is unreachable BY
+* THE MIDDLE OF THE DAG.  A producer node with no registered operation
+  (`dag_adapter.legacy_only_nodes()`: thirteen at introduction, two
+  now - `compile_manifest` and `object_segmentation`, whose bodies take
+  an output directory `main()` derives rather than a declared input).
+  A goal whose chain passes through one is unreachable BY
   CAPABILITIES ALONE - reaching it would mean adding a capability, which
   this module will not do on the caller's behalf.  It refuses instead,
   naming the deepest requirement nothing reaches and which step produces
@@ -75,10 +74,10 @@ than gaps:
   `state.verify_reels.reel_build`).  Everything else refuses.  That
   proportion is a finding about registry coverage, not about this
   module: as operations are registered for middle-DAG nodes, more goals
-  resolve with nothing changed here.  `creative_cohesion` is the live
-  instance: `optional.compile_manifest.cohesion_review` names its
-  production as a goal, and the composition refuses naming the node -
-  the edge is expressed, the capability is not registered.
+  resolve with nothing changed here.  `creative_cohesion` is the
+  measured instance: `optional.compile_manifest.cohesion_review`
+  refused naming the node until `cohesion.review` was registered, and
+  then closed with nothing here changed.
 
 What a precondition without a producer becomes
 ----------------------------------------------
@@ -726,7 +725,7 @@ _SELECTORS = {
 
 "Routable" means owning more than one operation with a non-empty
 derived effect - the set `compose` can actually name.  Empty-effect
-operations (THE TWO) are composer-blind by design and never reach
+operations (THE FOUR) are composer-blind by design and never reach
 selection, so they need none.  The risk-4 guard
 (`tests/test_ren_selection_between_equivalent_routes.py`) fails the
 moment a node outgrows this map: a new route must arrive

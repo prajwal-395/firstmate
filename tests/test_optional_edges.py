@@ -63,8 +63,8 @@ def _optionals():
 def test_six_operations_leave_the_blind_set():
     """The three mechanism-A operations with capabilities, and all
     three mechanism-B producers, derive non-empty effects through the
-    untouched `owning_node in r.produced_by` filter.  Only the two
-    ARTIFACT operations stay empty, still reasoned."""
+    untouched `owning_node in r.produced_by` filter.  Only the ARTIFACT
+    operations stay empty, still reasoned."""
     for op_name in ("prosody.analyse", "color_grade.resolve",
                     "ocr.extract"):
         op = O.get(op_name)
@@ -72,8 +72,9 @@ def test_six_operations_leave_the_blind_set():
             f"{op_name} still derives an empty effect - its optional "
             f"production is unexpressed")
     assert set(O.EMPTY_EFFECT_REASONS) == {
-        "motion_graphics.render", "motion_graphics.render_segment"}, (
-        f"the blind set is not exactly the two artifacts: "
+        "motion_graphics.render", "motion_graphics.render_segment",
+        "reel.reading_context", "reel.judge"}, (
+        f"the blind set is not exactly the four artifacts: "
         f"{sorted(O.EMPTY_EFFECT_REASONS)}")
 
 
@@ -102,16 +103,15 @@ def test_each_mechanism_b_edge_composes():
         "optional.compile_manifest.enhancement_spec").operations
 
 
-def test_cohesion_is_expressed_but_has_no_capability():
-    """The seventh node: the edge IS in the vocabulary
-    (`creative_cohesion` in `produced_by`), but no registered
-    operation owns that node, so the goal refuses by name - the
-    composer's middle-of-the-DAG answer.  Registering the capability
-    is a capability lane's work, not this vocabulary's."""
+def test_cohesion_composes_through_its_capability():
+    """The seventh node: the edge was in the vocabulary but refused by
+    name while no operation owned `creative_cohesion`.  With
+    `cohesion.review` registered the goal closes with nothing in the
+    composer changed - the middle-of-the-DAG refusal was a registry
+    gap, not a property of the edge."""
     comp = C.compose("optional.compile_manifest.cohesion_review")
-    assert comp.refused
-    assert comp.blocker == "optional.compile_manifest.cohesion_review"
-    assert comp.blocker_producers == ("creative_cohesion",)
+    assert comp.completed
+    assert comp.operations[-1] == "cohesion.review"
 
 
 def test_both_compile_manifest_refusals_survive():

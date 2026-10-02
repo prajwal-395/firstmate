@@ -39,6 +39,8 @@ run at a declared scope. It owns no logic of its own.
 | `broll.splice` | `select_broll` | region | Resolve a region's re-planned cutaways and put them back into the stored selections |
 | `reel.candidates` | `select_reels` | project | Measure every contiguous exchange in the cut, ranked and filtered by nothing |
 | `reel.select` | `select_reels` | project | Check the model's chosen moments against the cut and publish them PROPOSED |
+| `reel.reading_context` | `judge_reels` | project | Work out the words each proposed reel plays, for a reader who has not heard the episode |
+| `reel.judge` | `judge_reels` | project | Check each reading against its reel's own words and derive the verdicts and ordering |
 | `reel.build` | `build_reels` | project | Cut every APPROVED moment onto its own Resolve timeline, bad takes removed |
 | `reel.touchup` | `build_reels` | project | Change one built reel's own timeline in place, instead of rebuilding it |
 | `reel.entry_motion` | `build_reels` | project | Animate a placed overlay element in (and out) with a Fusion fade, without rebuilding its reel |
@@ -65,6 +67,7 @@ run at a declared scope. It owns no logic of its own.
 | `motion_graphics.render_segment` | `render_motion_graphics` | project, region | Render ONE motion-graphics overlay segment |
 | `color_grade.resolve` | `color_grade` | project | Join the colourist's answer to the measured clips as one CDL each |
 | `audio_mix.resolve` | `audio_mix` | project | Join the mix answer to the bed and speech measurements as per-window clip gain |
+| `cohesion.review` | `creative_cohesion` | project | Review the planned transitions and sound against the declared direction |
 | `render.build` | `render` | project | Build the final timeline in DaVinci Resolve and export the finished video |
 | `validation.resolve` | `validate` | project | Combine the deterministic checks and the model's reading into one verdict |
 

@@ -140,6 +140,8 @@ CAPABILITY_NEEDS: dict = {
     "broll.splice": CapabilityNeeds(_MODEL),
     "reel.candidates": CapabilityNeeds(),
     "reel.select": CapabilityNeeds(_MODEL),
+    "reel.reading_context": CapabilityNeeds(),
+    "reel.judge": CapabilityNeeds(_MODEL),
     "reel.build": CapabilityNeeds(_REEL),
     "reel.touchup": CapabilityNeeds(_REEL),
     "reel.entry_motion": CapabilityNeeds(_REEL),
@@ -172,6 +174,7 @@ CAPABILITY_NEEDS: dict = {
         _MODEL,
         {"deepfilter": "a deepfilternet request refuses by name and the "
                        "model re-plans with voice_isolation"}),
+    "cohesion.review": CapabilityNeeds(),
     "render.build": CapabilityNeeds(_RESOLVE + ("ffmpeg",)),
     "validation.resolve": CapabilityNeeds(_MODEL),
 

@@ -82,17 +82,18 @@ operation's `owning_node`.  Same vocabulary, same derivation discipline -
 an effect in a different language could never be matched against a
 precondition, so nothing composes.
 
-Forty of the 42 operations have a non-empty effect.  Two are
+Forty-one of the 45 operations have a non-empty effect.  Four are
 empty, and the emptiness is TRUE, not a gap:
 `run_scope.prerequisites` derives one condition per REQUIRED input, so
 a node that no consumer requires anything from produces no requirement.
-The two are one kind, verified against the tree (see
+The four are one kind, verified against the tree (see
 `EMPTY_EFFECT_REASONS` for the per-operation evidence):
 
 * ARTIFACT - the product lands on disk for a caller, a gate or Resolve
   placement rather than travelling a DAG edge:
-  `motion_graphics.render`, `motion_graphics.render_segment`.
-  (`reel.gate_stills`, the third artifact, shares `verify_reels`'
+  `motion_graphics.render`, `motion_graphics.render_segment`,
+  `reel.reading_context`, `reel.judge` (the judgement is read off
+  disk).  (`reel.gate_stills`, the fifth artifact, shares `verify_reels`'
   verdict effect by the node granularity `Operation.effect`
   declares - a stills grab planned as a verdict would be the
   confidently-wrong result this layer exists to stop, so the route
@@ -109,10 +110,10 @@ requirement kind (`requirements.OPTIONALS`), so
 `prosody.analyse`, `color_grade.resolve`, `ocr.extract`,
 `transitions.resolve`, `sfx.resolve` and `vfx.resolve` each derive a
 non-empty effect from those pools with nothing listed here.
-The composition consequence below still holds for the two that remain:
+The composition consequence below still holds for the four that remain:
 a composer working backwards from requirements alone can never select
 them, because artifact productions are invisible as goals.
-Hand-writing two effects in a second vocabulary to make the field look
+Hand-writing four effects in a second vocabulary to make the field look
 complete would be the defect this module removes, in a new costume.
 
 This follows the layer's own enforced doctrine, not just this
@@ -1031,6 +1032,16 @@ EMPTY_EFFECT_REASONS: dict[str, str] = {
         "rendering ONE segment onto no master spine. No edge carries "
         "it, and the owning node `render_motion_graphics` produces no "
         "requirement.",
+    "reel.reading_context":
+        "ARTIFACT. The pre-bridge of `judge_reels`: its table goes to "
+        "the reader model and nowhere else. The owning node produces "
+        "no requirement - see `reel.judge`.",
+    "reel.judge":
+        "ARTIFACT. The post-bridge returns `reel_judgement`, which no "
+        "DAG edge carries: its readers, `reel_conformance_verifier` "
+        "and the quality-bar CLI, open it off disk "
+        "(`library/tools/reel_quality_bar.py:read_judgement`) - so no "
+        "requirement names `judge_reels` as a producer.",
 }
 
 
@@ -1225,6 +1236,20 @@ _REGISTRY: tuple[Operation, ...] = (
         summary="Check the model's chosen moments against the cut and publish them PROPOSED",
         owning_node="select_reels",
         owning_dir="step_3_04_select_reels", body="post_bridge.py",
+        attr="resolve",
+    ),
+    Operation(
+        name="reel.reading_context",
+        summary="Work out the words each proposed reel plays, for a reader who has not heard the episode",
+        owning_node="judge_reels",
+        owning_dir="step_3_05_judge_reels", body="bridge.py",
+        attr="build_context",
+    ),
+    Operation(
+        name="reel.judge",
+        summary="Check each reading against its reel's own words and derive the verdicts and ordering",
+        owning_node="judge_reels",
+        owning_dir="step_3_05_judge_reels", body="post_bridge.py",
         attr="resolve",
     ),
     Operation(
@@ -1549,6 +1574,15 @@ _REGISTRY: tuple[Operation, ...] = (
         # ladder records an undecided run as fallback or undetermined
         # rather than raising. Bridge outputs are not gathered, so an
         # operation run resolves over the step inputs alone.
+    ),
+    Operation(
+        name="cohesion.review",
+        summary="Review the planned transitions and sound against the declared direction",
+        owning_node="creative_cohesion",
+        owning_dir="step_5_03_creative_cohesion", body="step.py",
+        attr="review_creative_cohesion",
+        # The plain step.py case: `review_creative_cohesion(inputs)`
+        # takes the whole gathered dict, the render.build shape.
     ),
     # compile_manifest belongs here in pipeline order and is NOT
     # registered: step_5_04_compile_manifest/step.py takes `out_dir`,
