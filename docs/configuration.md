@@ -499,7 +499,7 @@ The `clear` profile is the first eligible profile in the matched rule's (or defa
 A `use` array is written in rung order, and spawn-time gates decide the rung that launches.
 When a default array selects a governed OpenCode or Codex Plus profile, the resolver appends `--dispatch-ladder opencode` so the spawn gate chooses from current cap records.
 The agy array goes through `fm_agy_ladder_gate` in rung order, with a refusal escalated.
-The opencode default order is free, Codex Plus (`gpt-6-luna` at max effort), then Go.
+The opencode default order is free, Codex Plus (`gpt-6-luna` at the effort declared for its Codex profile, or `xhigh` when that profile omits effort), then Go.
 OpenCode free caps use the vendor retry horizon; Codex Plus and Go caps use fresh `quota-axi` zero-availability evidence with a reset time, with Codex Plus also accepting a lane usage-limit message that states its reset, and Go also accepting reactive vendor-cap evidence.
 Each rung's `state/.opencode-cap-<rung>` record is shared by dispatch, spawning, and running-worker descent through `bin/fm-opencode-retry.sh`.
 Unknown or stale quota data does not count as capped, and a recorded rung becomes eligible again after its reset time.
