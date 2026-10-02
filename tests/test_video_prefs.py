@@ -234,7 +234,7 @@ def test_compose_threads_style_to_every_selection(tmp_path):
                                  style=context)
     assert comp.completed
     (selection,) = comp.selection
-    assert selection.operation == "reel.candidates"
+    assert selection.operation == "reel.select"
     assert selection.style == context
 
 

@@ -244,6 +244,17 @@ class Requirement:
     refuting_context: Callable[[], Context]
     satisfying_context: Callable[[], Context]
 
+    produced_keys: Tuple[Tuple[str, str], ...] = ()
+    """`(producer node, state key)` for every entry of `produced_by`: the
+    key that producer writes which satisfies this requirement.
+
+    It is what lets an EFFECT belong to a capability rather than to its
+    node: a capability's effect is every requirement whose key, at the
+    capability's node, is one the capability declares it `produces`
+    (`library/tools/dag_adapter.py:requirements_produced`).  Required for
+    every producer - `__post_init__` refuses a producer with no key, since
+    no capability could then be credited with producing it."""
+
     overridable: bool = False
     """Whether an operator may deliberately proceed past this refusal.
 
@@ -288,6 +299,7 @@ class Requirement:
                     f"precondition. A judgement a run refuses without "
                     f"is the circular prerequisite this kind exists to "
                     f"avoid.")
+            self._assert_keyed()
             return
         if self.kind == KIND_OPTIONAL:
             # An optional edge is a GOAL ONLY - the composer's
@@ -318,6 +330,7 @@ class Requirement:
                     f"precondition. A run that refused without an "
                     f"optional input would refuse a run the runner "
                     f"accepts.")
+            self._assert_keyed()
             return
         if not self.consumers:
             raise ValueError(
@@ -348,6 +361,20 @@ class Requirement:
             raise ValueError(
                 f"{self.name}: no step produces a machine, so an "
                 f"environment requirement must not name a producer.")
+        self._assert_keyed()
+
+    def _assert_keyed(self) -> None:
+        keyed = [node for node, _ in self.produced_keys]
+        if sorted(keyed) != sorted(set(self.produced_by)):
+            raise ValueError(
+                f"{self.name}: produced_keys must name the state key for "
+                f"exactly each producer {sorted(set(self.produced_by))}, "
+                f"got {sorted(keyed)} - a producer with no key credits no "
+                f"capability with producing it")
+
+    def key_at(self, producer: str) -> str:
+        """The state key `producer` writes that satisfies this."""
+        return dict(self.produced_keys)[producer]
 
     def applies_to(self, run_set: Iterable[str]) -> bool:
         run_set = set(run_set)
@@ -444,6 +471,7 @@ def _state_key_requirement(need) -> Requirement:
         name=name, kind=KIND_STATE_KEY,
         describe=f"{need.consumer} needs {what} from {need.producer}",
         produced_by=(need.producer,), consumers=(need.consumer,),
+        produced_keys=((need.producer, key),),
         check=check, refuting_context=refuting,
         satisfying_context=satisfying)
 
@@ -967,6 +995,7 @@ PREDICATES: Tuple[Requirement, ...] = (
         name="rough_cut.approved", kind=KIND_PREDICATE,
         describe="the rough cut passed its own mechanical review",
         produced_by=("review_rough_cut",),
+        produced_keys=(("review_rough_cut", "rough_cut_review"),),
         consumers=("plan_subtitles", "plan_transitions", "plan_vfx",
                    "plan_sfx"),
         check=_rough_cut_approved,
@@ -984,6 +1013,7 @@ PREDICATES: Tuple[Requirement, ...] = (
         name="prosody.speech_regions", kind=KIND_PREDICATE,
         describe="temporal_index carries speech regions to measure prosody over",
         produced_by=("temporal_index",), consumers=("prosody_analysis",),
+        produced_keys=(("temporal_index", "temporal_event_indices"),),
         check=_prosody_speech_regions,
         refuting_context=lambda: Context(
             state={"step_outputs": {"temporal_index": {
@@ -997,6 +1027,7 @@ PREDICATES: Tuple[Requirement, ...] = (
         name="music.track_on_disk", kind=KIND_PREDICATE,
         describe="the selected music track names a file that exists",
         produced_by=("music_selection",), consumers=("music_analysis",),
+        produced_keys=(("music_selection", "music_selection"),),
         check=_music_track_path,
         refuting_context=lambda: Context(
             state={"step_outputs": {"music_selection": {
@@ -1272,6 +1303,9 @@ COVERAGE: Tuple[Requirement, ...] = (
         describe=("every speech and hook block in the spine carries word "
                   "timings"),
         produced_by=("temporal_index", "speech_sequence", "mesh_spine"),
+        produced_keys=(("temporal_index", "temporal_event_indices"),
+                       ("speech_sequence", "speech_sequence"),
+                       ("mesh_spine", "audio_spine")),
         consumers=("plan_subtitles",),
         check=_spine_word_timings,
         refuting_context=lambda: Context(
@@ -1337,6 +1371,7 @@ def _verdict_requirement(node_id: str, key: str,
     return Requirement(
         name=f"verdict.{node_id}.{key}", kind=KIND_VERDICT,
         describe=describe, produced_by=(node_id,), consumers=(),
+        produced_keys=((node_id, key),),
         check=check, refuting_context=refuting,
         satisfying_context=satisfying)
 
@@ -1450,6 +1485,7 @@ def _optional_requirement(consumer: str, producer: str, key: str,
     return Requirement(
         name=f"optional.{consumer}.{key}", kind=KIND_OPTIONAL,
         describe=describe, produced_by=(producer,), consumers=(),
+        produced_keys=((producer, key),),
         check=check, refuting_context=refuting,
         satisfying_context=satisfying)
 

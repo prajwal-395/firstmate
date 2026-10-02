@@ -258,7 +258,7 @@ def test_the_rule_refuses_a_prompt_no_manifest_declares():
     planted = operations.Operation(
         name="planted.prompt", summary="a prompt nobody declared",
         owning_node="scan", owning_dir="step_1_01_scan_project",
-        body="handoff.md", attr="")
+        body="handoff.md", attr="", produces=())
     assert "handoff.md" in (violation(planted) or "")
 
 

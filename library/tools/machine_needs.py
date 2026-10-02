@@ -134,6 +134,7 @@ CAPABILITY_NEEDS: dict = {
     "speech.enrich": CapabilityNeeds(_MODEL),
     "music.resolve": CapabilityNeeds(_MODEL + ("config.music_library",)),
     "duration_zone.build": CapabilityNeeds(),
+    "spine.mesh": CapabilityNeeds(_MODEL),
     "aroll.assign": CapabilityNeeds(),
     "aroll.splice": CapabilityNeeds(),
     "broll.resolve": CapabilityNeeds(_MODEL),

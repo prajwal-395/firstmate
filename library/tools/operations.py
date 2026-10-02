@@ -40,22 +40,26 @@ What an operation REQUIRES and EFFECTS, both derived
 ----------------------------------------------------
 `Operation.requires` is DERIVED, never hand-written: every requirement in
 `library/tools/requirements.py` whose `consumers` include this operation's
-`owning_node`.  `Operation.effect` is the exact mirror: every requirement
-whose `produced_by` includes it.  Same vocabulary, so an effect can be
-matched against a precondition.  Both are properties with no setter, and
-`_REGISTRY` carries no requirement literals.
+`owning_node`.  `Operation.effect` is DECLARED PER CAPABILITY (captain,
+2026-10-02): each entry lists the state keys it `produces`, and its effect
+is every requirement whose key at its node (`Requirement.key_at`) is one
+of them.  A node's effect is derived from its capabilities
+(`dag_adapter.node_effects`), never declared.  Same vocabulary, so an
+effect can be matched against a precondition.  Both are properties with
+no setter, and `_REGISTRY` carries no requirement literals.
 
-Only ARTIFACT operations have an empty effect - the product lands on
-disk for a caller, a gate or Resolve placement rather than travelling a
-DAG edge - and `EMPTY_EFFECT_REASONS` lists each one with its evidence.
-Verdicts derive theirs from `requirements.VERDICTS` and optional edges
-from `requirements.OPTIONALS` (captain, 2026-09-23).  A composer working
-backwards from requirements alone can never select an artifact
-operation, and hand-writing an effect for one would extend what
-`produced_by` means (`Requirement.__post_init__` refuses that shape).
-`reel.gate_stills` shares `verify_reels`' verdict effect by node
-granularity; the route selector names `reel.verify`, and no plan names
-the grab.  `tests/test_operations_declare_effect.py`.
+An operation whose result is no requirement's key has an empty effect,
+and `EMPTY_EFFECT_REASONS` gives each its evidence under one of four
+kinds: ARTIFACT (the product lands on disk for a caller, a gate or
+Resolve placement), BRIDGE (a pre-bridge's table is the model's
+context), RECEIPT (a caller-supplied change returns a receipt, not the
+build's key) and REGION UNIT (one span of one clip handed back to the
+caller).  Verdicts derive theirs from `requirements.VERDICTS` and
+optional edges from `requirements.OPTIONALS` (captain, 2026-09-23).  A
+composer working backwards from requirements alone can never select an
+empty-effect operation, and declaring an effect a capability does not
+have would be the defect this module removes.
+`tests/test_operations_declare_effect.py`.
 
 Executing
 ---------
@@ -328,6 +332,23 @@ class Operation:
     owning_dir: str             # its directory under library/steps/
     body: str                   # step.py | bridge.py | post_bridge.py
     attr: str                   # the function's name in that body
+    produces: tuple[str, ...]
+    """The state keys this capability's result IS when its step runs it.
+
+    DECLARED per capability, and the ONE vocabulary for what a
+    capability produces (captain's ruling on punch list item 4,
+    2026-10-02): `effect` is every requirement whose key, at this
+    capability's node, is listed here.  A node's effect is no longer
+    declared anywhere - it is DERIVED as the union of its capabilities'
+    effects (`dag_adapter.node_effects`), a computed view for the
+    adapter and legacy readers, not a second vocabulary.
+
+    Siblings say what each really writes: `duration_zone.build` is
+    `mesh_spine`'s bridge and writes `duration_zone`, not the spine
+    `spine.mesh` writes; a touch-up returns a receipt, not `reel_build`.
+    Every key must be one the owning step's manifest declares as an
+    output (`capabilities.problems`).  Empty means the result is no
+    state key - `EMPTY_EFFECT_REASONS` says why for each."""
     scopes: tuple[str, ...] = (PROJECT,)
     caller_supplied: bool = False
     """Its arguments come from a CALLER, not from gathering.
@@ -402,26 +423,20 @@ class Operation:
 
     @property
     def effect(self) -> tuple:
-        """Every requirement this operation's OWNING NODE satisfies.
+        """Every requirement this capability's declared `produces` satisfies.
 
-        The exact mirror of `requires`, in the SAME vocabulary: where
-        `requires` filters `requirements.all_requirements()` on
-        `owning_node in r.consumers`, this filters on `owning_node in
-        r.produced_by`.  Derived, never hand-written, for the same
-        reason - an effect in a second language cannot be matched
-        against a precondition, so nothing composes.
+        In the SAME vocabulary as `requires` - requirement names - so an
+        effect can be matched against a precondition: a requirement is
+        an effect when this capability's node is among its producers
+        and the key it is satisfied by there (`Requirement.key_at`) is
+        one this capability `produces`.
 
-        Node-granular, like `requires`: sibling operations owned by one
-        node share one effect.  A bridge half therefore carries its
-        node's whole production (`duration_zone.build` reads as
-        producing the spine its step meshes) - the vocabulary is keyed
-        by node id, so anything finer would be a second vocabulary.
-
-        Empty for the two operations named in `EMPTY_EFFECT_REASONS`,
-        and the emptiness is the truth: no requirement in the registry
-        names those nodes as a producer, so running one satisfies no
-        precondition.  See the module docstring for the kind and
-        the composition consequence.
+        Per capability, not per node: siblings owned by one node carry
+        their own effects (`spine.mesh` the spine, its bridge
+        `duration_zone.build` none).  Empty for the operations named in
+        `EMPTY_EFFECT_REASONS`, and the emptiness is the truth: running
+        one satisfies no precondition.  See the module docstring for the
+        composition consequence.
         """
         from library.tools import dag_adapter
         return dag_adapter.requirements_produced(self)
@@ -691,17 +706,22 @@ class Operation:
                        "these while it waits - inside a DAG run they would "
                        "be satisfied by a producer scheduled ahead of it."),
                       "To satisfy them:"]
+            producing = {}
+            for op in all():
+                for r in op.effect:
+                    producing.setdefault(r.name, []).append(op.name)
             for name, producers in deferrable:
-                # The STEP is named, never an operation.  An operation
-                # owned by the producing node is not necessarily the
-                # operation that produces this key - `duration_zone.build`
-                # is owned by `mesh_spine` but is its BRIDGE half and
-                # emits no spine.  Suggesting it would be confidently
-                # wrong, which is worse than suggesting nothing, and
-                # guessing the mapping is the defect this whole refactor
-                # is about.
+                # The STEP is always named; a capability only when it
+                # DECLARES producing this key.  Sibling ownership is not
+                # evidence - `duration_zone.build` is owned by
+                # `mesh_spine` but is its bridge and emits no spine -
+                # so a node with no declaring capability names no
+                # operation rather than guessing one.
                 who = " or ".join(f"`{p}`" for p in producers)
-                lines.append(f"  - {name}: produced by {who} - run "
+                ops = producing.get(name, ())
+                via = (" (capability " + " or ".join(
+                    f"`{o}`" for o in ops) + ")") if ops else ""
+                lines.append(f"  - {name}: produced by {who}{via} - run "
                              f"{'that step' if len(producers) == 1 else 'one of those steps'} "
                              f"first, or run the DAG.")
         return "\n".join(lines)
@@ -931,12 +951,10 @@ class Operation:
 # `requirements.VERDICTS` and `requirements.OPTIONALS` carry the
 # per-entry evidence now.
 #
-# `reel.gate_stills` left with the verdicts without being one: it is
-# owned by `verify_reels`, so it shares that node's verdict effect by
-# the node granularity `Operation.effect` declares.  It keeps no row
-# because its effect is no longer empty - and no plan may name it for
-# that effect, which the route selector (`composer._select_verify_reels`)
-# and `tests/test_composer.py` pin.  Only ARTIFACT rows remain.
+# Since effects are declared per capability (`Operation.produces`),
+# the siblings that write no requirement's key are here too: the
+# BRIDGE, RECEIPT and REGION UNIT rows below, and `reel.gate_stills`,
+# which no longer borrows `verify_reels`' verdict.
 
 EMPTY_EFFECT_REASONS: dict[str, str] = {
     # ARTIFACT - the product lands on disk for a caller, a gate or
@@ -966,6 +984,55 @@ EMPTY_EFFECT_REASONS: dict[str, str] = {
         "and the quality-bar CLI, open it off disk "
         "(`library/tools/reel_quality_bar.py:read_judgement`) - so no "
         "requirement names `judge_reels` as a producer.",
+    # BRIDGE - a pre-bridge's table is the model's context.  It reaches
+    # state, but no requirement names a key it writes.
+    "duration_zone.build":
+        "BRIDGE. `mesh_spine`'s pre-bridge writes `duration_zone`, the "
+        "band the model is shown; the spine every consumer requires is "
+        "`spine.mesh`'s. No requirement names `duration_zone`.",
+    "reel.candidates":
+        "BRIDGE. `select_reels`' pre-bridge writes the measured "
+        "exchanges the selector reads; `reel_selection`, the key "
+        "`judge_reels` requires, is `reel.select`'s.",
+    # RECEIPT - a caller-supplied change to something already built
+    # returns a receipt, not the state key the build wrote.
+    "reel.touchup":
+        "RECEIPT. Returns `reel_touchup`, a receipt for one change to "
+        "one built timeline - no output `build_reels` declares, and not "
+        "`reel_build`, which only `reel.build` writes.",
+    "reel.entry_motion":
+        "RECEIPT. Returns `reel_touchup` for one animated element on an "
+        "already-built timeline - no output `build_reels` declares; "
+        "`reel_build` is `reel.build`'s.",
+    "reel.set_properties":
+        "RECEIPT. Returns `reel_touchup` for properties written onto "
+        "one placed clip - no output `build_reels` declares; "
+        "`reel_build` is `reel.build`'s.",
+    "reel.ask":
+        "RECEIPT. Writes each approved reel's visual asks and returns "
+        "`reel_ask`, an output `build_reels` does not declare - nothing "
+        "is built, so no `reel_build`.",
+    "reel.gate_stills":
+        "ARTIFACT. Caller-supplied: grabs stills off one timeline to "
+        "disk and returns where they went; the verdict "
+        "`verify_reels` produces is `reel.verify`'s, not this grab's.",
+    "subtitles.render_segment":
+        "ARTIFACT. One caption segment rendered to disk and described; "
+        "`subtitle_overlay`, the `render_subtitles` key "
+        "`compile_manifest` requires, is `subtitles.render`'s.",
+    "subtitles.rerender_swap":
+        "ARTIFACT. Caller-supplied: re-renders named segments and swaps "
+        "them onto every timeline, returning a report - no state key "
+        "`render_subtitles` declares.",
+    # REGION UNIT - one span of one clip, handed back to the caller.
+    "transcript.reindex":
+        "REGION UNIT. Re-measures the speech of ONE span of one clip and "
+        "returns the regions; `temporal_event_indices` is the project "
+        "index `temporal.index` writes for `temporal_index`.",
+    "transcript.splice":
+        "REGION UNIT. Splices fresh regions into ONE clip's index "
+        "document and returns it; the caller files it, and the "
+        "`temporal_index` project index is `temporal.index`'s.",
 }
 
 
@@ -985,6 +1052,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="validate_sfx_library",
         owning_dir="step_0_01_validate_sfx_library", body="step.py",
         attr="validate_sfx_library",
+        produces=("sfx_library_status",),
     ),
     Operation(
         name="footage.scan",
@@ -992,6 +1060,13 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="scan",
         owning_dir="step_1_01_scan_project", body="step.py",
         attr="scan_project_folder",
+        produces=(
+            "project_config",
+            "raw_footage_files",
+            "raw_audio_files",
+            "skipped_files",
+            "total_files",
+        ),
     ),
     Operation(
         name="footage.catalog",
@@ -999,6 +1074,14 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="catalog",
         owning_dir="step_1_02_catalog_footage", body="step.py",
         attr="catalog_footage",
+        produces=(
+            "clip_catalog",
+            "project_fps",
+            "source_resolution",
+            "audio_catalog",
+            "skipped_files",
+            "total_clips",
+        ),
     ),
     Operation(
         name="semantics.analyse",
@@ -1006,6 +1089,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="semantic_analysis",
         owning_dir="step_1_03_semantic_analysis", body="step.py",
         attr="analyse_semantics",
+        produces=("semantic_analysis_documents", "total_clips_analyzed"),
     ),
     Operation(
         name="temporal.index",
@@ -1013,6 +1097,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="temporal_index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="index_project",
+        produces=("temporal_event_indices",),
     ),
     Operation(
         name="prosody.analyse",
@@ -1020,6 +1105,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="prosody_analysis",
         owning_dir="step_1_05_prosody_analysis", body="step.py",
         attr="analyse_prosody",
+        produces=("prosody_analysis",),
     ),
     Operation(
         name="ocr.extract",
@@ -1027,6 +1113,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="ocr_extraction",
         owning_dir="step_1_07_ocr_extraction", body="step.py",
         attr="extract_ocr",
+        produces=("ocr_extraction",),
     ),
     Operation(
         name="creative.direct",
@@ -1034,6 +1121,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="creative_direction",
         owning_dir="step_2_01_creative_direction", body="handoff.md",
         attr="",
+        produces=("creative_direction",),
         # A PROMPT capability, per the captain's 2026-09-23 ruling that a
         # capability may be a prompt: this node is `runtime: llm` with
         # `entry_point: handoff.md` and no Python body to name, so `run`
@@ -1048,6 +1136,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="speech_sequence",
         owning_dir="step_2_02_speech_sequence", body="post_bridge.py",
         attr="enrich_speech_sequence",
+        produces=("speech_sequence",),
         # The deterministic half of a hybrid step: the passage SELECTION
         # stays the model's answer (supplied as overrides, or run
         # `speech_sequence` so the runner asks the model for it) and this
@@ -1062,6 +1151,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="music_selection",
         owning_dir="step_2_04_music_selection", body="post_bridge.py",
         attr="resolve_selection",
+        produces=("music_selection",),
         # The deterministic half of a hybrid step: the track CHOICE stays
         # the model's answer (supplied as overrides, or run
         # `music_selection` so the runner asks the model for it) and this
@@ -1076,6 +1166,15 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="mesh_spine",
         owning_dir="step_2_05_mesh_spine", body="bridge.py",
         attr="build_duration_zone",
+        produces=("duration_zone",),
+    ),
+    Operation(
+        name="spine.mesh",
+        summary="Mesh the model's spine against the speech and the music into the timed spine",
+        owning_node="mesh_spine",
+        owning_dir="step_2_05_mesh_spine", body="post_bridge.py",
+        attr="resolve_spine",
+        produces=("audio_spine", "timed_spine"),
     ),
     Operation(
         name="aroll.assign",
@@ -1083,6 +1182,11 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="assign_aroll",
         owning_dir="step_3_01_assign_aroll", body="step.py",
         attr="assign_a_roll",
+        produces=(
+            "a_roll_assignments",
+            "voiceover_assignments",
+            "hook_assignment",
+        ),
     ),
     Operation(
         name="aroll.splice",
@@ -1090,6 +1194,11 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="assign_aroll",
         owning_dir="step_3_01_assign_aroll", body="step.py",
         attr="splice_region_aroll",
+        produces=(
+            "a_roll_assignments",
+            "voiceover_assignments",
+            "hook_assignment",
+        ),
         # REGION only, beside `aroll.assign`: the region's blocks are
         # re-assigned from the (re-anchored) spine and spliced into the
         # recorded output, supplied as `stored_assignments`. Every other
@@ -1104,6 +1213,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="select_broll",
         owning_dir="step_3_02_select_broll", body="post_bridge.py",
         attr="resolve_broll",
+        produces=("b_roll_assignments", "b_roll_interjections"),
         # The deterministic half of a hybrid step: the cutaway SELECTION
         # stays the model's answer (supplied as overrides, or run
         # `select_broll` so the runner asks the model for it) and this
@@ -1117,6 +1227,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="select_broll",
         owning_dir="step_3_02_select_broll", body="post_bridge.py",
         attr="splice_region_broll",
+        produces=("b_roll_assignments", "b_roll_interjections"),
         # REGION only, beside `broll.resolve`: the model's answer FOR THE
         # REGION is supplied as `broll_creative` (and
         # `b_roll_interjections`), the selections it goes INTO as
@@ -1154,6 +1265,16 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="select_reels",
         owning_dir="step_3_04_select_reels", body="bridge.py",
         attr="build_context",
+        produces=(
+            "reel_candidates",
+            "turns",
+            "length_guidance_seconds",
+            "picture_holes",
+            "who_leads_was_inferred",
+            "declared_speakers",
+            "undetermined",
+            "reel_diagnostics_reference",
+        ),
     ),
     Operation(
         name="reel.select",
@@ -1161,6 +1282,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="select_reels",
         owning_dir="step_3_04_select_reels", body="post_bridge.py",
         attr="resolve",
+        produces=("reel_selection",),
     ),
     Operation(
         name="reel.reading_context",
@@ -1168,6 +1290,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="judge_reels",
         owning_dir="step_3_05_judge_reels", body="bridge.py",
         attr="build_context",
+        produces=("reels_to_read", "reels_not_readable"),
     ),
     Operation(
         name="reel.judge",
@@ -1175,6 +1298,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="judge_reels",
         owning_dir="step_3_05_judge_reels", body="post_bridge.py",
         attr="resolve",
+        produces=("reel_judgement",),
     ),
     Operation(
         name="reel.build",
@@ -1182,6 +1306,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="build_reels",
+        produces=("reel_build",),
     ),
     Operation(
         name="reel.touchup",
@@ -1189,6 +1314,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="touch_reel",
+        produces=(),
         # Its arguments are caller-decided - the structured change:
         # which reel, which item, what changes - handed in by the
         # fix that computed it, the way `touch-reel` takes `--edits`.
@@ -1206,6 +1332,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="animate_entry",
+        produces=(),
         # Its arguments are caller-decided - which reel, which item,
         # how many frames of entrance and exit fade - handed in by
         # the fix that computed them. The runner never drives it. See
@@ -1222,6 +1349,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="set_clip_properties",
+        produces=(),
         # Its arguments are caller-decided - which reel, which item,
         # which properties - handed in by the fix that computed them.
         # The runner never drives it. See
@@ -1236,6 +1364,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="ask_reels",
+        produces=(),
     ),
     Operation(
         name="reel.verify",
@@ -1243,6 +1372,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="verify_reels",
         owning_dir="step_7_02_verify_reels", body="step.py",
         attr="verify_reels",
+        produces=("reel_verification",),
     ),
     Operation(
         name="reel.gate_stills",
@@ -1250,6 +1380,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="verify_reels",
         owning_dir="step_7_02_verify_reels", body="step.py",
         attr="grab_gate_stills",
+        produces=(),
         # Its arguments are caller-decided - a reel label, the timeline's
         # exact name and the reel-relative frames the gate wants to see -
         # handed in by the gate that asks the visual question. The runner
@@ -1266,6 +1397,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="music_analysis",
         owning_dir="step_2_06_music_analysis", body="step.py",
         attr="analyse_music",
+        produces=("music_analysis",),
     ),
     Operation(
         name="subtitles.plan",
@@ -1273,6 +1405,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_subtitles",
         owning_dir="step_4_01_plan_subtitles", body="step.py",
         attr="generate_subtitles",
+        produces=("subtitle_plan",),
         # REGION is offered as of increment 5.  It was withheld while
         # 4.01 numbered its cards from a run-global counter, because a
         # region-scoped plan renumbered every card after the region -
@@ -1293,6 +1426,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_subtitles",
         owning_dir="step_4_01_plan_subtitles", body="step.py",
         attr="splice_region_plan",
+        produces=("subtitle_plan",),
         # REGION only.  A splice with no region is a whole-plan
         # overwrite, which is what `subtitles.plan` at PROJECT scope
         # already is - naming it twice would be the second
@@ -1305,6 +1439,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="review_rough_cut",
         owning_dir="step_3_03_review_rough_cut", body="step.py",
         attr="run_mechanical_checks",
+        produces=("rough_cut_review",),
     ),
     Operation(
         name="transitions.resolve",
@@ -1312,6 +1447,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_transitions",
         owning_dir="step_4_02_plan_transitions", body="post_bridge.py",
         attr="resolve_transitions",
+        produces=("transition_spec",),
         # The deterministic half of a hybrid step: the transition
         # SELECTION stays the model's answer (supplied as overrides, or
         # run `plan_transitions` so the runner asks the model for it)
@@ -1326,6 +1462,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_transitions",
         owning_dir="step_4_02_plan_transitions", body="post_bridge.py",
         attr="splice_region_transitions",
+        produces=("transition_spec",),
         # REGION only, beside `transitions.resolve`: a region owns the
         # cuts INTO the blocks it touches (plus the end slot on the last
         # block). The model's answer for those cuts is supplied as
@@ -1340,6 +1477,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_vfx",
         owning_dir="step_4_03_plan_vfx", body="post_bridge.py",
         attr="resolve_vfx",
+        produces=("enhancement_spec",),
         # The deterministic half of a hybrid step: the effect SELECTION
         # stays the model's answer (supplied as overrides, or run
         # `plan_vfx` so the runner asks the model for it) and this
@@ -1354,6 +1492,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_vfx",
         owning_dir="step_4_03_plan_vfx", body="post_bridge.py",
         attr="splice_region_vfx",
+        produces=("enhancement_spec",),
         # REGION only, beside `vfx.resolve` the way `subtitles.splice`
         # sits beside `subtitles.plan`. The model's answer FOR THE REGION
         # is supplied as `vfx_creative` and the plan it goes INTO as
@@ -1369,6 +1508,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_sfx",
         owning_dir="step_4_04_plan_sfx", body="post_bridge.py",
         attr="resolve_sfx",
+        produces=("sfx_spec",),
         # The deterministic half of a hybrid step: the sound SELECTION
         # stays the model's answer (supplied as overrides, or run
         # `plan_sfx` so the runner asks the model for it) and this
@@ -1384,6 +1524,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="plan_sfx",
         owning_dir="step_4_04_plan_sfx", body="post_bridge.py",
         attr="splice_region_sfx",
+        produces=("sfx_spec",),
         # REGION only, beside `sfx.resolve` as `vfx.splice` sits beside
         # `vfx.resolve`: the model's answer FOR THE REGION is supplied as
         # `sfx_creative` and the plan it goes INTO as `stored_spec`, and
@@ -1397,6 +1538,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="temporal_index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="reindex_region",
+        produces=(),
         # REGION only, for the same reason: re-indexing everything is
         # what the step already does at PROJECT scope.
         scopes=(REGION,),
@@ -1407,6 +1549,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="temporal_index",
         owning_dir="step_1_04_temporal_index", body="step.py",
         attr="splice_region_index",
+        produces=(),
         scopes=(REGION,),
     ),
     Operation(
@@ -1415,6 +1558,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="render_subtitles",
         owning_dir="step_4_05_render_subtitles", body="step.py",
         attr="render_subtitle_overlays",
+        produces=("subtitle_overlay",),
         # REGION is offered because re-rendering is idempotent per
         # segment and carries no run-global identity: a segment's name
         # comes from its own speaker, timeline and source span
@@ -1428,6 +1572,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="render_subtitles",
         owning_dir="step_4_05_render_subtitles", body="step.py",
         attr="render_one_segment",
+        produces=(),
         # The unit increment 5's region-scoped redo reaches: one segment,
         # so REGION is the scope that means anything here, and CLIP is
         # not offered because a segment is addressed by its timeline
@@ -1440,6 +1585,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="render_subtitles",
         owning_dir="step_4_05_render_subtitles", body="step.py",
         attr="rerender_and_swap",
+        produces=(),
         # Its arguments are caller-decided pairs of
         # {old_mov, timeline_label, props}, handed in by the fix that
         # computed the new text - the runner never drives it. See
@@ -1456,6 +1602,11 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="render_motion_graphics",
         owning_dir="step_4_06_render_motion_graphics", body="post_bridge.py",
         attr="render_motion_graphics",
+        produces=(
+            "motion_graphics_overlay",
+            "behind_subject_overlays",
+            "timed_text_overlay",
+        ),
     ),
     Operation(
         name="motion_graphics.render_segment",
@@ -1463,6 +1614,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="render_motion_graphics",
         owning_dir="step_4_06_render_motion_graphics", body="post_bridge.py",
         attr="render_one_segment",
+        produces=(),
         # Its arguments are a planned segment and a directory, handed to
         # it by `reel_build` - the runner never drives it. See
         # `Operation.caller_supplied`.
@@ -1483,6 +1635,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="color_grade",
         owning_dir="step_5_01_color_grade", body="post_bridge.py",
         attr="resolve_color_grade",
+        produces=("color_grade_spec",),
     ),
     Operation(
         name="audio_mix.resolve",
@@ -1490,6 +1643,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="audio_mix",
         owning_dir="step_5_02_audio_mix", body="post_bridge.py",
         attr="resolve_audio_mix",
+        produces=("audio_mix_spec",),
         # The stdin-driven entry point, so `data` binds the whole
         # gathered dict under the known spelling - the
         # motion_graphics.render shape, not the speech.enrich
@@ -1505,6 +1659,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="creative_cohesion",
         owning_dir="step_5_03_creative_cohesion", body="step.py",
         attr="review_creative_cohesion",
+        produces=("cohesion_review",),
         # The plain step.py case: `review_creative_cohesion(inputs)`
         # takes the whole gathered dict, the render.build shape.
     ),
@@ -1518,6 +1673,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="render",
         owning_dir="step_6_01_render", body="step.py",
         attr="run",
+        produces=("render_output",),
         # The plain step.py case: `run(inputs)` takes the whole
         # gathered dict under the known `inputs` spelling, the
         # footage.scan shape. Needs Resolve at call time.
@@ -1528,6 +1684,7 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="validate",
         owning_dir="step_6_02_validate_output", body="post_bridge.py",
         attr="resolve_validation",
+        produces=("validation_result",),
     ),
 )
 

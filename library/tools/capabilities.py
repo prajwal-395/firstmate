@@ -12,9 +12,12 @@ Derived, never hand-written
 Every field is DERIVED from a declaration that already exists, so there
 is no second vocabulary to keep in sync:
 
-    id, summary, scopes, executor   library/tools/operations.py (the registry)
-    requires, effects               library/tools/requirements.py, through
+    id, summary, scopes, executor,  library/tools/operations.py (the registry)
+    produces
+    requires                        library/tools/requirements.py, through
                                     the DAG adapter (still node-keyed)
+    effects                         the requirements whose key, at the
+                                    capability's node, it `produces`
     exclusion                       library/tools/concurrency_routing.py
     artifact_areas                  library/tools/project_layout.AREAS
     legacy                          library/tools/processes.py
@@ -52,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -122,7 +126,10 @@ class CapabilitySpec:
     requires: tuple
     """Requirement names it refuses without."""
     effects: tuple
-    """Requirement names running it satisfies."""
+    """Requirement names running it satisfies - derived from `produces`."""
+    produces: tuple
+    """The state keys its result is, DECLARED on the capability
+    (`Operation.produces`); its node's effect is derived from these."""
     assumes_machine: tuple
     """The subset of `requires` that is a fact about the machine."""
     assumes_outside: tuple
@@ -190,6 +197,7 @@ def spec_of(op) -> CapabilitySpec:
             attr=op.attr),
         requires=tuple(r.name for r in requires),
         effects=tuple(r.name for r in dag_adapter.requirements_produced(op)),
+        produces=tuple(op.produces),
         assumes_machine=tuple(r.name for r in requires
                               if r.kind == req_mod.KIND_ENVIRONMENT),
         assumes_outside=tuple(r.name for r in requires
@@ -293,6 +301,16 @@ def unregistered_step_dirs() -> tuple:
     return tuple(sorted(on_disk - reached - explained))
 
 
+@lru_cache(maxsize=None)
+def _manifest_outputs(owning_dir: str) -> frozenset:
+    path = STEPS_ROOT / owning_dir / "manifest.json"
+    try:
+        interface = json.loads(path.read_text(encoding="utf-8"))["interface"]
+    except (OSError, ValueError, KeyError):
+        return frozenset()
+    return frozenset(o["name"] for o in interface.get("outputs", ()))
+
+
 def problems(registry=None) -> list:
     """Every way the registry breaks an invariant.  Empty when sound.
 
@@ -304,7 +322,13 @@ def problems(registry=None) -> list:
     4. every artifact has an owner - each step-owned layout area names a
        real node;
     5. a capability that produces nothing says why (`EMPTY_EFFECT_REASONS`);
-    6. every heavy-work lock site is cited (`HEAVY_LOCK_SITES`).
+    6. every heavy-work lock site is cited (`HEAVY_LOCK_SITES`);
+    7. effects are declared per capability and true to the step: every
+       key a capability `produces` is an output its step's manifest
+       declares, and every requirement a node with capabilities is a
+       producer of is produced by one of them - so deriving a node's
+       effect from its capabilities (`dag_adapter.node_effects`) loses
+       no production.
 
     "Requirements are declared" - a contract derived from
     `requirements.py`, never hand-written - is
@@ -342,6 +366,13 @@ def problems(registry=None) -> list:
             out.append(f"{op.name}: legacy node {node!r} is not a node of "
                        f"any process")
 
+        declared = _manifest_outputs(op.owning_dir)
+        for key in getattr(op, "produces", ()):
+            if key not in declared:
+                out.append(f"{op.name}: produces {key!r}, which "
+                           f"{op.owning_dir}/manifest.json declares no "
+                           f"output for")
+
         # A capability that satisfies nothing must say why: the composer
         # works backwards from effects, so an unexplained empty effect is
         # a capability nothing can ever select.
@@ -376,11 +407,23 @@ def problems(registry=None) -> list:
         out.append(f"step directory {d} is reached by no capability and "
                    f"no process node, and STEPS declares no reason")
 
+    with_capabilities = {getattr(op, "owning_node", "") for op in registry}
+    produced_at: dict = {}
+    for op in registry:
+        for r in op.effect:
+            produced_at.setdefault(getattr(op, "owning_node", ""),
+                                   set()).add(r.name)
     for r in requirements.all_requirements():
         for producer in r.produced_by:
             if producer not in nodes:
                 out.append(f"requirement {r.name} names producer "
                            f"{producer!r}, which is not a node")
+            elif (producer in with_capabilities
+                  and r.name not in produced_at.get(producer, ())):
+                out.append(f"requirement {r.name} is produced by "
+                           f"{producer!r} at key {r.key_at(producer)!r}, "
+                           f"and none of that node's capabilities "
+                           f"declares producing it")
 
     for spec in AREAS.values():
         if spec.step and spec.step not in nodes:

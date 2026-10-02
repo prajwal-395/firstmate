@@ -39,11 +39,11 @@ def test_empty_effect_reasons_are_real():
         assert isinstance(reason, str) and len(reason) >= 100, (
             f"{name}: a reason shorter than this is a placeholder, not a justification"
         )
-        assert any(kind in reason for kind in ("ARTIFACT", "ANALYSIS")), (
-            f"{name}: the reason must name its kind - ARTIFACT "
-            f"or ANALYSIS, the two the tree was checked against "
-            f"(VERDICT left the blind set by the captain's ruling "
-            f"2026-09-23)"
+        assert any(kind in reason for kind in (
+                "ARTIFACT", "BRIDGE", "RECEIPT", "REGION UNIT")), (
+            f"{name}: the reason must name its kind - ARTIFACT, BRIDGE, "
+            f"RECEIPT or REGION UNIT, the kinds the per-capability "
+            f"`produces` declarations were checked against"
         )
         assert by_name[name].legacy_node in reason, (
             f"{name}: the reason must name the owning node it excuses, "

@@ -62,19 +62,18 @@ def _optionals():
 
 def test_six_operations_leave_the_blind_set():
     """The three mechanism-A operations with capabilities, and all
-    three mechanism-B producers, derive non-empty effects through the
-    untouched `owning_node in r.produced_by` filter.  Only the ARTIFACT
-    operations stay empty, still reasoned."""
+    three mechanism-B producers, derive non-empty effects from the keys
+    each declares it `produces`, so none is in the blind set."""
     for op_name in ("prosody.analyse", "color_grade.resolve",
                     "ocr.extract"):
         op = O.get(op_name)
         assert op.effect, (
             f"{op_name} still derives an empty effect - its optional "
             f"production is unexpressed")
-    assert set(O.EMPTY_EFFECT_REASONS) == {
-        "motion_graphics.render", "motion_graphics.render_segment",
-        "reel.reading_context", "reel.judge"}, (
-        f"the blind set is not exactly the four artifacts: "
+    assert not {"prosody.analyse", "color_grade.resolve", "ocr.extract",
+                "transitions.resolve", "sfx.resolve", "vfx.resolve"} & set(
+        O.EMPTY_EFFECT_REASONS), (
+        f"an optional-edge producer is back in the blind set: "
         f"{sorted(O.EMPTY_EFFECT_REASONS)}")
 
 

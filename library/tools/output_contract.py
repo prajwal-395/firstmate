@@ -402,8 +402,12 @@ def _read_literals(path: Path) -> Dict[str, List[int]]:
                     and func.attr in ("get", "pop", "setdefault")
                     and node.args and is_str(node.args[0])):
                 note(node.args[0])
+            # `produces=` declares what a capability WRITES
+            # (`operations.Operation.produces`) - the producer's own
+            # side, so naming a key there is not reading it.
             for argument in list(node.args) + [kw.value for kw in
-                                               node.keywords]:
+                                               node.keywords
+                                               if kw.arg != "produces"]:
                 if isinstance(argument, (ast.List, ast.Tuple, ast.Set)):
                     for element in argument.elts:
                         if is_str(element):

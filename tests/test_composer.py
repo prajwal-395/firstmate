@@ -103,6 +103,7 @@ def _synthetic_requirement(name, produced_by, consumers, describe):
     return R.Requirement(
         name=name, kind=R.KIND_STATE_KEY, describe=describe,
         produced_by=tuple(produced_by), consumers=tuple(consumers),
+        produced_keys=tuple((p, name) for p in produced_by),
         check=_never_satisfies,
         refuting_context=lambda: R.Context(),
         satisfying_context=lambda: R.Context())
@@ -204,7 +205,8 @@ def test_deep_strand_names_the_blocker_and_the_chain(monkeypatch):
             "first step but stranded on its precondition",
             owning_node=SYNTHETIC_DEEP_TOP_STEP,
             owning_dir="step_9_99_synthetic_fixture",
-            body="step.py", attr="run")))
+            body="step.py", attr="run",
+            produces=(SYNTHETIC_DEEP_GOAL,))))
     assert SYNTHETIC_DEEP_MID not in C.reachable_goals(), (
         "the test premise failed: a capability now produces the "
         "synthetic mid-chain requirement, so the strand is gone")

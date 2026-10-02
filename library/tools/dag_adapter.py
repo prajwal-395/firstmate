@@ -17,6 +17,10 @@ question a capability-keyed caller asks is answered here, so the day a
 reader stops needing the node is the day one function here goes, rather
 than an audit of every `owning_node` read in the tree.
 
+Effects are the one exception to "the node answers": a capability
+declares what it `produces`, and a node's effect is DERIVED from its
+capabilities (`node_effects`) - a computed view, never a declaration.
+
 What it refuses
 ---------------
 A capability with no legacy node raises `NoLegacyNode` rather than
@@ -101,8 +105,33 @@ def requirements_consumed(op: Any) -> tuple:
 
 
 def requirements_produced(op: Any) -> tuple:
-    """Every requirement whose producers include the capability's node."""
+    """Every requirement the capability's declared `produces` satisfies.
+
+    The requirement names its producer NODE (the DAG's data_mapping is
+    still where producers come from) and the state key that node writes
+    (`Requirement.key_at`); the capability is credited only when it
+    declares that key.  An empty key is a whole-output requirement, met
+    by any capability of the node that produces anything.
+    """
     from library.tools import requirements
     node = node_of(op)
+    produces = set(getattr(op, "produces", ()) or ())
+    if not produces:
+        return ()
     return tuple(r for r in requirements.all_requirements()
-                 if node in r.produced_by)
+                 if node in r.produced_by
+                 and (r.key_at(node) in produces or not r.key_at(node)))
+
+
+def node_effects(node_id: str) -> tuple:
+    """A legacy node's effect: DERIVED, the union of its capabilities'.
+
+    No node declares an effect.  Each capability declares what it
+    `produces`; this view exists for the adapter and legacy readers
+    that still ask by node, and a node with no capability has none.
+    """
+    seen: dict = {}
+    for op in capabilities_at(node_id):
+        for r in requirements_produced(op):
+            seen.setdefault(r.name, r)
+    return tuple(seen.values())

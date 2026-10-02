@@ -592,9 +592,9 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     return {"audio_spine": spine_out}
 
 
-def main():
-    data = json.loads(sys.stdin.read())
-
+def resolve_spine(data: dict) -> dict:
+    """Mesh the model's spine against the speech and the music: the
+    step's whole post-bridge, `audio_spine` and `timed_spine` out."""
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
     # C3 fix: Accept LLM output format. The LLM outputs {structure: [...],
@@ -637,7 +637,12 @@ def main():
 
     result = enrich_spine(spine, speech, music, data)
     result["timed_spine"] = result["audio_spine"]
-    json.dump(result, sys.stdout, indent=2)
+    return result
+
+
+def main():
+    data = json.loads(sys.stdin.read())
+    json.dump(resolve_spine(data), sys.stdout, indent=2)
 
 
 if __name__ == "__main__":

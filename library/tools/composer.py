@@ -30,11 +30,13 @@ What the composer can and cannot select
 It can only select capabilities - registered operations - so it inherits
 the limits of the layer underneath, stated rather than patched around:
 
-* THE FOUR.  Four operations have a deliberately empty derived effect
-  (`operations.EMPTY_EFFECT_REASONS`: ARTIFACTS written to disk rather
-  than state).  No plan this module returns ever names one.
-  `reel.gate_stills` shares `verify_reels`' verdict effect by node
-  granularity and is still never planned.
+* EMPTY EFFECTS.  Each capability declares what it `produces`; one
+  whose result is no requirement's key (an artifact on disk, a
+  pre-bridge, a touch-up receipt, a region unit) has an empty effect,
+  reasoned in `operations.EMPTY_EFFECT_REASONS`, and no plan this module
+  returns names it.  The caller-supplied ones that serve a CHANGE
+  (`build_reels`' touch-ups) are reached after composition, through
+  `select_operation`.
 * VERDICTS compose as their own requirement kind (`requirements.VERDICTS`,
   `verdict.*` goals; captain, 2026-09-23), not by loosening what a
   requirement means.
@@ -102,10 +104,10 @@ POST_BRIDGE = "post_bridge.py"
 
 `Operation.missing_model_answer` refuses a post-bridge run unless the
 caller supplies what the model owes.  A composed plan supplies nothing -
-it only names capabilities - so where sibling operations share one
-effect, the representative is the half that runs on gathered inputs
-alone.  This is a tie-break between equivalents, never a second
-vocabulary: every sibling has identical `requires` and `effect`.
+it only names capabilities - so where two capabilities produce the same
+effect, the one that runs on gathered inputs alone ranks first.  A
+tie-break between capabilities that each declare producing it, never a
+guess about which sibling produces what.
 """
 
 
@@ -224,17 +226,25 @@ class Composition:
         return record
 
 
-def representative(node_id: str) -> str:
-    """The one operation a plan names for an owning node.
+def _rank(op, index: int) -> tuple:
+    """The tie-break between capabilities that produce the same thing.
 
-    Siblings share `requires` and `effect` (both derive from the owning
-    node), so any of them closes the same goals at the same length - the
-    choice is a deterministic tie-break, stated here rather than spread
-    across the search: prefer PROJECT scope (the composer plans at
-    project scope, and a REGION-only splice without a region is a
-    promise the plan cannot keep), then a body that runs on gathered
-    inputs alone (a post-bridge standalone refuses without the model's
-    answer), then registry order.
+    Prefer PROJECT scope (the composer plans at project scope, and a
+    REGION-only splice without a region is a promise the plan cannot
+    keep), then a body that runs on gathered inputs alone (a post-bridge
+    standalone refuses without the model's answer), then registry order.
+    """
+    from library.tools.scope import PROJECT
+    return (PROJECT not in op.scopes, op.body == POST_BRIDGE, index)
+
+
+def representative(node_id: str) -> str:
+    """The one operation a plan names for an owning node by default.
+
+    Among the node's capabilities that PRODUCE something (each declares
+    its own effect, so a bridge or a receipt-returning touch-up is not a
+    stand-in for the node), the `_rank` tie-break picks one.  A node
+    whose capabilities all produce nothing falls back to all of them.
     """
     from library.tools import operations as ops_mod
 
@@ -243,14 +253,9 @@ def representative(node_id: str) -> str:
         raise ComposerError(
             f"no registered operation is owned by {node_id!r}; the "
             f"composer plans capabilities, not bare nodes")
-    from library.tools.scope import PROJECT
-
-    # `owned` is in registry order, so its index IS registry order.
-    def rank(indexed) -> tuple:
-        index, op = indexed
-        return (PROJECT not in op.scopes, op.body == POST_BRIDGE, index)
-
-    return min(enumerate(owned), key=rank)[1].name
+    order = {op.name: i for i, op in enumerate(ops_mod.all())}
+    producing = [op for op in owned if op.effect] or list(owned)
+    return min(producing, key=lambda op: _rank(op, order[op.name])).name
 
 
 def _plan_maps():
@@ -258,22 +263,30 @@ def _plan_maps():
 
     `all_producers` stays node-keyed on purpose: it is the DAG remedy a
     refusal names ("produced by X - run the step in the DAG"), the one
-    place a plan still speaks nodes.  `capable` names one capability per
-    producing node - its `representative` - so siblings sharing an
-    effect never tie inside the search; `select_operation` chooses among
-    them afterwards.
+    place a plan still speaks nodes.  `capable` names, per requirement,
+    the ONE capability per producing node that declares producing it -
+    by each capability's own effect, never its node's - chosen by
+    `_rank` when siblings (a project route and its region splice) both
+    do, so they never tie inside the search; `select_operation` chooses
+    among them afterwards.
     """
     from library.tools import dag_adapter
     from library.tools import operations as ops_mod
     from library.tools import requirements as req_mod
 
     by_name = {r.name: r for r in req_mod.all_requirements()}
-    reps = {node: representative(node)
-            for node in dag_adapter.nodes_with_capabilities()}
     all_producers = {n: tuple(sorted(set(r.produced_by)))
                      for n, r in by_name.items()}
-    capable = {n: tuple(reps[node] for node in sorted(set(r.produced_by)
-                                                      & set(reps)))
+    best: dict[tuple[str, str], tuple] = {}
+    for index, op in enumerate(ops_mod.all()):
+        node = dag_adapter.node_of(op)
+        for r in op.effect:
+            ranked = (_rank(op, index), op.name)
+            if (r.name, node) not in best or ranked < best[(r.name, node)]:
+                best[(r.name, node)] = ranked
+    capable = {n: tuple(best[(n, node)][1]
+                        for node in sorted(set(r.produced_by))
+                        if (n, node) in best)
                for n, r in by_name.items()}
     # The live registry, not the cached `capabilities.all()`: an
     # operation's name IS its capability id, and its `requires` is the
@@ -432,15 +445,14 @@ def compose(goal: str) -> Composition:
 
 # ── Post-composition selection between equivalent routes ──────────
 #
-# `_closure` plans over capabilities, one `representative` per legacy
-# node by a static tie-break, so the search itself can
-# never prefer the cheap route: two siblings with identical `requires`
-# and `effect` are indistinguishable at that layer, correctly.  The
+# `_closure` plans over capabilities, one per producing node by the
+# static `_rank` tie-break, so the search itself can never prefer the
+# cheap route: a route chosen by the asked CHANGE is not visible in a
+# requirement, correctly.  The
 # selector below runs AFTER composition, where runtime context exists:
 # the asked change (structured) and the gate's verdict over a live
-# track read.  It steers no declaration - every sibling keeps
-# declaring the same effect - it only names which sibling serves the
-# asked change.
+# track read.  It steers no declaration - each sibling keeps declaring
+# its own effect - it only names which sibling serves the asked change.
 #
 # `compose` stays the context-free path (representative throughout, a
 # pure function of the registry); `compose_with_change` is the entry
@@ -634,9 +646,8 @@ def _select_verify_reels(node_id: str, owned: tuple,
                          style=None) -> RouteSelection:
     """The verdict route stands; the sibling serves no change.
 
-    `verify_reels` owns two operations sharing one derived effect, and
-    the sharing is the node granularity `Operation.effect` declares -
-    not two routes to the verdict.  `reel.verify` runs the conformance
+    `verify_reels` owns two operations and only `reel.verify` produces
+    the verdict - one route, not two.  `reel.verify` runs the conformance
     verifier over the built reels on gathered inputs alone.
     `reel.gate_stills` is out of the candidate set by its own contract
     (`caller_supplied=True`): the gate hands it a reel label, timeline
@@ -673,8 +684,9 @@ def _select_representative_fallback(node_id: str, owned: tuple,
                                      style=None) -> RouteSelection:
     """Explicit stand-pat for a node with no change gate.
 
-    Several nodes own sibling operations with one shared effect but
-    no sibling takes a structured change - there is no gate to ask
+    Several nodes own two capabilities producing one effect (a project
+    route and its region splice) but no sibling takes a structured
+    change - there is no gate to ask
     and no track read to ask it over - so the static tie-break
     stands.  The entry exists so the coverage guard can tell
     "considered, nothing to select" apart from "never considered":
@@ -695,19 +707,28 @@ def _select_representative_fallback(node_id: str, owned: tuple,
 
 
 _SELECTORS = {
+    "assign_aroll": _select_representative_fallback,
     "build_reels": _select_build_reels,
+    "plan_sfx": _select_representative_fallback,
     "plan_subtitles": _select_representative_fallback,
+    "plan_transitions": _select_representative_fallback,
+    "plan_vfx": _select_representative_fallback,
     "render_subtitles": _select_representative_fallback,
+    "select_broll": _select_representative_fallback,
     "select_reels": _select_representative_fallback,
     "temporal_index": _select_representative_fallback,
     "verify_reels": _select_verify_reels,
 }
-"""Every routable multi-operation node, mapped to its selector.
+"""Every node with a route to choose, mapped to its selector.
 
-"Routable" means owning more than one operation with a non-empty
-derived effect - the set `compose` can actually name.  Empty-effect
-operations (THE FOUR) are composer-blind by design and never reach
-selection, so they need none.  The risk-4 guard
+A node needs one when two of its capabilities produce the same effect
+(a project route and its region splice), or when a caller-supplied
+sibling serves a CHANGE to what another produced (`build_reels`'
+touch-ups, `verify_reels`' stills grab) - a sibling that produces no
+requirement of its own, so only an explicit entry routes to it.
+`select_operation` consults this map first.  The splice entries are
+stand-pats: the composer plans at project scope, so the region route
+is never the default.  The risk-4 guard
 (`tests/test_ren_selection_between_equivalent_routes.py`) fails the
 moment a node outgrows this map: a new route must arrive
 chosen-by-design, never inheriting the tie-break in silence.
@@ -753,7 +774,9 @@ def select_operation(node_id: str, change_spec=None,
         key = tuple(r.name for r in op.effect)
         if key:
             effects.setdefault(key, []).append(op.name)
-    if not any(len(group) > 1 for group in effects.values()):
+    handler = _SELECTORS.get(node_id)
+    if handler is None and not any(
+            len(group) > 1 for group in effects.values()):
         default = representative(node_id)
         others = sorted(op.name for op in owned if op.name != default)
         return RouteSelection(
@@ -769,7 +792,6 @@ def select_operation(node_id: str, change_spec=None,
             f"(e.g. {{'reel': 26, 'edits': [...]}}), not "
             f"{change_spec!r}; refusing rather than routing prose "
             f"to a rebuild")
-    handler = _SELECTORS.get(node_id)
     if handler is None:
         contenders = sorted(
             name for group in effects.values() if len(group) > 1

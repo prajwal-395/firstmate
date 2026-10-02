@@ -210,26 +210,38 @@ def test_free_text_change_spec_raises_rather_than_routing(tmp_path):
 
 
 def _routable_multi_operation_nodes():
-    """Nodes owning >1 operation with a non-empty derived effect.
+    """Nodes where two capabilities produce the same requirement.
 
-    Empty-effect operations are composer-blind by design (THE FIVE:
-    disk artefacts, analyses the composer can never name), so no route
-    choice exists there. Everything else the composer can name must
-    have an explicit selector entry. (`verify_reels` outgrew the map
-    the hour the verdict kind gave it a derived effect: its siblings
-    share one effect by node granularity, and `composer._SELECTORS`
-    records that only the verdict route serves a change.)"""
+    Each capability declares its own effect, so a bridge, a receipt or
+    a region unit is not a route; two capabilities producing one
+    requirement (a project route and its region splice) are."""
     from collections import defaultdict
 
-    groups: dict = defaultdict(set)
+    producers: dict = defaultdict(set)
     for op in O.all():
-        effect = tuple(r.name for r in op.effect)
-        if effect:
-            groups[op.owning_node].add(effect)
-    return sorted(
-        node for node, effects in groups.items()
-        if sum(1 for op in O.by_node(node)
-               if tuple(r.name for r in op.effect) in effects) > 1)
+        for r in op.effect:
+            producers[(op.owning_node, r.name)].add(op.name)
+    return sorted({node for (node, _), ops in producers.items()
+                   if len(ops) > 1})
+
+
+def test_every_routable_node_has_a_selector():
+    """Dropped in the suite halving (#1351) with its helper left behind,
+    and the hole was live: `aroll.splice`, `broll.splice`,
+    `transitions.splice`, `vfx.splice` and `sfx.splice` each gave their
+    node a second route with no selector, so `compose_with_change`
+    raised for every plan through `assign_aroll` - measured
+    2026-10-02 on `optional.compile_manifest.cohesion_review`."""
+    missing = sorted(set(_routable_multi_operation_nodes())
+                     - set(C.selector_coverage()))
+    assert not missing, f"routable nodes with no selector: {missing}"
+
+
+def test_a_plan_through_the_splice_nodes_selects_its_routes():
+    comp = C.compose_with_change("optional.compile_manifest.cohesion_review")
+    assert comp.completed
+    assert "aroll.assign" in comp.operations
+    assert not any(op.endswith(".splice") for op in comp.operations)
 
 
 # ── The plan record narrates the choice ────────────────────────────
