@@ -227,6 +227,28 @@ def test_host_with_vision_answers_through_the_handshake(tmp_path):
     assert holder["request"]["images"] == [still]
 
 
+def test_the_host_never_sees_a_half_written_request(tmp_path, monkeypatch):
+    """The host polls the request file; under load it read one mid-write
+    and died on the parse, so the request went unanswered for 60 s."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    req = project / "pipeline_output" / "llm_requests" / \
+        "ask_the_footage__stills.json"
+    seen_mid_write = []
+    real_dump = json.dump
+
+    def dump(obj, handle, **kwargs):
+        seen_mid_write.append(req.exists())
+        real_dump(obj, handle, **kwargs)
+
+    monkeypatch.setattr(json, "dump", dump)
+    with pytest.raises(StillVisionTimeout):
+        request_host_answer("Look.", [_still(tmp_path)], str(project),
+                            "ask_the_footage", timeout_seconds=0)
+    assert seen_mid_write == [False]
+    assert json.loads(req.read_text(encoding="utf-8"))["images"]
+
+
 def test_host_timeout_never_becomes_a_gemma_answer(tmp_path, monkeypatch):
     from library.tools import vision_model
 

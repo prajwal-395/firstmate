@@ -194,8 +194,6 @@ def request_host_answer(prompt: str, image_paths: list,
     res_path = _handshake.response_path(project_folder, request_id)
     os.makedirs(os.path.dirname(req_path), exist_ok=True)
     os.makedirs(os.path.dirname(res_path), exist_ok=True)
-    if os.path.exists(res_path):
-        os.remove(res_path)
 
     import datetime as _dt
     payload = _handshake.build_request(
@@ -205,11 +203,12 @@ def request_host_answer(prompt: str, image_paths: list,
                  f"Max ~{max_tokens} tokens of answer."),
         expected_schema=still_response_schema(),
         project_folder=project_folder,
-        timestamp=_dt.datetime.now(_dt.timezone.utc).isoformat(),
+        timestamp=_dt.datetime.now(_dt.UTC).isoformat(),
         images=list(image_paths),
     )
-    with open(req_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+    # Atomic, and the stale response cleared first: the host polls this
+    # file and can otherwise read it half-written and die on the parse.
+    _handshake.publish_request(req_path, res_path, payload)
     # The marker rides STDERR, never stdout: this function is called from
     # inside bridge and step subprocesses whose stdout IS the JSON result
     # the runner parses (`run_subprocess` refuses anything else as
