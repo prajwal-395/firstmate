@@ -26,9 +26,11 @@ from library.tools.eval_harness import (
 )
 from tests.scenarios import golden
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None,
-    reason="golden media is rendered with ffmpeg")
+pytestmark = [
+    pytest.mark.resolve_live,
+    pytest.mark.skipif(shutil.which("ffmpeg") is None,
+                       reason="golden media is rendered with ffmpeg"),
+]
 
 
 @pytest.fixture
