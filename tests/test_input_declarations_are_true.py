@@ -29,7 +29,6 @@ import pytest
 from library.tools import input_contract, run_scope
 from library.tools.input_contract import (
     REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT,
-    UNCONSUMED_DECLARATIONS,
     UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT,
 )
 
@@ -58,53 +57,11 @@ def rows(dag, manifests):
     return input_contract.survey(dag, manifests)
 
 
-# ── The survey covers the pipeline ──────────────────────────────────
-
-
 # ── The three disagreements ─────────────────────────────────────────
 
-def test_no_required_input_goes_unenforced(rows):
-    """A requirement nothing refuses on is a claim with no teeth: the
-    run proceeds without the value and the step reads whatever default
-    its code carries."""
-    bad = [f"{r.node_id}.{r.name} (route {r.route})"
-           for r in input_contract.unenforced(rows)]
-    assert not bad, (
-        "declared required, and neither the runner nor the step refuses "
-        f"without it: {bad}")
-
-
-def test_no_optional_input_is_refused_by_the_step(rows):
-    """The other direction, and the one that kills runs: a step that
-    raises on an input its own manifest said it could do without."""
-    bad = [f"{r.node_id}.{r.name} at {r.step_refusal}"
-           for r in input_contract.optional_but_refused(rows)]
-    assert not bad, (
-        f"declared optional, and the step refuses without it: {bad}")
-
-
-def test_every_declared_input_is_read_by_the_code_or_the_prompt(rows):
-    """A declaration nothing consumes costs a scoped run its producer
-    and buys nothing. The two the survey found are recorded; a third
-    fails here.
-
-    Scoped to steps WITH a prompt, which is the scope this gate has
-    always really had: every finding in the prompt-less class predates
-    the fix that made it visible, and escalating a pre-existing finding
-    to a build failure is a separate decision. They are reported by
-    `test_the_inputs_a_prompt_less_step_never_reads` below.
-    """
-    bad = [f"{r.node_id}.{r.name}" for r in input_contract.unconsumed(rows)
-           if r.has_prompt
-           and (r.node_id, r.name) not in UNCONSUMED_DECLARATIONS]
-    assert not bad, f"declared, and nothing reads it: {bad}"
-
-
-def test_the_survey_is_clean(rows):
-    """One assertion for the whole file, so the CLI and the suite cannot
-    disagree about whether the pipeline passes."""
-    assert input_contract.disagreements(rows) == []
-
+# The graph-wide disagreement check is centralized in
+# `tests/test_contract_audit.py::test_the_surveys_agree`; this file keeps
+# focused cases for how the input survey classifies concrete code.
 
 # ── The recorded tables name real declarations ──────────────────────
 

@@ -136,21 +136,11 @@ def test_a_bridge_table_is_credited_to_its_own_prompt(rows, node, name):
 
 
 
-# ── The live ratchet ─────────────────────────────────────────────────
-
-def test_the_repository_agrees_with_its_own_tables(rows):
-    """Every unread output is recorded, and every record is still true."""
-    problems = disagreements(rows)
-    assert problems == [], "\n".join(problems)
-
-
-
-
-
-
-
-
 # ── The field-level half ─────────────────────────────────────────────
+
+# The repository-wide disagreement check is centralized in
+# `tests/test_contract_audit.py::test_the_surveys_agree`; this file keeps
+# focused cases for reader discovery and false positives.
 
 
 

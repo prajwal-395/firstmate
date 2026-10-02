@@ -60,8 +60,8 @@ caller).  Verdicts derive theirs from `requirements.VERDICTS` and
 optional edges from `requirements.OPTIONALS` (captain, 2026-09-23).  A
 composer working backwards from requirements alone can never select an
 empty-effect operation, and declaring an effect a capability does not
-have would be the defect this module removes.
-`tests/test_operations_declare_effect.py`.
+have would be the defect this module removes.  The graph-wide proof is
+`tests/test_contract_audit.py::test_the_graph_is_sound`.
 
 Executing
 ---------
@@ -953,14 +953,13 @@ class Operation:
 
 # ── Operations whose derived effect is empty ────────────────────────
 #
-# Two operations satisfy no requirement in the registry, each for a
+# Capabilities that satisfy no requirement in the registry each have a
 # reason that was verified against the tree rather than assumed.  The
 # mapping is operation name to the reason its effect is empty anyway -
-# the justification `tests/test_operations_declare_effect.py` demands
-# before it accepts a new entry here.
+# the contract auditor checks that every empty effect is named.
 #
-# A new operation whose owning node produces no requirement FAILS that
-# test until its author classifies it below.  Do NOT invent a
+# A new capability whose effect is empty FAILS the auditor until its
+# author classifies it below. Do NOT invent a
 # requirement name to fill the field instead: that is a second
 # vocabulary, and it would make the field look complete while teaching
 # the composer a goal nothing refuses on.  If a future operation
