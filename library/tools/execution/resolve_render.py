@@ -21,6 +21,7 @@ import sys
 import time
 from library.tools.resolve_lock import assert_current_timeline, under_lease
 from library.tools.heavy_work_lock import heavy_work_locked
+from library.tools import perf_ledger
 
 # Resolve's Python API is not importable until these are set - see
 # AGENTS.md section 5.
@@ -258,24 +259,28 @@ def render_timeline(
         # cutoff off by a second so this run's own output is never excluded.
         render_started_at = time.time() - 1.0
 
-        if not project.StartRendering([our_job_id], isInteractiveMode=False):
-            raise RenderError(f"StartRendering failed for job {our_job_id}")
+        # Resolve renders in its own process: this is the wall the
+        # profile charges to it. See library/tools/perf_ledger.py.
+        with perf_ledger.span("resolve_render", backend="resolve",
+                              frames=end_frame - start_frame):
+            if not project.StartRendering([our_job_id], isInteractiveMode=False):
+                raise RenderError(f"StartRendering failed for job {our_job_id}")
 
-        deadline = time.time() + timeout_seconds
-        status = {}
-        while time.time() < deadline:
-            if not project.IsRenderingInProgress():
-                break
-            status = project.GetRenderJobStatus(our_job_id) or {}
-            print(f"  Rendering... {status.get('CompletionPercentage', 0)}%",
-                  file=sys.stderr)
-            time.sleep(POLL_SECONDS)
-        else:
-            project.StopRendering()
-            raise RenderError(
-                f"Render did not finish within {timeout_seconds}s "
-                f"(last status: {status})"
-            )
+            deadline = time.time() + timeout_seconds
+            status = {}
+            while time.time() < deadline:
+                if not project.IsRenderingInProgress():
+                    break
+                status = project.GetRenderJobStatus(our_job_id) or {}
+                print(f"  Rendering... {status.get('CompletionPercentage', 0)}%",
+                      file=sys.stderr)
+                time.sleep(POLL_SECONDS)
+            else:
+                project.StopRendering()
+                raise RenderError(
+                    f"Render did not finish within {timeout_seconds}s "
+                    f"(last status: {status})"
+                )
 
         status = project.GetRenderJobStatus(our_job_id) or {}
         job_status = status.get("JobStatus", "Unknown")

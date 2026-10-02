@@ -37,7 +37,11 @@ def load_model(name: str, loader_fn):
         return _loaded_models[name]
         
     print(f"[{name}] Loading model into memory...", file=sys.stderr)
-    model = loader_fn()
+    # Imported here: callers load this file by bare name off a sys.path
+    # hack, before the repository root is on the path.
+    from library.tools import perf_ledger
+    with perf_ledger.span("model_load", model=name):
+        model = loader_fn()
     _loaded_models[name] = model
     return model
 

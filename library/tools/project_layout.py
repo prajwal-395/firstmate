@@ -636,7 +636,8 @@ AREAS: dict[Area, AreaSpec] = {
     Area.LOGS: AreaSpec(
         f"{_OUT}/logs", Kind.OUTPUT,
         "Stdout/stderr of pipeline runs, one file per run, plus "
-        "pipeline_log.jsonl.",
+        "pipeline_log.jsonl and perf_ledger.jsonl (where each run spent "
+        "its time - library/tools/perf_ledger.py).",
         produced_by=(RUNNER,)),
     Area.PROVENANCE: AreaSpec(
         f"{_OUT}/provenance", Kind.OUTPUT,

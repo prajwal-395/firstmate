@@ -33,6 +33,7 @@ from library.tools.overlay_carriage import (
     OVERLAY_VIDEO_CODEC,
     transcode_in_place,
 )
+from library.tools import perf_ledger
 from library.tools.project_layout import AREAS, Area
 
 # Where the rendered segments go.  The directory is the layout owner's to
@@ -147,7 +148,8 @@ def _render_one(name: str, out_path: str, props_path: str,
         "--transparent",
     ]
     try:
-        result = subprocess.run(
+        result = perf_ledger.run(
+            "remotion_render",
             command, cwd=remotion_dir, capture_output=True, check=False,
             # The pipeline writes UTF-8 status glyphs; the locale codec
             # would fail a render on a check mark in a child's stderr.

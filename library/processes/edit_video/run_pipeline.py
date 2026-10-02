@@ -74,7 +74,7 @@ from library.tools.model_task import (  # noqa: F401 - re-exports
 from library.tools import footage_identity, code_identity, step_ledger
 from library.tools import stable_json
 from library.tools.project_layout import Area, ProjectLayout
-from library.tools import provenance
+from library.tools import perf_ledger, provenance
 from library.tools import external_inputs, run_scope
 from library.tools.ren_refusal import RenRefusal
 from library.tools.versions import runs
@@ -2751,6 +2751,7 @@ def run_pipeline(
             # duration, because there is nothing honest to time on a step
             # that did not run. Best-effort; never fails the run.
             run_control.record_step_timing(project_dir, node_id, reused=True)
+            perf_ledger.record_reused(project_dir, node_id, _run_id, node=node_id)
             completed.append(node_id)
             continue
         
@@ -2783,8 +2784,15 @@ def run_pipeline(
                 project_dir, node_id,
                 [n.get("note_id") for n in _delivered])
         
+        _perf = None
         try:
             start_time = time.time()
+            # What this step costs, for `ren profile`: wall, CPU, peak
+            # memory and bytes on one row, and the ledger handed to the
+            # step's subprocess so its layers can name their share. The
+            # runner executes a NODE, so the node is the row's identity.
+            # Ended in this try's `finally`. See library/tools/perf_ledger.py.
+            _perf = perf_ledger.begin(project_dir, node_id, _run_id, node=node_id)
             # What the output tree looks like BEFORE this step. Compared
             # against the same listing afterwards, this is how every
             # artifact learns which step wrote it - without any step
@@ -2990,8 +2998,12 @@ def run_pipeline(
             # nobody. Everything the step's completion caused to appear
             # is what belongs to the step.
             # See library/tools/provenance.py.
+            _artifacts_after = _provenance.snapshot()
             _provenance.observe(node_id, _run_id, artifacts_before,
-                                _provenance.snapshot())
+                                _artifacts_after)
+            if _perf:
+                _perf.row["bytes_written"] = perf_ledger.bytes_written(
+                    artifacts_before, _artifacts_after)
             _steps_this_run.append(node_id)
 
             if gates.armed_at(node_id):
@@ -3042,6 +3054,13 @@ def run_pipeline(
             save_pipeline_state(project_dir, state)
             failed.append(node_id)
             break
+        finally:
+            if _perf:
+                if node_id in failed:
+                    _perf.row["status"] = "failed"
+                elif node_id in awaiting_llm:
+                    _perf.row["status"] = "awaiting_model"
+                _perf.end()
     
     # ── Summary ──
     # Status is derived from the whole project ledger, not just the steps

@@ -267,16 +267,28 @@ def observing_operation(project_folder, operation_id: str,
     operations CLI, the reels process), never around a capability another
     capability calls, which would attribute one file to both.
     """
-    from library.tools import dag_adapter, operations
+    from library.tools import dag_adapter, operations, perf_ledger
     ledger = ProvenanceLedger(project_folder, step_ids=dag_adapter.node_ids(),
                               operation_ids=operations.names())
     run_id = run_id or new_run_id()
     before = ledger.snapshot()
+    # The same receipt, priced: `ren profile` reads this row.
+    perf = perf_ledger.begin(
+        project_folder, operation_id, run_id,
+        node=next((op.owning_node for op in operations.all()
+                   if op.name == operation_id), None))
     try:
         yield ledger
+    except BaseException:
+        if perf:
+            perf.row["status"] = "failed"
+        raise
     finally:
-        ledger.observe_operation(operation_id, run_id, before,
-                                 ledger.snapshot())
+        after = ledger.snapshot()
+        ledger.observe_operation(operation_id, run_id, before, after)
+        if perf:
+            perf.row["bytes_written"] = perf_ledger.bytes_written(before, after)
+            perf.end()
 
 
 def new_run_id(now=None, pid=None) -> str:

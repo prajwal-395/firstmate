@@ -90,6 +90,14 @@ class HyperFramesRenderError(RuntimeError):
 
 # ── Where the engine's own source is ─────────────────────────────
 
+def _perf_ledger():
+    try:
+        from library.tools import perf_ledger
+    except ImportError:  # imported as `tools.*` from inside library/
+        from tools import perf_ledger
+    return perf_ledger
+
+
 def hyperframes_dir(repo_root: Optional[str | Path] = None) -> Path:
     """The ``hyperframes/`` project directory: templates and vendor."""
     if repo_root is not None:
@@ -604,7 +612,8 @@ def render_png_sequence(project_dir: str,
         "-o", frames_dir,
     ]
     try:
-        done = subprocess.run(
+        done = _perf_ledger().run(
+            "hyperframes_render",
             command, capture_output=True, check=False,
             text=True, encoding="utf-8", errors="replace",
             timeout=timeout,
@@ -733,7 +742,8 @@ def encode_frames(frames: list, out_path: str, *,
                "-framerate", f"{float(fps):.6f}", "-i", pattern,
                *args, out_path]
     try:
-        done = subprocess.run(
+        done = _perf_ledger().run(
+            "ffmpeg_encode",
             command, capture_output=True, check=False,
             text=True, encoding="utf-8", errors="replace",
             timeout=timeout,

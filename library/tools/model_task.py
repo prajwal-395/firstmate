@@ -44,6 +44,7 @@ from library.tools import (
     decided_value,
     direction_contradiction,
     llm_handshake,
+    perf_ledger,
     pipeline_skills,
     undetermined,
 )
@@ -773,6 +774,13 @@ def _answer_by_handshake(key, project_folder, prompt, constraints,
                     f"the request's expected_schema to {res_file}, "
                     f"then the run picks it up on retry")
 
+            # The host model's wait, priced. Tokens are the same
+            # word-count estimate the run log carries, and say so.
+            perf_ledger.record(
+                "host_model", _agent_clock() - start_time_llm,
+                backend="agent", calls=1, tokens_estimated=True,
+                input_tokens=int(raw_input_tokens + len(prompt.split()) * 1.3),
+                output_tokens=int(len(res_content.split()) * 1.3))
             if logger:
                 response_tokens = len(res_content.split()) * 1.3
                 logger.log(

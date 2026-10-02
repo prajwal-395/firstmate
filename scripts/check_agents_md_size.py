@@ -144,6 +144,9 @@ CEILING = 52936
 # budget is set to what its section now MEASURES - none has slack left to
 # spend, and the next addition rebalances again. Sum unchanged, ceiling
 # untouched.
+# MOVED 2026-10-01: 100 of `## 15`'s unused budget to `## 8`, for the one
+# index row naming `library/tools/perf_ledger.py` (the run's time ledger).
+# The sum is unchanged.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
@@ -153,14 +156,14 @@ SECTION_BUDGETS = {
     "## 5. DaVinci Resolve integration - CRITICAL RULES": 3884,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
-    "## 8. Project management": 1701,
+    "## 8. Project management": 1801,
     "## 9. Environment and dependencies": 5948,
     "## 10. Cross-cutting rules": 16882,
     "## 11. Third-Party Asset Licenses": 1273,
     "## 12. The look": 558,
     "## 13. Intros, outros and end cards": 1114,
     "## 14. General assets vs project assets": 2300,
-    "## 15. Notes the captain types onto the timeline": 1781,
+    "## 15. Notes the captain types onto the timeline": 1681,
     "## 16. Motion graphics": 2349,
     "## Maintaining this file": 553,
 }

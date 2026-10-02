@@ -58,6 +58,7 @@ from library.tools.overlay_mode import (  # noqa: E402
     OVERLAY_CARRIAGE,
     resolve_motion_graphics_geometry,
 )
+from library.tools import perf_ledger  # noqa: E402
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 from library.tools.render_cache import (  # noqa: E402
     content_key as _content_key,
@@ -151,7 +152,8 @@ def _render_motion_graphics_file(props_path: str, dest_path: str,
     delivery frame could not be proved.
     """
     try:
-        result = subprocess.run(
+        result = perf_ledger.run(
+            "remotion_render",
             ["npx", "remotion", "render",
              "MotionGraphics",
              dest_path,

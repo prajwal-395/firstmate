@@ -92,7 +92,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from library.tools import hybrid_transcription
+from library.tools import hybrid_transcription, perf_ledger
 from library.tools import shared_environment
 
 # ── Decline reasons ────────────────────────────────────────────────
@@ -310,7 +310,12 @@ def _run_corpus(
     corpus_dir.mkdir(parents=True, exist_ok=True)
     for name, window in zip(names, windows):
         _write_chunk(corpus_dir, name, window, audio)
-    _run_mfa(corpus_dir, out_dir)
+    with perf_ledger.span(
+            "mfa_align", backend="mfa",
+            model=shared_environment.MFA_ACOUSTIC_MODEL, subprocesses=1,
+            decoded_source_s=round(sum(
+                float(w["end"]) - float(w["start"]) for w in windows), 3)):
+        _run_mfa(corpus_dir, out_dir)
     return [
         index
         for index, name in enumerate(names)

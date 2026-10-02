@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, TypeVar
 
+from library.tools import perf_ledger
 from library.tools import shared_environment as _node_env
 
 #: Re-exported so existing importers keep working. The definition, and
@@ -643,6 +644,14 @@ class PersistentRenderer:
 
     def render(self, props_path: str, overlay_path: str,
                sequence: bool = False):
+        """`_render_card`, charged to `remotion_render` in the perf ledger
+        (the first card's bundle included)."""
+        with perf_ledger.span("remotion_render", backend="remotion_persistent",
+                              calls=1):
+            return self._render_card(props_path, overlay_path, sequence)
+
+    def _render_card(self, props_path: str, overlay_path: str,
+                     sequence: bool = False):
         """Draw one card. `(ok, error)` - safe for concurrent card workers.
 
         `sequence` is refused, loudly: this renderer stitches video

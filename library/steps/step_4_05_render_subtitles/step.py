@@ -84,6 +84,7 @@ from library.tools.overlay_mode import (
     resolve_overlay_container,
     resolve_overlay_geometry,
 )
+from library.tools import perf_ledger
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.qa.subtitle_qa import (
     ALPHA_INK_THRESHOLD,
@@ -384,7 +385,8 @@ class SubprocessRenderer:
             args += ["--codec", "prores",
                      "--prores-profile", "4444"]
         try:
-            result = subprocess.run(
+            result = perf_ledger.run(
+                "remotion_render",
                 args,
                 cwd=self.remotion_dir,
                 capture_output=True,

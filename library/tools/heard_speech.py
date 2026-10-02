@@ -65,6 +65,8 @@ import wave
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from library.tools import perf_ledger
+
 # ── The whole third-party surface, in one block ──────────────────────
 #
 # Everything below this comment and above `transcribe` is the vendor's,
@@ -332,9 +334,10 @@ def transcribe(media_path: str,
             f"there is no file at {media_path!r} to hear. An absent "
             f"render is not a silent one.")
     try:
-        out = subprocess.run([binary, SUBCOMMAND, media_path, *FLAGS],
-                             capture_output=True, encoding="utf-8",
-                             check=False, timeout=timeout)
+        out = perf_ledger.run("transcribe", [binary, SUBCOMMAND, media_path, *FLAGS],
+                              fields={"backend": BINARY},
+                              capture_output=True, encoding="utf-8",
+                              check=False, timeout=timeout)
     except subprocess.TimeoutExpired as expired:
         raise TranscriberUnavailable(
             f"{BINARY} {SUBCOMMAND} did not finish within {timeout}s on "
@@ -426,9 +429,10 @@ def identify_language(
 def _identify_language_file(binary: str, media_path: str,
                             timeout: float) -> HeardLanguage:
     try:
-        out = subprocess.run([binary, EAR_SUBCOMMAND, media_path, *FLAGS],
-                             capture_output=True, encoding="utf-8",
-                             check=False, timeout=timeout)
+        out = perf_ledger.run("language_id", [binary, EAR_SUBCOMMAND, media_path, *FLAGS],
+                              fields={"backend": BINARY},
+                              capture_output=True, encoding="utf-8",
+                              check=False, timeout=timeout)
     except subprocess.TimeoutExpired as expired:
         raise TranscriberUnavailable(
             f"{BINARY} {EAR_SUBCOMMAND} did not finish within {timeout}s "

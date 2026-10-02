@@ -39,6 +39,7 @@ import shutil
 import subprocess
 import sys
 
+from library.tools import perf_ledger
 from library.tools.bookends import block_bookend, bookend_blocks
 from library.tools.remotion_batch import (
     RemotionBatchError,
@@ -285,7 +286,8 @@ def _render_one_cli(bookend: dict, composition: str, remotion_dir: str,
     ]
 
     try:
-        result = subprocess.run(
+        result = perf_ledger.run(
+            "remotion_render",
             command, cwd=remotion_dir, capture_output=True,
             # The return code is judged below, with the stderr in the
             # message: a raised CalledProcessError would throw it away.

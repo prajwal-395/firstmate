@@ -56,6 +56,11 @@ VERBS = (
     Verb("check", "Projects", "Run a project's readiness check", subcommand="check"),
     Verb("edit", "Projects", "Run the editing pipeline on a project", subcommand="run"),
     Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),
+    Verb("profile", "Projects", "Show where a run spent its time, layer by layer (read only)",
+         module_argv=("library.tools.perf_ledger",),
+         detail="Read a run back from pipeline_output/logs/perf_ledger.jsonl: each named layer's share "
+                "of the run's wall (Gemma, MFA, Resolve render, Remotion, a host model), then what each "
+                "capability spent outside them. Changes nothing"),
     Verb("organize", "Projects", "Bring a project folder onto the standard layout", subcommand="organize"),
     Verb("archive", "Projects", "Archive a finished project", subcommand="archive"),
     Verb("spec", "Projects", "Translate, clarify and record a natural-language edit spec",

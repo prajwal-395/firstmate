@@ -7,6 +7,8 @@ import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from library.tools import perf_ledger
+
 try:
     from mlx_vlm import load, generate
     from mlx_vlm.prompt_utils import apply_chat_template
@@ -55,8 +57,14 @@ def _server_chat(content_parts: list, max_tokens: int) -> str:
     ).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=SERVER_TIMEOUT_SECONDS) as resp:
+        with perf_ledger.span("gemma_inference", backend="gemma_server",
+                              model=SERVER_MODEL, calls=1) as cost, \
+                urllib.request.urlopen(req, timeout=SERVER_TIMEOUT_SECONDS) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
+            usage = payload.get("usage") if isinstance(payload, dict) else None
+            if isinstance(usage, dict):
+                cost["input_tokens"] = usage.get("prompt_tokens")
+                cost["output_tokens"] = usage.get("completion_tokens")
     except urllib.error.HTTPError as exc:
         if 500 <= exc.code < 600:
             raise _ServerUnusable(f"server HTTP {exc.code}") from exc
@@ -125,6 +133,14 @@ class VisionModel:
             self._load_time = time.time() - t0
             print(f"Model loaded in {self._load_time:.1f}s", file=sys.stderr)
 
+    def _generate(self, **kwargs):
+        with perf_ledger.span("gemma_inference", backend="mlx_vlm",
+                              model=MODEL_ID, calls=1) as cost:
+            r = generate(self._model, self._proc, **kwargs)
+            cost["input_tokens"] = getattr(r, "prompt_tokens", None)
+            cost["output_tokens"] = getattr(r, "generation_tokens", None)
+        return r
+
     def analyze_image(self, image_path: str, prompt: str, max_tokens: int = 600) -> str:
         """Analyze a single image."""
         parts = [
@@ -140,8 +156,7 @@ class VisionModel:
             self._proc, self._model.config, prompt, num_images=1
         )
         
-        r = generate(
-            self._model, self._proc,
+        r = self._generate(
             prompt=formatted,
             image=[image_path],
             max_tokens=max_tokens,
@@ -165,8 +180,7 @@ class VisionModel:
             self._proc, self._model.config, prompt, num_images=len(image_paths)
         )
         
-        r = generate(
-            self._model, self._proc,
+        r = self._generate(
             prompt=formatted,
             image=image_paths,
             max_tokens=max_tokens,
@@ -191,8 +205,7 @@ class VisionModel:
             self._proc, self._model.config, prompt_with_video, num_images=0
         )
         
-        r = generate(
-            self._model, self._proc,
+        r = self._generate(
             prompt=formatted,
             video=video_path,
             max_tokens=max_tokens,

@@ -58,6 +58,7 @@ from model_lifecycle import managed_model
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 from library.tools.heavy_work_lock import heavy_work_locked
+from library.tools import perf_ledger
 from library.tools.analysis import measurement_layers, picture_quality
 from library.tools.camera_stability import read_camera_stability
 from library.tools.segment_coverage import (
@@ -672,16 +673,20 @@ class VisionAnalyzer:
             )
 
         t0 = time.time()
-        r = generate(
-            self.model, self.proc,
-            prompt=formatted,
-            image=images,
-            video=video,
-            audio=audio,
-            max_tokens=max_tokens,
-            temperature=0.1,
-            verbose=False,
-        )
+        with perf_ledger.span("gemma_inference", backend="mlx_vlm",
+                              model=MODEL_ID, calls=1) as cost:
+            r = generate(
+                self.model, self.proc,
+                prompt=formatted,
+                image=images,
+                video=video,
+                audio=audio,
+                max_tokens=max_tokens,
+                temperature=0.1,
+                verbose=False,
+            )
+            cost["input_tokens"] = getattr(r, "prompt_tokens", None)
+            cost["output_tokens"] = getattr(r, "generation_tokens", None)
         elapsed = time.time() - t0
         text = r.text if hasattr(r, "text") else str(r)
         return text, elapsed
@@ -3174,6 +3179,12 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
                   f"{ACTION_WINDOW_S}s ({n_aud} with audio) "
                   f"[{window_extraction_wall_s:.1f}s extraction, "
                   f"{window_extraction_ffprobe_spawns} ffprobe spawns]")
+            # Extraction ran in a producer thread BESIDE inference, so
+            # its wall overlaps gemma_inference's; the profile says so.
+            perf_ledger.record(
+                "demux", window_extraction_wall_s, backend="ffmpeg",
+                subprocesses=window_extraction_ffprobe_spawns,
+                decoded_source_s=round(float(duration or 0.0), 3))
             profile.setdefault("analysis_metadata", {}).update({
                 "window_extraction_wall_s": window_extraction_wall_s,
                 "window_extraction_ffprobe_spawns": (

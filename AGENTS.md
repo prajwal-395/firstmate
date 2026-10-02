@@ -315,6 +315,8 @@ Detail: `library/tools/project_layout.py`.
 **Never attribute a file to the nearest plausible step.**
 Detail: `library/tools/provenance.py`.
 
+**Where a run spent its time is ONE ledger, `library/tools/perf_ledger.py`; `ren profile` reads it.**
+
 **Two generated documents, regenerated on every run and by `manage_project.py trace <slug>`.**
 Detail: `library/tools/run_traceback.py`.
 
