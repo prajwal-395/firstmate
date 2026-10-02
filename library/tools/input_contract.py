@@ -1,91 +1,58 @@
 """One question, asked of every declared input: WHO REFUSES when it is absent.
 
-The defect this exists to catch
--------------------------------
-`compile_manifest` declared `transition_spec`, `enhancement_spec`,
-`sfx_spec` and `color_grade_spec` REQUIRED while its own code called
-three of them "optional enhancement specs" and read them with defaults.
-One of the two was lying, and because `required` is what
-`run_pipeline.gather_step_inputs` raises on and what
-`library/tools/run_scope.py` derives a refusal from, the stricter of the
-two won: a rough cut could not skip four planners it did not need, at a
-measured cost of 446.5s on 001 (#260).
-
-That is one instance of a class, so this module reads the whole class.
-
 The two declarations, and the one question
 ------------------------------------------
 A step declares `interface.inputs[].required`.  Its code does something
 when the value is absent.  The question is not "does the code use
-`.get()`" - almost every step in this pipeline does, and a `.get()` whose
-default is unreachable is harmless.  The question is **who refuses**:
+`.get()`" - a `.get()` whose default is unreachable is harmless.  The
+question is **who refuses**:
 
-* `runner` - the input arrives on a DAG edge and is declared required, so
-  `gather_step_inputs` raises before the step's code runs at all.  The
-  step's default is dead code on that route.  The declaration is the
-  enforcement.
-* `step` - the step's own code refuses, and the evidence is a file and a
-  line: a direct subscript, a `require_keys` call, or a guard that
-  raises or exits.  This is the only enforcement a NON-edge input can
-  have, because nothing raises on the way in.
-* `nobody` - declared required and neither of the above.  A requirement
-  nothing enforces.
+* `runner` (`REFUSED_BY_RUNNER`) - the input arrives on a DAG edge and is
+  declared required, so `run_pipeline.gather_step_inputs` raises before
+  the step's code runs at all.  The declaration is the enforcement.
+* `step` (`REFUSED_BY_STEP`) - the step's own code refuses, and the
+  evidence is a file and a line: a direct subscript, a `require_keys`
+  call, or a guard that raises or exits.  This is the only enforcement a
+  NON-edge input can have.
+* `nobody` (`REFUSED_BY_NOBODY`) - declared required and neither of the
+  above.  A requirement nothing enforces (`unenforced`).
 
 And the mirror, for a declared-OPTIONAL input: the step's code must NOT
-refuse, or a run that legitimately omits it dies inside the step.
+refuse, or a run that legitimately omits it dies inside the step
+(`optional_but_refused`).
 
 Warrant is a different question from enforcement
 ------------------------------------------------
-That a requirement is ENFORCED does not make it TRUE.  `compile_manifest`
-was enforced perfectly and still wrong.  Establishing the truth of a
-requirement means running the step without the input and looking at what
-comes out, which this module does not do - `tests/test_compile_manifest_
-without_the_decoration.py` does it for the step the captain's case runs
-through.  What this module adds is the third fact that makes an
-unwarranted requirement visible: whether anything CONSUMES the input at
-all.  An input that reaches neither the step's code nor its prompt is a
-requirement with no consumer.
+That a requirement is ENFORCED does not make it TRUE.  Establishing the
+truth of a requirement means running the step without the input, which
+this module does not do - `tests/test_compile_manifest_without_the_decoration.py`
+does it for `compile_manifest`.  What this module adds is whether
+anything CONSUMES the input at all (`unconsumed`): an input that reaches
+neither the step's code nor its prompt is a requirement with no consumer.
 
 Reaching the prompt is read off `context_fields`, the same allow-list
 `run_pipeline.project_step_context` applies (AGENTS.md section 10.1): a
 step declaring none is handed every byte it was routed, so every input
 reaches its prompt.
 
-The step that has no prompt at all
-----------------------------------
-That reading had one silent hole, and the very next task fell in it.
-A step with no `handoff.md` declares no `context_fields` because there
-is no prompt to project, and reading that absence as "handed every
-byte" made `prompt_reads` True for every input of all fifteen
-prompt-less steps in the DAG.  So `render_motion_graphics` declared
-`creative_direction` and `enhancement_spec` REQUIRED, the DAG routed
-both, `generate_motion_props` read neither, and the survey called them
-consumed (#330).
+A step with no prompt
+---------------------
+* `prompt_reads` is False for a step with no `handoff.md`, asked by
+  `step_has_a_prompt` of `run_pipeline.get_step_implementation` rather
+  than of a list kept here;
+* that step's CODE is then the only consumer it can have, so "the code
+  names the key" is not enough: `trace_step_values` asks whether the
+  value the key yields REACHES A USE.
 
-A guard with a silent hole is worse than a known gap, because the
-fields inside it read as verified.  Two things close this one:
-
-* `prompt_reads` is False for a step with no prompt, asked of
-  `run_pipeline.get_step_implementation` rather than of a list kept
-  here;
-* and because that step's CODE is then the only consumer it can have,
-  "the code names the key" is no longer enough.  `trace_step_values`
-  asks whether the value the key yields REACHES A USE - the two motion-
-  graphics inputs are named in `step.py` and handed to a function that
-  never mentions either parameter.
-
-The findings are REPORTED, not failed.  Every one of them predates the
-change that made the class visible, and escalating a pre-existing
-finding to a build failure is the captain's decision;
+These findings are REPORTED, not failed - escalating a pre-existing
+finding to a build failure is the captain's decision.
 `unread_by_a_prompt_less_step` is the report and `disagreements` is
 unchanged.
 
-What this still cannot see is printed by the survey itself rather than
-left implicit: a step WITH a prompt is judged on whether its code NAMES
-the key, because the prompt consumes it either way and the dataflow
-question decides nothing there; and the value read is one-sided by
-design - `_UNTRACEABLE` is the list of what it reads as used rather
-than guessing about.
+What this still cannot see is printed by the survey itself: a step WITH
+a prompt is judged on whether its code NAMES the key; and the value read
+is one-sided by design - `_UNTRACEABLE` is the list of what it reads as
+used rather than guessing about.
 
     python3 -m library.tools.input_contract          # the survey
     python3 -m library.tools.input_contract --bad    # disagreements only
@@ -112,6 +79,8 @@ and points here.
 - **Deterministic**: a `step.py`, run automatically over JSON stdin/stdout.
 - **Hybrid**: a `bridge.py` that pre-computes context plus a `handoff.md` prompt for an LLM.
 - **LLM-only**: only a `handoff.md`, generating the output from upstream context.
+
+The measurements and incidents behind these rules: docs/evidence/input_contract.md.
 """
 
 from __future__ import annotations

@@ -1,93 +1,68 @@
 """A project declares a creative task the pipeline invokes, instead of adding a step.
 
-Raised by the captain 2026-09-04 on seeing select_reels land as step 3.4:
-*"wait did you make it a permanent pipeline step?? if so why?"* Reel
-selection is project-shaped - a marketing render or a single-video edit
-has no reels, and the engine would carry a step most projects never run.
-Firstmate's translation ("make it a step") fixed the real complaint - the
-judgement circumvented the pipeline, no model was ever reached - but
-conflated two claims: "the LLM must do this with a real brief" and "this
-must be a permanent step".
+Reel selection and similar judgements are project-shaped, so the engine
+does not carry a permanent step most projects never run (captain,
+2026-09-04).  A project declares the task in `pipeline.creative_tasks`;
+the pipeline invokes it.
 
-What the assessment established: `project_config` already carries
-`creative_brief`, and that surface gives the same class of guarantee - a
-project-declared document that provably reaches a prompt. What it does
-NOT carry is a craft role or a task: the brief is context handed to a
-step that already exists, and it never causes a model to be INVOKED.
-
-THE FORCING FUNCTION IS THE WHOLE POINT. Step-hood is what forces an
-actual invocation with a recorded prompt, and what makes the three
-guards reach it - craft_role's role plumbing, the floors gate's derived
-roster, direction_contradiction's coverage. A brief that nothing invokes
-is a document, and a document a worker reads and then acts on in-turn is
-EXACTLY the failure diagnosed in findings section 15, with better
-paperwork. So a declared task is invoked through the SAME forcing
-function steps go through - the model-task service itself
+The current contract
+--------------------
+**The forcing function is the whole point.**  A declared task is invoked
+through the SAME call steps go through - the model-task service itself
 (`library/tools/model_task.py`), not a second mechanism - and the three
 guards reconcile against the declaration rather than a step id:
 
 * the task's role is PREPENDED to its handoff by the shared renderer
-  (`craft_role.render_block` - one shape for who is reading, whether the
-  reader was declared by the engine or by the project);
+  (`craft_role.render_block`, through `role_block` and
+  `prepend_task_role`);
 * the floors gate reads the task's prompt, and a task whose role,
   handoff or output descriptions demand a count is REFUSED at
   declaration time against the same enumeration steps are read for
   (`library/tools/creative_floors.py`);
 * a task that takes the direction with declared evidence gets the
   contradiction field rendered from its own evidence
-  (`direction_contradiction.prompt_block_for` - the OFF_DAG_MEASUREMENTS
-  shape, which `select_reels` and `music_selection` already take for
-  measurements no edge carries); every invoked task gets the
-  undetermined field, because every model-reaching invocation declares
-  rather than forming a subset;
+  (`direction_contradiction.prompt_block_for`, fed by `task_evidence`);
+  every invoked task gets the undetermined field;
 * a task that declares `creative_brief` among its inputs is interviewed
   when no brief is attached, rather than planning in silence
-  (`asks_interview` - the same rule `briefing_interview` applies to
-  steps, read off the task's own declaration).
+  (`asks_interview`).
 
-A task key lives in its own namespace, `task:<name>`. A name shadowing a
-step id, carrying the separator, or naming a path is refused: a task is
-not a step, and a declaration that collides with one would split every
-guard that reconciles by key.
+A task key lives in its own namespace, `task:<name>` (`TASK_PREFIX`,
+`task_key`, `is_task_key`, `task_name`).  A name shadowing a step id,
+carrying the separator, or naming a path is refused.
 
 What a task is, in `pipeline.creative_tasks` - a list of mappings:
 
     - name: reel_pick                  # unique, not a step id, no ':'
-      role:                             # THREE things and no fourth, the
-        discipline: short-form editor   # same completeness rule a step's
-        addressed_as: You are ...       # role answers to
-        reads_with: [...]               # what it reads measurements with
-        decides: [...]                  # what is its to decide
-        defers: [...]                   # what is not, and who owns it
+      role:                             # the same completeness rule a
+        discipline: short-form editor   # step's role answers to
+        addressed_as: You are ...
+        reads_with: [...]
+        decides: [...]
+        defers: [...]
       handoff: tasks/reel_pick.md       # project-relative, must exist
       inputs: [timeline_transcript]     # state keys the prompt may read
-      outputs:                          # what the model is asked to write;
-        - name: reel_selection          # non-empty, or there is nothing
-          type: object                  # to ask and no call is made
+      outputs:                          # non-empty, or there is nothing
+        - name: reel_selection          # to ask and no call is made
+          type: object
           description: The chosen stretches.
-      evidence:                         # optional; names measurements the
+      evidence:                         # optional; measurements the
         reel_candidates: turn counts    # task holds, for the flag field
 
-Refused, by name: a missing or duplicate name, a name shadowing a step,
-an incomplete role, a missing or empty handoff, no outputs, evidence
-without `creative_direction` among the inputs (evidence with nothing
-inherited to hold against is prose disagreeing with prose), a floor in
-the role, the handoff or an output description, and an unknown key (a
-misspelled key silently changing what is invoked is the key-name bug
-class this repository refuses everywhere).
+Refused with `CreativeTaskError`, by name: a missing or duplicate name, a
+name shadowing a step, an incomplete role, a missing or empty handoff, no
+outputs, evidence without `creative_direction` among the inputs, a floor
+in the role, the handoff or an output description, and an unknown key
+(`TASK_KEYS`, `ROLE_KEYS`).  `tasks_for_project` loads and checks them.
 
-What a task is NOT: it is not wired into any DAG, it writes no state
-key, and no contract maps its outputs to a reader. `present_creative_task`
-returns the model's answer to its caller, and the caller is the reader -
-the task is invoked, its answer is owned where it was asked for. The
-recorded prompt lands in `llm_requests/task:<name>.json` like any other
-call the backend answers, so an audit reads exactly what the model read.
+What a task is NOT: it is not wired into any DAG, it writes no state key,
+and no contract maps its outputs to a reader.  `present_creative_task`
+returns the model's answer to its caller, and the caller is the reader.
+The recorded prompt lands in `llm_requests/task:<name>.json` like any
+other call the backend answers.
 
-`select_reels` is NOT migrated here. The record makes the migration
-conditional on the mechanism ("if that holds, select_reels is the first
-thing migrated") and defers it past the live field test ("design it
-deliberately rather than folding it into a live test"). This module is
-the mechanism; the migration is a separate change once the test lands.
+`select_reels` is NOT migrated here; it remains step 3.04.  This module
+is the mechanism; the migration is a separate change.
 
 Rules relocated from AGENTS.md 3
 --------------------------------
@@ -111,6 +86,9 @@ One enumeration, `library/tools/creative_tasks.py`. [why - the captain's
   reads the task's prompt and refuses a floored declaration; the
   contradiction field is rendered from the task's own declared evidence.
 - `tests/test_project_declared_creative_tasks.py`.
+
+The ruling and the reasoning behind this mechanism:
+docs/evidence/creative_tasks.md.
 """
 
 from __future__ import annotations

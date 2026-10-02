@@ -1,93 +1,63 @@
 """A large document reaches a step as a REFERENCE, not as a copy.
 
-`#256` wired the captain's channel brief into seven prompts on
-2026-08-28 and it immediately became the largest single item in the
-pipeline: 37.0%-84.3% of those seven contexts, 337,099 bytes per run,
-46.9% of every byte the nine replayable steps send.  The step that picks
-the bed under the whole video saw **84.3% brief, 11.7% creative
-direction, 3.9% candidate data** - twenty-two times more brief than
-material to choose from.  41.9% of the document (19,931 of 47,513 bytes)
-is in sections no LLM planning step can act on: thumbnails, posting
-cadence, the portfolio table, per-series typography, naming, growth.
-
-The captain's ruling, 2026-08-28: *"we should just have the brief for
-the LLM to be able to reference if it needs it... we can just tell it if
-you need to reference something again you can look at this file and it
-can grep and search."*
-
-The models that answer this pipeline have a shell.  The degradation
-investigation proved it on the run of record: the answering agent read
-repository source, ran the aligner and measured audio files with ffmpeg.
-A model that can run ffmpeg can read a file.
+The models that answer this pipeline have a shell, so a model can read a
+file; the brief is there for the LLM to reference if it needs it
+(captain, 2026-08-28).
 
 ## The rule
 
 **The map is always inline; a body is inline only when the map cannot
 stand in for it.**  Applied per SECTION, in order, and to any document -
-not per step, and not by a hand-tuned list of headings:
+not per step, and not by a hand-tuned list of headings (`is_inline`,
+`build_reference`):
 
 1. **The preamble is inline.**  Everything before the first heading is
-   the document's own statement of what it is, and it is what tells the
-   model whether to read on.
+   the document's own statement of what it is.
 2. **A section whose body is shorter than `INLINE_WHEN_UNDER_BYTES` is
-   inline.**  Quoting it costs about what describing it costs, so
-   describing it is the worse trade.  This is byte economics, not taste.
+   inline.**  This is byte economics, not taste.
 3. **A section the PROJECT pins is inline.**  `pipeline.creative_brief_inline`
-   in `project.yaml` names headings.  The judgement of which sections are
-   about *this video* belongs to whoever owns the video; the engine does
-   not guess it, and there is no default list.
+   in `project.yaml` names headings (`project_pinned_sections`).  There is
+   no default list.
 4. **Everything else is a heading, a byte size, a LINE RANGE and a lede.**
-   Nothing is filtered and nothing is summarised away - the whole
-   document stays reachable, and the map says exactly where.
+   Nothing is filtered and nothing is summarised away.
 
-And one clause that is about the reader rather than the document:
+And one clause about the reader:
 
-5. **A harness that cannot read a file gets the document whole.**  A
-   route the model cannot follow is a loss, not a saving.  `HARNESS_READS_FILES`
-   is that enumeration and it is complete; an unknown harness raises,
-   because a harness whose reach nobody has established is not a harness
-   known to reach.
+5. **A harness that cannot read a file gets the document whole.**
+   `HARNESS_READS_FILES` is that enumeration and it is complete; an
+   unknown harness raises `UnknownHarness`.  `restore_for_harness` is
+   the restore.
 
-The line range is the load-bearing affordance.  `sed -n '19,44p' <file>`
-is one command, exact, and costs the model nothing to get right - which
-is the difference between a path a model *could* follow and one it does.
+The line range is the load-bearing affordance: `sed -n '19,44p' <file>`
+is one command, exact.
 
-Nothing here decides anything creative.  The brief is prompt-only: no
-`bridge.py`, no `step.py` and no post-bridge reads `creative_brief`, so
+Nothing here decides anything creative.  The brief is prompt-only, so
 reshaping it changes what a model READS and never what the pipeline
-computes.
+computes.  `series_membership_line` adds one factual line naming the
+series the project declares (`project_series_identity`, `SERIES_KEY`).
 
 ## The documents it carries
 
-`REFERENCED_INPUTS` is the enumeration, and it is what `present_llm_step`
-walks when clause 5 has to put one back inline:
+`REFERENCED_INPUTS` is the enumeration, and it is what
+`run_pipeline.present_llm_step` walks when clause 5 has to put one back
+inline:
 
-  * `creative_brief` - the captain's channel brief, seven steps, the
-    document this rule was written for.
-  * `footage_analysis_reference` - step 3.02's per-clip vision
-    analysis, 35,813 B and **40.5% of that step's whole context**, and
-    the third of three views of one analysis the step was carrying
-    (#F14). Step 3.02's `bridge.py` writes it and builds the reference;
-    the shape is `footage_reference.footage_document`.
-  * `sfx_catalog_reference` - step 4.04's SFX catalogue, 44,575 B and
-    **44.1% of that step's whole context** once the brief stopped being
-    copied (#299).  Step 4.04's `bridge.py` writes the catalogue to the
-    step's own directory and builds the reference; the shape of the
-    document is `sfx_library.catalog_document`, which fits the mechanism
-    rather than forking it - one `##` section per sound, titled with the
-    exact `sfx_id` an answer has to name, opening with the sound's
-    measured facts so that line becomes the map's lede.
+  * `creative_brief` - the captain's channel brief.
+  * `footage_analysis_reference` - step 3.02's per-clip vision analysis;
+    step 3.02's `bridge.py` writes it; the shape is
+    `footage_reference.footage_document`.
+  * `sfx_catalog_reference` - step 4.04's SFX catalogue; step 4.04's
+    `bridge.py` writes it; the shape is `sfx_library.catalog_document`,
+    one `##` section per sound titled with the exact `sfx_id` an answer
+    has to name.
   * `reel_diagnostics_reference` - step 3.04's per-candidate
-    repeated-take evidence (`repetition_inside`, `retake_candidates`,
-    `possible_retellings`), 19,850 of that step's 49,777 tokens on the
-    geo podcast. Step 3.04's `bridge.py` writes it; the shape is
-    `reel_diagnostics_reference.diagnostics_document`, one `##` section
-    per candidate titled with its own `start-end`.
+    repeated-take evidence; step 3.04's `bridge.py` writes it; the shape
+    is `reel_diagnostics_reference.diagnostics_document`, one `##`
+    section per candidate titled with its own `start-end`.
 
-**A second document costs a row here and nothing else.**  The rule, the
-map, the line ranges and the harness clause are all the same; only the
-two sentences of header naming the document differ, and they are
-parameters (`document_name`, `why_referenced`).
+**A second document costs a row here and nothing else.**  Only the two
+sentences of header naming the document differ, and they are parameters
+(`document_name`, `why_referenced`).
 
 
 Rules relocated from AGENTS.md 10.1
@@ -114,6 +84,8 @@ A path that cannot be read or is empty RAISES. **A run that attaches none INTERV
 - **The mechanism carries FOUR documents, and a fifth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`) and step 3.04's per-candidate repeated-take evidence (`library/tools/reel_diagnostics_reference.py`). Do not build a second by-reference mechanism.
 - **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agent` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
 - `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
+
+The byte measurements and the ruling behind this rule: docs/evidence/brief_reference.md.
 """
 
 from __future__ import annotations
