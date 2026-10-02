@@ -422,6 +422,7 @@ def touchup_all_reels(project_folder: str, *, old_clip: str = "",
                       new_media: str = "", row: str = "",
                       reels=None, reader=None, applier=None,
                       allow_drops=None, supersede=None,
+                      accept_editor_changes=None,
                       spec_for=None) -> dict:
     """The same named-clip swap on every reel, reporting per reel.
 
@@ -482,6 +483,11 @@ def touchup_all_reels(project_folder: str, *, old_clip: str = "",
             spec["allow_drops"] = list(allow_drops)
         if supersede is not None:
             spec["supersede"] = list(supersede)
+        if accept_editor_changes is not None:
+            spec["accept_editor_changes"] = (
+                [accept_editor_changes]
+                if isinstance(accept_editor_changes, (str, int))
+                else list(accept_editor_changes))
         try:
             receipt = applier(project_folder, spec)
         except (TouchupRefused, TouchupError) as refused:
@@ -1958,7 +1964,8 @@ def apply_touchup(project_folder: str, spec: Mapping,
                   allow_drops=None,
                   supersede=None,
                   connect=None,
-                  rederiver_override=None) -> dict:
+                  rederiver_override=None,
+                  accept_editor_changes=None) -> dict:
     """Apply a structured change to a built reel's existing timeline.
 
     Stages a DUPLICATE beside the approved reel, conforms it, routes
@@ -1983,6 +1990,10 @@ def apply_touchup(project_folder: str, spec: Mapping,
     declared_supersede = supersede
     if declared_supersede is None:
         declared_supersede = list((spec or {}).get("supersede") or ())
+    declared_editor_acceptance = accept_editor_changes
+    if declared_editor_acceptance is None:
+        declared_editor_acceptance = (spec or {}).get(
+            "accept_editor_changes")
 
     _signoff.assert_declared(project_folder, final,
                              declared_supersede,
@@ -2008,12 +2019,13 @@ def apply_touchup(project_folder: str, spec: Mapping,
         connect = _connect
     return _apply_under_lease(
         project_folder, spec, final, resolve_name, declared_drops,
-        declared_supersede, connect, rederiver_override, started)
+        declared_supersede, declared_editor_acceptance, connect,
+        rederiver_override, started)
 
 
 def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
                        resolve_name: str, declared_drops,
-                       declared_supersede, connect,
+                       declared_supersede, accept_editor_changes, connect,
                        rederiver_override, started: float) -> dict:
     from library.tools.resolve_lock import under_lease
 
@@ -2021,7 +2033,7 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
     def _guarded():
         return _apply_connected(
             project_folder, spec, final, resolve_name,
-            declared_drops, declared_supersede, connect,
+            declared_drops, declared_supersede, accept_editor_changes, connect,
             rederiver_override, started)
 
     return _guarded()
@@ -2029,7 +2041,7 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
 
 def _apply_connected(project_folder: str, spec: Mapping, final: str,
                      resolve_name: str, declared_drops,
-                     declared_supersede, connect,
+                     declared_supersede, accept_editor_changes, connect,
                      rederiver_override, started: float) -> dict:
     import datetime as _dt
 
@@ -2139,7 +2151,8 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
                 removals=qualification.removals,
                 fusion_manifest=(manifest if qualification.gate_class
                                  == COMPOSED_WITH_REDERIVATION else None),
-                batch=str(spec.get("batch") or ""))
+                batch=str(spec.get("batch") or ""),
+                project=project)
     except _journal.UndoRefused as unrecordable:
         # The journal's refusal already carries what/why/fix - carry
         # it across unchanged so the shape survives the translation.
@@ -2148,11 +2161,23 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             unrecordable.fix) from unrecordable
     receipt["journal"] = journal["id"]
 
+    from library.tools import plan_provenance as _provenance
+    from library.tools import reel_replace_guard as _guard
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    inventory_before = _guard.timeline_inventory(project)
+    inventory_operation = _provenance.begin_timeline_inventory(
+        review_dir, "touchup", inventory_before,
+        ren_created_names={final})
+    receipt["inventory_operation"] = inventory_operation
+    receipt["timeline_inventory_before"] = inventory_before
+
     stage_started = time.time()
     staged = source.DuplicateTimeline(staging)
     if staged is None or staged.GetName() != staging:
         _journal.fail_entry(project_folder, journal,
                             "the staging copy did not land")
+        _provenance.finish_timeline_inventory(
+            review_dir, inventory_operation, _guard.timeline_inventory(project))
         raise TouchupError(
             f"the staging copy did not land as {staging!r} - "
             f"nothing was edited and the approved timeline stands.")
@@ -2167,7 +2192,7 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             _edit_staged(project_folder, project, pool, source,
                          staged, staging, qualification, rederiver,
                          receipt, declared_drops, declared_supersede,
-                         final, stage_started, journal)
+                         accept_editor_changes, final, stage_started, journal)
     except Exception as failed:
         # The approved timeline still stands under its own name; the
         # staging holds the half-done edit for diagnosis.  Delete
@@ -2175,6 +2200,8 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         receipt["staging_left_standing"] = staging
         if journal.get("status") == _journal.STATUS_OPEN:
             _journal.fail_entry(project_folder, journal, repr(failed))
+        _provenance.finish_timeline_inventory(
+            review_dir, inventory_operation, _guard.timeline_inventory(project))
         raise
     receipt["seconds"] = round(time.time() - started, 3)
     receipt["receipt_path"] = _write_receipt(project_folder, final, receipt)
@@ -2357,7 +2384,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                  source: Any, staged: Any, staging: str,
                  qualification: Qualification, rederiver: Any,
                  receipt: dict, declared_drops, declared_supersede,
-                 final: str, stage_started: float,
+                 accept_editor_changes, final: str, stage_started: float,
                  journal: dict) -> None:
     """Conform, compose, verify and promote the staging copy.
 
@@ -2457,7 +2484,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         time.time() - verify_started, 3)
 
     _promote(project_folder, project, pool, final, staging,
-             declared_drops, declared_supersede, receipt, journal)
+             declared_drops, declared_supersede, accept_editor_changes,
+             receipt, journal)
 
 
 def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
@@ -2473,11 +2501,13 @@ def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
 
 def _promote(project_folder: str, project: Any, pool: Any,
              final: str, staging: str, declared_drops,
-             declared_supersede, receipt: dict, journal: dict) -> None:
+             declared_supersede, accept_editor_changes, receipt: dict,
+             journal: dict) -> None:
     """Guard, swap names, carry markers, close the journal, delete the
     replaced generation, close the signature."""
     from library.tools import reel_replace_guard as _guard
     from library.tools import reel_signoff as _signoff
+    from library.tools import plan_provenance as _provenance
     from library.tools.reel_build import (
         backup_name,
         timelines_to_replace,
@@ -2492,7 +2522,28 @@ def _promote(project_folder: str, project: Any, pool: Any,
             f"the staging {staging!r} or the approved {final!r} "
             f"vanished mid-touchup - nothing was renamed.")
 
+    live_full = _guard.full_timeline_snapshot(
+        originals[final], project, project_folder)
+    staged_full = _guard.full_timeline_snapshot(
+        staged_found[staging], project, project_folder)
+    try:
+        _guard.assert_target_inventory_unchanged(
+            receipt["timeline_inventory_before"],
+            _guard.timeline_inventory(project), [final])
+        _provenance.assert_not_editor_timeline(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            originals[final])
+        receipt["editor_changes"] = _guard.protect_editor_changes(
+            project_folder, final, live_full, live_full, staged_full,
+            accept=_guard.accepts_editor_changes(
+                final, accept_editor_changes))
+    except _guard.EditorChangeRefused as refused:
+        raise TouchupError(str(refused)) from refused
+
     declared = _guard.parse_specs(declared_drops, [final])
+    editor_override_rows = _guard.accepted_editor_drop_rows(
+        receipt["editor_changes"])
+    allowed_rows = set(declared.get(final, ())) | editor_override_rows
     _signoff.assert_declared(project_folder, final,
                              declared_supersede,
                              command="touch-reel")
@@ -2502,7 +2553,8 @@ def _promote(project_folder: str, project: Any, pool: Any,
                                             side="retiring")
     receipt["replace_report"] = _guard.check_replacement(
         final, staging, retired_rows, incoming_rows,
-        allowed=declared.get(final, ()))
+        allowed=allowed_rows)
+    receipt["accepted_editor_drop_rows"] = sorted(editor_override_rows)
 
     from library.tools import marker_carry as _markers
     from library.tools import marker_gate as _gate
@@ -2602,8 +2654,31 @@ def _promote(project_folder: str, project: Any, pool: Any,
     from library.tools import undo_journal as _journal
     _journal.close_entry(project_folder, journal,
                          after_timeline=staged_found[staging],
-                         rows=incoming_rows)
+                         rows=incoming_rows, project=project)
     receipt["version"] = journal["version"]
+    ren_owned_ids = set()
+    for timeline in (originals[final], staged_found[staging]):
+        try:
+            unique_id = timeline.GetUniqueId()
+        except Exception:  # noqa: BLE001
+            unique_id = None
+        if unique_id:
+            ren_owned_ids.add(str(unique_id))
+    _provenance.record_unattributed_timeline_changes(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        receipt["timeline_inventory_before"],
+        _guard.timeline_inventory(project), operation="touchup",
+        ren_owned_ids=ren_owned_ids)
+    for record_id in (receipt.get("editor_changes") or {}).get("carried", ()):
+        _provenance.resolve_editor_change(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            final, record_id, status="carried")
+    for record_id in (receipt.get("editor_changes") or {}).get(
+            "superseded", ()):
+        _provenance.resolve_editor_change(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            final, record_id, status="superseded",
+            superseded_by=f"--accept-editor-changes {final}")
 
     # The replaced generation is DELETED: the journal restores the
     # pre-touch state in place (`ren undo`), so a live `(archived
@@ -2631,6 +2706,9 @@ def _promote(project_folder: str, project: Any, pool: Any,
                           {backup: backup_objects[backup]}
                           if backup in backup_objects else {})}
     receipt["retirement"] = _retire.render(retirement)
+    _provenance.finish_timeline_inventory(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        receipt["inventory_operation"], _guard.timeline_inventory(project))
 
     for entry in (_signoff.base_name(final),):
         if entry not in _signoff.parse_supersede(declared_supersede):

@@ -74,6 +74,12 @@ def add_arguments(parser) -> None:
              "as superseded, never deleted, and the timeline it "
              "covered is retired to the archive bin.")
     parser.add_argument(
+        "--accept-editor-changes", action="append", default=[],
+        metavar="REEL",
+        help="Explicitly supersede detected manual edits on this reel. "
+             "An uncarried edit otherwise refuses promotion with its "
+             "source and record ranges. Repeatable.")
+    parser.add_argument(
         "--retain", dest="retain", action="append", default=[],
         metavar="REEL",
         help="A reel whose superseded generation the promotion may "
@@ -133,6 +139,8 @@ def run(project_folder: str, args) -> int:
                     only_reels=args.only_reel or None,
                     timeline_name_suffix=args.name_suffix,
                     allow_drops=args.allow_drop or None,
+                    accept_editor_changes=getattr(
+                        args, "accept_editor_changes", None) or None,
                     supersede=args.supersede or None,
                     retain=args.retain or None,
                     rebuild_all=bool(getattr(args, "rebuild_all", False)))
@@ -247,6 +255,7 @@ _PER_REEL_LIST_KEYS = {
     "reel_asks", "skipped_by_exclusion", "skipped_out_of_window",
     "picture_motion", "rebuild_need", "reels_left_alone",
     "timelines_built", "timelines_verified", "supersede", "retain",
+    "accept_editor_changes",
     "reels", "stills",
 }
 _SCOPED_PROJECT_LIST_KEYS = {"pending_promotions", "reels_requested"}

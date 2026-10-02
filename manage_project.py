@@ -1021,20 +1021,23 @@ def cmd_variant(args):
     import yaml as _yaml
 
     from library.tools.reel_build import _connect_resolve_project
+    from library.tools.resolve_lock import resolve_lease
 
     base = _base_final(args.reel)
     with open(os.path.join(project_folder, "project.yaml"),
               encoding="utf-8") as handle:
         resolve_name = (_yaml.safe_load(handle).get("resolve") or {}).get(
             "project_name", os.path.basename(project_folder))
-    project = _connect_resolve_project(resolve_name)
     try:
-        report = variants.choose(
-            project, project.GetMediaPool(), project_folder, args.reel,
-            base, args.suffix, args.why,
-            variant_names=variants.declared_variant_timelines(
-                project_folder),
-            supersede_declared=args.supersede or ())
+        with resolve_lease("variant choice connect", exclusive=True):
+            project = _connect_resolve_project(resolve_name)
+            report = variants.choose(
+                project, project.GetMediaPool(), project_folder, args.reel,
+                base, args.suffix, args.why,
+                variant_names=variants.declared_variant_timelines(
+                    project_folder),
+                supersede_declared=args.supersede or (),
+                accept_editor_changes=args.accept_editor_changes or None)
     except Exception as refused:                            # noqa: BLE001
         print(f"REFUSED: {refused}", file=sys.stderr)
         sys.exit(1)
@@ -2490,7 +2493,8 @@ def cmd_touch_reel(args):
                 new_media=args.new_media,
                 row=args.row or "",
                 allow_drops=args.allow_drop or None,
-                supersede=args.supersede or None)
+                supersede=args.supersede or None,
+                accept_editor_changes=args.accept_editor_changes or None)
         except _touchup.TouchupRefused as refused:
             print(refused.render(), file=sys.stderr)
             sys.exit(REFUSAL_EXIT_CODE)
@@ -2541,7 +2545,8 @@ def cmd_touch_reel(args):
         receipt = _touchup.apply_touchup(
             project_folder, spec,
             allow_drops=args.allow_drop or None,
-            supersede=args.supersede or None)
+            supersede=args.supersede or None,
+            accept_editor_changes=args.accept_editor_changes or None)
     except _touchup.TouchupRefused as refused:
         print(refused.render(), file=sys.stderr)
         sys.exit(REFUSAL_EXIT_CODE)
@@ -2614,7 +2619,9 @@ def cmd_undo(args):
     try:
         receipts = _undo.undo(project_folder, final=final,
                               entry_id=args.entry,
-                              supersede=args.supersede or ())
+                              supersede=args.supersede or (),
+                              accept_editor_changes=(
+                                  args.accept_editor_changes or None))
     except _undo.UndoRefused as refused:
         print(refused.render(), file=sys.stderr)
         sys.exit(REFUSAL_EXIT_CODE)
@@ -3033,6 +3040,12 @@ def main():
              "replace. Repeatable. Absent means a touch-up over a "
              "signed-off reel refuses by name")
     touch_reel_parser.add_argument(
+        "--accept-editor-changes", action="append", default=[],
+        metavar="REEL",
+        help="Explicitly supersede detected manual edits on this reel. "
+             "An uncarried edit otherwise refuses promotion with its "
+             "source and record ranges. Repeatable")
+    touch_reel_parser.add_argument(
         "--all-reels", action="store_true",
         help="Swap the same NAMED clip on every reel the plan names "
              "(--old-clip/--new-media, with --row as an optional "
@@ -3073,6 +3086,11 @@ def main():
         metavar="REEL",
         help="For a rebuild rollback over a signed-off reel: the reel "
              "whose sign-off the rebuild may replace. Repeatable")
+    undo_parser.add_argument(
+        "--accept-editor-changes", action="append", default=[],
+        metavar="REEL",
+        help="Explicitly supersede recorded manual edits the rollback or "
+             "touch undo cannot carry. Repeatable")
     undo_parser.set_defaults(func=cmd_undo)
 
     ren_dry_run_parser = _add_command(sub, "ren-dry-run")
@@ -3409,6 +3427,11 @@ def main():
         help="A reel whose durable captain SIGN-OFF this choice may "
              "replace. The chosen variant takes that reel's name, so a "
              "sign-off on it refuses by name without this.")
+    v_choose.add_argument(
+        "--accept-editor-changes", action="append", default=[],
+        metavar="REEL",
+        help="Explicitly supersede detected manual edits on this reel. "
+             "An uncarried edit otherwise refuses the choice. Repeatable")
 
     v_merge = v_sub.add_parser(
         "merge", help="Merge a variant branch's declarations back")

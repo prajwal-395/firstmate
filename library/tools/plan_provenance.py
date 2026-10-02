@@ -171,6 +171,10 @@ PROVENANCE_FILENAME = "plan_provenance.json"
 """Written by the builder next to conformance_report.json."""
 
 SNAPSHOT_PROVENANCE_KEY = "snapshot_provenance"
+REN_TIMELINE_SNAPSHOTS_KEY = "ren_timeline_snapshots"
+EDITOR_CHANGES_KEY = "unattributed_editor_changes"
+TIMELINE_INVENTORY_KEY = "timeline_inventory_history"
+EDITOR_TIMELINES_KEY = "editor_timeline_identities"
 """Per live timeline name: which snapshot file is its authoritative
 record and which same-named files that snapshot superseded.
 
@@ -448,6 +452,10 @@ def _write_provenance_unlocked(
     # branches. A build that dropped it would delete the supersession
     # answer as a side effect of recording anything else.
     snapshots_table = dict(existing.get(SNAPSHOT_PROVENANCE_KEY) or {})
+    ren_snapshots = dict(existing.get(REN_TIMELINE_SNAPSHOTS_KEY) or {})
+    editor_changes = dict(existing.get(EDITOR_CHANGES_KEY) or {})
+    inventory_history = list(existing.get(TIMELINE_INVENTORY_KEY) or [])
+    editor_timelines = dict(existing.get(EDITOR_TIMELINES_KEY) or {})
 
     doc = {
         "plan_path": os.path.abspath(plan_path),
@@ -485,6 +493,10 @@ def _write_provenance_unlocked(
         # here - a build records plan facts, promotion records
         # snapshot facts, and neither rewrites the other's.
         SNAPSHOT_PROVENANCE_KEY: snapshots_table,
+        REN_TIMELINE_SNAPSHOTS_KEY: ren_snapshots,
+        EDITOR_CHANGES_KEY: editor_changes,
+        TIMELINE_INVENTORY_KEY: inventory_history,
+        EDITOR_TIMELINES_KEY: editor_timelines,
     }
     if superseded:
         doc["superseded_plan_hash"] = superseded
@@ -955,6 +967,278 @@ def read_provenance(review_dir: str) -> Optional[dict]:
     if not p.is_file():
         return None
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _mutate_preservation(review_dir: str, mutation) -> None:
+    """Serialize preservation records with the project-file lock."""
+    from library.tools.project_file_lock import lock_project_file
+
+    path = Path(review_dir) / PROVENANCE_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_project_file(path):
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            doc = {}
+        if not isinstance(doc, dict):
+            raise ValueError(f"{path} is not a JSON object")
+        mutation(doc)
+        path.write_text(json.dumps(doc, indent=2, default=str),
+                        encoding="utf-8")
+
+
+def record_timeline_snapshot(review_dir: str, timeline_name: str,
+                             snapshot: dict, *, action: str,
+                             action_journal: str | None = None,
+                             last_known: bool = True) -> dict:
+    """Persist a full first-contact or verified Ren snapshot."""
+    digest = hashlib.sha256(json.dumps(
+        snapshot, sort_keys=True, separators=(",", ":"),
+        default=str).encode("utf-8")).hexdigest()
+    entry = {
+        "snapshot": snapshot,
+        "sha256": digest,
+        "recorded_at": datetime.now(timezone.utc).isoformat(
+            timespec="seconds"),
+        "action": str(action),
+    }
+    if action_journal:
+        entry["action_journal"] = str(action_journal)
+
+    def update(doc):
+        table = dict(doc.get(REN_TIMELINE_SNAPSHOTS_KEY) or {})
+        name = str(timeline_name)
+        previous = table.get(name) or {}
+        history = list(previous.get("history") or [])
+        history.append({key: value for key, value in entry.items()
+                        if key != "history"})
+        if last_known:
+            entry["history"] = history
+            table[name] = entry
+        elif previous:
+            previous = dict(previous)
+            previous["history"] = history
+            table[name] = previous
+        else:
+            table[name] = {"snapshot": None, "sha256": None,
+                           "recorded_at": entry["recorded_at"],
+                           "action": "no_ren_snapshot",
+                           "history": history}
+        doc[REN_TIMELINE_SNAPSHOTS_KEY] = table
+
+    _mutate_preservation(review_dir, update)
+    return entry
+
+
+def record_editor_changes(review_dir: str, timeline_name: str,
+                          records: list[dict]) -> None:
+    """Append detected deltas idempotently."""
+    def update(doc):
+        table = dict(doc.get(EDITOR_CHANGES_KEY) or {})
+        entries = list(table.get(str(timeline_name)) or [])
+        known = {entry.get("id") for entry in entries}
+        entries.extend(entry for entry in records
+                       if entry.get("id") not in known)
+        table[str(timeline_name)] = entries
+        doc[EDITOR_CHANGES_KEY] = table
+
+    _mutate_preservation(review_dir, update)
+
+
+def pending_editor_changes(review_dir: str, timeline_name: str) -> list[dict]:
+    doc = read_provenance(review_dir) or {}
+    records = ((doc.get(EDITOR_CHANGES_KEY) or {}).get(
+        str(timeline_name)) or [])
+    return [dict(entry) for entry in records
+            if entry.get("status") == "pending"]
+
+
+def resolve_editor_change(review_dir: str, timeline_name: str,
+                          record_id: str, *, status: str,
+                          superseded_by: str | None = None) -> None:
+    if status not in {"carried", "superseded", "restored"}:
+        raise ValueError(f"unknown editor-change status {status!r}")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def update(doc):
+        table = dict(doc.get(EDITOR_CHANGES_KEY) or {})
+        entries = list(table.get(str(timeline_name)) or [])
+        for entry in entries:
+            if entry.get("id") == record_id:
+                entry["status"] = status
+                entry["resolved_at"] = now
+                if superseded_by:
+                    entry["superseded_by"] = str(superseded_by)
+        table[str(timeline_name)] = entries
+        doc[EDITOR_CHANGES_KEY] = table
+
+    _mutate_preservation(review_dir, update)
+
+
+def _timeline_identity(entry: dict) -> str:
+    unique_id = entry.get("unique_id")
+    return f"id:{unique_id}" if unique_id else f"name:{entry.get('name', '')}"
+
+
+def editor_timeline_identities(review_dir: str) -> dict:
+    doc = read_provenance(review_dir) or {}
+    return dict(doc.get(EDITOR_TIMELINES_KEY) or {})
+
+
+def protected_timeline_names(review_dir: str,
+                             inventory: list[dict]) -> set[str]:
+    protected = editor_timeline_identities(review_dir)
+    return {str(entry["name"]) for entry in inventory
+            if _timeline_identity(entry) in protected}
+
+
+def record_unattributed_timeline_changes(review_dir: str,
+                                        before: list[dict],
+                                        after: list[dict], *,
+                                        operation: str,
+                                        ren_owned_ids=()) -> set[str]:
+    """Protect timeline additions or renames not explained by Ren's write."""
+    previous = {_timeline_identity(entry): entry for entry in before}
+    known_ren_ids = {f"id:{value}" for value in ren_owned_ids or () if value}
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    detected = {}
+    for current in after:
+        identity = _timeline_identity(current)
+        old = previous.get(identity)
+        created = old is None
+        renamed = old is not None and old.get("name") != current.get("name")
+        if (created or renamed) and identity not in known_ren_ids:
+            detected[identity] = {
+                "identity": identity,
+                "first_seen_at": now,
+                "first_seen_name": current.get("name"),
+                "last_seen_name": current.get("name"),
+                "reason": ("created by the editor" if created else
+                           "renamed by the editor"),
+                "operation": str(operation),
+            }
+
+    def update(doc):
+        editor_timelines = dict(doc.get(EDITOR_TIMELINES_KEY) or {})
+        for identity, entry in detected.items():
+            editor_timelines.setdefault(identity, entry)
+        doc[EDITOR_TIMELINES_KEY] = editor_timelines
+
+    _mutate_preservation(review_dir, update)
+    return {str(entry["name"]) for entry in after
+            if _timeline_identity(entry) in detected}
+
+
+def begin_timeline_inventory(review_dir: str, operation: str,
+                             before: list[dict], *,
+                             ren_created_names=(),
+                             ren_created_ids=()) -> str:
+    """Persist project timeline inventory before a Ren operation."""
+    operation_id = hashlib.sha256(
+        f"{datetime.now(timezone.utc).isoformat()}:{operation}".encode(
+            "utf-8")).hexdigest()[:20]
+    entry = {
+        "id": operation_id,
+        "operation": str(operation),
+        "started_at": datetime.now(timezone.utc).isoformat(
+            timespec="seconds"),
+        "before": before,
+        "after": None,
+    }
+    ren_created = {str(name) for name in ren_created_names or ()}
+    ren_created_identities = {
+        f"id:{unique_id}" for unique_id in ren_created_ids or ()
+        if unique_id}
+
+    def update(doc):
+        history = list(doc.get(TIMELINE_INVENTORY_KEY) or [])
+        completed = next((item for item in reversed(history)
+                          if item.get("after") is not None), None)
+        previous = {_timeline_identity(item): item
+                    for item in (completed or {}).get("after", ())}
+        editor_timelines = dict(doc.get(EDITOR_TIMELINES_KEY) or {})
+        if completed is None:
+            # On first contact, every timeline not named as a known Ren
+            # target is already present before this operation. Its author
+            # cannot be inferred, so preserve it as ownership-unknown and
+            # keep it out of later cleanup and replacement scopes.
+            for current in before:
+                identity = _timeline_identity(current)
+                known_ren_target = (
+                    identity in ren_created_identities
+                    or current.get("name") in ren_created)
+                if not known_ren_target:
+                    editor_timelines.setdefault(identity, {
+                        "identity": identity,
+                        "first_seen_at": entry["started_at"],
+                        "first_seen_name": current.get("name"),
+                        "last_seen_name": current.get("name"),
+                        "reason": "ownership unknown at first inventory",
+                        "first_seen_operation": operation_id,
+                    })
+        if completed is not None:
+            for current in before:
+                identity = _timeline_identity(current)
+                old = previous.get(identity)
+                renamed = old is not None and old.get("name") != current.get("name")
+                newly_seen = old is None
+                is_ren_created = (
+                    identity in ren_created_identities
+                    or current.get("name") in ren_created)
+                if ((newly_seen or renamed) and not is_ren_created):
+                    editor_timelines.setdefault(identity, {
+                        "identity": identity,
+                        "first_seen_at": entry["started_at"],
+                        "first_seen_name": current.get("name"),
+                        "last_seen_name": current.get("name"),
+                        "reason": ("created by the editor" if newly_seen else
+                                   "renamed by the editor"),
+                        "first_seen_operation": operation_id,
+                    })
+                elif identity in editor_timelines:
+                    editor_timelines[identity]["last_seen_name"] = current.get("name")
+        doc[EDITOR_TIMELINES_KEY] = editor_timelines
+        history.append(entry)
+        doc[TIMELINE_INVENTORY_KEY] = history
+
+    _mutate_preservation(review_dir, update)
+    return operation_id
+
+
+def assert_not_editor_timeline(review_dir: str, timeline) -> None:
+    """Refuse to mutate a timeline first seen as editor-created or renamed."""
+    try:
+        unique_id = timeline.GetUniqueId()
+    except Exception:  # noqa: BLE001
+        unique_id = None
+    identity = (f"id:{unique_id}" if unique_id else
+                f"name:{timeline.GetName()}")
+    entry = editor_timeline_identities(review_dir).get(identity)
+    if entry:
+        from library.tools.reel_replace_guard import EditorChangeRefused
+        reason = entry.get("reason", "its ownership is unknown")
+        raise EditorChangeRefused(
+            f"REFUSING to replace {timeline.GetName()!r}: this timeline "
+            f"is protected because {reason}; it remains untouched.")
+
+
+def finish_timeline_inventory(review_dir: str, operation_id: str,
+                              after: list[dict]) -> None:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def update(doc):
+        history = list(doc.get(TIMELINE_INVENTORY_KEY) or [])
+        for entry in history:
+            if entry.get("id") == operation_id:
+                entry["after"] = after
+                entry["completed_at"] = now
+                break
+        else:
+            raise ValueError(
+                f"timeline inventory operation {operation_id!r} is missing")
+        doc[TIMELINE_INVENTORY_KEY] = history
+
+    _mutate_preservation(review_dir, update)
 
 
 def current_plan_names(project_folder: str,

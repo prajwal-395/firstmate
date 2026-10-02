@@ -21,7 +21,10 @@ Each test fails if its mechanism is removed:
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tests.promotion_test_helpers import no_a_roll_track_plans
+from tests.promotion_test_helpers import (
+    install_fake_timeline_snapshots,
+    no_a_roll_track_plans,
+)
 
 from library.tools import reel_signoff as signoff
 from library.tools.reel_build import ReelBuildError, promote_staged_reels
@@ -32,10 +35,11 @@ MASTER = "Podcast - Synced"
 
 
 @pytest.fixture(autouse=True)
-def mock_dvr(stub_resolve_script):
+def mock_dvr(stub_resolve_script, monkeypatch):
     # Stubbed through the shared fixture: `patch.dict` on
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
+    install_fake_timeline_snapshots(monkeypatch)
     yield
 
 

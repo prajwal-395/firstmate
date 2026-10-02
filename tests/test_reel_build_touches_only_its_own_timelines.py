@@ -207,6 +207,13 @@ def _run(resolve_project, project_dir, **kwargs):
                   return_value=[_moment(i + 1, name)
                                 for i, name in enumerate(APPROVED)]), \
             patch("library.tools.timeline_ingest.snapshot_timeline"), \
+            patch("library.tools.reel_replace_guard.full_timeline_snapshot",
+                  side_effect=lambda timeline, _project, _folder=None: {
+                      "timeline": {"name": timeline.GetName(),
+                                   "unique_id": str(timeline.GetUniqueId()),
+                                   "settings": {}, "start_frame": 0,
+                                   "end_frame": 0},
+                      "items": [], "markers": []}), \
             patch("library.tools.reel_conformance_verifier.run_verification",
                   return_value=0):
         caps.return_value = [{"overlay_path": "x.mov"}]

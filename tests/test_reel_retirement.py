@@ -24,13 +24,28 @@ rather than sitting beside a deliverable.
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tests.promotion_test_helpers import no_a_roll_track_plans
+from tests.promotion_test_helpers import (
+    no_a_roll_track_plans,
+    record_ren_owned_inventory,
+)
 
 from library.tools import reel_retirement as retire
+from library.tools import reel_replace_guard
 from library.tools import resolve_bin_layout as bins
 
 REEL = "Reel 09 - your-website-is-only-20-percent"
 OTHER = "Reel 13 - the-accounting-firm"
+
+
+@pytest.fixture(autouse=True)
+def fake_preservation_snapshots(monkeypatch):
+    monkeypatch.setattr(
+        reel_replace_guard, "full_timeline_snapshot",
+        lambda timeline, _project, _folder=None: {
+            "timeline": {"name": timeline.GetName(), "unique_id": None,
+                         "settings": {}, "start_frame": 0,
+                         "end_frame": 0},
+            "items": [], "markers": []})
 
 
 # ── The naming ───────────────────────────────────────────────────
@@ -265,10 +280,14 @@ class FakeItem:
 class StagedTimeline:
     def __init__(self, name, video=()):
         self._name = name
+        self._unique_id = f"fake:{id(self)}"
         self._rows = {"video": list(video), "audio": []}
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return self._unique_id
 
     def SetName(self, name):
         self._name = name
@@ -337,7 +356,7 @@ def _pair(final):
 
 
 def _promote(resolve, project, staged_to_final, retain=None,
-             supersede=None):
+             supersede=None, prior_ren_inventory=False):
     import json
 
     from library.tools.reel_build import promote_staged_reels
@@ -346,6 +365,8 @@ def _promote(resolve, project, staged_to_final, retain=None,
      / "plan_provenance.json").write_text(
         json.dumps({"built_reels": sorted(staged_to_final.values())}),
         encoding="utf-8")
+    if prior_ren_inventory:
+        record_ren_owned_inventory(project, resolve)
     with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
             patch("library.tools.reel_build.resolve_project_exactly",
                   return_value=resolve):
@@ -399,9 +420,9 @@ def test_explicit_retain_keeps_exactly_one_generation(review_project):
     legacy = StagedTimeline(retire.archived_name(REEL, 1))
     resolve = ResolveProject([StagedTimeline(MASTER), original, staging,
                               legacy])
-
     promoted = _promote(resolve, review_project,
-                        {REEL: staging.GetName()}, retain=[REEL])
+                        {REEL: staging.GetName()}, retain=[REEL],
+                        prior_ren_inventory=True)
 
     # No round was ever stamped in this project, so the retired
     # version is labelled with the current round - colliding with the

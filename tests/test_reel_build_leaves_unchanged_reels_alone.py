@@ -24,13 +24,15 @@ import pytest
 
 from library.tools.plan_provenance import read_provenance
 from library.tools.reel_build import rebuild_reels_in_project
+from tests.promotion_test_helpers import install_fake_timeline_snapshots
 
 MASTER = "GEO Podcast - Synced"
 APPROVED = [f"Reel {n:02d} - moment-{n}" for n in (1, 2, 3)]
 
 
 @pytest.fixture(autouse=True)
-def mock_dvr(stub_resolve_script):
+def mock_dvr(stub_resolve_script, monkeypatch):
+    install_fake_timeline_snapshots(monkeypatch)
     yield
 
 

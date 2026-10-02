@@ -3,6 +3,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 import sys
+from tests.promotion_test_helpers import install_fake_timeline_snapshots
 
 from library.tools.reel_build import STAGING_SUFFIX, rebuild_reels_in_project
 
@@ -15,10 +16,11 @@ MASTER = "GEO Podcast - Synced"
 ORGANISE = False
 
 @pytest.fixture(autouse=True)
-def mock_dvr(stub_resolve_script):
+def mock_dvr(stub_resolve_script, monkeypatch):
     # Stubbed through the shared fixture: `patch.dict` on
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
+    install_fake_timeline_snapshots(monkeypatch)
     yield
 
 

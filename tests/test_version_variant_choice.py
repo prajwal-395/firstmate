@@ -28,7 +28,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from library.tools import reel_retirement as retire
+from library.tools import reel_replace_guard
 from library.tools.versions import variants as choice
+from tests.promotion_test_helpers import record_ren_owned_inventory
 
 REEL = "Reel 09 - your-website-is-only-20-percent (final)"
 JCUT = f"{REEL} (j-cut)"
@@ -48,6 +50,18 @@ def project_folder(tmp_path):
     folder = tmp_path / "geo-podcast"
     (folder / "pipeline_output" / "review").mkdir(parents=True)
     return str(folder)
+
+
+@pytest.fixture(autouse=True)
+def fake_preservation_snapshots(monkeypatch):
+    monkeypatch.setattr(
+        reel_replace_guard, "full_timeline_snapshot",
+        lambda timeline, _project, _folder=None: {
+            "timeline": {"name": timeline.GetName(),
+                         "unique_id": timeline.GetUniqueId(),
+                         "settings": {}, "start_frame": 0,
+                         "end_frame": 0},
+            "items": [], "markers": []})
 
 
 # ── What is alive ────────────────────────────────────────────────
@@ -215,9 +229,21 @@ def test_a_timeline_that_is_not_this_reels_variant_is_never_touched():
 class FakeTimeline:
     def __init__(self, name):
         self._name = name
+        self._unique_id = f"fake:{name}"
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return self._unique_id
+
+    def GetSetting(self, key=None):
+        settings = {
+            "timelineFrameRate": "23.976",
+            "timelineResolutionWidth": "1080",
+            "timelineResolutionHeight": "1920",
+        }
+        return settings if key is None else settings.get(key, "")
 
     def SetName(self, name):
         self._name = name
@@ -290,6 +316,7 @@ def test_the_collected_names_are_read_before_the_delete(project_folder):
     project = RealisticDeleteProject([
         DeletedTimeline(REEL), DeletedTimeline(older),
         DeletedTimeline(tight), DeletedTimeline(loose)])
+    record_ren_owned_inventory(project_folder, project)
     report = choice.choose(project, project.pool, project_folder, 9, REEL,
                            " (loose)", "the loose framing breathes",
                            variant_names={JCUT, CUTAWAY, tight, loose})
@@ -322,6 +349,7 @@ def test_a_delete_resolve_declines_is_refused_not_reported_collected(
     project = DecliningDeleteProject([
         FakeTimeline(REEL), FakeTimeline(older),
         FakeTimeline(tight), FakeTimeline(loose)])
+    record_ren_owned_inventory(project_folder, project)
     with pytest.raises(choice.ChoiceRefused) as refusal:
         choice.choose(project, project.pool, project_folder, 9, REEL,
                       " (loose)", "the loose framing breathes",

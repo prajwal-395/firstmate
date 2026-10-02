@@ -50,6 +50,12 @@
         "description": "Reels whose durable captain sign-off this build may replace (`library/tools/reel_signoff.py`). Each entry is a reel name in any container spelling. The `--supersede` flag of `manage_project.py build-reels`, repeatable. Absent means nothing is declared and a promotion over a signed-off reel refuses by name, printing the declaration that would proceed deliberately. A declared supersession moves the sign-off to `superseded` after the rename lands; it is never deleted."
       },
       {
+        "name": "accept_editor_changes",
+        "type": "array",
+        "required": false,
+        "description": "Reels whose recorded unattributed editor changes the captain explicitly accepts superseding. The --accept-editor-changes REEL flag of manage_project.py build-reels, repeatable. Absent means an edit the staging does not already carry refuses promotion."
+      },
+      {
         "name": "retain",
         "type": "array",
         "required": false,

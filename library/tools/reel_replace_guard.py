@@ -87,7 +87,12 @@ that reel - there is nothing being replaced.
 
 from __future__ import annotations
 
+import json
+import os
 from collections import Counter, defaultdict
+from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
+from hashlib import sha256
 
 #: How many missing items a refusal names inline per row. The report the
 #: promote result carries names every one; the message stays readable.
@@ -100,6 +105,475 @@ class ReplaceGuardUnreadable(RuntimeError):
 
 class ReplaceGuardRefused(RuntimeError):
     """The incoming timeline carries less than the one it would replace."""
+
+
+class EditorChangeRefused(ReplaceGuardRefused):
+    """Unattributed live edits would be lost by this replacement."""
+
+
+PRESERVATION_FIELDS = (
+    "track_type", "track_index", "track_name", "name", "source_identity",
+    "source_in_frame", "source_out_frame", "record_in", "record_out",
+    "duration", "enabled", "transform", "composite", "fusion", "color",
+    "clip_color", "flags", "markers",
+)
+TIMELINE_SETTING_KEYS = (
+    "timelineFrameRate", "timelineResolutionWidth",
+    "timelineResolutionHeight", "timelineStartTimecode",
+    "timelinePixelAspectRatio", "timelineVideoMonitoringFormat",
+    "timelineInterlaceProcessing",
+)
+
+
+def _timeline_settings(timeline) -> dict:
+    settings = {}
+    try:
+        complete = timeline.GetSetting()
+    except Exception:  # noqa: BLE001 - Resolve versions may require a key
+        complete = None
+    if isinstance(complete, dict):
+        settings.update({key: _plain_setting(value)
+                         for key, value in complete.items()})
+    for key in TIMELINE_SETTING_KEYS:
+        try:
+            settings[key] = _plain_setting(timeline.GetSetting(key))
+        except Exception:  # noqa: BLE001
+            settings.setdefault(key, None)
+    return settings
+
+
+def _plain_setting(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _plain_setting(item)
+                for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_setting(item) for item in value]
+    return str(value)
+
+
+def timeline_inventory(project) -> list[dict]:
+    """Read project timeline names, unique ids and settings as plain data."""
+    entries = []
+    try:
+        count = int(project.GetTimelineCount() or 0)
+        for index in range(1, count + 1):
+            timeline = project.GetTimelineByIndex(index)
+            if timeline is None:
+                raise ValueError(f"timeline {index} returned no object")
+            settings = _timeline_settings(timeline)
+            try:
+                unique_id = timeline.GetUniqueId()
+            except Exception:  # noqa: BLE001
+                unique_id = None
+            entries.append({
+                "name": timeline.GetName(),
+                "unique_id": str(unique_id) if unique_id else None,
+                "settings": settings,
+            })
+    except Exception as unreadable:  # noqa: BLE001
+        raise ReplaceGuardUnreadable(
+            f"the project timeline inventory could not be read "
+            f"({unreadable}); replacement refuses rather than guess "
+            f"which timelines it may touch.") from unreadable
+    return entries
+
+
+def assert_target_inventory_unchanged(before: list[dict],
+                                     current: list[dict],
+                                     finals) -> None:
+    """Refuse targets that appeared or changed identity during a build."""
+    by_name_before = {entry["name"]: entry for entry in before}
+    by_name_now = {entry["name"]: entry for entry in current}
+    for final in finals:
+        old, now = by_name_before.get(final), by_name_now.get(final)
+        if now is None:
+            if old is not None and old.get("unique_id"):
+                renamed = next((entry for entry in current
+                                if str(entry.get("unique_id")) ==
+                                str(old["unique_id"])), None)
+                if renamed is not None:
+                    raise EditorChangeRefused(
+                        f"REFUSING to replace {final!r}: its build-start "
+                        f"timeline was renamed to {renamed['name']!r} during "
+                        f"the build. The editor's timeline remains "
+                        f"untouched.")
+            continue
+        if old is None:
+            raise EditorChangeRefused(
+                f"REFUSING to replace {final!r}: this timeline was not in "
+                f"the project's inventory when the build began. It may be "
+                f"a timeline the editor created during the build, so it "
+                f"remains untouched.")
+        if not old.get("unique_id") or not now.get("unique_id"):
+            raise EditorChangeRefused(
+                f"REFUSING to replace {final!r}: its identity cannot be "
+                f"compared with the build-start inventory, so ownership "
+                f"is unknown and the timeline remains untouched.")
+        if str(old["unique_id"]) != str(now["unique_id"]):
+            raise EditorChangeRefused(
+                f"REFUSING to replace {final!r}: it now has timeline id "
+                f"{now['unique_id']!r}, while the build-start inventory "
+                f"recorded {old['unique_id']!r}. A newly created or renamed "
+                f"editor timeline remains untouched.")
+
+
+def full_timeline_snapshot(timeline, project, project_folder=None) -> dict:
+    """Capture editable state through the shared reel reader."""
+    from library.tools import marker_feedback, reel_read
+    from library.tools.resolve_lock import cursor_excursion
+
+    try:
+        with cursor_excursion(project, timeline,
+                              f"snapshot {timeline.GetName()}"):
+            tracks = reel_read.read_tracks(
+                timeline, resolve_project=project)
+            raw_markers = marker_feedback.read_notes(
+                timeline, project_folder=project_folder)
+            markers = []
+            for marker in raw_markers:
+                note = (asdict(marker) if is_dataclass(marker)
+                        else dict(marker))
+                if note.get("source") != "timeline_marker":
+                    continue
+                # `read_notes` also returns clip and media-pool notes,
+                # which are captured on each item by `reel_read`. Keep
+                # only the timeline plane here, and omit derived context
+                # such as `read_at`, attached clips, and timecode so the
+                # snapshot is stable across reads.
+                markers.append({
+                    "source": "timeline_marker",
+                    "frame": note["frame"],
+                    "frame_in_timeline_space":
+                        note["frame_in_timeline_space"],
+                    "color": note["color"],
+                    "name": note["name"],
+                    "note": note["note"],
+                    "duration_frames": note["duration_frames"],
+                    "custom_data": note["custom_data"],
+                    "custom_data_raw": note["custom_data_raw"],
+                })
+            settings = _timeline_settings(timeline)
+            for key in ("timelineFrameRate", "timelineResolutionWidth",
+                        "timelineResolutionHeight"):
+                if settings[key] in (None, ""):
+                    raise ValueError(f"timeline setting {key!r} is unreadable")
+            float(settings["timelineFrameRate"])
+            int(settings["timelineResolutionWidth"])
+            int(settings["timelineResolutionHeight"])
+            try:
+                unique_id = timeline.GetUniqueId()
+            except Exception:  # noqa: BLE001
+                unique_id = None
+            items = []
+            for track in tracks:
+                for detail in track["clips"]:
+                    if not isinstance(detail["enabled"], bool):
+                        raise ValueError(
+                            f"enabled state for {detail['name']!r} is unreadable")
+                    source_file = str(detail["source_file"] or "")
+                    media_id = str(detail["media_pool_item_id"] or "")
+                    item_id = str(detail.get("unique_id") or "")
+                    if media_id:
+                        source_identity = f"media:{media_id}"
+                    elif source_file:
+                        source_identity = "file:" + os.path.normcase(
+                            os.path.realpath(source_file))
+                    elif item_id:
+                        source_identity = f"generator-item:{item_id}"
+                    else:
+                        source_identity = (
+                            f"generator:{detail['track_type']}:"
+                            f"{detail['track_name']}:{detail['name']}")
+                    item = {key: detail.get(key) for key in
+                            PRESERVATION_FIELDS if key in detail}
+                    item["source_identity"] = source_identity
+                    item["unique_id"] = str(detail.get("unique_id") or "")
+                    transform = detail.get("transform") or {}
+                    item["composite"] = {
+                        key: transform.get(key)
+                        for key in ("Opacity", "CompositeMode")
+                        if key in transform
+                    }
+                    items.append(item)
+            return {
+                "timeline": {
+                    "name": timeline.GetName(),
+                    "unique_id": str(unique_id) if unique_id else None,
+                    "settings": settings,
+                    "start_frame": timeline.GetStartFrame(),
+                    "end_frame": timeline.GetEndFrame(),
+                },
+                "items": items,
+                "markers": markers,
+            }
+    except Exception as unreadable:  # noqa: BLE001
+        raise ReplaceGuardUnreadable(
+            f"the full state of timeline {timeline.GetName()!r} could not "
+            f"be read ({unreadable}); replacement refuses rather than "
+            f"overwrite what it cannot see.") from unreadable
+
+
+def _canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      default=str)
+
+
+def _stable_item_key(item: dict) -> tuple:
+    return (item.get("track_type"), item.get("track_index"),
+            item.get("track_name"),
+            item.get("source_identity"), item.get("source_in_frame"),
+            item.get("source_out_frame"))
+
+
+def _marker_key(marker: dict) -> str:
+    return _canonical(marker)
+
+
+def _marker_content_key(marker: dict) -> tuple:
+    """Marker content identity, excluding its timeline placement."""
+    return tuple(_canonical(marker.get(field)) for field in (
+        "source", "color", "name", "note", "duration_frames",
+        "custom_data", "custom_data_raw"))
+
+
+def snapshot_diff(before: dict, after: dict) -> list[dict]:
+    """Describe item, setting and marker changes without inferring intent."""
+    changes = []
+    old_items, new_items = {}, {}
+    for item in before.get("items", ()):
+        old_items.setdefault(_stable_item_key(item), []).append(item)
+    for item in after.get("items", ()):
+        new_items.setdefault(_stable_item_key(item), []).append(item)
+    for key in sorted(set(old_items) | set(new_items), key=_canonical):
+        old_group, new_group = old_items.get(key, []), new_items.get(key, [])
+        paired = min(len(old_group), len(new_group))
+        for old, new in zip(old_group[:paired], new_group[:paired]):
+            changed = {
+                field: {"before": old.get(field), "after": new.get(field)}
+                for field in PRESERVATION_FIELDS
+                if _canonical(old.get(field)) != _canonical(new.get(field))
+            }
+            if changed:
+                changes.append({"kind": "item_changed", "identity": key,
+                                "before": old, "after": new,
+                                "changed": changed})
+        for old in old_group[paired:]:
+            changes.append({"kind": "item_removed", "identity": key,
+                            "before": old, "after": None, "changed": {}})
+        for new in new_group[paired:]:
+            changes.append({"kind": "item_added", "identity": key,
+                            "before": None, "after": new, "changed": {}})
+
+    old_tl = before.get("timeline") or {}
+    new_tl = after.get("timeline") or {}
+    for field in ("name", "unique_id"):
+        old, new = old_tl.get(field), new_tl.get(field)
+        if _canonical(old) != _canonical(new):
+            changes.append({"kind": "timeline_identity", "field": field,
+                            "before": old, "after": new})
+    old_settings = old_tl.get("settings") or {}
+    new_settings = new_tl.get("settings") or {}
+    for key in sorted(set(old_settings) | set(new_settings)):
+        old, new = old_settings.get(key), new_settings.get(key)
+        if _canonical(old) != _canonical(new):
+            changes.append({"kind": "timeline_setting", "field": key,
+                            "before": old, "after": new})
+    for field in ("start_frame", "end_frame"):
+        old, new = old_tl.get(field), new_tl.get(field)
+        if _canonical(old) != _canonical(new):
+            changes.append({"kind": "timeline_setting", "field": field,
+                            "before": old, "after": new})
+
+    old_markers = {_marker_key(marker): marker
+                   for marker in before.get("markers", ())}
+    new_markers = {_marker_key(marker): marker
+                   for marker in after.get("markers", ())}
+    for key in sorted(old_markers.keys() - new_markers.keys()):
+        changes.append({"kind": "marker_removed", "identity": key,
+                        "before": old_markers[key], "after": None})
+    for key in sorted(new_markers.keys() - old_markers.keys()):
+        changes.append({"kind": "marker_added", "identity": key,
+                        "before": None, "after": new_markers[key]})
+    return changes
+
+
+def _change_is_carried(change: dict, staged: dict) -> bool:
+    kind = change["kind"]
+    if kind.startswith("item_"):
+        candidates = [item for item in staged.get("items", ())
+                     if _stable_item_key(item) == tuple(change["identity"])]
+        if kind == "item_removed":
+            return not candidates
+        if not candidates:
+            return False
+        if kind == "item_added":
+            wanted = change["after"]
+            return any(all(_canonical(item.get(field)) ==
+                           _canonical(wanted.get(field))
+                           for field in PRESERVATION_FIELDS)
+                       for item in candidates)
+        wanted = change["changed"]
+        return any(all(_canonical(item.get(field)) ==
+                       _canonical(values["after"])
+                       for field, values in wanted.items())
+                   for item in candidates)
+    if kind.startswith("marker_"):
+        if kind == "marker_removed":
+            wanted = change.get("before") or {}
+            return not any(
+                _marker_content_key(marker) == _marker_content_key(wanted)
+                for marker in staged.get("markers", ()))
+        wanted = change.get("after") or {}
+        return any(_marker_content_key(marker) ==
+                   _marker_content_key(wanted)
+                   for marker in staged.get("markers", ()))
+    timeline = staged.get("timeline") or {}
+    if kind == "timeline_identity":
+        return _canonical(timeline.get(change["field"])) == \
+            _canonical(change.get("after"))
+    if change["field"] in ("start_frame", "end_frame"):
+        return _canonical(timeline.get(change["field"])) == \
+            _canonical(change.get("after"))
+    return _canonical((timeline.get("settings") or {}).get(
+        change["field"])) == _canonical(change.get("after"))
+
+
+def _change_summary(change: dict) -> str:
+    def frame(value):
+        return f"{int(value):,}" if isinstance(value, int) else value
+
+    kind = change["kind"]
+    if kind.startswith("item_"):
+        item = change.get("before") or change.get("after") or {}
+        row = f"{item.get('track_type')}:{item.get('track_name')}"
+        source = (f"source {frame(item.get('source_in_frame'))}.."
+                  f"{frame(item.get('source_out_frame'))}")
+        record = (f"record {frame(item.get('record_in'))}.."
+                  f"{frame(item.get('record_out'))}")
+        if kind == "item_removed":
+            return f"{row} {item.get('name')!r}: removed {source} at {record}"
+        if kind == "item_added":
+            return f"{row} {item.get('name')!r}: added {source} at {record}"
+        edits = ", ".join(
+            f"{field} {values['before']!r}->{values['after']!r}"
+            for field, values in change["changed"].items())
+        return f"{row} {item.get('name')!r} {source} at {record}: {edits}"
+    if kind.startswith("marker_"):
+        marker = change.get("before") or change.get("after") or {}
+        return (f"{kind.replace('_', ' ')} at {marker.get('frame')} "
+                f"{marker.get('name')!r}: {marker.get('note')!r}")
+    return (f"timeline {change['field']}: {change.get('before')!r}->"
+            f"{change.get('after')!r}")
+
+
+def _snapshot_digest(snapshot: dict) -> str:
+    return sha256(_canonical(snapshot).encode("utf-8")).hexdigest()
+
+
+def accepts_editor_changes(final: str, raw) -> bool:
+    """Match an explicit timeline or reel-number acceptance declaration."""
+    import re
+
+    values = [raw] if isinstance(raw, (str, int)) else list(raw or ())
+    number = re.match(r"Reel\s+(\d+)", str(final), flags=re.IGNORECASE)
+    accepted = {str(value).strip() for value in values}
+    return (str(final) in accepted
+            or (number is not None and number.group(1) in accepted))
+
+
+def accepted_editor_drop_rows(editor_report: dict) -> set[str]:
+    """Rows whose manual items an explicit acceptance will supersede."""
+    if not editor_report.get("accepted"):
+        return set()
+    rows = set()
+    for change in editor_report.get("uncarried", ()):
+        if change.get("kind") not in {"item_added", "item_changed"}:
+            continue
+        item = change.get("after") or {}
+        track_type, track_name = item.get("track_type"), item.get("track_name")
+        if track_type and track_name:
+            rows.add(row_key(str(track_type), str(track_name)))
+    return rows
+
+
+def protect_editor_changes(project_folder: str, final: str, live: dict,
+                           staged_initial: dict, staged_after: dict,
+                           *, accept=False) -> dict:
+    """Record deltas and refuse edits the staged timeline does not carry."""
+    from library.tools import plan_provenance
+
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    provenance = plan_provenance.read_provenance(review_dir) or {}
+    baseline_entry = (provenance.get("ren_timeline_snapshots") or {}).get(final)
+    if baseline_entry and not baseline_entry.get("snapshot"):
+        baseline_entry = None
+    first_contact = baseline_entry is None
+    changes = snapshot_diff(
+        staged_initial if first_contact else baseline_entry["snapshot"], live)
+    if first_contact:
+        # The staging container necessarily has its own name and timeline
+        # id; first contact compares its contents with the editor's live
+        # state, so container identity is not part of that comparison.
+        changes = [change for change in changes
+                   if change["kind"] != "timeline_identity"]
+    if first_contact:
+        plan_provenance.record_timeline_snapshot(
+            review_dir, final, live, action="first_contact_baseline")
+
+    detected = []
+    if changes:
+        before_snapshot = (staged_initial if first_contact
+                           else baseline_entry["snapshot"])
+        before_digest = _snapshot_digest(before_snapshot)
+        after_digest = _snapshot_digest(live)
+        record_id = sha256(
+            f"{final}\0{before_digest}\0{after_digest}".encode("utf-8")
+        ).hexdigest()[:32]
+        detected = [{
+            "id": record_id,
+            "recorded_at": datetime.now(timezone.utc).isoformat(
+                timespec="microseconds"),
+            "timeline": final,
+            "baseline": ("first_contact_staging" if first_contact else
+                         "ren_last_known_snapshot"),
+            "ren_action_journal": (None if first_contact else
+                                   baseline_entry.get("action_journal")),
+            "before_digest": before_digest,
+            "after_digest": after_digest,
+            "before_snapshot": before_snapshot,
+            "after_snapshot": live,
+            "changes": changes,
+            "status": "pending",
+        }]
+        plan_provenance.record_editor_changes(review_dir, final, detected)
+
+    pending = plan_provenance.pending_editor_changes(review_dir, final)
+    carried, uncarried = [], []
+    for record in pending:
+        remaining = [change for change in record.get("changes", ())
+                     if not _change_is_carried(change, staged_after)]
+        if remaining:
+            uncarried.extend((record, change) for change in remaining)
+        else:
+            carried.append(record)
+    if uncarried and not accept:
+        details = [f"  {_change_summary(change)}"
+                   for _record, change in uncarried]
+        raise EditorChangeRefused(
+            f"REFUSING to replace {final!r}: unattributed editor changes "
+            f"are not carried into the staged timeline. Nothing was "
+            f"renamed; the live timeline is still in the project.\n" +
+            "\n".join(details) +
+            f"\nTo accept this loss deliberately, pass "
+            f"--accept-editor-changes {final!r}.")
+    return {"first_contact": first_contact, "detected": detected,
+            "carried": [record["id"] for record in carried],
+            "superseded": (sorted({record["id"] for record, _ in uncarried})
+                           if accept else []),
+            "uncarried": [change for _record, change in uncarried],
+            "accepted": bool(accept and uncarried)}
 
 
 def row_key(media_type: str, track_name: str) -> str:

@@ -16,9 +16,14 @@ import time
 import pytest
 
 from library.tools.plan_provenance import (
+    assert_not_editor_timeline,
+    begin_timeline_inventory,
     check_plan_matches_provenance,
     check_reels_in_provenance,
+    finish_timeline_inventory,
     plan_content_hash,
+    protected_timeline_names,
+    record_timeline_snapshot,
     read_provenance,
     write_provenance,
 )
@@ -87,6 +92,99 @@ class TestPlanContentHash:
         plan_a = _write_plan(tmp_path / "a.json")
         plan_b = _write_different_plan(tmp_path / "b.json")
         assert plan_content_hash(str(plan_a)) != plan_content_hash(str(plan_b))
+
+
+class TestTimelinePreservation:
+    def test_first_inventory_protects_timelines_outside_the_ren_plan(
+            self, tmp_path):
+        review = tmp_path / "review"
+        review.mkdir()
+        inventory = [
+            {"name": "Reel 01", "unique_id": "ren-1", "settings": {}},
+            {"name": "Captain's selects", "unique_id": "user-1",
+             "settings": {}},
+            {"name": "Reel 01 (archived round 004)",
+             "unique_id": "user-archive", "settings": {}},
+        ]
+
+        begin_timeline_inventory(
+            str(review), "first build", inventory,
+            ren_created_names={"Reel 01"})
+
+        assert protected_timeline_names(str(review), inventory) == {
+            "Captain's selects", "Reel 01 (archived round 004)"}
+
+    def test_new_and_renamed_timelines_are_protected(self, tmp_path):
+        review = tmp_path / "review"
+        review.mkdir()
+        baseline = [{"name": "Reel 01", "unique_id": "ren-1",
+                     "settings": {"timelineFrameRate": "23.976"}}]
+        operation = begin_timeline_inventory(str(review), "baseline",
+                                             baseline,
+                                             ren_created_names={"Reel 01"})
+        finish_timeline_inventory(str(review), operation, baseline)
+
+        live = [{"name": "Captain Cut", "unique_id": "user-1",
+                 "settings": {"timelineFrameRate": "23.976"}},
+                {"name": "Reel 01 renamed by editor", "unique_id": "ren-1",
+                 "settings": {"timelineFrameRate": "23.976"}}]
+        operation = begin_timeline_inventory(str(review), "next build", live)
+
+        assert protected_timeline_names(str(review), live) == {
+            "Captain Cut", "Reel 01 renamed by editor"}
+        with pytest.raises(RuntimeError, match="created by the editor"):
+            assert_not_editor_timeline(
+                str(review), _Timeline("Captain Cut", "user-1"))
+        finish_timeline_inventory(str(review), operation, live)
+
+    def test_ren_snapshot_history_does_not_replace_last_known(self, tmp_path):
+        review = tmp_path / "review"
+        review.mkdir()
+        first = {"timeline": {"name": "Reel 01"}, "items": [],
+                 "markers": []}
+        before = {"timeline": {"name": "Reel 01", "start_frame": 12},
+                  "items": [], "markers": []}
+        record_timeline_snapshot(str(review), "Reel 01", first,
+                                 action="build_promotion")
+        record_timeline_snapshot(str(review), "Reel 01", before,
+                                 action="before_variant_choice",
+                                 last_known=False)
+
+        entry = read_provenance(str(review))["ren_timeline_snapshots"][
+            "Reel 01"]
+        assert entry["snapshot"] == first
+        assert [item["action"] for item in entry["history"]] == [
+            "build_promotion", "before_variant_choice"]
+
+    def test_plan_write_preserves_editor_timeline_ownership(self, tmp_path):
+        review = tmp_path / "review"
+        review.mkdir()
+        baseline = [{"name": "Reel 01", "unique_id": "ren-1",
+                     "settings": {}}]
+        operation = begin_timeline_inventory(
+            str(review), "baseline", baseline,
+            ren_created_names={"Reel 01"})
+        finish_timeline_inventory(str(review), operation, baseline)
+        live = baseline + [{"name": "Captain Cut", "unique_id": "user-1",
+                            "settings": {}}]
+        begin_timeline_inventory(str(review), "next build", live)
+        plan = _write_plan(tmp_path / "proposal.json")
+
+        write_provenance(str(review), str(plan), ["Reel 01"])
+
+        assert protected_timeline_names(str(review), live) == {"Captain Cut"}
+
+
+class _Timeline:
+    def __init__(self, name, unique_id):
+        self.name = name
+        self.unique_id = unique_id
+
+    def GetName(self):
+        return self.name
+
+    def GetUniqueId(self):
+        return self.unique_id
 
 
 # ── check_plan_matches_provenance ────────────────────────────────────

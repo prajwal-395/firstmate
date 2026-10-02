@@ -33,13 +33,15 @@ from library.tools import reel_build as rb
 from library.tools import resolve_lock
 from library.tools.resolve_lock import (
     assert_current_timeline, resolve_lease)
+from tests.promotion_test_helpers import install_fake_timeline_snapshots
 
 MASTER = "GEO Podcast - Synced"
 ORGANISE = False
 
 
 @pytest.fixture(autouse=True)
-def mock_dvr(stub_resolve_script):
+def mock_dvr(stub_resolve_script, monkeypatch):
+    install_fake_timeline_snapshots(monkeypatch)
     yield
 
 

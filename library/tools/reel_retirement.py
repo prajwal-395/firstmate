@@ -374,7 +374,8 @@ def delete_backups(project, pool, backup_objects: dict) -> dict:
 
 def collect_superseded(project, pool, existing_names, finals,
                        signed_off_reels=(),
-                       retained: int = RETAINED_GENERATIONS) -> dict:
+                       retained: int = RETAINED_GENERATIONS,
+                       protected_names=()) -> dict:
     """Delete the archived generations the retention bound releases.
 
     One of the TWO deletions this module performs. On the explicit-
@@ -391,10 +392,16 @@ def collect_superseded(project, pool, existing_names, finals,
     """
     from library.tools.reel_build import assert_deletion_scope, timelines_to_replace
 
-    plan = plan_collection(existing_names, finals, signed_off_reels,
+    protected = set(protected_names or ()) & set(existing_names or ())
+    eligible = set(existing_names or ()) - protected
+    plan = plan_collection(eligible, finals, signed_off_reels,
                            retained=retained)
     record = {"collected": [], "kept": plan["kept"],
               "planned": list(plan["collect"])}
+    record["kept"].extend(
+        {"name": name,
+         "why": "created or renamed by the editor; left untouched"}
+        for name in sorted(protected))
     if not plan["collect"]:
         return record
     targets = timelines_to_replace(project, set(plan["collect"]))

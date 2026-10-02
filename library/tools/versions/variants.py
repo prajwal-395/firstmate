@@ -234,6 +234,7 @@ from pathlib import Path
 
 from library.tools import reel_retirement as retire
 from library.tools.ren_refusal import RenRefusal
+from library.tools.resolve_lock import under_lease
 from library.tools.stable_json import write_stable
 from library.tools.versions import rounds, store
 
@@ -1220,10 +1221,12 @@ def _timelines_by_name(project) -> dict:
     return found
 
 
+@under_lease("choose reel variant")
 def choose(project, pool, project_folder, reel_number: int,
            base_final: str, chosen_suffix: str, why: str,
            variant_names=(), supersede_declared=(),
-           promoted_at: str | None = None) -> dict:
+           promoted_at: str | None = None,
+           accept_editor_changes=None) -> dict:
     """Make one variant the reel. The other goes to the archive.
 
     The order is the promotion's order and for its reasons: the
@@ -1244,6 +1247,34 @@ def choose(project, pool, project_folder, reel_number: int,
             "re-run with --why saying why this treatment won")
     chosen = variant_timeline_name(str(base_final), str(chosen_suffix))
     live = _timelines_by_name(project)
+    from library.tools import plan_provenance
+    from library.tools import reel_replace_guard
+    review_dir = os.path.join(str(project_folder), "pipeline_output", "review")
+    inventory_before = reel_replace_guard.timeline_inventory(project)
+    inventory_operation = plan_provenance.begin_timeline_inventory(
+        review_dir, "variant choice", inventory_before,
+        ren_created_names={base_final, chosen} | set(variant_names or ()))
+    protected = plan_provenance.protected_timeline_names(
+        review_dir, inventory_before)
+    try:
+        if base_final in live:
+            plan_provenance.assert_not_editor_timeline(
+                review_dir, live[base_final])
+        if chosen in live:
+            plan_provenance.assert_not_editor_timeline(
+                review_dir, live[chosen])
+        if chosen in protected:
+            raise reel_replace_guard.EditorChangeRefused(
+                f"REFUSING to choose {chosen!r}: it is a timeline created "
+                f"or renamed by the editor and remains untouched.")
+    except reel_replace_guard.EditorChangeRefused as changed:
+        plan_provenance.finish_timeline_inventory(
+            review_dir, inventory_operation,
+            reel_replace_guard.timeline_inventory(project))
+        raise ChoiceRefused(
+            str(changed), "an editor-owned timeline cannot be promoted",
+            "build a Ren variant under its declared name, then choose it") \
+            from changed
 
     # The sign-off on the INCUMBENT: the chosen variant is taking that
     # reel's name, which is exactly the replacement a sign-off exists
@@ -1260,16 +1291,64 @@ def choose(project, pool, project_folder, reel_number: int,
     losers = [entry["timeline"]
               for entry in builds_for_reel(project_folder, reel_number)
               if entry.get("timeline") != chosen]
-    plan = plan_choice(sorted(live), base_final, variant_names, chosen,
+    plan_live = {name: timeline for name, timeline in live.items()
+                 if name not in protected}
+    plan = plan_choice(sorted(plan_live), base_final, variant_names, chosen,
                        losers, retire.retiring_round(
                            recorded, base_final, current_round),
                        set(signoff.signed_off(project_folder)))
+    editor_report = None
+    chosen_editor_report = None
+    incumbent_snapshot = None
+    chosen_snapshot = reel_replace_guard.full_timeline_snapshot(
+        live[chosen], project, project_folder)
+    chosen_editor_report = reel_replace_guard.protect_editor_changes(
+        str(project_folder), chosen, chosen_snapshot, chosen_snapshot,
+        chosen_snapshot, accept=reel_replace_guard.accepts_editor_changes(
+            base_final, accept_editor_changes))
+    plan_provenance.record_timeline_snapshot(
+        review_dir, chosen, chosen_snapshot,
+        action="before_variant_choice", last_known=False)
+    if base_final in live:
+        incumbent_snapshot = reel_replace_guard.full_timeline_snapshot(
+            live[base_final], project, project_folder)
+        plan_provenance.record_timeline_snapshot(
+            review_dir, base_final, incumbent_snapshot,
+            action="before_variant_choice", last_known=False)
+        try:
+            editor_report = reel_replace_guard.protect_editor_changes(
+                str(project_folder), base_final, incumbent_snapshot,
+                chosen_snapshot, chosen_snapshot,
+                accept=reel_replace_guard.accepts_editor_changes(
+                    base_final, accept_editor_changes))
+        except reel_replace_guard.EditorChangeRefused:
+            plan_provenance.finish_timeline_inventory(
+                review_dir, inventory_operation,
+                reel_replace_guard.timeline_inventory(project))
+            raise
 
     report = {"reel": int(reel_number), "chosen": chosen,
               "base_final": base_final, "why": str(why),
               "retired": None, "archived": {}, "unfiled": [],
               "collected": [], "kept": plan["kept"],
               "round": current_round}
+    report["protected_timelines"] = sorted(protected)
+
+    try:
+        reel_replace_guard.assert_target_inventory_unchanged(
+            inventory_before, reel_replace_guard.timeline_inventory(project),
+            [base_final])
+        if chosen in live:
+            plan_provenance.assert_not_editor_timeline(
+                review_dir, live[chosen])
+    except reel_replace_guard.EditorChangeRefused as changed:
+        plan_provenance.finish_timeline_inventory(
+            review_dir, inventory_operation,
+            reel_replace_guard.timeline_inventory(project))
+        raise ChoiceRefused(
+            str(changed), "the timeline identity changed during the choice",
+            "re-read the timeline inventory, then re-run the choice") \
+            from changed
 
     if plan["retire"]:
         outcome = retire.retire_timelines(
@@ -1285,6 +1364,48 @@ def choose(project, pool, project_folder, reel_number: int,
             f"name is safe under {report['retired']!r} and the chosen "
             f"variant is still under its own",
             "rename it in Resolve and re-run")
+
+    chosen_after = reel_replace_guard.full_timeline_snapshot(
+        live[chosen], project, project_folder)
+    if live[chosen].GetName() != base_final:
+        raise ChoiceRefused(
+            f"Resolve did not verify the chosen timeline name "
+            f"{base_final!r} after renaming.",
+            f"the chosen timeline is still named {live[chosen].GetName()!r}; "
+            f"the prior version remains recoverable as {report['retired']!r}",
+            "settle the timeline names in Resolve, then re-run the choice")
+    plan_provenance.record_timeline_snapshot(
+        review_dir, base_final, chosen_after, action="variant_choice",
+        action_journal=f"variant:{chosen}->{base_final}:{why}")
+    ren_owned_ids = set()
+    for timeline in (live[chosen], live.get(base_final)):
+        if timeline is None:
+            continue
+        try:
+            unique_id = timeline.GetUniqueId()
+        except Exception:  # noqa: BLE001
+            unique_id = None
+        if unique_id:
+            ren_owned_ids.add(str(unique_id))
+    plan_provenance.record_unattributed_timeline_changes(
+        review_dir, inventory_before,
+        reel_replace_guard.timeline_inventory(project),
+        operation="variant choice", ren_owned_ids=ren_owned_ids)
+    if editor_report:
+        for record_id in editor_report.get("carried", ()):
+            plan_provenance.resolve_editor_change(
+                review_dir, base_final, record_id, status="carried")
+        for record_id in editor_report.get("superseded", ()):
+            plan_provenance.resolve_editor_change(
+                review_dir, base_final, record_id, status="superseded",
+                superseded_by=f"--accept-editor-changes {base_final}")
+    for record_id in chosen_editor_report.get("carried", ()):
+        plan_provenance.resolve_editor_change(
+            review_dir, chosen, record_id, status="carried")
+    for record_id in chosen_editor_report.get("superseded", ()):
+        plan_provenance.resolve_editor_change(
+            review_dir, chosen, record_id, status="superseded",
+            superseded_by=f"--accept-editor-changes {base_final}")
 
     losing = {name: live[name] for name in plan["archive"] if name in live}
     if losing:
@@ -1384,6 +1505,13 @@ def choose(project, pool, project_folder, reel_number: int,
         report["round"] = stamped["round"]
     except Exception as stamp_failed:                       # noqa: BLE001
         report["round_not_stamped"] = f"{stamp_failed}"
+    plan_provenance.finish_timeline_inventory(
+        review_dir, inventory_operation,
+        reel_replace_guard.timeline_inventory(project))
+    report["editor_changes"] = editor_report or {
+        "first_contact": base_final not in live,
+        "carried": [], "superseded": [], "uncarried": []}
+    report["chosen_editor_changes"] = chosen_editor_report
     return report
 
 

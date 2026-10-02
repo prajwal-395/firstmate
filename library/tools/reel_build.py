@@ -3720,16 +3720,15 @@ def placements(ranges: Sequence[Tuple[float, float]],
         range_frames = range_end_f - range_start_f
         if rate != 1.0:
             range_frames = int(round(range_frames / rate))
-        
         for clip in clips:
             clip_start_f = int(round(clip.timeline_start * fps))
             clip_end_f = int(round(clip.timeline_end * fps))
-            
+
             overlap_start_f = max(clip_start_f, range_start_f)
             overlap_end_f = min(clip_end_f, range_end_f)
             if overlap_end_f - overlap_start_f <= 0:
                 continue
-                
+
             # Map the selected master boundary through the clip's measured
             # source offset before either edge is rounded to frames. The
             # old expression rounded clip.source_in and clip.timeline_start
@@ -3772,7 +3771,6 @@ def placements(ranges: Sequence[Tuple[float, float]],
             else:
                 record_f = cursor_frames + int(round(
                     (overlap_start_f - range_start_f) / rate))
-            
             out.append({
                 "clip": clip,
                 "source_in": source_in,
@@ -8269,7 +8267,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             # The card's own integer frame, never `round(seconds * fps)`.
             "recordFrame": card.reel_start_frame,
         }])
-    
+
     # The footage lookup is `pool_item_for` now, module level, because
     # every import in this module has to ask the same question and a
     # nested copy could only ever answer it for footage.
@@ -9442,7 +9440,10 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          allow_drops=None,
                          supersede=None,
                          retain=None,
-                         track_plans: dict | None = None) -> dict:
+                         track_plans: dict | None = None,
+                         accept_editor_changes=None,
+                         timeline_inventory_before=None,
+                         staged_timeline_ids=None) -> dict:
     """Move passing stagings onto their final timeline names.
 
     The ONLY place an approved timeline is deleted. Reachable only
@@ -9527,8 +9528,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     Every marker on a retiring timeline is READ before phase 1, on
     BOTH planes - the timeline's own markers and the markers living on
     its clip items - and the ones whose anchor still resolves in the
-    replacement are placed onto it after phase 2. One that cannot be
-    placed is named, with the captain's own words, on stderr - and a
+    replacement are placed onto staging before the replacement gate.
+    A marker that cannot be placed is named, with the captain's own
+    words, on stderr - and a
     TIMELINE-plane one is then PUT BACK anyway: a
     Blue carrying his name, note, colour and custom data byte-identical
     at duration 1, at the seam where its subject was cut out
@@ -9576,6 +9578,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     """
     if not staged_to_final:
         return {"promoted": [], "organised": None}
+    import sys
+
     for staging in staged_to_final.values():
         destage(staging)
     finals = list(staged_to_final.keys())
@@ -9583,6 +9587,15 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
 
     project = _connect_resolve_project(resolve_project_name)
     pool = project.GetMediaPool()
+    from library.tools import reel_replace_guard as _guard
+    from library.tools import plan_provenance as _provenance
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    inventory_before = _guard.timeline_inventory(project)
+    inventory_operation = _provenance.begin_timeline_inventory(
+        review_dir, "build promotion", inventory_before,
+        ren_created_names=set(staged_to_final) |
+                          set(staged_to_final.values()),
+        ren_created_ids=(staged_timeline_ids or {}).values())
 
     stale_backups = timelines_to_replace(project, set(backups.values()))
     if stale_backups:
@@ -9604,13 +9617,55 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"timeline(s) {missing_staging} that are not in Resolve "
             f"project {resolve_project_name!r}. Deleting the approved "
             f"originals now would replace them with nothing.")
+    if staged_timeline_ids is not None:
+        missing_identity_records = [
+            staging for staging in staged_to_final.values()
+            if staging not in staged_timeline_ids]
+        if missing_identity_records:
+            _provenance.finish_timeline_inventory(
+                review_dir, inventory_operation,
+                _guard.timeline_inventory(project))
+            raise ReelBuildError(
+                f"REFUSING to promote staged timeline(s) "
+                f"{missing_identity_records}: the build did not record their "
+                f"unique ids, so ownership cannot be verified.")
+        for staging, expected_id in staged_timeline_ids.items():
+            actual_id = staged_found.get(staging)
+            try:
+                actual_id = actual_id.GetUniqueId() if actual_id else None
+            except Exception:  # noqa: BLE001
+                actual_id = None
+            if not expected_id or str(actual_id or "") != str(expected_id):
+                _provenance.finish_timeline_inventory(
+                    review_dir, inventory_operation,
+                    _guard.timeline_inventory(project))
+                raise ReelBuildError(
+                    f"REFUSING to promote {staging!r}: its timeline id is "
+                    f"{actual_id!r}, while the build recorded "
+                    f"{expected_id!r}. A timeline Ren did not create "
+                    f"remains untouched.")
     requested_finals = list(staged_to_final)
     originals = {t.GetName(): t for t in
                  timelines_to_replace(project, set(finals))}
     assert_deletion_scope(list(originals.values()), set(finals))
+    if timeline_inventory_before is not None:
+        try:
+            _guard.assert_target_inventory_unchanged(
+                timeline_inventory_before, inventory_before, finals)
+        except _guard.EditorChangeRefused as changed:
+            operation_start = (timeline_inventory_before
+                               if timeline_inventory_before is not None
+                               else inventory_before)
+            _provenance.record_unattributed_timeline_changes(
+                review_dir, operation_start,
+                _guard.timeline_inventory(project),
+                operation="build promotion refusal")
+            _provenance.finish_timeline_inventory(
+                review_dir, inventory_operation,
+                _guard.timeline_inventory(project))
+            raise ReelBuildError(str(changed)) from changed
 
     from library.tools import reel_disabled_clip_carry as _disabled
-    from library.tools import reel_replace_guard as _guard
     try:
         declared = _guard.parse_specs(allow_drops, finals)
     except ValueError as bad_declaration:
@@ -9772,8 +9827,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             continue
         staging = staged_to_final[final]
         try:
+            _provenance.assert_not_editor_timeline(
+                review_dir, originals[final])
             supersede_entries[final] = _signoff.assert_declared(
                 project_folder, final, declared_supersessions)
+            live_snapshot = _guard.full_timeline_snapshot(
+                originals[final], project, project_folder)
+            staged_initial_snapshot = _guard.full_timeline_snapshot(
+                staged_found[staging], project, project_folder)
             retired_rows = _guard.snapshot_timeline(
                 originals[final], final, side="retiring")
             staged_before_carry = _guard.snapshot_timeline(
@@ -9785,12 +9846,6 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 *disabled_preview["unchanged_unmatched"],
                 *disabled_preview["safe_replacements"],
             ]
-            # Keep the pre-carry difference in the report: it proves the
-            # rebuild would have re-enabled the captain's disabled clip.
-            enabled_state_report = _guard.check_replacement(
-                final, staging, retired_rows, staged_before_carry,
-                allowed=declared.get(final, ()),
-                safe_disabled_drops=preview_safe_drops)
             disabled_state = _disabled.carry_disabled_state(
                 project_folder, final, staging,
                 originals[final], staged_found[staging])
@@ -9803,49 +9858,68 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                     f"{final}: staged disabled-graphic differences changed "
                     f"between the promotion preview and carry; promotion "
                     f"is refused.")
-            incoming_rows = _guard.snapshot_timeline(
-                staged_found[staging], staging, side="staged")
-            incoming_by_final[final] = incoming_rows
-            replace_reports[final] = _guard.check_replacement(
-                final, staging, retired_rows, incoming_rows,
-                allowed=declared.get(final, ()),
-                safe_disabled_drops=carry_safe_drops)
-            replace_reports[final] = _guard.include_disabled_carries(
-                {**replace_reports[final], "rows": enabled_state_report["rows"]},
-                disabled_state["carried"])
-            replace_reports[final]["disabled_clip_carry"] = disabled_state
+            # Plan and place the marker carries before comparing the full
+            # after snapshot. A marker the existing carry can preserve is
+            # part of the staged state; one that cannot be placed remains
+            # an unattributed edit and the replacement guard refuses it.
             notes = _markers.read_markers(originals[final], final)
             if notes:
-                # `final`: the re-pair binds replies to notes by
-                # durable identity (`feedback_ledger.durable_identity`
-                # over the reel name + words). Without it every reply
-                # reads as unpaired and falls back to independent
-                # carry - the decay this module exists to close.
                 keep, lost = _markers.plan_carry(
                     notes, staged_found[staging], final)
-                # SAID before the rename, so a promotion about to
-                # discard the captain's words has already said which
-                # even if the rename below refuses.
                 _markers.report(final, keep, lost)
-                carried_markers[final] = {"carried": keep,
-                                          "uncarried": lost}
-            # The CLIP plane beside it: a marker living on a clip item
-            # (a caption card, a motion graphic, a master audio item)
-            # dies with its item when the rebuild replaces it, and the
-            # timeline read above never saw it. Carried by source file
-            # and source frame - WHICH item - never by timeline frame,
-            # and reported by name where no unique placement resolves
-            # (`library/tools/marker_carry.py`, the clip plane).
+                marker_entry = {"carried": keep, "uncarried": lost}
+                marker_entry["declined"] = _markers.place(
+                    staged_found[staging], keep)
+                carried_markers[final] = marker_entry
             clip_notes = _markers.read_clip_markers(
                 originals[final], final)
             if clip_notes:
                 clip_keep, clip_lost = _markers.plan_clip_carry(
                     clip_notes, staged_found[staging], final)
                 _markers.report_clip(final, clip_keep, clip_lost)
-                entry = carried_markers.setdefault(
+                marker_entry = carried_markers.setdefault(
                     final, {"carried": [], "uncarried": []})
-                entry["clip_carried"] = clip_keep
-                entry["clip_uncarried"] = clip_lost
+                marker_entry["clip_carried"] = clip_keep
+                marker_entry["clip_uncarried"] = clip_lost
+                marker_entry["clip_declined"] = (
+                    _markers.place_clip_markers(
+                        staged_found[staging], clip_keep))
+            staged_after_snapshot = _guard.full_timeline_snapshot(
+                staged_found[staging], project, project_folder)
+            editor_report = _guard.protect_editor_changes(
+                project_folder, final, live_snapshot,
+                staged_initial_snapshot, staged_after_snapshot,
+                accept=_guard.accepts_editor_changes(
+                    final, accept_editor_changes))
+            editor_override_rows = _guard.accepted_editor_drop_rows(
+                editor_report)
+            allowed_rows = (set(declared.get(final, ()))
+                            | editor_override_rows)
+            # Keep the pre-carry difference in the report: it proves the
+            # rebuild would have re-enabled the captain's disabled clip.
+            enabled_state_report = _guard.check_replacement(
+                final, staging, retired_rows, staged_before_carry,
+                allowed=allowed_rows,
+                safe_disabled_drops=preview_safe_drops)
+            _provenance.record_timeline_snapshot(
+                review_dir, final, live_snapshot,
+                action="before_build_promotion",
+                action_journal=f"timeline_inventory:{inventory_operation}",
+                last_known=False)
+            incoming_rows = _guard.snapshot_timeline(
+                staged_found[staging], staging, side="staged")
+            incoming_by_final[final] = incoming_rows
+            replace_reports[final] = _guard.check_replacement(
+                final, staging, retired_rows, incoming_rows,
+                allowed=allowed_rows,
+                safe_disabled_drops=carry_safe_drops)
+            replace_reports[final] = _guard.include_disabled_carries(
+                {**replace_reports[final], "rows": enabled_state_report["rows"]},
+                disabled_state["carried"])
+            replace_reports[final]["disabled_clip_carry"] = disabled_state
+            replace_reports[final]["editor_changes"] = editor_report
+            replace_reports[final]["accepted_editor_drop_rows"] = sorted(
+                editor_override_rows)
             # The gate's baseline for this reel: the same pre-rename
             # reads the carry planned from, filed to disk before
             # anything is renamed. A capture that cannot be filed
@@ -9915,14 +9989,6 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 f"rename it back in Resolve and re-run.")
         print(f"Promoted {staging} to {final}", flush=True)
         notes = carried_markers.get(final)
-        if notes and notes["carried"]:
-            declined = _markers.place(staged_found[staging],
-                                      notes["carried"])
-            notes["declined"] = declined
-        if notes and notes.get("clip_carried"):
-            clip_declined = _markers.place_clip_markers(
-                staged_found[staging], notes["clip_carried"])
-            notes["clip_declined"] = clip_declined
         if notes and notes.get("uncarried") and final in originals:
             # The Blue goes back. `originals[final]` still reads the
             # retired picture - the rename changed its name, not its
@@ -10009,7 +10075,6 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"so this is damage or a concurrent edit, and both "
             f"deserve a stopped run.")
 
-    import os
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     # The baselines were filed under the staging containers the gate
     # graded; the claim is renamed to the final names, which carry the
@@ -10021,6 +10086,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     promoted_claimed = {staged_to_final[final]: final
                         for final in ok_finals}
     if not ok_finals:
+        try:
+            _provenance.finish_timeline_inventory(
+                review_dir, inventory_operation,
+                _guard.timeline_inventory(project))
+        except Exception as inventory_failed:  # noqa: BLE001
+            print(f"  inventory after refusal could not be persisted "
+                  f"({inventory_failed})", file=sys.stderr)
         lines = [
             f"REFUSING to promote {len(refused)} reel(s): "
             f"{sorted(refused)}. Nothing was renamed; the approved "
@@ -10079,6 +10151,76 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"files LIVE for ever against a timeline that does not "
             f"exist. Re-point the ledger and re-run; nothing further "
             f"was renamed or deleted.") from ledger_failed
+
+    # Persist the verified promoted picture while each pre-replacement
+    # timeline is still recoverable under its backup name. The next
+    # build compares live state with this exact read, not a row-count
+    # proxy or the current plan.
+    try:
+        for final in ok_finals:
+            live = next((timeline for timeline in
+                         timelines_to_replace(project, {final})
+                         if timeline.GetName() == final), None)
+            if live is None:
+                raise ValueError(f"promoted timeline {final!r} is absent")
+            snapshot = _guard.full_timeline_snapshot(
+                live, project, project_folder)
+            _provenance.record_timeline_snapshot(
+                review_dir, final, snapshot, action="build_promotion",
+                action_journal=f"timeline_inventory:{inventory_operation}")
+            editor_report = (replace_reports.get(final) or {}).get(
+                "editor_changes") or {}
+            for record_id in editor_report.get("carried", ()):
+                _provenance.resolve_editor_change(
+                    review_dir, final, record_id, status="carried")
+            for record_id in editor_report.get("superseded", ()):
+                _provenance.resolve_editor_change(
+                    review_dir, final, record_id, status="superseded",
+                    superseded_by=f"--accept-editor-changes {final}")
+    except Exception as snapshot_failed:  # noqa: BLE001
+        raise ReelBuildError(
+            f"REFUSING to retire the previous timeline: the verified "
+            f"after-state could not be persisted ({snapshot_failed}). "
+            f"The pre-replacement timeline remains recoverable.") \
+            from snapshot_failed
+
+    try:
+        operation_start = (timeline_inventory_before
+                           if timeline_inventory_before is not None
+                           else inventory_before)
+        ren_owned_ids = {
+            str(value) for value in (staged_timeline_ids or {}).values()
+            if value}
+        for timeline in originals.values():
+            try:
+                unique_id = timeline.GetUniqueId()
+            except Exception:  # noqa: BLE001
+                unique_id = None
+            if unique_id:
+                ren_owned_ids.add(str(unique_id))
+        # The staging ids are normally supplied by the build that made
+        # them. Promotion is also a public seam used by variants and
+        # direct callers, so derive ownership from the exact staged
+        # timelines when that receipt was not supplied. Their rename to
+        # the final name is Ren's own inventory change, not an editor
+        # timeline creation.
+        for final in ok_finals:
+            staged = staged_found.get(staged_to_final[final])
+            try:
+                unique_id = staged.GetUniqueId() if staged else None
+            except Exception:  # noqa: BLE001
+                unique_id = None
+            if unique_id:
+                ren_owned_ids.add(str(unique_id))
+        _provenance.record_unattributed_timeline_changes(
+            review_dir, operation_start, _guard.timeline_inventory(project),
+            operation="build promotion", ren_owned_ids=ren_owned_ids)
+    except Exception as inventory_diff_failed:  # noqa: BLE001
+        raise ReelBuildError(
+            f"REFUSING to retire the previous timeline: the project "
+            f"inventory changes could not be recorded "
+            f"({inventory_diff_failed}). The pre-replacement timeline "
+            f"remains recoverable.") from inventory_diff_failed
 
     # ── DELETE by default, RETIRE only when asked (the captain, 2026-09-18)
     # Before this every backup was renamed into `05 - Reels/Archive`
@@ -10149,10 +10291,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             timeline = project.GetTimelineByIndex(index)
             if timeline:
                 live_names.add(timeline.GetName())
+        protected_timeline_names = _provenance.protected_timeline_names(
+            review_dir, _guard.timeline_inventory(project))
         if retirement["archived"]:
             retirement.update(_retire.collect_superseded(
                 project, pool, live_names, list(retirement["archived"]),
-                signed))
+                signed, protected_names=protected_timeline_names))
         if delete_finals:
             # Nothing was retired for these reels, so the bound above
             # has nothing to bound: their earlier archived generations
@@ -10160,7 +10304,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             # archive ends empty for them.
             legacy = _retire.collect_superseded(
                 project, pool, live_names, delete_finals, signed,
-                retained=0)
+                retained=0, protected_names=protected_timeline_names)
             retirement["collected"].extend(legacy["collected"])
             retirement["kept"].extend(legacy["kept"])
         print(_retire.render(retirement), flush=True)
@@ -10487,6 +10631,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             print(f"  build sweep refused ({sweep_failed}) - nothing "
                   f"further was removed; the reels are unaffected",
                   file=_sys.stderr)
+    try:
+        _provenance.finish_timeline_inventory(
+            review_dir, inventory_operation, _guard.timeline_inventory(project))
+    except Exception as inventory_failed:  # noqa: BLE001
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: the after-operation "
+            f"timeline inventory could not be persisted "
+            f"({inventory_failed}).") from inventory_failed
     if refused:
         _raise_partial_promotion(requested_finals, ok_finals, refused,
                                  markers=carried_markers)
@@ -10790,6 +10942,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              allow_drops=None,
                              supersede=None,
                              retain=None,
+                             accept_editor_changes=None,
                              reuse_unchanged: bool = True) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
@@ -10967,7 +11120,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     import sys
     import json
     import yaml
-    
     from library.tools.reel_proposal import read_proposal
     from library.tools.timeline_ingest import snapshot_timeline
     from library.tools.project_registry import get_project
@@ -11008,7 +11160,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     with open(os.path.join(project_folder, "project.yaml")) as f:
         config = yaml.safe_load(f)
-        
+
     resolve_config = config.get("resolve", {})
     resolve_name = resolve_config.get("project_name", os.path.basename(project_slug))
     master_timeline_name = resolve_config.get("timeline_name")
@@ -11025,6 +11177,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         resolve = _connect_resolve()
         project = resolve_project_exactly(
             resolve.GetProjectManager(), resolve_name)
+    from library.tools import reel_replace_guard as _inventory_guard
+    from library.tools import plan_provenance as _inventory_provenance
+    build_inventory_before = _inventory_guard.timeline_inventory(project)
 
     # The frame this project's reels are DELIVERED in, resolved ONCE and
     # threaded from here: the timeline size, every overlay render, the
@@ -11052,6 +11207,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     moments = read_proposal(proposal_path)
     building, wanted = _requested_approved_moments(
         moments, only, proposal_path, "build")
+    build_inventory_operation = _inventory_provenance.begin_timeline_inventory(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        "reel build", build_inventory_before,
+        ren_created_names={moment.timeline_name for moment in moments})
 
     # Archive the plan so it survives being overwritten by the next
     # selector run. A single-reel build archives just that reel's plan
@@ -11060,7 +11219,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     archive_plan(
         proposal_path,
         only_reel_numbers=(sorted(wanted) if wanted is not None else None))
-    
+
     # Read as BYTES, once: the same read supplies the transcript every
     # decision below is made from AND the digest the rebuild-need
     # signature carries (`library/tools/reel_rebuild_need.py`).
@@ -12863,6 +13022,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     organised = None
     staged_out = dict(staged_to_final)
+    inventory_at_staging = _inventory_guard.timeline_inventory(project)
+    staged_timeline_ids = {
+        entry["name"]: entry["unique_id"]
+        for entry in inventory_at_staging
+        if entry["name"] in set(staged_to_final.values())
+    }
     # The replace guard's declaration, normalised against the finals
     # THIS call stages - so the `verify_reels` node promotes with the
     # same declaration the build was given rather than re-deriving one,
@@ -12893,6 +13058,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
+    declared_accept_editor_changes = sorted({
+        str(value).strip() for value in
+        ([accept_editor_changes] if isinstance(
+            accept_editor_changes, (str, int))
+         else (accept_editor_changes or ()))
+        if str(value).strip()
+    })
     # Staging container -> reel number, so the phase log can name which
     # reel each staging line belongs to without parsing timeline names.
     _staged_numbers: dict = {}
@@ -13050,7 +13222,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             allow_drops=declared_drops,
             supersede=declared_supersede,
             retain=declared_retain,
-            track_plans=track_plans)
+            track_plans=track_plans,
+            accept_editor_changes=declared_accept_editor_changes,
+            timeline_inventory_before=build_inventory_before,
+            staged_timeline_ids=staged_timeline_ids)
         organised = promoted["organised"]
         # The end-of-build summaries file from this record (retirement,
         # markers, version control below join it there).
@@ -13344,8 +13519,27 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     if pending_report:
         print(f"  {pending_report}", file=sys.stderr, flush=True)
 
+    try:
+        if not (verify and built_reel_names):
+            _inventory_provenance.record_unattributed_timeline_changes(
+                os.path.join(project_folder, "pipeline_output", "review"),
+                build_inventory_before,
+                _inventory_guard.timeline_inventory(project),
+                operation="reel build",
+                ren_owned_ids=staged_timeline_ids.values())
+        _inventory_provenance.finish_timeline_inventory(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            build_inventory_operation,
+            _inventory_guard.timeline_inventory(project))
+    except Exception as inventory_failed:  # noqa: BLE001
+        raise ReelBuildError(
+            f"the reel-build timeline inventory could not be persisted "
+            f"({inventory_failed}); timeline ownership cannot be verified.")
+    final_build_inventory = build_inventory_before
+
     return {
         "pending_promotions": pending_promotions,
+        "timeline_inventory_before": final_build_inventory,
         "timelines_built": built_reel_names,
         # Reels this call deliberately did NOT build: a recorded strike
         # covers the whole body, so the reel is dropped WITH the reason
@@ -13365,6 +13559,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # records written before staging existed, which are already
         # final and promote to nothing.
         "staged_timelines": staged_out,
+        "staged_timeline_ids": staged_timeline_ids,
         "caption_hashes": caption_hashes,
         # Per-reel closer share + fit, as reported at build time
         # (`library/tools/closer_fit.py`, 2026-09-19 ruling): the live
@@ -13408,6 +13603,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # is the common case and is NOT the same as allowing: an
         # undeclared sign-off refuses the promotion by name.
         "supersede": declared_supersede,
+        "accept_editor_changes": declared_accept_editor_changes,
         # The reels whose superseded generation the promotion may
         # retire rather than delete (`reel_retirement`). `[]` is the
         # default - one timeline per reel, an empty archive - and is
@@ -14671,16 +14867,16 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
             "success on an empty scope.")
     import os
     import json
-    
+
     out_dir = os.path.join(project_folder, "pipeline_output", "review")
     os.makedirs(out_dir, exist_ok=True)
     json_path = os.path.join(out_dir, "conformance_report.json")
-    
+
     try:
         from library.tools.reel_conformance_verifier import run_verification
     except ImportError as e:
         raise RuntimeError(f"Reel conformance verifier is unavailable: {e}")
-        
+
     try:
         with open(transcript_path, 'r', encoding='utf-8') as f:
             transcript = json.load(f)
@@ -14689,7 +14885,7 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
         )
         transcript = resolve_document_mic_bleed(
             transcript, project_folder)
-            
+
         exit_code = run_verification(
             project_name=resolve_project_name,
             master_name=master_timeline_name,

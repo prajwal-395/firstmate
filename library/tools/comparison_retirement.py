@@ -122,6 +122,8 @@ promoted reels promoted and the comparisons standing.
 
 from __future__ import annotations
 
+import os
+
 from library.tools import reel_retirement as retire
 from library.tools import resolve_bin_layout as bins
 
@@ -489,6 +491,23 @@ def collect_for_bases(project, pool, project_folder, promoted_finals,
         return report
     names = list(existing_names if existing_names is not None
                  else _live_names(project))
+    from library.tools import plan_provenance as _provenance
+    from library.tools import reel_replace_guard as _preservation
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    try:
+        protected_names = _provenance.protected_timeline_names(
+            review_dir, _preservation.timeline_inventory(project))
+    except Exception as unreadable:                       # noqa: BLE001
+        report["refused"] = (
+            f"the timeline ownership inventory could not be read "
+            f"({unreadable}); no comparison timeline was moved or "
+            f"deleted.")
+        return report
+    report["kept"].extend(
+        {"name": name,
+         "why": "created or renamed by the editor; left untouched"}
+        for name in sorted(protected_names))
+    names = [name for name in names if name not in protected_names]
     try:
         rounds = _rounds.discover(project_folder)
     except Exception as unreadable:                      # noqa: BLE001
@@ -543,7 +562,8 @@ def collect_for_bases(project, pool, project_folder, promoted_finals,
                 f"promoted; the superseded comparisons are still in "
                 f"the project under their live names and nothing was "
                 f"deleted.")
-        names = _live_names(project)
+        names = [name for name in _live_names(project)
+                 if name not in protected_names]
         rounds_by_name = landed_rounds(rounds, names)
         replan = plan_collection(
             names, bases, plan_finals=plan_finals,

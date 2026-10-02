@@ -38,6 +38,7 @@ from library.tools.reel_build import (
     ReelVerificationRefused,
     rebuild_reels_in_project,
 )
+from tests.promotion_test_helpers import install_fake_timeline_snapshots
 
 MASTER = "GEO Podcast - Synced"
 APPROVED = [f"Reel {n:02d} - moment-{n}" for n in range(1, 20)]
@@ -48,10 +49,11 @@ STAGED_B = TARGET_B + STAGING_SUFFIX
 
 
 @pytest.fixture(autouse=True)
-def mock_dvr(stub_resolve_script):
+def mock_dvr(stub_resolve_script, monkeypatch):
     # Stubbed through the shared fixture: `patch.dict` on
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
+    install_fake_timeline_snapshots(monkeypatch)
     yield
 
 

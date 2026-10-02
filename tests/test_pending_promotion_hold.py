@@ -32,7 +32,10 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from tests.promotion_test_helpers import no_a_roll_track_plans
+from tests.promotion_test_helpers import (
+    install_fake_timeline_snapshots,
+    no_a_roll_track_plans,
+)
 
 from library.tools import staging_holds as holds
 from library.tools.execution import remove_proof as proof_ex
@@ -62,6 +65,11 @@ def mock_dvr(stub_resolve_script):
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
     yield
+
+
+@pytest.fixture(autouse=True)
+def fake_preservation_snapshots(monkeypatch):
+    install_fake_timeline_snapshots(monkeypatch)
 
 
 @pytest.fixture

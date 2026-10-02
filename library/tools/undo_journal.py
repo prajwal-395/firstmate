@@ -238,7 +238,7 @@ def open_entry(project_folder, *, final: str, reel: int,
                resolve_project: str, spec: Mapping, gate_class: str,
                source_timeline: Any, removals: Sequence[Mapping],
                fusion_manifest: Mapping | None = None,
-               batch: str = "") -> dict:
+               batch: str = "", project=None) -> dict:
     """Write the journal entry BEFORE the touch changes anything.
 
     Reads the approved timeline whole and captures every item the plan
@@ -253,6 +253,11 @@ def open_entry(project_folder, *, final: str, reel: int,
     root = entry_dir(project_folder, entry_id)
     comps_dir = os.path.join(root, "comps")
     before = reel_read.read_tracks(source_timeline)
+    preservation_before = None
+    if project is not None:
+        from library.tools.reel_replace_guard import full_timeline_snapshot
+        preservation_before = full_timeline_snapshot(
+            source_timeline, project, project_folder)
     live_rows = _ce._rows_of(source_timeline)
     removed = []
     for target in removals or ():
@@ -308,6 +313,8 @@ def open_entry(project_folder, *, final: str, reel: int,
         "before": {"tracks": before},
         "removed": removed,
     }
+    if preservation_before is not None:
+        entry["preservation_before"] = preservation_before
     if fusion_manifest is not None:
         entry["fusion_manifest"] = "fusion_manifest.json"
         os.makedirs(root, exist_ok=True)
@@ -319,7 +326,8 @@ def open_entry(project_folder, *, final: str, reel: int,
 
 
 def close_entry(project_folder, entry: dict, *, after_timeline: Any,
-                rows: Mapping) -> dict:
+                rows: Mapping, project=None,
+                preservation_snapshot: Mapping | None = None) -> dict:
     """Record what the touch left, and the version it produced.
 
     Called on the promoted timeline BEFORE the replaced generation is
@@ -329,6 +337,21 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
     from library.tools.versions import reel_versions
 
     entry["after"] = {"tracks": reel_read.read_tracks(after_timeline)}
+    if preservation_snapshot is not None:
+        after_snapshot = dict(preservation_snapshot)
+    elif project is not None:
+        from library.tools.reel_replace_guard import full_timeline_snapshot
+        after_snapshot = full_timeline_snapshot(
+            after_timeline, project, project_folder)
+    else:
+        after_snapshot = None
+    if after_snapshot is not None:
+        entry["preservation_after"] = after_snapshot
+        from library.tools.plan_provenance import record_timeline_snapshot
+        record_timeline_snapshot(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            entry["final"], after_snapshot, action="touchup",
+            action_journal=entry["id"])
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_TOUCH,
         rows=rows, journal=entry["id"], batch=entry.get("batch") or None)
@@ -838,7 +861,7 @@ def _resolve_name(project_folder: str) -> str:
 
 
 def undo_touch(project_folder: str, entry_id: str, *, connect=None,
-               rederiver_override=None) -> dict:
+               rederiver_override=None, accept_editor_changes=None) -> dict:
     """Reverse one touch in place, under the lease, with a verified read."""
     from library.tools.resolve_lock import under_lease
 
@@ -854,15 +877,18 @@ def undo_touch(project_folder: str, entry_id: str, *, connect=None,
     def _guarded():
         return _undo_touch_connected(project_folder, entry,
                                      connect or _connect,
-                                     rederiver_override)
+                                     rederiver_override,
+                                     accept_editor_changes)
 
     return _guarded()
 
 
 def _undo_touch_connected(project_folder, entry, connect,
-                          rederiver_override) -> dict:
+                          rederiver_override,
+                          accept_editor_changes=None) -> dict:
     from library.tools import reel_retirement, reel_touchup
     from library.tools.reel_build import backup_name, timelines_to_replace
+    from library.tools import plan_provenance, reel_replace_guard
     from library.tools.reel_replace_guard import snapshot_timeline
     from library.tools.resolve_lock import cursor_fence
     from library.tools.versions import reel_versions
@@ -879,12 +905,32 @@ def _undo_touch_connected(project_folder, entry, connect,
             "restore the timeline in Resolve (or rebuild the reel), then "
             "re-run `ren undo`")
     live = found[final]
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    inventory_before = reel_replace_guard.timeline_inventory(project)
     reference_name = backup_name(final)
     if timelines_to_replace(project, {reference_name}):
         raise UndoRefused(
             f"{reference_name!r} is already in the project",
             "left by an interrupted run",
             "clear it in Resolve before re-running `ren undo`")
+
+    plan_provenance.assert_not_editor_timeline(review_dir, live)
+    preservation_before = reel_replace_guard.full_timeline_snapshot(
+        live, project, project_folder)
+    expected_after = entry.get("preservation_after") or preservation_before
+    expected_before = entry.get("preservation_before") or preservation_before
+    editor_report = reel_replace_guard.protect_editor_changes(
+        project_folder, final, preservation_before, expected_after,
+        expected_before,
+        accept=reel_replace_guard.accepts_editor_changes(
+            final, accept_editor_changes))
+    inventory_operation = plan_provenance.begin_timeline_inventory(
+        review_dir, "undo touch", inventory_before,
+        ren_created_names={final})
+    plan_provenance.record_timeline_snapshot(
+        review_dir, final, preservation_before,
+        action="before_undo_touch", action_journal=entry["id"],
+        last_known=False)
 
     before = entry["before"]["tracks"]
     plan = plan_inverse(before, entry["after"]["tracks"])
@@ -917,6 +963,9 @@ def _undo_touch_connected(project_folder, entry, connect,
 
     reference = live.DuplicateTimeline(reference_name)
     if reference is None or reference.GetName() != reference_name:
+        plan_provenance.finish_timeline_inventory(
+            review_dir, inventory_operation,
+            reel_replace_guard.timeline_inventory(project))
         raise UndoRefused(
             f"Resolve would not duplicate {final!r} as the undo's reference",
             "without the reference copy there is nothing to undo "
@@ -940,19 +989,76 @@ def _undo_touch_connected(project_folder, entry, connect,
         # left it, so the reference is only debris.
         reel_retirement.delete_backups(project, pool,
                                        {reference_name: reference})
+        plan_provenance.finish_timeline_inventory(
+            review_dir, inventory_operation,
+            reel_replace_guard.timeline_inventory(project))
         raise
     except Exception as failed:
         entry["status"] = STATUS_UNDO_FAILED
         entry["undo_failed"] = {"at": _now(), "why": repr(failed),
                                 "reference": reference_name}
         write_entry(project_folder, entry)
+        try:
+            reference_id = reference.GetUniqueId()
+        except Exception:  # noqa: BLE001
+            reference_id = None
+        plan_provenance.record_unattributed_timeline_changes(
+            review_dir, inventory_before,
+            reel_replace_guard.timeline_inventory(project),
+            operation="failed undo touch",
+            ren_owned_ids={reference_id} if reference_id else ())
+        plan_provenance.finish_timeline_inventory(
+            review_dir, inventory_operation,
+            reel_replace_guard.timeline_inventory(project))
         raise UndoNotVerified(
             f"the undo of {entry['id']} did not finish ({failed}). The "
             f"post-touch state is safe on {reference_name!r} and the "
             f"pre-touch state is in {_entry_path(project_folder, entry['id'])}.") \
             from failed
-    receipt["reference_deleted"] = reel_retirement.delete_backups(
-        project, pool, {reference_name: reference})["deleted"]
+    try:
+        preservation_after = reel_replace_guard.full_timeline_snapshot(
+            live, project, project_folder)
+        plan_provenance.record_timeline_snapshot(
+            review_dir, final, preservation_after, action="undo_touch",
+            action_journal=entry["id"])
+        for record_id in editor_report.get("carried", ()):
+            plan_provenance.resolve_editor_change(
+                review_dir, final, record_id, status="carried")
+        for record_id in editor_report.get("superseded", ()):
+            plan_provenance.resolve_editor_change(
+                review_dir, final, record_id, status="superseded",
+                superseded_by=f"--accept-editor-changes {final}")
+        reference_id = reference.GetUniqueId()
+        plan_provenance.record_unattributed_timeline_changes(
+            review_dir, inventory_before,
+            reel_replace_guard.timeline_inventory(project),
+            operation="undo touch",
+            ren_owned_ids={str(reference_id)} if reference_id else ())
+    except Exception as snapshot_failed:  # noqa: BLE001
+        try:
+            reference_id = reference.GetUniqueId()
+        except Exception:  # noqa: BLE001
+            reference_id = None
+        plan_provenance.record_unattributed_timeline_changes(
+            review_dir, inventory_before,
+            reel_replace_guard.timeline_inventory(project),
+            operation="undo touch snapshot failure",
+            ren_owned_ids={str(reference_id)} if reference_id else ())
+        plan_provenance.finish_timeline_inventory(
+            review_dir, inventory_operation,
+            reel_replace_guard.timeline_inventory(project))
+        raise UndoNotVerified(
+            f"the undo of {entry['id']} was verified, but its full "
+            f"timeline snapshot could not be persisted ({snapshot_failed}). "
+            f"The post-touch state is recoverable on {reference_name!r}.") \
+            from snapshot_failed
+    try:
+        receipt["reference_deleted"] = reel_retirement.delete_backups(
+            project, pool, {reference_name: reference})["deleted"]
+    finally:
+        plan_provenance.finish_timeline_inventory(
+            review_dir, inventory_operation,
+            reel_replace_guard.timeline_inventory(project))
     version = reel_versions.record(project_folder, final,
                                    kind=reel_versions.KIND_UNDO, rows=rows,
                                    undoes=entry.get("version"),
@@ -1005,7 +1111,8 @@ def restore_plan_moment(project_folder: str, moment: Mapping) -> str:
     return path
 
 
-def _build_one_reel(project_folder: str, reel: int, supersede=()) -> int:
+def _build_one_reel(project_folder: str, reel: int, supersede=(),
+                    accept_editor_changes=None) -> int:
     """`manage_project.py build-reels --only-reel N`, in its OWN process.
 
     A build creates timelines and the touches re-applied after it
@@ -1031,6 +1138,11 @@ def _build_one_reel(project_folder: str, reel: int, supersede=()) -> int:
             str(project_folder), "--only-reel", str(int(reel))]
     for name in supersede or ():
         argv += ["--supersede", name]
+    accepted = ([accept_editor_changes]
+                if isinstance(accept_editor_changes, (str, int)) else
+                accept_editor_changes or ())
+    for name in accepted:
+        argv += ["--accept-editor-changes", str(name)]
     return subprocess.run(argv, cwd=str(repo), check=False).returncode
 
 
@@ -1038,7 +1150,7 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
                      read_live_rows: Callable[[str], Mapping],
                      build: Callable[[str, int], int] | None = None,
                      touch: Callable[[str, Mapping], Any] | None = None,
-                     supersede=()) -> dict:
+                     supersede=(), accept_editor_changes=None) -> dict:
     """Roll a rebuild back to the version before it, and say if it got there.
 
     `read_live_rows(final)` reads the live rows; `build` and `touch` are
@@ -1049,7 +1161,11 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
     history = reel_versions.versions_of(project_folder, final)
     newest = history[-1]
     live = dict(read_live_rows(final) or {})
-    if rounds.digest_rows(live) != newest["rows_digest"]:
+    from library.tools.reel_replace_guard import accepts_editor_changes
+    accepts_manual_edits = accepts_editor_changes(
+        final, accept_editor_changes)
+    if (rounds.digest_rows(live) != newest["rows_digest"]
+            and not accepts_manual_edits):
         raise TimelineMovedSinceTouch(
             f"{final!r} no longer reads as version {newest['version']} "
             f"({newest['kind']}) - it was changed outside Ren since",
@@ -1084,8 +1200,11 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
     restore_plan_moment(project_folder, base["plan_moment"])
     reel_versions.set_pending_rollback(project_folder, final,
                                        int(act["version"]))
-    code = (build or (lambda folder, number: _build_one_reel(
-        folder, number, supersede)))(project_folder, reel)
+    if build is None:
+        code = _build_one_reel(project_folder, reel, supersede,
+                               accept_editor_changes)
+    else:
+        code = build(project_folder, reel)
     unplaced = reel_versions.take_pending_rollback(project_folder, final)
     if code or unplaced is not None:
         # The promotion consumes the marker; one still standing means
@@ -1138,7 +1257,7 @@ def undo_stack(project_folder, final: str = "") -> list:
 
 def undo(project_folder: str, *, final: str = "", entry_id: str = "",
          connect=None, read_live_rows=None, build=None, touch=None,
-         supersede=()) -> list:
+         supersede=(), accept_editor_changes=None) -> list:
     """Reverse the newest act (on `final`, or anywhere), or a named touch.
 
     Returns one receipt per reel reversed. A named entry that is not
@@ -1186,13 +1305,16 @@ def undo(project_folder: str, *, final: str = "", entry_id: str = "",
     for name, act in targets:
         if act["kind"] == reel_versions.KIND_TOUCH:
             receipts.append(undo_touch(project_folder, act["journal"],
-                                       connect=connect))
+                                       connect=connect,
+                                       accept_editor_changes=
+                                       accept_editor_changes))
         else:
             receipts.append(rollback_rebuild(
                 project_folder, name, act,
                 read_live_rows=read_live_rows or _live_rows_reader(
                     project_folder, connect),
-                build=build, touch=touch, supersede=supersede))
+                build=build, touch=touch, supersede=supersede,
+                accept_editor_changes=accept_editor_changes))
     return receipts
 
 

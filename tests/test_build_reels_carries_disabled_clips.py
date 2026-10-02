@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 
 import manage_project
-from library.tools import operations, reel_build
+from library.tools import operations, reel_build, reel_replace_guard
 from library.tools import requirements as _R
 from library.tools.reel_proposal import (
     Approval,
@@ -30,6 +30,18 @@ FINAL = "Reel 01 - a-witness"
 STAGING = FINAL + " (rebuild staging)"
 OLD_SEGMENT = "mg_old-rendered-name"
 NEW_SEGMENT = "mg_new-rendered-name"
+
+
+@pytest.fixture(autouse=True)
+def fake_preservation_snapshots(monkeypatch):
+    monkeypatch.setattr(
+        reel_replace_guard, "full_timeline_snapshot",
+        lambda timeline, _project, _folder=None: {
+            "timeline": {"name": timeline.GetName(),
+                         "unique_id": timeline.GetUniqueId(),
+                         "settings": {}, "start_frame": 0,
+                         "end_frame": 0},
+            "items": [], "markers": []})
 
 
 class _Media:
@@ -83,6 +95,7 @@ class _Clip:
 class _Timeline:
     def __init__(self, name, clip, semantic_index=1):
         self.name = name
+        self.unique_id = f"timeline:{name}"
         clips = clip if isinstance(clip, list) else [clip]
         video = [(f"Video {index}", [])
                  for index in range(1, semantic_index)]
@@ -115,7 +128,7 @@ class _Timeline:
         return True
 
     def GetUniqueId(self):
-        return self.name
+        return self.unique_id
 
 
 class _Pool:

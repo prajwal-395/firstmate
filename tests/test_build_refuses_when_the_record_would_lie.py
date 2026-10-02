@@ -45,7 +45,10 @@ import json
 from unittest.mock import patch
 
 import pytest
-from tests.promotion_test_helpers import no_a_roll_track_plans
+from tests.promotion_test_helpers import (
+    install_fake_timeline_snapshots,
+    no_a_roll_track_plans,
+)
 
 from library.tools.reel_build import (
     ReelBuildError,
@@ -60,6 +63,11 @@ STAGING_01 = REEL_01 + " (rebuild staging)"
 @pytest.fixture(autouse=True)
 def mock_dvr(stub_resolve_script):
     yield
+
+
+@pytest.fixture(autouse=True)
+def fake_preservation_snapshots(monkeypatch):
+    install_fake_timeline_snapshots(monkeypatch)
 
 
 @pytest.fixture

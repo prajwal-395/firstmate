@@ -127,6 +127,7 @@ def build_reels(data: dict) -> dict:
         name_suffix=str((data or {}).get("timeline_name_suffix") or ""),
         allow_drops=(data or {}).get("allow_drops"),
         supersede=(data or {}).get("supersede"),
+        accept_editor_changes=(data or {}).get("accept_editor_changes"),
         # `retain` - the reels whose superseded generation the
         # promotion may retire rather than delete
         # (`reel_retirement`) - FORWARDED, not interpreted, for the

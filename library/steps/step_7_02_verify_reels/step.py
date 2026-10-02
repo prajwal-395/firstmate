@@ -364,12 +364,20 @@ def verify_reels(data: dict) -> dict:
         retaining = build.get("retain")
         if retaining is None:
             retaining = (data or {}).get("retain")
+        accepting_editor_changes = build.get("accept_editor_changes")
+        if accepting_editor_changes is None:
+            accepting_editor_changes = (data or {}).get(
+                "accept_editor_changes")
         try:
             promoted = promote_staged_reels(
                 project_folder, resolve_project_name, master_timeline_name,
                 staged, allow_drops=recorded, supersede=superseding,
                 retain=retaining,
-                track_plans=build.get("track_plans"))
+                track_plans=build.get("track_plans"),
+                accept_editor_changes=accepting_editor_changes,
+                timeline_inventory_before=build.get(
+                    "timeline_inventory_before"),
+                staged_timeline_ids=build.get("staged_timeline_ids"))
         except _PromoteError as partial:
             # A partial promotion raises AFTER its passing reels fully
             # promoted - and their marker losses ride on the exception

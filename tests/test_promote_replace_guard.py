@@ -26,6 +26,7 @@ timeline is still in the project afterwards.
 A guard nobody has watched fire is not a guard: cases 1, 2 and the
 unreadable half assert the raise, not just the report.
 """
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -89,10 +90,14 @@ class FakeTimeline:
 
     def __init__(self, name, video=(), audio=()):
         self._name = name
+        self._unique_id = name
         self._rows = {"video": list(video), "audio": list(audio)}
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return self._unique_id
 
     def SetName(self, name):
         self._name = name
@@ -159,22 +164,72 @@ class FakeProject:
         return [t.GetName() for t in self.timelines]
 
 
-def _promote(project, project_dir, staged_to_final, allow_drops=None):
+def _full_snapshot(timeline):
+    items = []
+    for track_type, rows in timeline._rows.items():
+        for track_name, clips in rows:
+            for clip in clips:
+                items.append({
+                    "track_type": track_type, "track_name": track_name,
+                    "name": clip.GetName(),
+                    "source_identity": f"fake:{clip.GetName()}",
+                    "source_in_frame": clip.GetStart(),
+                    "source_out_frame": clip.GetEnd(),
+                    "record_in": clip.GetStart(),
+                    "record_out": clip.GetEnd(),
+                    "duration": clip.GetDuration(),
+                    "enabled": clip.GetClipEnabled(),
+                    "transform": {}, "fusion": {}, "color": {},
+                    "markers": [],
+                })
+    return {
+        "timeline": {"name": timeline.GetName(),
+                     "unique_id": timeline.GetName(),
+                     "settings": {"timelineFrameRate": 23.976},
+                     "start_frame": timeline.GetStartFrame(),
+                     "end_frame": max(
+                         [item["record_out"] for item in items] or [0])},
+        "items": items,
+        "markers": [],
+    }
+
+
+def _promote(project, project_dir, staged_to_final, allow_drops=None,
+             full_snapshots=None, baseline_snapshot=True,
+             timeline_inventory_before=None):
     import json
+    from contextlib import ExitStack
+
     # The baselines the gate graded, filed under the staging names -
     # which is what a real staged build leaves behind. Only the
     # provenance sidecar is strict about existing.
-    (project_dir / "pipeline_output" / "review"
-     / "plan_provenance.json").write_text(json.dumps(
-         {"built_reels": sorted(staged_to_final.values())}),
-        encoding="utf-8")
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=project):
+    snapshots = full_snapshots or {
+        id(timeline): _full_snapshot(timeline)
+        for timeline in project.timelines
+    }
+    provenance = {"built_reels": sorted(staged_to_final.values())}
+    if baseline_snapshot:
+        final = next(iter(staged_to_final))
+        live = next(t for t in project.timelines if t.GetName() == final)
+        provenance["ren_timeline_snapshots"] = {
+            final: {"snapshot": snapshots[id(live)]}}
+    (project_dir / "pipeline_output" / "review" / "plan_provenance.json").write_text(
+        json.dumps(provenance), encoding="utf-8")
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(
+            guard, "full_timeline_snapshot",
+            side_effect=lambda timeline, _project, _folder=None:
+            snapshots[id(timeline)]))
+        stack.enter_context(patch(
+            "library.tools.resolve_locale.scriptapp_preserving_locale"))
+        stack.enter_context(patch(
+            "library.tools.reel_build.resolve_project_exactly",
+            return_value=project))
         return promote_staged_reels(
             str(project_dir), "Mock Project", MASTER, staged_to_final,
             organise=False, allow_drops=allow_drops,
-            track_plans=no_a_roll_track_plans(staged_to_final))
+            track_plans=no_a_roll_track_plans(staged_to_final),
+            timeline_inventory_before=timeline_inventory_before)
 
 
 def _cutaway_timelines():
@@ -274,6 +329,272 @@ def test_snapshot_and_replace_diff_report_enabled_state_change():
         "name": "semantic-card", "start": 120, "end": 168,
         "retired_enabled": False, "incoming_enabled": True,
     }]
+
+
+def test_full_snapshot_diff_detects_replaced_timeline_identity():
+    before = {"timeline": {"name": FINAL, "unique_id": "ren-id",
+                           "settings": {}}, "items": [], "markers": []}
+    live = {"timeline": {"name": FINAL, "unique_id": "editor-id",
+                          "settings": {}}, "items": [], "markers": []}
+    staged = {"timeline": {"name": FINAL, "unique_id": "staging-id",
+                            "settings": {}}, "items": [], "markers": []}
+
+    changes = guard.snapshot_diff(before, live)
+
+    assert changes == [{"kind": "timeline_identity", "field": "unique_id",
+                        "before": "ren-id", "after": "editor-id"}]
+    assert not guard._change_is_carried(changes[0], staged)
+
+
+def test_marker_change_is_carried_when_its_content_moves_with_the_picture():
+    before = {"source": "timeline_marker", "frame": 100,
+              "frame_in_timeline_space": 100, "color": "Blue",
+              "name": "Captain", "note": "keep this", "duration_frames": 1,
+              "custom_data": {}, "custom_data_raw": ""}
+    carried = {**before, "frame": 85, "frame_in_timeline_space": 85}
+    change = {"kind": "marker_added", "identity": guard._marker_key(before),
+              "before": None, "after": before}
+
+    assert guard._change_is_carried(change, {"markers": [carried]})
+
+
+def test_removed_marker_is_not_carried_by_a_relocated_copy():
+    removed = {"source": "timeline_marker", "frame": 100,
+               "frame_in_timeline_space": 100, "color": "Blue",
+               "name": "Captain", "note": "remove this",
+               "duration_frames": 1, "custom_data": {},
+               "custom_data_raw": ""}
+    relocated = {**removed, "frame": 80,
+                 "frame_in_timeline_space": 80}
+    change = {"kind": "marker_removed",
+              "identity": guard._marker_key(removed),
+              "before": removed, "after": None}
+
+    assert not guard._change_is_carried(change, {"markers": [relocated]})
+
+
+def test_full_snapshot_excludes_ephemeral_and_non_timeline_marker_data(
+        monkeypatch):
+    from contextlib import nullcontext
+    from dataclasses import replace
+
+    from library.tools.marker_feedback import MarkerNote
+
+    class Timeline:
+        def GetName(self):
+            return FINAL
+
+        def GetUniqueId(self):
+            return "timeline-id"
+
+        def GetSetting(self, key=None):
+            settings = {"timelineFrameRate": "23.976",
+                        "timelineResolutionWidth": "1080",
+                        "timelineResolutionHeight": "1920"}
+            return settings if key is None else settings.get(key, "")
+
+        def GetStartFrame(self):
+            return 0
+
+        def GetEndFrame(self):
+            return 100
+
+    note = MarkerNote(
+        source="timeline_marker", name="Captain", note="keep this",
+        text="Captain\n\nkeep this", frame=42, timecode="00:00:01:18",
+        frame_in_timeline_space=42, color="Blue", duration_frames=3,
+        custom_data={"id": "m-1"}, custom_data_raw='{"id":"m-1"}',
+        clips=[{"name": "context-only"}], read_at="first read")
+    clip_note = replace(note, source="clip_marker", read_at="first read")
+    reads = iter(([note, clip_note],
+                  [replace(note, read_at="later read"),
+                   replace(clip_note, read_at="later read")]))
+    monkeypatch.setattr(
+        "library.tools.resolve_lock.cursor_excursion",
+        lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr("library.tools.reel_read.read_tracks",
+                        lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("library.tools.marker_feedback.read_notes",
+                        lambda *_args, **_kwargs: next(reads))
+
+    first = guard.full_timeline_snapshot(Timeline(), object())
+    second = guard.full_timeline_snapshot(Timeline(), object())
+
+    assert first == second
+    assert first["markers"] == [{
+        "source": "timeline_marker", "frame": 42,
+        "frame_in_timeline_space": 42, "color": "Blue",
+        "name": "Captain", "note": "keep this", "duration_frames": 3,
+        "custom_data": {"id": "m-1"},
+        "custom_data_raw": '{"id":"m-1"}',
+    }]
+
+
+def test_reel_7_first_contact_refuses_restored_cuts_and_reenabled_clip(
+        project_dir, monkeypatch):
+    """A missing build signature must not wave Reel 7's lost edits through.
+
+    The live cut omitted Craig 25,263-25,374 and Akshita 60,745-60,979,
+    and held a disabled Semantic item. The staged rebuild restored both
+    ranges and enabled the graphic. Row growth is not evidence that the
+    live editor state was carried.
+    """
+    retired = FakeTimeline(FINAL, video=[
+        ("Craig", [FakeItem("Craig", 22_257, 22_694)]),
+        ("Akshita", [FakeItem("Akshita", 22_232, 22_348)]),
+        ("Semantic", [FakeItem("semantic-card", 47, 143,
+                                enabled=False)]),
+    ])
+    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
+        ("Craig", [FakeItem("Craig", 22_257, 22_694),
+                    FakeItem("Craig", 25_263, 25_374)]),
+        ("Akshita", [FakeItem("Akshita", 22_232, 22_348),
+                      FakeItem("Akshita", 60_745, 60_979)]),
+        ("Semantic", [FakeItem("semantic-card", 47, 143,
+                                enabled=True)]),
+    ])
+
+    def item(row, name, source_start, source_end, enabled=True):
+        return {
+            "track_type": "video", "track_name": row, "name": name,
+            "source_identity": f"file:/media/{name}.mov",
+            "source_in_frame": source_start,
+            "source_out_frame": source_end,
+            "record_in": source_start, "record_out": source_end,
+            "duration": source_end - source_start, "enabled": enabled,
+            "transform": {}, "fusion": {}, "color": {}, "markers": [],
+        }
+
+    live_snapshot = {
+        "timeline": {"name": FINAL, "unique_id": "live",
+                     "settings": {"timelineFrameRate": 23.976},
+                     "start_frame": 0, "end_frame": 1042},
+        "items": [
+            item("Craig", "Craig", 22_257, 22_694),
+            item("Akshita", "Akshita", 22_232, 22_348),
+            item("Semantic", "semantic-card", 47, 143, enabled=False),
+        ],
+        "markers": [],
+    }
+    staging_snapshot = {
+        "timeline": {"name": staging.GetName(), "unique_id": "staging",
+                     "settings": {"timelineFrameRate": 23.976},
+                     "start_frame": 0, "end_frame": 1411},
+        "items": [
+            item("Craig", "Craig", 22_257, 22_694),
+            item("Craig", "Craig", 25_263, 25_374),
+            item("Akshita", "Akshita", 22_232, 22_348),
+            item("Akshita", "Akshita", 60_745, 60_979),
+            item("Semantic", "semantic-card", 47, 143, enabled=True),
+        ],
+        "markers": [],
+    }
+    snapshots = {id(retired): live_snapshot, id(staging): staging_snapshot}
+    monkeypatch.setattr(
+        "library.tools.reel_disabled_clip_carry.carry_disabled_state",
+        lambda *_args, **_kwargs: {
+            "unchanged_unmatched": [], "safe_replacements": [],
+            "carried": [], "refused": [], "matched": [],
+        })
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    with pytest.raises(ReelBuildError) as refused:
+        _promote(resolve, project_dir, {FINAL: staging.GetName()},
+                 full_snapshots=snapshots, baseline_snapshot=False)
+
+    message = str(refused.value)
+    assert "unattributed editor changes" in message
+    assert "25,263..25,374" in message
+    assert "60,745..60,979" in message
+    assert "enabled True->False" in message
+    assert "--accept-editor-changes" in message
+    provenance = json.loads((project_dir / "pipeline_output" / "review"
+                             / "plan_provenance.json").read_text(
+                                 encoding="utf-8"))
+    changes = provenance["unattributed_editor_changes"][FINAL]
+    assert len(changes) == 1
+    assert changes[0]["status"] == "pending"
+    assert changes[0]["baseline"] == "first_contact_staging"
+    assert changes[0]["recorded_at"]
+    assert changes[0]["before_snapshot"] == staging_snapshot
+    assert changes[0]["after_snapshot"] == live_snapshot
+    assert sorted(resolve.names()) == sorted(
+        [MASTER, retired.GetName(), staging.GetName()])
+    assert resolve.deleted == []
+
+
+def test_first_contact_carries_a_manual_marker_before_comparing(
+        project_dir, monkeypatch):
+    marker = {
+        "frame": 40, "color": "Blue", "name": "Captain",
+        "note": "keep this", "duration": 1, "custom_data": "",
+        "anchor": ("/media/craig.mov", 400),
+    }
+    live_marker = {
+        "source": "timeline_marker", "frame": 40,
+        "frame_in_timeline_space": 40, "color": "Blue",
+        "name": "Captain", "note": "keep this", "duration_frames": 1,
+        "custom_data": {}, "custom_data_raw": "",
+    }
+    staged_marker = {**live_marker, "frame": 35,
+                     "frame_in_timeline_space": 35}
+    retired = FakeTimeline(FINAL)
+    staging = FakeTimeline(FINAL + " (rebuild staging)")
+    live_snapshot = {"timeline": {"name": FINAL, "unique_id": "live",
+                                   "settings": {"timelineFrameRate": 23.976},
+                                   "start_frame": 0, "end_frame": 100},
+                    "items": [], "markers": [live_marker]}
+    staging_snapshot = {
+        "timeline": {"name": staging.GetName(), "unique_id": "staging",
+                     "settings": {"timelineFrameRate": 23.976},
+                     "start_frame": 0, "end_frame": 100},
+        "items": [], "markers": [],
+    }
+    snapshots = {id(retired): live_snapshot, id(staging): staging_snapshot}
+
+    def place(timeline, carried):
+        assert carried == [{**marker, "to_frame": 35,
+                            "pairing": "note"}]
+        snapshots[id(timeline)] = {
+            **staging_snapshot, "markers": [staged_marker]}
+        return []
+
+    monkeypatch.setattr("library.tools.marker_carry.read_markers",
+                        lambda *_args: [marker])
+    monkeypatch.setattr("library.tools.marker_carry.plan_carry",
+                        lambda *_args: ([{**marker, "to_frame": 35,
+                                          "pairing": "note"}], []))
+    monkeypatch.setattr("library.tools.marker_carry.place", place)
+    monkeypatch.setattr("library.tools.marker_carry.read_clip_markers",
+                        lambda *_args: [])
+    monkeypatch.setattr("library.tools.marker_gate.verify_promotion",
+                        lambda *_args, **_kwargs: None)
+
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+    promoted = _promote(
+        resolve, project_dir, {FINAL: staging.GetName()},
+        full_snapshots=snapshots, baseline_snapshot=False)
+
+    assert promoted["promoted"] == [FINAL]
+    provenance = json.loads((project_dir / "pipeline_output" / "review"
+                             / "plan_provenance.json").read_text(
+                                 encoding="utf-8"))
+    record = provenance["unattributed_editor_changes"][FINAL][0]
+    assert record["status"] == "carried"
+
+def test_promotion_refuses_a_target_created_during_the_build(project_dir):
+    retired, staging = _semantic_timelines()
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    with pytest.raises(ReelBuildError, match="not in the project's inventory"):
+        _promote(
+            resolve, project_dir, {FINAL: staging.GetName()},
+            timeline_inventory_before=[{
+                "name": MASTER, "unique_id": MASTER, "settings": {}}])
+
+    assert sorted(resolve.names()) == sorted(
+        [MASTER, FINAL, staging.GetName()])
+    assert resolve.deleted == []
 
 
 def test_legacy_snapshots_without_enabled_are_unknown_not_changes():

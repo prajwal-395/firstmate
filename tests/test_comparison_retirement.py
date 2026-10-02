@@ -20,6 +20,7 @@ from tests.promotion_test_helpers import no_a_roll_track_plans
 
 from library.tools import comparison_retirement as comp
 from library.tools import reel_retirement as retire
+from library.tools import reel_replace_guard
 from library.tools import resolve_bin_layout as bins
 
 REEL = "Reel 13 - the-accounting-firm-ai-called-healthcare"
@@ -31,6 +32,17 @@ VARIANT = f"{REEL} (reaction-cutaway)"
 MASTER = "GEO Podcast - Synced"
 
 PLAN = (REEL, OTHER)
+
+
+@pytest.fixture(autouse=True)
+def fake_preservation_snapshots(monkeypatch):
+    monkeypatch.setattr(
+        reel_replace_guard, "full_timeline_snapshot",
+        lambda timeline, _project, _folder=None: {
+            "timeline": {"name": timeline.GetName(), "unique_id": None,
+                         "settings": {}, "start_frame": 0,
+                         "end_frame": 0},
+            "items": [], "markers": []})
 
 
 def rounds(*entries):
@@ -160,9 +172,13 @@ def test_an_unrecorded_comparison_is_always_kept():
 class FakeTimeline:
     def __init__(self, name):
         self._name = name
+        self._unique_id = f"fake:{id(self)}"
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return self._unique_id
 
     def SetName(self, name):
         self._name = name
@@ -178,6 +194,7 @@ class FakeTimeline:
 class FakeProject:
     def __init__(self, timelines):
         self.timelines = list(timelines)
+        self.current_timeline = self.timelines[0] if self.timelines else None
         self.pool = MagicMock()
         self.pool.DeleteTimelines.side_effect = self._delete
         self.deleted = []
@@ -196,6 +213,13 @@ class FakeProject:
 
     def GetTimelineByIndex(self, index):
         return self.timelines[index - 1]
+
+    def GetCurrentTimeline(self):
+        return self.current_timeline
+
+    def SetCurrentTimeline(self, timeline):
+        self.current_timeline = timeline
+        return True
 
     def names(self):
         return [t.GetName() for t in self.timelines]
@@ -412,6 +436,16 @@ def test_promotion_retires_the_comparison_it_supersedes(project_dir,
      / "plan_provenance.json").write_text(json.dumps(
          {"built_reels": sorted(staged_to_final.values())}),
         encoding="utf-8")
+    from library.tools import plan_provenance
+
+    inventory = reel_replace_guard.timeline_inventory(resolve)
+    operation = plan_provenance.begin_timeline_inventory(
+        str(project_dir / "pipeline_output" / "review"),
+        "prior test build", inventory,
+        ren_created_names={entry["name"] for entry in inventory})
+    plan_provenance.finish_timeline_inventory(
+        str(project_dir / "pipeline_output" / "review"), operation,
+        inventory)
     monkeypatch.setattr(comp, "_plan_finals", lambda _folder: PLAN)
     monkeypatch.setattr(
         "library.tools.versions.rounds.discover",
