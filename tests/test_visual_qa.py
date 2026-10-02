@@ -1,24 +1,9 @@
 import pytest
-import os
-import json
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 
 from library.tools.segment_renderer import (
-    render_segment, render_single_frame, cleanup_segment, SegmentRenderResult
+    render_segment
 )
-from library.tools.visual_qa_router import (
-    frame_to_timecode, plan_qa_checks, prepare_frame_grab,
-    execute_frame_grab, execute_video_segment_check, parse_qa_response,
-    format_frame_grab_for_llm, format_segment_result_for_llm, format_qa_plan_for_llm,
-    QAPassPlan, FrameGrabRequest, VideoSegmentRequest, FrameGrabResult, VideoSegmentResult
-)
-from library.tools.qa_feedback_loop import (
-    QAFeedbackConfig, QAFeedbackLoop, FeedbackIteration, FeedbackLoopResult
-)
-from library.tools.visual_qa_prompts import (
-    frame_grab_inline_prompt, segment_analysis_prompt, adjustment_suggestion_prompt
-)
-from library.tools.timeline_qa import VisualQACheck
 
 
 # --- Mocks ---

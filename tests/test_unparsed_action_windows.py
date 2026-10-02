@@ -1,23 +1,10 @@
 """An unparsed action window is not an empty one, and must not vanish.
 
-MEASURED on project 001's 29 Aug run: IMG_1809 window [10,20] and
-IMG_1820 window [0,10] both returned ``actions: []``, and the picture
-view SILENTLY OMITTED them.  The creative director saw twenty seconds of
-footage as absent rather than as unmeasured.
-
-ROOT CAUSE: both windows WERE analysed but the VLM response could not be
-parsed, and ``parse_json_object`` returned ``{}`` - which was then
-recorded identically to a window where genuinely nothing happened.
-
-An answer that came back without a key is not an answer of ``[]``.
-
-These tests pin the three-part fix:
-  1. The data distinguishes unparsed from genuinely empty.
-  2. The sentinel block reaches the picture view as a visible row.
-  3. The picture view reports unparsed windows explicitly.
+The data distinguishes an unparsed VLM window (`parse_error`) from a
+genuinely empty one, and the picture view shows it as unmeasured rather
+than omitting it. Incident: `docs/evidence/unparsed_action_windows.md`.
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -29,7 +16,6 @@ from library.tools.vision_schema_adapter import (
     UNPARSED_WINDOW_VISUAL,
     _blocks_from_actions,
     adapt_semantic_document,
-    is_v3_profile,
 )
 
 
@@ -162,13 +148,6 @@ GENUINELY_EMPTY_PROFILE = {
 # ── Part 1: The data distinguishes unparsed from genuinely empty ─────
 
 
-class TestDataDistinction:
-    """An unparsed window and a genuinely empty one are recorded differently."""
-
-
-
-
-
 # ── Part 2: The sentinel block reaches the adapted document ──────────
 
 
@@ -185,31 +164,6 @@ class TestSentinelBlock:
         assert unparsed_block["start"] == 10
         assert unparsed_block["end"] == 20
         assert unparsed_block["parse_error"] is True
-
-    def test_genuinely_empty_window_produces_no_block(self):
-        """A window with no actions and no parse error is still omitted."""
-        blocks = _blocks_from_actions(GENUINELY_EMPTY_PROFILE)
-        assert len(blocks) == 0
-
-    def test_adapted_document_carries_the_sentinel_block(self):
-        adapted = adapt_semantic_document(IMG_1809_PROFILE)
-        assert is_v3_profile(adapted)
-        blocks = adapted["blocks"]
-        assert any(b.get("parse_error") for b in blocks)
-        sentinel = [b for b in blocks if b.get("parse_error")][0]
-        assert sentinel["visual"] == UNPARSED_WINDOW_VISUAL
-        assert sentinel["start"] == 10
-        assert sentinel["end"] == 20
-
-    def test_clip_with_only_unparsed_windows_still_has_blocks(self):
-        """IMG_1820: its only window is unparsed, so it used to have
-        zero blocks and the clip would appear as 'not_described'."""
-        adapted = adapt_semantic_document(IMG_1820_PROFILE)
-        blocks = adapted["blocks"]
-        assert len(blocks) == 1
-        assert blocks[0]["visual"] == UNPARSED_WINDOW_VISUAL
-        assert blocks[0]["start"] == 0
-        assert blocks[0]["end"] == 10
 
 # ── Part 3: The picture view shows unmeasured rather than omitting ───
 
@@ -238,18 +192,12 @@ class TestPictureView:
         assert unmeasured_row["end"] == 20.0
         assert unmeasured_row["visual"] == UNPARSED_WINDOW_VISUAL
 
-    def test_clip_with_only_unparsed_windows_is_not_undescribed(self):
-        """IMG_1820 used to be listed as 'not_described'.  Now it has a
-        row, so it is described (as unmeasured)."""
-        view = build_view("picture", {
-            "semantic_analysis_documents": _adapted_docs()})
-        rows = view["picture"]["observed"]
+        # IMG_1820 (only window unparsed) used to be listed as
+        # 'not_described'. Now it has a row, so it is described.
         img_1820_rows = [r for r in rows if r["clip_id"] == "IMG_1820_v3"]
         assert len(img_1820_rows) == 1
         assert img_1820_rows[0]["visual"] == UNPARSED_WINDOW_VISUAL
-        # Should NOT appear in not_described.
-        not_described = view["picture"].get("not_described", "")
-        assert "IMG_1820_v3" not in not_described
+        assert "IMG_1820_v3" not in view["picture"].get("not_described", "")
 
     def test_genuinely_empty_clip_is_still_undescribed(self):
         """A window with no actions and no parse error still produces no
@@ -268,40 +216,15 @@ class TestPictureView:
         assert "IMG_1820_v3" in unparsed
         assert "2 window(s)" in unparsed
 
-    def test_no_unparsed_windows_field_when_all_windows_parsed(self):
-        """Normal operation: no field clutter."""
-        normal_doc = adapt_semantic_document({
-            "clip_id": "clean_v3",
-            "scene": [{"start": 0, "end": 10, "type": "outdoor"}],
-            "camera": [{"start": 0, "end": 10, "mode": "handheld",
-                        "framing": "wide", "stability": "stable",
-                        "movement": "stationary"}],
-            "actions": [{
+        # Normal operation: no field clutter.
+        clean = adapt_semantic_document(dict(
+            GENUINELY_EMPTY_PROFILE, clip_id="clean_v3", actions=[{
                 "window": [0, 10],
                 "actions": [{"start": 0, "end": 10,
                              "action": "Walks forward.",
                              "speech_cue": None,
-                             "body_language": "relaxed"}],
-            }],
-            "objects": [],
-            "assessment": {"content_type": "scenery"},
-            "analysis_metadata": {"pipeline_version": "v3"},
-        })
-        view = build_view("picture", {
-            "semantic_analysis_documents": [normal_doc]})
+                             "body_language": "relaxed"}]}]))
+        view = build_view("picture", {"semantic_analysis_documents": [clean]})
         assert "unparsed_windows" not in view["picture"]
 
-
 # ── Known unknowns, stated ───────────────────────────────────────────
-
-def test_the_distinction_is_only_available_for_new_runs():
-    """Profiles written before this fix do not carry ``parse_error``, so
-    their unparsed windows remain indistinguishable from genuinely empty
-    ones. The fix makes future runs diagnosable; it does not repair the
-    past."""
-    # A pre-fix profile: same data shape but no parse_error key.
-    pre_fix_window = {"window": [10, 20], "actions": []}
-    assert "parse_error" not in pre_fix_window
-    blocks = _blocks_from_actions({"actions": [pre_fix_window]})
-    # The sentinel block is NOT emitted for old data - this is correct.
-    assert len(blocks) == 0

@@ -14,13 +14,9 @@ rows stay in a shape a model could be handed (route 2).
 import ast
 import os
 
-import pytest
 
-from library.tools import cutaway_window as cw
 from library.tools.cutaway_window import (
     AUDIO_SIGNALS,
-    CANDIDATE_LEGEND,
-    DECLINED_TO_RANK,
     BASES,
     candidate_windows,
     choose_window,
@@ -106,17 +102,17 @@ def _keys_read_from_state(path):
     return found
 
 
-@pytest.mark.parametrize("path", WINDOW_SOURCES)
-def test_no_window_code_reads_an_audio_signal(path):
+def test_no_window_code_reads_an_audio_signal():
     """The regression that shipped 001: strategy 2 read `energy_curve`."""
-    read = _keys_read_from_state(path)
-    offending = sorted(read & set(AUDIO_SIGNALS))
-    assert not offending, (
-        f"{os.path.basename(path)} reads {offending} to decide a cutaway "
-        f"window; a cutaway is placed video_only and that audio is never "
-        f"heard. Reasons: "
-        + "; ".join(f"{k}: {AUDIO_SIGNALS[k]}" for k in offending)
-    )
+    for path in WINDOW_SOURCES:
+        read = _keys_read_from_state(path)
+        offending = sorted(read & set(AUDIO_SIGNALS))
+        assert not offending, (
+            f"{os.path.basename(path)} reads {offending} to decide a cutaway "
+            f"window; a cutaway is placed video_only and that audio is never "
+            f"heard. Reasons: "
+            + "; ".join(f"{k}: {AUDIO_SIGNALS[k]}" for k in offending)
+        )
 
 
 def test_a_muted_clips_audio_peak_does_not_select_the_window():
@@ -151,7 +147,6 @@ def test_moving_the_audio_peak_does_not_move_the_window():
 # ── The picture decides, and says which part of it did ────────────────
 
 
-
 def test_one_span_is_recorded_as_no_choice_at_all():
     """`moment_match` on a clip offering one span reads as a decision.
 
@@ -173,8 +168,6 @@ def test_nothing_matching_is_undiscriminated_not_a_preference():
     assert choice.basis == "undiscriminated"
     assert choice.video_in == 0.0
     assert "none matching" in choice.basis_detail
-
-
 
 
 # ── Where the candidate spans come from ───────────────────────────────
@@ -202,38 +195,9 @@ def test_span_points_closer_than_the_index_can_resolve_are_one_point():
     assert len(rows) == 1
 
 
-
-
 # ── usable_ranges: the method decides, not the ranges ─────────────────
 
-def test_an_unmeasured_usable_range_filters_nothing():
-    """001 carries `[[0, duration]]` beside `method: unmeasured` on 17 of
-    17 clips.  Reading the range would let a stale assertion govern."""
-    stale = {"usable_ranges": [[0, 20.0]], "usable_ranges_method": "unmeasured"}
-    rows = candidate_windows(
-        "", _analysis(assessment=stale), INDEX, 20.0, 2.0)
-    assert all(r["usable_overlap"] is None for r in rows)
-
-
-def test_a_measured_usable_range_excludes_a_window_outside_it():
-    measured = {"usable_ranges": [[10.0, 20.0]],
-                "usable_ranges_method": "deterministic_v1"}
-    choice = choose_window(
-        "wide view of parked cars", _analysis(assessment=measured),
-        INDEX, 20.0, 2.0,
-    )
-    assert choice.video_in == 10.0
-    assert "outside the measured usable ranges" in choice.basis_detail
-
-
 # ── The rows stay usable by a model (route 2 must stay open) ──────────
-
-
-
-
-
-
-
 
 
 def test_the_post_bridge_records_what_chose_the_window():

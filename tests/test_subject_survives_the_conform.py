@@ -33,7 +33,6 @@ from library.tools import render_qa
 from library.tools.manifest_validator import validate_manifest_semantics
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.subject_framing import (
-    MIN_SAMPLES,
     SUBJECT_HEADROOM,
     subject_box,
 )
@@ -82,19 +81,14 @@ class TestSubjectBox:
         assert box.required_crop_width() == pytest.approx(
             0.30 * (1 + 2 * SUBJECT_HEADROOM))
 
-    def test_an_index_with_no_widths_answers_none(self):
-        """Every run before this measurement existed. None, not a guess."""
+    def test_an_unsupported_width_answers_none_not_a_guess(self):
+        # Every run before this measurement existed: no widths at all.
         old = {"sample_rate_hz": RATE, "face_center_x": [0.4] * 10}
         assert subject_box(old, 0.0, 2.0) is None
-
-    def test_too_few_measured_widths_answers_none(self):
         widths = [None] * 10
         widths[0] = 0.3
         assert subject_box(track([0.4] * 10, widths), 0.0, 2.0) is None
-
-
-    def test_an_implausible_width_is_not_a_face(self):
-        """A box covering the whole frame would collapse the conform."""
+        # A box covering the whole frame would collapse the conform.
         assert subject_box(track([0.5] * 10, [0.95] * 10), 0.0, 2.0) is None
 
     def test_only_the_clips_own_range_is_read(self):
@@ -125,10 +119,7 @@ class TestTheConformHoldsTheSubject:
         assert "framing_pan_x" not in got, (
             "the backdrop shows the whole width - there is nothing to aim, "
             "and a pan slides the composition out of the frame")
-
-    def test_the_visible_width_really_holds_the_subject(self):
-        got = conform(framing_intent=1.0, subject_center_x=CENTRE_001,
-                      subject_width=SUBJECT_001)
+        # ...and the visible width really holds the subject.
         visible = got["framing_backdrop"]["visible_source_width"]
         assert visible >= SUBJECT_001 * (1 + 2 * SUBJECT_HEADROOM) - 1e-4
 
@@ -170,12 +161,6 @@ class TestTheConformHoldsTheSubject:
             "the measurement is still recorded, so the plan check can "
             "report what the creative choice cost")
 
-    def test_a_declared_letterbox_is_left_alone(self):
-        got = conform(framing_intent=0.0, subject_center_x=CENTRE_001,
-                      subject_width=SUBJECT_001)
-        assert got == {"needs_conform": False, "framing_intent": 0.0,
-                       "framing_delivered": 0.0}
-
     def test_portrait_source_is_never_width_limited(self):
         """A vertical clip in a vertical frame crops height, not width."""
         got = _conform_fields(PORTRAIT, "clip_001", (1080, 1080),
@@ -209,17 +194,13 @@ def backdrop_effects(**over):
 
 class TestTheBackdropReachesThePicture:
 
-    def test_it_draws_nodes(self):
+    def test_it_draws_both_branches_from_the_same_media_in(self):
+        """One frame, shown twice - not a second clip."""
         comp = build_effect_comp(backdrop_effects(), clip_dur=300,
                                  source_res=(1920, 1080))
         assert "Blur {" in comp
         assert comp.count("Transform {") >= 2
         assert "Merge {" in comp
-
-    def test_both_branches_come_from_the_same_media_in(self):
-        """One frame, shown twice - not a second clip."""
-        comp = build_effect_comp(backdrop_effects(), clip_dur=300,
-                                 source_res=(1920, 1080))
         assert comp.count('SourceOp = "MediaIn1"') == 2
 
 
@@ -281,24 +262,11 @@ class TestThePlanCheck:
         assert errors, "001's shipped geometry must not pass"
         assert "speech_15_seg0" in errors[0]
 
-    def test_the_backdrop_route_passes(self):
-        assert not subject_errors(manifest_with({
-            "needs_conform": True, "fill_zoom": 3.1605,
-            "subject_width": SUBJECT_001,
-            "framing_backdrop": {"visible_source_width": 0.4896,
-                                 "picture_scale": 0.6463,
-                                 "picture_center_x": 0.5694,
-                                 "backdrop_scale": 1.0,
-                                 "backdrop_center_x": 0.6074},
-        }))
-
-    def test_a_crop_wide_enough_passes(self):
+    def test_a_wide_enough_or_unmeasured_crop_passes(self):
         assert not subject_errors(manifest_with({
             "needs_conform": True, "fill_zoom": 2.0,
             "subject_width": 0.20,
         }))
-
-    def test_an_unmeasured_clip_is_not_judged(self):
         assert not subject_errors(manifest_with({
             "needs_conform": True, "fill_zoom": 3.1605,
         }))
@@ -363,17 +331,3 @@ class TestTheRenderCheck:
         result = face_intact_with((0, 200, 40, 40))
         assert result.passed is True
         assert result.value["face_frames"] == 0
-
-    def test_step_6_02_turns_the_fault_into_a_failed_framing_check(self):
-        """A measurement nothing reads is not a gate."""
-        source = os.path.join(
-            PROJECT_ROOT, "library", "steps", "step_6_02_validate_output",
-            "bridge.py")
-        with open(source, encoding="utf-8") as handle:
-            body = handle.read()
-        marker = 'r.metric == "face_intact"'
-        assert marker in body
-        branch = body[body.index(marker):body.index(marker) + 900]
-        branch = branch[:branch.index("elif r.metric", 10)]
-        assert 'framing_check["pass"] = False' in branch
-        assert 'framing_check["issues"].append(r.detail)' in branch

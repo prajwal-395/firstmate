@@ -1,17 +1,7 @@
-"""Finding 34: a dropped plan entry never goes back to the model.
-
-On the scout's B8 first attempt both VFX entries (a `cut_in` with a
-single `zoom` param, a `speed_ramp` with `speed` instead of `percent`)
-were dropped with precise reasons (`no_readable_parameters`,
-`not_a_speed_step`), 4.03 recorded `basis: every_entry_dropped` - and
-the step stayed green. The contract-rejection retry path
-(`post_bridge_retry`) carries a violation back to the model; a drop
-does not, so a one-word slip silently removes the whole request.
-
-The fix: on the first post-bridge pass, drops raise through the
-existing retry path so the model can correct the slip. A later pass
-ships whatever still resolves, with the remaining drops recorded -
-never silently, never by inventing values.
+"""Finding 34: on the first post-bridge pass a dropped VFX entry raises
+through `post_bridge_retry` so the model can correct the slip; a later
+pass (or a direct call with no retry path) ships what resolves, with the
+drops recorded. History: `docs/evidence/vfx_drops_reach_the_model.md`.
 """
 import io
 import json
@@ -94,18 +84,19 @@ def test_drops_raise_on_the_first_pass_so_the_model_can_correct():
 
 
 def test_drops_ship_with_their_reasons_once_retried():
-    """The retry already happened (the model kept the slip): the
-    resolved plan ships and the drop is recorded, never silent."""
-    data = _data(
-        [{"target_block_position": 1, "effect_type": "cut_in",
-          "params": {"zoom": 1.15}, "rationale": "punch on quit"}],
-        **{post_bridge_retry.ATTEMPT_KEY: 2})
-    out, _ = _run_main(data)
-    spec = out["enhancement_spec"]
-    assert spec["visual_effects"] == []
-    assert spec["planning_basis"]["basis"] == "every_entry_dropped"
-    (drop,) = spec["planning_basis"]["dropped"]
-    assert drop["reason"] == "no_readable_parameters"
+    """The retry already happened (the model kept the slip), or there is
+    no retry path to travel (a direct call outside the runner - the replay
+    bench, the manifest tests): the resolved plan ships and the drop is
+    recorded, never silent."""
+    creative = [{"target_block_position": 1, "effect_type": "cut_in",
+                 "params": {"zoom": 1.15}, "rationale": "punch on quit"}]
+    for extra in ({post_bridge_retry.ATTEMPT_KEY: 2}, {}):
+        out, _ = _run_main(_data(creative, **extra))
+        spec = out["enhancement_spec"]
+        assert spec["visual_effects"] == []
+        assert spec["planning_basis"]["basis"] == "every_entry_dropped"
+        (drop,) = spec["planning_basis"]["dropped"]
+        assert drop["reason"] == "no_readable_parameters"
 
 
 def test_a_clean_plan_never_raises():
@@ -117,16 +108,3 @@ def test_a_clean_plan_never_raises():
         **{post_bridge_retry.ATTEMPT_KEY: 1})
     out, _ = _run_main(data)
     assert len(out["enhancement_spec"]["visual_effects"]) == 1
-
-
-def test_a_direct_call_without_a_retry_path_ships_recorded():
-    """Outside the runner there is no retry path to travel, so drops
-    ship recorded exactly as before (the replay bench, the manifest
-    tests)."""
-    data = _data(
-        [{"target_block_position": 1, "effect_type": "cut_in",
-          "params": {"zoom": 1.15}, "rationale": "punch on quit"}])
-    out, _ = _run_main(data)
-    assert out["enhancement_spec"]["visual_effects"] == []
-    assert out["enhancement_spec"]["planning_basis"]["basis"] == (
-        "every_entry_dropped")

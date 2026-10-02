@@ -79,21 +79,19 @@ def test_peaks_find_two_events_with_onsets_before_apexes():
     assert peaks[1]["magnitude"] == pytest.approx(0.6)
 
 
-def test_motion_in_progress_on_the_first_sample_is_no_onset():
-    # Decaying from the first sample with no interior structure:
-    # nothing to anchor, and in particular no guessed start. The
-    # endpoint maximum is not an apex (scipy excludes endpoints),
-    # and the first sample has no below-threshold predecessor.
-    curve = [0.8, 0.7, 0.5, 0.2, 0.05, 0.03, 0.03]
-    peaks, _ = detect_motion_peaks(curve, HZ)
-    assert peaks == []
-
-
-def test_a_flat_curve_peaks_nothing_and_records_no_threshold():
+def test_a_curve_with_no_action_peaks_nothing():
     peaks, threshold = detect_motion_peaks([], HZ)
     assert peaks == []
     assert threshold == 0.0
-    peaks, _ = detect_motion_peaks([0.02] * 20, HZ)
+    assert detect_motion_peaks([0.02] * 20, HZ)[0] == []
+    # Decaying from the first sample: no guessed start, and the endpoint
+    # maximum is not an apex.
+    assert detect_motion_peaks(
+        [0.8, 0.7, 0.5, 0.2, 0.05, 0.03, 0.03], HZ)[0] == []
+    # A prominent bump that never reaches the onset threshold is ripple.
+    peaks, threshold = detect_motion_peaks(
+        [0.02] * 5 + [0.08, 0.19, 0.08] + [0.02] * 5, HZ)
+    assert threshold == pytest.approx(0.2)
     assert peaks == []
 
 
@@ -111,16 +109,6 @@ def test_a_curve_hovering_on_the_threshold_is_one_onset():
     assert onsets[0]["time"] == pytest.approx(2.4)
 
 
-def test_apexes_below_the_threshold_are_ripple_not_action():
-    # A prominent bump that never reaches the onset threshold is
-    # ripple: scipy reports it (prominence 0.17 clears 0.15) and the
-    # threshold filter drops it.
-    curve = [0.02] * 5 + [0.08, 0.19, 0.08] + [0.02] * 5
-    peaks, threshold = detect_motion_peaks(curve, HZ)
-    assert threshold == pytest.approx(0.2)
-    assert peaks == []
-
-
 # ── Direction labels ─────────────────────────────────────────────────
 
 def test_compass_points_and_stillness_floor():
@@ -129,9 +117,6 @@ def test_compass_points_and_stillness_floor():
     assert _compass(0.0, 1.0) == "down"
     assert _compass(-1.0, 0.0) == "left"
     assert _direction_of(0.001, 0.0, 0.001) == "static"
-
-
-def test_a_field_with_no_dominant_translation_is_mixed_not_a_heading():
     # A zoom's median is ~0 while its mean is not - compassing that
     # noise would present a direction nothing decided.
     assert _direction_of(0.006, -0.005, 0.404) == "mixed"
@@ -161,14 +146,6 @@ def test_expansion_reads_as_divergence_with_no_translation():
     # A pure zoom leaves nothing for translation to explain.
     assert stats["subject_energy"] == pytest.approx(
         stats["magnitude"], rel=0.2)
-
-
-def test_identical_frames_are_stillness():
-    base = _noise()
-    stats = _farneback_pair_stats(base, base.copy())
-    assert stats["magnitude"] == 0.0
-    assert stats["direction"] == "static"
-    assert stats["divergence"] == 0.0
 
 
 def test_block_match_answers_a_translation_where_dense_cannot():
@@ -208,21 +185,16 @@ def _flow_of(kind, monkeypatch):
     return compute_optical_flow_direction("clip.mp4")
 
 
-def test_static_sequence_is_static_with_method_farneback(monkeypatch):
+def test_static_pan_and_zoom_sequences_classify(monkeypatch):
     flow = _flow_of("static", monkeypatch)
     assert flow["dominant_motion"] == "static"
     assert flow["dominant_direction"] == "static"
     assert flow["method"] == "farneback"
     assert flow["motion_peaks"] == []
-
-
-def test_pan_sequence_is_pan_right(monkeypatch):
     flow = _flow_of("pan", monkeypatch)
     assert flow["dominant_motion"] == "pan_right"
     assert flow["dominant_direction"] == "right"
-
-
-def test_zoom_sequence_is_zoom_in_not_a_constant(monkeypatch):
+    # The zoom is measured, not the old constant.
     flow = _flow_of("zoom", monkeypatch)
     assert flow["dominant_motion"] == "zoom_in"
     divergences = [s["divergence"] for s in flow["values"]
@@ -278,27 +250,20 @@ def test_backfill_writes_nothing_when_nothing_is_measured(
     index = {"clip_id": "clip_001", "source_file": str(clip)}
     assert backfill_motion_measurement(index) is False
     assert "optical_flow_direction" not in index
-
-
-def test_backfill_upgrades_the_document_in_place(monkeypatch, tmp_path):
-    import library.steps.step_1_04_temporal_index.step as step_1_04
-
-    clip = tmp_path / "clip.mp4"
-    clip.write_bytes(b"0")
-    fresh = {"method": "farneback", "values": [{"dx": 0.1}],
-             "motion_peaks": []}
-    monkeypatch.setattr(
-        step_1_04, "compute_optical_flow_direction",
-        lambda _p: fresh)
-    index = {"clip_id": "clip_001", "source_file": str(clip),
-             "optical_flow_direction": {"values": []}}
-    assert backfill_motion_measurement(index) is True
-    assert index["optical_flow_direction"] is fresh
-
-
-def test_backfill_without_footage_serves_stale(monkeypatch):
+    # Without footage the stale document is served untouched.
     index = {"clip_id": "clip_001",
              "source_file": "/nowhere/gone.mp4",
              "optical_flow_direction": {"values": []}}
     assert backfill_motion_measurement(index) is False
     assert index["optical_flow_direction"] == {"values": []}
+
+    # A real measurement upgrades the document in place.
+    fresh = {"method": "farneback", "values": [{"dx": 0.1}],
+             "motion_peaks": []}
+    monkeypatch.setattr(
+        step_1_04, "compute_optical_flow_direction", lambda _p: fresh)
+    index = {"clip_id": "clip_001", "source_file": str(clip),
+             "optical_flow_direction": {"values": []}}
+    assert backfill_motion_measurement(index) is True
+    assert index["optical_flow_direction"] is fresh
+

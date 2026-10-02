@@ -1,17 +1,8 @@
 """D7: the clip-reference check fires on a step's own legend text.
 
-Step 5.01's hybrid output carries `grade_terms_legend` - a dict whose
-`clip_id` key maps to the legend's prose, not to a clip - and
-`grade_pipeline`, whose `source` values name brand-template slots
-("brand template style.series_look.cdl"), not files. The check walked the
-whole step output with bare-key matching, so both read as unrecognized
-references on every run.
-
-The fix is in what counts as a reference: a `clip_id` value that is a
-sentence is a definition of the term, not a use of it, and a `source`
-value with no directory separator is a slot name or an enum, not a file.
-A warning that fires on correct output is noise, and noise is how a real
-one gets scrolled past.
+A legend's `clip_id` sentence and a slot-name `source` are not references;
+an unknown id or absolute path still warns.
+History: `docs/evidence/clip_ref_check.md`.
 """
 import sys
 from pathlib import Path
@@ -21,9 +12,8 @@ sys.path.insert(0, str(REPO))
 
 from library.processes.edit_video import run_pipeline as runner  # noqa: E402
 from library.steps.step_5_01_color_grade.grade import GRADE_PIPELINE  # noqa: E402
-from library.tools.color_correction import CLIP_KEY, term_legend  # noqa: E402
+from library.tools.color_correction import term_legend  # noqa: E402
 from library.tools.series_look import describe_look  # noqa: E402
-from library.tools.window_frames import STRIP_LEGEND  # noqa: E402
 
 
 def _catalog(n=2):
@@ -65,23 +55,9 @@ def test_step_5_01_deterministic_output_names_nothing_unknown():
         set(), set())
 
 
-
-
-def test_a_template_slot_is_not_a_file_path():
-    """`grade_pipeline` sources name template slots. None carries a
-    directory separator, and no catalog path could ever equal one."""
-    catalog_ids, catalog_paths = _catalog()
-    refs = _pipeline_slot_refs()
-    assert refs, "the pipeline under test names no sources"
-    assert all("/" not in ref and "\\" not in ref for ref in refs)
-    _, unknown_paths = runner.unknown_clip_refs(
-        {"grade_pipeline": GRADE_PIPELINE}, catalog_ids, catalog_paths)
-    assert not (set(refs) & unknown_paths)
-
-
-def test_an_unknown_clip_id_still_warns():
-    """The check keeps its teeth: an id shaped like an id but naming no
-    footage is exactly what the warning is for."""
+def test_an_unknown_clip_id_or_absolute_path_still_warns():
+    """The check keeps its teeth: an id shaped like an id, or a path,
+    naming no footage is exactly what the warning is for."""
     catalog_ids, catalog_paths = _catalog()
     missing = f"clip_{len(catalog_ids) + 1:03d}"
     assert missing not in catalog_ids
@@ -91,10 +67,6 @@ def test_an_unknown_clip_id_still_warns():
     assert unknown_ids == {missing}
     assert unknown_paths == set()
 
-
-def test_an_unknown_absolute_path_still_warns():
-    """Same, for a path that names a file the catalog never saw."""
-    catalog_ids, catalog_paths = _catalog()
     stray = "/elsewhere/ungraded_take.MOV"
     assert stray not in catalog_paths
     unknown_ids, unknown_paths = runner.unknown_clip_refs(

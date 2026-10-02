@@ -129,49 +129,17 @@ def test_a_measured_refusal_reaches_the_post_bridge_as_a_refusal():
         )
 
 
-
-
 # ── 5.04 → renderer: the correctly-indexed list is the one that is read ──
 
-def _manifest_with_transition(**overrides):
-    spec = {"type": "fade_to_black", "after_clip": 1, "duration_frames": 10}
-    spec.update(overrides)
-    return {
-        "tracks": {"V1": {"clips": [
-            {"label": "clip_0", "source_file": "a.mov"},
-            {"label": "clip_1", "source_file": "b.mov"},
-            {"label": "clip_2", "source_file": "c.mov"},
-        ]}},
-        "fusion_effects": {"per_clip": {}, "transitions": [spec]},
-        # The informational top-level list carries no clip index at all.
-        # Reading THIS is what put every transition on clip 0.
-        "transitions": [{"transition_type": "fade_to_black",
-                         "cut_point_timeline": 10.0}],
-    }
-
-
-
-
-@pytest.mark.parametrize("ttype", FUSION_TYPES)
-def test_a_transition_becomes_real_nodes_in_the_comp(ttype):
-    tail = build_effect_comp(
-        {"tail_transition": ttype, "tail_transition_frames": 10,
-         "vignette": False}, 90, source_res=SOURCE_RES)
-    head = build_effect_comp(
-        {"head_transition": ttype, "head_transition_frames": 10,
-         "vignette": False}, 90, source_res=SOURCE_RES)
-    for comp in (tail, head):
-        assert "Tools = {" in comp
-        # More than just the MediaIn/MediaOut pair.
-        assert comp.count("= ") > 4, comp
-
-
-def test_an_undrawable_transition_in_the_manifest_raises():
-    with pytest.raises(ValueError, match="No Fusion transition builder"):
-        build_effect_comp(
-            {"tail_transition": "cross_dissolve",
-             "tail_transition_frames": 10, "vignette": False}, 90,
-            source_res=SOURCE_RES)
+def test_a_transition_becomes_real_nodes_in_the_comp():
+    for ttype in FUSION_TYPES:
+        for half in ("tail", "head"):
+            comp = build_effect_comp(
+                {f"{half}_transition": ttype, f"{half}_transition_frames": 10,
+                 "vignette": False}, 90, source_res=SOURCE_RES)
+            assert "Tools = {" in comp
+            # More than just the MediaIn/MediaOut pair.
+            assert comp.count("= ") > 4, (ttype, half, comp)
 
 
 # ── The QA station that never checked anything ──
@@ -194,6 +162,8 @@ class _FakeTimeline:
 
 def test_the_station_passes_when_both_clips_carry_a_comp():
     from library.tools.timeline_qa import verify_transitions
+    # No transitions planned is a pass.
+    assert verify_transitions(_FakeTimeline([]), None, []).passed
     timeline = _FakeTimeline([
         _FakeItem([]), _FakeItem(["Fusion Composition 1"]),
         _FakeItem(["Fusion Composition 1"]),
@@ -226,7 +196,3 @@ def test_the_station_fails_when_the_incoming_clip_does_not_exist():
         [{"type": "fade_to_black", "after_clip": 1, "duration_frames": 10}])
     assert not report.passed
 
-
-def test_no_transitions_planned_is_a_pass():
-    from library.tools.timeline_qa import verify_transitions
-    assert verify_transitions(_FakeTimeline([]), None, []).passed

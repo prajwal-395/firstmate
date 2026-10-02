@@ -1,10 +1,8 @@
 import pytest
-import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from library.tools.analysis.ocr_extractor import (
-    OCRExtractor, TextDetection, TrackedText, OCRResult, Track, bbox_iou
+    TextDetection, Track
 )
-import os
 
 @pytest.fixture
 def mock_easyocr():

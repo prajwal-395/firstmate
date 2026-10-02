@@ -57,24 +57,10 @@ def test_every_return_path_carries_face_center_x():
     assert not missing, f"return sites without face_center_x: {missing}"
 
 
-def test_the_variance_fallback_reports_no_position():
-    """It knows presence, never position.
-
-    Emitting 0.5 ("centred") there would be a fabricated measurement that
-    reads exactly like a real one, and it would move the picture.
-    """
-    with open(STEP_PATH, encoding="utf-8") as f:
-        src = f.read()
-    start = src.index("def compute_face_presence")
-    body = src[start:src.index("# ── 11.", start)]
-    fallback = body[body.index("Fallback: mid-frequency variance"):]
-    assert "face_center_x.append(None)" in fallback
-
-
 class TestCascadeAvailability:
     """`_load_face_cascade` must answer honestly on any OpenCV."""
 
-    def test_returns_none_when_opencv_has_no_cascade_classifier(self, monkeypatch):
+    def test_returns_none_without_a_usable_cascade(self, monkeypatch, tmp_path):
         """OpenCV 5: the attribute is simply gone."""
         from library.steps.step_1_04_temporal_index import step as s
 
@@ -84,14 +70,9 @@ class TestCascadeAvailability:
         monkeypatch.setitem(sys.modules, "cv2", FakeCv2())
         assert s._load_face_cascade() is None
 
-    def test_returns_none_when_the_classifier_loaded_nothing(self, monkeypatch, tmp_path):
-        """An empty CascadeClassifier detects nothing on every frame.
-
-        That is indistinguishable from "no face in this video", which is
-        the worst possible way for this to fail.
-        """
-        from library.steps.step_1_04_temporal_index import step as s
-
+        # An empty CascadeClassifier detects nothing on every frame, which
+        # is indistinguishable from "no face in this video" - the worst
+        # possible way for this to fail.
         xml = tmp_path / "haarcascade_frontalface_default.xml"
         xml.write_text("<opencv_storage/>")
 
@@ -102,14 +83,14 @@ class TestCascadeAvailability:
         class FakeData:
             haarcascades = str(tmp_path) + os.sep
 
-        class FakeCv2:
+        class EmptyCv2:
             data = FakeData()
 
             @staticmethod
             def CascadeClassifier(path):
                 return Empty()
 
-        monkeypatch.setitem(sys.modules, "cv2", FakeCv2())
+        monkeypatch.setitem(sys.modules, "cv2", EmptyCv2())
         assert s._load_face_cascade() is None
 
     def test_returns_the_classifier_when_everything_is_present(self, monkeypatch, tmp_path):

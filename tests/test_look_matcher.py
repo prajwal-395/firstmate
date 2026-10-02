@@ -5,8 +5,6 @@ from library.tools import look_matcher
 from library.tools.look_matcher import (
     LookMatchUnavailable,
     analyze_frame_colors,
-    compute_match_cdl,
-    clamp,
     match_clips_to_reference,
 )
 
@@ -33,11 +31,9 @@ class TestAnalyzeRefusesUnmeasurableFrames(unittest.TestCase):
         Image.new("RGB", (16, 16), (200, 20, 20)).save(path)
         return path
 
-    def test_missing_file_raises_rather_than_returning_neutral(self):
+    def test_missing_or_undecodable_file_raises_rather_than_returning_neutral(self):
         with self.assertRaises(Exception):
             analyze_frame_colors("/no/such/frame.png")
-
-    def test_undecodable_file_raises_rather_than_returning_neutral(self):
         with tempfile.TemporaryDirectory() as d:
             bad = os.path.join(d, "frame.png")
             with open(bad, "wb") as f:
@@ -62,13 +58,9 @@ class TestAnalyzeRefusesUnmeasurableFrames(unittest.TestCase):
                 f.write(b"not a frame either")
             with self.assertRaises(Exception):
                 match_clips_to_reference(ref, {"clip_001": bad})
-
-    def test_match_refuses_a_missing_clip_frame_path(self):
-        with tempfile.TemporaryDirectory() as d:
-            ref = self._red_square(d)
             missing = os.path.join(d, "never-extracted.png")
             with self.assertRaises(FileNotFoundError):
                 match_clips_to_reference(ref, {"clip_001": missing})
-        
+
 if __name__ == '__main__':
     unittest.main()

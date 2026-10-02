@@ -1,31 +1,9 @@
 """A re-plan must never leave a silent duplicate: two props files, one span.
 
-POLICY (leave-and-make-visible): when a re-plan writes a new hashed
-filename beside the old one - a plan entry that predates `card_index`
-grouping under a None key, a source span shifted past the millisecond
-the filename carries - the step LEAVES the old file and REPORTS the
-pair, so nobody reading two props files for one span mistakes the
-orphan for the live card.
-
-Retire-with-archive was the other honest shape, and it lost on the
-captain's standing rule: archive rather than delete, and a step that
-cannot archive what it is retiring STOPS instead of proceeding. At
-render time the step cannot prove the old file unreferenced -
-reachability needs the Resolve database copy plus the current step
-records and manifest, mid-write mid-pass, and the old generation may
-still be placed on a timeline the captain keeps - so auto-retire
-would either duplicate the whole mark/sweep apparatus inside the
-render path or turn a harmless leftover (disk and confusion, never a
-wrong render) into a refused caption pass. Retirement stays with
-`caption_asset_gc` mark + sweep (quarantine, never delete), which
-alone can prove the mate unplaced. The codebase already reads this
-way: `subtitle_coverage` positions a card by its PLACED record, never
-by the props' own stale `_timeline_start`.
-
-The surface under test is `ambiguous_span_pairs` (ledger-grouped,
-timeline-scoped) as reported by `_ambiguous_pairs_for_dir` and
-carried on the pass payload: the orphan is identifiable as the
-non-drawing mate WITHOUT opening either render.
+POLICY (leave-and-make-visible): the step LEAVES the old file and REPORTS
+the pair (`ambiguous_span_pairs`, ledger-grouped, timeline-scoped), so the
+orphan is identifiable as the non-drawing mate without opening either
+render. Why not retire-with-archive: `docs/evidence/superseded_props.md`.
 """
 import os
 import sys
@@ -125,7 +103,7 @@ def test_explained_pair_is_not_ambiguous(tmp_path):
     assert pairs == []
 
 
-def test_shared_file_is_not_a_pair():
+def test_sharing_and_cross_timeline_spans_are_not_pairs():
     """One file serving two placings is the sharing, not a duplicate."""
     entry = {"overlay_path": "/d/sub_a_b_1-2_aaaaaaaa.mov",
              "binding": {"timeline": "tl"},
@@ -133,12 +111,9 @@ def test_shared_file_is_not_a_pair():
              "superseded": []}
     twin = dict(entry, binding={"timeline": "tl", "block_position": 2})
     assert ambiguous_span_pairs([entry, twin], set()) == []
-
-
-def test_cross_timeline_same_span_is_not_a_pair():
-    """A master card and a reel card share absolute seconds legitimately:
-    the props carry no timeline, which is why this groups on the ledger
-    bindings instead of on a directory scan."""
+    # A master card and a reel card share absolute seconds legitimately:
+    # the props carry no timeline, which is why this groups on the ledger
+    # bindings instead of on a directory scan.
     master = {"overlay_path": "/d/sub_a_b_1-2_aaaaaaaa.mov",
               "binding": {"timeline": "master"},
               "timeline_start": 10.0, "timeline_end": 12.0,

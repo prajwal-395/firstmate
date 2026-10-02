@@ -64,14 +64,8 @@ def test_the_analysis_run_executes_no_edit_capability():
     with pytest.raises(footage_intelligence.RenRefusal):
         footage_intelligence.select(with_=["object_segmentation"])
 
-
-def test_analysis_is_ordered_by_requirements_not_by_a_dag():
-    """Defect: the analysis order read off the edit DAG's topology.
-
-    Composed from the capabilities' derived requires/effects, a selection
-    handed in any order comes out with every producer first.
-    """
-    from library.tools import footage_intelligence
+    # Ordered by the capabilities' derived requires/effects, not by the
+    # edit DAG's topology: a shuffled selection comes out producers first.
     shuffled = tuple(reversed(footage_intelligence.ROSTER))
     assert footage_intelligence.compose(shuffled)[:5] == (
         "footage.scan", "footage.catalog", "semantics.analyse",

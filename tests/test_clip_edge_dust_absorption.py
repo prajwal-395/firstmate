@@ -49,7 +49,7 @@ def _subfloor(ranges, clips):
             < FLOOR_FRAMES]
 
 
-def test_behind_dust_snaps_to_clip_start():
+def test_wordless_dust_snaps_to_the_clip_edge_both_ways():
     """The Reel 08 shape: clip starts 1 frame before the cut edge."""
     clips = [_clip(600.0, 614.697), _clip(614.697, 620.0)]
     transcript = _transcript([(612.0, 613.0, "kept"),
@@ -59,9 +59,7 @@ def test_behind_dust_snaps_to_clip_start():
     assert out == [(600.0, 614.697)]
     assert _subfloor(out, clips) == []
 
-
-def test_ahead_dust_snaps_to_clip_end():
-    """Mirror: clip ends just past the range start."""
+    # Mirror: clip ends just past the range start.
     clips = [_clip(600.0, 616.53), _clip(616.53, 622.0)]
     transcript = _transcript([(615.0, 616.0, "struck"),
                               (617.0, 618.0, "kept")])
@@ -71,7 +69,7 @@ def test_ahead_dust_snaps_to_clip_end():
     assert _subfloor(out, clips) == []
 
 
-def test_dust_carrying_speech_is_left_for_the_gate():
+def test_dust_carrying_speech_timed_or_not_is_left_for_the_gate():
     """Shrinking over a timed word would delete speech: refuse to snap."""
     clips = [_clip(600.0, 614.697), _clip(614.697, 620.0)]
     transcript = _transcript([(612.0, 613.0, "kept"),
@@ -81,10 +79,7 @@ def test_dust_carrying_speech_is_left_for_the_gate():
     assert out == [(600.0, 614.72)]
     assert len(_subfloor(out, clips)) == 1
 
-
-def test_untimed_text_row_blocks_the_snap():
-    """An untimed Mm-hmm is audible speech the timed scan cannot see."""
-    clips = [_clip(600.0, 614.697), _clip(614.697, 620.0)]
+    # An untimed Mm-hmm is audible speech the timed scan cannot see.
     transcript = {"segments": [{
         "speaker": "host", "text": "Mm-hmm.",
         "timeline_start": 613.64, "timeline_end": 614.71,

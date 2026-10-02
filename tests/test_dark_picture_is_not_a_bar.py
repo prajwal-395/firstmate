@@ -1,41 +1,10 @@
 """A dark picture is not a black bar, and a composition is not a conform.
 
-Both were found by running `measure_frame_occupancy` over the captain's
-craft reference - twenty minutes of finished documentary, correctly
-framed, filling its 2.39:1 frame for the whole of its runtime - which the
-gate failed by twenty times its own bound.
-
-1. **A graded shadow read as a bar.**  The walk asked whether a row was
-   DARK (`LIT_LUMA_THRESHOLD`, 12.0) and FLAT (`BAR_ROW_MAX_STD`, 2.0).
-   The variance half was supposed to carry the difference and cannot on
-   footage this dark: at 1121.0s a full-bleed concert shot has 363 rows
-   of dark ceiling measuring a row mean of 8.56 to 9.33 and a within-row
-   standard deviation of **0.88 to 1.97** - flat, because at 3840 columns
-   a graded shadow really is flat to within a luma level.  The gap
-   `BAR_ROW_MAX_STD` sits in was measured on 001's own footage (real bar
-   0.0-2.9, dark picture 3.95 and up) and it does not exist here.
-
-   A bar has a second property the walk never asked for: it carries **no
-   light at all**.  Real bars measure a maximum row mean of 0.000 at crf
-   18 and crf 23, 0.006 at crf 30, 0.000 with noise added and the picture
-   lanczos-scaled before the pad, and 0.14 on 001's shipped master -
-   three orders of magnitude below a shadow at 8.5.
-
-2. **A composition read as a conform.**  The reference presents archival
-   home video as a small rounded rectangle inside black, and runs a
-   three-panel split screen with black gutters.  Those bars are real
-   black and no predicate on a row can say otherwise - but fitting one
-   rectangle inside another leaves bars on ONE axis, never both, so a
-   picture inset in black on all four sides was never produced by a
-   conform and carries no geometry to read.
-
-Measured on the reference, sampled at 2 Hz: 478 of 2418 judged samples
-(19.8%) read as letterboxed before, giving a spread of 0.9994 against a
-bound of 0.05.  After: 2090 samples judged, median 1.0000, min 0.9577,
-**spread 0.0423**, 277 counted out as compositions and 74 as black.
-On 001's shipped master nothing moves in the direction that matters -
-framing 0 stays at 0.3167 on every one of its 81 samples and framing 1 at
-1.0 on all 33.
+A bar carries no light at all (`BAR_ROW_MAX_LUMA`), so a flat graded
+shadow is picture; a picture inset in black on all four sides is a
+composition, never a conform; a near-black fade carries no geometry.
+Measurements behind each bound:
+`docs/RULE_EVIDENCE.md#a-dark-picture-is-not-a-black-bar`.
 """
 
 import numpy as np
@@ -43,8 +12,6 @@ import pytest
 
 from library.tools import render_qa
 from library.tools.render_qa import (
-    BAR_ROW_MAX_LUMA,
-    BAR_ROW_MAX_STD,
     LIT_LUMA_THRESHOLD,
     _bar_rows,
     measure_frame_occupancy,
@@ -101,11 +68,6 @@ def _measure(frames, spans=None, **kwargs):
 
 
 # ── 1. a graded shadow is picture ──
-
-
-
-
-
 
 
 def test_darkness_alone_would_still_eat_the_shadow():

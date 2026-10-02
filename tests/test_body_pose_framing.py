@@ -1,12 +1,6 @@
 """Both speakers centred on body pose, bounded by the face - captain, 2026-10-01.
 
-`vep-the-captain-composes-left-of-centre`: the hand-edit taste scout
-(`data/vep-hand-edit-taste-scout/report.md` 2.3) measured that face-centring
-put Akshita off-centre on all 22 shots the captain held by hand, because she
-turns toward Craig and a face-centred crop pushes her body toward the frame
-edge. Offered a per-speaker default or one rule for both, he answered "i
-want both subjects to be framed in the center of the video" - so the aim
-below has no speaker branch, and these tests pin that it has none.
+See `docs/evidence/body_pose_framing.md` for the incident and invariant.
 """
 import os
 import sys
@@ -47,16 +41,6 @@ class TestAimCenterX:
         aim, basis = _aim_center_x(face_cx=0.52, face_width=0.20,
                                    body_cx=None)
         assert (aim, basis) == (0.52, "face")
-
-    def test_craig_with_a_body_measurement_also_moves(self):
-        # The captain never hand-moved a Craig shot, but the rule is not
-        # a per-speaker table: given the same inputs, Craig's aim moves
-        # exactly like Akshita's would.
-        aim, basis = _aim_center_x(face_cx=0.55, face_width=0.25,
-                                   body_cx=0.58)
-        assert basis == "body_pose"
-        assert aim == 0.58
-
 
 class TestBodyCentroid:
     def test_needs_the_minimum_landmark_count(self):

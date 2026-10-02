@@ -44,35 +44,22 @@ def _resolve(entries, block=None, dropped=None):
         dropped=dropped)
 
 
-def test_hold_frames_reaches_a_matching_timeline_item():
-    """42 stated frames resolve to an item whose whole span is 42 frames."""
-    (entry,) = _resolve([{
-        "target_block_position": 1, "effect_type": "freeze_frame",
-        "anchor": {"word": "quit"}, "hold_frames": 42,
-        "rationale": "stop time on the word"}],
-        block=_block(duration=42 / FPS, quit_at=0.0))
-    assert entry["effect_type"] == "freeze_frame"
-    assert entry["timeline_start"] == pytest.approx(0.0)
-    assert entry["timeline_end"] == pytest.approx(42 / FPS)
-    assert "holds" in entry.get("anchor_method", "")
-
-
-def test_hold_seconds():
-    (entry,) = _resolve([{
-        "target_block_position": 1, "effect_type": "freeze_frame",
-        "anchor": {"word": "quit"}, "hold_seconds": 1.0,
-        "rationale": "stop time"}],
-        block=_block(duration=1.0, quit_at=0.0))
-    assert entry["timeline_end"] == pytest.approx(1.0)
-
-
-def test_agreeing_seconds_and_frames_ship_the_frames():
-    (entry,) = _resolve([{
-        "target_block_position": 1, "effect_type": "freeze_frame",
-        "anchor": {"word": "quit"}, "hold_seconds": 1.4,
-        "hold_frames": 42, "rationale": "one number"}],
-        block=_block(duration=42 / FPS, quit_at=0.0))
-    assert entry["timeline_end"] == pytest.approx(42 / FPS)
+def test_the_hold_in_the_requesters_units_reaches_a_matching_item():
+    """42 stated frames resolve to an item whose whole span is 42 frames;
+    1.0 stated seconds to one second; agreeing seconds and frames ship the
+    frames."""
+    rows = [({"hold_frames": 42}, 42 / FPS),
+            ({"hold_seconds": 1.0}, 1.0),
+            ({"hold_seconds": 1.4, "hold_frames": 42}, 42 / FPS)]
+    for hold, duration in rows:
+        (entry,) = _resolve([dict({
+            "target_block_position": 1, "effect_type": "freeze_frame",
+            "anchor": {"word": "quit"}, "rationale": "stop time"}, **hold)],
+            block=_block(duration=duration, quit_at=0.0))
+        assert entry["effect_type"] == "freeze_frame"
+        assert entry["timeline_start"] == pytest.approx(0.0)
+        assert entry["timeline_end"] == pytest.approx(duration), hold
+        assert "holds" in entry.get("anchor_method", "")
 
 
 def test_sub_block_hold_is_reported_until_builder_can_split_the_item():

@@ -18,8 +18,6 @@ checkable without a browser is that the same declaration always produces
 the same props file, which is what makes the same card come out.
 """
 import copy
-import hashlib
-import json
 import os
 import sys
 
@@ -31,19 +29,14 @@ sys.path.insert(0, PROJECT_ROOT)
 from library.steps.step_2_05_mesh_spine.post_bridge import enrich_spine
 from library.tools.bookend_render import bookend_props
 from library.tools.bookends import (
-    BOOKEND_SLOTS,
     MAX_BOOKEND_SECONDS,
     BookendDeclarationError,
     InventedBookendBlock,
-    bookend_blocks,
-    bookend_render_path,
     bookend_spine_block,
     declared_bookends,
-    insert_bookend_blocks,
     resolve_bookend,
 )
 from library.tools.spine_contract import (
-    BOOKEND_BLOCK_TYPES,
     SpineContractError,
     validate_spine_blocks,
 )
@@ -78,11 +71,6 @@ def mock_resolve_project_asset(monkeypatch):
         return os.path.normpath(os.path.join(project_folder or "", declared_path))
     monkeypatch.setattr("library.tools.bookends.resolve_project_asset", fake_resolve)
 
-def _template(name):
-    from tests.brand_fixtures import ALL_SYNTHETIC
-    return dict(ALL_SYNTHETIC[name])
-
-
 # ─────────────────────────────────────────────────────────
 # The declaration
 # ─────────────────────────────────────────────────────────
@@ -103,8 +91,6 @@ def test_an_asset_declaration_normalises():
     assert decl["duration_seconds"] == 5.0
     # A card is silent unless the template says otherwise.
     assert decl["has_audio"] is False
-
-
 
 
 def test_slots_are_emitted_head_then_tail():
@@ -138,14 +124,6 @@ def test_a_malformed_declaration_raises(bad, fragment):
     assert fragment in str(exc.value)
 
 
-def test_an_engine_composition_needs_no_source():
-    (decl,) = declared_bookends({"bookends": {
-        "end_card": {"composition": "TimedTextOverlay", "duration_seconds": 4},
-    }})
-    assert decl["composition"] == "TimedTextOverlay"
-    assert decl["source"] == ""
-
-
 # ─────────────────────────────────────────────────────────
 # Path resolution
 # ─────────────────────────────────────────────────────────
@@ -155,10 +133,6 @@ def test_an_asset_path_resolves_against_the_project():
     resolved = resolve_bookend(decl, "/projects/example")
     assert resolved["asset_path"] == "/projects/example/assets/end_card.mov"
     assert resolved["source_path"] == ""
-
-
-
-
 
 
 # ─────────────────────────────────────────────────────────
@@ -214,8 +188,6 @@ def _enriched(brand_content, project_folder="/projects/example"):
     )["audio_spine"]
 
 
-
-
 def test_a_declared_end_card_becomes_a_tail_block():
     spine = _enriched(END_CARD_DECLARATION)
     structure = spine["structure"]
@@ -229,6 +201,9 @@ def test_a_declared_end_card_becomes_a_tail_block():
     assert card["timeline_end"] == card["timeline_start"] + 5.0
     assert spine["total_estimated_duration_seconds"] == pytest.approx(
         structure[-1]["timeline_end"])
+    # 7.0s of speech against a 6.3-7.7s zone: the spine validated only
+    # because the fixed 5s brand card is not charged against the target.
+    assert spine["total_estimated_duration_seconds"] == pytest.approx(12.0)
 
 
 def test_a_declared_intro_shifts_the_whole_edit():
@@ -266,8 +241,6 @@ def test_a_card_the_llm_invented_refuses_the_step():
     assert "'end_card'" in str(exc.value)
 
 
-
-
 def test_a_breath_of_music_is_not_a_card_and_is_kept():
     """`intro` and `outro` are the plan's own non-speech beats.
 
@@ -289,31 +262,6 @@ def test_a_breath_of_music_is_not_a_card_and_is_kept():
     assert [b["block_type"] for b in structure] == ["hook", "intro", "speech"]
 
 
-
-
-def test_a_card_does_not_spend_the_duration_target():
-    """A fixed brand card must not fail a spine that hit its target.
-
-    The zone measures the content the spine planned; the card is not
-    something it chose.
-    """
-    data = {
-        "brand_content": END_CARD_DECLARATION,
-        "project_folder": "/projects/example",
-        # 7.0s of speech against a zone of 6.3-7.7s: the spine hit its
-        # target exactly, and the 5s card would blow through the ceiling
-        # if it were charged against it.
-        "project_config": SPEECH_ONLY_TARGET,
-    }
-    spine = enrich_spine(
-        _speech_spine(), _speech_sequence(), {}, data)["audio_spine"]
-    # The card is on the timeline...
-    assert spine["total_estimated_duration_seconds"] == pytest.approx(12.0)
-    # ...and the spine still validated, which it could not have done if
-    # the card's 5s counted against an 8s ceiling.
-    assert len(bookend_blocks(spine["structure"])) == 1
-
-
 # ─────────────────────────────────────────────────────────
 # The spine contract
 # ─────────────────────────────────────────────────────────
@@ -326,28 +274,18 @@ def _valid_card_block():
     return block
 
 
-
-
-def test_the_contract_rejects_a_card_with_no_declaration():
-    """A card block with nothing behind it is a hole wearing a name."""
+@pytest.mark.parametrize("change, fragment", [
+    # A card block with nothing behind it is a hole wearing a name.
+    ({"content": {}}, "carries no content.bookend"),
+    ({"intentional_black_beat": True,
+      "black_beat_reason": "hold before the reveal"}, "cannot both be true"),
+])
+def test_the_contract_rejects_a_malformed_card_block(change, fragment):
     block = _valid_card_block()
-    block["content"] = {}
+    block.update(change)
     with pytest.raises(SpineContractError) as exc:
         validate_spine_blocks([block])
-    assert "carries no content.bookend" in str(exc.value)
-
-
-
-
-def test_a_card_cannot_also_be_a_black_beat():
-    block = _valid_card_block()
-    block["intentional_black_beat"] = True
-    block["black_beat_reason"] = "hold before the reveal"
-    with pytest.raises(SpineContractError) as exc:
-        validate_spine_blocks([block])
-    assert "cannot both be true" in str(exc.value)
-
-
+    assert fragment in str(exc.value)
 
 
 # ─────────────────────────────────────────────────────────
@@ -410,6 +348,10 @@ def _compile(inputs):
 
 
 def test_a_declared_end_card_is_in_the_assembly_manifest(tmp_path):
+    from library.steps.step_5_04_compile_manifest.step import (
+        _assert_timeline_fully_covered,
+    )
+    from library.tools.manifest_validator import validate_manifest
     card_file = tmp_path / "end_card.mov"
     (decl,) = declared_bookends({"bookends": {
         "end_card": {"asset": str(card_file), "duration_seconds": 5.0}}})
@@ -437,57 +379,19 @@ def test_a_declared_end_card_is_in_the_assembly_manifest(tmp_path):
     assert all(not c.get("bookend") for c in manifest["tracks"]["A1"]["clips"])
     # The card is part of the video's length, so render QA can see it.
     assert manifest["project"]["duration_seconds"] == pytest.approx(6.882)
+    # Whole seconds are what a correct card looks like, not a fabricated
+    # source range.
+    assert validate_manifest(manifest) == []
 
-
-
-
-def test_the_card_is_inside_the_coverage_assertion(tmp_path):
-    """The compile fails if the card's stretch has no clip under it.
-
-    This is the check that makes the manifest route worth having: the
-    retired import_endcard.py appended a card AFTER compilation, so no
-    gate ever saw the seconds it added.
-    """
-    from library.steps.step_5_04_compile_manifest.step import (
-        _assert_timeline_fully_covered,
-    )
-    card_file = tmp_path / "end_card.mov"
-    (decl,) = declared_bookends({"bookends": {
-        "end_card": {"asset": str(card_file), "duration_seconds": 5.0}}})
-    card = bookend_spine_block(resolve_bookend(decl, str(tmp_path)))
-    card["timeline_start"] = 1.882
-    card["timeline_end"] = 6.882
-    card["timeline_start_frame"] = 56
-    card["timeline_end_frame"] = 206
-
-    manifest = _compile(_compile_inputs(
-        tmp_path, [_speech_block(), card], extra_files=[card_file]))
-
-    # Take the card's clip away and the same manifest no longer covers
-    # its own timeline.
+    # The card is inside the coverage assertion (the retired
+    # import_endcard.py appended it after compilation, past every gate):
+    # take its clip away and the manifest no longer covers its timeline.
     stripped = copy.deepcopy(manifest)
     stripped["tracks"]["V1"]["clips"] = [
         c for c in stripped["tracks"]["V1"]["clips"] if not c.get("bookend")]
     with pytest.raises(ValueError) as exc:
         _assert_timeline_fully_covered(stripped)
     assert "render as black frames" in str(exc.value)
-
-
-def test_a_card_is_not_a_fabricated_source_range(tmp_path):
-    """Whole seconds are what a correct card looks like."""
-    from library.tools.manifest_validator import validate_manifest
-    card_file = tmp_path / "end_card.mov"
-    (decl,) = declared_bookends({"bookends": {
-        "end_card": {"asset": str(card_file), "duration_seconds": 5.0}}})
-    card = bookend_spine_block(resolve_bookend(decl, str(tmp_path)))
-    card["timeline_start"] = 1.882
-    card["timeline_end"] = 6.882
-    card["timeline_start_frame"] = 56
-    card["timeline_end_frame"] = 206
-
-    manifest = _compile(_compile_inputs(
-        tmp_path, [_speech_block(), card], extra_files=[card_file]))
-    assert validate_manifest(manifest) == []
 
 
 def test_broll_may_not_be_laid_over_a_card():
@@ -535,15 +439,6 @@ def test_the_house_film_look_is_not_painted_over_a_card(tmp_path):
 # Determinism: same declaration, same card
 # ─────────────────────────────────────────────────────────
 
-def _props_digest(decl):
-    resolved = resolve_bookend(decl, "/projects/example")
-    payload = json.dumps(
-        bookend_props(resolved, 30, 1080, 1920), indent=2, sort_keys=True)
-    return hashlib.md5(payload.encode("utf-8")).hexdigest()
-
-
-
-
 def test_declared_props_survive_and_frame_geometry_is_added():
     (decl,) = declared_bookends(COMPOSITION_DECLARATION)
     props = bookend_props(resolve_bookend(decl, "/p"), 30, 1080, 1920)
@@ -553,10 +448,6 @@ def test_declared_props_survive_and_frame_geometry_is_added():
         "accentColor": "#E8A33D", "durationInFrames": 90,
         "fps": 30, "width": 1080, "height": 1920,
     }
-
-
-
-
 
 
 # ─────────────────────────────────────────────────────────
@@ -576,26 +467,6 @@ def test_only_the_client_template_declares_a_card():
         if declared_bookends(template.get("content") or {}):
             declaring.add(name)
     assert declaring == {"synthetic_client"}
-
-
-def test_the_client_template_declares_the_kept_compositions():
-    """Premade cards, kept and usable: the mechanism is general, and the
-    compositions live with the project that owns them, not in the engine."""
-    slots = {d["slot"]: d for d in
-             declared_bookends(_template("synthetic_client")["content"])}
-    assert set(slots) == {"intro", "end_card"}
-    assert slots["intro"]["composition"] == "ExampleIntro"
-    assert slots["end_card"]["composition"] == "ExampleEndCard"
-    # The compositions live with the client's project, not in the engine.
-    for decl in slots.values():
-        assert decl["source"].startswith("compositions/")
-        assert not os.path.isabs(decl["source"])
-
-
-
-
-
-
 
 
 # ─────────────────────────────────────────────────────────
@@ -626,22 +497,6 @@ def _engine_structure(tmp_path):
                 for d in declared_bookends(ENGINE_DECLARATION)]
     assert all(r["source_path"] == "" for r in resolved)
     return [bookend_spine_block(r) for r in resolved]
-
-
-def _fake_batch_success(seen):
-    def fake_batch(jobs, **kwargs):
-        seen["calls"] = seen.get("calls", 0) + 1
-        seen["composition"] = kwargs.get("composition")
-        seen.setdefault("jobs", []).extend(jobs)
-        results = []
-        for job in jobs:
-            with open(job.out_path, "wb") as handle:
-                handle.write(b"not empty")
-            results.append({"ok": True, "out": job.out_path})
-        return results
-    return fake_batch
-
-
 
 
 def test_a_failed_engine_bookend_raises_by_slot(monkeypatch, tmp_path):

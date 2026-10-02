@@ -1,24 +1,6 @@
-"""Finding 16 + the finding-32 retry: transitions ride their own track.
-
-Finding 16: a native transition "into" V2 b-roll landed where the V1
-clip underneath ended, not at the b-roll edge it was planned into
-(scout TR2.2 B2: the fallback slide sits at V1 854-860, where the
-b-roll ENDS, not where it begins). Native transitions only went on V1:
-`compile_manifest` seated every native row by `_v1_index_ending_at`
-and the applicator indexed into the V1 items alone.
-
-The fix seats a native row on V1 first (every existing placement is
-unchanged) and then on the V2 pair abutting the planned cut - the
-transition draws at the edge of the clip it was planned into, on that
-clip's track. Where neither track carries the cut, the row still
-downgrades to the recorded hard cut (finding 32), now stamped on the
-per-item row itself.
-
-The finding-32 retry (added after PR 1397, same shape as its finding-34
-handling): a transition 4.02 can already see carries nowhere goes back
-to the planner through `post_bridge_retry` on the first pass, so the
-model can re-place it; only when the retry still cannot place it does
-the hard-cut fallback ship, surfaced on the row.
+"""Transitions ride their own track (finding 16), and an unplaceable one
+goes back to the planner before the surfaced hard-cut fallback ships
+(finding 32). History: `docs/evidence/transition_own_track.md`.
 """
 import copy
 import json
@@ -310,19 +292,17 @@ def test_unplaceable_drawn_transition_first_pass_goes_back_to_the_model():
     """Finding 32's B6 shape at plan time: a drawn defocus out of a
     transition slot carries on no V1 cut. First pass raises, naming
     the boundary and the basis, so post_bridge_retry re-asks."""
+    with pytest.raises(ValueError, match="re-placed onto a cut") as exc:
+        _resolve([{"cut_point_position": 3, "type": "defocus",
+                   "duration_feel": "medium", "rationale": "x"}],
+                 attempt=1, v2=[])
+    assert "transition_slot" in str(exc.value)
+    assert "3" in str(exc.value)
+    # Native, no V1 cut through the slot boundary, no V2 pair: the same.
     with pytest.raises(ValueError, match="re-placed onto a cut"):
-        _resolve([{"cut_point_position": 3, "type": "defocus",
+        _resolve([{"cut_point_position": 3, "type": "cross_dissolve",
                    "duration_feel": "medium", "rationale": "x"}],
                  attempt=1, v2=[])
-    try:
-        _resolve([{"cut_point_position": 3, "type": "defocus",
-                   "duration_feel": "medium", "rationale": "x"}],
-                 attempt=1, v2=[])
-    except ValueError as exc:
-        assert "transition_slot" in str(exc)
-        assert "3" in str(exc)
-    else:  # pragma: no cover - the match above already asserted
-        raise AssertionError("did not raise")
 
 
 def test_unplaceable_transition_later_pass_ships_a_surfaced_hard_cut():
@@ -352,21 +332,9 @@ def test_placeable_transition_needs_no_retry():
                       "duration_feel": "medium", "rationale": "x"}],
                     attempt=1, v2=[], spine=_spine_speech_pair())
     assert rows and rows[0]["transition_type"] == "defocus"
-
-
-def test_native_transition_on_a_v2_pair_needs_no_retry():
-    """A native dissolve where two b-roll clips abut carries on V2 -
-    no retry, no fallback."""
+    # A native dissolve where two b-roll clips abut carries on V2.
     rows = _resolve([{"cut_point_position": 3, "type": "cross_dissolve",
                       "duration_feel": "medium", "rationale": "x"}],
                     attempt=1, v2=[(2.0, 4.185), (4.185, 6.0)])
     assert rows and rows[0]["transition_type"] == "cross_dissolve"
 
-
-def test_native_transition_with_no_pair_first_pass_raises():
-    """Native, no V1 cut through the slot boundary, no V2 pair: back
-    to the model."""
-    with pytest.raises(ValueError, match="re-placed onto a cut"):
-        _resolve([{"cut_point_position": 3, "type": "cross_dissolve",
-                   "duration_feel": "medium", "rationale": "x"}],
-                 attempt=1, v2=[])

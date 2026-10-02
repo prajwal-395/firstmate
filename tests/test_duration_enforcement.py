@@ -1,19 +1,9 @@
 """Tests for duration enforcement in review_rough_cut and creative_cohesion.
 
-The zone is the PROJECT's declaration, and there is no longer a fallback.
-`get_target_duration_zone` used to answer `(54.0, 60.0, 66.0)` whenever
-nothing declared a target - and nothing ever did, because no state key
-and no DAG edge carried `project_config` to any step.  So the captain's
-own `target_duration_seconds: 60` in project 001's project.yaml governed
-nothing, and every one of these gates ran against a minute the pipeline
-made up.  `load_pipeline_state` now reads the declaration and the runner
-broadcasts it; with nothing declared, a gate reports that it did not
-check rather than judging the cut against an invented length.
-
-`DECLARES_60` below is 001's own declaration.
+The duration zone is the PROJECT's declaration; with nothing declared a gate
+reports that it did not check rather than judging an invented length.
+History: `docs/evidence/duration_enforcement.md`.
 """
-import json
-import pytest
 
 from library.steps.step_3_03_review_rough_cut.step import (
     check_total_duration,
@@ -31,15 +21,12 @@ DECLARES_60 = {"project_config": {"target_duration_seconds": 60}}
 class TestCheckTotalDuration:
     """check_total_duration hard-fails when duration is outside target zone."""
 
-    def test_within_target_passes(self):
-        """60s actual vs 60s target = passes."""
+    def test_the_declared_zone_passes_60_and_fails_67(self):
+        """60s target: the zone is 54-66s."""
         a_rolls = [{"timeline_start": 0, "timeline_end": 60}]
         result = check_total_duration(a_rolls, {}, DECLARES_60)
         assert result["passed"] is True
         assert result["actual_duration_seconds"] == 60.0
-
-    def test_over_threshold_fails(self):
-        """67s actual vs 60s target (max is 66), should fail."""
         a_rolls = [{"timeline_start": 0, "timeline_end": 67}]
         result = check_total_duration(a_rolls, {}, DECLARES_60)
         assert result["passed"] is False

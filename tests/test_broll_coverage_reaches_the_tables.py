@@ -1,29 +1,13 @@
 """The B-roll rows of two candidate tables said nothing was measurable.
 
-Step 4.03's and step 4.04's pre-bridges build one row per spine block and
-both read `block.get("clip_id")` off the SPINE. A `transition_slot` has
-none, so both wrote **`not measured (no source clip)`** on every
-non-speech block - 5 of 13 rows on project 001, 38% of each table, and
-precisely the rows where a cutaway effect or a whoosh would go. The
-covering clip is named in `b_roll_assignments`, 4,394 bytes, in the same
-prompt.
-
-The two tables want different things from that clip and get different
-answers, which is the point:
-
-- **4.03 gets a measurement.** A cutaway has a real camera description,
-  so the row now reads `3.0s, stationary, stable, B-roll cutaway
-  clip_001` where it read `not measured (no source clip)`.
-- **4.04 gets an admitted absence with a reason.** A cutaway is placed
-  `video_only`, so its own audio is never heard and there are no
-  transients to count: `covered by clip_001, video only - the cutaway's
-  own audio is never heard`.
+A transition_slot's covering cutaway is measured in 4.03's table and admitted
+as unheard (video_only) in 4.04's - never `not measured (no source clip)`.
+History: `docs/evidence/broll_coverage.md`.
 """
 
 import importlib.util
 from pathlib import Path
 
-import pytest
 
 from library.tools.broll_coverage import (
     VIDEO_ONLY_AUDIO_READING,
@@ -89,8 +73,6 @@ def test_coverage_by_block_keys_on_the_identifier_the_answer_names():
     assert picture_clip_id(SPINE["structure"][0], coverage) == "clip_011"
 
 
-
-
 def test_the_vfx_table_measures_the_cutaway_it_will_show():
     rows = _bridge("step_4_03_plan_vfx").build_vfx_candidates({
         "timed_spine": SPINE, "b_roll_assignments": BROLL,
@@ -103,19 +85,7 @@ def test_the_vfx_table_measures_the_cutaway_it_will_show():
     assert "B-roll cutaway clip_001" in broll_row["vfx_suggested"]
 
 
-
-
-def test_the_sfx_table_names_the_cutaway_and_says_its_audio_is_not_heard():
-    rows = _bridge("step_4_04_plan_sfx").build_sfx_candidates({
-        "timed_spine": SPINE, "b_roll_assignments": BROLL,
-        "temporal_event_indices": [],
-    })
-    broll_row = next(r for r in rows if r["segment_id"] == 1)
-    assert broll_row["action_sfx_suggested"] == (
-        f"covered by clip_001, {VIDEO_ONLY_AUDIO_READING}")
-
-
-def test_the_sfx_table_does_not_count_transients_a_viewer_cannot_hear():
+def test_the_sfx_table_names_the_cutaway_and_counts_no_unheard_transients():
     """The cutaway's own audio never plays, so its transients are not it."""
     rows = _bridge("step_4_04_plan_sfx").build_sfx_candidates({
         "timed_spine": SPINE, "b_roll_assignments": BROLL,
@@ -124,4 +94,6 @@ def test_the_sfx_table_does_not_count_transients_a_viewer_cannot_hear():
              "energy_curve": {"peak_times": [0.4, 1.1, 2.2]}}],
     })
     broll_row = next(r for r in rows if r["segment_id"] == 1)
+    assert broll_row["action_sfx_suggested"] == (
+        f"covered by clip_001, {VIDEO_ONLY_AUDIO_READING}")
     assert "transient" not in broll_row["action_sfx_suggested"]

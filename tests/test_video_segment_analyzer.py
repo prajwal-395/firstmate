@@ -1,76 +1,28 @@
-import json
-import os
+"""`video_segment_analyzer analyze --cleanup` deletes the analysed video,
+and without the flag the footage is left exactly where it was."""
 import sys
-import tempfile
-import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-# library/tools is on sys.path via tests/conftest.py, which owns every
-# non-root entry so collection order cannot change what a bare name
-# binds to; the sibling imports below reach it by absolute package path.
-from library.tools import video_segment_analyzer  # noqa: E402
-from library.tools.vision_model import VisionModel  # noqa: E402
+from library.tools import video_segment_analyzer
 
 
-class TestVideoSegmentAnalyzer(unittest.TestCase):
-    
-    def setUp(self):
-        # Create a temporary dummy video file
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.dummy_video = os.path.join(self.temp_dir.name, "dummy.mp4")
-        with open(self.dummy_video, "w") as f:
-            f.write("dummy content")
-
-    def tearDown(self):
-        self.temp_dir.cleanup()
-
-
-    # Patched on `library.tools.render_qa`, not on the bare `render_qa`:
-    # the analyzer used to import its siblings by bare name, which binds a
-    # SECOND copy of the 2,300-line render_qa module under its own
-    # sys.modules key. Patching one left the other untouched.
-
-    @patch('library.tools.video_segment_analyzer.run_analysis')
-    def test_cli_cleanup(self, mock_run_analysis):
-        # Ensure dummy video exists
-        self.assertTrue(os.path.exists(self.dummy_video))
-        
-        mock_run_analysis.return_value = {"status": "ok"}
-        
-        # Simulate CLI execution with --cleanup
-        test_args = ["video_segment_analyzer.py", "analyze", "--video", self.dummy_video, "--cleanup"]
-        with patch.object(sys, 'argv', test_args):
-            # Capture stdout to avoid cluttering test output
-            with patch('sys.stdout', new=MagicMock()):
-                try:
-                    video_segment_analyzer.main()
-                except SystemExit:
-                    pass
-                
-        # Verify video was deleted
-        self.assertFalse(os.path.exists(self.dummy_video))
-
-    @patch('library.tools.video_segment_analyzer.run_analysis')
-    def test_cli_no_cleanup(self, mock_run_analysis):
-        # Ensure dummy video exists
-        self.assertTrue(os.path.exists(self.dummy_video))
-        
-        mock_run_analysis.return_value = {"status": "ok"}
-        
-        # Simulate CLI execution without --cleanup
-        test_args = ["video_segment_analyzer.py", "analyze", "--video", self.dummy_video]
-        with patch.object(sys, 'argv', test_args):
-            # Capture stdout to avoid cluttering test output
-            with patch('sys.stdout', new=MagicMock()):
-                try:
-                    video_segment_analyzer.main()
-                except SystemExit:
-                    pass
-                
-        # Verify video was NOT deleted
-        self.assertTrue(os.path.exists(self.dummy_video))
+def _run(video, *flags):
+    argv = ["video_segment_analyzer.py", "analyze", "--video", str(video),
+            *flags]
+    with patch("library.tools.video_segment_analyzer.run_analysis",
+               return_value={"status": "ok"}), \
+            patch.object(sys, "argv", argv), \
+            patch("sys.stdout", new=MagicMock()):
+        try:
+            video_segment_analyzer.main()
+        except SystemExit:
+            pass
 
 
-
-if __name__ == '__main__':
-    unittest.main()
+def test_only_cleanup_deletes_the_video(tmp_path):
+    video = tmp_path / "dummy.mp4"
+    video.write_text("dummy content")
+    _run(video)
+    assert video.exists(), "without --cleanup the footage must survive"
+    _run(video, "--cleanup")
+    assert not video.exists()

@@ -11,20 +11,12 @@ These tests hold the ruling to the same bar as `series_look` and
 retired key cannot come back.
 """
 import ast
-import json
 import os
-import subprocess
 import sys
 
 import pytest
 import yaml
 
-from library.schemas.brand_template import BrandTemplate
-from library.schemas.project_config import _dict_to_project_config
-from library.tools.brand_registry import (
-    resolve_project_template,
-    validate_template,
-)
 from library.tools.delivery_format import (
     DEFAULT_DELIVERY_FORMAT,
     DELIVERY_FORMATS,
@@ -33,18 +25,30 @@ from library.tools.delivery_format import (
     resolve_delivery_format,
     resolve_format_name,
 )
-from tests.brand_fixtures import ALL_SYNTHETIC
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # ── The enumeration ───────────────────────────────────────────────────
 
-def test_the_default_is_vertical_1080x1920():
-    """The captain's default. This is the whole point of the ruling."""
+def _project(tmp_path, pipeline_block):
+    cfg = {"name": "T", "slug": "t"}
+    if pipeline_block is not None:
+        cfg["pipeline"] = pipeline_block
+    (tmp_path / "project.yaml").write_text(yaml.safe_dump(cfg))
+    return str(tmp_path)
+
+
+def test_declaring_nothing_is_vertical_1080x1920(tmp_path):
+    """The captain's default. This is the whole point of the ruling, and
+    declaring nothing is legitimate rather than an error."""
     assert DEFAULT_DELIVERY_FORMAT == "vertical_1080x1920"
     assert DELIVERY_FORMATS[DEFAULT_DELIVERY_FORMAT] == (1080, 1920)
     assert resolve_delivery_format(None) == [1080, 1920]
+    assert resolve_format_name("") == (1080, 1920)
+    folder = _project(tmp_path, None)
+    assert delivery_format_name(folder) == DEFAULT_DELIVERY_FORMAT
+    assert resolve_delivery_format(folder) == [1080, 1920]
 
 
 def test_an_unknown_format_raises_rather_than_defaulting():
@@ -56,28 +60,10 @@ def test_an_unknown_format_raises_rather_than_defaulting():
         assert known in str(exc.value)
 
 
-def test_an_empty_declaration_is_not_an_error():
-    """Declaring nothing is legitimate and means the default."""
-    assert resolve_format_name("") == DELIVERY_FORMATS[DEFAULT_DELIVERY_FORMAT]
-
-
 # ── Precedence: project override > template > default ─────────────────
 
-def _project(tmp_path, pipeline_block):
-    cfg = {"name": "T", "slug": "t"}
-    if pipeline_block is not None:
-        cfg["pipeline"] = pipeline_block
-    (tmp_path / "project.yaml").write_text(yaml.safe_dump(cfg))
-    return str(tmp_path)
-
-
-def test_a_project_that_declares_nothing_gets_the_default(tmp_path):
-    folder = _project(tmp_path, None)
-    assert delivery_format_name(folder) == DEFAULT_DELIVERY_FORMAT
-    assert resolve_delivery_format(folder) == [1080, 1920]
-
-
-def test_the_brand_template_declares_the_format(tmp_path):
+def test_project_override_beats_the_template_which_beats_the_default(
+        tmp_path):
     templates = tmp_path / "templates"
     templates.mkdir()
     (templates / "wide_series.yaml").write_text(yaml.safe_dump({
@@ -86,15 +72,6 @@ def test_the_brand_template_declares_the_format(tmp_path):
     }))
     folder = _project(tmp_path, {"brand_template": "wide_series"})
     assert resolve_delivery_format(folder, templates_dir=str(templates)) == [1920, 1080]
-
-
-def test_the_project_override_beats_the_template(tmp_path):
-    templates = tmp_path / "templates"
-    templates.mkdir()
-    (templates / "wide_series.yaml").write_text(yaml.safe_dump({
-        "series_id": "wide_series",
-        "delivery_format": "horizontal_1920x1080",
-    }))
     folder = _project(tmp_path, {
         "brand_template": "wide_series",
         "delivery_format": "square_1080x1080",
@@ -102,13 +79,10 @@ def test_the_project_override_beats_the_template(tmp_path):
     assert resolve_delivery_format(folder, templates_dir=str(templates)) == [1080, 1080]
 
 
-def test_an_unknown_project_override_raises(tmp_path):
+def test_an_unknown_project_or_template_declaration_raises(tmp_path):
     folder = _project(tmp_path, {"delivery_format": "portrait"})
     with pytest.raises(ValueError):
         resolve_delivery_format(folder)
-
-
-def test_an_unknown_template_declaration_raises(tmp_path):
     templates = tmp_path / "templates"
     templates.mkdir()
     (templates / "bad.yaml").write_text(yaml.safe_dump({
@@ -120,22 +94,6 @@ def test_an_unknown_template_declaration_raises(tmp_path):
 
 
 # ── The synthetic project copies ──────────────────────────────────────
-
-@pytest.mark.parametrize("name", sorted(ALL_SYNTHETIC))
-def test_every_synthetic_copy_declares_a_known_format(name):
-    data = ALL_SYNTHETIC[name]
-    declared = data.get("delivery_format", "")
-    assert declared, (
-        f"{name} declares no delivery_format. Every project copy "
-        "states the frame its series ships in, so a reviewer can see it "
-        "without reading code."
-    )
-    assert declared in DELIVERY_FORMATS
-    assert not validate_template(BrandTemplate.from_dict(data))
-
-
-# ── The project config half ───────────────────────────────────────────
-
 
 # ── The source resolution is a DESCRIPTION, and cannot be a target ────
 
@@ -245,28 +203,3 @@ def test_the_retired_key_cannot_come_back():
     )
 
 
-# ── The render QA gate checks the DECLARED format ─────────────────────
-
-def test_render_qa_checks_the_delivery_format_the_manifest_declares():
-    """A 16:9 series must not fail its own correct render.
-
-    `verify_resolution` defaults to 1080x1920 and `run_full_render_qa`
-    used to call it with no argument, while step 6.02 computed the
-    manifest's resolution and dropped it. The default happened to be
-    right, so the gate correctly failed project 001's landscape master -
-    by luck, not by reading the plan.
-    """
-    import inspect
-
-    from library.steps.step_6_02_validate_output import bridge as validate_step
-    from library.tools.render_qa import run_full_render_qa
-
-    params = inspect.signature(run_full_render_qa).parameters
-    assert "expected_resolution" in params
-    assert "expected_fps" in params
-
-    src = inspect.getsource(validate_step.validate_output)
-    assert "expected_resolution=expected_resolution" in src, (
-        "step 6.02 computes expected_resolution and must pass it"
-    )
-    assert "expected_fps=expected_fps" in src

@@ -108,7 +108,9 @@ def test_the_vignette_mask_is_rasterised_at_the_source_frame():
 # ── 2. Every declared magnitude reaches the tool that draws it ───────────
 
 
-@pytest.mark.parametrize("node,key,expected", [
+MAGNITUDES = [
+    # `1.0 + contrast` was eight times the declared grade; Fusion's own
+    # neutral is 0.0, so the declared 0.12 must arrive as 0.12.
     ("BrightnessContrast1", "Contrast", "0.12"),
     ("SoftGlow1", "Gain", "0.2"),
     ("SoftGlow1", "Threshold", "0.72"),
@@ -117,21 +119,14 @@ def test_the_vignette_mask_is_rasterised_at_the_source_frame():
     ("FilmGrain1", "MasterXSize", "1.5"),
     ("Merge1", "Blend", "0.35"),
     ("Ellipse1", "SoftEdge", "0.3"),
-])
-def test_each_declared_magnitude_arrives_unchanged(node, key, expected):
+]
+
+
+def test_each_declared_magnitude_arrives_unchanged():
     comp = build_effect_comp(dict(resolve_look(CHOSEN).fusion()), CLIP_DUR,
                              source_res=SOURCE_RES)
-    assert _value(comp, node, key) == expected
-
-
-def test_contrast_is_not_translated_on_its_way_to_the_tool():
-    """`1.0 + contrast` was eight times the declared grade. Fusion's own
-    neutral is 0.0: `Contrast = 0.0` renders byte-identical to having no
-    BrightnessContrast node at all."""
-    comp = build_effect_comp({"grade_contrast": 0.12}, CLIP_DUR,
-                             source_res=SOURCE_RES)
-    assert _value(comp, "BrightnessContrast1", "Contrast") == "0.12"
-    assert "1.12" not in comp
+    for node, key, expected in MAGNITUDES:
+        assert _value(comp, node, key) == expected, (node, key)
 
 
 def test_a_neutral_contrast_draws_no_node_at_all():
@@ -142,7 +137,7 @@ def test_a_neutral_contrast_draws_no_node_at_all():
 # ── 3. An armed effect with no strength is REFUSED, never completed ──────
 
 
-@pytest.mark.parametrize("effects,missing", [
+UNDECLARED = [
     ({"glow_gain": 0.2}, "glow_threshold"),
     ({"glow_gain": 0.2, "glow_threshold": 0.72}, "glow_size"),
     ({"film_grain": True}, "film_grain_power"),
@@ -150,15 +145,18 @@ def test_a_neutral_contrast_draws_no_node_at_all():
     ({"vignette": True}, "vignette_soft"),
     ({"vignette": True, "vignette_soft": 0.3}, "vignette_blend"),
     ({"defocus": True}, "defocus_size"),
-])
-def test_an_armed_effect_with_no_strength_is_refused(effects, missing):
+]
+
+
+def test_an_armed_effect_with_no_strength_is_refused():
     """AGENTS.md 10.5: how strong a glow is belongs to whoever declares
     it. Every one of these was a live `.get(key, <number>)` in
     `comp_builder` - the look catalogue this engine says it removed,
     still shipping through a different door."""
-    with pytest.raises(UndeclaredEffectStrength, match=missing):
-        build_effect_comp(dict(effects), CLIP_DUR,
-                          source_res=SOURCE_RES)
+    for effects, missing in UNDECLARED:
+        with pytest.raises(UndeclaredEffectStrength, match=missing):
+            build_effect_comp(dict(effects), CLIP_DUR,
+                              source_res=SOURCE_RES)
 
 
 def test_shake_completes_its_other_axis_because_zero_is_a_neutral():

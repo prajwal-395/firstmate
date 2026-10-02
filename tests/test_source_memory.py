@@ -280,7 +280,7 @@ def test_coverage_counts_what_search_can_hear(tmp_path, memory_root):
 # ── Program-track selection ────────────────────────────────────────
 
 
-def test_dead_tracks_are_never_program():
+def test_program_track_selection():
     """The empty MXF stream (-69 dB) is not transcribed as the mix."""
     channel, selection = source_memory.select_program_track(
         {1: -69.4, 2: -21.2, 3: -22.8, 4: -21.9})
@@ -288,21 +288,16 @@ def test_dead_tracks_are_never_program():
     assert selection["basis"] == "loudest-live"
     assert selection["measured_levels_db"]["CH1"] == -69.4
 
-
-def test_all_silent_is_untranscribed_not_defaulted():
-    """No live track means no program - never stream zero by default."""
+    # No live track means no program - never stream zero by default.
     channel, selection = source_memory.select_program_track(
         {1: -70.1, 2: -69.8})
     assert channel is None
     assert selection["basis"] == "no-live-track"
 
-
-def test_declaration_wins_and_a_dead_declaration_refuses():
-    """`source.program_stream` names the mix; a dead one is refused."""
+    # `source.program_stream` names the mix; a dead one is refused.
     channel, selection = source_memory.select_program_track(
         {1: -20.0, 2: -21.0}, declaration=2)
     assert (channel, selection["basis"]) == (2, "declared")
-
     with pytest.raises(ValueError):
         source_memory.select_program_track({1: -20.0, 2: -70.0},
                                            declaration=2)
@@ -384,33 +379,13 @@ def test_build_frames_writes_m2_and_fills_gop_in_m0(tmp_path, memory_root,
     updated_m0 = source_memory.read_m0(digest)
     assert updated_m0["gop_frames"] == 12
 
+    # A second call does not re-decode a sample that still fingerprints
+    # to the live file - `reused: true`, like `build_source`.
+    def must_not_extract(*_args, **_kwargs):
+        raise AssertionError("a fresh sample was decoded again")
 
-def test_build_frames_reuses_a_fresh_sample(tmp_path, memory_root, monkeypatch):
-    """A second call does not re-decode a sample that still fingerprints
-    to the live file - `reused: true` the same way `build_source` reuses
-    a fresh transcript."""
-    from library.tools import footage_identity
-
-    media = _media(tmp_path, "TAKE.MXF", b"iframe-two")
-    digest = footage_identity.fingerprint(str(media))["content_digest"]
-    size = media.stat().st_size
-    target = source_memory.source_dir(digest)
-    source_memory.write_json(target / source_memory.SLOT_FRAMES_INDEX, {
-        "content_digest": digest, "size_bytes": size, "frame_count": 1,
-        "frames": [{"file": "frames/frame_000000.jpg", "t": 0.0}],
-    })
-
-    calls = {"n": 0}
-
-    def fake_extract(source_file, out_dir, width, use_hwaccel):
-        calls["n"] += 1
-        return [("/fake/frame_000000.jpg", 0.0)], True
-
-    monkeypatch.setattr(source_memory, "extract_iframes", fake_extract)
-    account = source_memory.build_frames(str(media), digest)
-
-    assert account["reused"] is True
-    assert calls["n"] == 0
+    monkeypatch.setattr(source_memory, "extract_iframes", must_not_extract)
+    assert source_memory.build_frames(str(media), digest)["reused"] is True
 
 
 def test_m2_project_report_skips_offline_media(tmp_path, memory_root):

@@ -90,20 +90,13 @@ def _title_sequence(directory, stem="t_behind", count=40,
     }
 
 
-def _inputs(segment, clips):
-    return {"segments": [segment], "clips": clips}
-
-
 # ── Grounding ───────────────────────────────────────────────────────
 
-def test_no_segmentation_does_not_ground():
+def test_what_cannot_ground_says_why():
     grounded, refusal = behind_subject.ground_segment(
         {"segment_id": "t1"}, None, clip_id="c1")
     assert grounded is None
     assert refusal["reason"] == "no_segmentation"
-
-
-def test_an_untracked_subject_does_not_ground():
     seg = _seg_result()
     seg["objects"][0]["label"] = "auto_object_1"
     grounded, refusal = behind_subject.ground_segment(
@@ -121,80 +114,35 @@ def test_a_tracked_subject_grounds():
 
 # ── The refusal: no usable matte, by name ───────────────────────────
 
-def test_no_matte_refuses_by_name_not_silence(tmp_path):
-    segment = _title_sequence(str(tmp_path / "titles"))
-    with pytest.raises(behind_subject.BehindSubjectRefused) as exc:
-        behind_subject.apply_behind_subject(
-            _inputs(segment, [_clip()])["segments"], {"c1": None},
-            clip_at=lambda s, e: [_clip()],
-            matte_dir=str(tmp_path / "mattes"),
-            precomp_dir=str(tmp_path / "precomp"), timeline_fps=10.0,
-            clip_metadata={"c1": {"width": 32, "height": 24}})
-    assert isinstance(exc.value, RenRefusal)
-    assert "no usable matte" in str(exc.value)
+def test_what_cannot_be_precomposited_refuses_by_name(tmp_path):
+    """No matte, no title file, no clip under the span, a title that runs
+    dry, a matte or a title canvas at the wrong size: each raises
+    `BehindSubjectRefused` (a `RenRefusal`), never silence."""
+    def refuse(name, segment=None, seg=None, clips=None, meta=(32, 24)):
+        segment = segment or _title_sequence(str(tmp_path / name))
+        clips = [_clip()] if clips is None else clips
+        with pytest.raises(behind_subject.BehindSubjectRefused) as exc:
+            behind_subject.apply_behind_subject(
+                [segment], {"c1": seg},
+                clip_at=lambda s, e: clips,
+                matte_dir=str(tmp_path / name / "mattes"),
+                precomp_dir=str(tmp_path / name / "precomp"),
+                timeline_fps=10.0,
+                clip_metadata={"c1": {"width": meta[0], "height": meta[1]}})
+        assert isinstance(exc.value, RenRefusal)
+        return str(exc.value)
 
-
-def test_a_missing_title_file_refuses(tmp_path):
-    segment = _title_sequence(str(tmp_path / "titles"))
-    segment["sequence"]["pattern"] = str(
-        tmp_path / "gone" / "t_behind_%05d.png")
-    with pytest.raises(behind_subject.BehindSubjectRefused):
-        behind_subject.apply_behind_subject(
-            _inputs(segment, [_clip()])["segments"],
-            {"c1": _seg_result()},
-            clip_at=lambda s, e: [_clip()],
-            matte_dir=str(tmp_path / "mattes"),
-            precomp_dir=str(tmp_path / "precomp"), timeline_fps=10.0,
-            clip_metadata={"c1": {"width": 32, "height": 24}})
-
-
-def test_no_clip_under_the_span_refuses(tmp_path):
-    segment = _title_sequence(str(tmp_path / "titles"))
-    with pytest.raises(behind_subject.BehindSubjectRefused):
-        behind_subject.apply_behind_subject(
-            _inputs(segment, [])["segments"], {"c1": _seg_result()},
-            clip_at=lambda s, e: [],
-            matte_dir=str(tmp_path / "mattes"),
-            precomp_dir=str(tmp_path / "precomp"), timeline_fps=10.0,
-            clip_metadata={"c1": {"width": 32, "height": 24}})
-
-
-def test_a_title_that_runs_dry_refuses(tmp_path):
-    segment = _title_sequence(str(tmp_path / "titles"), count=10)
-    with pytest.raises(behind_subject.BehindSubjectRefused) as exc:
-        behind_subject.apply_behind_subject(
-            _inputs(segment, [_clip()])["segments"],
-            {"c1": _seg_result()},
-            clip_at=lambda s, e: [_clip()],
-            matte_dir=str(tmp_path / "mattes"),
-            precomp_dir=str(tmp_path / "precomp"), timeline_fps=10.0,
-            clip_metadata={"c1": {"width": 32, "height": 24}})
-    assert "runs dry" in str(exc.value)
-
-
-def test_a_matte_at_the_wrong_size_refuses(tmp_path):
-    segment = _title_sequence(str(tmp_path / "titles"))
-    with pytest.raises(behind_subject.BehindSubjectRefused):
-        behind_subject.apply_behind_subject(
-            _inputs(segment, [_clip()])["segments"],
-            {"c1": _seg_result()},
-            clip_at=lambda s, e: [_clip()],
-            matte_dir=str(tmp_path / "mattes"),
-            precomp_dir=str(tmp_path / "precomp"), timeline_fps=10.0,
-            clip_metadata={"c1": {"width": 64, "height": 48}})
-
-
-def test_a_title_canvas_mismatching_the_matte_refuses(tmp_path):
-    segment = _title_sequence(str(tmp_path / "titles"), size=(16, 16))
-    with pytest.raises(behind_subject.BehindSubjectRefused) as exc:
-        behind_subject.apply_behind_subject(
-            _inputs(segment, [_clip()])["segments"],
-            {"c1": _seg_result()},
-            clip_at=lambda s, e: [_clip()],
-            matte_dir=str(tmp_path / "mattes"),
-            precomp_dir=str(tmp_path / "precomp"), timeline_fps=10.0,
-            clip_metadata={"c1": {"width": 32, "height": 24}})
-    assert "wrong pixels" in str(exc.value)
+    assert "no usable matte" in refuse("no_matte", seg=None)
+    gone = _title_sequence(str(tmp_path / "gone_title"))
+    gone["sequence"]["pattern"] = str(tmp_path / "gone" / "t_%05d.png")
+    refuse("gone_title", segment=gone, seg=_seg_result())
+    refuse("no_clip", seg=_seg_result(), clips=[])
+    dry = _title_sequence(str(tmp_path / "dry"), count=10)
+    assert "runs dry" in refuse("dry", segment=dry, seg=_seg_result())
+    refuse("matte_size", seg=_seg_result(), meta=(64, 48))
+    small = _title_sequence(str(tmp_path / "canvas"), size=(16, 16))
+    assert "wrong pixels" in refuse("canvas", segment=small,
+                                    seg=_seg_result())
 
 
 # ── The precomposite ────────────────────────────────────────────────
@@ -203,7 +151,7 @@ def test_a_title_canvas_mismatching_the_matte_refuses(tmp_path):
 def test_a_grounded_segment_precomposites_under_the_matte(tmp_path):
     segment = _title_sequence(str(tmp_path / "titles"))
     placed, mattes, per_segment = behind_subject.apply_behind_subject(
-        _inputs(segment, [_clip()])["segments"],
+        [segment],
         {"c1": _seg_result()},
         clip_at=lambda s, e: [_clip()],
         matte_dir=str(tmp_path / "mattes"),
@@ -315,7 +263,9 @@ def _behind_windows():
     return {"clip1": [("t1", 2.0, 6.0)]}
 
 
-def test_a_zoom_on_the_behind_clip_refuses():
+def test_a_geometric_op_on_the_behind_clip_refuses_by_name():
+    """A zoom, a backdrop reframe or a stabilize moves the picture off
+    the registered matte."""
     with pytest.raises(behind_subject.BehindSubjectRefused) as exc:
         behind_subject.assert_no_geometric_overlap(
             _behind_windows(),
@@ -323,17 +273,11 @@ def test_a_zoom_on_the_behind_clip_refuses():
                                         "zoom_end": 1.06}})
     assert "t1" in str(exc.value)
     assert "clip1" in str(exc.value)
-
-
-def test_a_backdrop_reframe_on_the_behind_clip_refuses():
     with pytest.raises(behind_subject.BehindSubjectRefused):
         behind_subject.assert_no_geometric_overlap(
             _behind_windows(),
             per_clip_effects={"clip1": {
                 "backdrop_picture_scale": 0.8}})
-
-
-def test_a_stabilize_on_the_behind_clip_refuses():
     with pytest.raises(behind_subject.BehindSubjectRefused) as exc:
         behind_subject.assert_no_geometric_overlap(
             _behind_windows(), per_clip_effects={},
@@ -376,13 +320,6 @@ def test_stale_behind_keys_draw_no_loader_comp():
          "behind_subject_matte": "/mattes/m_00000.png"},
         300, source_res=(1080, 1920))
     assert "Loader" not in comp
-    assert "BehindTitle" not in comp
-    assert "SubjectOver" not in comp
-
-
-def test_absent_title_or_matte_draws_nothing():
-    comp = build_effect_comp({"behind_title_media": "/titles/t.mov"},
-                             300, source_res=(1080, 1920))
     assert "BehindTitle" not in comp
     assert "SubjectOver" not in comp
 

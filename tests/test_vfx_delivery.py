@@ -7,7 +7,6 @@ none of which it read. `slow_zoom` was not in the intensity map and
 silently became a default 3% zoom. `cut_out` was removed (captain's
 ruling 2026-08-17, superseded by the framing parameter).
 """
-import pathlib
 import re
 
 import pytest
@@ -20,8 +19,6 @@ from library.steps.step_4_03_plan_vfx.post_bridge import (
 )
 from library.tools.fusion.comp_builder import build_effect_comp
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-HANDOFF = REPO / "library/steps/step_4_03_plan_vfx/handoff.md"
 CLIP_DUR = 120
 #: The source frame every comp below is built at. The builder takes no
 #: default frame, so each call states it - the same numbers the
@@ -37,18 +34,6 @@ def _spine(*positions):
     ]}
 
 
-def _handoff_effect_types() -> set:
-    table = HANDOFF.read_text().split("### Effect toolkit:", 1)[1]
-    table = table.split("**DaVinci Resolve Built-in", 1)[0]
-    return {
-        m.group(1)
-        for line in table.splitlines() if line.startswith("| `")
-        for m in [re.match(r"\|\s*`([^`]+)`", line)]
-        if m
-    }
-
-
-
 # ── Every name the toolkit advertises reaches the renderer ──
 #
 # This is the guarantee `INTENSITY_MAP` used to carry by construction. It
@@ -56,7 +41,6 @@ def _handoff_effect_types() -> set:
 # choosing how strong an effect is), so the VALUES are the plan's - but
 # the NAMES still have to reach a reader, or an effect is recorded as
 # planned and draws nothing (AGENTS.md §10.2).
-
 
 
 def test_the_ken_burns_spelling_reaches_the_renderer():
@@ -75,8 +59,6 @@ def test_the_ken_burns_spelling_reaches_the_renderer():
         dict(resolved[0]["params"], vignette=False), CLIP_DUR,
         source_res=SOURCE_RES)
     assert drawn != neutral
-
-
 
 
 def _value_for(name):
@@ -186,9 +168,7 @@ def test_a_static_reframe_is_actually_drawn():
          "vignette": False}, CLIP_DUR, source_res=SOURCE_RES)
     assert "Transform" in comp
     assert "1.25" in comp
-
-
-def test_an_identity_zoom_still_draws_nothing():
+    # An identity zoom still draws nothing.
     comp = build_effect_comp(
         {"zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,
          "vignette": False}, CLIP_DUR, source_res=SOURCE_RES)
@@ -206,15 +186,6 @@ def test_screen_shake_decays_to_stillness():
 
 
 # ── The bridge does not invent effects ──
-
-def test_an_unknown_effect_type_is_dropped_not_defaulted(capsys):
-    resolved = resolve_vfx(
-        [{"target_block_position": 1, "effect_type": "sparkle_blast"}],
-        _spine(1, 2),
-    )
-    assert resolved == []
-    assert "sparkle_blast" in capsys.readouterr().err
-
 
 def test_an_aliased_effect_type_resolves():
     """An alias may RENAME an effect. `push_in` and `zoom_emphasis` are
@@ -263,8 +234,9 @@ def test_a_builtin_fusion_effect_passes_through_without_parameters():
     assert resolved[0]["params"] == {}
 
 
-def test_dropping_an_effect_frees_its_block_for_another():
-    """The drop must not consume the block's one-effect slot."""
+def test_dropping_an_effect_frees_its_block_for_another(capsys):
+    """An unknown effect type is dropped, said, never defaulted - and the
+    drop must not consume the block's one-effect slot."""
     resolved = resolve_vfx(
         [
             {"target_block_position": 1, "effect_type": "sparkle_blast",
@@ -277,3 +249,4 @@ def test_dropping_an_effect_frees_its_block_for_another():
     )
     assert len(resolved) == 1
     assert resolved[0]["effect_type"] == "slow_zoom_in"
+    assert "sparkle_blast" in capsys.readouterr().err

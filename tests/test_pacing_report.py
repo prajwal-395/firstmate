@@ -35,7 +35,7 @@ def _clip(label, start_f, end_f):
             "timeline_in": start_f / FPS, "timeline_out": end_f / FPS}
 
 
-def test_delivered_asl_counts_each_cut_once():
+def test_delivered_asl_counts_each_cut_once_beside_either_target():
     """20 s, one mid cut shared by two abutting clips: 2 shots, ASL 10."""
     report = measure_pacing(
         [_block(1, 0, 300), _block(2, 300, 600)],
@@ -47,6 +47,16 @@ def test_delivered_asl_counts_each_cut_once():
     assert row["window_seconds"] == 20.0
     assert row["delivered_asl_seconds"] == 10.0
     assert row["target_asl_seconds"] == 2.5
+
+    # PA2.2's feel survives compile without being made numeric.
+    report = measure_pacing(
+        [_block(1, 0, 600)], [_clip("a", 0, 300), _clip("b", 300, 600)],
+        [], [{"start_block": 1, "end_block": 1,
+              "feel": "faster cuts as it builds"}], FPS)
+    (row,) = report
+    assert row["target_asl_seconds"] is None
+    assert row["target_feel"] == "faster cuts as it builds"
+    assert row["delivered_asl_seconds"] == 10.0
 
 
 def test_b_roll_edges_are_shots_too():
@@ -62,14 +72,3 @@ def test_b_roll_edges_are_shots_too():
     assert row["cuts"] == 2
     assert row["delivered_asl_seconds"] == round(20.0 / 3, 3)
 
-
-def test_report_keeps_a_feel_target_beside_measured_asl():
-    """PA2.2's feel survives compile without being made numeric."""
-    report = measure_pacing(
-        [_block(1, 0, 600)], [_clip("a", 0, 300), _clip("b", 300, 600)],
-        [], [{"start_block": 1, "end_block": 1,
-              "feel": "faster cuts as it builds"}], FPS)
-    (row,) = report
-    assert row["target_asl_seconds"] is None
-    assert row["target_feel"] == "faster cuts as it builds"
-    assert row["delivered_asl_seconds"] == 10.0

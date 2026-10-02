@@ -8,24 +8,19 @@ those sets shared a token, so not one transition of any kind reached the
 finished video.
 """
 import pathlib
-import re
 
 import pytest
 
-from library.tools.fusion.effects import DRAWABLE_TRANSITIONS, EffectBlock, fx
+from library.tools.fusion.effects import DRAWABLE_TRANSITIONS, fx
 from library.tools.transition_vocabulary import (
-    ALIASES,
     CUT_TYPES,
     FUSION_TYPES,
     PLANNABLE_TYPES,
     WITHDRAWN,
     canonical_type,
-    filter_allowed,
     is_cut,
     is_drawn,
-    withdrawal_reason,
 )
-from tests.brand_fixtures import ALL_SYNTHETIC
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 HANDOFF = REPO / "library/steps/step_4_02_plan_transitions/handoff.md"
@@ -42,22 +37,14 @@ def test_fusion_types_are_exactly_what_the_engine_draws():
     assert set(FUSION_TYPES) == set(DRAWABLE_TRANSITIONS)
 
 
-@pytest.mark.parametrize("ttype", FUSION_TYPES)
-def test_every_drawable_type_produces_real_nodes(ttype):
-    for build in (fx.transition_tail, fx.transition_head):
-        block = build(CLIP_DUR, ttype, 10, res=RES)
-        assert isinstance(block, EffectBlock)
-        assert block.nodes, f"{build.__name__}({ttype}) drew nothing"
-        assert block.input_name
-
-
-@pytest.mark.parametrize("ttype", sorted(WITHDRAWN) + ["utter_nonsense"])
-def test_an_undrawable_type_raises_instead_of_drawing_nothing(ttype):
+def test_an_undrawable_type_raises_instead_of_drawing_nothing():
     """The silent empty block is the whole defect: `dissolve` reached the
     renderer, matched no branch, and produced a comp with nothing in it."""
-    for build in (fx.transition_tail, fx.transition_head):
-        with pytest.raises(ValueError, match="No Fusion transition builder"):
-            build(CLIP_DUR, ttype, 10, res=RES)
+    for ttype in sorted(WITHDRAWN) + ["utter_nonsense"]:
+        for build in (fx.transition_tail, fx.transition_head):
+            with pytest.raises(ValueError,
+                               match="No Fusion transition builder"):
+                build(CLIP_DUR, ttype, 10, res=RES)
 
 
 def test_cut_types_are_not_drawn():
@@ -69,24 +56,6 @@ def test_cut_types_are_not_drawn():
 
 
 # ── Nothing advertises what the renderer cannot honour ──
-
-def _handoff_toolkit_types() -> set:
-    """The type names in the handoff's toolkit table, as backticked cells."""
-    text = HANDOFF.read_text()
-    table = text.split("### Transition toolkit:", 1)[1].split("###", 1)[0]
-    return {
-        m.group(1)
-        for line in table.splitlines() if line.startswith("| `")
-        for m in [re.match(r"\|\s*`([^`]+)`", line)]
-        if m
-    }
-
-
-
-
-
-
-
 
 def test_no_template_permits_the_full_vocabulary_without_declaring_it():
     """A project that names no brand template declares no allow-list.
@@ -116,16 +85,9 @@ def test_no_template_permits_the_full_vocabulary_without_declaring_it():
 # ── The vocabulary itself is coherent ──
 
 
-
-
-
-
-
 def test_canonicalisation_is_case_and_space_insensitive():
     assert canonical_type("  Fade_To_Black ") == "fade_to_black"
     assert canonical_type("CUT") == "hard_cut"
-
-
-def test_an_absent_request_is_not_a_request():
+    # An absent request is not a request.
     assert canonical_type("") is None
     assert canonical_type(None) is None

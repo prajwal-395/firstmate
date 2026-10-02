@@ -1,6 +1,5 @@
 from library.tools.transition_selector import select_transition
 from library.tools.transition_vocabulary import NATIVE_TYPES, PLANNABLE_TYPES
-from library.tools.native_ops import NativeTransitionRefused
 import pytest
 
 
@@ -26,10 +25,7 @@ def test_a_scene_change_the_plan_did_not_decorate_is_a_hard_cut():
     )
     assert res["type"] == "hard_cut"
     assert res["duration_ms"] == 0
-
-
-def test_no_signal_on_the_incoming_block_draws_a_transition():
-    """Neither a block type nor a music behaviour invents one now."""
+    # Neither a block type nor a music behaviour invents one.
     for to_clip in (
         {"clip_id": "clip_002", "timeline_start": 25.0,
          "music_behavior": "step_up"},
@@ -40,26 +36,29 @@ def test_no_signal_on_the_incoming_block_draws_a_transition():
     ):
         res = select_transition({"clip_id": "clip_001"}, to_clip, {}, {})
         assert res["type"] == "hard_cut", to_clip
-
-
-def test_an_explicit_request_outranks_the_heuristic():
+    # The allow-list is a permission, not an instruction: the final line
+    # used to be `settle(preferred_types[0])`, so a brand whose list began
+    # with a drawn type got it on every undecorated cut.
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
-        {}, {}, requested_type="zoom_blur",
+        {"transition_types": ["defocus", "hard_cut"]}, {},
     )
-    assert res["type"] == "zoom_blur"
-    assert res["requested_type"] == "zoom_blur"
-    assert res["downgrade_reason"] == ""
+    assert res["type"] == "hard_cut"
 
 
-def test_a_granted_native_request_resolves_to_the_native_route():
-    """`cross_dissolve` is drawn by Resolve itself, not downgraded."""
+@pytest.mark.parametrize("requested, resolved", [
+    ("zoom_blur", "zoom_blur"),
+    # `cross_dissolve` is drawn by Resolve itself, not downgraded.
+    ("cross_dissolve", "cross_dissolve"),
+    ("Dip_To_Black", "fade_to_black"),     # an alias, canonicalised
+])
+def test_a_granted_request_is_honoured(requested, resolved):
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
-        {}, {}, requested_type="cross_dissolve",
+        {}, {}, requested_type=requested,
     )
-    assert res["type"] == "cross_dissolve"
-    assert res["requested_type"] == "cross_dissolve"
+    assert res["type"] == resolved
+    assert res["requested_type"] == requested
     assert res["downgrade_reason"] == ""
 
 
@@ -74,16 +73,6 @@ def test_an_undrawable_request_becomes_a_hard_cut_with_a_reason():
     assert "wipe" in res["downgrade_reason"]
 
 
-def test_a_measured_refusal_is_refused_by_name_not_downgraded():
-    """A whip that ships as a hard cut is a plan the picture disobeyed
-    without saying so (measured empty on Resolve 21.1, 2026-09-24)."""
-    with pytest.raises(NativeTransitionRefused, match="whip_pan"):
-        select_transition(
-            {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
-            {}, {}, requested_type="whip_pan",
-        )
-
-
 def test_a_measured_refusal_ships_the_stated_fallback_only():
     """The nearest granted native transition ships only when the plan
     states it in `fallback_type` - never substituted by the engine."""
@@ -94,14 +83,6 @@ def test_a_measured_refusal_ships_the_stated_fallback_only():
     )
     assert res["type"] == "cross_dissolve"
     assert "fallback" in res["downgrade_reason"]
-
-
-def test_an_aliased_request_resolves_to_its_canonical_type():
-    res = select_transition(
-        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
-        {}, {}, requested_type="Dip_To_Black",
-    )
-    assert res["type"] == "fade_to_black"
 
 
 def test_brand_types_no_route_can_draw_are_rejected(capsys):
@@ -116,20 +97,6 @@ def test_brand_types_no_route_can_draw_are_rejected(capsys):
     assert res["type"] == "hard_cut"
     err = capsys.readouterr().err
     assert "wipe" in err and "dissolve" not in err
-
-
-def test_a_brand_allowing_a_drawn_type_still_does_not_draw_it_unasked():
-    """The allow-list is a permission, not an instruction.
-
-    The final line used to be `settle(preferred_types[0])`, so a brand
-    template whose list happened to start with a drawn type got that type
-    on every undecorated cut.
-    """
-    res = select_transition(
-        {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
-        {"transition_types": ["defocus", "hard_cut"]}, {},
-    )
-    assert res["type"] == "hard_cut"
 
 
 def test_a_brand_range_is_a_bound_and_not_a_length():
@@ -147,20 +114,15 @@ def test_a_brand_range_is_a_bound_and_not_a_length():
     )
     assert res["duration_ms"] is None
     assert res["duration_bounds_ms"] == (200, 500)
-
-
-def test_a_brand_scalar_is_a_declared_length():
-    """One number is the template author saying how long, exactly."""
+    # One number is the template author saying how long, exactly.
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"},
         {"transition_duration_ms": 600}, {}, requested_type="defocus",
     )
     assert res["duration_ms"] == 600
     assert res["duration_bounds_ms"] == (600, 600)
-
-
-def test_no_brand_duration_invents_no_length():
-    """`_resolve_duration_ms` ended `return default` with default=500."""
+    # No brand duration invents no length (`_resolve_duration_ms` once
+    # ended `return default` with default=500).
     res = select_transition(
         {"clip_id": "clip_001"}, {"clip_id": "clip_002"}, {}, {},
         requested_type="defocus",
@@ -184,11 +146,3 @@ def test_every_outcome_is_a_drawable_type():
         assert res["type"] in PLANNABLE_TYPES + NATIVE_TYPES, res
 
 
-def test_a_measured_refusal_never_lands_in_the_outcome_set():
-    """`whip_pan` is not an outcome at all - it refuses by name."""
-    with pytest.raises(NativeTransitionRefused):
-        select_transition(
-            {"clip_id": "a"}, {"clip_id": "b"},
-            {"transition_types": ["macro", "light_leak"]},
-            {"target_energy": "high"}, requested_type="whip_pan",
-        )

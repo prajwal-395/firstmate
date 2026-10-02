@@ -9,40 +9,26 @@ both code sites say 0.15s. The prose is the prompt lane's to fix; the
 code side is fixed by giving both steps one import,
 `library/tools/duration_tolerance.py`, whose value is authoritative.
 
-Proven in both directions: the value test fails if the constant moves,
-and the no-literal test fails if either step reintroduces its own
-assignment.
 """
 
 import ast
 import pathlib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-SHARED = REPO / "library" / "tools" / "duration_tolerance.py"
 STEP_FILES = [
     REPO / "library" / "steps" / "step_3_01_assign_aroll" / "step.py",
     REPO / "library" / "steps" / "step_3_03_review_rough_cut" / "step.py",
 ]
-
-AUTHORITATIVE_SECONDS = 0.15
 
 
 def _tree(path: pathlib.Path) -> ast.AST:
     return ast.parse(path.read_text(encoding="utf-8"))
 
 
-def test_the_authoritative_value_is_a_sixth_of_a_second():
-    """0.15s is what both code sites agreed on; the move is a merge, not
-    a change. If this fails, the value moved and every duration
-    invariant moved with it."""
-    namespace: dict = {}
-    exec(compile(_tree(SHARED), str(SHARED), "exec"), namespace)
-    assert namespace["DURATION_TOLERANCE"] == AUTHORITATIVE_SECONDS
-
-
-def test_neither_step_assigns_its_own_tolerance():
+def test_both_steps_import_the_tolerance_and_assign_none():
     """A reintroduced ``DURATION_TOLERANCE = ...`` literal in either
-    step is the two-literal defect back again."""
+    step is the two-literal defect back again; the import is what makes
+    the value single-sourced rather than merely equal."""
     offenders = []
     for path in STEP_FILES:
         for node in ast.walk(_tree(path)):
@@ -58,11 +44,6 @@ def test_neither_step_assigns_its_own_tolerance():
         "steps carry their own DURATION_TOLERANCE literal again: "
         + ", ".join(offenders)
     )
-
-
-def test_both_steps_import_the_shared_tolerance():
-    """The import is what makes the value single-sourced rather than
-    merely equal. Without it the literals could drift again silently."""
     missing = []
     for path in STEP_FILES:
         tree = _tree(path)

@@ -1,28 +1,9 @@
 """The planning step is actually ASKED for semantic visuals.
 
-PR 738 landed the mechanism - an entry names a free-text `subject` and an
-`anchor_phrase`, and the visual arrives on that word's measured window -
-and proved it with a hand-written demo. What it did not change is what
-the model is asked to write, and the model has never written one on a
-real run. Two halves of the ask were still missing:
-
-1. The machine-readable half. The prompt's `## Required Output Format`
-   block is rendered from the manifest's `interface.llm_outputs`
-   description, and it still enumerates only the old entry shape
-   (`start_seconds`/`duration_seconds`, no `subject`/`anchor_phrase`/
-   `hold_seconds`). An answering agent following the machine-readable
-   half - the shortcut the `could_not_determine` incident proved agents
-   take - never emits the anchor keys.
-2. The worked example. The handoff's answer template shows
-   `anchor_phrase` BESIDE `start_seconds`/`duration_seconds` in one
-   entry - the exact shape `resolve_plan` drops as
-   `conflicting_timing`. A model copying the template is refused by
-   name on every anchored entry.
-
-The third test guards the whole authoring path the way the runner runs
-it: the bridge builds `timeline_context_toon` off a spine, a
-planner-authored entry quotes its anchor from that table, and
-`generate_motion_props` lands it on the measured word window.
+The motion-graphics planner is ASKED for anchored semantic visuals: the
+machine-readable output schema names the anchor keys, no worked example
+teaches the `conflicting_timing` shape, and a planner-authored entry
+lands on its measured word. Incident: `docs/evidence/semantic_visual.md`.
 """
 import json
 import os

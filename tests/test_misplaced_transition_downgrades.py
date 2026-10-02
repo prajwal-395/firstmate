@@ -1,16 +1,7 @@
-"""Finding 32: a transition 4.02 accepts can refuse the whole compile.
-
-On the scout's B6 run (PA1.2) a slow cross dissolve at the cut out of a
-transition slot (b-roll on V2, nothing on V1) passed 4.02 and then failed
-`compile_manifest` with "Transition trans_002 at 15.0s does not sit at
-the end of any V1 clip" - the whole run FAILED, rather than the one
-entry being dropped with its reason (AGENTS.md 10.5's own rule for plan
-entries: a plan entry that names no effect, no sound or no level is
-DROPPED with the reason, never failed).
-
-The fix: the compile ships the hard cut the boundary already is and
-records the one entry in `transitions_downgraded` with its reason. The
-run builds; the miss is said, not silent.
+"""Finding 32: a transition 4.02 accepts that no V1 cut can carry ships as
+the hard cut the boundary already is, recorded in `transitions_downgraded`
+with its reason - never failing the whole compile (AGENTS.md 10.5).
+History: `docs/evidence/transition_own_track.md`.
 """
 import copy
 import json
@@ -69,48 +60,27 @@ def project(tmp_path):
     return project_dir, layout, outputs, names["whoosh.wav"]
 
 
-def test_a_native_transition_off_v1_downgrades_instead_of_failing(project):
-    """The B6 shape on the native path: a dissolve mid-clip (no V1 clip
-    ends at 1.0s) must not fail the run."""
-    manifest = _compile_with(project, plan_transitions=[
-        {"transition_id": "trans_002", "transition_type": "cross_dissolve",
-         "cut_point_timeline": 1.0, "duration": 0.4, "after_clip": 0}])
-    assert manifest["native_transitions"] == []
-    (downgraded,) = manifest["transitions_downgraded"]
-    assert downgraded["transition_id"] == "trans_002"
-    assert downgraded["shipped_type"] == "hard_cut"
-    assert "V1" in downgraded["reason"]
-
-
-def test_a_drawn_transition_off_v1_downgrades_instead_of_failing(project):
-    """Same shape on the Fusion path."""
-    manifest = _compile_with(project, plan_transitions=[
-        {"transition_id": "trans_002", "transition_type": "crash_zoom",
-         "cut_point_timeline": 1.0, "duration": 0.4, "after_clip": 0}])
-    assert manifest["fusion_effects"]["transitions"] == []
-    (downgraded,) = manifest["transitions_downgraded"]
-    assert downgraded["transition_id"] == "trans_002"
-    assert downgraded["shipped_type"] == "hard_cut"
-
-
-def test_a_transition_on_the_last_clip_downgrades_instead_of_failing(project):
-    """A transition at the end of the last V1 clip (5.418s) has no
-    incoming clip for its head half: same downgrade, same record."""
-    manifest = _compile_with(project, plan_transitions=[
-        {"transition_id": "trans_003", "transition_type": "cross_dissolve",
-         "cut_point_timeline": 5.418, "duration": 0.4, "after_clip": 1}])
-    assert manifest["native_transitions"] == []
-    (downgraded,) = manifest["transitions_downgraded"]
-    assert downgraded["transition_id"] == "trans_003"
-    assert downgraded["shipped_type"] == "hard_cut"
-    assert "incoming" in downgraded["reason"]
-
-
-def test_a_well_placed_transition_still_ships(project):
-    """The downgrade must not swallow the working path: a dissolve on
-    the real cut at 2.285s still reaches the build."""
-    manifest = _compile_with(project, plan_transitions=[
-        {"transition_id": "trans_001", "transition_type": "cross_dissolve",
-         "cut_point_timeline": 2.285, "duration": 0.4, "after_clip": 0}])
-    assert len(manifest["native_transitions"]) == 1
-    assert manifest["transitions_downgraded"] == []
+def test_a_transition_no_v1_cut_carries_downgrades_instead_of_failing(
+        project):
+    """The B6 shape on the native path (a dissolve mid-clip, no V1 clip
+    ends at 1.0s), the same on the Fusion path, and a transition on the
+    last V1 clip (5.418s), which has no incoming clip for its head half."""
+    cases = [
+        ("cross_dissolve", 1.0, 0, "native_transitions", "V1"),
+        ("crash_zoom", 1.0, 0, None, None),
+        ("cross_dissolve", 5.418, 1, "native_transitions", "incoming"),
+    ]
+    for ttype, at, after, placed_key, reason in cases:
+        manifest = _compile_with(project, plan_transitions=[
+            {"transition_id": "trans_002", "transition_type": ttype,
+             "cut_point_timeline": at, "duration": 0.4,
+             "after_clip": after}])
+        if placed_key:
+            assert manifest[placed_key] == []
+        else:
+            assert manifest["fusion_effects"]["transitions"] == []
+        (downgraded,) = manifest["transitions_downgraded"]
+        assert downgraded["transition_id"] == "trans_002"
+        assert downgraded["shipped_type"] == "hard_cut"
+        if reason:
+            assert reason in downgraded["reason"], (ttype, at)

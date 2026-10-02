@@ -1,19 +1,8 @@
 """A sub-frame abutment is not a hole in the timeline.
 
-`_video_coverage_gaps` exists to catch the 6.4s of black that once
-shipped, and it counts in frames rather than seconds because float noise
-between abutting clips would otherwise read as findings. But the frame
-number of each clip boundary is rounded INDEPENDENTLY, so two clips that
-genuinely meet can land on different frames: on project 001, clips
-meeting at 43.646s and 43.650s became frames 1309 and 1310 and failed
-compile_manifest with "1 uncovered range totalling 0.004s".
-
-Four milliseconds is an eighth of a frame at 30fps. It cannot render as
-black. It stopped a render one step from the end.
-
-So a hole now has to be a frame wide in BOTH clocks. These tests hold
-that line from both sides: the rounding artefact must pass, and the real
-hole the assertion was written for must still fail.
+A hole must be a frame wide in BOTH clocks: a sub-frame abutment passes, a
+real hole (even one frame) still fails.
+History: `docs/evidence/coverage_gap_rounding.md`.
 """
 
 import sys
@@ -50,8 +39,6 @@ def test_the_001_rounding_artefact_is_not_a_gap():
     assert gaps == [], f"sub-frame abutment reported as a hole: {gaps}"
 
 
-
-
 def test_a_real_hole_still_fails():
     """The 6.4s of black this assertion was written for."""
     gaps = _video_coverage_gaps(
@@ -60,25 +47,19 @@ def test_a_real_hole_still_fails():
     start, end = gaps[0]
     assert abs((end - start) - 6.4) < 1e-6
 
-
-def test_a_one_frame_hole_still_fails():
-    """The tolerance is one frame, and one frame of real black counts."""
+    # The tolerance is one frame, and one frame of real black counts.
     one_frame = 1.0 / 30.0
     gaps = _video_coverage_gaps(
         manifest([(0.0, 10.0), (10.0 + one_frame, 20.0)], duration=20.0))
     assert len(gaps) == 1, "a genuine one-frame hole must still be caught"
 
-
-def test_a_hole_at_the_end_still_fails():
-    """The outro case: 1.5s of nothing after the last clip."""
+    # The outro case: 1.5s of nothing after the last clip.
     gaps = _video_coverage_gaps(
         manifest([(0.0, 54.768)], duration=56.270))
     assert len(gaps) == 1
     start, end = gaps[0]
     assert abs(start - 54.768) < 1e-6
     assert abs(end - 56.270) < 1e-6
-
-
 
 
 # ── The same rounding class, in the manifest validator ──────────────
@@ -104,10 +85,6 @@ def _manifest_with(clips, fps=30.0):
 def _overlap_errors(clips, fps=30.0):
     return [e for e in _validate_structure(_manifest_with(clips, fps))
             if "overlaps the previous clip" in e]
-
-
-
-
 
 
 def test_a_multi_frame_overlap_still_fails():

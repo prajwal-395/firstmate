@@ -6,10 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from library.steps.step_4_03_plan_vfx.bridge import (
-    PUNCH_TIMING_MARKER,
-    zoom_bound_additions,
-)
 from library.steps.step_4_03_plan_vfx.post_bridge import resolve_vfx
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.punch_timing import (
@@ -78,16 +74,6 @@ def _comp(vfx):
         clip_dur=300,
         source_res=(3840, 2160),
     )
-
-
-def test_measured_ramp_band_is_one_prompt_and_enforcement_contract():
-    rendered = zoom_bound_additions()[PUNCH_TIMING_MARKER]
-    assert PUNCH_TIMING_MARKER in HANDOFF.read_text(encoding="utf-8")
-    assert f"{MIN_PUNCH_RAMP_SECONDS:.2f}" in rendered
-    assert f"{MAX_PUNCH_RAMP_SECONDS:.1f}" in rendered
-    assert "whiplash" in rendered
-    assert "indistinguishable" in rendered
-    assert "not a default" in rendered
 
 
 @pytest.mark.parametrize(

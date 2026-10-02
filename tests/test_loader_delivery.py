@@ -140,7 +140,7 @@ def test_delivery_wires_both_loaders_under_lock():
         if c[0] == "ConnectInput"]
 
 
-def test_a_loader_that_did_not_decode_refuses():
+def test_a_loader_that_did_not_decode_or_resolve_refuses():
     comp = _wired_comp()
     real_add = comp.AddTool
 
@@ -155,13 +155,12 @@ def test_a_loader_that_did_not_decode_refuses():
         dl.deliver_loaders(comp, SPECS, WIRING, PLACEHOLDERS)
     assert "did not decode" in str(exc.value)
 
-
-def test_an_unknown_length_refuses():
+    # An unreadable clip length refuses the same way.
     comp = _wired_comp()
-    real_add = comp.AddTool
+    real_add_2 = comp.AddTool
 
     def _unreadable_loader(reg, *_pos):
-        tool = real_add(reg, *_pos)
+        tool = real_add_2(reg, *_pos)
         tool._attrs.update({"TOOLST_Clip_Length": {1: 0xFFFFFFFF},
                             "TOOLIT_Clip_Length": {1: 0xFFFFFFFF}})
         return tool
@@ -192,7 +191,6 @@ def test_trims_that_do_not_take_refuse():
 
     def _stubborn_loader(reg, *_pos):
         tool = real_add(reg, *_pos)
-        orig = tool.SetAttrs
 
         def _ignore(values):
             tool.calls.append(("SetAttrs", dict(values)))

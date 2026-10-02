@@ -1,18 +1,9 @@
-"""The house look reaches B-roll, not only A-roll.
+"""The declared look reaches B-roll, not only A-roll.
 
-`compile_manifest` merges `fusion_look` - pivot contrast, glow, grain and
-a shaped vignette - onto every V1 **and V2** clip, because a CDL has no
-term for any of the four and a Fusion comp is their only route to the
-picture. The Fusion pass read `tracks['V1']` alone, so on project 001
-eleven clips carried a merged look and eight got a comp: the three
-cutaways played at a different contrast, with no grain and no vignette,
-beside the A-roll they were cut into. Commit 85634d5 added the detection
-that names the dropped labels and deliberately left the gap open.
-
-Making the look CONSISTENT is right under any answer to the open
-`vep-house-look-grain-never-chosen` decision, so nothing here asserts a
-grain, vignette or glow VALUE - only that whatever value is chosen
-arrives on both tracks.
+`compile_manifest` merges `fusion_look` onto every V1 **and V2** clip, and
+the Fusion pass must draw it on both. Nothing here asserts a look VALUE -
+only that whatever value is declared arrives on both tracks. History:
+`docs/evidence/series_look_reaches_broll.md`.
 """
 import importlib
 import json
@@ -29,9 +20,6 @@ from library.steps.step_6_01_render.build_verification import (
     detect_unreachable_fusion_effects,
 )
 from library.tools.execution.fusion_tracks import (
-    FUSION_COMP_TRACKS,
-    TRANSITION_TRACK,
-    fusion_comp_tracks,
     reachable_effect_labels,
 )
 
@@ -244,30 +232,16 @@ def test_a_broll_clip_gets_a_fusion_comp(fusion_module, monkeypatch, tmp_path):
         "the cutaway carries no Fusion comp, so it plays at a different "
         "contrast with no grain and no vignette beside the A-roll")
 
-
-def test_the_broll_comp_draws_the_same_look(fusion_module, monkeypatch,
-                                            tmp_path):
-    """Not just 'a comp' - the same nodes the A-roll got.
-
-    No value is asserted, only that the same parameters draw the same
-    node types on both tracks: the grain, vignette and glow numbers are
-    the captain's.
-    """
-    timeline = _timeline()
-    monkeypatch.setattr(fusion_module, "dvr", _FakeDvr(timeline))
-    fusion_module.apply_fusion_comps(
-        json.loads(json.dumps(MANIFEST)), str(tmp_path))
-
+    # Not just 'a comp' - the same node types the A-roll got.
     def nodes(item):
         text = item.imported[0]
         return {name for name in
                 ("SoftGlow", "FilmGrain", "EllipseMask", "Merge")
                 if name in text}
 
-    a_nodes = nodes(timeline.items_by_track[1][0])
-    b_nodes = nodes(timeline.items_by_track[2][0])
-    assert a_nodes, "the A-roll comp drew none of the house-look nodes"
-    assert b_nodes == a_nodes
+    a_nodes = nodes(v1[0])
+    assert a_nodes, "the A-roll comp drew none of the look nodes"
+    assert nodes(v2[0]) == a_nodes
 
 
 def test_transitions_are_not_replayed_onto_broll(fusion_module, monkeypatch,

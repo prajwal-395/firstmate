@@ -1,20 +1,9 @@
 """Adopting the LAION aesthetic ranker behind its sharpness gate.
 
-FIRSTMATE VERDICT 2026-09-18 over the spike's "do not adopt": pairs 1 and
-3 show a clear win in the same direction, and what the ranker replaces is
-a systematically bad rule (about one second into a clip, reliably
-mid-movement) rather than a good one.  The spike's measurements all stand
-- these tests reuse its own numbers, never re-derived ones:
-
-- blur-blindness: Laplacian variance 65 outscored a sharp pipeline pick
-  4.55 to 4.09 - so composition alone must never choose a frame;
-- hold-point noise: +0.04 over the current hold, preferring the softer
-  frame - so the ranker stays out of the ending-freeze path entirely.
-
-No test here runs the real head (1.6 GB, CPU-heavy - the captain's
-standing rule pauses exactly that work): scorers, extraction and
-sharpness are all stubs.  Nothing here touches ffmpeg, renders,
-transcription or a real project - every path builds under `tmp_path`.
+Two bounds from the spike: composition alone never chooses a blurred
+frame (the sharpness gate is fail-closed), and the ranker stays out of
+the ending-freeze path. Spike numbers: `docs/evidence/frame_ranker.md`.
+No test runs the real head; scorers, extraction and sharpness are stubs.
 """
 
 from pathlib import Path
@@ -36,8 +25,7 @@ def test_blurred_frame_cannot_win_on_composition_alone():
     assert winner["id"] == "sharp"
     assert report["reason"] == "highest_aesthetic_score_above_sharpness_floor"
 
-
-def test_all_blurred_means_no_winner_not_a_soft_winner():
+    # All blurred means no winner, not a soft winner.
     winner, report = frame_ranker.choose([
         {"id": "a", "timestamp": 1.0,
          "aesthetic_score": 4.55, "sharpness": 65.0},
@@ -47,10 +35,8 @@ def test_all_blurred_means_no_winner_not_a_soft_winner():
     assert winner is None
     assert report["reason"] == "no_candidate_passed_sharpness_gate"
 
-
-def test_unknown_sharpness_cannot_win():
-    """Unmeasured is ineligible, not "probably fine": the gate is
-    fail-closed on missing signal too."""
+    # Unmeasured sharpness is ineligible, not "probably fine": the gate
+    # is fail-closed on missing signal too.
     winner, _ = frame_ranker.choose([
         {"id": "unknown", "timestamp": 50.0,
          "aesthetic_score": 9.99, "sharpness": None},

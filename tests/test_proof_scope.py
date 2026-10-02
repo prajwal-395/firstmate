@@ -42,17 +42,15 @@ def test_a_new_plan_earns_the_full_burden():
                for reason in scope["reasons"])
 
 
-def test_a_clean_rerun_owes_stills_only_for_unproven_reels():
+def test_a_rerun_owes_stills_only_for_unproven_reels():
     scope = _scope(reels_without_prior_proof=[REELS[1]])
 
     assert scope["level"] == "REDUCED"
     assert scope["stills"] == [REELS[1]]
     assert scope["census"] == "touched-only"
 
-
-def test_a_fully_proven_rerun_owes_no_post_build_census():
+    # A fully proven re-run owes no post-build census at all.
     scope = _scope()
-
     assert scope["level"] == "REDUCED"
     assert scope["stills"] == []
     assert scope["census"] == "pre-build-only"
@@ -68,7 +66,7 @@ def test_plan_newness_reads_provenance_not_memory(tmp_path):
     plan = tmp_path / "plan.json"
     plan.write_text(json.dumps({"reels": REELS}), encoding="utf-8")
     from library.tools.plan_provenance import (
-        plan_content_hash, write_provenance)
+        plan_content_hash)
 
     content_hash = plan_content_hash(str(plan))
     (review / "plan_provenance.json").write_text(json.dumps(

@@ -96,14 +96,6 @@ def test_a_named_section_gets_the_shape_the_head_of_the_track_had(track):
         "cannot carry")
 
 
-def test_a_section_that_cannot_be_measured_says_so_and_carries_no_curve():
-    rows = section_envelopes("/nowhere/at/all.wav",
-                             [{"source_in": 0.0, "source_out": 30.0}])
-    assert rows[0]["measured"] is False
-    assert "envelope_dbfs" not in rows[0]
-    assert rows[0]["measurement_note"]
-
-
 def test_an_unmeasurable_section_never_becomes_a_curve_of_zeroes(monkeypatch,
                                                                  tmp_path):
     """The degradation CI runs on, asserted where CI can see it.
@@ -125,6 +117,12 @@ def test_an_unmeasurable_section_never_becomes_a_curve_of_zeroes(monkeypatch,
     # And the span it could not measure is still named, so a reader can
     # tell WHICH section went unmeasured.
     assert (rows[0]["source_in"], rows[0]["source_out"]) == (0.0, 30.0)
+    # A track that does not exist answers the same way.
+    rows = section_envelopes("/nowhere/at/all.wav",
+                             [{"source_in": 0.0, "source_out": 30.0}])
+    assert rows[0]["measured"] is False
+    assert "envelope_dbfs" not in rows[0]
+    assert rows[0]["measurement_note"]
 
 
 # ── The exchange ─────────────────────────────────────────────────────

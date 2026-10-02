@@ -1,36 +1,6 @@
-"""`duration_frames` is computed from the timebase the catalog MEASURED.
-
-The defect
-----------
-`step_4_02_plan_transitions/post_bridge.py` read
-`data.get("frame_rate", 30.0)`.  **Nothing in this pipeline has ever
-produced a key called `frame_rate` at the top level of a step's inputs**
-- the catalog measures the timebase and calls it `project_fps` - and no
-edge carried `project_fps` to this step either.  So the default won on
-every run.
-
-Step 4.04 was given the same edge and the same read in #124, whose
-manifest line says it in as many words: *"Every consumer used to read its
-own 30.0 default because no edge carried it."*  Two of the three
-consumers were left behind.
-
-What it cost, measured
-----------------------
-`duration_map` scales with `frame_rate / 30`, so at the wrong 30.0 a
-transition gets 30-fps frame counts played at the project's real rate.
-The captain's `lucie/geo-podcast` is 23.976 fps:
-
-    frame_rate=30.0    quick=6  medium=10 slow=15 frames
-                       -> played 250 / 417 / 626 ms
-    frame_rate=23.976  quick=4  medium=7  slow=11 frames
-                       -> played 167 / 292 / 459 ms
-
-Every drawn transition on that project held roughly 50% longer than the
-word the model wrote asked for.
-
-Both directions, per AGENTS.md 10.4: the wrong timebase must CHANGE the
-answer (or this test proves nothing), and the right one must produce the
-frames the timebase implies.
+"""`duration_frames` is computed from the timebase the catalog MEASURED
+(`project_fps`), never a 30.0 default nothing produces. History and the
+measured cost: `docs/evidence/transition_frames_timebase.md`.
 """
 
 import json
@@ -75,38 +45,12 @@ def _frames(payload):
 
 
 def test_the_projects_own_timebase_decides_the_frames():
-    frames = _frames({"transition_creative": PLAN, "timed_spine": SPINE,
-                      "music_selection": MUSIC, "project_fps": 23.976})
-    assert frames == int(10 * (23.976 / 30)), frames
-
-
-def test_a_different_timebase_gives_a_different_answer():
-    """The direction that makes the test above mean something.
-
-    If `duration_frames` came out the same at both rates, reading the
-    timebase would be decorative and this file would be a gate that
-    cannot fail.
-    """
-    at_ntsc = _frames({"transition_creative": PLAN, "timed_spine": SPINE,
-                       "music_selection": MUSIC, "project_fps": 23.976})
-    at_thirty = _frames({"transition_creative": PLAN, "timed_spine": SPINE,
-                         "music_selection": MUSIC, "project_fps": 30.0})
-    assert at_ntsc != at_thirty, (at_ntsc, at_thirty)
-    assert at_thirty == 10
-
-
-def test_the_key_nothing_produces_no_longer_decides_alone():
-    """`project_fps` wins over `frame_rate`, which nothing writes.
-
-    `frame_rate` is kept as a second reading rather than deleted only
-    because step 4.04 reads it the same way; what matters is that the
-    key the catalog really produces is consulted FIRST.
-    """
-    frames = _frames({"transition_creative": PLAN, "timed_spine": SPINE,
-                      "music_selection": MUSIC, "project_fps": 23.976,
-                      "frame_rate": 30.0})
-    assert frames == int(10 * (23.976 / 30)), frames
-
-
-
-
+    """Both directions (AGENTS.md 10.4): the right timebase gives the frames
+    it implies, a different one CHANGES the answer, and `project_fps` wins
+    over `frame_rate`, which nothing writes."""
+    base = {"transition_creative": PLAN, "timed_spine": SPINE,
+            "music_selection": MUSIC}
+    at_ntsc = _frames(dict(base, project_fps=23.976))
+    assert at_ntsc == int(10 * (23.976 / 30)), at_ntsc
+    assert _frames(dict(base, project_fps=30.0)) == 10
+    assert _frames(dict(base, project_fps=23.976, frame_rate=30.0)) == at_ntsc

@@ -13,16 +13,12 @@ The test that covered this passed, because its fixture was written in
 the same wrong shape as the reader.
 """
 
-import json
-from pathlib import Path
 
 import pytest
 
 from library.tools.camera_stability import (
     HANDHELD_BELOW,
-    MIN_RESIDUAL_SAMPLES,
     STABLE_BELOW,
-    compare_stability_signals,
     read_camera_stability,
     residual_samples,
 )
@@ -44,10 +40,7 @@ def test_the_residual_is_read_under_the_key_step_1_04_writes():
     assert method == "optical_flow_residual"
     assert label == "stable"
     assert mean == pytest.approx(0.01)
-
-
-def test_the_key_nobody_writes_measures_nothing():
-    """The shape the reader used to expect answers with no measurement."""
+    # The shape the reader used to expect answers with no measurement.
     label, method, _ = read_camera_stability(
         {"camera_motion": {"residual": [0.01] * 20}})
     assert (label, method) == ("unknown", "unmeasured")
@@ -61,14 +54,7 @@ def test_the_tiers_are_the_search_grid():
     assert read_camera_stability(_index([HANDHELD_BELOW] * 20))[0] == "unstable"
 
 
-
-
-
-
-
-
 # ── The disagreement is DATA ────────────────────────────────────────────
-
 
 
 def test_the_view_carries_both_signals_a_legend_and_the_disagreement():
@@ -94,16 +80,11 @@ def test_the_view_carries_both_signals_a_legend_and_the_disagreement():
     assert "1 of 2" in view["disagreements"]
     assert "clip_017" in view["disagreements"]
 
-
-def test_a_document_with_no_method_says_unrecorded_not_unmeasured():
-    """A label whose signal was not recorded is not a label of nothing."""
+    # A label whose signal was not recorded is not a label of nothing.
     view = build_view("stability", {"semantic_analysis_documents": [
         {"clip_id": "clip_001",
          "assessment": {"camera_stability": "handheld"},
          "camera": [{"stability": "stable"}]},
     ]})["stability"]
     assert view["clips"][0]["deterministic_method"] == "unrecorded"
-
-
-
 

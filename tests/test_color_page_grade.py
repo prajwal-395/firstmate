@@ -42,8 +42,6 @@ def test_no_declaration_applies_nothing(tmp_path):
     assert resolve_color_page_grade(_project(tmp_path, None)) is None
 
 
-
-
 def test_a_declared_grade_resolves_to_an_absolute_path(tmp_path):
     drx = _drx(tmp_path)
     resolved = resolve_color_page_grade(_project(
@@ -51,9 +49,7 @@ def test_a_declared_grade_resolves_to_an_absolute_path(tmp_path):
                                        "provenance": dict(PROVENANCE)}}))
     assert resolved["path"] == drx
     assert resolved["provenance"]["authorised_by"] == "captain, 2026-09-10"
-
-
-def test_a_relative_path_resolves_inside_the_project(tmp_path):
+    # A relative path resolves inside the project.
     (tmp_path / "brand_assets").mkdir()
     (tmp_path / "brand_assets" / "v04.drx").write_bytes(b"DRX")
     resolved = resolve_color_page_grade(_project(
@@ -72,25 +68,13 @@ def test_a_path_with_no_provenance_is_refused(tmp_path):
         resolve_color_page_grade(_project(
             tmp_path, {"power_grade_drx": {"path": drx}}))
     assert "provenance" in str(excinfo.value)
-
-
-@pytest.mark.parametrize("provenance", [
-    {},
-    {"source": "x", "authorised_by": "y"},
-])
-def test_provenance_with_a_hole_is_refused(tmp_path, provenance):
-    drx = _drx(tmp_path)
-    with pytest.raises(ColorPageGradeError) as excinfo:
-        resolve_color_page_grade(_project(
-            tmp_path, {"power_grade_drx": {"path": drx,
-                                           "provenance": provenance}}))
-    assert "provenance" in str(excinfo.value)
-
-
-
-
-
-
+    # Provenance with a hole is refused the same way.
+    for provenance in ({}, {"source": "x", "authorised_by": "y"}):
+        with pytest.raises(ColorPageGradeError) as excinfo:
+            resolve_color_page_grade(_project(
+                tmp_path, {"power_grade_drx": {"path": drx,
+                                               "provenance": provenance}}))
+        assert "provenance" in str(excinfo.value)
 
 
 # ── The apply record ─────────────────────────────────────────────
@@ -114,36 +98,11 @@ class _Item:
         return self._graph
 
 
-class _CountingItem(_Item):
-    def __init__(self):
-        super().__init__(_Graph())
-        self.fetches = 0
-
-    def GetNodeGraph(self):
-        # The handle goes stale across the apply: the count must come
-        # off a FRESH graph, so the renderer re-fetches. Two fetches
-        # minimum - one to apply through, one to read back.
-        self.fetches += 1
-        if self.fetches == 1:
-            return self._graph
-        fresh = _Graph()
-        fresh.GetNumNodes = lambda: 8
-        return fresh
-
-
-
-
-def test_a_false_return_is_reported_not_raised():
-    record = apply_power_grade(_Item(_Graph(applied=False)),
-                               "/grade/v04.drx")
-    assert record["applied"] is False
-    assert "reason" in record
-
-
-def test_no_graph_is_reported_not_raised():
-    record = apply_power_grade(_Item(None), "/grade/v04.drx")
-    assert record["applied"] is False
-    assert "reason" in record
+def test_a_false_return_or_no_graph_is_reported_not_raised():
+    for item in (_Item(_Graph(applied=False)), _Item(None)):
+        record = apply_power_grade(item, "/grade/v04.drx")
+        assert record["applied"] is False
+        assert "reason" in record
 
 
 def test_repo_wide_drx_files_need_recorded_provenance():

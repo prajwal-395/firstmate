@@ -77,14 +77,10 @@ def test_peaks_inside_the_block_range_map_to_timeline_seconds():
     assert [(p["timeline_seconds"], p["kind"]) for p in row["peaks"]] == [
         (10.0, "onset"), (10.4, "apex")]
     assert row["peaks"][1]["magnitude"] == pytest.approx(0.7)
-
-
-def test_a_measured_still_block_is_a_row_not_an_absence():
-    view = _view()["motion"]
-    row = next(r for r in view["blocks"]
-               if r["block_position"] == 2)
-    assert row["clip_motion"] == "static"
-    assert row["peaks"] == []
+    # A measured still block is a row, not an absence.
+    still = next(r for r in view["blocks"] if r["block_position"] == 2)
+    assert still["clip_motion"] == "static"
+    assert still["peaks"] == []
 
 
 def test_unmeasured_blocks_are_named_not_silent():
@@ -96,9 +92,7 @@ def test_unmeasured_blocks_are_named_not_silent():
 def test_the_view_reads_either_routed_name():
     assert (_view(key="temporal_index")["motion"]["blocks_measured"]
             == _view()["motion"]["blocks_measured"] == 2)
-
-
-def test_no_summaries_is_no_view():
+    # No summaries is no view.
     assert build_view("motion", {"timed_spine": SPINE}) == {}
     assert build_view("motion", {}) == {}
 

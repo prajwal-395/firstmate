@@ -57,16 +57,13 @@ def test_a_stated_slip_shifts_source_at_the_same_timeline():
     assert base["slip_seconds"] == 0.0
 
 
-def test_slip_frames_match_slip_seconds():
+def test_slip_frames_match_slip_seconds_and_disagreement_refuses():
     seconds = _resolve([{"clip_id": "clip_b", "spine_block_position": 1,
                          "slip_seconds": 1.0}])
     frames = _resolve([{"clip_id": "clip_b", "spine_block_position": 1,
                         "slip_frames": 30}])
     assert frames["b_roll_assignments"][0]["video_in"] == pytest.approx(
         seconds["b_roll_assignments"][0]["video_in"])
-
-
-def test_disagreeing_slip_forms_refuse():
     with pytest.raises(ValueError, match="ambiguous spec"):
         _resolve([{"clip_id": "clip_b", "spine_block_position": 1,
                    "slip_seconds": 1.0, "slip_frames": 60}])

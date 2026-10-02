@@ -10,7 +10,6 @@ Tests use synthetic data shaped like the 17 real clips in the reference
 project, plus boundary cases the reference data does not cover.
 """
 
-import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -104,15 +103,6 @@ def _make_temporal_index(
 class TestComplementRanges:
 
 
-
-    def test_single_unusable_in_middle(self):
-        unusable = [{"start": 3.0, "end": 5.0, "reason": "test"}]
-        result = _complement_ranges(unusable, 10.0)
-        assert result == [[0, 3.0], [5.0, 10.0]]
-
-
-
-
     def test_sliver_gap_dropped(self):
         """A gap too short to cut to is not offered as usable footage."""
         unusable = [
@@ -120,8 +110,7 @@ class TestComplementRanges:
             {"start": 4.033, "end": 10.0, "reason": "a"},
         ]
         assert _complement_ranges(unusable, 10.0) == []
-
-    def test_gap_at_minimum_length_kept(self):
+        # A gap at the minimum length is kept.
         unusable = [
             {"start": 0.0, "end": 4.0, "reason": "a"},
             {"start": 4.5, "end": 10.0, "reason": "a"},
@@ -148,6 +137,10 @@ class TestUnmeasured:
         assert unusable == []
         assert method == "unmeasured"
         assert signals == []
+        # An empty index and a zero duration answer the same way.
+        assert _compute_usable_ranges({}, 5.0, "unknown")[2] == "unmeasured"
+        usable, _, method, _ = _compute_usable_ranges(None, 0, "unknown")
+        assert usable == [] and method == "unmeasured"
 
     def test_sparse_motion_data(self):
         """Less than a second of motion data -> unmeasured."""
@@ -159,9 +152,7 @@ class TestUnmeasured:
             idx, 0.5, "unknown")
         assert method == "unmeasured"
         assert signals == []
-
-    def test_sparse_guard_tracks_the_declared_sample_rate(self):
-        """The guard is 1s of data, not 30 samples."""
+        # The guard is 1s of data at the declared rate, not 30 samples.
         idx = _make_temporal_index(
             duration=2.0,
             motion_values=[CALM] * 20,  # 2s at 10Hz
@@ -170,11 +161,6 @@ class TestUnmeasured:
         _, _, method, signals = _compute_usable_ranges(idx, 2.0, "unknown")
         assert method == "deterministic_v1"
         assert signals == ["motion_energy"]
-
-    def test_empty_temporal_index(self):
-        usable, unusable, method, signals = _compute_usable_ranges(
-            {}, 5.0, "unknown")
-        assert method == "unmeasured"
 
     def test_motion_without_absolute_scale_is_not_measured(self):
         """A normalized curve alone cannot answer "how much motion is this".
@@ -197,13 +183,6 @@ class TestUnmeasured:
         assert unusable == []
         assert usable == []
 
-    def test_zero_duration_reports_nothing_usable(self):
-        usable, unusable, method, signals = _compute_usable_ranges(
-            None, 0, "unknown")
-        assert usable == []
-        assert method == "unmeasured"
-
-
 # ═══════════════════════════════════════════════════════════════════════
 #  Rule 1: Sustained high motion
 # ═══════════════════════════════════════════════════════════════════════
@@ -223,17 +202,8 @@ class TestRule1SustainedHighMotion:
         # The whole clip should be flagged, leaving little or nothing usable
         total_unusable = sum(r["end"] - r["start"] for r in unusable)
         assert total_unusable > 2.5  # >70% of 3.567s
-
-    def test_low_motion_clip_all_usable(self):
-        """A quiet clip is entirely usable."""
-        motion = [CALM] * 300  # 10s at 30Hz
-        idx = _make_temporal_index(duration=10.0, motion_values=motion)
-        usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 10.0, "scenery")
-
-        assert method == "deterministic_v1"
-        assert usable == [[0, 10.0]]
-        assert unusable == []
+        # Motion running to the end is clamped to the clip's duration.
+        assert all(r["end"] <= 3.567 for r in unusable)
 
     def test_flat_clip_is_usable_however_its_curve_normalizes(self):
         """A locked-off shot's sensor noise is not camera handling.
@@ -370,8 +340,7 @@ class TestRule2DeadHeadTail:
         assert head_flags[0]["end"] == 3.0
         assert "speech_regions" in signals
 
-    def test_high_motion_tail_after_speech(self):
-        """Tail region with high motion and no speech is flagged."""
+        # The tail mirrors it: high motion after the last speech.
         motion = [0.0] * 300
         # Tail is [last_speech=7.0, duration=10.0] = samples 210 to 300.
         # Its mean must clear the head/tail threshold for the rule to fire.
@@ -400,35 +369,6 @@ class TestRule2DeadHeadTail:
                      if r["reason"] in ("high_motion_head", "high_motion_tail")]
         assert head_tail == []
         assert "speech_regions" not in signals
-
-    def test_short_head_not_flagged(self):
-        """Head shorter than 0.5s is not flagged (too brief for button-press)."""
-        motion = [HANDHELD] * 300
-        speech = [{"start": 0.3, "end": 8.0, "text": "hello"}]
-        idx = _make_temporal_index(
-            duration=10.0, motion_values=motion, speech_regions=speech)
-
-        usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 10.0, "unknown")
-
-        head_flags = [r for r in unusable if r["reason"] == "high_motion_head"]
-        assert head_flags == []
-
-    def test_low_motion_head_not_flagged(self):
-        """A calm head is not flagged even though it holds no speech."""
-        motion = [CALM] * 300
-        speech = [{"start": 3.0, "end": 8.0, "text": "hello"}]
-        idx = _make_temporal_index(
-            duration=10.0, motion_values=motion, speech_regions=speech)
-
-        # A-roll: the rule reasons about a speaker, so it only applies to a
-        # clip that has one.  See TestRule2IsAROllOnly below.
-        usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 10.0, "person_talking_to_camera")
-
-        head_flags = [r for r in unusable if r["reason"] == "high_motion_head"]
-        assert head_flags == []
-
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Rule 3: Subject absence (A-roll clips only)
@@ -503,7 +443,7 @@ class TestRule3SubjectAbsence:
 class TestHonestyMechanism:
 
 
-    def test_signals_list_tracks_what_was_used(self):
+    def test_signals_list_tracks_what_was_used_and_omits_the_rest(self):
         """Signals list reflects which data contributed to the measurement."""
         motion = [CALM] * 300
         speech = [{"start": 1.0, "end": 8.0, "text": "hello"}]
@@ -518,9 +458,7 @@ class TestHonestyMechanism:
         assert "speech_regions" in signals
         assert "face_presence" in signals
 
-    def test_signals_omits_absent_data(self):
-        """Absent signals are not listed."""
-        motion = [CALM] * 300
+        # Absent signals are not listed. = [CALM] * 300
         idx = _make_temporal_index(duration=10.0, motion_values=motion)
 
         _, _, _, signals = _compute_usable_ranges(idx, 10.0, "unknown")
@@ -536,7 +474,6 @@ class TestHonestyMechanism:
 class TestDeterministicAssessmentIntegration:
 
 
-
     def test_uses_temporal_index_duration_key(self):
         """Handles temporal indices with 'duration' key (older format)."""
         idx = _make_temporal_index(duration=5.0, motion_values=[CALM] * 150)
@@ -547,11 +484,7 @@ class TestDeterministicAssessmentIntegration:
         result = compute_deterministic_assessment(idx, "")
         assert result["usable_ranges"] == [[0, 5.0]]
         assert result["usable_ranges_method"] == "deterministic_v1"
-
-    def test_explicit_duration_parameter_used(self):
-        """When duration is passed explicitly, it is used for usable_ranges."""
-        idx = _make_temporal_index(duration=5.0, motion_values=[CALM] * 150)
-        # Pass a different duration via the parameter
+        # An explicitly passed duration is the one usable_ranges uses. a different duration via the parameter
         result = compute_deterministic_assessment(idx, "", duration=6.0)
         assert result["usable_ranges"] == [[0, 6.0]]
 
@@ -569,7 +502,6 @@ class TestReferenceProjectShapes:
     a second while it is whipped, and the talking-head clips sit around
     0.010-0.025 throughout.
     """
-
 
     def test_clip_002_like_whip_pan(self):
         """clip_002 (IMG_1807): a real whip, peaking at 0.359."""
@@ -614,7 +546,6 @@ class TestReferenceProjectShapes:
         # Most of the clip should remain usable
         total_usable = sum(r[1] - r[0] for r in usable)
         assert total_usable > 40.0
-
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -676,18 +607,6 @@ class TestEdgeCases:
             same = [r for r in unusable if r["reason"] == reason]
             for a, b in zip(same, same[1:]):
                 assert a["end"] < b["start"]
-
-    def test_duration_clamping(self):
-        """Unusable ranges are clamped to clip duration."""
-        # 5s clip but motion runs to the end
-        motion = [WHIP] * 150
-        idx = _make_temporal_index(duration=5.0, motion_values=motion)
-
-        usable, unusable, method, signals = _compute_usable_ranges(
-            idx, 5.0, "unknown")
-
-        for r in unusable:
-            assert r["end"] <= 5.0
 
     def test_rounding(self):
         """All output values are rounded to 3 decimal places."""

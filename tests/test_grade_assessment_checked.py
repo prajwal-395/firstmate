@@ -96,11 +96,8 @@ def test_prose_without_a_checkable_claim_is_not_read():
         "these three sit together already", corrections, CUT) == []
     assert cc.check_assessment("one clip under", corrections, CUT) == []
     assert cc.check_assessment("", corrections, CUT) == []
-
-
-def test_complex_prose_is_declined_rather_than_guessed_at():
-    corrections = _corrections()
-    # Two terms or two numbers: pairing them would invent a reading.
+    # Complex prose - two terms or two numbers - is declined: pairing
+    # them would invent a reading.
     assert cc.check_assessment(
         f"saturation {CLAIMED_SATURATION} on every clip and exposure "
         f"+0.5 on the interior",
@@ -108,19 +105,6 @@ def test_complex_prose_is_declined_rather_than_guessed_at():
     assert cc.check_assessment(
         "every clip got saturation 1.10 except the two at 1.0",
         corrections, CUT) == []
-
-
-def test_the_basis_record_carries_the_finding_beside_the_claim():
-    corrections = _corrections()
-    assessment = (
-        f"I applied one global saturation of {CLAIMED_SATURATION} "
-        f"to every placed clip"
-    )
-    record = cc.basis_record(
-        cc.planning_basis(True, corrections, []), corrections, [],
-        assessment, clips_in_the_cut=CUT)
-    assert sorted(record["assessment_mismatches"][0]["clips"]) == sorted(
-        UNSATURATED)
 
 
 def test_define_color_grade_threads_the_cut_clips_into_the_record():

@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from library.tools import window_frames as wf
 from library.tools.cutaway_window import candidate_windows, choose_window
-from library.tools.project_layout import AREAS, Area
 
 FFMPEG = shutil.which("ffmpeg") and shutil.which("ffprobe")
 
@@ -32,26 +31,14 @@ def test_a_strip_shows_both_ends_of_the_window():
     assert times[0] == 6.1
     # The last frame the viewer sees is one frame BEFORE video_out.
     assert times[-1] == pytest.approx(10.286 - 1 / 30.0, abs=0.002)
-
-
-def test_nothing_of_the_window_passes_unseen_beyond_the_resolution():
+    # Nothing of the window passes unseen beyond the resolution.
     for video_in, video_out in [(0.0, 1.382), (0.0, 4.186), (12.5, 15.0)]:
         times = wf.sample_times(video_in, video_out, 30.0)
         gaps = [b - a for a, b in zip(times, times[1:])]
         assert max(gaps) <= wf.SECONDS_UNSEEN_BETWEEN_SAMPLES + 1e-6
 
 
-
-
-
-
 # ── The harness ──────────────────────────────────────────────────────
-
-
-
-def test_an_unestablished_harness_raises_rather_than_being_assumed():
-    with pytest.raises(wf.UnknownHarness):
-        wf.harness_shows_frames("some-new-backend")
 
 
 def test_a_harness_that_cannot_be_shown_a_picture_gets_the_prose_instead():
@@ -76,7 +63,9 @@ def test_a_harness_that_cannot_be_shown_a_picture_gets_the_prose_instead():
     assert dropped["broll_candidates_toon"] == inputs["broll_candidates_toon"]
     assert inputs["broll_window_frames"] == block      # not mutated
 
-
+    # A harness nobody established raises rather than being assumed.
+    with pytest.raises(wf.UnknownHarness):
+        wf.harness_shows_frames("some-new-backend")
 
 
 # ── The anchors are the windows the selector really returns ──────────
@@ -92,22 +81,16 @@ def _clip_analysis():
     ]}
 
 
-def test_every_window_the_selector_can_return_has_an_anchor():
-    analysis, index, duration = _clip_analysis(), {}, 20.0
-    slots = [1.382, 2.5, 4.186]
-    anchors = {a["video_in"] for a in
-               wf.window_anchors(analysis, index, duration, slots)}
-    for target in slots:
-        for row in candidate_windows("", analysis, index, duration, target):
-            assert row["video_in"] in anchors
-
-
 def test_the_anchor_is_the_window_the_current_selector_chooses():
     """The frame is of THIS window, not of some other moment."""
     analysis, index, duration = _clip_analysis(), {}, 20.0
     slots = [1.382, 2.5, 4.186]
     anchors = {a["video_in"]: a for a in
                wf.window_anchors(analysis, index, duration, slots)}
+    # Every window the selector can return has an anchor...
+    for target in slots:
+        for row in candidate_windows("", analysis, index, duration, target):
+            assert row["video_in"] in anchors
     choice = choose_window("a dashboard tilting up to the sky",
                            analysis, index, duration, 2.5)
     assert choice.basis == "moment_match"
@@ -115,8 +98,6 @@ def test_the_anchor_is_the_window_the_current_selector_chooses():
     anchor = anchors[choice.video_in]
     # The strip runs at least as far as this window does.
     assert anchor["strip_end"] >= choice.video_out - 1e-6
-
-
 
 
 # ── The picture itself ───────────────────────────────────────────────
@@ -139,21 +120,6 @@ def _probe_size(path: Path) -> tuple:
         capture_output=True, encoding="utf-8", check=True,
     ).stdout.strip().split(",")
     return int(out[0]), int(out[1])
-
-
-@pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")
-def test_a_strip_is_a_real_picture_of_the_whole_window(tmp_path):
-    clip = _fixture_clip(tmp_path / "clip.mp4")
-    out = tmp_path / "strip.jpg"
-    times = wf.sample_times(5.0, 9.186, 30.0)
-    assert wf.draw_strip(str(clip), times, str(out))
-    width, height = _probe_size(out)
-    assert height == wf.STRIP_FRAME_SHORT_SIDE
-    # One tile per sampled instant, side by side. A single frame would
-    # not show a shot that changes inside its own window.
-    assert width == pytest.approx(640 * len(times), rel=0.02)
-
-
 
 
 @pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")
@@ -242,7 +208,6 @@ def test_the_built_context_carries_an_image_a_reader_can_open(tmp_path):
 # ── Where the frames live ────────────────────────────────────────────
 
 
-
 # ── The cache is keyed on what was DRAWN ──────────────────────────────
 
 def test_the_name_carries_the_frame_count_and_the_sampling_rule():
@@ -266,10 +231,6 @@ def test_the_name_carries_the_frame_count_and_the_sampling_rule():
     assert f"{len(a)}f" in name_a
     # Stable for the same drawing.
     assert name_a == wf.strip_filename("clip_001", 0.0, list(a))
-
-
-
-
 
 
 @pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")

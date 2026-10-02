@@ -16,10 +16,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from library.steps.step_4_03_plan_vfx.bridge import (  # noqa: E402
+    PUNCH_TIMING_MARKER,
     ZOOM_BOUND_MARKER,
     zoom_bound_additions,
 )
 from library.tools.fusion.nodes import MAX_ANIMATED_ZOOM  # noqa: E402
+from library.tools.punch_timing import (  # noqa: E402
+    MAX_PUNCH_RAMP_SECONDS,
+    MIN_PUNCH_RAMP_SECONDS,
+)
 
 STEP_DIR = (REPO_ROOT / "library" / "steps" / "step_4_03_plan_vfx")
 
@@ -30,11 +35,16 @@ def _handoff() -> str:
 
 def test_the_rendered_prompt_states_the_enforced_bound():
     """The marker replacement `present_llm_step` performs, simulated:
-    the prompt the model reads names the bound the builder enforces."""
+    the prompt the model reads names the bound the builder enforces, and
+    the punch-ramp band `punch_timing` refuses outside of."""
     rendered = _handoff()
     assert ZOOM_BOUND_MARKER in rendered
+    assert PUNCH_TIMING_MARKER in rendered
     for marker, text in zoom_bound_additions().items():
         rendered = rendered.replace(marker, text)
     assert ZOOM_BOUND_MARKER not in rendered
+    assert PUNCH_TIMING_MARKER not in rendered
+    assert f"{MIN_PUNCH_RAMP_SECONDS:.2f}" in rendered
+    assert f"{MAX_PUNCH_RAMP_SECONDS:.1f}" in rendered
     assert f"{MAX_ANIMATED_ZOOM:g}" in rendered
     assert "1.04" not in rendered

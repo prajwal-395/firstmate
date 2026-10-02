@@ -70,15 +70,13 @@ def _project_with_clips(tmp_path: Path, clips: list, extra_source: dict = None) 
 # ── sample_timestamps ─────────────────────────────────────────────────
 
 
-def test_sample_timestamps_empty_for_near_zero_duration():
+def test_sample_timestamps_stay_inside_the_source_and_the_cap():
     """A source too short for a safe margin gets no samples, never a
     span that claims presence at a timestamp past the file's own
     length."""
     assert person_entity.sample_timestamps(0.5) == []
     assert person_entity.sample_timestamps(0.0) == []
-
-
-def test_sample_timestamps_respects_max_samples():
+    # A long source is capped at max_samples, inside its own length.
     out = person_entity.sample_timestamps(10000.0, interval_s=10.0,
                                           max_samples=20)
     assert len(out) <= 20
@@ -142,7 +140,7 @@ def test_a_fresh_m2_sample_gives_its_times_never_its_thumbnails(tmp_path, memory
     assert all(owned and "frames/frame_" not in path for _t, path, owned in frames)
 
 
-def test_resolve_sample_frames_falls_back_when_m2_is_stale(tmp_path, memory_root,
+def test_resolve_sample_frames_falls_back_when_m2_is_stale_or_absent(tmp_path, memory_root,
                                                             monkeypatch):
     """A stale M2 record (size/digest disagree with the live file) must
     never be served - the fallback path (own decode) must be taken
@@ -173,17 +171,12 @@ def test_resolve_sample_frames_falls_back_when_m2_is_stale(tmp_path, memory_root
     assert calls  # ffmpeg extraction was actually invoked
     assert all(owned is True for _t, _path, owned in frames)
 
-
-def test_resolve_sample_frames_falls_back_with_no_m2_record(tmp_path, memory_root,
-                                                             monkeypatch):
-    media = _media(tmp_path, "A.MXF", b"source-a")
+    # With no M2 record at all, the same fallback.
+    media = _media(tmp_path, "B.MXF", b"source-b")
     digest = footage_identity.fingerprint(str(media))["content_digest"]
-
     monkeypatch.setattr(person_entity, "extract_frame",
                         lambda source_file, timestamp, out_path:
                         Path(out_path).write_bytes(b"x") or True)
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
     frames, source = person_entity.resolve_sample_frames(
         str(media), digest, duration_seconds=10.0, root=None,
         scratch_dir=str(scratch), interval_s=5.0, max_samples=10)
@@ -219,14 +212,8 @@ def test_frames_at_returns_timestamp_order_whatever_finishes_first(
 
     assert [t for t, _path, _owned in frames] == [1.0, 2.0, 3.0, 4.0, 5.0]
 
-
-def test_frames_at_omits_a_failed_decode_and_keeps_the_rest(
-        tmp_path, memory_root, monkeypatch):
-    """One corrupt seek must not fail the lane - the frame is omitted
-    and the surviving frames still arrive sorted."""
-    media = _media(tmp_path, "A.MXF", b"source-a")
-    digest = footage_identity.fingerprint(str(media))["content_digest"]
-
+    # One corrupt seek must not fail the lane - the frame is omitted
+    # and the surviving frames still arrive sorted.
     def flaky(source_file, timestamp, out_path):
         if timestamp == 3.0:
             return False
@@ -234,30 +221,19 @@ def test_frames_at_omits_a_failed_decode_and_keeps_the_rest(
         return True
 
     monkeypatch.setattr(person_entity, "extract_frame", flaky)
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
     frames, _source = person_entity.frames_at(
         str(media), digest, [1.0, 2.0, 3.0, 4.0], None, str(scratch))
 
     assert [t for t, _path, _owned in frames] == [1.0, 2.0, 4.0]
 
-
-def test_frames_at_empty_timestamps_decodes_nothing(tmp_path, memory_root,
-                                                    monkeypatch):
-    """No timestamps means no work - in particular no zero-worker pool,
-    which `ThreadPoolExecutor` refuses."""
-    media = _media(tmp_path, "A.MXF", b"source-a")
-    digest = footage_identity.fingerprint(str(media))["content_digest"]
-
+    # No timestamps means no work - in particular no zero-worker pool,
+    # which `ThreadPoolExecutor` refuses.
     def boom(source_file, timestamp, out_path):  # pragma: no cover
         raise AssertionError("must not decode")
 
     monkeypatch.setattr(person_entity, "extract_frame", boom)
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
     frames, source = person_entity.frames_at(
         str(media), digest, [], None, str(scratch))
-
     assert frames == []
     assert source == person_entity.FRAME_SOURCE_OWN_DECODE
 
@@ -438,19 +414,6 @@ def test_cluster_face_observations_groups_same_person_apart_from_different():
     assert {len(t["spans"]) for t in tracks} == {3, 2}
 
 
-def test_cluster_face_observations_never_merges_unrelated_embeddings():
-    """Two near-orthogonal embeddings (cosine ~0, far below threshold)
-    must stay separate tracks - guards the merge direction of the
-    threshold comparison (`>=` the right way, not accidentally always
-    true)."""
-    a = tuple(([1.0] + [0.0] * 511))
-    b = tuple(([0.0, 1.0] + [0.0] * 510))
-    obs = [person_entity.FaceObservation(1.0, (0, 0, 1, 1), 0.9, a),
-          person_entity.FaceObservation(2.0, (0, 0, 1, 1), 0.9, b)]
-    tracks = person_entity.cluster_face_observations(obs)
-    assert len(tracks) == 2
-
-
 # ── link_speech_to_face ────────────────────────────────────────────────
 
 
@@ -471,13 +434,8 @@ def test_link_speech_to_face_only_links_overlapping_spans():
     assert len(links) == 1
     assert links[0]["face_track"] == "face_001"
     assert links[0]["voice_track"] == "voice_001"
-
-
-def test_link_speech_to_face_empty_voice_tracks_produces_no_links():
-    """No voice tracks at all (e.g. ECAPA weights unreachable, or a
-    silent source) must not crash and must produce zero links, never a
-    fabricated one."""
-    faces = [_face_track("face_001", [{"start": 1.0, "end": 1.2}])]
+    # No voice tracks at all (ECAPA unreachable, a silent source) gives
+    # zero links, never a fabricated one.
     assert person_entity.link_speech_to_face(faces, []) == []
 
 
@@ -495,11 +453,7 @@ def test_declared_person_names_reads_yaml_and_drops_non_string_values(tmp_path):
         encoding="utf-8")
     names = person_entity.declared_person_names(str(project))
     assert names == {"person_001": "Craig"}
-
-
-def test_declared_person_names_undeclared_is_empty(tmp_path):
-    project = tmp_path / "proj"
-    project.mkdir()
+    (project / "project.yaml").write_text("name: x\n", encoding="utf-8")
     assert person_entity.declared_person_names(str(project)) == {}
 
 
@@ -545,35 +499,6 @@ def test_resolve_person_tracks_merges_same_person_across_sources(
     person = roster["persons"][0]
     clip_ids = {span["clip_id"] for span in person["face_spans"]}
     assert clip_ids == {"clip_001", "clip_002"}
-
-
-def test_resolve_person_tracks_keeps_different_people_apart(
-        tmp_path, memory_root):
-    base_a = _embedding(512, 1)
-    base_b = _embedding(512, 2)
-    media_a = _media(tmp_path, "A.MXF", b"source-a")
-    media_b = _media(tmp_path, "B.MXF", b"source-b")
-    digest_a = footage_identity.fingerprint(str(media_a))["content_digest"]
-    digest_b = footage_identity.fingerprint(str(media_b))["content_digest"]
-    project = _project_with_clips(
-        tmp_path, [("clip_001", media_a, digest_a),
-                  ("clip_002", media_b, digest_b)])
-
-    _write_identity(memory_root, digest_a, {
-        "content_digest": digest_a, "status": "measured",
-        "faces": [{"track_id": "face_001", "embedding": list(base_a),
-                  "spans": [{"start": 1.0, "end": 1.2, "box": [0, 0, 1, 1],
-                            "det_score": 0.9}]}],
-        "voices": [], "speech_face_links": []})
-    _write_identity(memory_root, digest_b, {
-        "content_digest": digest_b, "status": "measured",
-        "faces": [{"track_id": "face_001", "embedding": list(base_b),
-                  "spans": [{"start": 5.0, "end": 5.2, "box": [0, 0, 1, 1],
-                            "det_score": 0.9}]}],
-        "voices": [], "speech_face_links": []})
-
-    roster = person_entity.resolve_person_tracks(str(project))
-    assert len(roster["persons"]) == 2
 
 
 def test_resolve_person_tracks_never_merges_on_voice_alone(

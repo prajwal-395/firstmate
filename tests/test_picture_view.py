@@ -1,28 +1,9 @@
 """Every step that decides from a shot sees the whole clip, not its opening.
 
-`analysis.scene` is `scene[]` rendered as prose, and on project 001
-`scene[]` describes 374.2 s of 807.0 s - 46.4%.  `IMG_1816_v3` is 188.6
-seconds, supplies seven of the eleven A-roll blocks in the finished cut,
-and is described for 18.9 of them.  Five of the sixteen source windows
-the video actually plays fall outside the described range; all sixteen
-fall inside the vision pass's per-window action records, which reach the
-last second of all seventeen clips.
-
-`view:picture` is the reading of those records - what happens, in which
-clip, between which two seconds - and 2.01, 2.02, 3.02, 4.02, 4.03 and
-4.04 all declare it.
-
-**It is not a substitute for `scene[]`.**  `scene[]` says WHERE (location,
-type, lighting, notable features); the action windows say WHAT HAPPENS.
-The view goes beside `analysis.scene`, never in place of it, and a step
-that drops the place axis fails below.
-
-Rows are keyed by the CATALOG clip id wherever a routed clip list makes
-that join possible, because that is the id every other table in a
-planning step's context uses (AGENTS.md 10.1).
-
-What a scene boundary should MEAN is a separate, open question (#225);
-why `scene[]` covers 46.4% is #302.  Neither is touched here.
+`view:picture` reads the vision pass's per-window action records - what
+happens, in which clip, between which two seconds - across the WHOLE
+clip, beside (never instead of) `analysis.scene`, keyed by the catalog
+clip id. Incident (scene[] covered 46.4% of 001): `docs/evidence/picture_view.md`.
 """
 
 import json
@@ -73,11 +54,7 @@ def test_the_view_spans_the_whole_clip():
         "still reading a prefix of it"
     )
     assert rows[0]["visual"] == "The person is looking at the camera."
-
-
-def test_a_clip_with_no_observed_action_is_named():
-    """State the absence - the rule `view:prosody` follows."""
-    view = build_view("picture", {"semantic_analysis_documents": DOCS})
+    # A clip with no observed action is NAMED - the absence is stated.
     assert "IMG_1819_v3" in view["picture"]["not_described"]
 
 
@@ -125,9 +102,8 @@ def test_rows_are_keyed_by_the_clip_id_the_rest_of_the_context_uses():
     assert {r["clip_id"] for r in view["picture"]["observed"]} == {"clip_011"}
     assert "clip_014" in view["picture"]["not_described"]
 
-
-def test_the_assignments_serve_as_the_clip_list_when_the_catalog_is_not_routed():
-    """`plan_vfx` is routed the A-roll assignments, not the catalog."""
+    # `plan_vfx` is routed the A-roll assignments, not the catalog: they
+    # serve as the clip list.
     view = build_view("picture", {
         "semantic_analysis_documents": JOINABLE_DOCS,
         "a_roll_assignments": [{"video_segments": [
@@ -135,44 +111,11 @@ def test_the_assignments_serve_as_the_clip_list_when_the_catalog_is_not_routed()
     })
     assert {r["clip_id"] for r in view["picture"]["observed"]} == {"clip_011"}
 
-
-def test_a_document_no_routed_clip_list_names_keeps_its_own_id_and_says_so():
-    """A MIXED table is the dangerous one - nothing on a row says which id
-    space it is in, so the absence is stated."""
+    # A document no routed clip list names keeps its own id and SAYS so:
+    # a mixed-id table is the dangerous one.
     view = build_view("picture", {
         "semantic_analysis_documents": JOINABLE_DOCS,
         "clip_catalog": [CATALOG[1]],
     })
     assert {r["clip_id"] for r in view["picture"]["observed"]} == {"IMG_1816_v3"}
     assert "IMG_1816_v3" in view["picture"]["not_in_the_clip_list"]
-
-
-# Which steps decide from what a shot looks like. Each of these was checked
-# against its own handoff and its reasoning trace on the run of record; the
-# other six of the twelve are named in the commit message with the reason
-# they are not here.
-PICTURE_DECIDING_STEPS = [
-    "step_2_01_creative_direction",
-    "step_2_02_speech_sequence",
-    "step_3_02_select_broll",
-    "step_4_02_plan_transitions",
-    "step_4_03_plan_vfx",
-    "step_4_04_plan_sfx",
-]
-
-
-# A step whose PRE-BRIDGE renders the place axis into its own table, and
-# the source that must contain the renderer's name for that claim to hold.
-# The exemption is from the `context_fields` path, never from the axis:
-# `vision_schema_adapter.scene_prose` is the one renderer of `scene[]`, so
-# a bridge that stops calling it fails this test rather than passing it
-# by omission.
-PLACE_AXIS_VIA_PRE_BRIDGE = {
-    "step_4_02_plan_transitions": "library/steps/step_4_02_plan_transitions",
-    # 3.02's `broll_candidates_toon.description` is `scene_prose` verbatim,
-    # capped at 600 characters - a cap that binds on 0 of 001's 17 clips.
-    # The raw structure moved to a REFERENCE when the step was carrying
-    # three views of one analysis at 60.7% of its context; the place axis
-    # did not move with it.
-    "step_3_02_select_broll": "library/steps/step_3_02_select_broll",
-}

@@ -96,13 +96,13 @@ def test_a_hook_covers_but_does_not_double():
 
 # ── Wired into enrich_spine, not defined beside it ───────────────────
 
-def test_enrich_spine_refuses_a_dropped_passage():
+def test_enrich_spine_refuses_a_dropped_passage_and_accepts_hook_reuse():
     with pytest.raises(SpineContractError):
         enrich_spine(_spine([("speech", 1)]), _speech_sequence(2), {}, {})
-
-
-def test_enrich_spine_accepts_hook_reuse():
     result = enrich_spine(
         _spine([("hook", 2), ("speech", 1), ("speech", 2)]),
         _speech_sequence(2), {}, {})
-    assert len(result["audio_spine"]["structure"]) == 3
+    # Each block resolves its passage_ref BY ORDERING into the passage's
+    # own clip.
+    assert [b["clip_id"] for b in result["audio_spine"]["structure"]] == [
+        "clip_002", "clip_001", "clip_002"]

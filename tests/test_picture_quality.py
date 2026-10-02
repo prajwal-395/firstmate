@@ -1,36 +1,9 @@
 """A usable range is a measurement, and an absent one reads as absent.
 
-Two things are under test here.
-
-The NON-NEGOTIABLE, and the reason the issue was raised: when nothing
-measured a clip, `usable_ranges` must not claim the whole clip.  It used
-to read `[[0, full_duration]]` beside `usable_ranges_method: "unmeasured"`
-- one field contradicting the three next to it - and the B-roll selector
-reads that field to decide which 2.5 seconds of a clip to cut.  On the
-2026-08-26 run of project 001 it cut `clip_006` 1.65-4.15s, a whip pan out
-of a moving car window, and the master at 25.0s is motion-blurred asphalt.
-
-The MEASUREMENT that replaces the assertion: a sharpness estimate sampled
-straight off the video file, which needs no temporal index and therefore
-works on a first run - see `library/tools/analysis/picture_quality.py` for
-what its sampling rate can and cannot resolve.
-
-Calibration on project 001's own footage
-────────────────────────────────────────
-Sampled at 5 Hz with the short side bounded to 180px, 17 clips / 807s:
-
-    clip      file           dur     thr   soft   soft ranges (s)
-    clip_006  IMG_1811.MOV  22.87   166.3  16.6%  0.0-2.0, 2.8-3.6, 7.2-8.2
-    clip_008  IMG_1813.MOV   9.07   512.9  48.5%  3.8-6.2, 6.8-7.8, 8.0-9.0
-    clip_007  IMG_1812.MOV 139.13   352.6  15.5%  16 ranges
-    clip_011  IMG_1816.MOV 188.58   206.6   2.8%  5 ranges
-    ...8 of the 17 come back with no soft range at all.
-
-Verified by eye against extracted frames: clip_006 @3.15s (the source
-frame behind the master's 25.0s) and clip_008 @5.0s are both unreadable
-motion blur and both fall inside a reported range; clip_006 @5.0s and
-clip_008 @2.0s are sharp and legible and neither does.  Cost: 2.79s per
-clip, 0.059x realtime.
+An unmeasured clip claims NO usable range (it used to claim the whole
+clip, and the B-roll selector cut a whip pan from it); the replacement
+is a sharpness measurement sampled off the video file. Incident and
+calibration on project 001: `docs/evidence/picture_quality.md`.
 """
 
 import os
@@ -103,15 +76,6 @@ def _track(values, rate=RATE):
 
 @needs_mlx
 class TestUnmeasuredClaimsNothing:
-    def test_the_whole_clip_is_never_the_unmeasured_answer(self):
-        """The exact shape the 2026-08-26 run wrote, for every clip."""
-        for duration in (3.567, 22.87, 139.13, 188.578):
-            usable, _, method, _ = _compute_usable_ranges(
-                None, duration, "unknown", soft_picture_ranges=None)
-            assert method == "unmeasured"
-            assert [0, round(duration, 3)] not in usable
-            assert usable == []
-
     def test_deterministic_assessment_reports_the_absence(self):
         result = compute_deterministic_assessment(None, "", duration=188.578)
 
@@ -184,13 +148,8 @@ class TestSoftPictureRanges:
 
         assert ranges == [{"start": 4.0, "end": 5.0,
                            "reason": SOFT_PICTURE_REASON}]
-
-    def test_a_run_shorter_than_the_floor_is_not_reported(self):
-        """Two soft samples is 0.4s - under MIN_SOFT_RUN_S, so dropped.
-
-        This is the shortest window the method deliberately cannot see,
-        and the module docstring states it.
-        """
+        # Two soft samples is 0.4s - under MIN_SOFT_RUN_S, the shortest
+        # window the method deliberately cannot see - so dropped.
         values = [1000.0] * 20 + [5.0] * 2 + [1000.0] * 20
         assert soft_picture_ranges(_track(values), 8.4) == []
 
@@ -207,12 +166,9 @@ class TestSoftPictureRanges:
         assert len(ranges) == 1
         assert ranges[0]["start"] == 0.0
         assert ranges[0]["end"] == pytest.approx(8.0)
-
-    def test_a_low_texture_clip_is_not_condemned_by_the_absolute_floor(self):
-        """A flat but sharp subject sits under no clip's own reference."""
-        values = [120.0] * 40
-        assert soft_picture_ranges(_track(values), 8.0) == []
-
+        # ...while a flat but sharp subject sits under no clip's own
+        # reference and is not condemned.
+        assert soft_picture_ranges(_track([120.0] * 40), 8.0) == []
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Sample geometry

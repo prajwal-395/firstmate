@@ -1,4 +1,3 @@
-import pytest
 from library.tools.execution import apply_fusion_comps as afc
 
 def test_missing_dvr_sentinel_can_be_monkeypatched(monkeypatch):

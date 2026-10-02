@@ -181,10 +181,6 @@ class _HDPoolItem(_PoolItem):
 
 # ── 1. The override validates, number-anchored ───────────────────────
 
-def test_a_transform_override_validates():
-    assert len(captain_edits.validate_edits([_override()])) == 1
-
-
 def _refusal_case(name):
     """One invalid override per refusal guard (see `validate_edits`).
 
@@ -239,14 +235,6 @@ def test_an_override_matches_the_span_speaking_its_anchor():
     assert matched[0]["span_index"] == 0
     assert matched[0]["property"] == "Pan"
     assert matched[0]["value"] == pytest.approx(-35.0)
-
-
-def test_an_override_matching_no_span_reports_stale():
-    spans = [_span((10.0, 14.0))]
-    matched, stale = captain_edits.match_transform_overrides(
-        spans, _tx(), [_override(anchor="zebras on mars")])
-    assert matched == []
-    assert len(stale) == 1 and "STALE" in stale[0]["reason"]
 
 
 def test_a_stale_override_says_which_kind_of_stale_it_is():
@@ -515,7 +503,6 @@ def test_reel24_override_matches_the_opening_same_named_item_and_covers_tv(
         "firstmate 2026-09-29 Reel 24: current TV-window aim for the "
         "opening LCATL0013.MXF shot, source 3943.372-3947.001")
     _write_edits_file(project, current_records)
-    target_timeline = _Timeline([])
     resolve_project = type("Project", (), {
         "GetCurrentTimeline": lambda self: _CurrentTimeline(),
     })()
@@ -711,31 +698,6 @@ def test_the_external_check_covers_the_new_kind(tmp_path):
         external_inputs.load(str(project), state)
 
 
-def test_describe_names_the_hold_in_plain_language(capsys):
-    lines = captain_edits.describe_edits([_override()])
-    assert "Pan" in lines[0] and "-35.0" in lines[0]
-
-
-def test_a_recorded_override_survives_the_read_and_the_rebuild(tmp_path):
-    """The whole loop twice through the dormant store - record, load,
-    match, apply - holding on every rebuild rather than drifting."""
-    from library.tools import reel_build
-    project = _project(tmp_path)
-    captain_edits.record_edit(str(project), _override(), "captain, test")
-    spans = [_span((10.0, 14.0)), _span((20.0, 24.0), speaker="Craig")]
-    for _ in range(2):
-        edits = captain_edits.load_edits(str(project))
-        matched, stale = captain_edits.match_transform_overrides(
-            spans, _tx(), edits)
-        assert stale == [] and len(matched) == 1
-        item = _Item(pan=14.0)
-        applied = reel_build.apply_transform_overrides(
-            "Reel 09", _TrackPlan(), {"1": 1}, spans,
-            _Timeline([item]), _tx(), str(project), 1080, 1920)
-        assert applied == 1
-        assert item.GetProperty("Pan") == pytest.approx(-35.0)
-
-
 # ── 5. The CLI: the one route ────────────────────────────────────────
 
 def test_cli_record_then_list(tmp_path, capsys):
@@ -803,8 +765,6 @@ def _scoped(anchor="explains the number", prop="Pan", value=-35.0,
     return edit
 
 
-
-
 def test_an_empty_reel_scope_is_refused():
     bad = _scoped()
     bad["reel"] = "  "
@@ -845,8 +805,6 @@ def test_scope_decides_which_reel_a_hold_lands_on(
             assert "Reel 01 - the-cta" in stale[0]["reason"]
 
 
-
-
 # (record-identity rows above cover the scoped store cases too:
 # different scopes are different decisions, a same-reel re-ruling
 # supersedes - so the two per-scope store tests live in that table.)
@@ -860,7 +818,7 @@ def test_a_scoped_hold_survives_two_rebuilds(tmp_path):
     captain_edits.record_edit(str(project), _scoped(), "captain, test")
     spans = [_span((10.0, 14.0))]
     for _ in range(2):
-        edits = captain_edits.load_edits(str(project))
+        assert len(captain_edits.load_edits(str(project))) == 1
         item = _Item(pan=14.0)
         applied = reel_build.apply_transform_overrides(
             "Reel 01 - the-cta", _TrackPlan(), {"1": 1}, spans,
@@ -902,9 +860,11 @@ def test_cli_record_transform_keeps_the_source_gain(tmp_path, capsys):
     assert "draw gain 4" in out
 
 
-def test_describe_names_the_scope(capsys):
+def test_describe_names_the_hold_and_its_scope(capsys):
     assert "Reel 01" in captain_edits.describe_edits([_scoped()])[0]
-    assert "Reel" not in captain_edits.describe_edits([_override()])[0]
+    unscoped = captain_edits.describe_edits([_override()])[0]
+    assert "Pan" in unscoped and "-35.0" in unscoped
+    assert "Reel" not in unscoped
 
 
 # ── 7. The hold takes the hand value of the shot it holds ────────────

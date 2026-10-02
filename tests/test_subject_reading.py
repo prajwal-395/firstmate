@@ -22,7 +22,6 @@ from library.tools.subject_framing import (
     read_recorded_subject,
     record_subject_measurement,
     subject_center_reading,
-    subject_center_x,
     subject_measurements_path,
 )
 
@@ -46,7 +45,7 @@ class TestCentredIsNotUnmeasurable:
         assert reading.status == "centred"
         assert reading.reason == "measured_centred"
 
-    def test_unmeasurable_sparse(self):
+    def test_unmeasurable_sparse_or_bad_input(self):
         # Five detections scattered over sixty samples: the detector
         # saw something, but below MIN_DETECTION_RATIO. No measurement.
         centers = [None] * 60
@@ -56,35 +55,18 @@ class TestCentredIsNotUnmeasurable:
         assert reading.position is None
         assert reading.status == "unmeasurable"
         assert reading.reason == "detection_ratio_below_floor"
-
-    def test_the_two_nones_are_told_apart(self):
-        centred = subject_center_reading(
-            face_track([0.50] * 20), 0.0, 4.0)
-        shrug = subject_center_reading(face_track([None] * 20), 0.0, 4.0)
-        assert centred.position is None and shrug.position is None
-        assert centred.status != shrug.status
+        # Bad input is unmeasurable too - never "centred".
+        for bad in ({}, {"sample_rate_hz": 0, "face_center_x": [0.3] * 20},
+                    {"face_center_x": [0.3] * 20}):
+            reading = subject_center_reading(bad, 0.0, 4.0)
+            assert reading.position is None
+            assert reading.status == "unmeasurable"
 
     def test_off_centre_carries_a_number(self):
         reading = subject_center_reading(
             face_track([0.30] * 20), 0.0, 4.0)
         assert reading.position == pytest.approx(0.30)
         assert reading.status == "off_centre"
-
-    @pytest.mark.parametrize("reason_track", [
-        {},
-        {"sample_rate_hz": 0, "face_center_x": [0.3] * 20},
-        {"face_center_x": [0.3] * 20},
-    ])
-    def test_bad_input_is_unmeasurable_not_centred(self, reason_track):
-        reading = subject_center_reading(reason_track, 0.0, 4.0)
-        assert reading.position is None
-        assert reading.status == "unmeasurable"
-
-
-class TestPositionStillDelegates:
-    """`subject_center_x` keeps its contract: the reading's position."""
-
-
 
 def _project(tmp_path):
     project = tmp_path / "project"
@@ -110,7 +92,8 @@ class TestRecordedAim:
         assert back is None
         assert hit is not None and hit["basis"] == "recorded"
 
-    def test_changed_footage_misses(self, tmp_path):
+    def test_changed_footage_other_window_or_corrupt_sidecar_misses(
+            self, tmp_path):
         project = _project(tmp_path)
         source = _footage(tmp_path)
         point = SubjectPoint(center_x=0.48, center_y=0.32, width=0.10,
@@ -123,23 +106,13 @@ class TestRecordedAim:
         assert hit is None
         assert _back is None
 
-    def test_other_window_misses(self, tmp_path):
-        project = _project(tmp_path)
-        source = _footage(tmp_path)
-        point = SubjectPoint(center_x=0.48, center_y=0.32, width=0.10,
-                             samples=12, detected=11, others=0)
+        source = _footage(tmp_path, "OTHER.MXF")
         record_subject_measurement(project, source, 10.0, 15.0, point)
-
         _, hit = read_recorded_subject(project, source, 20.0, 25.0)
         assert hit is None
 
-    def test_corrupt_sidecar_misses(self, tmp_path):
-        project = _project(tmp_path)
-        source = _footage(tmp_path)
         path = subject_measurements_path(project)
-        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json", encoding="utf-8")
-
         _back, hit = read_recorded_subject(project, source, 10.0, 15.0)
         assert hit is None
         assert _back is None

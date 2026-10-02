@@ -1,29 +1,8 @@
 """select_broll keeps the scene prose inline and the scene structure at a path.
 
-Issue #679: "select_broll still reads the scene prose and the scene
-structure". Written against the pre-#339 prompt, where BOTH travelled
-inline in one context:
-
-    semantic_analysis_documents   35,813 B   40.5%   (the structure:
-                                     `scene[]`/`camera[]`/`objects[]` as
-                                     fields, plus every assessment key)
-    broll_candidates_toon           7,613 B    8.6%   (the prose: the
-                                     `description` column is
-                                     `vision_schema_adapter.scene_prose`)
-
-#339 (11498a6) moved the structure to `footage_analysis.md`, reached by
-the map in `footage_analysis_reference`, and withdrew every positive
-`semantic_analysis_documents.*` path from the manifest. The prose column
-stayed: it is the place axis `test_picture_view.py` pins to the
-pre-bridge table, on a step whose handoff tells the model to match
-content against it.
-
-This test pins that end state on the ASSEMBLED prompt (real bridge +
-real projection + real serializer, the shape
-`tests/test_broll_context_share.py` uses): the prose is inline, no
-scene structure is, and the structure is one followed path away. Run it
-at 11498a6^ and it fails - the bridge emits no reference, and the raw
-documents arrive inline carrying every marker below.
+Issue #679 / #339 on the ASSEMBLED prompt (real bridge + projection +
+serializer): the prose is inline, no scene structure is, and the structure
+is one followed path away. History: `docs/evidence/select_broll_context.md`.
 """
 import json
 import os
@@ -158,15 +137,6 @@ STRUCTURE_MARKERS = (
     "seen [",
     "usable_ranges_method",
 )
-
-
-def test_no_scene_structure_travels_inline(tmp_path):
-    """The structure half of #679: fields, not values, must not be inline."""
-    _, context = _assembled_prompt(tmp_path)
-    for marker in STRUCTURE_MARKERS:
-        assert marker not in context, (
-            f"{marker!r} is in the prompt AND is the structure the "
-            f"candidate table was rendered from - the pair #679 reports")
 
 
 def test_the_structure_is_at_the_reference_path_not_in_the_prompt(tmp_path):

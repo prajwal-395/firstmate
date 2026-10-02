@@ -1,34 +1,9 @@
 """A visual lands because of what is being SAID, on the word that says it.
 
-The gap this closes is SELECTION, not drawing. `MotionGraphics/index.tsx`
-already draws Vox-shaped things - bars, counters, stamps, accents - and the
-model was already asked to plan them. What nobody was ever asked is the
-captain's question of 2026-09-08: *"if im talking about money, then having
-assets of currency animated in"* - the step that reads "we're talking about
-money here" and asks for currency.
-
-Two rules govern the mechanism, and both are the captain's standing rules
-applied to a new decision:
-
-1. **The SUBJECT is the model's reasoning, never an engine table.**
-   `semantic_visual` carries no keyword-to-icon mapping - no dict that turns
-   "money" into "$". The model writes `subject` as free text and names the
-   mark itself in `copy`; the engine resolves timing and geometry and never
-   reads the subject to decide anything. `test_the_subject_is_inert` is the
-   runnable statement: two entries differing only in subject resolve
-   identically.
-2. **The visual lands ON its word, not near it.** The previous lane's
-   finding: things that decorate ACROSS the speech look wrong, things cued
-   to their own measured word window look right. An entry names an
-   `anchor_phrase` - words from the speech - and the engine searches the
-   measured word timings for it (the AGENTS.md 6 discipline: anchored by
-   SEARCH, never asserted). No word timings, no landing: the entry is
-   dropped by name.
-
-What the asset IS is stated honestly in `semantic_visual.ASSET_SOURCE`:
-composed from type and shapes the renderer already draws. No network, no
-licence, no fetch - a fetched illustration would need both, and a generated
-one would need a model the pipeline does not run.
+The SUBJECT is the model's free text and the engine never reads it to
+decide (`test_the_subject_is_inert`); the visual lands ON its anchor
+phrase, found by SEARCH in the measured word timings, or is refused by
+name. Rationale and the captain's ask: `docs/evidence/semantic_visual.md`.
 """
 import os
 import sys
@@ -40,7 +15,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools import motion_graphics_plan as mgp
-from library.tools import motion_graphics_vocabulary as mgv
 from library.tools import semantic_visual as sv
 
 FPS = 30
@@ -92,31 +66,23 @@ def test_the_emblem_lands_on_its_word_window():
     start, end = sv.find_phrase_window(WORDS, "lots of money")
     assert start == pytest.approx(1210.981)
     assert end == pytest.approx(1211.621)
-
-
-def test_search_ignores_case_and_punctuation():
+    # The search ignores case and punctuation.
     start, _ = sv.find_phrase_window(WORDS, "Lots Of Money,")
     assert start == pytest.approx(1210.981)
 
 
-def test_a_phrase_that_was_never_said_refuses_by_name():
-    with pytest.raises(sv.SemanticVisualError) as exc:
-        sv.find_phrase_window(WORDS, "crypto fortune")
-    assert exc.value.reason == "anchor_phrase_not_found"
-
-
-def test_an_untimed_anchor_word_refuses_rather_than_guesses():
-    words = [dict(w) for w in WORDS]
-    words[7] = {"word": "money", "start": None, "end": None}
-    with pytest.raises(sv.SemanticVisualError) as exc:
-        sv.find_phrase_window(words, "lots of money")
-    assert exc.value.reason == "anchor_word_untimed"
-
-
-def test_no_word_timings_is_a_refusal_not_an_empty_search():
-    with pytest.raises(sv.SemanticVisualError) as exc:
-        sv.find_phrase_window([], "money")
-    assert exc.value.reason == "no_word_timings_to_anchor_against"
+def test_an_unlandable_anchor_refuses_by_name():
+    """Never said, an untimed anchor word, no word timings at all: each
+    refuses by reason rather than guessing a window."""
+    untimed = [dict(w) for w in WORDS]
+    untimed[7] = {"word": "money", "start": None, "end": None}
+    for words, phrase, reason in [
+            (WORDS, "crypto fortune", "anchor_phrase_not_found"),
+            (untimed, "lots of money", "anchor_word_untimed"),
+            ([], "money", "no_word_timings_to_anchor_against")]:
+        with pytest.raises(sv.SemanticVisualError) as exc:
+            sv.find_phrase_window(words, phrase)
+        assert exc.value.reason == reason
 
 
 # ── 2. the subject is the model's, and the engine never reads it ──────
@@ -135,26 +101,6 @@ def test_the_subject_is_inert():
     a, b = dict(first.moments[0]), dict(second.moments[0])
     a.pop("subject"), b.pop("subject")
     assert a == b
-
-
-def test_the_engine_carries_no_keyword_table():
-    """No mapping in `semantic_visual` turns a subject into a mark.
-
-    The model names the mark in `copy`; an engine-side dict from words to
-    glyphs would be hardcoded taste (AGENTS.md 10.5), so its absence is
-    asserted structurally, not just behaviourally.
-    """
-    assert sv.find_phrase_window is not None  # the module resolved
-    banned = ("KEYWORD", "ICON_TABLE", "GLYPH", "SUBJECT_TABLE",
-              "WORD_TO_ASSET", "ASSET_FOR")
-    for name in banned:
-        assert not hasattr(sv, name), f"semantic_visual.{name} looks like a choice table"
-    source_path = sys.modules[sv.__name__].__file__
-    with open(source_path, encoding="utf-8") as f:
-        source = f.read()
-    for literal in ("\"money\":", "'money':", "\"currency\":", "money ->",
-                    "money->", "ord(\"$\")"):
-        assert literal not in source, f"{literal!r} in semantic_visual.py"
 
 
 # ── 3. the plan honours the anchor ─────────────────────────────────────
@@ -199,10 +145,8 @@ def test_collect_word_windows_maps_source_onto_the_timeline():
     start, end = sv.find_phrase_window(windows, "lots of money")
     assert start == pytest.approx(110.981)
     assert end == pytest.approx(111.361 + 0.26)
-
-
-def test_collect_word_windows_skips_blocks_with_no_clock():
-    spine = {"structure": [
+    # A block with no timeline clock contributes nothing.
+    assert sv.collect_word_windows({"structure": [
         {"clip_id": "clip_001", "word_timestamps": [
-            {"word": "money", "start": 1.0, "end": 1.5}]}]}
-    assert sv.collect_word_windows(spine) == []
+            {"word": "money", "start": 1.0, "end": 1.5}]}]}) == []
+

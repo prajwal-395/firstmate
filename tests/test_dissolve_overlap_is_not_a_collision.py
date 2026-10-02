@@ -64,31 +64,21 @@ def test_a_declared_dissolve_explains_its_own_overlap():
     assert report.passed
 
 
-def test_an_overlap_bigger_than_the_dissolve_still_fails():
-    """The same boundary overlapping by 4 frames with only a 6-frame
-    dissolve declared (allowance 3): still a collision."""
-    timeline = _Timeline([(0, 162), (158, 300)])
-    manifest = {"native_transitions": [
-        {"transition_id": "trans_001", "after_clip": 0,
-         "duration_frames": 6}],
-        "project": {"frame_rate": 30, "duration_seconds": 10.0},
-    }
-    report = run_full_timeline_qa(timeline, None, manifest)
-    assert not report.passed
-    assert any(c.name == "overlap_before_clip_1"
-               for c in _failures(report))
-
-
-def test_a_dissolve_at_the_wrong_boundary_explains_nothing():
-    """A declared dissolve after clip 1 does not cover an overlap at
-    the boundary after clip 0."""
-    timeline = _Timeline([(0, 161), (158, 300), (300, 400)])
-    manifest = {"native_transitions": [
-        {"transition_id": "trans_001", "after_clip": 1,
-         "duration_frames": 6}],
-        "project": {"frame_rate": 30, "duration_seconds": 13.0},
-    }
-    report = run_full_timeline_qa(timeline, None, manifest)
-    assert not report.passed
-    assert any(c.name == "overlap_before_clip_1"
-               for c in _failures(report))
+def test_an_overlap_the_dissolve_does_not_explain_still_fails():
+    """Overlapping by 4 frames with only a 6-frame dissolve declared
+    (allowance 3), or a dissolve declared at the wrong boundary: still a
+    collision."""
+    cases = [
+        ([(0, 162), (158, 300)], 0, 10.0),
+        ([(0, 161), (158, 300), (300, 400)], 1, 13.0),
+    ]
+    for spans, after_clip, duration in cases:
+        manifest = {"native_transitions": [
+            {"transition_id": "trans_001", "after_clip": after_clip,
+             "duration_frames": 6}],
+            "project": {"frame_rate": 30, "duration_seconds": duration},
+        }
+        report = run_full_timeline_qa(_Timeline(spans), None, manifest)
+        assert not report.passed
+        assert any(c.name == "overlap_before_clip_1"
+                   for c in _failures(report))

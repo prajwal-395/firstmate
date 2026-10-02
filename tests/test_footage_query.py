@@ -22,7 +22,6 @@ from library.tools.analysis.footage_query import FootageIndex, build_index
 from library.tools.analysis.footage_segments import (
     SEGMENT_KINDS,
     build_segments,
-    coverage_report,
     curve_facets,
 )
 
@@ -167,10 +166,8 @@ def test_every_source_is_cut_at_its_own_boundary(project):
         "we need to find a parking spot", "the pollen is terrible today",
     ], "one segment per WhisperX utterance, in time order"
 
-
-def test_the_vision_join_goes_through_the_file_path(project):
-    """1.03 keys by file stem, the catalog by clip_XXX (§10.1)."""
-    segments = build_segments(project)
+    # The vision join goes through the file path: 1.03 keys by file stem,
+    # the catalog by clip_XXX (§10.1).
     scene = next(s for s in segments if s.kind == "scene" and s.clip_id == "clip_001")
     assert "parking lot" in scene.text.lower()
     assert scene.facets["framing"] == "close-up"
@@ -195,16 +192,6 @@ def test_an_unmeasured_curve_is_absent_not_zero(project):
 # ─── Building and querying ────────────────────────────────────────
 
 
-def test_build_writes_only_into_the_index_dir(project, tmp_path, monkeypatch):
-    monkeypatch.setattr(footage_query, "_load_embedder", lambda: (None, "none"))
-    before = sorted(p.relative_to(project) for p in project.rglob("*") if p.is_file())
-    index_dir = tmp_path / "elsewhere"
-    build_index(project, index_dir=index_dir)
-    after = sorted(p.relative_to(project) for p in project.rglob("*") if p.is_file())
-    assert before == after, "building the index must not touch the project"
-    assert (index_dir / footage_query.SEGMENTS_FILE).exists()
-
-
 def test_search_finds_the_utterance_and_the_word(offline_index):
     idx, _ = offline_index
     hits = idx.search("parking", top_k=3, mode="lexical")
@@ -222,8 +209,12 @@ def test_lexical_search_works_with_no_embedder_at_all(project, tmp_path, monkeyp
     missing" is the normal case, not the exotic one.
     """
     monkeypatch.setattr(footage_query, "_load_embedder", lambda: (None, "none"))
+    before = sorted(p.relative_to(project) for p in project.rglob("*") if p.is_file())
     index_dir = tmp_path / "nodense"
     build_index(project, index_dir=index_dir)
+    after = sorted(p.relative_to(project) for p in project.rglob("*") if p.is_file())
+    assert before == after, "building the index must not touch the project"
+    assert (index_dir / footage_query.SEGMENTS_FILE).exists()
     idx = FootageIndex(project, index_dir=index_dir)
     assert idx.matrix is None
     assert idx.search("pollen", top_k=1, mode="hybrid")[0]["kind"] == "speech"

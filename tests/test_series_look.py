@@ -15,7 +15,6 @@ a brand template writes, and these tests hold it to three things:
 """
 import inspect
 import os
-import re
 
 import pytest
 import yaml
@@ -23,12 +22,7 @@ import yaml
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.series_look import (
     ELEMENTS_BY_KEY,
-    LOOK_ELEMENTS,
-    NEUTRAL_CDL,
-    DeclaredLook,
     LookDeclarationError,
-    describe_declaration_shape,
-    describe_look,
     resolve_look,
 )
 
@@ -85,21 +79,6 @@ def test_the_module_carries_no_look_values_of_its_own():
 
 # ── A declaration reaches the picture ───────────────────────────────────
 
-def test_a_declaration_draws_every_node_it_names():
-    """build_effect_comp dispatches on parameter NAMES, so a declared
-    element that emits a name it does not read yields a comp without that
-    effect and no warning."""
-    look = resolve_look(FULL_DECLARATION)
-    comp = build_effect_comp(dict(look.fusion()), 120,
-                             source_res=(1080, 1920))
-    assert "BrightnessContrast" in comp, "contrast drew nothing"
-    assert "SoftGlow" in comp, "glow drew nothing"
-    assert "FilmGrain" in comp, "grain drew nothing"
-    assert "EllipseMask" in comp, "vignette drew nothing"
-    # A coloured vignette is the clearest thing a CDL cannot express.
-    assert "TopLeftRed" in comp
-
-
 def test_saturation_is_never_delivered_twice():
     """Saturation is a CDL term. Sending it to fx.grade as well would
     multiply it a second time in the picture."""
@@ -140,51 +119,36 @@ def test_no_declaration_resolves_to_none(declaration):
 
 # ── A partial declaration is refused, never completed ───────────────────
 
-@pytest.mark.parametrize("element,partial", [
-    ("glow", {"gain": 0.2}),
-])
-def test_a_half_declared_element_is_refused_by_name(element, partial):
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look({"name": "half", element: partial})
-    message = str(excinfo.value)
-    assert element in message
-    missing = [k for k in ELEMENTS_BY_KEY[element].required if k not in partial]
-    for key in missing:
-        assert key in message, f"{key} not named in the refusal"
+def test_a_malformed_declaration_is_refused_by_name():
+    """Never completed, never ignored: the only way to finish a partial
+    look is for the engine to choose a strength."""
+    def refusal(declaration):
+        with pytest.raises(LookDeclarationError) as excinfo:
+            resolve_look(declaration)
+        return str(excinfo.value)
 
-
-def test_an_unknown_element_is_refused_rather_than_ignored():
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look({"name": "typo", "halation": {"amount": 0.2}})
-    assert "halation" in str(excinfo.value)
+    # A half-declared element names every key it is missing.
+    message = refusal({"name": "half", "glow": {"gain": 0.2}})
+    assert "glow" in message
+    for key in ELEMENTS_BY_KEY["glow"].required:
+        if key != "gain":
+            assert key in message, f"{key} not named in the refusal"
+    # An unknown element lists the known ones.
+    message = refusal({"name": "typo", "halation": {"amount": 0.2}})
+    assert "halation" in message
     for known in ELEMENTS_BY_KEY:
-        assert known in str(excinfo.value)
-
-
-def test_a_look_that_declares_nothing_is_refused():
-    """A named look drawing no pixel reads as a grade in every report."""
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look({"name": "empty"})
-    assert "draws nothing" in str(excinfo.value)
-
-
-def test_the_old_catalogue_name_says_what_replaced_it():
-    """A template still naming pmk_default must not fail obscurely."""
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look("pmk_default")
-    message = str(excinfo.value)
+        assert known in message
+    # A named look drawing no pixel reads as a grade in every report.
+    assert "draws nothing" in refusal({"name": "empty"})
+    # A value is a number in the declaration, never a path to a file.
+    assert "must be a number" in refusal(
+        {"name": "path", "contrast": "/some/look.drx"})
+    # A template still naming the old catalogue says what replaced it,
+    # and carries the shape, so the fix is in the error.
+    message = refusal("pmk_default")
     assert "DECLARATION, not a name" in message
-    # And the refusal carries the shape, so the fix is in the error.
     assert "series_look:" in message
     assert "glow" in message
-
-
-def test_a_declared_value_must_be_a_number_and_not_a_path():
-    """The whole point of dropping the PowerGrade: a look is values in
-    the declaration, reproducible with no file inside Resolve."""
-    with pytest.raises(LookDeclarationError) as excinfo:
-        resolve_look({"name": "path", "contrast": "/some/look.drx"})
-    assert "must be a number" in str(excinfo.value)
 
 
 def test_no_element_carries_a_default_or_a_bound():

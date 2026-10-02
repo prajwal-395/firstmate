@@ -67,31 +67,19 @@ def test_kind_is_a_path_fact_not_a_name_parse():
     assert not bins.is_render_file("", PROJECT_ROOT)
 
 
-def test_a_shared_frame_files_under_the_assets_bin():
+def test_a_production_asset_files_under_the_assets_bin_however_placed():
+    """Shared, sole-placed or unplaced: placement never earns a
+    production asset a per-reel folder (the category is a path fact),
+    and no `Not placed` leaf is invented in the captain's structure."""
     plan = a_plan(base() + [
         clip("c-frame", "tv_frame_1f8e8d06ff.mov", path=FRAME,
-             placed_by=[REEL_01, REEL_09])])
+             placed_by=[REEL_01, REEL_09]),
+        clip("c-freeze", "reel_freeze_854a84fdb0.mov", path=FREEZE,
+             placed_by=[REEL_09]),
+        clip("c-old", "reel_freeze_old.mov", path=FREEZE)])
     dest = {v.name: v.destination for v in plan.verdicts}
     assert dest["tv_frame_1f8e8d06ff.mov"] == (BIN_ASSETS,)
-
-
-def test_a_sole_placed_production_asset_files_under_the_assets_bin():
-    """Placement never earns a production asset a per-reel folder under
-    a render bin: the category is a path fact, and the assets bin has
-    no per-reel leaves."""
-    plan = a_plan(base() + [
-        clip("c-freeze", "reel_freeze_854a84fdb0.mov", path=FREEZE,
-             placed_by=[REEL_09])])
-    dest = {v.name: v.destination for v in plan.verdicts}
     assert dest["reel_freeze_854a84fdb0.mov"] == (BIN_ASSETS,)
-
-
-def test_an_unplaced_production_asset_files_under_the_assets_bin():
-    """No `Not placed` leaf is invented there: the bins that exist are
-    the captain's structure."""
-    plan = a_plan(base() + [
-        clip("c-freeze", "reel_freeze_old.mov", path=FREEZE)])
-    dest = {v.name: v.destination for v in plan.verdicts}
     assert dest["reel_freeze_old.mov"] == (BIN_ASSETS,)
 
 

@@ -49,7 +49,6 @@ from library.tools.semantic_index import clip_observations
 from library.tools.vision_schema_adapter import (
     UNMEASURED_SUMMARY,
     adapt_semantic_document,
-    usable_ranges_summary,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -88,21 +87,7 @@ def test_no_deterministic_field_holds_a_value_when_nothing_measured():
     )
 
 
-
-
 # ── speech_coverage / speech_present ────────────────────────────────────
-
-def test_an_empty_region_list_is_not_zero_speech():
-    result = compute_deterministic_assessment(
-        _index_without_speech(), transcript="", duration=188.578)
-
-    assert result["speech_coverage"] is None, (
-        "0.0 reports 'this clip has no speech' as a measured fact; an "
-        "empty speech_regions list is also what a WhisperX failure leaves"
-    )
-    assert result["speech_coverage_method"] == "unmeasured"
-    assert result["speech_present"] is None
-
 
 def test_speech_present_is_never_false():
     """False is a claim of silence, and nothing here can measure one."""
@@ -135,8 +120,6 @@ def test_regions_measure_both_and_say_which_measured_them():
     assert result["speech_coverage_method"] == "temporal_index"
 
 
-
-
 # ── primary_subject_visible ─────────────────────────────────────────────
 
 def _assessment_from_model(answer):
@@ -146,8 +129,6 @@ def _assessment_from_model(answer):
     return vp._finish_assessment(
         {"speech_present": None, "camera_stability": "unknown"},
         content_type, psv, None, 10.0, [])
-
-
 
 
 def test_an_answer_of_empty_is_kept_because_the_model_made_it():
@@ -168,10 +149,6 @@ STALE_001_ASSESSMENT = {
 }
 
 
-
-
-
-
 def test_the_broll_candidate_cell_says_unmeasured():
     """The cell the B-roll selector cut project 001's first interjection on."""
     doc = {
@@ -186,9 +163,7 @@ def test_the_broll_candidate_cell_says_unmeasured():
         "assessment": dict(STALE_001_ASSESSMENT),
     }
     assert clip_observations(doc)["usable_ranges"] == UNMEASURED_SUMMARY
-
-
-def test_a_stale_usable_portions_string_is_replaced_not_deferred_to():
+    # A stale usable_portions string is replaced, not deferred to.
     doc = {
         "clip_id": "clip_001",
         "vision_schema_version": "3.0",

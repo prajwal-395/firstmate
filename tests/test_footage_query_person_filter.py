@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from library.tools import footage_identity, person_entity, source_memory
+from library.tools import footage_identity, source_memory
 from library.tools.analysis import footage_query
 from library.tools.analysis.footage_query import FootageIndex, build_index
 from library.tools.ren_refusal import RenRefusal
@@ -125,16 +125,9 @@ def test_person_filter_keeps_only_that_person_s_clip(offline_index, memory_root)
     assert len(results) == 1
     assert results[0]["clip_id"] == "clip_001"
 
-
-def test_person_filter_excludes_segments_outside_the_measured_span(
-        offline_index, memory_root):
-    """A face/voice span that does not cover a segment's time range must
-    not match it - the overlap arithmetic is the thing under test."""
-    idx, digest_1, digest_2 = offline_index
-    # Craig's identity spans only 10.0-10.2s on clip_001 - nowhere near
-    # the 1.0-3.0s speech segment.
+    # A span that does not cover the segment's time range does not match
+    # it: 10.0-10.2s is nowhere near the 1.0-3.0s speech segment.
     _write_identity(memory_root, digest_1, 10.0, 10.2)
-
     assert idx.filter(person="person_001") == []
 
 

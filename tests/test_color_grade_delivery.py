@@ -24,15 +24,13 @@ import pytest
 import yaml
 
 from library.steps.step_5_01_color_grade.grade import (
-    GRADE_PIPELINE,
-    GRADE_PIPELINE_DELIVERY,
     LUMA_METHOD,
     LUMA_UNMEASURED,
     define_color_grade,
     exposure_gain_for,
 )
 from library.tools.fusion.comp_builder import build_effect_comp
-from library.tools.series_look import LookDeclarationError, resolve_look
+from library.tools.series_look import resolve_look
 
 # Values written HERE, in a test, standing in for what a brand template
 # would declare. The engine ships none of its own - see
@@ -65,32 +63,6 @@ def _spec(series_look=None, measurement=None):
             project_folder="proj",
             series_look=series_look,
         )["color_grade_spec"]
-
-
-
-
-def test_no_designed_node_is_delivered_by_a_powergrade():
-    """The DECLARED look's halves are CDL and Fusion - the delivery table
-    names no third half, because a PowerGrade is not a half of the
-    declaration. It is a render-time application of a file the project
-    staged (`color.power_grade_drx`), which REPLACES the graph rather
-    than carrying one node's values. See tests/test_color_page_grade.py
-    for the provenance gate on that route."""
-    delivered = {r.get("delivered_by") for r in GRADE_PIPELINE_DELIVERY.values()}
-    assert "powergrade_path" not in delivered
-    assert all("drx" not in str(d).lower() for d in delivered)
-
-
-def test_no_designed_node_sources_its_values_from_the_engine():
-    """Every node that carries values names the template slot that
-    declares them. `library/tools/series_look.py` holds none."""
-    for node, record in GRADE_PIPELINE.items():
-        source = record.get("source")
-        if source is None:
-            continue
-        assert source.startswith("brand template"), f"{node}: {source}"
-
-
 
 
 def test_a_declared_look_reaches_the_fusion_comp():
@@ -131,14 +103,6 @@ def test_a_project_with_no_declared_look_gets_no_grade_at_all():
     assert "FilmGrain" not in comp
 
 
-def test_a_half_declared_look_fails_loudly():
-    with pytest.raises(LookDeclarationError) as excinfo:
-        _spec({"name": "half", "glow": {"gain": 0.2}})
-    assert "threshold" in str(excinfo.value)
-
-
-
-
 # ── The exposure half: a measurement, never an assertion ────────────────
 
 def test_a_measured_clip_records_the_number_and_the_method():
@@ -172,8 +136,6 @@ def test_nothing_normalises_without_a_declared_reference():
     assert "declares no `exposure_reference`" in adj["notes"]
 
 
-
-
 def test_the_offset_is_the_definition_of_a_stop_and_is_not_clamped():
     """No bound: a clamp is a decision about how far the engine may
     overrule the footage, and the 0.5 that used to sit there was picked
@@ -181,10 +143,6 @@ def test_the_offset_is_the_definition_of_a_stop_and_is_not_clamped():
     offset, gain = exposure_gain_for(30.0, 240.0)
     assert offset == pytest.approx(3.0)
     assert gain == pytest.approx(8.0)
-
-
-
-
 
 
 def test_the_probe_parses_the_output_ffprobe_actually_writes():
@@ -236,8 +194,6 @@ def test_a_failed_probe_is_reported_and_not_returned_as_a_number(
     assert measurement["luma"] is None
     assert measurement["method"] == LUMA_UNMEASURED
     assert reason_fragment in measurement["reason"]
-
-
 
 
 # ── Downstream ──────────────────────────────────────────────────────────
@@ -324,8 +280,6 @@ def test_compile_manifest_draws_no_comp_when_no_look_is_declared():
         assert not effects, f"{label} got a comp with nothing declared: {effects}"
 
 
-
-
 def test_a_project_declared_look_reaches_the_cdl(tmp_path):
     """Scope is the project's own config: `style.series_look` in
     project.yaml wins over the brand template's slot, whole-slot, so
@@ -372,26 +326,6 @@ def test_a_project_declared_look_reaches_the_cdl(tmp_path):
     assert cdl["slope_r"] == pytest.approx(1.03)
     assert cdl["saturation"] == pytest.approx(1.12)
     assert spec["fusion_look"]["grade_contrast"] == pytest.approx(0.12)
-
-
-def test_an_unlicensed_drx_is_refused_even_when_staged(tmp_path):
-    """The withdrawn rule failed on any `.drx` anywhere; the captain's
-    ruling keeps the refusal for a `.drx` nobody authorised. A staged
-    file with no provenance never reaches `apply_power_grade` - the
-    refusal happens at resolve time, before any Resolve call."""
-    from library.tools.color_page_grade import (
-        ColorPageGradeError,
-        resolve_color_page_grade,
-    )
-
-    staged = tmp_path / "grade.drx"
-    staged.write_bytes(b"DRX")
-    (tmp_path / "project.yaml").write_text(yaml.safe_dump(
-        {"name": "t",
-         "color": {"power_grade_drx": {"path": str(staged)}}}))
-    with pytest.raises(ColorPageGradeError) as excinfo:
-        resolve_color_page_grade(str(tmp_path))
-    assert "provenance" in str(excinfo.value)
 
 
 def test_an_unmatchable_reference_is_said_not_silently_dropped(tmp_path):

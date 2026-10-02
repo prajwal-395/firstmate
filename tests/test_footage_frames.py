@@ -141,8 +141,7 @@ def test_adjacent_hits_merge_and_distant_ones_do_not(frame_index):
         h["score"] for h in report["results"] if h["clip_id"] == "clip_001"
         and h["t"] <= 20.0))
 
-
-def test_a_gap_wider_than_merge_gap_splits(frame_index):
+    # A gap wider than the merge gap splits.
     report = frame_index.search_ranges("a laptop on a table", top_ranges=5,
                                        merge_gap_s=5.0)
     clips = [(r["clip_id"], r["start"], r["end"]) for r in report["ranges"]]
@@ -154,7 +153,10 @@ def test_a_gap_wider_than_merge_gap_splits(frame_index):
 # ─── Honesty: ranked, unverified, never absence ─────────────────────
 
 
-def test_every_hit_is_unverified_and_absence_is_never_claimed(frame_index):
+def test_hits_are_ranked_unverified_and_never_claim_absence(
+        frame_index, monkeypatch):
+    """A floor here would repeat the failure the text floor fixed: an index
+    that cannot say "not here" must rank, not go silent - and say so."""
     report = frame_index.search_ranges("a laptop on a table")
     assert report["notice"] and "cannot be concluded" in report["notice"]
     for hit in report["results"]:
@@ -162,10 +164,6 @@ def test_every_hit_is_unverified_and_absence_is_never_claimed(frame_index):
     for span in report["ranges"]:
         assert span["verified"] is False
 
-
-def test_low_scores_still_rank_rather_than_abstain(frame_index, monkeypatch):
-    """A floor here would repeat the failure the text floor fixed: an index
-    that cannot say "not here" must rank, not go silent."""
     def flat_loader():
         def encode_images(paths):
             return np.zeros((len(paths), 4), dtype="float32")
@@ -185,16 +183,17 @@ def test_low_scores_still_rank_rather_than_abstain(frame_index, monkeypatch):
 # ─── Scope: actions belong to the pose/hand lane ────────────────────
 
 
-@pytest.mark.parametrize("query", [
-    "a person covering their mouth with their hand",
-    "a person drinking from a cup",
-    "a hand gesturing in the foreground",
-])
-def test_action_queries_refuse_and_name_the_lane(frame_index, query):
-    report = frame_index.search_frames(query)
-    assert report["results"] == []
-    assert report["refused"] is not None
-    assert "pose/hand" in report["refused"]["hint"]
+def test_action_queries_refuse_and_name_the_lane(frame_index):
+    for query in ("a person covering their mouth with their hand",
+                  "a person drinking from a cup",
+                  "a hand gesturing in the foreground"):
+        report = frame_index.search_frames(query)
+        assert report["results"] == [], query
+        assert report["refused"] is not None
+        assert "pose/hand" in report["refused"]["hint"]
+    # Object queries pass the gate.
+    assert footage_frames.action_refusal_match("a laptop on a table") is None
+    assert footage_frames.action_refusal_match("two people at a table") is None
 
 
 def test_action_override_ranks_when_asked(frame_index):
@@ -202,11 +201,6 @@ def test_action_override_ranks_when_asked(frame_index):
         "a person drinking from a cup", include_actions=True)
     assert report["refused"] is None
     assert len(report["results"]) == 5
-
-
-def test_object_queries_pass_the_gate(frame_index):
-    assert footage_frames.action_refusal_match("a laptop on a table") is None
-    assert footage_frames.action_refusal_match("two people at a table") is None
 
 
 # ─── Building: only the index dir, and staleness sees a moved source ──

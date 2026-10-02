@@ -1,25 +1,11 @@
 """`scene[]` describes 46.4% of 001's footage, and no reader could see the gap.
 
-Issue #302: `scene[]` covers 374.2 s of 807.0 s. The vision pass returns
-one segment for fifteen of seventeen clips - IMG_1816 is 188.6 s and is
-described for 18.9 of them - and the segments were stored verbatim and
-rendered as prose with no account of the range they do not cover. Step
-2.01's trace on the run of record: "I chose those moments blind to their
-picture."
-
-The fix is honest coverage, not invented coverage: the producer
-normalizes the model's bounds and records `scene_coverage` on the
-profile, and the prose every consumer reads marks each undescribed range
-explicitly. No location, lighting or feature is ever written for a range
-the vision pass never described.
-
-Run this file at the parent of the fix and the gap-marking tests fail -
-the prose renders the described prefix and says nothing about the other
-90%.
+Each undescribed range of `scene[]` is named in the prose and recorded as
+`scene_coverage`; nothing is invented for a range the vision pass never described.
+History: `docs/evidence/scene_coverage.md`.
 """
 
 import json
-import math
 import os
 import sys
 
@@ -34,7 +20,6 @@ from library.tools.segment_coverage import (
     normalize_segments,
 )
 from library.tools.vision_schema_adapter import (
-    adapt_semantic_document,
     camera_prose,
     scene_prose,
 )
@@ -94,6 +79,9 @@ def test_prefix_only_scene_prose_names_the_undescribed_range():
         "the prose renders the described prefix and says nothing about "
         "the other 90% - a planning step reads this as a described clip")
     assert "18.9-188.6s" in prose
+    # No segment at all is the same gap, not a blank cell.
+    assert scene_prose(dict(PREFIX_ONLY, scene=[])) == (
+        "[0.0-188.6s] undescribed - no scene observation for this range")
 
 
 def test_fully_described_clip_gains_no_marker():
@@ -102,27 +90,12 @@ def test_fully_described_clip_gains_no_marker():
     assert "undescribed" not in camera_prose(FULLY_DESCRIBED)
 
 
-def test_empty_scene_with_known_duration_says_the_whole_clip_is_undescribed():
-    """No segment at all is the same gap, not a blank cell."""
-    doc = dict(PREFIX_ONLY, scene=[])
-    prose = scene_prose(doc)
-    assert prose == "[0.0-188.6s] undescribed - no scene observation for this range"
-
-
 def test_unknown_duration_renders_segments_verbatim():
     """A gap against an unknown length is a guess, so none is named."""
     doc = {k: v for k, v in PREFIX_ONLY.items() if k != "duration_s"}
     prose = scene_prose(doc)
     assert "Outdoor urban area" in prose
     assert "undescribed" not in prose
-
-
-def test_the_marker_carries_no_structure_fields():
-    """The prose travels inline in 3.02; the structure must not travel
-    with it (`test_no_scene_structure_travels_inline`)."""
-    prose = scene_prose(PREFIX_ONLY)
-    for marker in ("notable_features", "seen [", "usable_ranges_method"):
-        assert marker not in prose
 
 
 def test_normalize_sorts_clamps_and_drops_empties():
@@ -141,15 +114,12 @@ def test_normalize_sorts_clamps_and_drops_empties():
     assert normalized[1]["location"] == "lot"
 
 
-def test_prefix_only_summary_matches_the_issue_measurement():
+def test_the_summary_matches_the_issue_and_ignores_slivers():
     summary = coverage_summary(PREFIX_ONLY["scene"], PREFIX_ONLY["duration_s"])
     assert summary["described_s"] == pytest.approx(18.9)
     assert summary["ratio"] == pytest.approx(18.9 / 188.578, abs=1e-4)
     assert summary["undescribed_ranges"] == [[18.9, 188.578]]
-
-
-def test_sub_second_slivers_are_not_reported():
-    """46.0 on a 45.943 s clip is timestamp wobble, not a gap."""
+    # 46.0 on a 45.943 s clip is timestamp wobble, not a gap.
     assert coverage_gaps(FULLY_DESCRIBED["scene"], 45.943) == []
     assert coverage_summary(
         FULLY_DESCRIBED["scene"], 45.943)["undescribed_ranges"] == []

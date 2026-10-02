@@ -1,21 +1,8 @@
 """Step 1.03 must not re-analyse footage it has already analysed.
 
-This file used to cover `_rename_profile`, a helper that renamed each
-fresh profile from the media file's stem to the catalog's `clip_XXX` id.
-Four tests, all passing, for a function that **never fired**: it looked
-for `clip_profile_<stem>.json` while `vision_pipeline_v3` writes
-`clip_profile_<stem>_v3.json`. The tests proved the helper was careful,
-not that it ran.
-
-What that hid is the expensive half. The "already analysed?" check
-compared catalog clip_ids (`clip_001`) against the names on disk
-(`IMG_1806_v3`), so it never matched and every clip was re-analysed on
-every run - 45 to 90 minutes of local vision on project 001, redone from
-scratch each time and, under the runner's old 600s step timeout, killed
-about four clips in and retried forever.
-
-Both ends now use the media file's stem, which is also the analyser's own
-cache key.
+Both the "already analysed?" check and the analyser's cache key use the
+media file's stem (`clip_profile_<stem>_v3.json`). Incident (every clip
+re-analysed every run): `docs/evidence/semantic_analysis_step.md`.
 """
 
 import os
@@ -41,18 +28,11 @@ def test_v3_profiles_are_recognised(tmp_path):
     _touch(tmp_path, "clip_profile_IMG_1806_v3.json")
     _touch(tmp_path, "clip_profile_IMG_1812_v3.json")
     assert _profile_stems(str(tmp_path)) == {"IMG_1806", "IMG_1812"}
-
-
-def test_partial_video_only_profiles_do_not_count(tmp_path):
-    _touch(tmp_path, "clip_profile_IMG_1806_video_only.json")
-    assert _profile_stems(str(tmp_path)) == set()
-
-
-def test_the_empty_clip_id_artifact_is_ignored(tmp_path):
-    """`clip_profile_.json` exists in the wild - the old rename wrote it."""
+    # Partial video-only profiles do not count, and the empty-id artifact
+    # the old rename wrote (`clip_profile_.json`) is ignored.
+    _touch(tmp_path, "clip_profile_IMG_1807_video_only.json")
     _touch(tmp_path, "clip_profile_.json")
-    _touch(tmp_path, "clip_profile_IMG_1806_v3.json")
-    assert _profile_stems(str(tmp_path)) == {"IMG_1806"}
+    assert _profile_stems(str(tmp_path)) == {"IMG_1806", "IMG_1812"}
 
 
 def test_clip_vision_chatter_never_reaches_step_stdout(capfd):
@@ -84,12 +64,8 @@ def test_clip_vision_chatter_never_reaches_step_stdout(capfd):
     assert "Model loaded/bound in 0.0s" in captured.err
     assert '{"profiles": 1}' in captured.err
     assert "a warning line" in captured.err
-
-
-def test_clip_vision_failure_still_raises_for_the_caller():
-    """`check` semantics are unchanged: a nonzero exit raises
-    `CalledProcessError` so the step skips the clip exactly as before.
-    """
+    # `check` semantics are unchanged: a nonzero exit raises, so the
+    # step skips the clip exactly as before.
     with pytest.raises(subprocess.CalledProcessError):
         _run_clip_vision(
             [sys.executable, "-c", "import sys; sys.exit(1)"])

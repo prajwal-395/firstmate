@@ -76,17 +76,17 @@ def _place(pool, timeline, placement=None):
             placement or _placement(), _PoolItem(), 4, FPS)
 
 
-def test_a_declined_append_raises_naming_the_element():
+def test_an_element_resolve_did_not_place_raises_naming_it():
+    """Declined (append returns nothing), a truthy zombie handle the track
+    disagrees with, or a wrong-length item on the track: all refuse."""
     pool = _Pool(None)
     with pytest.raises(ReelBuildError, match=re.escape(ELEMENT)):
         _place(pool, _Timeline([]))
     assert pool.calls, "the element was never offered to Resolve at all"
-
-
-def test_a_zombie_handle_loses_to_the_track_and_names_the_element():
-    pool = _Pool([object()])
     with pytest.raises(ReelBuildError, match=re.escape(ELEMENT)):
-        _place(pool, _Timeline([]))
+        _place(_Pool([object()]), _Timeline([]))
+    with pytest.raises(ReelBuildError, match=re.escape(ELEMENT)):
+        _place(_Pool([object()]), _Timeline([_TimelineItem(100, 135)]))
 
 
 def test_a_placed_element_passes_and_sends_no_media_type():
@@ -99,10 +99,3 @@ def test_a_placed_element_passes_and_sends_no_media_type():
         "is the transition owner's call, not this judgement's")
     assert sent["recordFrame"] == 100
     assert sent["trackIndex"] == 4
-
-
-def test_a_wrong_length_item_on_the_track_still_refuses():
-    pool = _Pool([object()])
-    timeline = _Timeline([_TimelineItem(100, 135)])
-    with pytest.raises(ReelBuildError, match=re.escape(ELEMENT)):
-        _place(pool, timeline)

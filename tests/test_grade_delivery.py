@@ -66,19 +66,6 @@ def _span(label, export, source, sat=0.88, slope=1.0,
 
 # ── cdl_readback: the write is judged ────────────────────────────
 
-def test_matching_read_back_agrees():
-    from library.tools import cdl_readback as cdl
-    cdl_values = {"slope_r": 1.08, "slope_g": 1.08, "slope_b": 1.08,
-                  "offset_r": -0.03, "offset_g": -0.03,
-                  "offset_b": -0.03, "power_r": 1.0, "power_g": 1.0,
-                  "power_b": 1.0, "saturation": 1.25}
-    actual = {"Slope": "1.0800 1.0800 1.0800",
-              "Offset": "-0.0300 -0.0300 -0.0300",
-              "Power": "1.0000 1.0000 1.0000",
-              "Saturation": "1.25"}
-    assert cdl.compare_cdl(actual, cdl_values) == []
-
-
 def test_mismatched_slope_names_the_channel():
     from library.tools import cdl_readback as cdl
     cdl_values = {"slope_r": 1.08, "slope_g": 1.0, "slope_b": 1.0,
@@ -91,6 +78,9 @@ def test_mismatched_slope_names_the_channel():
               "Saturation": "1.0"}
     (problem,) = cdl.compare_cdl(actual, cdl_values)
     assert "Slope[0]" in problem
+    # The same read-back agrees once the write took.
+    actual["Slope"] = "1.0800 1.0000 1.0000"
+    assert cdl.compare_cdl(actual, cdl_values) == []
 
 
 def test_unreadable_term_is_unverifiable_not_agreement():
@@ -132,7 +122,8 @@ def test_unmoved_export_contradicts_a_desat_demand(trio):
 
 
 @needs_ffmpeg
-def test_identity_cdl_demands_nothing(trio):
+def test_identity_cdl_demands_nothing_and_a_missing_source_is_unverifiable(
+        trio):
     from library.tools.render_qa import measure_grade_delivery
     result = measure_grade_delivery(
         str(trio / "ungraded.mp4"),
@@ -141,23 +132,19 @@ def test_identity_cdl_demands_nothing(trio):
         sample_fps=5.0)
     assert result.passed
     assert result.value["spans"][0]["verdict"] == "no demand"
-
-
-def test_no_spans_is_info_not_failure():
-    from library.tools.render_qa import measure_grade_delivery
-    result = measure_grade_delivery("/nonexistent.mp4", [])
-    assert result.passed and result.severity == "info"
-
-
-@needs_ffmpeg
-def test_missing_source_is_unverifiable(trio):
-    from library.tools.render_qa import measure_grade_delivery
+    # A span whose source is gone cannot be judged, and says so.
     result = measure_grade_delivery(
         str(trio / "graded.mp4"),
         [_span("clip_a", trio / "graded.mp4", trio / "gone.mp4")],
         sample_fps=5.0)
     (row,) = result.value["spans"]
     assert row["verdict"] == "unverifiable"
+
+
+def test_no_spans_is_info_not_failure():
+    from library.tools.render_qa import measure_grade_delivery
+    result = measure_grade_delivery("/nonexistent.mp4", [])
+    assert result.passed and result.severity == "info"
 
 
 @needs_ffmpeg
@@ -215,8 +202,6 @@ def test_grade_spans_join_tracks_to_per_clip_cdl():
     manifest["tracks"]["V1"]["clips"][0]["source_out"] = 3.234
     spans = _grade_spans(manifest)
     assert (spans[0].source_start, spans[0].source_end) == (0.836, 3.234)
-
-
-def test_grade_spans_absent_without_a_declared_grade():
-    from library.steps.step_6_02_validate_output.bridge import _grade_spans
+    # Without a declared grade there is nothing to join.
     assert _grade_spans({"tracks": {}}) is None
+

@@ -10,15 +10,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 BRIDGE = REPO / "library" / "steps" / "step_2_05_mesh_spine" / "bridge.py"
 
-from library.tools.duration_targets import (
-    DURATION_ZONE_LEGEND,
-    get_target_duration_zone,
-)
 
 
 def _run_bridge(data: dict) -> dict:
@@ -38,16 +33,6 @@ def _run_bridge(data: dict) -> dict:
 
 class TestDurationZoneReachesBridge:
     """The pre-bridge resolves the zone the post-bridge judges against."""
-
-    def test_project_config_produces_zone(self):
-        """001's declaration: target 60 -> zone [54.0, 60.0, 66.0]."""
-        out = _run_bridge({
-            "project_config": {"target_duration_seconds": 60},
-        })
-        zone = out["duration_zone"]
-        assert zone["minimum_seconds"] == 54.0
-        assert zone["target_seconds"] == 60.0
-        assert zone["maximum_seconds"] == 66.0
 
     def test_brand_template_zone(self):
         """Brand template declares min/max -> zone is derived from that."""

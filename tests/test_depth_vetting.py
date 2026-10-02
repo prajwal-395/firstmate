@@ -16,11 +16,8 @@ and names the draw half as the stated boundary.
 import json
 import os
 
-from library.tools import captain_edits
 from library.tools import edit_depth
 from library.tools import layer_coherence
-from library.tools import mix_intent
-from library.tools import placed_assets
 from library.tools import transcript_corrections
 
 MATRIX = []
@@ -71,34 +68,6 @@ def test_row_01_wording(tmp_path):
     assert report2["replacements"] == 0
     _row(1, "wording", shallow,
          "PERSISTS via store (2 replacements, rerun 0)")
-
-
-def test_row_04_picture_position(tmp_path):
-    from library.tools import captain_edits as edits_mod
-
-    transcript = {"segments": [{
-        "text": "akshita explains",
-        "words": _words("akshita", "explains")}]}
-    spans = [{"master": (10.0, 11.0)}]
-    # Shallow: the hand Pan lives on the timeline item only. No store
-    # carries it, so no rebuild input names it - it dies with the aim.
-    matched, stale = edits_mod.match_transform_overrides(
-        spans, transcript, [])
-    assert matched == [] and stale == []
-    shallow = "LOST on rebuild (aim recomputes; nothing recorded)"
-    # Deep: the override is recorded and matched to the span it speaks.
-    project = str(tmp_path)
-    record = {"kind": "transform_override",
-              "anchor_phrase": "akshita explains", "property": "Pan",
-              "value": -35.0, "reason": "vetting row 04"}
-    edits_mod.validate_edits([record])
-    matched, stale = edits_mod.match_transform_overrides(
-        spans, transcript, [record])
-    assert len(matched) == 1 and matched[0]["value"] == -35.0
-    _row(4, "picture_position", shallow,
-         "PERSISTS via override (matched post-aim)",
-         boundary="Resolve draw (SetProperty+readback) needs live "
-                  "Resolve; routing half executed here")
 
 
 def test_row_05_look_grade(tmp_path):

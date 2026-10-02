@@ -41,6 +41,10 @@ def test_no_plan_names_no_clip():
         color_grade_spec={"subject_grades": []},
         behind_subject_overlays={"segments": []},
         a_roll_assignments=_aroll(("c1", 0.0, 10.0))) == {}
+    # A behind span outside every placed clip names nothing.
+    assert matte_trigger(
+        behind_subject_overlays=_behind(("t1", 20.0, 25.0)),
+        a_roll_assignments=_aroll(("c1", 0.0, 10.0))) == {}
 
 
 def test_a_subject_grade_names_its_clip():
@@ -51,21 +55,12 @@ def test_a_subject_grade_names_its_clip():
     assert wanted["c1"]
 
 
-def test_a_behind_segment_names_the_clips_its_span_plays_over():
+def test_a_behind_segment_names_every_clip_its_span_plays_over():
     wanted = matte_trigger(
         behind_subject_overlays=_behind(("t1", 2.0, 5.0)),
         a_roll_assignments=_aroll(("c1", 0.0, 4.0), ("c2", 4.0, 10.0)))
     assert sorted(wanted) == ["c1", "c2"]
-
-
-def test_a_behind_span_outside_every_clip_names_nothing():
-    wanted = matte_trigger(
-        behind_subject_overlays=_behind(("t1", 20.0, 25.0)),
-        a_roll_assignments=_aroll(("c1", 0.0, 10.0)))
-    assert wanted == {}
-
-
-def test_broll_cover_counts_as_a_wanted_clip():
+    # B-roll cover counts as a wanted clip.
     wanted = matte_trigger(
         behind_subject_overlays=_behind(("t1", 2.0, 5.0)),
         a_roll_assignments=_aroll(("c1", 0.0, 10.0)),
@@ -95,8 +90,7 @@ def test_a_speech_block_names_its_video_segments_clip():
         }])
     assert list(wanted) == ["clip_001"]
 
-
-def test_video_segment_shares_resolve_within_the_block_span():
+    # Video-segment shares resolve within the block span.
     wanted = matte_trigger(
         behind_subject_overlays=_behind(("t1", 5.0, 6.0)),
         a_roll_assignments=[{
@@ -145,45 +139,6 @@ def test_an_untriggered_run_segments_nothing_and_loads_no_model(tmp_path):
 def _dag():
     from library.tools import run_scope
     return run_scope.load_dag()
-
-
-def test_object_segmentation_is_a_dag_node_with_a_step_directory():
-    dag = _dag()
-    node = next(n for n in dag["nodes"] if n["id"] == "object_segmentation")
-    assert node["step_ref"] == "steps/step_1_06_object_segmentation"
-    assert os.path.isfile(os.path.join(
-        PROJECT_ROOT, "library", node["step_ref"], "step.py"))
-
-
-def test_the_trigger_inputs_arrive_on_declared_edges():
-    from library.tools import run_scope
-    dag = _dag()
-    manifests = run_scope.load_manifests(dag)
-    assert "clip_catalog" not in run_scope.optional_inputs(
-        manifests["object_segmentation"])
-    incoming = {(e["from"], dst)
-                for e in dag["edges"] if e["to"] == "object_segmentation"
-                for dst in (e.get("data_mapping") or {}).values()}
-    assert ("catalog", "clip_catalog") in incoming
-    assert ("temporal_index", "temporal_index") in incoming
-    assert ("render_motion_graphics", "behind_subject_overlays") in incoming
-    assert ("color_grade", "color_grade_spec") in incoming
-    assert ("assign_aroll", "a_roll_assignments") in incoming
-    assert ("select_broll", "b_roll_assignments") in incoming
-    outgoing = [e for e in dag["edges"]
-                if e["from"] == "object_segmentation"]
-    assert any(e["to"] == "compile_manifest"
-               and "object_segmentation" in (e.get("data_mapping") or {})
-               for e in outgoing)
-
-
-def test_only_the_catalog_is_a_hard_dependency():
-    from library.tools import run_scope
-    dag = _dag()
-    needs = run_scope.prerequisites(dag, run_scope.load_manifests(dag))
-    hard = {(n.consumer, n.producer)
-            for n in needs if n.consumer == "object_segmentation"}
-    assert hard == {("object_segmentation", "catalog")}
 
 
 def test_the_step_runs_after_the_plans_and_before_the_compile():

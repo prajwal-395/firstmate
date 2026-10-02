@@ -1,18 +1,6 @@
-"""Rung 7 precision vocabulary on step 4.02 (K1: TR3.1, TR3.2, C3.1).
-
-Three gaps the execution-frontier scout measured on real runs:
-
-1. Transition holds are feel words only (`duration_feel` 0/6/10/15 f),
-   so TR3.1's "12-frame cross dissolve" and C3.1's "12f dissolve" had
-   no plan spelling. `duration_frames` carries the stated count; both
-   stated and disagreeing refuses.
-2. The end of the piece has no slot: TR3.1's "1s dip to black out of
-   the final shot" failed the compile ("does not sit at the end of
-   any V1 clip") and resolve-axi refuses end transitions although the
-   API places one. `cut_point_position: "end"` resolves the tail-only
-   / end-placed spec the compile routes to the end build.
-3. J/L offsets ride in seconds only. `lead_frames` / `lag_frames`
-   (read by library/tools/jl_cut.py) carry TR3.3's "20 frames".
+"""Rung 7 precision vocabulary on step 4.02 (K1: TR3.1, TR3.2, C3.1):
+stated frame/second holds, the `"end"` slot, and J/L offsets in frames.
+History: `docs/evidence/transition_precision.md`.
 """
 import sys
 from pathlib import Path
@@ -66,66 +54,44 @@ def _base(**over):
     return params
 
 
-def test_stated_frames_survive_to_the_transition_plan():
-    """TR3.1's 12-frame dissolve: the number survives, sourced."""
-    (entry,) = resolve_transitions(
-        [{"cut_point_position": 2, "type": "cross_dissolve",
-          "duration_frames": 12, "rationale": "twelve"}],
-        _spine(), **_base())
-    assert entry["duration_frames"] == 12
-    assert entry["duration_source"] == "stated_frames"
-    assert entry["transition_type"] == "cross_dissolve"
+def test_the_hold_resolves_from_what_the_plan_stated_and_says_so():
+    """TR3.1's 12-frame dissolve and 1s end fade: the number survives,
+    sourced; a feel word alone still resolves."""
+    rows = [
+        ({"cut_point_position": 2, "type": "cross_dissolve",
+          "duration_frames": 12}, None, 12, "stated_frames"),
+        ({"cut_point_position": "end", "type": "fade_to_black",
+          "duration_seconds": 1.0}, 1.0, 30, "stated_seconds"),
+        ({"cut_point_position": 2, "type": "cross_dissolve",
+          "duration_seconds": 0.4, "duration_frames": 12},
+         0.4, 12, "stated_frames_and_seconds"),
+        ({"cut_point_position": 2, "type": "cross_dissolve",
+          "duration_feel": "medium"}, None, 10, "feel"),
+    ]
+    for plan, seconds, frames, source in rows:
+        (entry,) = resolve_transitions(
+            [dict(plan, rationale="x")], _spine(), **_base())
+        assert entry["transition_type"] == plan["type"]
+        assert entry["duration_frames"] == frames, plan
+        assert entry["duration_source"] == source, plan
+        if seconds is not None:
+            assert entry["duration_seconds"] == pytest.approx(seconds)
+        if "duration_feel" in plan:
+            assert entry["duration_feel"] == "medium"
 
 
-def test_stated_seconds_are_kept_beside_the_frame_grid_value():
-    """TR3.1's end fade states seconds, so the resolved plan keeps 1.0s."""
-    (entry,) = resolve_transitions(
-        [{"cut_point_position": "end", "type": "fade_to_black",
-          "duration_seconds": 1.0, "rationale": "one second out"}],
-        _spine(), **_base())
-    assert entry["duration_seconds"] == pytest.approx(1.0)
-    assert entry["duration_frames"] == 30
-    assert entry["duration_source"] == "stated_seconds"
-
-
-def test_agreeing_seconds_and_frames_keep_both_request_units():
-    (entry,) = resolve_transitions(
-        [{"cut_point_position": 2, "type": "cross_dissolve",
-          "duration_seconds": 0.4, "duration_frames": 12,
-          "rationale": "same hold"}],
-        _spine(), **_base())
-    assert entry["duration_seconds"] == pytest.approx(0.4)
-    assert entry["duration_frames"] == 12
-    assert entry["duration_source"] == "stated_frames_and_seconds"
-
-
-def test_disagreeing_seconds_and_frames_refuse():
-    with pytest.raises(TransitionSpecRefused, match="disagree"):
-        resolve_transitions(
-            [{"cut_point_position": 2, "type": "cross_dissolve",
-              "duration_seconds": 0.4, "duration_frames": 13,
-              "rationale": "two holds"}],
-            _spine(), **_base())
-
-
-def test_stated_seconds_that_conflict_with_feel_refuse():
-    """A number beside a different feel is still an ambiguous hold."""
-    with pytest.raises(TransitionSpecRefused, match="duration_feel"):
-        resolve_transitions(
-            [{"cut_point_position": 2, "type": "cross_dissolve",
-              "duration_seconds": 0.4, "duration_feel": "quick",
-              "rationale": "conflicting hold"}],
-            _spine(), **_base())
-
-
-def test_feel_alone_still_resolves_and_says_so():
-    (entry,) = resolve_transitions(
-        [{"cut_point_position": 2, "type": "cross_dissolve",
-          "duration_feel": "medium", "rationale": "soft"}],
-        _spine(), **_base())
-    assert entry["duration_frames"] == 10
-    assert entry["duration_source"] == "feel"
-    assert entry["duration_feel"] == "medium"
+def test_an_ambiguous_hold_refuses():
+    """Seconds and frames that disagree, or a number beside a different
+    feel, are two holds."""
+    for extra, match in [
+            ({"duration_seconds": 0.4, "duration_frames": 13}, "disagree"),
+            ({"duration_seconds": 0.4, "duration_feel": "quick"},
+             "duration_feel")]:
+        with pytest.raises(TransitionSpecRefused, match=match):
+            resolve_transitions(
+                [dict({"cut_point_position": 2, "type": "cross_dissolve",
+                       "rationale": "two holds"}, **extra)],
+                _spine(), **_base())
 
 
 def test_stated_frame_anchor_survives_as_an_exact_cut_coordinate():

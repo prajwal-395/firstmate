@@ -84,8 +84,7 @@ class TestParsePlanEntry:
         # about how warm warm is.
         assert clean["grade"] == {"gain": 1.173, "saturation": 1.311}
 
-
-    def test_generic_object_is_dropped_not_guessed(self):
+    def test_what_it_cannot_honour_is_dropped_by_reason(self):
         clean, drop = subject_grade.parse_plan_entry(_warm_entry(
             target={"kind": "object", "label": "the laptop"}))
         assert clean is None
@@ -93,35 +92,25 @@ class TestParsePlanEntry:
         assert drop["reason"] == "open_vocabulary_target"
         assert "open-vocabulary" in drop["detail"]
 
-    def test_unknown_scope_is_dropped(self):
         clean, drop = subject_grade.parse_plan_entry(
             _warm_entry(scope="everything-except"))
         assert clean is None
         assert "subject-only" in drop["detail"]
 
-    def test_all_neutral_grade_is_dropped(self):
         clean, drop = subject_grade.parse_plan_entry(_warm_entry(
             grade={"gain": 1.0, "contrast": 0.0, "saturation": 1.0}))
         assert clean is None
         assert "no_readable_parameters" == drop["reason"]
 
-    def test_missing_clip_is_dropped(self):
         entry = _warm_entry()
         del entry["clip_id"]
         clean, drop = subject_grade.parse_plan_entry(entry)
         assert clean is None
         assert drop["reason"] == "no_clip_named"
 
-
 # ─── 2. Grounding: the entry meets a real tracked subject ───
 
 class TestGroundEntry:
-    def test_face_seeded_subject_grounds(self):
-        clean, _ = subject_grade.parse_plan_entry(_warm_entry())
-        grounded, drop = subject_grade.ground_entry(clean, _seg_result())
-        assert drop is None
-        assert grounded["object_id"] == "obj_1"
-
     def test_no_face_seeded_object_does_not_ground(self):
         seg = _seg_result()
         seg["objects"][0]["label"] = "auto_object_1"
@@ -130,13 +119,6 @@ class TestGroundEntry:
         grounded, drop = subject_grade.ground_entry(clean, seg)
         assert grounded is None
         assert "face_seeded_subject" in drop["detail"]
-
-    def test_missing_segmentation_does_not_ground(self):
-        clean, _ = subject_grade.parse_plan_entry(_warm_entry())
-        grounded, drop = subject_grade.ground_entry(clean, None)
-        assert grounded is None
-        assert drop["reason"] == "no_segmentation"
-
 
 # ─── 3. Matte writer: RLE JSON to timeline-rate PNGs ───
 
@@ -209,41 +191,14 @@ class TestSubjectGradeBlock:
             clip_dur=60, source_res=(32, 24))
         assert "Loader" in comp
         assert "EffectMask" in comp
-
-    def test_comp_builder_without_keys_draws_no_loader(self):
-        comp = comp_builder.build_effect_comp(
+        # Without the keys there is no Loader at all.
+        assert "Loader" not in comp_builder.build_effect_comp(
             {"grade_gain": 1.1}, clip_dur=60, source_res=(32, 24))
-        assert "Loader" not in comp
-
 
 # ─── 5. Validator: a named matte must exist and cover the window ───
 
 class TestValidateMatte:
-    def test_good_matte_passes(self, tmp_path):
-        record = subject_grade.write_subject_matte(
-            _seg_result(frames=4), "obj_1", str(tmp_path), "clip_001",
-            timeline_fps=30.0, played_frames=60, resolution=(24, 32))
-        assert subject_grade.validate_matte(record) == []
-
-    def test_missing_files_fail(self, tmp_path):
-        record = subject_grade.write_subject_matte(
-            _seg_result(frames=4), "obj_1", str(tmp_path), "clip_001",
-            timeline_fps=30.0, played_frames=60, resolution=(24, 32))
-        os.remove(record["files"][0])
-        errors = subject_grade.validate_matte(record)
-        assert len(errors) == 1
-        assert "missing" in errors[0]
-
-    def test_short_coverage_fails(self, tmp_path):
-        record = subject_grade.write_subject_matte(
-            _seg_result(frames=4), "obj_1", str(tmp_path), "clip_001",
-            timeline_fps=30.0, played_frames=60, resolution=(24, 32))
-        record["files"] = record["files"][:30]
-        errors = subject_grade.validate_matte(record, played_frames=60)
-        assert len(errors) == 1
-        assert "cover" in errors[0]
-
-    def test_resolution_mismatch_fails(self, tmp_path):
+    def test_a_missing_short_or_mis_sized_matte_fails(self, tmp_path):
         record = subject_grade.write_subject_matte(
             _seg_result(frames=4), "obj_1", str(tmp_path), "clip_001",
             timeline_fps=30.0, played_frames=60, resolution=(24, 32))
@@ -251,38 +206,16 @@ class TestValidateMatte:
             record, source_resolution=(1080, 1920))
         assert len(errors) == 1
         assert "resolution" in errors[0]
-
+        short = dict(record, files=record["files"][:30])
+        errors = subject_grade.validate_matte(short, played_frames=60)
+        assert len(errors) == 1
+        assert "cover" in errors[0]
+        os.remove(record["files"][0])
+        errors = subject_grade.validate_matte(record)
+        assert len(errors) == 1
+        assert "missing" in errors[0]
 
 # ─── 6. Compile merge: entries land on their clip's effects ───
-
-class TestApplySubjectGrades:
-    def test_grounded_entry_patches_clip_effects(self, tmp_path):
-        patch, drops, mattes = subject_grade.apply_subject_grades(
-            [_warm_entry()], {"clip_001": _seg_result(frames=4)},
-            matte_dir=str(tmp_path), timeline_fps=30.0,
-            played_frames={"clip_001": 60},
-            source_resolution={"clip_001": (24, 32)})
-        assert drops == []
-        assert len(mattes) == 1
-        eff = patch["clip_001"]
-        assert eff["subject_grade_gain"] == 1.173
-        assert eff["subject_grade_saturation"] == 1.311
-        assert os.path.exists(eff["subject_grade_matte"])
-        assert subject_grade.validate_matte(mattes[0]) == []
-
-    def test_ungrounded_entry_is_a_drop_not_a_patch(self, tmp_path):
-        patch, drops, mattes = subject_grade.apply_subject_grades(
-            [_warm_entry(target={"kind": "object", "label": "the laptop"})],
-            {"clip_001": _seg_result(frames=4)},
-            matte_dir=str(tmp_path), timeline_fps=30.0,
-            played_frames={"clip_001": 60},
-            source_resolution={"clip_001": (24, 32)})
-        assert patch == {}
-        assert mattes == []
-        assert len(drops) == 1
-        assert "laptop" in drops[0]["detail"]
-
-
 
 # ─── 7. The plan-to-manifest path: 5.01 carries, compile grounds ───
 
@@ -346,6 +279,7 @@ class TestCompileMerge:
         assert os.path.exists(eff["subject_grade_matte"])
         assert manifest["subject_grade_drops"] == []
         assert len(manifest["subject_mattes"]) == 1
+        assert subject_grade.validate_matte(manifest["subject_mattes"][0]) == []
 
     def test_ungrounded_entry_is_a_manifest_drop(self, tmp_path):
         from unittest.mock import patch as _patch

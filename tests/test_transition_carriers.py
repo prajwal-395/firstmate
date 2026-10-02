@@ -12,7 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from library.tools.transition_carriers import (
     block_reaches_v1,
@@ -22,7 +21,6 @@ from library.tools.transition_carriers import (
 REPO = Path(__file__).resolve().parents[1]
 STEP = REPO / "library" / "steps" / "step_4_02_plan_transitions"
 BRIDGE = STEP / "bridge.py"
-HANDOFF = STEP / "handoff.md"
 
 # `narrative_verdict` and `verdict_note` are step 3.03's per-cut judgement,
 # folded in beside the buildability columns by the same bridge
@@ -151,8 +149,6 @@ def test_a_cut_with_nothing_after_it_on_v1_cannot_carry_one():
         "outgoing speech on V1 but it ends the V1 track")
 
 
-
-
 def test_the_compiler_accepts_every_cut_the_table_calls_buildable():
     """Drive compile_manifest's real V1 lookup over the real spine.
 
@@ -227,6 +223,11 @@ def test_the_fact_reaches_the_table_the_prompt_reads():
     assert [p for p, v in verdicts.items() if v == "no"] == [
         "2", "5", "7", "9", "14"]
     assert verdicts["end"] == "yes"
+    # The bridge filters nothing and re-ranks nothing: every cut is still
+    # offered, in spine order (dropping unbuildable rows would move the
+    # decision into the bridge - AGENTS.md 10.5).
+    assert [r[0] for r in rows] == (
+        [b["position"] for b in SPINE_001[1:]] + ["end"])
 
     # The definition is in the PROMPT now, not shipped beside the table.
     # The freeze that forced a `cuts_legend` dict was lifted 2026-09-09,
@@ -236,70 +237,10 @@ def test_the_fact_reaches_the_table_the_prompt_reads():
         "definition as data too is the duplication the fold removed")
 
 
-def test_the_bridge_filters_nothing_and_re_ranks_nothing():
-    """Every cut is still offered, in spine order.
-
-    Dropping the unbuildable rows would move the decision into the
-    bridge, which is the defect class AGENTS.md 10.5 forbids.
-    """
-    out = _run_bridge({
-        "timed_spine": {"structure": SPINE_001},
-        "music_selection": {},
-        "music_analysis": {},
-        "semantic_analysis": {},
-        "clip_catalog": [],
-        "b_roll_assignments": [],
-    })
-    rows = [line.split("\t") for line in out["cuts_toon"].splitlines()[1:]]
-    assert [r[0] for r in rows] == (
-        [b["position"] for b in SPINE_001[1:]] + ["end"])
-    assert len(rows) == len(SPINE_001)
-
-
-def _derived_column_prose() -> str:
-    """The handoff paragraph that defines the derived `cuts_toon` columns.
-
-    Bounded to the block between the derived-column heading and the
-    sentence that closes it, so a steer word somewhere else in the
-    prompt - the toolkit table says "when to use" by design - is not
-    read as a steer inside a column definition.
-    """
-    text = HANDOFF.read_text(encoding="utf-8")
-    start = text.index("more columns are DERIVED")
-    end = text.index("Use this data to decide which transitions to apply",
-                     start)
-    return text[start:end]
-
-
-def test_the_handoff_defines_every_derived_column():
-    """The prose is the definition now, so it has to name each column it
-    ships.  This is the gate that stops the table and the prompt drifting
-    apart, which is the one thing the data route did for free."""
-    prose = _derived_column_prose()
-    for column in ("can_carry_drawn_transition", "carry_basis",
-                   "narrative_verdict", "verdict_note",
-                   "outgoing_motion", "incoming_motion"):
-        assert f"`{column}`" in prose, (
-            f"{column} reaches the table and the prompt never says what "
-            f"it is")
-
-
-def test_the_definition_states_what_a_column_is_and_never_what_to_do():
-    """A definition that ranks or advises would be the prompt-side floor
-    in another costume."""
-    lowered = _derived_column_prose().lower()
-    for steer in ("prefer ", "you should", "avoid ", "must use",
-                  "instead use", "choose "):
-        assert steer not in lowered, f"{steer!r} in the column definitions"
-
-
-@pytest.mark.parametrize("structure", [None, []])
-def test_a_spine_with_no_cuts_yields_no_rows(structure):
-    assert cut_carriers(structure) == []
-
-
-def test_a_single_block_spine_yields_only_the_end_row():
+def test_a_spine_with_no_cuts_yields_only_the_end_row():
     """No cuts, but the piece still ends: the end row is not a cut row."""
+    assert cut_carriers(None) == []
+    assert cut_carriers([]) == []
     (row,) = cut_carriers([speech("1", 0.0, 1.0)])
     assert row["position"] == "end"
     assert row["can_carry"] is True

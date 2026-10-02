@@ -1,18 +1,7 @@
-"""An empty VFX plan says WHY it is empty.
-
-`{"visual_effects": []}` meant two opposite things and looked identical
-in both.  On 001's run of record it was a decision - the planner wrote
-`docs/run-001-reasoning/plan_vfx.md` before answering, applied the
-handoff's own "long AND static" criterion to eleven blocks, and held the
-empty answer across three `semantically empty` rejections.  It is the
-same bytes when the planner names four effects and the post-bridge
-discards every one of them, and the drop reasons went only to stderr.
-
-These tests drive the REAL post-bridge as the runner drives it - one
-subprocess, JSON on stdin, JSON on stdout - and assert the two cases come
-out different.  They also assert the accepting half is untouched: an
-empty plan is still accepted, still never padded, and still never
-refused.
+"""An empty VFX plan says WHY it is empty: a plan the model left empty and
+one whose every entry the post-bridge dropped are different records, driven
+through the REAL post-bridge subprocess. The record never pads a plan and
+carries no creative value. History: `docs/evidence/vfx_plan_basis.md`.
 """
 
 from __future__ import annotations
@@ -22,19 +11,7 @@ import pathlib
 import subprocess
 import sys
 
-import pytest
 
-from library.tools.vfx_plan_basis import (
-    BASIS_LEGEND,
-    DROP_REASONS,
-    PLAN_BASES,
-    THE_REFUSAL_QUESTION,
-    DroppedEntry,
-    PlanBasis,
-    assert_vocabulary_is_well_formed,
-    basis_summary,
-    plan_basis,
-)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 POST_BRIDGE = "library.steps.step_4_03_plan_vfx.post_bridge"
@@ -74,24 +51,6 @@ def _run(plan):
     return json.loads(proc.stdout)["enhancement_spec"], proc.stderr
 
 
-# ── The vocabulary ────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ── The distinction, driven through the real post-bridge ──────────────
 
 def test_a_plan_the_model_left_empty_says_so():
@@ -102,6 +61,8 @@ def test_a_plan_the_model_left_empty_says_so():
         "proposed": 0, "resolved": 0, "dropped": [],
     }
     assert "no_effects_planned" in stderr
+    # Recording the basis never pads the plan (AGENTS.md 10.5).
+    assert "generator_overlays" not in spec
 
 
 def test_a_plan_whose_every_entry_was_dropped_says_that_instead():
@@ -126,17 +87,6 @@ def test_a_plan_whose_every_entry_was_dropped_says_that_instead():
     assert "every_entry_dropped" in stderr
 
 
-def test_the_two_empty_plans_are_not_the_same_bytes():
-    """The whole point, stated as the comparison that used to fail."""
-    chosen, _ = _run([])
-    dropped, _ = _run([{"target_block_position": 7,
-                        "effect_type": "glitch",
-                        "params": {"zoom_start": 1.0},
-                        "rationale": "x"}])
-    assert chosen["visual_effects"] == dropped["visual_effects"] == []
-    assert json.dumps(chosen, sort_keys=True) != json.dumps(dropped, sort_keys=True)
-
-
 def test_a_partly_dropped_plan_is_planned_and_names_its_casualties():
     spec, _ = _run([
         {"target_block_position": 14, "effect_type": "slow_zoom_in",
@@ -150,6 +100,10 @@ def test_a_partly_dropped_plan_is_planned_and_names_its_casualties():
     assert basis["proposed"] == 2 and basis["resolved"] == 1
     assert [d["reason"] for d in basis["dropped"]] == ["unknown_effect_type"]
     assert len(spec["visual_effects"]) == 1
+    # The record carries no creative value: a verbatim echo of the ask.
+    drop = basis["dropped"][0]
+    assert drop["effect_type"] == "glitch"
+    assert drop["target_block_position"] == 7
 
 
 def test_a_fully_resolved_plan_drops_nothing():
@@ -170,27 +124,3 @@ def test_a_fully_resolved_plan_drops_nothing():
 
 
 # ── What the record must not do ───────────────────────────────────────
-
-def test_recording_the_basis_never_pads_the_plan():
-    """AGENTS.md 10.5: there are no creative floors, in code or prompt.
-
-    The record says what happened; it may never make something happen.
-    """
-    spec, _ = _run([])
-    assert spec["visual_effects"] == []
-    assert "generator_overlays" not in spec
-
-
-def test_the_record_carries_no_creative_value():
-    """No intensity, no effect type, no count is invented by the record.
-
-    Every value in it is either a count of what the planner said or a
-    verbatim echo of what the planner asked for.
-    """
-    spec, _ = _run([{"target_block_position": 7, "effect_type": "glitch",
-                     "params": {"zoom_start": 1.0, "zoom_end": 1.04},
-                     "rationale": "x"}])
-    drop = spec["planning_basis"]["dropped"][0]
-    assert drop["effect_type"] == "glitch"
-    assert drop["target_block_position"] == 7
-

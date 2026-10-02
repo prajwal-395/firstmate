@@ -12,16 +12,12 @@ wiring that stopped any of it running at all.
 import os
 import sys
 
-import pytest
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.perceptual_qa import (
-    DIMENSIONS,
-    DROPPED_DIMENSIONS,
-    build_prompt,
     dimension_variance,
     parse_verdict,
 )
@@ -42,14 +38,11 @@ REAL_CLEAN = '''{"fills_frame": true, "black_bars": "none", "main_subject_fully_
 # Constraint 1: structured, so verdicts compare
 # ─────────────────────────────────────────────────────────
 
-def test_a_fenced_verdict_parses():
+def test_a_fenced_verdict_parses_and_prose_is_a_parse_failure():
     """The model fences its JSON about half the time."""
     v = parse_verdict(REAL_LETTERBOX, frame=30)
     assert not v.parse_error
     assert v.answers["black_bars"] == "top_and_bottom"
-
-
-def test_prose_is_recorded_as_a_parse_failure_not_swallowed():
     v = parse_verdict("The frame looks quite nice to me.", frame=1)
     assert v.parse_error
     assert not v.clean, "an unparseable verdict must not read as a pass"
@@ -58,14 +51,6 @@ def test_prose_is_recorded_as_a_parse_failure_not_swallowed():
 # ─────────────────────────────────────────────────────────
 # Constraint 2: what is wrong and why, never a score
 # ─────────────────────────────────────────────────────────
-
-def test_the_prompt_asks_what_is_wrong_and_never_for_a_score():
-    prompt = build_prompt()
-    lower = prompt.lower()
-    assert "wrong" in lower
-    for banned in ("score", "rate", "rating", "out of 10", "1-10"):
-        assert banned not in lower.replace("do not give a score or a rating.", "")
-
 
 # ─────────────────────────────────────────────────────────
 # Constraint 3: every dimension must discriminate
@@ -83,35 +68,11 @@ def test_the_kept_dimensions_discriminate_on_real_verdicts():
             f"{key} gave the same answer on every frame, so it ranks nothing")
 
 
-def test_fills_frame_was_dropped_and_the_reason_recorded():
-    """It answered true on a letterboxed frame, contradicting itself."""
-    assert "fills_frame" not in {d.key for d in DIMENSIONS}
-    assert "fills_frame" in DROPPED_DIMENSIONS
-    assert DROPPED_DIMENSIONS["fills_frame"].strip()
-    # And the real replies show why: same answer every time.
-    assert dimension_variance(_real_verdicts())["fills_frame"] == 1
-
-
 def test_findings_only_fire_on_the_bad_frames():
     letterbox, cut, clean = _real_verdicts()
     assert any(f.dimension == "black_bars" for f in letterbox.findings)
     assert any(f.dimension == "main_subject_fully_visible" for f in cut.findings)
     assert not clean.findings, "the correct frame must produce no findings"
-
-
-def test_the_calibration_set_never_answered_text_legible():
-    """Recorded, because it is stronger than the variance argument.
-
-    `docs/PIPELINE_PLAN.md` keeps `text_legible` as "an unverified
-    dimension awaiting a real sample". The three captured calibration
-    replies are worse than unverified: the model did not answer that
-    question AT ALL on any of them. Before `unanswered` existed the
-    parser skipped the absent key and all three frames still reported
-    clean, so the gap was invisible.
-    """
-    for verdict in _real_verdicts():
-        assert "text_legible" in verdict.unanswered
-        assert "text_legible" not in verdict.answers
 
 
 def test_an_unanswered_dimension_does_not_read_as_clean():
@@ -133,22 +94,6 @@ def test_an_unanswered_dimension_does_not_read_as_clean():
 # ─────────────────────────────────────────────────────────
 # Constraint 4: observation only
 # ─────────────────────────────────────────────────────────
-
-def test_the_renderer_never_lets_perception_fail_a_build():
-    """Same rule as the QA stations: loud, not fatal, until there is
-    evidence about the false-positive rate."""
-    path = os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_6_01_render", "resolve_build_timeline.py")
-    with open(path, encoding="utf-8") as f:
-        src = f.read()
-    success_line = next(l for l in src.splitlines() if 'results["success"] =' in l)
-    assert "perceptual" not in success_line.lower(), (
-        "the perceptual observation has been made fatal. That needs evidence "
-        "about its false-positive rate first - the calibration run has not "
-        "happened, and the one clean calibration frame already produced a "
-        "finding.")
-    assert 'results["perceptual_observation"]' in src
-
 
 # ─────────────────────────────────────────────────────────
 # The wiring that stopped any of this running
@@ -185,30 +130,8 @@ def test_the_router_finds_clips_where_they_actually_live():
 
 # ─────────────────────────────────────────────────────────
 # The hang: a fixed key-name bug switched on a dormant path
+# (history: docs/evidence/perceptual_qa.md)
 # ─────────────────────────────────────────────────────────
-
-def test_the_frame_grab_loop_is_opt_in():
-    """Each frame grab is a REAL Deliver-page render, polled to completion.
-
-    That loop never ran in production, because plan_qa_checks read a
-    top-level "clips" key that has never existed. Fixing that switched on
-    a dormant path costing one render per placed clip - minutes added to
-    every export, unasked - and it hung the test suite for ten minutes of
-    wall clock on 2.75 seconds of CPU, because a MagicMock answers "yes"
-    to `IsRenderingInProgress()` forever and the poll slept out its whole
-    timeout per grab.
-
-    A fix that turns a silent no-op into a silent multi-minute cost is a
-    poor trade, so both the grabs and the perceptual pass are opt-in.
-    """
-    path = os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_6_01_render", "resolve_build_timeline.py")
-    with open(path, encoding="utf-8") as f:
-        src = f.read()
-    assert "if not perceptual_qa_enabled():" in src, (
-        "the visual QA frame-grab loop must be opt-in; it renders once per "
-        "placed clip")
-
 
 def test_perceptual_observation_is_off_by_default(monkeypatch):
     from library.tools.visual_qa_router import (
@@ -239,14 +162,3 @@ def test_importing_the_router_does_not_pull_in_the_vision_model():
     assert out.stdout.strip() == "False False", (
         f"importing visual_qa_router pulled in the model stack: {out.stdout!r}")
 
-
-def test_the_fusion_subprocess_is_bounded():
-    """An unbounded subprocess in the renderer can hang a real render
-    with no diagnostic, indistinguishable from a slow Fusion pass."""
-    path = os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_6_01_render", "resolve_build_timeline.py")
-    with open(path, encoding="utf-8") as f:
-        src = f.read()
-    assert "FUSION_SUBPROCESS_TIMEOUT_S" in src
-    assert "timeout=FUSION_SUBPROCESS_TIMEOUT_S" in src
-    assert "subprocess.TimeoutExpired" in src

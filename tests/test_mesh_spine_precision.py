@@ -111,30 +111,20 @@ def test_handles_measure_unplayed_source_in_frames():
 
 
 def test_pacing_windows_ride_the_spine():
-    """PA3.2's shape: 2.5 s ASL over blocks 1-2, validated."""
-    out = mb.enrich_spine(
-        _spine([_speech_block(1, 1, 2.285), _speech_block(2, 2, 3.133)],
-               pacing=[{"start_block": 1, "end_block": 2,
-                        "asl_seconds": 2.5}]),
-        {"body_sequence": [_passage(1, end=2.285),
-                           _passage(2, start=10.0, end=13.133)]},
-        {}, {})
-    assert out["audio_spine"]["pacing"] == [
-        {"start_block": 1, "end_block": 2, "asl_seconds": 2.5}]
-
-
-def test_feel_based_pacing_is_preserved_without_inventing_an_asl():
-    """PA2.2 says faster cuts, so the plan carries that feel verbatim."""
-    out = mb.enrich_spine(
-        _spine([_speech_block(1, 1, 2.285), _speech_block(2, 2, 3.133)],
-               pacing=[{"start_block": 1, "end_block": 2,
-                        "feel": "faster cuts as it builds"}]),
-        {"body_sequence": [_passage(1, end=2.285),
-                           _passage(2, start=10.0, end=13.133)]},
-        {}, {})
-    assert out["audio_spine"]["pacing"] == [{
-        "start_block": 1, "end_block": 2,
-        "feel": "faster cuts as it builds"}]
+    for window in (
+            # PA3.2's shape: 2.5 s ASL over blocks 1-2, validated.
+            {"start_block": 1, "end_block": 2, "asl_seconds": 2.5},
+            # PA2.2 says faster cuts: the feel rides verbatim, no ASL
+            # invented.
+            {"start_block": 1, "end_block": 2,
+             "feel": "faster cuts as it builds"}):
+        out = mb.enrich_spine(
+            _spine([_speech_block(1, 1, 2.285), _speech_block(2, 2, 3.133)],
+                   pacing=[dict(window)]),
+            {"body_sequence": [_passage(1, end=2.285),
+                               _passage(2, start=10.0, end=13.133)]},
+            {}, {})
+        assert out["audio_spine"]["pacing"] == [window]
 
 
 def test_pacing_window_refuses_a_number_and_feel_for_the_same_stretch():
@@ -147,16 +137,13 @@ def test_pacing_window_refuses_a_number_and_feel_for_the_same_stretch():
             {"body_sequence": [_passage(1, end=2.285)]}, {}, {})
 
 
-def test_caption_word_limit_survives_the_spine_for_subtitle_planning():
-    """Finding 31's requested count must reach plan_subtitles unchanged."""
+def test_caption_word_limit_survives_and_refuses_non_counts():
+    """Finding 31's requested count must reach plan_subtitles unchanged;
+    a word ceiling is a positive whole-word count, never a default."""
     out = mb.enrich_spine(
         _spine([_speech_block(1, 1, 2.285)], max_words=2),
         {"body_sequence": [_passage(1, end=2.285)]}, {}, {})
     assert out["audio_spine"]["max_words"] == 2
-
-
-def test_caption_word_limit_refuses_fractional_or_boolean_counts():
-    """A word ceiling is a positive whole-word count, never a default."""
     for invalid in (2.5, True, 0):
         with pytest.raises(ValueError, match="max_words"):
             mb.enrich_spine(
