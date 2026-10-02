@@ -6,7 +6,8 @@ section 2 (in firstmate's home). Rigor-gate basis:
 `data/vep-person-entity-store/eval/{plan,results}.md` - a false-accept
 study on 83 real faces (the captain's own footage, 2 cameras, profile
 and eyes-closed frames included) measured FAR=0/FRR=0 at
-`FACE_MATCH_THRESHOLD`.
+`FACE_MATCH_THRESHOLD`. The study is rerun on the frames this module
+actually decodes by `library/tools/face_identity_study.py`.
 
 **Identity comes from measured embeddings, never from attributes.**
 buffalo_l also reports sex/age; the scout measured those WRONG (Akshita
@@ -15,11 +16,12 @@ its 512-d ArcFace embedding and nothing else.
 
 **What this module measures, per source file:**
 
-- Face tracks: sampled frames - the shared M2 I-frame sample
-  (`source_memory.read_m2`) when a fresh one exists, else this module's
-  own `ffmpeg -ss` seeks - each face insightface `buffalo_l` detects and
-  embeds, clustered within the one source by cosine >=
-  `FACE_MATCH_THRESHOLD`.
+- Face tracks: sampled frames decoded at SOURCE resolution - at the
+  shared M2 I-frame times (`source_memory.read_m2`) when a fresh sample
+  exists, else at this module's own planned times - each face
+  insightface `buffalo_l` detects and embeds, clustered within the one
+  source by cosine >= `FACE_MATCH_THRESHOLD`. Never the 384 px M2
+  thumbnails themselves: see `FRAME_SOURCE_M2_TIMES`.
 - Voice tracks: the source's own program-track audio, diarized with the
   already-landed ECAPA fallback (`single_track_diarization.diarize_track`,
   PR #1482) - reused as-is, not re-measured here.
@@ -55,25 +57,28 @@ except ImportError:  # imported as `tools.*` from inside library/
     from tools import footage_identity, shared_environment, source_memory
     from tools import single_track_diarization as diarization
 
-FACE_MATCH_THRESHOLD = 0.30
+FACE_MATCH_THRESHOLD = 0.25
 """Cosine floor for 'same person' on a 512-d ArcFace embedding.
 
-Measured, not chosen: `data/vep-person-entity-store/eval/results.md` -
-FAR=0, FRR=0 at this threshold across 83 real faces (2 cameras, profile
-and eyes-closed frames included; closest different-person pair 0.124,
-weakest same-person pair 0.346 with the threshold clear of both by a
-wide margin). Biased toward FAR over FRR: a false merge silently
-corrupts a person's whole span history, a missed match just leaves two
-person_ids for one person - visible and recoverable in search results.
+Measured, not chosen, on the source-resolution frames this module
+decodes (`face_identity_study`, 2026-10-02): FAR=0, FRR=0 on the 83-face
+study set (closest different-person pair 0.124, weakest same-person
+0.346) AND on the 427 frames production samples from the geo-podcast
+sources (closest different-person 0.144, weakest same-person 0.298 - an
+eyes-closed, low-light LC4932 frame). The zero-error band both share is
+0.15-0.29; 0.30, picked on the 83 alone, missed 2 of the 427 set's
+47,091 same-person pairs. Biased toward FAR over FRR: a false merge
+silently corrupts a person's whole span history, a missed match just
+leaves two person_ids for one person - visible and recoverable in
+search results.
 """
 
 FRAME_SAMPLE_INTERVAL_S = 10.0
 """How often a source is sampled for faces. `resolve_sample_frames`
-reads the shared M2 I-frame sample (`source_memory.read_m2`) when a
-fresh one exists for this digest, picking the nearest already-decoded
-thumbnail to each planned timestamp; a project with no M2 sample yet
-falls back to this module's own sparse `ffmpeg -ss` decode (fast; no
-full decode)."""
+snaps each planned timestamp to the nearest shared M2 I-frame
+(`source_memory.read_m2`) when a fresh sample exists for this digest;
+either way the frame is this module's own sparse `ffmpeg -ss` decode at
+source resolution (no full decode)."""
 
 MAX_FRAME_SAMPLES = 120
 """Upper bound on frames sampled per source, so an hours-long file costs
@@ -160,7 +165,21 @@ def _face_app():
     return app
 
 
+FRAME_SOURCE_M2_TIMES = "M2-times-source-resolution"
+"""Decoded at source resolution, at the shared M2 I-frame times - the
+same instants M3 measured, so `event_spans` can join the two.
+
+Not the M2 thumbnails: at 384x216 a face is ~41 px tall, and ArcFace
+aligns it up to 112x112. Rerun on thumbnails, the 83-face study's FRR at
+0.30 was 0.075 (the profile frames fell to cosine 0.02 against their own
+person) and no threshold separated the two people; at source resolution
+the same frames give FAR=0/FRR=0 (`face_identity_study`). Measured cost:
+~0.45 s of `ffmpeg -ss` per frame on the 4K MXF sources."""
+
 FRAME_SOURCE_M2 = "M2-shared-sample"
+"""Records written before `FRAME_SOURCE_M2_TIMES`: measured ON the 384 px
+M2 thumbnails. Read for the join, never written."""
+
 FRAME_SOURCE_OWN_DECODE = "own-decode"
 
 
@@ -178,26 +197,50 @@ def extract_frame(source_file: str, timestamp: float, out_path: str) -> bool:
     return out.returncode == 0 and os.path.isfile(out_path) and os.path.getsize(out_path) > 0
 
 
-def _nearest_m2_frames(m2_frames: List[dict], timestamps: List[float],
-                       digest: str, root: Optional[Path]) -> List[Tuple[float, str]]:
-    """One M2 thumbnail nearest each wanted timestamp, deduplicated.
+def _nearest_m2_times(m2_frames: List[dict], timestamps: List[float]) -> List[float]:
+    """The M2 I-frame time nearest each wanted timestamp, deduplicated.
 
     M2 samples at its own I-frame cadence (~2 Hz), denser than this
-    module needs; this picks the closest already-decoded frame to each
-    planned timestamp rather than running insightface over every I-frame
-    M2 kept. Two planned timestamps landing on the same nearest frame
+    module needs; this picks the closest I-frame to each planned
+    timestamp rather than running insightface over every I-frame M2
+    kept. Two planned timestamps landing on the same nearest frame
     contribute it once.
     """
     if not m2_frames:
         return []
     frame_times = [f["t"] for f in m2_frames]
-    chosen: Dict[int, float] = {}
+    chosen = {min(range(len(frame_times)), key=lambda i: abs(frame_times[i] - ts))
+              for ts in timestamps}
+    return [frame_times[idx] for idx in sorted(chosen)]
+
+
+def frames_at(source_file: str, digest: str, timestamps: List[float],
+              root: Optional[Path], scratch_dir: str
+              ) -> Tuple[List[Tuple[float, str, bool]], str]:
+    """Source-resolution frames at `timestamps`, and which times they are.
+
+    The ONE path a face reaches ArcFace by, shared with
+    `face_identity_study` so the study measures what production decodes.
+    With a fresh M2 sample (`source_memory.read_m2`) each timestamp
+    snaps to its nearest M2 I-frame, so M3 and M3b describe the same
+    instants; otherwise the planned times are decoded as given.
+
+    Returns `[(timestamp, path, owned)]`; every path is extracted into
+    `scratch_dir` and is the caller's to delete.
+    """
+    frame_source = FRAME_SOURCE_OWN_DECODE
+    m2 = source_memory.read_m2(digest, root)
+    if (timestamps and m2 is not None and source_memory.is_fresh(m2, source_file)
+            and m2.get("frames")):
+        timestamps = _nearest_m2_times(m2["frames"], timestamps)
+        frame_source = FRAME_SOURCE_M2_TIMES
+
+    frames = []
     for ts in timestamps:
-        idx = min(range(len(frame_times)),
-                  key=lambda i: abs(frame_times[i] - ts))
-        chosen.setdefault(idx, frame_times[idx])
-    return [(chosen[idx], source_memory.frame_abspath(digest, m2_frames[idx], root))
-           for idx in sorted(chosen)]
+        frame_path = os.path.join(scratch_dir, f"f_{ts:.3f}.jpg")
+        if extract_frame(source_file, ts, frame_path):
+            frames.append((ts, frame_path, True))
+    return frames, frame_source
 
 
 def resolve_sample_frames(source_file: str, digest: str, duration_seconds: float,
@@ -205,56 +248,36 @@ def resolve_sample_frames(source_file: str, digest: str, duration_seconds: float
                           interval_s: float = FRAME_SAMPLE_INTERVAL_S,
                           max_samples: int = MAX_FRAME_SAMPLES
                           ) -> Tuple[List[Tuple[float, str, bool]], str]:
-    """Frames to run face detection over, and which source they came from.
+    """Frames to run face detection over, and which times they are.
 
-    Reads the shared M2 I-frame sample (`source_memory.read_m2`) when a
-    fresh one exists - no shared sampler had landed on `origin/main` when
-    this module was first written, and M2 lands on main afterward
-    (`library/tools/source_memory.py`). Falls back to this module's own
-    sparse `ffmpeg -ss` decode otherwise, so a project that has not run
-    `source_memory frames` yet still gets an identity measurement.
-
-    Returns `[(timestamp, path, owned)]` - `owned` marks a path this
-    function extracted into `scratch_dir` and the caller must delete;
-    an M2 thumbnail is never owned (it belongs to the shared memory).
+    The planned `sample_timestamps`, decoded by `frames_at`.
     """
     timestamps = sample_timestamps(duration_seconds, interval_s, max_samples)
-    if not timestamps:
-        return [], FRAME_SOURCE_OWN_DECODE
-
-    m2 = source_memory.read_m2(digest, root)
-    if m2 is not None and source_memory.is_fresh(m2, source_file) and m2.get("frames"):
-        picked = _nearest_m2_frames(m2["frames"], timestamps, digest, root)
-        if picked:
-            return [(t, path, False) for t, path in picked], FRAME_SOURCE_M2
-
-    frames = []
-    for ts in timestamps:
-        frame_path = os.path.join(scratch_dir, f"f_{ts:.3f}.jpg")
-        if extract_frame(source_file, ts, frame_path):
-            frames.append((ts, frame_path, True))
-    return frames, FRAME_SOURCE_OWN_DECODE
+    return frames_at(source_file, digest, timestamps, root, scratch_dir)
 
 
 def measure_face_observations(frames: List[Tuple[float, str, bool]]
-                              ) -> List[FaceObservation]:
-    """Every face insightface finds across the resolved frames.
+                              ) -> Tuple[List[FaceObservation], Optional[List[int]]]:
+    """Every face insightface finds across the resolved frames, and the
+    `[width, height]` its boxes are drawn on (None when no frame read).
 
     A frame insightface finds no face in contributes nothing - absence,
     never a synthesized observation. `frames` is `[(timestamp, path,
-    owned)]` from `resolve_sample_frames`; an owned (scratch) file is
-    removed after reading, an M2 thumbnail never is.
+    owned)]` from `frames_at`; an owned (scratch) file is removed after
+    reading.
     """
     import cv2
 
     app = _face_app()
     observations: List[FaceObservation] = []
+    frame_pixels = None
     for ts, path, owned in frames:
         image = cv2.imread(path)
         if owned:
             os.remove(path)
         if image is None:
             continue
+        frame_pixels = frame_pixels or [int(image.shape[1]), int(image.shape[0])]
         for face in app.get(image):
             observations.append(FaceObservation(
                 timestamp=ts,
@@ -262,7 +285,7 @@ def measure_face_observations(frames: List[Tuple[float, str, bool]]
                 det_score=round(float(face.det_score), 4),
                 embedding=tuple(round(float(v), 6)
                                 for v in face.normed_embedding)))
-    return observations
+    return observations, frame_pixels
 
 
 def _cosine(a, b) -> float:
@@ -423,6 +446,7 @@ def build_source_identity(source_file: str,
 
     frame_source = FRAME_SOURCE_OWN_DECODE
     sample_count = 0
+    frame_pixels = None
     with tempfile.TemporaryDirectory(prefix="person-entity-",
                                      dir=scratch_parent) as scratch:
         if face_unavailable_reason is None:
@@ -430,7 +454,7 @@ def build_source_identity(source_file: str,
                 source_file, digest, duration, root, scratch,
                 interval_s, max_samples)
             sample_count = len(frames)
-            observations = measure_face_observations(frames)
+            observations, frame_pixels = measure_face_observations(frames)
             face_tracks = cluster_face_observations(observations)
         else:
             face_tracks = []
@@ -469,6 +493,7 @@ def build_source_identity(source_file: str,
                       if voice_tracks else None),
             "voice_unavailable_reason": voice_unavailable_reason,
             "frame_source": frame_source if face_unavailable_reason is None else None,
+            "frame_pixels": frame_pixels,
             "sample_count": sample_count,
             "sample_interval_s": interval_s,
         },

@@ -887,9 +887,10 @@ def require_ecapa(explicit: Optional[str | Path] = None) -> Path:
 # recognizer in one pass) rather than Apple Vision, which has no public
 # face-identity request (measured in the video-intelligence scout,
 # `data/vep-video-intelligence-entities-and-search/report.md` section 4).
-# The false-accept study at `data/vep-person-entity-store/eval/results.md`
-# (83 real faces, 2 cameras, profile and eyes-closed frames included)
-# measured FAR=0/FRR=0 at cosine >= `person_entity.FACE_MATCH_THRESHOLD`.
+# The false-accept study (`library/tools/face_identity_study.py`, on the
+# source-resolution frames production decodes: 507 real faces, 2 cameras,
+# profile and eyes-closed frames included) measured FAR=0/FRR=0 at
+# cosine >= `person_entity.FACE_MATCH_THRESHOLD`.
 # The pip half (`insightface`, `onnxruntime`, both MIT/Apache) lives in
 # the shared ML venv via requirements.txt. The weights (~281 MB) are
 # data, not code, and insightface already keeps them once per machine in

@@ -234,19 +234,23 @@ bin/vep -m library.tools.heavy_work_lock run \
 ## M3b `identity.json` (written)
 
 Owner: `library/tools/person_entity.py`. Measured, not guessed: the
-face-match threshold below is the false-accept study at
-`data/vep-person-entity-store/eval/results.md` in firstmate's home
-(FAR=0/FRR=0 across 83 real faces, 2 cameras, profile and eyes-closed
-frames included). Reads the shared M2 sample for its frames when a
-fresh one exists, falling back to its own sparse `ffmpeg -ss` decode
-otherwise (`instrument.frame_source` below says which).
+face-match threshold below is the false-accept study (labelled set at
+`data/vep-person-entity-store/eval/` in firstmate's home), rerun on the
+frames production decodes by `library/tools/face_identity_study.py`:
+FAR=0/FRR=0 over 507 real faces, 2 cameras, profile and eyes-closed
+frames included. **ArcFace never reads the 384 px M2 thumbnails**: a
+face there is ~41 px tall and the study's FRR at 0.30 was 0.075. Each
+frame is its own sparse `ffmpeg -ss` decode at source resolution, at the
+nearest M2 I-frame times when a fresh M2 exists (so M7 can join it to
+M3), else at its own planned times (`instrument.frame_source` says
+which; `instrument.frame_pixels` is the size the boxes are drawn on).
 
 ```json
 {
   "content_digest": "sha256 hex",
   "source_file": "<absolute path>",
   "status": "measured",
-  "face_match_threshold": 0.30,
+  "face_match_threshold": 0.25,
   "faces": [{"track_id": "face_001", "embedding": [512 floats],
              "spans": [{"start": 60.0, "end": 60.2, "box": [x1, y1, x2, y2],
                        "det_score": 0.9}]}],
@@ -258,7 +262,8 @@ otherwise (`instrument.frame_source` below says which).
   "instrument": {"face": "insightface buffalo_l (ArcFace, 512-d)",
                  "face_unavailable_reason": null,
                  "voice": "speechbrain ECAPA (192-d) via single_track_diarization.diarize_track",
-                 "frame_source": "M2-shared-sample|own-decode",
+                 "frame_source": "M2-times-source-resolution|own-decode",
+                 "frame_pixels": [3840, 2160],
                  "sample_count": 12, "sample_interval_s": 10.0}
 }
 ```

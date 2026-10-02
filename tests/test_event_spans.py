@@ -70,6 +70,21 @@ def test_a_voice_is_linked_to_the_face_whose_lips_move_with_it():
     assert links == {"voice_A": "face_001", "voice_B": None}
 
 
+def test_a_source_resolution_face_box_is_joined_at_its_own_scale():
+    """M3b draws its boxes on source-resolution frames at M2's times, not
+    on the 384x216 thumbnails M3 read. Scaled by M3's `frame_pixels`, a
+    4K box lands ten frames off-screen and no Vision face is ever
+    assigned a track."""
+    m3 = _m3([{"t": 10.0, "faces": [{"box": [0.4, 0.2, 0.5, 0.4]}], "hands": []}])
+    identity = {
+        "instrument": {"frame_source": person_entity.FRAME_SOURCE_M2_TIMES,
+                       "frame_pixels": [3840, 2160]},
+        "faces": [{"track_id": "face_001", "spans": [
+            {"start": 9.9, "end": 10.1, "box": [1536.0, 432.0, 1920.0, 864.0]}]}]}
+
+    assert event_spans.assign_face_tracks(m3, identity) == [["face_001"]]
+
+
 def _clock(digest, members, offset):
     source_memory.write_json(
         source_memory.source_dir(digest) / conversation_clock.SLOT_CLOCK,

@@ -89,10 +89,12 @@ def test_sample_timestamps_respects_max_samples():
 # ── resolve_sample_frames (M2 reuse vs own decode) ──────────────────────
 
 
-def test_resolve_sample_frames_reads_a_fresh_m2_sample(tmp_path, memory_root):
-    """A fresh M2 sample must be used instead of decoding - this is the
-    whole point of reading the shared sampler: a regression that always
-    fell back to ffmpeg would silently double the decode cost."""
+def test_a_fresh_m2_sample_gives_its_times_never_its_thumbnails(tmp_path, memory_root,
+                                                                monkeypatch):
+    """With a fresh M2 the frames are decoded at source resolution at
+    M2's I-frame times. ArcFace on the 384 px thumbnails themselves
+    failed the face study (FRR 0.075 at 0.30, no separating threshold);
+    the times still have to be M2's so M7 can join M3b to M3."""
     media = _media(tmp_path, "A.MXF", b"source-a")
     digest = footage_identity.fingerprint(str(media))["content_digest"]
     source_memory.write_json(memory_root / digest / source_memory.SLOT_FRAMES_INDEX, {
@@ -102,20 +104,24 @@ def test_resolve_sample_frames_reads_a_fresh_m2_sample(tmp_path, memory_root):
                   {"file": "frames/frame_000002.jpg", "t": 5.0},
                   {"file": "frames/frame_000003.jpg", "t": 9.9}],
     })
+    decoded = []
 
+    def fake_extract(source_file, timestamp, out_path):
+        decoded.append((source_file, timestamp))
+        Path(out_path).write_bytes(b"x")
+        return True
+
+    monkeypatch.setattr(person_entity, "extract_frame", fake_extract)
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     frames, source = person_entity.resolve_sample_frames(
         str(media), digest, duration_seconds=10.0, root=None,
-        scratch_dir=str(scratch), interval_s=5.0, max_samples=10)
+        scratch_dir=str(scratch), interval_s=4.0, max_samples=10)
 
-    assert source == person_entity.FRAME_SOURCE_M2
-    assert frames
-    assert all(owned is False for _t, _path, owned in frames)
-    # Every path named must be the M2 thumbnail, not something this
-    # function extracted - no ffmpeg call should have been needed.
-    for _t, path, _owned in frames:
-        assert "frames/frame_" in path
+    assert source == person_entity.FRAME_SOURCE_M2_TIMES
+    assert decoded == [(str(media), 0.5), (str(media), 5.0), (str(media), 9.9)]
+    assert [t for t, _path, _owned in frames] == [0.5, 5.0, 9.9]
+    assert all(owned and "frames/frame_" not in path for _t, path, owned in frames)
 
 
 def test_resolve_sample_frames_falls_back_when_m2_is_stale(tmp_path, memory_root,
@@ -168,15 +174,13 @@ def test_resolve_sample_frames_falls_back_with_no_m2_record(tmp_path, memory_roo
     assert frames
 
 
-def test_nearest_m2_frames_deduplicates_shared_nearest_frame():
+def test_nearest_m2_times_deduplicates_shared_nearest_frame():
     """Two planned timestamps landing on the same nearest M2 frame must
     contribute it once, not twice - a regression here would double-count
     one frame's face toward the cluster."""
     m2_frames = [{"file": "frames/frame_000001.jpg", "t": 1.0},
                 {"file": "frames/frame_000002.jpg", "t": 20.0}]
-    picked = person_entity._nearest_m2_frames(
-        m2_frames, [0.9, 1.1, 19.0], digest="abc", root=None)
-    assert len(picked) == 2
+    assert person_entity._nearest_m2_times(m2_frames, [0.9, 1.1, 19.0]) == [1.0, 20.0]
 
 
 # ── cluster_face_observations ─────────────────────────────────────────

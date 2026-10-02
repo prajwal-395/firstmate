@@ -187,17 +187,24 @@ def span_bounds(times: Sequence[float], first: int, last: int) -> Tuple[float, f
 def _m3b_frame_dims(identity: dict, m3: dict) -> Tuple[float, float]:
     """Pixel size of the frames M3b drew its boxes on.
 
-    M3b reads the shared M2 thumbnails when they are fresh
-    (`instrument.frame_source`), the same frames M3 measured, so the two
-    share M3's `frame_pixels`. An own-decode M3b record is at source
-    resolution, which nothing here records; it cannot be joined and
-    raises rather than guessing a scale.
+    M3b decodes at source resolution at the M2 I-frame times
+    (`FRAME_SOURCE_M2_TIMES`), the same instants M3 measured, and records
+    its own `frame_pixels`. A record from before that measured ON the M2
+    thumbnails (`FRAME_SOURCE_M2`) shares M3's `frame_pixels`. An
+    own-decode record is at times M3 never sampled; it cannot be joined
+    and raises rather than guessing.
     """
-    source = (identity.get("instrument") or {}).get("frame_source")
-    pixels = (m3.get("instrument") or {}).get("frame_pixels")
-    if source != person_entity.FRAME_SOURCE_M2 or not pixels:
+    instrument = identity.get("instrument") or {}
+    source = instrument.get("frame_source")
+    if source == person_entity.FRAME_SOURCE_M2_TIMES:
+        pixels = instrument.get("frame_pixels")
+    elif source == person_entity.FRAME_SOURCE_M2:
+        pixels = (m3.get("instrument") or {}).get("frame_pixels")
+    else:
+        pixels = None
+    if not pixels:
         raise ValueError(
-            f"M3b frame source {source!r} is not the shared M2 sample M3 "
+            f"M3b frame source {source!r} is not at the M2 times M3 "
             f"read; rebuild M3b after `source_memory frames`")
     return float(pixels[0]), float(pixels[1])
 
