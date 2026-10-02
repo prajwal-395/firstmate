@@ -153,7 +153,7 @@ SECTION_BUDGETS = {
     "## 2. Repo layout": 2124,
     "## 3. Pipeline execution": 5337,
     "## 4. Dashboard": 3118,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 3884,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4044,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1801,
@@ -163,7 +163,7 @@ SECTION_BUDGETS = {
     "## 12. The look": 558,
     "## 13. Intros, outros and end cards": 1114,
     "## 14. General assets vs project assets": 2300,
-    "## 15. Notes the captain types onto the timeline": 1681,
+    "## 15. Notes the captain types onto the timeline": 1521,
     "## 16. Motion graphics": 2349,
     "## Maintaining this file": 553,
 }

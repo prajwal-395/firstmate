@@ -108,6 +108,9 @@ VERBS = (
     Verb("mark-master", "Resolve", "Mark the master timeline where each reel was taken", subcommand="resolve-mark-master",
          detail="Mark the master timeline with where each reel was taken from. Markers only, and reversible"),
     Verb("relink", "Resolve", "Relink offline media after a move", subcommand="relink"),
+    Verb("timeline", "Resolve", "Answer what a timeline holds from its recorded generations; touches no Resolve",
+         module_argv=("library.tools.timeline_shadow",),
+         detail="log, show, clips, markers or diff a timeline's recorded generations (the shadow store). Never reads Resolve"),
 
     Verb("search", "Footage", "Find where in a project's footage something happens",
          module_argv=(_FOOTAGE_QUERY, "search")),
