@@ -250,6 +250,6 @@ so re-run install after changing them. Removal is symmetric:
 The old start-at-login proposal (KeepAlive shim, 40 MB always resident)
 is withdrawn: the captain explicitly asked for nothing permanent.
 
-Tests: `tests/unit/context/test_gemma_shim.py` (fake stdlib backend; no model load)
+Tests: `tests/unit/context/test_vision_pipeline.py` (fake stdlib backend; no model load)
 covers cold-proxy, idle reap, in-flight protection, hold/release scope,
 503-on-failure, and 409-on-busy-stop.

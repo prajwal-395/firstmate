@@ -68,14 +68,14 @@ There is NO threshold
 ---------------------
 Not here, not in the view, not in the step.  The captain's standing
 ruling is that the model gets the number and judges (AGENTS.md 10.5,
-and `tests/unit/audio/test_transcript_confidence.py`). A cutoff below which a line is
+and `tests/unit/audio/test_transcript.py`). A cutoff below which a line is
 "bad" would be the engine deciding, for every project and every
 recording condition, what a struggling transcriber sounds like - and
 the measured evidence says it would have decided wrong here: re-heard in
 isolation the disputed span transcribes as clean English at
 `avg_logprob=-0.2014`, a perfectly ordinary value.
 
-`tests/unit/audio/test_transcript_confidence.py` fails if a numeric comparison
+`tests/unit/audio/test_transcript.py` fails if a numeric comparison
 against a literal appears in this module.
 
 The script check, and what it costs

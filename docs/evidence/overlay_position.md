@@ -20,7 +20,7 @@ the project's own v1 pins verbatim would have moved Reel 13's approved captions
 
 ## One positioning rule
 
-Moved from the module docstring of `tests/unit/captions/test_overlay_positioning_rule.py`.
+Moved from the module docstring of `tests/unit/captions/test_overlay_intent.py`.
 
 ```text
 One positioning rule, and a stored value judged against INTENT.

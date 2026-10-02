@@ -51,7 +51,7 @@ SUPPORTED_VIDEO_EXTENSIONS = {
     # readiness check reported the project as having no footage at all.
     # Added on measurement rather than on principle: `extract_metadata`
     # read all seven on 2026-09-04, reporting 3840x2160 @ 23.976 for
-    # each. See tests/unit/context/test_footage_root.py.
+    # each. See tests/unit/context/test_project_intake.py.
     ".mxf",
 }
 

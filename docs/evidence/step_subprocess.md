@@ -1,6 +1,6 @@
 # A step's result must survive being bigger than a pipe buffer
 
-Moved from `tests/unit/context/test_step_subprocess_large_output.py`.
+Moved from `tests/unit/context/test_step_runner.py`.
 
 The runner deadlocked on project 001 exactly here. `semantic_analysis`
 finished all 17 clips, printed "Collected 17 clip profiles", and stopped.

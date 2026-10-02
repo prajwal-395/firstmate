@@ -60,7 +60,7 @@ SHAPE: ``window_envelope_dbfs`` is the twelve-bucket curve of the section
 starting at 0 and there is no such curve for the others.  Say so rather
 than inventing a rule.
 
-``tests/unit/audio/test_music_section.py``.
+``tests/unit/audio/test_music_bed.py``.
 
 
 Rules relocated from AGENTS.md 10.5
@@ -78,7 +78,7 @@ and points here.
 - **The beat grid moves with it.** `beat_positions`/`downbeat_positions` take the selection and return TIMELINE time; the argument is required, because a default of "no offset" is the value that is silently wrong. `assert_music_offset_is_the_chosen_section` holds the other end. `plan_sfx` is routed `music_selection` for this.
 - `resolve_section` RAISES rather than sliding a section back to fit: moving the start is choosing which part plays.
 - `UNSUPPORTED_BY_THE_MEASUREMENTS` records what a section choice cannot yet see - the bar lines, whether it has vocals. Say what is missing; do not fill it with a rule.
-- `tests/unit/audio/test_music_section.py`.
+- `tests/unit/audio/test_music_bed.py`.
 """
 
 from __future__ import annotations

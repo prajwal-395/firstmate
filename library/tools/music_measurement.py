@@ -67,7 +67,7 @@ Step 2.04 measures every candidate (§10.5); its post-bridge folds the CHOSEN tr
 - **An unmeasured bed is an admitted absence**: `measured: false` with its reason, no level at all, and `bed_level_after_gain_lufs` None - never 0.
 - **The separation a window will DELIVER is predicted, and the separation it OUGHT to deliver is not supplied.** `library/tools/speech_loudness.py` measures the speech with one ffmpeg `loudnorm` pass per block over the ranges `a_roll_assignments` names - 0.23 s a block, measured, so 1.2 s for 001's eight - and 5.02 records `speech_lufs` and `separation_delivered_db` per window. **Measure and expose; never choose.** `SEPARATION_TARGETS_DB` is still empty and the master loudness target is still the captain's, so nothing compares the delivered number with anything. A block whose speech could not be measured records the reason and `None`, never 0.
 - Step 5.02 declares `audio_spine` and `music_selection` and nothing else. Re-declaring `creative_direction` or `enhancement_spec` needs a reader in the same commit.
-- `tests/unit/audio/test_mix_reads_the_bed.py`.
+- `tests/unit/audio/test_music_bed.py`.
 
 
 Rules relocated from AGENTS.md 10.5

@@ -134,7 +134,7 @@ use"* can be answered, and that answer was unsendable in its most natural form.
 
 A gate that fails correct output (AGENTS.md 10.4). It never fired only because
 every reading on disk happens to carry the key, and `claim_parts` would have
-inherited it. Fixed, and named in `tests/unit/captions/test_explainer_plan.py`.
+inherited it. Fixed, and named in `tests/unit/captions/test_full_frame_element.py`.
 
 ---
 

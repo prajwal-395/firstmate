@@ -204,7 +204,7 @@ and the model reads it.
 
 **Licence is provenance and gates nothing.** A fetched candidate carries `provenance` -
 the query, the URL, the channel, and whatever the platform stated as a licence, or "unstated".
-No step reads it, and `tests/unit/audio/test_music_search.py` fails if one branches on it. Section 3's
+No step reads it, and `tests/unit/audio/test_music_selection.py` fails if one branches on it. Section 3's
 item 3 - "a licence field that travels with the track" - is deliberately NOT what was built: it
 travels, and it decides nothing.
 

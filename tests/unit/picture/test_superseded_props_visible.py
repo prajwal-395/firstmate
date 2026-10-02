@@ -21,7 +21,7 @@ from library.tools.caption_asset_gc import (
     ambiguous_span_pairs,
     ledger_path_for,
 )
-from tests.unit.captions.test_subtitle_overlay_modes import (
+from tests.unit.captions.test_overlay_carriage import (
     _props,
     _StubRenderer,
 )

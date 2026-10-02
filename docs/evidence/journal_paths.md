@@ -1,7 +1,7 @@
 # Journal paths that overwrote the record an undo needs - history
 
 Moved verbatim from the module docstring of
-`tests/unit/context/test_journal_paths_never_overwrite.py` (test-suite halving,
+`tests/unit/context/test_ledgers.py` (test-suite halving,
 2026-10-02). The test keeps the invariant; this keeps the measurement.
 
 ```text

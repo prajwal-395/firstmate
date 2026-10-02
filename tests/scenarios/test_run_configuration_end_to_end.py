@@ -1,6 +1,6 @@
 """The run configuration, driven through the real runner.
 
-`tests/unit/context/test_run_profile.py` and `tests/unit/context/test_breakpoints.py` hold the two
+`tests/unit/context/test_run_scope.py` and `tests/unit/context/test_run_scope.py` hold the two
 declarations honest on their own.  This drives `run_pipeline` itself,
 because the thing worth proving is not that the modules agree - it is
 that the RUN stops at the armed step and nowhere else, that a `revised`

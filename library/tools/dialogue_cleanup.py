@@ -43,8 +43,8 @@ the `deep-filter` binary at the shared-environment location
 another, `scripts/install_deepfilternet.sh` to fill it), else the same
 binary on PATH - and REFUSES BY NAME when none answers.
 
-`tests/unit/audio/test_dialogue_cleanup.py`, `tests/unit/audio/test_audio_mix_cleanup.py`,
-`tests/unit/context/test_audio_chain_declared_ops.py`.
+`tests/unit/audio/test_audio_mix.py`, `tests/unit/audio/test_audio_mix.py`,
+`tests/unit/context/test_plan_values.py`.
 
 The local measurements of both tools on the captain's dialogue (noise
 floor, speech level and WER per clip and per Voice Isolation amount)

@@ -24,7 +24,7 @@ Declare one by putting `view:<name>` in `context_fields`.  A view whose
 source input is not routed to the step contributes nothing, exactly as a
 dot path that resolves to nothing does; the contract that a step
 declaring a view also declares its source input is asserted on the
-manifests, in `tests/unit/audio/test_transcript_view.py`.
+manifests, in `tests/unit/audio/test_transcript.py`.
 
 
 Rules relocated from AGENTS.md 10.1
@@ -64,7 +64,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
-- `tests/unit/audio/test_transcript_view.py`, `tests/unit/audio/test_prosody_view.py`, `tests/unit/audio/test_spoken_lines_view.py`.
+- `tests/unit/audio/test_transcript.py`, `tests/unit/audio/test_prosody.py`, `tests/unit/audio/test_transcript.py`.
 """
 
 VIEW_PREFIX = "view:"

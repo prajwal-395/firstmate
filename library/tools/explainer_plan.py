@@ -113,7 +113,7 @@ outermost row or column (`FRAME_EDGE_CLIPPED`) means the frame cut the
 graphic off; ink outside the declared band is only a WARNING, because a
 shadow legitimately falls across the shared boundary.
 
-`tests/unit/captions/test_explainer_plan.py`.
+`tests/unit/captions/test_full_frame_element.py`.
 
 The measurements and rulings behind these rules (the three readings of
 the captain's phrase, the needed-versus-produced table, the field-test
@@ -183,7 +183,7 @@ NOTHING_TO_DRAW = "nothing_to_draw"
 def assert_elements_stage() -> None:
     """Every element an explainer may use really stages, per the roster.
 
-    Runnable, and it can fail: `tests/unit/captions/test_explainer_plan.py`.  The
+    Runnable, and it can fail: `tests/unit/captions/test_full_frame_element.py`.  The
     reading is the roster's own `needs`/`what_it_is` wording, so a roster
     change that stopped an element from staging is caught where the
     subset is declared instead of producing an explainer that arrives

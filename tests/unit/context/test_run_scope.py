@@ -14,15 +14,21 @@ and that its reading of "missing" is the same reading
 The other half is regression: `--step`, `--from` and `--rerun` predate
 this and must behave exactly as they did.
 """
-
 from __future__ import annotations
-
 import json
-
 import pytest
-
 from library.tools import run_scope
 from library.tools.run_scope import ScopeError, Selection
+from library.tools import breakpoints, operations
+from library.tools.breakpoints import EVERY_STEP, BreakpointError
+from pathlib import Path
+import yaml
+from library.tools import run_profile
+from library.tools.project_layout import Area, ProjectLayout
+from library.tools.run_profile import ProfileError, RunProfile
+import sys
+from unittest.mock import patch
+import os
 
 
 @pytest.fixture(scope="module")
@@ -271,3 +277,506 @@ def test_the_refusal_happens_before_anything_is_written(bare_project):
     assert not (bare_project / "pipeline_output").exists(), (
         "a refused run created output directories")
 
+
+# --------------------------------------------------------------------------
+# From test_breakpoints.py
+#
+# A run stops where it was told to, and says where it will not.
+#
+# `--review` gated after EVERY step and there was no way to say "stop
+# after the rough cut and nowhere else".  The gate machinery itself is
+# unchanged - `review_gate.py` still writes the snapshot, still takes
+# approve/reject/revise and still merges a revision back.  This is the
+# selector it never had.
+#
+# Two properties are worth holding hardest:
+#
+# * `--review` still means what it always meant, so nothing that used it
+#   regresses;
+# * a breakpoint armed at a step this run will not reach is REPORTED and
+#   not refused, because a pause that never happens strands nothing - but
+#   a pause the captain asked for that silently never happens is exactly
+#   the trap AGENTS.md section 3 exists to stop.
+
+@pytest.fixture(scope="module")
+def steps():
+    return {n["id"] for n in run_scope.load_dag()["nodes"]}
+
+
+OPS = set(operations.names())
+ONE = sorted(OPS)[0]
+
+
+def _resolve_2(steps, **kw):
+    return breakpoints.resolve(known_steps=steps, **kw)
+
+
+# ── What is armed ───────────────────────────────────────────────────
+
+def test_arming_plain_review_and_per_step(steps):
+    """A plain run stops nowhere; --review is the every-step case
+    (wherever the run goes); --break arms that step and nothing else."""
+    gates = _resolve_2(steps)
+    assert not gates.any_armed
+    assert not any(gates.armed_at(s) for s in steps)
+    assert "none" in gates.describe()[0]
+
+    gates = _resolve_2(steps, review_all=True)
+    assert gates.every_step
+    assert all(gates.armed_at(s) for s in steps)
+    assert gates.armed_at("a step that does not exist")
+
+    gates = _resolve_2(steps, break_at=("review_rough_cut",))
+    assert gates.armed_at("review_rough_cut")
+    assert not gates.armed_at("catalog")
+    assert not gates.every_step
+
+
+def test_no_break_star_disarms_the_lot(steps):
+    """"Run my project's profile but do not stop anywhere" - the one
+    thing that could not be said before at all."""
+    gates = _resolve_2(steps, profile_breakpoints=(EVERY_STEP, "catalog"),
+                     review_all=True, break_at=("scan",),
+                     no_break_at=(EVERY_STEP,))
+    assert not gates.any_armed
+    assert not gates.every_step
+    assert "disarmed every breakpoint" in gates.basis[0]
+
+
+# ── What is refused ──────────────────────────────────────────────────
+
+def test_an_unknown_address_is_refused_by_name(steps):
+    """An unknown step lists the known steps; an unknown operation lists
+    the known operations; a bad region is refused by `region.parse`, the
+    one parser, in its own words."""
+    with pytest.raises(BreakpointError) as exc:
+        _resolve_2(steps, break_at=("rough_cut",))
+    assert "rough_cut" in str(exc.value)
+    assert "Known steps" in str(exc.value)
+
+    with pytest.raises(BreakpointError) as exc:
+        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                            break_at=("nope.jog@1.0-2.0",))
+    assert "nope.jog" in str(exc.value)
+    assert ONE in str(exc.value), "the known operations are listed"
+
+    with pytest.raises(BreakpointError) as exc:
+        breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                            break_at=(f"{ONE}@notaspan",))
+    assert "notaspan" in str(exc.value)
+
+
+# ── An unreachable breakpoint is reported, never silent ──────────────
+
+
+def test_an_unreachable_breakpoint_does_not_refuse_the_run(steps):
+    """A breakpoint strands no consumer, so refusing would make
+    `--profile podcast --only catalog` impossible for no gain."""
+    gates = _resolve_2(steps, break_at=("render",))
+    assert gates.any_armed
+
+
+# ── The record a later reader gets ───────────────────────────────────
+
+
+def test_the_resume_command_drops_a_rerun_that_already_happened():
+    """Found by driving the loop on 001. `--rerun` clears a ledger entry,
+    so carrying it into the resume clears the entry the pause just wrote,
+    re-runs the step, re-arms its breakpoint and stops in the same place
+    - a loop the captain cannot get out of by following the instruction
+    the pipeline printed."""
+    argv = ["run_pipeline.py", "--project", "/p",
+            "--rerun", "scan", "--rerun", "catalog", "--break", "scan"]
+    command = breakpoints.resume_command(argv, "python3")
+    assert "--rerun" not in command
+    assert "scan" in command, "the breakpoint that armed the pause survives"
+    assert "--break scan" in command
+    assert command.endswith("--resume")
+    # `--rerun=scan` is the same request spelled with an equals sign.
+    assert "--rerun" not in breakpoints.resume_command(
+        ["run.py", "--rerun=scan", "--break", "scan"], "python3")
+
+
+# ── A breakpoint may name an OPERATION, at a region ─────────────────
+
+
+def test_a_breakpoint_may_be_an_operation_address():
+    gates = breakpoints.resolve(known_steps={"render"}, known_operations=OPS,
+                       break_at=(f"{ONE}@45.0-72.0",))
+    assert gates.armed_at(f"{ONE}@45.0-72.0")
+    assert not gates.armed_at("render")
+    # The other direction must NOT hold, or a region breakpoint is a
+    # whole-operation one wearing a disguise.
+    assert not gates.armed_at(ONE)
+    assert not gates.armed_at(f"{ONE}@0.0-1.0")
+
+
+# --------------------------------------------------------------------------
+# From test_run_profile.py
+#
+# A run configuration is DECLARED, and it cannot say anything
+# `run_scope` would refuse.
+#
+# The captain, 2026-08-30: "what if i want to setup specific breakpoints
+# and such for a given run and/or enable/disable specific steps because
+# they are not needed (ex: a podcast may not need anything but
+# colorgrading and transitions after the rough cut ...) and i should be
+# able to configure it as such".
+#
+# Two things are worth testing hardest:
+#
+# * the profile has NO POWER OF ITS OWN.  It composes a
+#   `run_scope.Selection` and hands it to the same resolver a flag does,
+#   so the dependency refusal, the hard/soft edge derivation and the
+#   pre-run failure all still apply.  The test for that is a profile that
+#   asks for something impossible getting the SAME refusal the flags get.
+# * the composition rule - a step named on the command line outranks the
+#   profile - because it is the only place two declarations meet.
+
+@pytest.fixture(scope="module")
+def steps_2(dag):
+    return {n["id"] for n in dag["nodes"]}
+
+
+def _write_profile(directory: Path, name: str, body: dict) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.yaml"
+    path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def project(tmp_path):
+    """A project folder with nothing in it but a project.yaml."""
+    (tmp_path / "project.yaml").write_text("name: test\n", encoding="utf-8")
+    return tmp_path
+
+
+def _profiles_dir(project) -> Path:
+    return ProjectLayout(project).read_dir(Area.RUN_PROFILES)
+
+
+# ── The engine's own profiles are real ───────────────────────────────
+
+
+def test_the_podcast_profile_says_what_the_captain_asked_for(dag, manifests,
+                                                             steps_2):
+    """Colour grade and transitions after the rough cut; no VFX, no SFX,
+    no motion graphics, no cohesion review, no finished-master QA."""
+    profile = run_profile.load("podcast", known_steps=steps_2)
+    scope = run_scope.resolve(run_profile.compose(profile), dag=dag,
+                              manifests=manifests, state=None, external={})
+    assert "color_grade" in scope.steps_to_run
+    assert "plan_transitions" in scope.steps_to_run
+    assert "review_rough_cut" in scope.steps_to_run
+    for left_out in ("plan_vfx", "plan_sfx", "render_motion_graphics",
+                     "creative_cohesion", "validate", "validate_sfx_library"):
+        assert left_out in scope.skipped, f"{left_out} should be left out"
+    assert profile.breakpoints == ("review_rough_cut",)
+
+
+# ── A profile has no power of its own ────────────────────────────────
+
+def test_a_profile_gets_the_same_refusal_the_flags_get(project, dag,
+                                                       manifests, steps_2):
+    """The whole point. A profile that excludes a hard producer is
+    refused BEFORE the run, by `run_scope`, in the same words - so a
+    declared configuration cannot express a selection the flags could
+    not."""
+    _write_profile(_profiles_dir(project), "impossible", {
+        "description": "Asks for the render without the creative direction "
+                       "eleven steps declare required.",
+        "goals": ["render"],
+        "skip": ["creative_direction"],
+    })
+    profile = run_profile.load("impossible", str(project), steps_2)
+
+    with pytest.raises(run_scope.ScopeError) as declared:
+        run_scope.resolve(run_profile.compose(profile), dag=dag,
+                          manifests=manifests, state=None, external={})
+    with pytest.raises(run_scope.ScopeError) as by_flag:
+        run_scope.resolve(
+            run_scope.Selection(only=("render",), skip=("creative_direction",)),
+            dag=dag, manifests=manifests, state=None, external={})
+
+    assert str(declared.value) == str(by_flag.value)
+    assert "Refusing before the run starts" in str(declared.value)
+    assert "creative_direction" in str(declared.value)
+
+
+# ── Where a profile lives ────────────────────────────────────────────
+
+
+def test_a_project_profile_shadows_the_engines_and_says_so(project, steps_2):
+    """Shadowing is legitimate - a series may want its own `podcast` -
+    but a shadow nobody can see is a shadow nobody expected."""
+    _write_profile(_profiles_dir(project), "podcast",
+                   {"description": "this project's own", "goals": ["catalog"]})
+    profile = run_profile.load("podcast", str(project), steps_2)
+    assert profile.source == run_profile.PROJECT
+    assert profile.goals == ("catalog",)
+    hidden = run_profile.shadowed(str(project))
+    assert "podcast" in hidden
+    assert any("shadows the engine" in line
+               for line in run_profile.describe_available(str(project)))
+
+
+# ── Adoption, and declining it ───────────────────────────────────────
+
+def test_a_project_adopts_a_profile_in_its_project_yaml(project, steps_2):
+    (project / "project.yaml").write_text(
+        "name: test\npipeline:\n  run_profile: podcast\n", encoding="utf-8")
+    profile = run_profile.resolve_for_run(str(project), None, steps_2)
+    assert profile.name == "podcast"
+    assert profile.adopted is True
+    assert any("adopted by project.yaml" in line
+               for line in run_profile.describe(profile))
+
+    # `none` declines the adopted profile for one run.
+    profile = run_profile.resolve_for_run(str(project), "none", steps_2)
+    assert profile is run_profile.NO_PROFILE
+    assert run_profile.describe(profile) == []
+
+
+# ── The command line outranks the profile ────────────────────────────
+
+def _profile(**kw) -> RunProfile:
+    return RunProfile(name="p", description="d", path="p.yaml",
+                      source=run_profile.ENGINE, **kw)
+
+
+def test_the_command_line_outranks_the_profile():
+    """--only and --target replace the profile's goals; --skip adds to
+    its skip list; naming a step takes it out of the profile's skip list
+    (a profile's skip is a DEFAULT, a step on the command line is a
+    STATEMENT - the precedence `run_scope` gives a default-off step)."""
+    selection = run_profile.compose(_profile(goals=("render",)),
+                                    only=("catalog",))
+    assert selection.only == ("catalog",)
+
+    selection = run_profile.compose(_profile(goals=("render",)),
+                                    target="rough_cut_subtitles")
+    assert selection.target == "rough_cut_subtitles"
+    assert selection.only == ()
+
+    selection = run_profile.compose(_profile(skip=("validate",)),
+                                    skip=("creative_cohesion",))
+    assert set(selection.skip) == {"validate", "creative_cohesion"}
+
+    selection = run_profile.compose(_profile(skip=("ocr_extraction",)),
+                                    with_steps=("ocr_extraction",))
+    assert selection.skip == ()
+    assert selection.with_steps == ("ocr_extraction",)
+
+
+# ── Refusals, by name ────────────────────────────────────────────────
+
+def test_a_malformed_profile_is_refused_by_name(project, steps_2):
+    with pytest.raises(ProfileError) as exc:
+        run_profile.load("nosuch", str(project))
+    assert "nosuch" in str(exc.value)
+    assert "Known profiles" in str(exc.value)
+
+    _write_profile(_profiles_dir(project), "mute", {"goals": ["catalog"]})
+    with pytest.raises(ProfileError, match="description"):
+        run_profile.load("mute", str(project), steps_2)
+
+    _write_profile(_profiles_dir(project), "both", {
+        "description": "d", "target": "rough_cut_subtitles",
+        "goals": ["catalog"]})
+    with pytest.raises(ProfileError, match="one question"):
+        run_profile.load("both", str(project), steps_2)
+
+    (project / "project.yaml").write_text(
+        "name: test\npipeline:\n  run_profile: none\n", encoding="utf-8")
+    with pytest.raises(ProfileError, match="DECLINES"):
+        run_profile.resolve_for_run(str(project), None, steps_2)
+
+
+# ── The runner really accepts it ─────────────────────────────────────
+
+
+# --------------------------------------------------------------------------
+# From test_full_auto_agent_alias.py
+#
+# The `--full-auto agy` mode is named `agent`: the mechanism (the pipeline
+# writes a request file, an agent answers it) rather than the vendor that
+# used to supply the agent.
+#
+# `agy` stays working as a deprecated alias: scripts, briefs, saved commands
+# and muscle memory all pass it today.
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from library.processes.edit_video.run_pipeline import (
+    build_parser,
+    present_llm_step,
+    LLMError,
+)
+
+
+def test_runner_help_hides_compatibility_spellings_but_still_parses_them():
+    parser = build_parser()
+    help_text = parser.format_help()
+    assert "agy" not in help_text
+    assert "api" not in help_text
+    assert "--full-auto BACKEND" in help_text
+
+    agy = parser.parse_args(["--project", "/tmp/project", "--full-auto", "agy"])
+    api = parser.parse_args(["--project", "/tmp/project", "--full-auto", "api"])
+    assert agy.full_auto == "agy"
+    assert api.full_auto == "api"
+
+
+def _write_handoff(project_dir: Path) -> str:
+    prompt_path = project_dir / "handoff.md"
+    prompt_path.write_text("Test prompt")
+    return str(prompt_path)
+
+
+def test_full_auto_agy_alias_still_writes_request(tmp_path, capsys):
+    """The deprecated alias reaches the same mechanism, and says so."""
+    project_dir = tmp_path / "test_project"
+    project_dir.mkdir()
+    inputs = {"project_folder": str(project_dir)}
+
+    with patch("library.tools.model_task._agent_sleep"), patch(
+        "library.tools.model_task._agent_clock", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]
+    ):
+        with pytest.raises(LLMError, match="Timeout"):
+            present_llm_step(
+                _write_handoff(project_dir), inputs, "test_step",
+                full_auto="agy", llm_timeout=1)
+
+    assert (project_dir / "pipeline_output"
+            / "llm_requests" / "test_step.json").exists()
+    err = capsys.readouterr().err
+    assert "deprecated" in err
+    assert "agent" in err
+
+
+def test_full_auto_api_is_refused_with_a_fix(tmp_path):
+    """`--full-auto api` is gone: provider API calls are out of scope.
+    Passing the removed backend refuses in the refusal shape - naming
+    the fix - rather than calling anything."""
+    from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+
+    project_dir = tmp_path / "test_project"
+    project_dir.mkdir()
+    inputs = {"project_folder": str(project_dir), "some_data": 123}
+    manifest = {"interface": {"outputs": [{"name": "test_out"}]}}
+    with pytest.raises(RenRefusal) as refused:
+        present_llm_step(_write_handoff(project_dir), inputs, "test_step",
+                         manifest, full_auto="api")
+    assert refused.value.fix == "re-run with --full-auto agent"
+    assert REFUSAL_EXIT_CODE == 4
+
+
+# --------------------------------------------------------------------------
+# From test_optional_edges.py
+#
+# Optional edges: the requirement layer can say what may or may not travel.
+#
+# Optionality is its own requirement kind (captain's ruling 2026-09-23,
+# "add-optional"), never a loosened requirement. Both mechanisms are pinned
+# by name: A, the edge is marked NOT REQUIRED (`creative_cohesion`,
+# `prosody_analysis`, `color_grade`, `ocr_extraction`); B, the producer
+# declares the key for a DIFFERENT consumer (`plan_transitions`, `plan_sfx`,
+# `plan_vfx`). A repair covering only A leaves three nodes broken.
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+
+from library.tools import composer as C
+from library.tools import operations as O
+
+def test_every_optional_edge_composes_to_its_producer():
+    """Each optional goal plans the capability that produces it - which
+    also means none of the producers derives an empty effect (the
+    composer works backwards through `effect`). Mechanism A, mechanism B,
+    and the seventh node, `cohesion.review`, whose goal closes once the
+    capability is registered."""
+    rows = {
+        "optional.creative_direction.prosody_analysis": "prosody.analyse",
+        "optional.speech_sequence.prosody_analysis": "prosody.analyse",
+        "optional.compile_manifest.color_grade_spec": "color_grade.resolve",
+        "optional.ocr_extraction.ocr_extraction": "ocr.extract",
+        "optional.compile_manifest.transition_spec": "transitions.resolve",
+        "optional.compile_manifest.sfx_spec": "sfx.resolve",
+        "optional.compile_manifest.enhancement_spec": "vfx.resolve",
+    }
+    for goal, producer in rows.items():
+        comp = C.compose(goal)
+        assert producer in comp.operations, (goal, comp.operations)
+        assert O.get(producer).effect, producer
+    assert not set(rows.values()) & set(O.EMPTY_EFFECT_REASONS)
+
+    comp = C.compose("optional.compile_manifest.cohesion_review")
+    assert comp.completed
+    assert comp.operations[-1] == "cohesion.review"
+
+
+# --------------------------------------------------------------------------
+# From test_may_be_empty.py
+#
+# Tests for the may_be_empty manifest flag.
+#
+# A step must be able to declare that an empty output is a legitimate
+# answer, and the pipeline must stop treating that as a defect. At the
+# same time, a step that has NOT declared the flag must still fail on
+# empty output - the check does real work everywhere else.
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+
+from library.processes.edit_video.run_pipeline import validate_step_output
+
+
+# ── Real manifests: vfx and sfx declare the flag, others do not ─────
+
+STEPS_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "library", "steps"
+)
+
+
+def _load_manifest(step_dir_name: str) -> dict:
+    path = os.path.join(STEPS_DIR, step_dir_name, "manifest.json")
+    with open(path) as f:
+        return json.load(f)
+
+
+def test_plan_vfx_empty_list_passes_qa():
+    """An empty vfx_creative passes the same validation the QA loop runs."""
+    manifest = _load_manifest("step_4_03_plan_vfx")
+    llm_manifest = dict(manifest)
+    llm_manifest["interface"] = dict(manifest["interface"])
+    llm_manifest["interface"]["outputs"] = manifest["interface"]["llm_outputs"]
+    issues = validate_step_output("plan_vfx", {"vfx_creative": []}, llm_manifest)
+    assert not issues, (
+        f"An empty VFX plan is a correct creative answer and must not be "
+        f"rejected as semantically empty: {issues}"
+    )
+
+
+# Steps that must NOT have the flag - verify the safe direction
+
+_STEPS_WITHOUT_MAY_BE_EMPTY = [
+    ("step_2_05_mesh_spine", "structure"),
+]
+
+
+@pytest.mark.parametrize("step_dir,key", _STEPS_WITHOUT_MAY_BE_EMPTY)
+def test_steps_without_flag_still_reject_empty(step_dir, key):
+    """Steps that must produce output still fail on an empty list."""
+    manifest = _load_manifest(step_dir)
+    llm_outputs = manifest["interface"]["llm_outputs"]
+    spec = next(o for o in llm_outputs if o["name"] == key)
+    assert not spec.get("may_be_empty"), (
+        f"{step_dir}.{key} should NOT have may_be_empty"
+    )
+    # Build the same validation context the QA loop uses
+    llm_manifest = dict(manifest)
+    llm_manifest["interface"] = dict(manifest["interface"])
+    llm_manifest["interface"]["outputs"] = llm_outputs
+    issues = validate_step_output(step_dir, {key: []}, llm_manifest)
+    assert any("semantically empty" in i for i in issues), (
+        f"Expected {step_dir}.{key} to fail on empty output, got: {issues}"
+    )

@@ -1,8 +1,8 @@
 # Transcription and alignment - the incidents behind the tests
 
 Incident history moved out of the transcript/alignment test modules
-(`tests/unit/audio/test_transcript_confidence.py`, `tests/unit/audio/test_aligner_leading_gap.py`,
-`tests/unit/audio/test_transcript_duration_anomaly.py`) when the suite was consolidated
+(`tests/unit/audio/test_transcript.py`, `tests/unit/audio/test_speech_sequence.py`,
+`tests/unit/audio/test_transcript.py`) when the suite was consolidated
 on 2026-10-02. The tests keep the invariant; this file keeps the story.
 
 ## Transcriber confidence and the script check (`test_transcript_confidence.py`)

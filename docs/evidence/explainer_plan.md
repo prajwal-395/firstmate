@@ -212,5 +212,5 @@ an explainer competes with the speech underneath it.  On this project it
 need not: there are 536 rows of dead frame above the picture strip and
 336 below it, inside the safe area, carrying nothing.
 
-`tests/unit/captions/test_explainer_plan.py`.
+`tests/unit/captions/test_full_frame_element.py`.
 ```

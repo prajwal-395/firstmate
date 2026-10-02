@@ -76,7 +76,7 @@ The answer names an `sfx_id` out of it. [why](docs/RULE_EVIDENCE.md#the-sfx-choo
 - A sound and a transition are named by the SAME identifier, `spine_block_position`, so `transitions_toon` is keyed by the block a cut leads into and pairing them needs no join.
 - **The candidate table says what the BED is doing under each block**, as `music_behavior` and `bed_under_it` (`music_measurement.bed_under_block`), defined in 4.04's own `handoff.md`. **It states the bed's OWN level and never a gain or a target**: how far the bed is pushed down is decided at the mix, one step later (`library/tools/decided_value.py`), and what separation a SOUND should have is nobody's declared decision at all.
 - **A non-speech block names no `clip_id` on the spine, and that is not un-measurability.** `library/tools/broll_coverage.py` is the join: 4.03 gets a real camera description of the cutaway, and this table gets an ADMITTED ABSENCE because a cutaway is placed `video_only`.
-- `tests/unit/audio/test_sfx_choice_from_the_catalogue.py`, `tests/unit/audio/test_sfx_duration.py`, `tests/unit/audio/test_sfx_catalogue_by_reference.py`, `tests/unit/audio/test_sfx_hears_the_bed.py`, `tests/unit/picture/test_broll_coverage_reaches_the_tables.py`.
+- `tests/unit/audio/test_sfx.py`, `tests/unit/audio/test_sfx.py`, `tests/unit/audio/test_sfx.py`, `tests/unit/audio/test_sfx.py`, `tests/unit/picture/test_broll_coverage_reaches_the_tables.py`.
 """
 
 import glob

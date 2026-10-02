@@ -19,7 +19,7 @@ So there are two lists, and a finding is in one or the other:
 - `ACTIONABLE_AT_COHESION` is the (state key, field) pairs the manifest
   compiler really rewrites.  An entry here is a promise that
   `apply_cohesion_adjustments` has a branch that applies it, which
-  `tests/unit/context/test_cohesion_scope.py` checks by driving the real function.
+  `tests/unit/context/test_cohesion.py` checks by driving the real function.
   This is AGENTS.md section 10.2 - a capability is only real where the
   reader reads it - applied to the review's own output.
 - `OWNED_UPSTREAM` is what the review may state and may not change, each
@@ -47,7 +47,7 @@ The two lists and the raise are kept because they are the GUARD, not the
 finding: they are what stops the next check that is added from becoming
 an adjustment nothing applies.  Do not read an always-empty `adjustments`
 array as a clean bill of health on the edit - it means nothing proposed
-anything.  `tests/unit/context/test_cohesion_scope.py` drives the applier directly so
+anything.  `tests/unit/context/test_cohesion.py` drives the applier directly so
 the branch stays exercised.
 
 
@@ -63,7 +63,7 @@ One enumeration, `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#
 - `ACTIONABLE_AT_COHESION` is the (state key, field) pairs `compile_manifest.apply_cohesion_adjustments` really rewrites - today `transition_spec.duration_frames` alone, because a duration moves no cut point, clip boundary or subtitle. Only these reach `adjustments`.
 - `OWNED_UPSTREAM` reaches `observations` instead, each naming the owning STEP, why the compiler refuses it, and the re-run that would act on it. It carries **no `suggested_value`** (§10.5).
 - A pair in neither list RAISES, so a new finding has to say which side it is on.
-- **The rescope is not a way to go quiet.** Every finding stays in `warnings`, every observation reaches `assembly_manifest.cohesion_adjustments` under `observed`, and `tests/unit/context/test_cohesion_scope.py` drives the real applier against both lists.
+- **The rescope is not a way to go quiet.** Every finding stays in `warnings`, every observation reaches `assembly_manifest.cohesion_adjustments` under `observed`, and `tests/unit/context/test_cohesion.py` drives the real applier against both lists.
 - **An empty `adjustments` SAYS which absence it is.** `cohesion_scope.adjustments_basis` spells `no_proposal_was_made`, `every_proposal_was_owned_upstream` and `adjustments_were_made` differently, and travels onto the manifest's record as `basis`.
 - **`cohesion_score` is REMOVED, not recomputed.** [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
 """

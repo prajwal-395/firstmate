@@ -81,7 +81,7 @@ and points here.
 
 **A run shape is DECLARED as data, and it has no power `run_scope` does not already have.**
 One enumeration, `library/tools/run_profile.py`.
-- A profile carries `goals` (or a built-in `target`), `skip`, `with` and `breakpoints`, and hands the first four to `run_scope.resolve` as a `Selection`. **The dependency refusal, the hard/soft edge derivation and the pre-run failure all apply unchanged**; `tests/unit/context/test_run_profile.py` asserts a declared profile and the equivalent flags produce the SAME refusal string.
+- A profile carries `goals` (or a built-in `target`), `skip`, `with` and `breakpoints`, and hands the first four to `run_scope.resolve` as a `Selection`. **The dependency refusal, the hard/soft edge derivation and the pre-run failure all apply unchanged**; `tests/unit/context/test_run_scope.py` asserts a declared profile and the equivalent flags produce the SAME refusal string.
 - **Two directories, and a name resolves in the project first**: `<project>/profiles/<name>.yaml` (`Kind.INPUT`, the captain's) shadows `library/profiles/<name>.yaml` (the engine's), and the run header says which file answered. There is no `extends:` - the three layers that compose are engine profile -> a project ADOPTS it (`pipeline.run_profile`) -> one run OVERRIDES it.
 - **Naming a step on the command line outranks the profile.** `--skip`/`--with` ADD to what it said; `--target`/`--only` REPLACE its goals; `--only`/`--with` take a step OUT of its skip list. `--skip X --only X` is still the contradiction `run_scope` refuses.
 - **A profile is refused by name** for an unknown key, an unknown step, an unknown target, no `description`, a `name` disagreeing with its filename, or declaring both `target` and `goals`.

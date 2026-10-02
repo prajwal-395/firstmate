@@ -8,7 +8,7 @@ TypeScript can import - and a second hand-written margin is exactly what
 the captain's ruling of 2026-08-25 forbade.
 
 So this writes them, from the enumeration, into a generated TypeScript
-module. `tests/unit/captions/test_caption_safe_area.py` fails if that file drifts.
+module. `tests/unit/captions/test_caption_layout.py` fails if that file drifts.
 
     python3 scripts/generate_safe_area_defaults.py
 """
@@ -34,7 +34,7 @@ TEMPLATE = """// GENERATED - do not edit.
 // ruling of 2026-08-25 forbade.
 //
 // Regenerate with: python3 scripts/generate_safe_area_defaults.py
-// tests/unit/captions/test_caption_safe_area.py fails if this drifts.
+// tests/unit/captions/test_caption_layout.py fails if this drifts.
 
 export const DELIVERY_FORMAT = "{format}";
 

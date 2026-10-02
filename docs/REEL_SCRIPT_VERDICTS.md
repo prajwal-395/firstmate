@@ -1006,7 +1006,7 @@ reels rebuilt. The one case that does not merge is a *different* plan - the old
 entries then describe reels built from a plan this one is not, so they are
 dropped and the record says `superseded_plan_hash`.
 
-`tests/unit/context/test_plan_provenance.py` writes nineteen, rebuilds one, and asserts the
+`tests/unit/context/test_provenance.py` writes nineteen, rebuilds one, and asserts the
 other eighteen survive with their hashes unchanged.
 
 ## Bug 2: nothing recorded the caption plan, so F2 graded against a guess

@@ -295,7 +295,7 @@ What this pins, beyond the functions' own contracts:
   the declarations stay narrowed to what each step actually reads;
 * a re-run prints identical / changed / unknown and runs the step either
   way - there is no skip path to test because none was built;
-* `tests/unit/context/test_step_ledger.py` still passes unchanged (run separately -
+* `tests/unit/context/test_ledgers.py` still passes unchanged (run separately -
   this file touches neither the preflight ledger nor its gate).
 ```
 

@@ -92,7 +92,7 @@ One enumeration, `library/tools/motion_graphics_plan.py`. Step 4.06 is hybrid: i
 - **An element the renderer cannot draw is DROPPED by name and the drop is RECORDED**, never rendered as nothing and never swapped for a neighbour. `DROP_REASONS` is the whole of what a drop can be for and a reason outside it is refused (the `vfx_plan_basis` shape).
 - **`planning_basis` says which absence an empty layer is.** `no_elements_planned` is a decision; `every_entry_dropped` is the absence of one. Spelled differently on purpose.
 - The upper third's COPY still has no producer in the ENGINE (`motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET`) - the model writes it in the plan, which is one of the answers that entry was written to accept. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
-- `tests/unit/captions/test_motion_graphics_plan.py`, `tests/test_motion_graphics_delivery.py` (which is what proves one reaches a pixel), `tests/unit/captions/test_motion_graphics_template.py`.
+- `tests/unit/captions/test_motion_graphics_plan.py`, `tests/test_motion_graphics_delivery.py` (which is what proves one reaches a pixel), `tests/unit/captions/test_motion_graphics_plan.py`.
 """
 
 from __future__ import annotations

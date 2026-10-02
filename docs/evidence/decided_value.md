@@ -136,6 +136,6 @@ registry and `decide` is the only ladder.
   (`library/tools/output_contract.py`).
 - **The trace is MERGED, never replaced**, and a row from an earlier run
   is marked so it is never read as fresh.
-- `tests/unit/context/test_decided_value.py`, and the derived sweep in
+- `tests/unit/context/test_plan_values.py`, and the derived sweep in
   `tests/contracts/test_no_creative_floors.py`.
 ```

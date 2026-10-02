@@ -212,7 +212,7 @@ def test_an_alias_that_chose_a_direction_is_withdrawn(capsys):
     listed, so the editor says which they meant.  (`ken_burns` used to
     sit beside it and no longer does: since 2026-09-09 it is the
     captain's name for the drift move, with the direction read off its
-    own params - see tests/unit/context/test_ken_burns_direction.py.)"""
+    own params - see tests/unit/context/test_plan_values.py.)"""
     for alias in WITHDRAWN_ALIASES:
         resolved = resolve_vfx(
             [{"target_block_position": 1, "effect_type": alias,

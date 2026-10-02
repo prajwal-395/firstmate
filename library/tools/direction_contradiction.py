@@ -73,7 +73,7 @@ One enumeration, `library/tools/direction_contradiction.py`. On 001's 29 Aug run
 - **`MEASURED_OUTPUTS` and `DECLINED_OUTPUTS` must together account for every output of every deterministic step**, and an unaccounted one raises at import - a new deterministic output says which side it is on before it can go quiet.
 - **Its collector is the sibling's, and so are the sibling's two rules**: one flag per model ATTEMPT, numbered, with `final_by_step` the per-STEP reading the summary prints; and `state["direction_contradictions"]` MERGED rather than replaced, carried rows marked `from_a_previous_run`. The two channels print into the same run summary, so they must count on the same basis.
 - **`Flag` and `Declaration` are constructed POSITIONALLY, so a new field goes LAST.** Added above `entries`, it takes the entries and the real entries land in the field after it - no error, just wrong rows, until something compares them.
-- `tests/unit/context/test_direction_contradiction.py`, `tests/test_undetermined_declaration.py`.
+- `tests/unit/context/test_cohesion.py`, `tests/test_undetermined_declaration.py`.
 """
 
 from __future__ import annotations
@@ -332,7 +332,7 @@ def _build() -> tuple:
     # on a FINISHED cut rather than inside the pipeline that produces
     # one, and this loop only ever walked DAG nodes - so an unwired model
     # step was invisible here, and the coverage assertion in
-    # tests/unit/context/test_direction_contradiction.py could never be satisfied for
+    # tests/unit/context/test_cohesion.py could never be satisfied for
     # one. Read those from the layout, which is where an unwired step
     # declares itself and its reason.
     from library.tools.project_layout import STEPS as _STEP_DIRS

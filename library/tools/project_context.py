@@ -44,7 +44,7 @@ file the problem the brief rule solved once. Small files are already
 inline under every harness; large ones stay a map with an honest
 header.
 
-`tests/unit/captions/test_project_context.py`.
+`tests/unit/captions/test_planning_context.py`.
 """
 
 from __future__ import annotations

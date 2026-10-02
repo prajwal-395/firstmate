@@ -5,7 +5,7 @@ Moved verbatim on 2026-10-02 from the module docstring of
 invariant. The narrower tests that file also carried (different words never
 share a filename; one filename behind two content keys is refused; the master
 timeline needs no discriminator) duplicated
-`tests/unit/captions/test_subtitle_segment_id.py` and were removed.
+`tests/unit/captions/test_subtitle_render.py` and were removed.
 
 ```text
 Two reels that share a closer SHARE a file; two that differ must not.

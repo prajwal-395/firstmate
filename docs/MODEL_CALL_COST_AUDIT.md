@@ -286,7 +286,7 @@ stretch the model chooses. They now travel by reference
 | after | 6,555 | 24,661 | 31,216 (-37.3%) |
 
 All 39 removed items are verbatim at their own candidate's line range
-(`tests/unit/context/test_reel_diagnostics_by_reference.py` follows the reference the
+(`tests/unit/context/test_brief.py` follows the reference the
 same way). Answered: arm A (before) twice and arm B (after) once, each
 by a fresh agent, compared on timeline coverage and on the seconds
 struck in `takes_dropped`:

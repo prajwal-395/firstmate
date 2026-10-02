@@ -4,7 +4,7 @@ Several reels legitimately close on the same spoken CTA (same clip, same
 source span); with identical pixels they must compute one filename, so the
 closer renders once. The captain's sixteen real reel names are a repository
 fixture so this runs on every machine. History: docs/evidence/reel_shared_closer.md.
-Different-pixel and two-content-key refusals: tests/unit/captions/test_subtitle_segment_id.py.
+Different-pixel and two-content-key refusals: tests/unit/captions/test_subtitle_render.py.
 """
 
 import json

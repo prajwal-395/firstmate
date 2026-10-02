@@ -63,7 +63,7 @@ Deletion, not quarantine: `lean` is the owner's instruction that these
 bytes go. Every render class is regenerable by the command
 `build_sweep.REGENERATE` names, and the manifest is kept.
 
-`tests/unit/context/test_retention.py`.
+`tests/unit/context/test_project_layout.py`.
 """
 
 from __future__ import annotations

@@ -155,12 +155,12 @@ One enumeration, `library/tools/direction_contradiction.py`. On 001's 29 Aug run
 - **`MEASURED_OUTPUTS` and `DECLINED_OUTPUTS` must together account for every output of every deterministic step**, and an unaccounted one raises at import - a new deterministic output says which side it is on before it can go quiet.
 - **Its collector is the sibling's, and so are the sibling's two rules**: one flag per model ATTEMPT, numbered, with `final_by_step` the per-STEP reading the summary prints; and `state["direction_contradictions"]` MERGED rather than replaced, carried rows marked `from_a_previous_run`. The two channels print into the same run summary, so they must count on the same basis.
 - **`Flag` and `Declaration` are constructed POSITIONALLY, so a new field goes LAST.** Added above `entries`, it takes the entries and the real entries land in the field after it - no error, just wrong rows, until something compares them.
-- `tests/unit/context/test_direction_contradiction.py`, `tests/test_undetermined_declaration.py`.
+- `tests/unit/context/test_cohesion.py`, `tests/test_undetermined_declaration.py`.
 ```
 
 ## The run that inherited one reading (test module history)
 
-Moved from the module docstring of `tests/unit/context/test_direction_contradiction.py`.
+Moved from the module docstring of `tests/unit/context/test_cohesion.py`.
 On the 29 Aug 2026 run of 001, "emotion" and "energy" appear ZERO times
 in the semantic documents and FOUR times each in the `creative_direction`
 block at station 2 and station 3. Step 2.01 read the footage once and

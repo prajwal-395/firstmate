@@ -1,6 +1,6 @@
 # A considered `fail` verdict is not hollow output (D10)
 
-Moved from `tests/unit/context/test_validate_verdict_is_not_hollow.py`.
+Moved from `tests/unit/context/test_step_runner.py`.
 
 The end-to-end audit of project 001 reported:
 

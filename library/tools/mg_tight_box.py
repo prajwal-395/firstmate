@@ -96,8 +96,8 @@ from the anchored edge, so the ink does not move).  `placement_for_box`
 inverts the measured Resolve relation (see `tight_box.py`), so the canvas
 centre lands on the union centre.
 
-`tests/unit/captions/test_mg_tight_box.py`, `tests/unit/captions/test_mg_tight_box_measured.py`,
-`tests/unit/captions/test_mg_tight_layout_width.py`.
+`tests/unit/captions/test_tight_box.py`, `tests/unit/captions/test_tight_box.py`,
+`tests/unit/captions/test_tight_box.py`.
 
 The measured wrap mismatches behind the layout-width floor:
 docs/evidence/mg_tight_box.md.

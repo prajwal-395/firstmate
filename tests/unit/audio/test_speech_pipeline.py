@@ -32,7 +32,7 @@ def test_analyze_prosody_no_parselmouth(monkeypatch):
     "parselmouth not installed"}` - and that dict was then written to
     `<clip>_prosody.json` like any other result, so step 1.05 counted
     seventeen files as seventeen profiles and reported success in 0.1s.
-    See tests/unit/audio/test_prosody_failure_is_loud.py.
+    See tests/unit/audio/test_prosody.py.
     """
     from library.tools.analysis.speech_advanced_pipeline import (
         ProsodyUnavailable,

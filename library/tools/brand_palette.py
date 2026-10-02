@@ -114,7 +114,7 @@ def describe_palette_state(palette: Optional[List[str]]) -> dict:
     so before the renders. The state is REPORTED, never a gate - a
     template refines and does not gate - so this returns facts
     (`has_usable_accent`, the resolved `roles`) and the caller records
-    them on its own output. `tests/unit/captions/test_motion_graphics_template.py`.
+    them on its own output. `tests/unit/captions/test_motion_graphics_plan.py`.
     """
     entries = [entry.strip() for entry in (palette or [])
                if isinstance(entry, str) and hex_to_rgb(entry) is not None]

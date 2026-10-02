@@ -47,7 +47,7 @@ counts in run state, so filed findings can never be scanned again.
 prints every divergence and exits 2 while any owned-layer
 divergence stands, 0 when the layers agree.
 
-`tests/unit/context/test_layer_coherence.py`.
+`tests/unit/context/test_manifest_validator.py`.
 """
 
 from __future__ import annotations

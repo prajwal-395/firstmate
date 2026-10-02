@@ -398,7 +398,7 @@ def stage_card_project(composition: str,
 # (damping 15, stiffness 80, mass 0.8). No `remotion` import, no node
 # subprocess: the HyperFrames path must render on a machine that has
 # never heard of Remotion, which is the whole reason the second
-# renderer exists. `tests/unit/captions/test_hyperframes_digit_bake.py` pins this
+# renderer exists. `tests/unit/captions/test_hyperframes.py` pins this
 # against Remotion spring values recorded as literals, so a drift
 # between the two physics fails loudly at test time rather than
 # drawing a differently-easing roll.

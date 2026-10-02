@@ -73,7 +73,7 @@ half-written store. `correct()` mints and links under ONE hold (a
 crash before the single save leaves no partial state, which is the
 honest outcome). The on-disk format is unchanged.
 
-`tests/unit/captions/test_learned_context.py`.
+`tests/unit/captions/test_planning_context.py`.
 """
 
 from __future__ import annotations

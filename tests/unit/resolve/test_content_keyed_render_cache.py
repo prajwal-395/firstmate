@@ -29,16 +29,16 @@ from library.tools.caption_asset_gc import (  # noqa: E402
     record_rendered_segments,
     sweep,
 )
-from tests.unit.captions.test_motion_graphics_overlay_modes import (  # noqa: E402
+from tests.unit.captions.test_motion_graphics_render import (  # noqa: E402
     _el as _mg_el,
 )
-from tests.unit.captions.test_motion_graphics_overlay_modes import (  # noqa: E402
+from tests.unit.captions.test_motion_graphics_render import (  # noqa: E402
     _planned as _mg_planned,
 )
-from tests.unit.captions.test_subtitle_overlay_modes import (  # noqa: E402
+from tests.unit.captions.test_overlay_carriage import (  # noqa: E402
     _props as _caption_props,
 )
-from tests.unit.captions.test_subtitle_overlay_modes import (  # noqa: E402
+from tests.unit.captions.test_overlay_carriage import (  # noqa: E402
     _StubRenderer,
 )
 

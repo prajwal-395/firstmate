@@ -1,6 +1,6 @@
 # The spoken-lines view - the history behind its tests
 
-Moved from the module docstring of `tests/unit/audio/test_spoken_lines_view.py` on
+Moved from the module docstring of `tests/unit/audio/test_transcript.py` on
 2026-10-02, when that file kept only its invariant. The test and
 `library/tools/context_views.py` are the contract; this is the story.
 

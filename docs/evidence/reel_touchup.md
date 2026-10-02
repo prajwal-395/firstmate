@@ -210,7 +210,7 @@ Moved from the test module's docstring (2026-10-02).
   rederiver and verifies by re-reading the track.
 
 
-## `tests/unit/context/test_ren_entry_motion_and_property_ops.py` - design history (moved 2026-10-02)
+## `tests/unit/context/test_operations.py` - design history (moved 2026-10-02)
 
 ```text
 Ren in the 1326/1327 shape: entry-motion and property-set operations.

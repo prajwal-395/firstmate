@@ -25,13 +25,13 @@ Every step manifest declares its stage in ``classification.stage``:
 missing or unknown stage, and the runner calls it for every DAG node on
 every invocation.  (A ``library/schema/manifest.schema.json`` once listed
 the field too, but nothing ever loaded it, so it was deleted rather than
-mistaken for the gate.)  ``tests/unit/context/test_step_ledger.py`` walks every step
+mistaken for the gate.)  ``tests/unit/context/test_ledgers.py`` walks every step
 directory instead.
 
 The two ledgers are separate keys in the state file, so
 ``reset_stage(state, EDIT, ...)`` is STRUCTURALLY INCAPABLE of touching
 the preflight ledger: it never names that key.  That is the whole point,
-and ``tests/unit/context/test_step_ledger.py`` asserts it directly.
+and ``tests/unit/context/test_ledgers.py`` asserts it directly.
 
 Two steps sit where the reader will expect an argument, so both are
 recorded here:

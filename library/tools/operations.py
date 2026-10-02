@@ -70,7 +70,7 @@ Executing
 either runs the step's own function or REFUSES naming what is missing
 and which step produces it.  A scope the operation does not support
 raises `ScopeNotSupported`; an unknown name raises `UnknownOperation`.
-`tests/unit/context/test_operations.py`, `tests/unit/context/test_operations_execute.py`.
+`tests/unit/context/test_operations.py`, `tests/unit/context/test_operations.py`.
 
 Reachability
 ------------
@@ -176,7 +176,7 @@ An ENUMERATION rather than inference, for the reason the finding gave:
 binding the merged dict to a parameter that wanted something else would
 produce a confidently wrong result, which is worse than a `TypeError`.
 So a fourth spelling must be added here deliberately, and
-`tests/unit/context/test_operations_execute.py::test_no_operation_takes_a_merged_dict_
+`tests/unit/context/test_operations.py::test_no_operation_takes_a_merged_dict_
 under_a_name_this_module_does_not_know` fails the moment one appears
 without being."""
 
@@ -530,7 +530,7 @@ class Operation:
         here would defer on a promise nobody made, which looks like
         tolerance and behaves like blindness.
 
-        `tests/unit/context/test_operations_execute.py` pins the distinction with one
+        `tests/unit/context/test_operations.py` pins the distinction with one
         requirement and one state checked under both run sets, and that
         test fails if this argument grows.
         """
@@ -849,7 +849,7 @@ class Operation:
         catalogue entries: registered, listed, `--emit-skill`-ed, and
         unable to run. An operation that cannot execute is exactly what
         this refactor set out to stop being.
-        `tests/unit/context/test_operations_execute.py` now EXECUTES one of them.
+        `tests/unit/context/test_operations.py` now EXECUTES one of them.
 
         THE SCOPE, which used to reach no step at all. `scope` is not a
         gathered key - it is the address the operation was called at - so

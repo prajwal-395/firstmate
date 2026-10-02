@@ -87,7 +87,7 @@ loop had each paid for it in real data (`remove_proof`: nine removals in five fi
 locally, which is why the other four still had the defect two days later.
 
 Now one owner, `library/tools/journal_naming.py`, and one mechanism:
-`tests/unit/context/test_journal_paths_never_overwrite.py` parameterises over the REAL functions,
+`tests/unit/context/test_ledgers.py` parameterises over the REAL functions,
 so a seventh journal writer that hand-rolls a path fails it. `build_sweep`'s
 per-area `mark_*.json` name went through the same helper - it was an eighth copy of
 the same loop.

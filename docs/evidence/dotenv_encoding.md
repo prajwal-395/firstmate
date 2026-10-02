@@ -1,6 +1,6 @@
 # The .env must load under an ASCII locale
 
-Moved from `tests/unit/context/test_dotenv_encoding.py`.
+Moved from `tests/unit/context/test_ren_cli.py`.
 
 This is why project 001's first complete render carried no Fusion effects at
 all. `library/tools/paths.py` opened the .env with no encoding, so it decoded

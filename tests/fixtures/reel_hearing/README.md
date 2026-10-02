@@ -61,7 +61,7 @@ counts, so the fixture keeps exactly the rows those counts are about:
 - the ten fastest fully-timed multi-word rows, so the document's own
   reference rate is a real one.
 
-Forty-one rows, and **every number `tests/unit/audio/test_transcript_fit.py` pins
+Forty-one rows, and **every number `tests/unit/audio/test_transcript.py` pins
 is the number the full 940-row document produces**: 15 unfitted rows,
 13 of them having lost every word and 2 part of one, 217 words with no
 timing, 12 rows asserting a rate no fitted row reaches, 19 interpolated

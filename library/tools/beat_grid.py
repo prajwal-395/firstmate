@@ -21,7 +21,7 @@ That is the dominant bug class in this repository - the producer and the
 consumer disagree about a name, the reader `.get()`s a default, and the
 run reports success over empty data. This module is the single place that
 knows the producer's shape, so there is one name to change if it ever
-moves, and `tests/unit/audio/test_beat_grid.py` asserts the two ends still agree.
+moves, and `tests/unit/audio/test_music_bed.py` asserts the two ends still agree.
 
 **Time domain.** Beat times come from the music file. The bed is placed at
 whatever `source_in` the model's chosen section names

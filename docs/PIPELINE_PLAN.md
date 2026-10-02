@@ -577,7 +577,7 @@ The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limite
   with no usable accent colour raises `MissingAccentColor` rather than
   silently drawing the withdrawn cyan. An unrecognised flag value keeps
   the default rather than reading as false, so a typo cannot quietly
-  change the look. Tests: `tests/unit/captions/test_motion_graphics_template.py`.
+  change the look. Tests: `tests/unit/captions/test_motion_graphics_plan.py`.
 - **P3.2 Subtitle style from the brand template.** ~~Wire
   `style.typography` and `effect.subtitle_style` through 4.01 into the
   Remotion props, and delete the hardcoded default at
@@ -743,7 +743,7 @@ four templates should ship at all.
   honest consumer of the real grid - was always `[]`, and **the SFX beat
   snapping never ran either**. Both consumers now go through
   `library/tools/beat_grid.py`, which is the single place that knows the
-  producer's shape, and `tests/unit/audio/test_beat_grid.py` asserts the two ends
+  producer's shape, and `tests/unit/audio/test_music_bed.py` asserts the two ends
   agree by reading the producer's own AST rather than a fixture.
 
   Also fixed: step 2.06's completion log read `analysis['bpm']`, which is
@@ -776,7 +776,7 @@ four templates should ship at all.
      no edge back to the planning steps.
 
   Removed: the check, `extract_cuts_per_minute`, `StyleSlots.pacing`, and
-  the pacing block in all four templates. `tests/unit/audio/test_beat_grid.py` fails
+  the pacing block in all four templates. `tests/unit/audio/test_music_bed.py` fails
   if any of it returns. Pacing control remains possible, but it is a
   re-cut loop and therefore a design job, not a config key.
 - **P4.2 Close the pacing loop.** `creative_cohesion` scores cuts per minute
@@ -1008,7 +1008,7 @@ decision on the captain's behalf.
 **Already implemented**, in #102, before the question was put:
 `effect.caption_case` is in the schema with an enum, all four templates
 declare `lowercase` explicitly, `step_4_01` honours it, an unknown value
-falls back to lowercase, and `tests/unit/captions/test_caption_case.py` covers it. The
+falls back to lowercase, and `tests/unit/captions/test_subtitle_style.py` covers it. The
 only thing added under this ruling is a guard that all four keep declaring
 it, so the decision stays durable rather than drifting back to the default.
 

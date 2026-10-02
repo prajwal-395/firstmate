@@ -122,7 +122,7 @@ A path that cannot be read or is empty RAISES. **A run that attaches none INTERV
 - **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
 - **The mechanism carries FOUR documents, and a fifth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`) and step 3.04's per-candidate repeated-take evidence (`library/tools/reel_diagnostics_reference.py`). Do not build a second by-reference mechanism.
 - **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agent` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
-- `tests/unit/context/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
+- `tests/unit/context/test_brief.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 ```
 
 ## The brief that never reached a prompt
@@ -155,7 +155,7 @@ the prompt now names the brief too.
 
 ## Why the brief travels as a reference (test module history)
 
-Moved from the module docstring of `tests/unit/context/test_brief_reference.py`.
+Moved from the module docstring of `tests/unit/context/test_brief.py`.
 `#256` wired the captain's 47,903-byte channel brief into seven prompts
 and it became 37.0%-84.3% of each of them - 46.9% of every byte the
 pipeline's replayable steps send, with 41.9% of the document in sections

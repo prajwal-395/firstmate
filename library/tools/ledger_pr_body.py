@@ -8,7 +8,7 @@ op, anchor (which card/placement), params (the after value), reel scope -
 so a worker pastes this verb's output instead of enumerating by hand.
 
 Read only: this renders `edit_ledger.load_rows` and changes no schema,
-no file, no timeline. `tests/unit/context/test_ledger_pr_body.py`.
+no file, no timeline. `tests/unit/context/test_ledgers.py`.
 """
 
 from __future__ import annotations

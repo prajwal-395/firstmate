@@ -930,7 +930,7 @@ def native_sample_plan(duration_s, fps):
     fps=2.0/min_frames=4/max_frames=32/frame_factor=2, then
     `Gemma4UnifiedVideoProcessor._sample_frames` keeping at most 32):
     `n = duration * 2.0` clamped into `[ceil(4), floor(min(32, total))]`,
-    floored to a multiple of 2. `tests/unit/context/test_native_video_sampling.py`
+    floored to a multiple of 2. `tests/unit/context/test_vision_pipeline.py`
     asserts this mirror against the real `load_video` on synthetic clips.
 
     Returns {"frames", "decode_fps", "effective_fps"} - the record each

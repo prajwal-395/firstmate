@@ -94,7 +94,7 @@ stderr and in the build record, never dropped silently. A ledger
 the build cannot read at all REFUSES the build: a recorded decision
 the build cannot see is a build that paints over it by construction.
 
-`tests/unit/context/test_edit_ledger.py`.
+`tests/unit/context/test_ledgers.py`.
 """
 
 from __future__ import annotations

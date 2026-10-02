@@ -65,7 +65,7 @@ silence, the argument `undetermined.prompt_block` already makes.
 
 The same line `usable_ranges` `[]`/`unmeasured` draws (AGENTS.md 10.3).
 
-`tests/unit/context/test_briefing_interview.py`.
+`tests/unit/context/test_brief.py`.
 """
 
 from __future__ import annotations

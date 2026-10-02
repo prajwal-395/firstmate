@@ -67,7 +67,7 @@ instead: held, never enforced, until a human promotes it - because on
 "Sheehan" to "she even". Each record's detail says which evidence
 class proposed it and why.
 
-`tests/unit/audio/test_transcript_hygiene.py`.
+`tests/unit/audio/test_transcript.py`.
 """
 
 from __future__ import annotations

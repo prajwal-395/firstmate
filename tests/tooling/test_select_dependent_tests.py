@@ -53,7 +53,7 @@ def test_the_resolver_change_selects_the_speaker_contract_test():
 def test_the_resolver_change_selects_the_explainer_contract_test():
     """#1270's edge: the same refusal caught a second producer, and the
     repair lane's selection missed `test_explainer_plan.py` too."""
-    assert "tests/unit/captions/test_explainer_plan.py" in select(
+    assert "tests/unit/captions/test_full_frame_element.py" in select(
         ["library/tools/motion_graphics_plan.py"])
 
 

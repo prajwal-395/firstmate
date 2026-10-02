@@ -10,7 +10,7 @@ and `prune_orphans` - and every one of the six carried a docstring saying
 a fixed filename was wrong.  Two of them had actually done something
 about it.  The other four still named one file per SECOND, so a second
 run inside that second destroyed the first run's journal.  Measured
-2026-09-12 (`tests/unit/context/test_journal_paths_never_overwrite.py`): five of seven
+2026-09-12 (`tests/unit/context/test_ledgers.py`): five of seven
 path functions returned the same path twice.
 
 Two of the six had already paid for the lesson in real data:

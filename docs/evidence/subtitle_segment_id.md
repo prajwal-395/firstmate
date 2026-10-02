@@ -1,6 +1,6 @@
 # Subtitle segment identity: history
 
-Moved from `tests/unit/captions/test_subtitle_segment_id.py`.
+Moved from `tests/unit/captions/test_subtitle_render.py`.
 
 The captain reported the defect (2026-09-04): rendered overlays were named
 `sub_block_<block_position>`, an ordinal within one spine, written into a

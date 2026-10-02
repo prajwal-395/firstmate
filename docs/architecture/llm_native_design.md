@@ -501,7 +501,7 @@ gains `interface.requirements`. Exactly one test asserts a substring of the pros
 parallel audit deleted the prose preconditions from all 29 manifests and ran the suite:
 
 ```
-FAILED tests/unit/audio/test_prosody_failure_is_loud.py::test_the_manifest_still_declares_the_precondition
+FAILED tests/unit/audio/test_prosody.py::test_the_manifest_still_declares_the_precondition
 1 failed, 1117 passed, 4 skipped, 1 warning in 183.03s
 ```
 

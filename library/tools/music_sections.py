@@ -24,7 +24,7 @@ what IS present, never coined. An unavailable grid is an empty
 reading: callers that PLACE refuse (the anchor), callers that SHOW
 omit the view.
 
-`tests/unit/audio/test_music_sections.py`.
+`tests/unit/audio/test_music_bed.py`.
 """
 
 from __future__ import annotations

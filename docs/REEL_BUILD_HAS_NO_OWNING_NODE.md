@@ -169,7 +169,7 @@ raising `TypeError`:
 - **A PRE-bridge's `data` IS the step's inputs**, so the gathered dict is
   complete and the call is not merely non-crashing, it is the same call the
   runner makes. `duration_zone.build` now executes;
-  `tests/unit/context/test_operations_execute.py::test_an_operation_whose_body_takes_the_merged_dict_executes`
+  `tests/unit/context/test_operations.py::test_an_operation_whose_body_takes_the_merged_dict_executes`
   runs it and reads the project's own declared duration back out of the result.
 - **A POST-bridge REFUSES**, naming the keys the model owes it and the two ways
   to supply them. The keys come from `run_pipeline.llm_output_declarations` -

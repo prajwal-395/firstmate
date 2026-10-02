@@ -1,6 +1,6 @@
 # A step's stdout is its result
 
-Moved from `tests/unit/context/test_step_stdout_contract.py`.
+Moved from `tests/unit/context/test_step_runner.py`.
 
 `temporal_index` indexed all 17 clips of project 001 correctly - "Indexed:
 17 clips, Failed: 0 clips", about forty minutes of CPU - and the runner threw

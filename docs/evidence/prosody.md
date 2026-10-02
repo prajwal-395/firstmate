@@ -1,7 +1,7 @@
 # Prosody that measured nothing - the history behind its tests
 
-Moved out of `tests/unit/audio/test_prosody_failure_is_loud.py` and
-`tests/unit/audio/test_prosody_view.py` on 2026-10-02, when those files kept only
+Moved out of `tests/unit/audio/test_prosody.py` and
+`tests/unit/audio/test_prosody.py` on 2026-10-02, when those files kept only
 their invariants. The tests and `library/tools/prosody_profile.py` are the
 contract; this is the story of how it was found.
 

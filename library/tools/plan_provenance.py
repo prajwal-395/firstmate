@@ -52,9 +52,9 @@ marking old files would rewrite committed history, while one
 builder-owned record diffs as a one-hunk change beside the declaration
 it was built from.
 
-``tests/unit/context/test_snapshot_supersession.py``.
+``tests/unit/context/test_provenance.py``.
 
-``tests/unit/context/test_plan_provenance.py``.
+``tests/unit/context/test_provenance.py``.
 """
 
 from __future__ import annotations

@@ -732,7 +732,7 @@ requirement of its own, so only an explicit entry routes to it.
 `select_operation` consults this map first.  The splice entries are
 stand-pats: the composer plans at project scope, so the region route
 is never the default.  The risk-4 guard
-(`tests/unit/context/test_ren_selection_between_equivalent_routes.py`) fails the
+(`tests/unit/context/test_operations.py`) fails the
 moment a node outgrows this map: a new route must arrive
 chosen-by-design, never inheriting the tie-break in silence.
 `verify_reels` is the case that proved it: the verdict kind gave the

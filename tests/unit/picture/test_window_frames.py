@@ -1,7 +1,7 @@
 """A real frame of the window the step will actually receive.
 
 These tests FOLLOW the reference rather than asserting its shape, the
-way `tests/unit/context/test_brief_reference.py` does: they parse the directory and
+way `tests/unit/context/test_brief.py` does: they parse the directory and
 the filenames out of the string the model reads, open what comes back,
 and require it to be a real picture of the right number of frames.  A
 test that only checked the text would pass on a map pointing at nothing.

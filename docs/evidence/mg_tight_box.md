@@ -131,7 +131,7 @@ middle-only stack centres on the small canvas, which is the placement.
 
 ## The top-anchored 2592
 
-Moved from `tests/unit/captions/test_mg_tight_box.py::test_top_anchored_graphic_places_at_the_measured_value`.
+Moved from `tests/unit/captions/test_tight_box.py::test_top_anchored_graphic_places_at_the_measured_value`.
 Measured 2026-09-11 on the captain's own Reel 26: a 920x480 graphic stored at
 Tilt 2592 is located at frame rows 72..552 in an exported still (MSE 51 against
 ~40 700 five pixels either side). The halved 1296 the test used to demand draws
@@ -151,7 +151,7 @@ origin moves: the canvas edge sits at 57, one pad past the layout edge
 
 ## Layout width
 
-Moved from the module docstring of `tests/unit/captions/test_mg_tight_layout_width.py`.
+Moved from the module docstring of `tests/unit/captions/test_tight_box.py`.
 
 ```text
 The tight motion-graphics render is the SAME DRAWING as full frame.

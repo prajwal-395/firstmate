@@ -46,7 +46,7 @@ a flag cannot run (`picture_position`), is stated per class in
 `edit_depth.REFUSAL_REACHABILITY` - no class is reported as covered
 because it was hard.
 
-`tests/unit/captions/test_display_drift.py`.
+`tests/unit/captions/test_display.py`.
 """
 
 from __future__ import annotations

@@ -2,15 +2,15 @@
 interview asks in chat instead of the summary; the marker hook suggests
 a verb linked to the marker it names.
 """
-
+from __future__ import annotations
 import json
 import threading
 import time
 from pathlib import Path
-
 import pytest
-
 from library.tools import briefing_chat, llm_handshake
+import os
+from library.tools import review_gate
 
 
 def test_publishing_retry_request_hides_old_request_before_clearing_response(
@@ -177,3 +177,44 @@ def test_hook_suggestion_links_the_marker_it_names(tmp_path):
     assert note["note_id"] == expected
     command = hook.suggest_verb(note["text"], note["note_id"], str(project))
     assert f"--note-id {shlex.quote(expected)}" in command
+
+
+# --------------------------------------------------------------------------
+# From test_review_gate_ids.py
+#
+# A gate id becomes a directory name, so it may not be a path.
+#
+# This lands with the change that makes it REACHABLE. Until operation
+# breakpoints, every gate id came from the DAG; `--break <address>` makes
+# it something an operator types and `/api/gates/{step_id}` makes it
+# something an HTTP path carries.
+
+@pytest.fixture
+def project(tmp_path):
+    folder = tmp_path / "proj"
+    folder.mkdir()
+    (folder / "pipeline_data.json").write_text(
+        json.dumps({"project_folder": str(folder)}), encoding="utf-8")
+    return folder
+
+
+def test_a_step_id_and_an_operation_address_both_work(project):
+    for gate_id in ("render", "subtitles.render@45.0-72.0"):
+        path = review_gate.save_gate_snapshot(str(project), gate_id, "x", {})
+        assert os.path.realpath(path).startswith(os.path.realpath(project))
+        assert review_gate.get_gate_status(str(project), gate_id) == "pending"
+    assert set(review_gate.list_pending_gates(str(project))) == {
+        "render", "subtitles.render@45.0-72.0"}
+
+
+def test_an_id_that_is_a_path_is_refused_for_writes_and_reads(project):
+    """Measured before this check existed: '../../../outside' wrote
+    `outside/snapshot.json` OUTSIDE the project directory entirely. A read
+    that built the path would leave the project too."""
+    with pytest.raises(review_gate.UnsafeGateId):
+        review_gate.save_gate_snapshot(str(project), "../../../outside", "x", {})
+    for call in (review_gate.get_gate_status,
+                 review_gate.load_gate_snapshot,
+                 review_gate.load_gate_feedback):
+        with pytest.raises(review_gate.UnsafeGateId):
+            call(str(project), "../../../outside")

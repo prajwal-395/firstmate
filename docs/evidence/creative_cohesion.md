@@ -3,7 +3,7 @@
 Moved from the module docstrings of the cohesion test files when the suite was halved (2026-10-02).
 
 
-## What the cohesion review reports, and to whom (`tests/test_creative_cohesion.py`, merged into `tests/unit/context/test_cohesion_gates_fire.py`)
+## What the cohesion review reports, and to whom (`tests/test_creative_cohesion.py`, merged into `tests/unit/context/test_cohesion.py`)
 
 What the cohesion review reports, and to whom.
 
@@ -34,7 +34,7 @@ Three things these tests used to assert, and no longer can:
   reasons the pacing check was (docs/PIPELINE_PLAN.md P4.2).
 
 
-## Two gates, one that could not fire and one that measured the wrong quantity (`tests/unit/context/test_cohesion_gates_fire.py`)
+## Two gates, one that could not fire and one that measured the wrong quantity (`tests/unit/context/test_cohesion.py`)
 
 Two gates in `creative_cohesion`, one that could not fire and one
 that measured the wrong quantity.
@@ -66,7 +66,7 @@ measured as inside the zone, one step earlier, from the spine. Both now
 call `library/tools/timeline_duration.measure_timeline_duration`.
 
 
-## A cohesion finding is applicable where it runs, or it is an observation (`tests/unit/context/test_cohesion_scope.py`)
+## A cohesion finding is applicable where it runs, or it is an observation (`tests/unit/context/test_cohesion.py`)
 
 A cohesion finding is applicable where it runs, or it is an observation.
 

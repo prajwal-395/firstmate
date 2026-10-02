@@ -23,7 +23,7 @@ The key is spelled three ways and they are not interchangeable:
 - An absent slot reads as the ABSENCE OF DECORATION, never as a substitute
   taste: no grade (§12), no exposure normalisation, the whole drawable
   vocabulary permitted, nothing bounded. Add a slot, add its row.
-  `tests/unit/context/test_brand_template_load.py` checks every schema slot has a reading
+  `tests/unit/context/test_brand.py` checks every schema slot has a reading
   and either a pipeline reader route or an explicit `NO READER` note.
 - `BRAND_SLOT_READERS` is the positive half of that inventory: each reader
   names a real pipeline node and the route that delivers the slot to it. A

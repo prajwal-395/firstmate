@@ -9,13 +9,9 @@ proved in production: one ReplaceClip per pool item swaps every
 timeline at once, placements never move, and the run refuses while any
 old file remains placed.
 """
-
 from __future__ import annotations
-
 import contextlib
-
 import pytest
-
 from library.tools import caption_swap
 from library.tools.caption_swap import (
     CaptionSwapError,
@@ -27,6 +23,9 @@ from tests.resolve_double import (
     FakeTimeline,
     FakeTimelineItem,
 )
+import importlib
+import sys
+import library.steps.step_4_05_render_subtitles.step as r405
 
 
 def _pool(path):
@@ -155,3 +154,72 @@ def test_a_missing_new_file_refuses_before_anything_moves(no_lease):
         swap_files(project, {"/seg/old_a.mov": "/seg/absent.mov"})
     assert shared.replace_calls == []
 
+
+# --------------------------------------------------------------------------
+# From test_caption_swap_resolve_modules.py
+#
+# The caption swap reaches Resolve through the environment's Scripting dir.
+#
+# `_resolve_live_project` imports `DaVinciResolveScript` when the swap half
+# of `rerender_and_swap` runs. `RESOLVE_SCRIPT_API` names the Scripting
+# directory (AGENTS.md 9) and the module lives in `Modules` beneath it -
+# every other consumer in the tree appends it. This step used the value
+# verbatim, so with the injected environment the import was attempted in a
+# directory holding no module and the swap reported "Resolve scripting is
+# unavailable" while Resolve was open (caption-text wave, 2026-09-20).
+# These tests pin the directory resolution without Resolve: the injected
+# value, an explicit modules value, and an end-to-end import off a stub
+# module through the resolved path.
+
+SCRIPTING = ("/Library/Application Support/Blackmagic Design/"
+             "DaVinci Resolve/Developer/Scripting")
+
+
+def test_the_scripting_dir_gains_modules_and_a_stub_imports_through_it(
+        tmp_path, monkeypatch):
+    # The vep-env value: the Scripting directory, not the module.
+    monkeypatch.setenv("RESOLVE_SCRIPT_API", SCRIPTING)
+    assert r405._script_modules_dir() == SCRIPTING + "/Modules"
+
+    scripting = tmp_path / "Scripting"
+    modules = scripting / "Modules"
+    modules.mkdir(parents=True)
+    (modules / "DaVinciResolveScript.py").write_text(
+        "MARKER = 'stub'\n", encoding="utf-8")
+    monkeypatch.setenv("RESOLVE_SCRIPT_API", str(scripting))
+    monkeypatch.syspath_prepend(r405._script_modules_dir())
+    monkeypatch.delitem(sys.modules, "DaVinciResolveScript",
+                        raising=False)
+    try:
+        module = importlib.import_module("DaVinciResolveScript")
+        assert module.MARKER == "stub"
+    finally:
+        sys.modules.pop("DaVinciResolveScript", None)
+
+
+# --------------------------------------------------------------------------
+# From test_rerender_and_swap.py
+#
+# The caption re-render-and-swap entry point refuses what it cannot do.
+#
+# `rerender_and_swap` (reached as `subtitles.rerender_swap`) renders named
+# cards through one batch engine and swaps them onto every timeline
+# holding the old files. These tests pin its boundaries without rendering
+# anything and without Resolve: frame-sequence projects are refused
+# before any render and before Resolve is contacted, and malformed pairs
+# are refused rather than guessed at.
+
+def test_frames_project_refused_before_any_render_or_resolve(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(r405, "resolve_overlay_container",
+                        lambda *args, **kwargs: "frames")
+    report = r405.rerender_and_swap(str(tmp_path), [])
+    assert report["ok"] is False
+    assert "frame sequence" in report["error"]
+    assert report["map"] == {}
+    assert report["swapped"] == []
+
+
+def test_a_non_dict_pair_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="not a dict"):
+        r405.rerender_and_swap(str(tmp_path), ["old.mov"])

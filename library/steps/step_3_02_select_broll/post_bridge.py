@@ -593,7 +593,7 @@ def main():
     # The accepted consequence: a thin edit is no longer caught
     # mechanically. Do not reintroduce an equivalent check here or
     # elsewhere. Sparse and uncovered-block behavior is covered by
-    # tests/unit/context/test_select_broll_bridge.py.
+    # tests/unit/context/test_bridges.py.
     #
     # What an empty plan must still not do is leave a block with no V1
     # picture uncovered: with no A-roll underneath, the cutaway IS the

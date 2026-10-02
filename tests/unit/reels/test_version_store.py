@@ -105,7 +105,7 @@ BINARY_DECOYS = [
 #      in TEXT_FILES)
 #   pipeline_output/provenance/creative_brief_snapshot.md (+ digest
 #      sidecar)                       <- brief_snapshot, asserted in
-#      tests/unit/context/test_brief_snapshot.py rather than below
+#      tests/unit/context/test_brief.py rather than below
 #
 # Deliberately NOT tracked, and why:
 #   creative_brief (the project.yaml-declared path; live: the
@@ -117,7 +117,7 @@ BINARY_DECOYS = [
 #      `pipeline_output/provenance/creative_brief_snapshot.md` plus its
 #      digest sidecar (library/tools/brief_snapshot.py), which this
 #      allow-list DOES version. The path stays free; the versioning
-#      stopped being static. See tests/unit/context/test_brief_snapshot.py.
+#      stopped being static. See tests/unit/context/test_brief.py.
 #   brand_assets/, assets/, compositions/ - the captain's artwork and
 #      source tree. Binary-capable (PNG, .drx, fonts, .mov), and the
 #      allow-list's stated purpose is text-only; the versioned

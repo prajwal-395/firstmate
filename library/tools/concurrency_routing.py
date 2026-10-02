@@ -51,7 +51,7 @@ captain decision (`vep-resolve-statefulness-hazards`), and it is what
 makes cooperation the only available route rather than one option
 among several.
 
-`tests/unit/context/test_concurrency_routing.py`.
+`tests/unit/context/test_concurrency.py`.
 """
 
 from __future__ import annotations

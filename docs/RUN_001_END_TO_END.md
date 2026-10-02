@@ -1530,6 +1530,6 @@ drawn must sit inside the frame with a margin and in the lower half.
 inventing, deterministically. The model's typography opinion is recorded
 in the step output for a human and blocks nothing.
 
-Guard: `tests/unit/captions/test_subtitle_qa_sampling.py`, which builds real overlays
+Guard: `tests/unit/captions/test_subtitle_qa.py`, which builds real overlays
 with ffmpeg and asserts both directions - a gap is not sampled, and an
 overlay that draws nothing anywhere still fails hard.
