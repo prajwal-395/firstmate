@@ -252,6 +252,19 @@ OPERATIONS: Tuple[Operation, ...] = (
             "render-subtitles row above). The grab moves the cursor, "
             "but under its own exclusive lease in `gate_stills`, so a "
             "parallel dispatch meets the build only there."),
+    Operation(
+        name="reset the qualification project",
+        entry_point="library.tools.qualification_project.reset",
+        exclusion=RESOLVE_CURSOR,
+        why="Switches the OPEN PROJECT away from the captain's and back, "
+            "deletes and recreates Ren Qualification: the whole body is "
+            "the cursor, held once."),
+    Operation(
+        name="qualify ren-resolved live",
+        entry_point="library.tools.qualification_project.qualify",
+        exclusion=RESOLVE_CURSOR,
+        why="The reset above plus a broker it starts as a child, which "
+            "inherits this lease; every check runs inside the one hold."),
 )
 
 BY_ENTRY_POINT: Dict[str, Operation] = {op.entry_point: op

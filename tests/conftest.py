@@ -398,6 +398,20 @@ def resolve_session():
                     "pytest: a test that drives the live Resolve",
                     exclusive=True, timeout=5.0,
                     qualification_project=QUALIFICATION_PROJECT) as lease:
+                # A live test touches the qualification project and
+                # nothing else, broker or no broker
+                # (`ren qualification reset` builds it).
+                from library.tools.marker_feedback import connect_resolve
+                from library.tools.resolved.jobs import open_project_name
+                try:
+                    found = open_project_name(connect_resolve())
+                except Exception as exc:                  # noqa: BLE001
+                    pytest.skip(f"no live Resolve: {exc}")
+                if found != QUALIFICATION_PROJECT:
+                    pytest.skip(
+                        f"Resolve has {found or 'no project'!r} open, not "
+                        f"{QUALIFICATION_PROJECT!r}: a live test never runs "
+                        f"in a user project")
                 yield lease
         except resolve_lock.ResolveBusy as busy:
             pytest.skip(str(busy))

@@ -11,7 +11,9 @@ Kinds
                        (`resolve_lock.resolve_lease`). Never executed here.
 `timeline.snapshot`    Observe one named timeline into the shadow store
                        (`timeline_shadow.observe`), returning its
-                       generation summary. Shared; identical snapshots coalesce.
+                       generation summary. Exclusive (the timeline must
+                       be current to read true); identical snapshots
+                       coalesce.
 `timeline.apply_patch` Commit one prepared EditPatch. Exclusive. The
                        patch format and its applier belong to
                        `library.tools.edit_patch.apply_patch`; the broker
@@ -123,7 +125,10 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
     elif kind == "timeline.snapshot":
         project = _required(params, "project", kind)
         timeline = _required(params, "timeline", kind)
-        shape = {"mode": SHARED, "priority": "read", "executed": True,
+        # EXCLUSIVE although it is a read: `observe` reads Pan/Tilt,
+        # which only read true with the timeline CURRENT, and making it
+        # current is a cursor write (`timeline_shadow.read_live`).
+        shape = {"mode": EXCLUSIVE, "priority": "read", "executed": True,
                  "project": project, "timeline": timeline,
                  "coalesce_key": _coalesce_key(kind, project, timeline)}
     elif kind == "timeline.apply_patch":
@@ -198,7 +203,7 @@ def run(job: dict, resolve) -> Optional[dict]:
     timeline = _timeline(project, job["timeline"])
     if kind == "timeline.snapshot":
         from library.tools import timeline_shadow
-        with resolve_lock.resolve_lease(purpose, exclusive=False):
+        with resolve_lock.cursor_excursion(project, timeline, purpose):
             return timeline_shadow.observe(project, timeline).summary()
     if kind == "timeline.apply_patch":
         from library.tools import edit_patch

@@ -125,12 +125,14 @@ def serving(lock_dir):
 
 
 def test_identical_snapshots_coalesce_into_one_resolve_read(
-        serving, monkeypatch):
+        serving, unguarded, monkeypatch):
     broker, _ = serving
     reads = []
     release = threading.Event()
 
     def observe(project, timeline):
+        # The shadow refuses a non-current timeline (Pan/Tilt read scaled).
+        assert project.GetCurrentTimeline() is timeline
         reads.append(timeline.GetName())
         release.wait(5)
         return types.SimpleNamespace(
