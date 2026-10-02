@@ -64,6 +64,9 @@ Modules
 - `rounds`   rounds: discover, stamp, backfill, read; and the one diff.
 - `variants` variants: spec, branch, merge; built record, compare, choose.
 - `runs`     the per-run trace archive.
+- `worktrees` a task's own checkout of the store on `ren/<task>`, merged
+             back through `variants`' merge; the project checkout's
+             branch never moves.
 - `reel_versions` every state of each reel, in order: what `ren undo`
              reverses.
 """

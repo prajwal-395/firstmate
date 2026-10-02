@@ -859,6 +859,16 @@ def cmd_discharge_uncarried(args):
     print(f"  The discharge is recorded, never erased.")
 
 
+def cmd_worktree(args):
+    """A task's own checkout of the project store, and its merge back.
+
+    See library/tools/versions/worktrees.py.
+    """
+    from library.tools.versions import worktrees
+
+    sys.exit(worktrees.main(_reel_project_folder(args.project), args.rest))
+
+
 def cmd_variant(args):
     """Two versions of one reel, alive at once, compared, one chosen.
 
@@ -3439,6 +3449,14 @@ def main():
     v_merge.add_argument("--target", default=None)
 
     p_variant.set_defaults(func=cmd_variant)
+
+    p_worktree = _add_command(sub, "worktree")
+    p_worktree.add_argument("project",
+                            help="Project slug, or an absolute path")
+    p_worktree.add_argument("rest", nargs=argparse.REMAINDER,
+                            help="add TASK [--base REV] | list | commit TASK "
+                                 "-m MSG | merge TASK | remove TASK")
+    p_worktree.set_defaults(func=cmd_worktree)
 
     p_relink = _add_command(sub, "relink")
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
