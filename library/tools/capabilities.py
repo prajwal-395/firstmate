@@ -130,6 +130,9 @@ class CapabilitySpec:
     produces: tuple
     """The state keys its result is, DECLARED on the capability
     (`Operation.produces`); its node's effect is derived from these."""
+    consumes: tuple
+    """The state keys it reads, DECLARED (`Operation.consumes`); its
+    `requires` is derived from these."""
     assumes_machine: tuple
     """The subset of `requires` that is a fact about the machine."""
     assumes_outside: tuple
@@ -198,6 +201,7 @@ def spec_of(op) -> CapabilitySpec:
         requires=tuple(r.name for r in requires),
         effects=tuple(r.name for r in dag_adapter.requirements_produced(op)),
         produces=tuple(op.produces),
+        consumes=tuple(op.consumes),
         assumes_machine=tuple(r.name for r in requires
                               if r.kind == req_mod.KIND_ENVIRONMENT),
         assumes_outside=tuple(r.name for r in requires
@@ -339,9 +343,10 @@ def problems(registry=None) -> list:
        real node;
     5. a capability that produces nothing says why (`EMPTY_EFFECT_REASONS`);
     6. every heavy-work lock site is cited (`HEAVY_LOCK_SITES`);
-    7. effects are declared per capability and true to the step: every
-       key a capability `produces` is an output its step's manifest
-       declares, and every requirement a node with capabilities is a
+    7. effects and reads are declared per capability and true to the
+       step: every key a capability `consumes` is one a requirement of its
+       node reads, every key it `produces` is an output its step's
+       manifest declares, and every requirement a node with capabilities is a
        producer of is produced by one of them - so deriving a node's
        effect from its capabilities (`dag_adapter.node_effects`) loses
        no production.
@@ -354,6 +359,7 @@ def problems(registry=None) -> list:
     from library.tools.project_layout import AREAS
 
     registry = operations.all() if registry is None else registry
+    all_reqs = requirements.all_requirements()
     out = []
     nodes = dag_adapter.node_ids()
 
@@ -388,6 +394,12 @@ def problems(registry=None) -> list:
                 out.append(f"{op.name}: produces {key!r}, which "
                            f"{op.owning_dir}/manifest.json declares no "
                            f"output for")
+        read_at_node = {r.consumed_key for r in all_reqs
+                        if node in r.consumers and r.consumed_key}
+        for key in getattr(op, "consumes", ()):
+            if key not in read_at_node:
+                out.append(f"{op.name}: consumes {key!r}, which no "
+                           f"requirement of {node!r} reads")
 
         # A capability that satisfies nothing must say why: the composer
         # works backwards from effects, so an unexplained empty effect is
@@ -429,7 +441,7 @@ def problems(registry=None) -> list:
         for r in op.effect:
             produced_at.setdefault(getattr(op, "owning_node", ""),
                                    set()).add(r.name)
-    for r in requirements.all_requirements():
+    for r in all_reqs:
         for producer in r.produced_by:
             if producer not in nodes:
                 out.append(f"requirement {r.name} names producer "

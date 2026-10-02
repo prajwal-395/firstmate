@@ -261,10 +261,13 @@ def test_dry_run_wires_plan_selection_gate_and_preconditions(tmp_path):
     }
     by_name = {e["precondition"]: e for e in record["preconditions"]}
     assert by_name[D.REEL_GOAL]["satisfied_by_live_timeline"] is True
-    # The transcript the runner needs is honestly missing in tmp, so
-    # the verdict is NO-GO with the missing named - never a pass, and
-    # never a crash where an answer was owed.
-    assert "timeline_transcript.on_file" in record["preconditions_failed"]
+    # The project in tmp binds no Resolve project, so the verdict is
+    # NO-GO with the missing named - never a pass, and never a crash
+    # where an answer was owed.  (The touch-up reads no transcript, so
+    # since `consumes` it no longer asks for one.)
+    assert "resolve.timeline_binding" in record["preconditions_failed"]
+    assert ("timeline_transcript.on_file"
+            not in record["preconditions_failed"])
     assert record["preconditions_hold"] is False
     assert record["go"] is False
     # Exactly what WOULD execute - the shipped touch path, printing

@@ -244,6 +244,13 @@ class Requirement:
     refuting_context: Callable[[], Context]
     satisfying_context: Callable[[], Context]
 
+    consumed_key: str = ""
+    """The state key a consumer READS to meet this - what a capability
+    must declare it `consumes` to be asked it (`dag_adapter`).  Empty for
+    a requirement no state key carries (the machine, an approval on
+    file, a project.yaml binding): every capability of a consuming node
+    is asked those."""
+
     produced_keys: Tuple[Tuple[str, str], ...] = ()
     """`(producer node, state key)` for every entry of `produced_by`: the
     key that producer writes which satisfies this requirement.
@@ -471,6 +478,7 @@ def _state_key_requirement(need) -> Requirement:
         name=name, kind=KIND_STATE_KEY,
         describe=f"{need.consumer} needs {what} from {need.producer}",
         produced_by=(need.producer,), consumers=(need.consumer,),
+        consumed_key=key,
         produced_keys=((need.producer, key),),
         check=check, refuting_context=refuting,
         satisfying_context=satisfying)
@@ -587,6 +595,7 @@ def derive_runner_injected_keys(dag: Optional[dict] = None,
         return []
     return [Requirement(
         name="timeline_transcript.on_file", kind=KIND_STATE_KEY,
+        consumed_key=TIMELINE_TRANSCRIPT_INPUT,
         describe=("the project has a timeline transcript on file, which "
                   "no step produces"),
         produced_by=(), consumers=consumers,
@@ -996,6 +1005,7 @@ PREDICATES: Tuple[Requirement, ...] = (
         describe="the rough cut passed its own mechanical review",
         produced_by=("review_rough_cut",),
         produced_keys=(("review_rough_cut", "rough_cut_review"),),
+        consumed_key="rough_cut_review",
         consumers=("plan_subtitles", "plan_transitions", "plan_vfx",
                    "plan_sfx"),
         check=_rough_cut_approved,
@@ -1014,6 +1024,7 @@ PREDICATES: Tuple[Requirement, ...] = (
         describe="temporal_index carries speech regions to measure prosody over",
         produced_by=("temporal_index",), consumers=("prosody_analysis",),
         produced_keys=(("temporal_index", "temporal_event_indices"),),
+        consumed_key="temporal_event_indices",
         check=_prosody_speech_regions,
         refuting_context=lambda: Context(
             state={"step_outputs": {"temporal_index": {
@@ -1028,6 +1039,7 @@ PREDICATES: Tuple[Requirement, ...] = (
         describe="the selected music track names a file that exists",
         produced_by=("music_selection",), consumers=("music_analysis",),
         produced_keys=(("music_selection", "music_selection"),),
+        consumed_key="music_selection",
         check=_music_track_path,
         refuting_context=lambda: Context(
             state={"step_outputs": {"music_selection": {
@@ -1306,6 +1318,7 @@ COVERAGE: Tuple[Requirement, ...] = (
         produced_keys=(("temporal_index", "temporal_event_indices"),
                        ("speech_sequence", "speech_sequence"),
                        ("mesh_spine", "audio_spine")),
+        consumed_key="audio_spine",
         consumers=("plan_subtitles",),
         check=_spine_word_timings,
         refuting_context=lambda: Context(

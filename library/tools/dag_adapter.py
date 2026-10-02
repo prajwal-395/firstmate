@@ -104,7 +104,13 @@ def declaring_dag(op: Any) -> dict:
 
 
 def _consumes(op: Any, r: Any) -> bool:
-    return node_of(op) in r.consumers
+    """The requirement names its consumer NODE; the capability is asked
+    it when it declares reading the requirement's `consumed_key`, or
+    when no state key carries the requirement (the machine, an
+    approval, a binding - asked of every capability of the node)."""
+    return node_of(op) in r.consumers and (
+        not r.consumed_key
+        or r.consumed_key in (getattr(op, "consumes", ()) or ()))
 
 
 def _produces(op: Any, r: Any) -> bool:
@@ -120,7 +126,7 @@ def _produces(op: Any, r: Any) -> bool:
 
 
 def requirements_consumed(op: Any) -> tuple:
-    """Every requirement whose consumers include the capability's node."""
+    """Every requirement the capability's declared `consumes` asks."""
     from library.tools import requirements
     return tuple(r for r in requirements.all_requirements()
                  if _consumes(op, r))

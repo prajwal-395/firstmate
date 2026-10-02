@@ -159,14 +159,30 @@ def test_the_build_command_holds_no_second_copy_of_the_build_path():
 
 
 
-@pytest.mark.parametrize("op", REEL_OPERATIONS, ids=lambda o: o.name)
+TRANSCRIPT_READERS = tuple(op for op in REEL_OPERATIONS
+                           if "timeline_transcript" in op.consumes)
+"""Every reel capability that READS the transcript.  The touch-ups and
+the stills grab read none - their arguments come from the caller - so
+since `Operation.consumes` they are not asked for one."""
+
+
+def test_every_reel_route_that_cuts_from_the_transcript_reads_it():
+    assert {"reel.candidates", "reel.select", "reel.build",
+            "reel.verify"} <= {op.name for op in TRANSCRIPT_READERS}
+    assert {op.name for op in REEL_OPERATIONS
+            if op not in TRANSCRIPT_READERS} == {
+        op.name for op in REEL_OPERATIONS if op.caller_supplied}
+
+
+@pytest.mark.parametrize("op", TRANSCRIPT_READERS, ids=lambda o: o.name)
 def test_a_reel_operation_refuses_without_the_transcript(op, tmp_path):
     """The captain's ask, made mechanical - and for the BUILD too.
 
-    The transcript reaches all four operations by one route and it is
-    DERIVED: `derive_runner_injected_keys` reads which manifests declare
-    `timeline_transcript` required, so the two new nodes inherited this
-    requirement by declaring the input, with nothing hand-listed.
+    The transcript reaches every reel capability that reads it by one
+    route and it is DERIVED: `derive_runner_injected_keys` reads which
+    manifests declare `timeline_transcript` required, so the reel nodes
+    inherited this requirement by declaring the input, with nothing
+    hand-listed.
     """
     result = op.execute(_project(tmp_path, with_transcript=False))
 

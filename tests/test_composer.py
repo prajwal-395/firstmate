@@ -206,7 +206,7 @@ def test_deep_strand_names_the_blocker_and_the_chain(monkeypatch):
             owning_node=SYNTHETIC_DEEP_TOP_STEP,
             owning_dir="step_9_99_synthetic_fixture",
             body="step.py", attr="run",
-            produces=(SYNTHETIC_DEEP_GOAL,))))
+            produces=(SYNTHETIC_DEEP_GOAL,), consumes=())))
     assert SYNTHETIC_DEEP_MID not in C.reachable_goals(), (
         "the test premise failed: a capability now produces the "
         "synthetic mid-chain requirement, so the strand is gone")

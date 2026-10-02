@@ -39,6 +39,12 @@ def _scan():
     (lambda: replace(_scan(), name="footage.ghost", owning_node="ghost"),
      "not a node of any process"),
     (lambda: replace(_scan(), name="footage ghost"), "not a stable token"),
+    (lambda: replace(_scan(), name="footage.ghost",
+                     produces=("no_such_output",)),
+     "declares no output for"),
+    (lambda: replace(_scan(), name="footage.ghost",
+                     consumes=("no_such_input",)),
+     "which no requirement of 'scan' reads"),
 ])
 def test_a_broken_capability_is_named(planted, expected):
     found = capabilities.problems(operations.all() + (planted(),))
@@ -59,7 +65,8 @@ def test_an_unregistered_step_directory_is_named(tmp_path, monkeypatch):
 
 
 def test_a_producer_without_identity_is_named(monkeypatch):
-    ghost = SimpleNamespace(name="state.x.y", produced_by=("ghost",))
+    ghost = SimpleNamespace(name="state.x.y", produced_by=("ghost",),
+                            consumers=(), consumed_key="")
     real = requirements.all_requirements()
     monkeypatch.setattr(requirements, "all_requirements",
                         lambda *a, **k: list(real) + [ghost])
@@ -94,3 +101,18 @@ def test_a_cited_site_that_takes_no_lock_is_named(monkeypatch):
                         ("library.tools.reel_build:build_reels_typo",))
     assert any("build_reels_typo does not take" in p
                for p in capabilities.problems())
+
+
+def test_gathering_demands_only_what_a_capability_consumes(tmp_path):
+    """`requires` narrows to `consumes`, so gathering must narrow too:
+    otherwise a capability that reads nothing from state passes its
+    requirement check and then dies inside `gather_step_inputs` on an
+    input it never reads - the mid-run crash the requirement layer
+    exists to turn into a refusal.  A capability that DOES consume still
+    gets the runner's raise."""
+    for capability in ("reel.touchup", "transcript.splice",
+                       "subtitles.render_segment"):
+        assert operations.get(capability).consumes == ()
+        operations.get(capability).gather(str(tmp_path))
+    with pytest.raises(RuntimeError, match="audio_spine"):
+        operations.get("subtitles.plan").gather(str(tmp_path))
