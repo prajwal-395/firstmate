@@ -29,7 +29,13 @@ from pathlib import Path
 from typing import Callable, Iterator, TypeVar
 
 
-HEAVY_LOCK_DIR = Path.home() / ".local" / "share" / "vep" / "heavy-work.lock"
+LOCK_DIR_ENV = "VEP_HEAVY_WORK_LOCK_DIR"
+"""Overrides where the lock lives. The test suite points it at a private
+directory (tests/conftest.py) so a mocked build never queues behind the
+machine's real heavy work; nothing else sets it."""
+HEAVY_LOCK_DIR = Path(
+    os.environ.get(LOCK_DIR_ENV)
+    or Path.home() / ".local" / "share" / "vep" / "heavy-work.lock")
 OWNER_FILE = "owner"
 OWNER_ENV = "VEP_HEAVY_WORK_OWNER"
 POLL_SECONDS = 1.0

@@ -185,7 +185,7 @@ def test_the_build_records_and_prints_its_proof_scope(
                side_effect=_place), \
             patch("library.tools.reel_build.reel_subtitle_segments",
                   return_value=[]), \
-            patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
+            patch("library.tools.reel_build._connect_resolve"), \
             patch("library.tools.reel_build.resolve_project_exactly",
                   return_value=resolve_project), \
             patch("library.tools.reel_proposal.read_proposal",

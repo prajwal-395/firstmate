@@ -237,7 +237,6 @@ def fake_world():
 
 
 def _run_builder(fake_world, manifest, monkeypatch):
-    import DaVinciResolveScript as _real  # noqa: F401  (rebound below)
     monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
                         type("M", (), {"scriptapp": staticmethod(
                             lambda name: fake_world["resolve"])})())

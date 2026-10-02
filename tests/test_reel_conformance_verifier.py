@@ -1141,17 +1141,24 @@ class TestCLI:
     """Test the CLI entry point."""
 
 
-    def test_requires_resolve_connection(self):
+    def test_requires_resolve_connection(self, monkeypatch):
         """Calling with valid args but no Resolve exits 2."""
+        from library.tools import marker_feedback
         from library.tools.reel_conformance_verifier import run_verification
         import io
+
+        def unreachable():
+            raise marker_feedback.ResolveUnavailable("Resolve is not running")
+
+        # Unreachable by construction: on a machine with Resolve the real
+        # connect would open the live instance (tests/conftest.py).
+        monkeypatch.setattr(marker_feedback, "connect_resolve", unreachable)
         out = io.StringIO()
         code = run_verification(
             project_name="Nonexistent Project",
             master_name="Nonexistent Timeline",
             out=out,
         )
-        # Should exit 2 (fatal) because Resolve is not running in CI
         assert code == 2
 
 

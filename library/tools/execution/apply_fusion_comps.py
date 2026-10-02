@@ -38,16 +38,7 @@ import argparse
 sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
 os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
 os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
-try:
-    import DaVinciResolveScript as dvr
-except ImportError as e:
-    err_msg = str(e)
-    class _MissingDVR:
-        def __getattr__(self, name):
-            def _missing(*args, **kwargs):
-                raise RuntimeError(f"DaVinciResolveScript is not installed or not found on PYTHONPATH: {err_msg}")
-            return _missing
-    dvr = _MissingDVR()
+
 
 # This module runs both as a script (launched by resolve_build_timeline in
 # its own process) and as `library.tools.execution.apply_fusion_comps`, so
@@ -68,6 +59,11 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 from library.tools.resolve_lock import under_lease
+from library.tools.resolve_locale import LazyResolveScript
+
+# Imported on the first `scriptapp` call, not here: importing the bindings
+# loads fusionscript.so into every process that imports this module.
+dvr = LazyResolveScript()
 try:
     from library.tools.resolve_lock import (
         ResolveRaceError, assert_current_timeline)

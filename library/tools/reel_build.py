@@ -9371,6 +9371,18 @@ def _connect_resolve_project(resolve_project_name: str):
     `library.tools.reel_build.resolve_project_exactly` applies here
     rather than being shadowed by a fresh import of the real one.
     """
+    return resolve_project_exactly(
+        _connect_resolve().GetProjectManager(), resolve_project_name)
+
+
+def _connect_resolve():
+    """The live Resolve app handle: this module's ONE scripting handshake.
+
+    Every route in this module that reaches the running Resolve comes
+    through here, so a test that drives one with mocks patches this (or
+    `_connect_resolve_project`) and never loads the real bindings
+    (tests/conftest.py fails one that does).
+    """
     import sys
 
     try:
@@ -9386,9 +9398,7 @@ def _connect_resolve_project(resolve_project_name: str):
         import DaVinciResolveScript as dvr
 
     from library.tools import resolve_locale as _locale_mod
-    resolve = _locale_mod.scriptapp_preserving_locale(dvr, "Resolve")
-    return resolve_project_exactly(
-        resolve.GetProjectManager(), resolve_project_name)
+    return _locale_mod.scriptapp_preserving_locale(dvr, "Resolve")
 
 
 def _record_reel_versions(project_folder: str, rows_by_final: dict,
@@ -10958,18 +10968,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     import json
     import yaml
     
-    try:
-        import DaVinciResolveScript as dvr
-    except ImportError:
-        os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-        os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/libfusionscript.dylib"
-        if "PYTHONPATH" not in os.environ:
-            os.environ["PYTHONPATH"] = ""
-        os.environ["PYTHONPATH"] += ":" + os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
-        sys.path.insert(0, os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
-        import DaVinciResolveScript as dvr
-
-    from library.tools.resolve_locale import scriptapp_preserving_locale
     from library.tools.reel_proposal import read_proposal
     from library.tools.timeline_ingest import snapshot_timeline
     from library.tools.project_registry import get_project
@@ -11024,9 +11022,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # contended inside it. Handles stay valid after the hold releases;
     # every cursor write below takes its own hold.
     with resolve_lease("build reels connect", exclusive=True):
-        resolve = scriptapp_preserving_locale(dvr, "Resolve")
-        pm = resolve.GetProjectManager()
-        project = resolve_project_exactly(pm, resolve_name)
+        resolve = _connect_resolve()
+        project = resolve_project_exactly(
+            resolve.GetProjectManager(), resolve_name)
 
     # The frame this project's reels are DELIVERED in, resolved ONCE and
     # threaded from here: the timeline size, every overlay render, the

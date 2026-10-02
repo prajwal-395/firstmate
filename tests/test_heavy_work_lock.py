@@ -19,6 +19,7 @@ def _environment(home: Path) -> dict:
     env = os.environ.copy()
     env["HOME"] = str(home)
     env.pop("VEP_HEAVY_WORK_OWNER", None)
+    env.pop(heavy_work_lock.LOCK_DIR_ENV, None)
     return env
 
 

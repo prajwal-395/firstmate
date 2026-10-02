@@ -146,35 +146,181 @@ if not os.environ.get(SANDBOX_ESCAPE_HATCH_ENV):
     _pipeline_paths.PROJECTS_ROOT = Path(_sandbox)
     atexit.register(shutil.rmtree, _sandbox, True)
 
-# DaVinciResolveScript only exists where DaVinci Resolve is installed, and
-# several modules import it at module level. Until this lived here, the
-# only stub was installed by tests/test_resolve_build_timeline.py as an
-# import side effect - so whether a test could import those modules
-# depended on pytest's alphabetical collection order, and a new test file
-# sorting before "test_resolve_..." failed on CI while passing locally.
+# ── The machine's heavy-work lock is not reachable from a test ──────
 #
-# Only stubbed when the real module is absent, so a machine with Resolve
-# still exercises the real bindings. That promise needs the module's own
-# directory on the path first: Resolve ships DaVinciResolveScript.py under
-# Application Support and nothing else puts it on sys.path, so the bare
-# import failed on a machine that HAS Resolve and the stub went in anyway.
-# `tests/test_marker_feedback_against_resolve.py` is the suite that needs
-# the real bindings; without this it skipped everywhere.
-if "DaVinciResolveScript" not in sys.modules:
-    _resolve_modules = os.path.join(
-        os.environ.get(
-            "RESOLVE_SCRIPT_API",
-            "/Library/Application Support/Blackmagic Design/DaVinci Resolve/"
-            "Developer/Scripting",
-        ),
-        "Modules",
-    )
-    if os.path.isdir(_resolve_modules) and _resolve_modules not in sys.path:
-        sys.path.append(_resolve_modules)
+# `library/tools/heavy_work_lock.py` serialises heavy work across every
+# lane on the machine through one directory under ~/.local/share/vep.
+# The resolve and reel-build paths take it, so a test that drives one of
+# them through mocks still queued behind whichever lane held the real
+# lock: on 2026-10-01 `test_timeline_sop_conformance`, `test_proof_scope`
+# and the `test_reel_build_gate*` files sat at 0% CPU, polling it, in any
+# run outside `scripts/full_suite_gate.sh` (whose inherited owner token
+# is the only thing that let them re-enter). A test's heavy work is
+# mocked, so it contends for nothing: each test session takes a private
+# lock instead. Tests OF the lock point it at their own directory.
+# The env var covers the subprocesses a test spawns (the gate-shim tests
+# run `scripts/full_suite_gate.sh`, which takes the lock); the rebind
+# covers this process, where the module may already have been imported.
+import library.tools.heavy_work_lock as _heavy_work_lock  # noqa: E402
+
+_heavy_sandbox = tempfile.mkdtemp(prefix="pipeline-heavy-work-sandbox-")
+os.environ[_heavy_work_lock.LOCK_DIR_ENV] = os.path.join(
+    _heavy_sandbox, "heavy-work.lock")
+_heavy_work_lock.HEAVY_LOCK_DIR = Path(
+    os.environ[_heavy_work_lock.LOCK_DIR_ENV])
+atexit.register(shutil.rmtree, _heavy_sandbox, True)
+
+# ── No default test reaches the live Resolve ────────────────────────
+#
+# Importing DaVinciResolveScript loads Blackmagic's fusionscript.so, and
+# `scriptapp("Resolve")` then connects to whatever Resolve is running.
+# On 2026-10-01 a full-suite gate hung 17 minutes: Resolve's scripting
+# connection was wedged, and an ordinary test worker blocked inside it.
+# Two routes led there. This file imported the real module into EVERY
+# worker at collection, and eight reel-build tests patched
+# `resolve_project_exactly` but not `reel_build._connect_resolve_project`,
+# so each opened a real `scriptapp("Resolve")` on a machine with Resolve
+# and passed only because CI has none.
+#
+# So the module is UNIMPORTABLE in a test process, exactly as on CI, and
+# the attempt is the defect: `_no_live_resolve` fails any test that
+# tries, naming the test. The one way in is the `resolve_session`
+# fixture below, which leases the instance and puts Resolve's Modules
+# directory on the path for the tests that take it - the same tests
+# `library/tools/lane_routing.py` routes to the serial lane.
+# A test that wants the bindings without Resolve installs its own
+# stand-in with `patch.dict("sys.modules", ...)`; a module already in
+# `sys.modules` never reaches this finder.
+RESOLVE_MODULE = "DaVinciResolveScript"
+_RESOLVE_MODULES_DIR = os.path.join(
+    os.environ.get(
+        "RESOLVE_SCRIPT_API",
+        "/Library/Application Support/Blackmagic Design/DaVinci Resolve/"
+        "Developer/Scripting",
+    ),
+    "Modules",
+)
+
+
+class LiveResolveRefused(ImportError):
+    """A test outside `resolve_session` tried to load the Resolve bindings."""
+
+
+def _is_real_resolve_origin(origin) -> bool:
+    """Blackmagic's own bindings, wherever the caller looked for them."""
+    origin = str(origin or "")
+    return (origin.startswith(_RESOLVE_MODULES_DIR)
+            or "Blackmagic Design" in origin)
+
+
+def _is_presence_probe() -> bool:
+    """Called by `importlib.util.find_spec`: asking, not loading."""
+    import importlib.util
+    frame = sys._getframe(2)
+    for _ in range(4):
+        if frame is None:
+            return False
+        if frame.f_code is importlib.util.find_spec.__code__:
+            return True
+        frame = frame.f_back
+    return False
+
+
+class _LiveResolveGuard:
+    """A meta-path finder that refuses DaVinciResolveScript while armed.
+
+    Refused: the real bindings, and a bare import that finds none - on
+    a machine with Resolve the caller's own fallback would go on to find
+    them, so the attempt is the defect whatever this machine has. A
+    stand-in a test wrote to its own directory imports as usual, and a
+    presence probe (`importlib.util.find_spec`, which loads nothing) is
+    told the module is absent, exactly as on CI, without counting.
+    """
+
+    def __init__(self):
+        self.armed = True
+        self.attempts = []
+
+    def find_spec(self, name, path=None, target=None):
+        if name != RESOLVE_MODULE:
+            return None
+        if not self.armed:
+            if (os.path.isdir(_RESOLVE_MODULES_DIR)
+                    and _RESOLVE_MODULES_DIR not in sys.path):
+                sys.path.append(_RESOLVE_MODULES_DIR)
+            return None
+        import importlib.machinery
+        spec = importlib.machinery.PathFinder.find_spec(name, path)
+        if spec is not None and not _is_real_resolve_origin(spec.origin):
+            return spec
+        if _is_presence_probe():
+            if spec is None:
+                return None
+            raise ModuleNotFoundError(name=name)
+        import traceback
+        self.attempts.append("".join(traceback.format_stack(limit=12)[:-1]))
+        raise LiveResolveRefused(
+            f"{RESOLVE_MODULE} is unimportable in the test suite: only a "
+            "test taking the `resolve_session` fixture may reach the live "
+            "Resolve (tests/conftest.py)")
+
+
+LIVE_RESOLVE_GUARD = _LiveResolveGuard()
+sys.meta_path.insert(0, LIVE_RESOLVE_GUARD)
+
+
+def _is_real_resolve_module(module) -> bool:
+    return _is_real_resolve_origin(getattr(module, "__file__", None))
+
+
+@pytest.fixture
+def resolve_bindings_stand_in(monkeypatch):
+    """A DaVinciResolveScript that imports cleanly and connects to nothing.
+
+    For a test that imports or reloads a module binding the Resolve
+    module at import time and then replaces what it bound: the import
+    finds this, never the real bindings. Its `scriptapp` raises, as the
+    missing-bindings sentinel in `apply_fusion_comps` does.
+    """
+    import types
+
+    def scriptapp(name):
+        raise RuntimeError(
+            f"resolve_bindings_stand_in: scriptapp({name!r}) is not "
+            "connected; patch what the test needs")
+
+    module = types.ModuleType(RESOLVE_MODULE)
+    module.scriptapp = scriptapp
+    monkeypatch.setitem(sys.modules, RESOLVE_MODULE, module)
+    return module
+
+
+@pytest.fixture(autouse=True)
+def _no_live_resolve(request, monkeypatch):
+    """Fail a test that tries to load the Resolve bindings without leasing."""
+    if "resolve_session" in request.fixturenames:
+        yield
+        return
+    # A live-Resolve module earlier in this worker may have left the
+    # real bindings cached; a cached module never asks the finder.
+    cached = sys.modules.get(RESOLVE_MODULE)
+    if cached is not None and _is_real_resolve_module(cached):
+        monkeypatch.delitem(sys.modules, RESOLVE_MODULE)
+    previous = LIVE_RESOLVE_GUARD.armed
+    LIVE_RESOLVE_GUARD.armed = True
+    LIVE_RESOLVE_GUARD.attempts = []
     try:
-        import DaVinciResolveScript  # noqa: F401
-    except ImportError:
-        pass
+        yield
+    finally:
+        LIVE_RESOLVE_GUARD.armed = previous
+    attempts, LIVE_RESOLVE_GUARD.attempts = LIVE_RESOLVE_GUARD.attempts, []
+    if attempts:
+        pytest.fail(
+            f"{request.node.nodeid} tried to import {RESOLVE_MODULE}, which "
+            "on a machine with Resolve opens the live instance. Patch the "
+            "connection point (e.g. `reel_build._connect_resolve_project`) "
+            "or take the `resolve_session` fixture. First attempt:\n"
+            + attempts[0], pytrace=False)
 
 
 # ── One Resolve, many writers: what a test is, in that scheme ───────
@@ -226,6 +372,7 @@ def resolve_session():
     from library.tools import resolve_lock
     previous = resolve_lock._sole_writer_reason
     resolve_lock._sole_writer_reason = None
+    LIVE_RESOLVE_GUARD.armed = False
     try:
         try:
             with resolve_lock.resolve_lease(
@@ -236,6 +383,7 @@ def resolve_session():
             pytest.skip(str(busy))
     finally:
         resolve_lock._sole_writer_reason = previous
+        LIVE_RESOLVE_GUARD.armed = True
 
 
 # ── Stubbing DaVinciResolveScript without evicting the import graph ──

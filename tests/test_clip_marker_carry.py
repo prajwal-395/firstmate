@@ -351,9 +351,8 @@ def _promote(project, project_dir, staged_to_final):
      / "plan_provenance.json").write_text(json.dumps(
          {"built_reels": sorted(staged_to_final.values())}),
         encoding="utf-8")
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
-            patch("library.tools.reel_build.resolve_project_exactly",
-                  return_value=project):
+    with patch("library.tools.reel_build._connect_resolve_project",
+               return_value=project):
         return promote_staged_reels(
             str(project_dir), "Mock Project", MASTER, staged_to_final,
             organise=False,

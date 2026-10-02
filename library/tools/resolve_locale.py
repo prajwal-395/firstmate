@@ -67,3 +67,25 @@ def scriptapp_preserving_locale(dvr, name: str = "Resolve"):
                 locale.setlocale(locale.LC_CTYPE, before)
             except locale.Error:  # pragma: no cover - refused the round trip
                 pass
+
+
+class LazyResolveScript:
+    """DaVinciResolveScript, imported when `scriptapp` is CALLED.
+
+    Importing the bindings loads Blackmagic's fusionscript.so, so a
+    module-level `import DaVinciResolveScript` puts it into every process
+    that merely imports the module holding it - every test worker among
+    them (tests/conftest.py). Hold one of these instead and pass it to
+    `scriptapp_preserving_locale` like the module: reading or patching
+    `.scriptapp` loads nothing, and a machine without Resolve raises at
+    the call, not at import.
+    """
+
+    def scriptapp(self, name: str = "Resolve"):
+        try:
+            import DaVinciResolveScript as dvr
+        except ImportError as exc:
+            raise RuntimeError(
+                "DaVinciResolveScript is not installed or not found on "
+                f"PYTHONPATH: {exc}") from exc
+        return dvr.scriptapp(name)

@@ -113,6 +113,7 @@ def test_resolve_waiter_does_not_hold_heavy_work_lock(
     env["PIPELINE_RESOLVE_LEASE_TIMEOUT"] = "30"
     env.pop(resolve_lock.INHERIT_ENV, None)
     env.pop("VEP_HEAVY_WORK_OWNER", None)
+    env.pop("VEP_HEAVY_WORK_LOCK_DIR", None)
 
     process = None
     try:
