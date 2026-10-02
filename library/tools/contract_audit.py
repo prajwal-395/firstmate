@@ -40,7 +40,9 @@ What lives here, by section
 6. scopes are sound - non-empty, and only the vocabulary `scope.py`
    defines;
 7. machine needs are sound - `assumes_machine` is environment-kind, and
-   every environment requirement names its check and its remedy.
+   every environment requirement names its check and its remedy;
+8. patch semantics are true - no capability declares looser EditPatch
+   composition than its operations have (`patch_algebra.problems()`).
 
 What does NOT live here
 -----------------------
@@ -75,13 +77,15 @@ def problems(registry=None, reqs=None) -> list:
     `registry` and `reqs` are injectable so the auditor's own tests can
     plant deliberately-invalid graphs; production calls pass neither.
     """
-    from library.tools import capabilities, dag_adapter, operations
+    from library.tools import capabilities, dag_adapter, operations, patch_algebra
     from library.tools import requirements as req_mod
     from library.tools.scope import PROJECT, REGION
 
     registry = operations.all() if registry is None else tuple(registry)
     reqs = req_mod.all_requirements() if reqs is None else list(reqs)
     out = list(capabilities.problems(registry))
+    out += patch_algebra.problems(
+        capability_ids={op.name for op in registry})
 
     nodes = dag_adapter.node_ids()
     # Satisfied from outside the pipeline, by declaration: hand-written

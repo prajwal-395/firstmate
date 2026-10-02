@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from library.tools import edit_patch
+from library.tools import capabilities, edit_patch, patch_algebra
 from library.tools import timeline_shadow as shadow
 from library.tools.resolve_lock import assume_sole_writer
 from tests.resolve_double import (
@@ -90,31 +92,83 @@ def test_a_hand_edit_since_the_base_refuses_and_is_recorded(world):
     assert 5 not in timeline.markers
 
 
-def test_a_stale_patch_rebases_only_past_disjoint_patches(world):
-    project, timeline, item, store, base = world
+def test_a_stale_patch_rebases_past_patches_whose_writes_do_not_meet(world):
+    project, timeline, _item, store, base = world
     _apply(_patch("markers", base.generation, [
         {"op": "marker.add", "frame": 40, "color": "Blue", "name": "m"}],
         ["markers"], [[40, 41]]), project, timeline, store)
 
-    disjoint = _patch("transform", base.generation, [
-        {"op": "clip.set_property", "unique_id": item.GetUniqueId(),
-         "key": "ZoomX", "value": 1.2}], ["picture_transform"], [[0, 48]])
+    # Same domain, overlapping spans, another frame: it commutes, where
+    # "both touch markers here" used to refuse it.
+    commuting = _patch("marker-20", base.generation, [
+        {"op": "marker.add", "frame": 20, "color": "Red", "name": "n"}],
+        ["markers"], [[0, 48]])
     with pytest.raises(edit_patch.StalePatch) as stale:
-        _apply(disjoint, project, timeline, store)
+        _apply(commuting, project, timeline, store)
     assert stale.value.rebase_possible
-    moved = edit_patch.rebase(disjoint, store)
+    moved = edit_patch.rebase(commuting, store)
     assert _apply(moved.to_dict(), project, timeline,
                   store)["status"] == "committed"
 
-    overlapping = _patch("marker-too", base.generation, [
+    meeting = _patch("marker-too", base.generation, [
         {"op": "marker.delete", "frame": 40}], ["markers"], [[40, 41]])
-    with pytest.raises(edit_patch.StalePatch, match="overlapping"):
-        edit_patch.rebase(overlapping, store)
+    with pytest.raises(edit_patch.StalePatch,
+                       match=r"both write \['marker', 40\]"):
+        edit_patch.rebase(meeting, store)
+
+
+def test_the_same_write_merges_and_a_different_one_is_a_lost_update(world):
+    project, timeline, item, store, base = world
+
+    def zoom(pid, value):
+        return _patch(pid, base.generation, [
+            {"op": "clip.set_property", "unique_id": item.GetUniqueId(),
+             "key": "ZoomX", "value": value}], ["picture_transform"],
+            [[0, 48]], capability="reel.set_properties")
+
+    _apply(zoom("first", 1.2), project, timeline, store)
+    assert _apply(edit_patch.rebase(zoom("same", 1.2), store).to_dict(),
+                  project, timeline, store)["status"] == "committed"
+    with pytest.raises(edit_patch.StalePatch, match="lost update"):
+        edit_patch.rebase(zoom("other", 1.4), store)
+
+
+def test_a_frame_addressed_write_past_a_ripple_conflicts(world, monkeypatch):
+    _project, _timeline, item, store, base = world
+    snap = store.snapshot(base)
+    monkeypatch.setitem(
+        capabilities.PATCH_SEMANTICS, "reel.touchup",
+        replace(capabilities.PATCH_SEMANTICS["reel.touchup"],
+                temporal_effect="ripple"))
+    ripple = _patch("cut", base.generation, [
+        {"op": "marker.add", "frame": 10, "color": "Blue", "name": "c"}],
+        ["markers"], [[10, 20]])
+    marker = _patch("m", base.generation, [
+        {"op": "marker.add", "frame": 30, "color": "Red", "name": "m"}],
+        ["markers"], [[30, 31]])
+    by_id = _patch("z", base.generation, [
+        {"op": "clip.set_property", "unique_id": item.GetUniqueId(),
+         "key": "ZoomX", "value": 1.2}], ["picture_transform"], [[0, 48]])
+    assert patch_algebra.compose(ripple, marker, snap).verdict == \
+        patch_algebra.CONFLICT
+    assert patch_algebra.compose(ripple, by_id, snap).verdict == \
+        patch_algebra.REBASE
+
+
+def test_a_declaration_looser_than_its_operations_is_caught():
+    loose = {"reel.set_properties": capabilities.PatchSemantics(
+        operations=("clip.set_property", "marker.add"),
+        conflict_domains=("picture_transform",),
+        temporal_effect="local", merge_semantics="commutative")}
+    found = "\n".join(patch_algebra.problems(
+        loose, capability_ids={"reel.set_properties"}))
+    assert "lost update" in found
+    assert "writes 'markers', which it does not declare" in found
 
 
 @pytest.mark.parametrize("operations,domains,spans,why", [
     ([{"op": "marker.add", "frame": 5, "color": "Blue", "name": "x"}],
-     ["captions"], [[0, 10]], "does not declare"),
+     ["picture_transform"], [[0, 10]], "does not declare"),
     ([{"op": "marker.add", "frame": 50, "color": "Blue", "name": "x"}],
      ["markers"], [[0, 10]], "outside the declared spans"),
     ([{"op": "clip.delete", "unique_id": "nobody"}],
@@ -128,3 +182,17 @@ def test_a_patch_that_says_less_than_it_does_is_refused_before_resolve(
                project, timeline, store)
     assert store.head("Podcast", base.timeline_id).generation == \
         base.generation
+
+
+@pytest.mark.parametrize("capability,why", [
+    ("reel.set_properties", "beyond what"),
+    ("footage.scan", "declares no patch semantics"),
+])
+def test_a_patch_may_not_say_more_than_its_capability_declares(
+        world, capability, why):
+    project, timeline, _item, store, base = world
+    with pytest.raises(edit_patch.PatchRefused, match=why):
+        _apply(_patch("p", base.generation, [
+            {"op": "marker.add", "frame": 5, "color": "Blue", "name": "x"}],
+            ["markers"], [[0, 10]], capability=capability),
+            project, timeline, store)

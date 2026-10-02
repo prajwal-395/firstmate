@@ -56,13 +56,13 @@ that operation, and the receipt says which ran.
 
 Rebase
 ------
-`rebase(patch)` moves a stale patch onto the head when every generation
-in between was a recorded patch whose conflict domains do not meet this
-one's, or whose spans do not overlap, AND this patch's own targets and
-preconditions still hold on the head. An `observed` generation in between
-refuses: its change is unattributed, so nothing can say it does not
-overlap. Composition beyond this (commute, merge, ripple) is the later
-conflict-algebra project.
+`rebase(patch)` moves a stale patch onto the head when it composes with
+every generation in between - commute, merge, serialize or rebase, never
+conflict (`library/tools/patch_algebra.py`, which decides by what each
+operation writes and what each capability declares) - AND its own
+targets and preconditions still hold on the head. An `observed`
+generation in between refuses: its change is unattributed, so nothing
+can say what it meets.
 
 `tests/test_edit_patch.py`.
 """
@@ -71,7 +71,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 
 from library.tools import resolve_lock
 from library.tools import timeline_shadow as shadow
@@ -210,7 +210,10 @@ class Operation:
     span: Callable        # (op, base_snapshot) -> (start, end) or None
     apply: Callable       # (op, timeline, item_handle_or_None) -> return
     verify: Callable      # (op, after_snapshot) -> failure text or None
+    key: Callable         # (op) -> what it writes; keys MEET on a prefix
+    merge: str            # its own `patch_algebra.MERGE_SEMANTICS` entry
     item: bool = False    # True: the op addresses `unique_id`
+    temporal: str = "local"   # `patch_algebra.TEMPORAL_EFFECTS`; none ripples
 
 
 def _item_span(op, base):
@@ -266,29 +269,38 @@ OPERATIONS = {
         apply=lambda op, tl, _item: tl.AddMarker(
             int(op["frame"]), op["color"], op["name"], op.get("note", ""),
             int(op.get("duration", 1)), op.get("custom_data", "")),
-        verify=_verify_marker_add),
+        verify=_verify_marker_add,
+        # One marker per frame: a second add there replaces the first.
+        key=lambda op: ("marker", int(op["frame"])), merge="replace"),
     "marker.delete": Operation(
         domain="markers", required=("frame",),
         span=lambda op, base: (int(op["frame"]), int(op["frame"]) + 1),
         apply=lambda op, tl, _item: tl.DeleteMarkerAtFrame(int(op["frame"])),
-        verify=_verify_marker_delete),
+        verify=_verify_marker_delete,
+        key=lambda op: ("marker", int(op["frame"])), merge="commutative"),
     "clip.set_enabled": Operation(
         domain="timeline_structure", required=("unique_id", "enabled"),
         span=_item_span, item=True,
         apply=lambda op, tl, item: item.SetClipEnabled(bool(op["enabled"])),
-        verify=_verify_enabled),
+        verify=_verify_enabled,
+        key=lambda op: ("clip", op["unique_id"], "enabled"),
+        merge="replace"),
     "clip.set_property": Operation(
         domain="picture_transform", required=("unique_id", "key", "value"),
         span=_item_span, item=True,
         apply=lambda op, tl, item: item.SetProperty(op["key"], op["value"]),
-        verify=_verify_property),
+        verify=_verify_property,
+        key=lambda op: ("clip", op["unique_id"], op["key"]),
+        merge="replace"),
     "clip.delete": Operation(
         domain="timeline_structure", required=("unique_id",),
         span=_item_span, item=True,
         # Never ripple: a ripple moves every later cut, which no span the
         # patch declares can cover.
         apply=lambda op, tl, item: tl.DeleteClips([item], False),
-        verify=_verify_delete),
+        verify=_verify_delete,
+        # The whole clip: it meets every write to it, in any domain.
+        key=lambda op: ("clip", op["unique_id"]), merge="exclusive"),
 }
 
 
@@ -353,10 +365,6 @@ def _judge(conditions, snap: dict, base: dict) -> list:
 # ── Validation: FREE, against the base snapshot ───────────────────────
 
 
-def _overlaps(a, b) -> bool:
-    return a[0] < b[1] and b[0] < a[1]
-
-
 def _covered(span, spans) -> bool:
     return any(s[0] <= span[0] and span[1] <= s[1] for s in spans)
 
@@ -379,6 +387,20 @@ def validate(patch: EditPatch, base: dict) -> None:
                        f"is not registered",
                 "a capability's id is its identity (AGENTS.md 3)",
                 "name one of `capabilities.ids()`")
+    declared = capabilities.PATCH_SEMANTICS.get(patch.capability)
+    if declared is None:
+        _refuse(patch, f"names capability {patch.capability!r}, which "
+                       f"declares no patch semantics",
+                "composition trusts the capability's declaration "
+                "(`patch_algebra`), and this one makes none",
+                f"name one of {sorted(capabilities.PATCH_SEMANTICS)}, or "
+                f"declare it in `capabilities.PATCH_SEMANTICS`")
+    beyond = set(patch.conflict_domains) - set(declared.conflict_domains)
+    if beyond:
+        _refuse(patch, f"declares domains {sorted(beyond)}, beyond what "
+                       f"{patch.capability!r} declares",
+                "a patch says no more than its capability may write",
+                f"keep to {sorted(declared.conflict_domains)}")
     if not patch.operations or not patch.affected_spans:
         _refuse(patch, "declares no operations or no affected spans",
                 "an empty patch has nothing to commit, and a span-less one "
@@ -407,6 +429,11 @@ def validate(patch: EditPatch, base: dict) -> None:
             _refuse(patch, f"operation {index} is {op.get('op')!r}",
                     "only measured, read-back-judged writes are operations",
                     f"use one of {sorted(OPERATIONS)}")
+        if op["op"] not in declared.operations:
+            _refuse(patch, f"operation {index} ({op['op']}) is not one "
+                           f"{patch.capability!r} declares",
+                    "composition trusts the capability's declaration",
+                    f"use one of {list(declared.operations)}")
         missing = [k for k in spec.required if k not in op]
         if missing:
             _refuse(patch, f"operation {index} ({op['op']}) lacks {missing}",
@@ -441,50 +468,24 @@ def validate(patch: EditPatch, base: dict) -> None:
 # ── Apply ──────────────────────────────────────────────────────────────
 
 
-def _rebase_verdict(patch: EditPatch, store: shadow.ShadowStore,
-                    project: str, timeline_id: str) -> tuple:
-    """`(possible, reason)` for moving `patch` onto the head."""
-    for gen in store.history(project, timeline_id,
-                             after=patch.base_generation):
-        if gen.source == shadow.OBSERVED:
-            return False, (f"generation {gen.generation} is a change "
-                           f"nobody recorded (a hand edit), so nothing can "
-                           f"say it does not meet this patch")
-        other = EditPatch.from_dict(gen.patch)
-        shared = set(other.conflict_domains) & set(patch.conflict_domains)
-        if shared and any(_overlaps(a, b) for a in other.affected_spans
-                          for b in patch.affected_spans):
-            return False, (f"generation {gen.generation} (patch "
-                           f"{other.id!r}) wrote {sorted(shared)} over "
-                           f"overlapping frames")
-    return True, ("every generation since was a patch on other domains "
-                  "or other frames")
-
-
 def rebase(patch, store: shadow.ShadowStore | None = None) -> EditPatch:
-    """The patch moved onto the head, or `StalePatch` saying why not."""
+    """The patch moved onto the head, or `StalePatch` saying why not.
+
+    `patch_algebra.carry` composes it with every generation since its
+    base.
+    """
+    from library.tools import patch_algebra
+
     patch = EditPatch.from_dict(patch)
     store = store or shadow.ShadowStore()
     timeline_id = store.resolve_timeline(patch.project, patch.timeline)
-    head = store.head(patch.project, timeline_id)
-    if head.generation == patch.base_generation:
-        return patch
-    possible, reason = _rebase_verdict(patch, store, patch.project,
-                                       timeline_id)
-    moved = replace(patch, base_generation=head.generation)
-    if possible:
-        head_snap = store.snapshot(head)
-        try:
-            validate(moved, head_snap)
-        except PatchRefused as refused:
-            possible, reason = False, refused.what
-        else:
-            failures = _judge(moved.preconditions, head_snap, head_snap)
-            if failures:
-                possible, reason = False, "; ".join(failures)
-    if not possible:
-        raise StalePatch(patch, head.generation, observed=False,
-                         rebase_possible=False, reason=reason)
+    moved, reason = patch_algebra.carry(patch, store, patch.project,
+                                        timeline_id)
+    if moved is None:
+        raise StalePatch(patch, store.head(patch.project,
+                                           timeline_id).generation,
+                         observed=False, rebase_possible=False,
+                         reason=reason)
     return moved
 
 
@@ -522,10 +523,13 @@ def apply_patch(patch, *, resolve, project, timeline,
         if gen.source == shadow.PATCH and gen.patch["id"] == patch.id:
             return _receipt_of(gen)
     if head.generation != patch.base_generation:
-        possible, reason = _rebase_verdict(patch, store, project_name,
-                                           timeline_id)
+        from library.tools import patch_algebra
+        moved, reason = patch_algebra.carry(patch, store, project_name,
+                                            timeline_id)
         raise StalePatch(patch, head.generation, observed=False,
-                         rebase_possible=possible, reason=reason)
+                         rebase_possible=moved is not None,
+                         reason=reason or "it composes with every "
+                                          "generation since")
     base = store.snapshot(head)
     validate(patch, base)
 

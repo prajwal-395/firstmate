@@ -94,6 +94,39 @@ CREATIVE_POLICIES = {
     "audio_mix.resolve": MODEL_DECIDES_QUANTITY,
 }
 
+@dataclass(frozen=True)
+class PatchSemantics:
+    """What a capability's EditPatches may write, and how they compose.
+
+    The vocabularies and their order are `library/tools/patch_algebra.py`'s;
+    `patch_algebra.problems()` refuses a declaration its operations break.
+    """
+
+    operations: tuple       # `edit_patch.OPERATIONS` names it may emit
+    conflict_domains: tuple  # `edit_patch.CONFLICT_DOMAINS` it may write
+    temporal_effect: str    # local | ripple | global
+    merge_semantics: str    # commutative | ordered | replace | exclusive
+
+
+PATCH_SEMANTICS: dict = {
+    # capability id -> its PatchSemantics. A capability not named here
+    # authors no EditPatch, and `edit_patch.validate` refuses one that
+    # names it. Only these two change a built timeline through operations
+    # the EditPatch vocabulary has; `reel.entry_motion` writes a Fusion
+    # comp, which no operation expresses yet.
+    "reel.touchup": PatchSemantics(
+        operations=("marker.add", "marker.delete", "clip.set_enabled",
+                    "clip.set_property", "clip.delete"),
+        conflict_domains=("markers", "timeline_structure",
+                          "picture_transform"),
+        # Strict enough for clip.delete, the strictest operation it emits.
+        temporal_effect="local", merge_semantics="exclusive"),
+    "reel.set_properties": PatchSemantics(
+        operations=("clip.set_property",),
+        conflict_domains=("picture_transform",),
+        temporal_effect="local", merge_semantics="replace"),
+}
+
 HEAVY_LOCK_SITES: dict = {
     # capability id -> the `module:function` lock sites it runs through.
     "semantics.analyse": (
@@ -177,6 +210,8 @@ class CapabilitySpec:
     """The evidence `cost_class` was decided from."""
     creative_policy: str | None = None
     """Machine-readable owner of creative choice cardinality, when any."""
+    patch_semantics: PatchSemantics | None = None
+    """How its EditPatches compose (`PATCH_SEMANTICS`); None authors none."""
 
 
 def _cost_of(capability_id: str, needs_model_answer: bool) -> tuple:
@@ -240,6 +275,7 @@ def spec_of(op) -> CapabilitySpec:
         cost_class=cost_class,
         cost_basis=cost_basis,
         creative_policy=CREATIVE_POLICIES.get(op.name),
+        patch_semantics=PATCH_SEMANTICS.get(op.name),
     )
 
 
