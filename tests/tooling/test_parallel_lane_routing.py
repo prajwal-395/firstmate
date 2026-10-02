@@ -8,6 +8,7 @@ from library.tools.lane_routing import PARALLEL, SERIAL, classify_file, route_su
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESOLVE_DRIVING = {
+    "tests/qualification/test_golden_conversation_live.py",
     "tests/qualification/test_marker_capture_against_resolve.py",
     "tests/qualification/test_marker_feedback_against_resolve.py",
     "tests/qualification/test_resolve_qualification.py",

@@ -145,7 +145,6 @@ def _build_decoy(root: Path) -> Path:
     return project
 
 
-@pytest.mark.heavy
 def test_collecting_the_suite_binds_nothing_under_a_populated_projects_root(
         tmp_path):
     decoy_root = tmp_path / "video_projects"

@@ -915,12 +915,20 @@ def place_all(media_pool, ordered: Sequence) -> dict:
     """Step 5 - ONE `AppendToTimeline`.
 
     The return value is recorded and is NOT the verdict: step 6 is.
+    An in-place-only edit (`set_properties`, `set_enabled`) places
+    nothing, so it asks Resolve nothing: the call's answer for an empty
+    list is unmeasured, and only a list has a length.
     """
     started = time.time()
+    if not ordered:
+        return {"asked": 0, "returned_truthy": False, "returned_count": 0,
+                "seconds": 0.0}
     returned = media_pool.AppendToTimeline([row[3] for row in ordered])
     return {"asked": len(ordered),
             "returned_truthy": bool(returned),
-            "returned_count": len(returned or []),
+            "returned_count": (len(returned)
+                               if isinstance(returned, (list, tuple))
+                               else 0),
             "seconds": round(time.time() - started, 3)}
 
 

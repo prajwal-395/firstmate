@@ -310,8 +310,22 @@ def _built_names_for(project_folder: str, number: int,
     build = capability_outputs.read(state, "reel.build").get(
         "reel_build") or {}
     head = f"Reel {int(number):02d} -"
-    return [name for name in (build.get("timelines_built") or [])
-            if isinstance(name, str) and name.startswith(head)]
+    # `timelines_built` names what was in Resolve when the BUILD node
+    # returned: the staging containers, which `verify_reels` then
+    # renames onto their finals. A staging name is never a delivery
+    # target, so it reads back as the final it was staged toward -
+    # otherwise every reel built by `ren build` delivered a timeline
+    # promotion had already renamed (golden conversation, 2026-10-02).
+    from library.tools.resolve_bin_layout import STAGING_TIMELINE_SUFFIX
+    names = []
+    for name in build.get("timelines_built") or []:
+        if not isinstance(name, str) or not name.startswith(head):
+            continue
+        if name.endswith(STAGING_TIMELINE_SUFFIX):
+            name = name[:-len(STAGING_TIMELINE_SUFFIX)]
+        if name not in names:
+            names.append(name)
+    return names
 
 
 def render_file_name(timeline_name: str, naming: str, ext: str) -> str:

@@ -67,7 +67,8 @@ class ResolveDoubleError(AttributeError):
 #: growing a private fake that answers differently.
 UNSUPPORTED = frozenset(
     {
-        "rendering files (StartRendering queues and records, writes nothing)",
+        "rendering files (StartRendering queues and records, writes nothing"
+        " unless a test hands the project a `render_engine`)",
         "gallery stills (GrabStill/GetStills)",
         "voice isolation (GetVoiceIsolationState/SetVoiceIsolationState)",
         "multicam (CreateMulticamClip)",
@@ -202,6 +203,11 @@ class FakeProject:
         self.render_settings: dict = {}
         self.render_format_codec = {"format": "mov", "codec": "H.264"}
         self.render_jobs: list = []
+        #: Optional ``engine(job, timeline) -> bool``: renders one queued
+        #: job's file. Without it ``StartRendering`` records and renders
+        #: nothing, and asking for a job's status raises (`UNSUPPORTED`).
+        self.render_engine = None
+        self.render_status: dict = {}
         self.started_renders: list = []
         self.deleted_render_jobs: list = []
         #: Fault knob: the 2026-09-11 shape - both `SetRenderSettings` and
@@ -324,9 +330,31 @@ class FakeProject:
         return len(self.render_jobs) < before
 
     def StartRendering(self, jobs, isInteractiveMode=False):
-        """Records the start; renders nothing (see `UNSUPPORTED`)."""
+        """Records the start; renders only through ``render_engine``."""
         self.started_renders.append(list(jobs))
+        if self.render_engine is not None:
+            for job in self.render_jobs:
+                if job["JobId"] not in jobs:
+                    continue
+                timeline = next((t for t in self._timelines
+                                 if t.GetName() == job["TimelineName"]), None)
+                done = timeline is not None and self.render_engine(
+                    dict(job), timeline)
+                self.render_status[job["JobId"]] = {
+                    "JobStatus": "Complete" if done else "Failed",
+                    "CompletionPercentage": 100 if done else 0,
+                }
         return True
+
+    def GetRenderJobStatus(self, job_id):
+        if self.render_engine is None:
+            raise ResolveDoubleError(
+                "GetRenderJobStatus needs a render_engine - the double "
+                "renders no files by default (UNSUPPORTED)")
+        return dict(self.render_status.get(job_id) or {})
+
+    def StopRendering(self):
+        return None
 
     def IsRenderingInProgress(self):
         return False
@@ -364,6 +392,11 @@ class FakeMediaPool:
         self._current_folder = self._root
         self.audio_channels = (1,)
         self.media_properties: dict = {}
+        #: Optional ``probe(path) -> {property: value}``: what Resolve
+        #: reads off a file it imports (Resolution, FPS, Frames). Real
+        #: Resolve reads the file itself; a test that renders real media
+        #: hands the double a reader of it. ``media_properties`` wins.
+        self.probe = None
         self.import_failures: set = set()
         self.next_timeline = None
         #: One entry per `AppendToTimeline` call: how many specs it held.
@@ -591,7 +624,9 @@ class FakeMediaPool:
                 continue
             clip = FakeMediaPoolItem(path.rsplit("/", 1)[-1])
             clip._props["File Path"] = path
-            for key, value in self.media_properties.get(path, {}).items():
+            read = (self.media_properties.get(path)
+                    or (self.probe(path) if self.probe else {}) or {})
+            for key, value in read.items():
                 clip.SetClipProperty(key, value)
             self._current_folder._clips.append(clip)
             clips.append(clip)
